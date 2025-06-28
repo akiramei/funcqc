@@ -84,7 +84,7 @@ export interface ParameterInfo {
   position: number;
   isOptional: boolean;
   isRest: boolean;
-  defaultValue?: string | undefined;
+  defaultValue?: string;
   description?: string;
 }
 
@@ -92,7 +92,7 @@ export interface ReturnTypeInfo {
   type: string;
   typeSimple: string;
   isPromise: boolean;
-  promiseType?: string | undefined;
+  promiseType?: string;
   description?: string;
 }
 

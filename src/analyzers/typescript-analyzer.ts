@@ -1,13 +1,10 @@
 import * as ts from 'typescript';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { FunctionInfo, ParameterInfo, ReturnTypeInfo, FuncqcConfig } from '../types';
+import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 
 export class TypeScriptAnalyzer {
-  private program?: ts.Program;
-  private checker?: ts.TypeChecker;
-
-  constructor(private config?: FuncqcConfig) {}
+  constructor() {}
 
   /**
    * Analyze a TypeScript file and extract function information
@@ -22,8 +19,7 @@ export class TypeScriptAnalyzer {
         throw new Error(`Could not load source file: ${filePath}`);
       }
 
-      this.program = program;
-      this.checker = program.getTypeChecker();
+      // const checker = program.getTypeChecker(); // For future type analysis
 
       const functions: FunctionInfo[] = [];
       this.visitNode(sourceFile, sourceFile, functions);
@@ -31,7 +27,7 @@ export class TypeScriptAnalyzer {
       return functions;
 
     } catch (error) {
-      throw new Error(`Failed to analyze ${filePath}: ${error.message}`);
+      throw new Error(`Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -155,7 +151,7 @@ export class TypeScriptAnalyzer {
       return functionInfo;
 
     } catch (error) {
-      console.warn(`Warning: Failed to extract function info from ${sourceFile.fileName}:`, error.message);
+      console.warn(`Warning: Failed to extract function info from ${sourceFile.fileName}:`, error instanceof Error ? error.message : String(error));
       return null;
     }
   }
@@ -301,7 +297,7 @@ export class TypeScriptAnalyzer {
       position: index,
       isOptional: !!param.questionToken,
       isRest: !!param.dotDotDotToken,
-      defaultValue: param.initializer ? param.initializer.getText() : undefined,
+      defaultValue: param.initializer?.getText(),
       description: this.getParameterDescription(param)
     }));
   }
@@ -344,13 +340,13 @@ export class TypeScriptAnalyzer {
     return match ? match[1] : undefined;
   }
 
-  private getParameterDescription(param: ts.ParameterDeclaration): string | undefined {
+  private getParameterDescription(_param: ts.ParameterDeclaration): string | undefined {
     // Extract from JSDoc if available
     // This is a simplified implementation
     return undefined;
   }
 
-  private getReturnDescription(node: ts.FunctionLikeDeclaration): string | undefined {
+  private getReturnDescription(_node: ts.FunctionLikeDeclaration): string | undefined {
     // Extract from JSDoc if available
     // This is a simplified implementation
     return undefined;
