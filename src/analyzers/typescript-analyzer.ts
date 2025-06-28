@@ -1,28 +1,78 @@
-import * as ts from 'typescript';
+import { Project, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, SyntaxKind, ClassDeclaration, ConstructorDeclaration } from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
+import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 
+/**
+ * TypeScript analyzer using ts-morph for robust AST parsing
+ */
 export class TypeScriptAnalyzer {
-  constructor() {}
+  private project: Project;
+
+  constructor() {
+    this.project = new Project({
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+      skipLoadingLibFiles: true,
+      compilerOptions: {
+        isolatedModules: true,
+        skipLibCheck: true,
+        noResolve: true,
+        noLib: true,
+        target: 99, // ESNext
+        jsx: 4 // Preserve
+      }
+    });
+  }
 
   /**
    * Analyze a TypeScript file and extract function information
    */
   async analyzeFile(filePath: string): Promise<FunctionInfo[]> {
     try {
-      // Create TypeScript program for this file
-      const program = this.createProgram([filePath]);
-      const sourceFile = program.getSourceFile(filePath);
-      
-      if (!sourceFile) {
-        throw new Error(`Could not load source file: ${filePath}`);
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File does not exist: ${filePath}`);
       }
 
-      // const checker = program.getTypeChecker(); // For future type analysis
+      const sourceFile = this.project.addSourceFileAtPath(filePath);
+      const fileContent = sourceFile.getFullText();
+      const fileHash = this.calculateFileHash(fileContent);
+      const relativePath = path.relative(process.cwd(), filePath);
 
       const functions: FunctionInfo[] = [];
-      this.visitNode(sourceFile, sourceFile, functions);
+
+      try {
+        // Function declarations
+        sourceFile.getFunctions().forEach(func => {
+          const info = this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, fileContent);
+          if (info) functions.push(info);
+        });
+
+        // Method declarations (class methods) and constructors
+        sourceFile.getClasses().forEach(cls => {
+          // Methods
+          cls.getMethods().forEach(method => {
+            const info = this.extractMethodInfo(method, relativePath, fileHash, sourceFile, fileContent);
+            if (info) functions.push(info);
+          });
+          
+          // Constructors
+          cls.getConstructors().forEach(ctor => {
+            const info = this.extractConstructorInfo(ctor, relativePath, fileHash, sourceFile, fileContent);
+            if (info) functions.push(info);
+          });
+        });
+
+        // Arrow functions and function expressions assigned to variables
+        this.extractVariableFunctions(sourceFile, relativePath, fileHash, fileContent).forEach(info => {
+          functions.push(info);
+        });
+
+      } finally {
+        // Prevent memory leaks by removing the file
+        this.project.removeSourceFile(sourceFile);
+      }
 
       return functions;
 
@@ -31,382 +81,453 @@ export class TypeScriptAnalyzer {
     }
   }
 
-  private createProgram(files: string[]): ts.Program {
-    // Try to load tsconfig.json
-    const configPath = this.findTsConfig();
-    let compilerOptions: ts.CompilerOptions = {
-      target: ts.ScriptTarget.ES2020,
-      module: ts.ModuleKind.CommonJS,
-      strict: false, // Be permissive for analysis
-      allowJs: true,
-      allowSyntheticDefaultImports: true,
-      esModuleInterop: true,
-      skipLibCheck: true
+  private extractFunctionInfo(
+    func: FunctionDeclaration,
+    relativePath: string,
+    fileHash: string,
+    _sourceFile: SourceFile,
+    fileContent: string
+  ): FunctionInfo | null {
+    const name = func.getName();
+    if (!name) return null;
+
+    const signature = this.getFunctionSignature(func);
+    const startPos = func.getBody()?.getStart() || func.getStart();
+    const endPos = func.getBody()?.getEnd() || func.getEnd();
+    const functionBody = fileContent.substring(startPos, endPos);
+    const astHash = this.calculateASTHash(functionBody);
+    const signatureHash = this.calculateSignatureHash(signature);
+    const returnType = this.extractFunctionReturnType(func);
+
+    const functionInfo: FunctionInfo = {
+      id: this.generateFunctionId(relativePath, name, signatureHash),
+      name,
+      displayName: name,
+      signature,
+      signatureHash,
+      filePath: relativePath,
+      fileHash,
+      startLine: func.getStartLineNumber(),
+      endLine: func.getEndLineNumber(),
+      startColumn: 0,
+      endColumn: 0,
+      astHash,
+      isExported: func.isExported(),
+      isAsync: func.isAsync(),
+      isGenerator: !!func.getAsteriskToken(),
+      isArrowFunction: false,
+      isMethod: false,
+      isConstructor: false,
+      isStatic: false,
+      sourceCode: func.getFullText().trim(),
+      parameters: this.extractFunctionParameters(func)
     };
 
-    if (configPath) {
-      const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
-      if (!configFile.error) {
-        const config = ts.parseJsonConfigFileContent(
-          configFile.config,
-          ts.sys,
-          path.dirname(configPath)
-        );
-        compilerOptions = { ...compilerOptions, ...config.options };
-      }
+    if (returnType) {
+      functionInfo.returnType = returnType;
     }
 
-    return ts.createProgram(files, compilerOptions);
+    return functionInfo;
   }
 
-  private findTsConfig(): string | null {
-    let currentDir = process.cwd();
-    
-    while (currentDir !== path.dirname(currentDir)) {
-      const configPath = path.join(currentDir, 'tsconfig.json');
-      if (require('fs').existsSync(configPath)) {
-        return configPath;
-      }
-      currentDir = path.dirname(currentDir);
-    }
-    
-    return null;
-  }
-
-  private visitNode(node: ts.Node, sourceFile: ts.SourceFile, functions: FunctionInfo[]): void {
-    // Check if this node is a function-like declaration
-    if (this.isFunctionLike(node)) {
-      const functionInfo = this.extractFunctionInfo(node as ts.FunctionLikeDeclaration, sourceFile);
-      if (functionInfo) {
-        functions.push(functionInfo);
-      }
-    }
-
-    // Continue visiting child nodes
-    ts.forEachChild(node, child => this.visitNode(child, sourceFile, functions));
-  }
-
-  private isFunctionLike(node: ts.Node): boolean {
-    return (
-      ts.isFunctionDeclaration(node) ||
-      ts.isFunctionExpression(node) ||
-      ts.isArrowFunction(node) ||
-      ts.isMethodDeclaration(node) ||
-      ts.isConstructorDeclaration(node) ||
-      ts.isGetAccessorDeclaration(node) ||
-      ts.isSetAccessorDeclaration(node)
-    );
-  }
-
-  private extractFunctionInfo(
-    node: ts.FunctionLikeDeclaration,
-    sourceFile: ts.SourceFile
+  private extractMethodInfo(
+    method: MethodDeclaration,
+    relativePath: string,
+    fileHash: string,
+    _sourceFile: SourceFile,
+    fileContent: string
   ): FunctionInfo | null {
-    try {
-      const name = this.getFunctionName(node);
-      if (!name) return null; // Skip anonymous functions for now
+    const name = method.getName();
+    if (!name) return null;
 
-      const start = sourceFile.getLineAndCharacterOfPosition(node.getStart());
-      const end = sourceFile.getLineAndCharacterOfPosition(node.getEnd());
+    const className = (method.getParent() as ClassDeclaration)?.getName() || 'Unknown';
+    const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
+    const signature = this.getMethodSignature(method, className);
+    const startPos = method.getBody()?.getStart() || method.getStart();
+    const endPos = method.getBody()?.getEnd() || method.getEnd();
+    const methodBody = fileContent.substring(startPos, endPos);
+    const astHash = this.calculateASTHash(methodBody);
+    const signatureHash = this.calculateSignatureHash(signature);
 
-      const functionInfo: FunctionInfo = {
-        id: '', // Will be set later
-        name,
-        displayName: this.getDisplayName(node),
-        signature: this.getSignature(node),
-        signatureHash: '',
-        filePath: path.relative(process.cwd(), sourceFile.fileName),
-        fileHash: this.calculateFileHash(sourceFile.getFullText()),
-        startLine: start.line + 1,
-        endLine: end.line + 1,
-        startColumn: start.character,
-        endColumn: end.character,
-        astHash: this.calculateASTHash(node),
-
-        // Function attributes
-        isExported: this.isExported(node),
-        isAsync: this.isAsync(node),
-        isGenerator: this.isGenerator(node),
-        isArrowFunction: ts.isArrowFunction(node),
-        isMethod: ts.isMethodDeclaration(node),
-        isConstructor: ts.isConstructorDeclaration(node),
-        isStatic: this.isStatic(node),
-        ...(this.getAccessModifier(node) && { accessModifier: this.getAccessModifier(node) }),
-        ...(this.getParentClassName(node) && { parentClass: this.getParentClassName(node) }),
-        ...(this.getParentNamespace(node) && { parentNamespace: this.getParentNamespace(node) }),
-
-        // Documentation
-        ...(this.getJSDoc(node) && { jsDoc: this.getJSDoc(node) }),
-        sourceCode: node.getFullText(sourceFile).trim(),
-
-        // Relations
-        parameters: this.extractParameters(node),
-        returnType: this.extractReturnType(node)
-      };
-
-      // Generate hashes
-      functionInfo.signatureHash = this.calculateSignatureHash(functionInfo.signature);
-      functionInfo.id = this.generateFunctionId(functionInfo);
-
-      return functionInfo;
-
-    } catch (error) {
-      console.warn(`Warning: Failed to extract function info from ${sourceFile.fileName}:`, error instanceof Error ? error.message : String(error));
-      return null;
+    const parent = method.getParent();
+    let isClassExported = false;
+    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
+      isClassExported = (parent as ClassDeclaration).isExported();
     }
+
+    const returnType = this.extractMethodReturnType(method);
+
+    const functionInfo: FunctionInfo = {
+      id: this.generateFunctionId(relativePath, fullName, signatureHash),
+      name: name,
+      displayName: fullName,
+      signature,
+      signatureHash,
+      filePath: relativePath,
+      fileHash,
+      startLine: method.getStartLineNumber(),
+      endLine: method.getEndLineNumber(),
+      startColumn: 0,
+      endColumn: 0,
+      astHash,
+      isExported: isClassExported,
+      isAsync: method.isAsync(),
+      isGenerator: !!method.getAsteriskToken(),
+      isArrowFunction: false,
+      isMethod: true,
+      isConstructor: false,
+      isStatic: method.isStatic(),
+      sourceCode: method.getFullText().trim(),
+      parameters: this.extractMethodParameters(method)
+    };
+
+    if (returnType) {
+      functionInfo.returnType = returnType;
+    }
+
+    const scope = method.getScope();
+    if (scope && scope !== 'public') {
+      functionInfo.accessModifier = scope;
+    }
+
+    functionInfo.parentClass = className;
+
+    return functionInfo;
   }
 
-  private getFunctionName(node: ts.FunctionLikeDeclaration): string | null {
-    // Named function or method
-    if (node.name) {
-      return node.name.getText();
+  private extractConstructorInfo(
+    ctor: ConstructorDeclaration,
+    relativePath: string,
+    fileHash: string,
+    _sourceFile: SourceFile,
+    fileContent: string
+  ): FunctionInfo | null {
+    const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
+    const fullName = `${className}.constructor`;
+    const signature = this.getConstructorSignature(ctor, className);
+    const startPos = ctor.getBody()?.getStart() || ctor.getStart();
+    const endPos = ctor.getBody()?.getEnd() || ctor.getEnd();
+    const constructorBody = fileContent.substring(startPos, endPos);
+    const astHash = this.calculateASTHash(constructorBody);
+    const signatureHash = this.calculateSignatureHash(signature);
+
+    const parent = ctor.getParent();
+    let isClassExported = false;
+    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
+      isClassExported = (parent as ClassDeclaration).isExported();
     }
 
-    // Constructor
-    if (ts.isConstructorDeclaration(node)) {
-      return 'constructor';
+    const functionInfo: FunctionInfo = {
+      id: this.generateFunctionId(relativePath, fullName, signatureHash),
+      name: 'constructor',
+      displayName: fullName,
+      signature,
+      signatureHash,
+      filePath: relativePath,
+      fileHash,
+      startLine: ctor.getStartLineNumber(),
+      endLine: ctor.getEndLineNumber(),
+      startColumn: 0,
+      endColumn: 0,
+      astHash,
+      isExported: isClassExported,
+      isAsync: false,
+      isGenerator: false,
+      isArrowFunction: false,
+      isMethod: false,
+      isConstructor: true,
+      isStatic: false,
+      sourceCode: ctor.getFullText().trim(),
+      parameters: this.extractConstructorParameters(ctor)
+    };
+
+    const scope = ctor.getScope();
+    if (scope && scope !== 'public') {
+      functionInfo.accessModifier = scope;
     }
 
-    // Arrow function or function expression - try to get name from context
-    const parent = node.parent;
+    functionInfo.parentClass = className;
+
+    return functionInfo;
+  }
+
+  private extractVariableFunctions(
+    sourceFile: SourceFile,
+    relativePath: string,
+    fileHash: string,
+    fileContent: string
+  ): FunctionInfo[] {
+    const functions: FunctionInfo[] = [];
+
+    sourceFile.getVariableStatements().forEach(stmt => {
+      stmt.getDeclarations().forEach(decl => {
+        const initializer = decl.getInitializer();
+        if (!initializer) return;
+
+        const name = decl.getName();
+        let functionNode: ArrowFunction | FunctionExpression | null = null;
+
+        if (initializer.getKind() === SyntaxKind.ArrowFunction) {
+          functionNode = initializer as ArrowFunction;
+        } else if (initializer.getKind() === SyntaxKind.FunctionExpression) {
+          functionNode = initializer as FunctionExpression;
+        }
+
+        if (functionNode) {
+          const signature = this.getArrowFunctionSignature(name, functionNode);
+          const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
+          const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
+          const functionBody = fileContent.substring(startPos, endPos);
+          const astHash = this.calculateASTHash(functionBody);
+          const signatureHash = this.calculateSignatureHash(signature);
+          const returnType = this.extractArrowFunctionReturnType(functionNode);
+
+          const functionInfo: FunctionInfo = {
+            id: this.generateFunctionId(relativePath, name, signatureHash),
+            name,
+            displayName: name,
+            signature,
+            signatureHash,
+            filePath: relativePath,
+            fileHash,
+            startLine: functionNode.getStartLineNumber(),
+            endLine: functionNode.getEndLineNumber(),
+            startColumn: 0,
+            endColumn: 0,
+            astHash,
+            isExported: stmt.isExported(),
+            isAsync: functionNode.isAsync(),
+            isGenerator: functionNode.getKind() === SyntaxKind.FunctionExpression ? !!(functionNode as FunctionExpression).getAsteriskToken() : false,
+            isArrowFunction: functionNode.getKind() === SyntaxKind.ArrowFunction,
+            isMethod: false,
+            isConstructor: false,
+            isStatic: false,
+            sourceCode: functionNode.getFullText().trim(),
+            parameters: this.extractArrowFunctionParameters(functionNode)
+          };
+
+          if (returnType) {
+            functionInfo.returnType = returnType;
+          }
+
+          functions.push(functionInfo);
+        }
+      });
+    });
+
+    return functions;
+  }
+
+  private getFunctionSignature(func: FunctionDeclaration): string {
+    const name = func.getName() || 'anonymous';
+    const params = func.getParameters().map(p => p.getText()).join(', ');
+    const returnType = func.getReturnTypeNode()?.getText() || 'void';
+    const asyncModifier = func.isAsync() ? 'async ' : '';
     
-    if (ts.isVariableDeclaration(parent) && parent.name) {
-      return parent.name.getText();
-    }
+    return `${asyncModifier}${name}(${params}): ${returnType}`;
+  }
+
+  private getMethodSignature(method: MethodDeclaration, className: string): string {
+    const name = method.getName();
+    const params = method.getParameters().map(p => p.getText()).join(', ');
+    const returnType = method.getReturnTypeNode()?.getText() || 'void';
+    const asyncModifier = method.isAsync() ? 'async ' : '';
+    const accessibility = method.getScope() || 'public';
     
-    if (ts.isPropertyAssignment(parent) && parent.name) {
-      return parent.name.getText();
-    }
+    return `${accessibility} ${asyncModifier}${className}.${name}(${params}): ${returnType}`;
+  }
+
+  private getArrowFunctionSignature(name: string, func: ArrowFunction | FunctionExpression): string {
+    const params = func.getParameters().map(p => p.getText()).join(', ');
+    const returnType = func.getReturnTypeNode()?.getText() || 'unknown';
+    const asyncModifier = func.isAsync() ? 'async ' : '';
     
-    if (ts.isPropertyDeclaration(parent) && parent.name) {
-      return parent.name.getText();
-    }
-
-    return null; // Anonymous function
+    return `${asyncModifier}${name} = (${params}): ${returnType} => {...}`;
   }
 
-  private getDisplayName(node: ts.FunctionLikeDeclaration): string {
-    const name = this.getFunctionName(node);
-    const className = this.getParentClassName(node);
+  private getConstructorSignature(ctor: ConstructorDeclaration, className: string): string {
+    const params = ctor.getParameters().map(p => p.getText()).join(', ');
+    const accessibility = ctor.getScope() || 'public';
     
-    if (className && name) {
-      return `${className}.${name}`;
-    }
-    
-    return name || '<anonymous>';
+    return `${accessibility} ${className}(${params})`;
   }
 
-  private getSignature(node: ts.FunctionLikeDeclaration): string {
-    const name = this.getFunctionName(node) || '<anonymous>';
-    const params = node.parameters.map(p => p.getText()).join(', ');
-    const returnType = node.type ? `: ${node.type.getText()}` : '';
-    
-    return `${name}(${params})${returnType}`;
-  }
-
-  private isExported(node: ts.FunctionLikeDeclaration): boolean {
-    // Check for export modifier
-    if (node.modifiers) {
-      return node.modifiers.some(mod => mod.kind === ts.SyntaxKind.ExportKeyword);
-    }
-
-    // Check if parent is an export declaration
-    const parent = node.parent;
-    if (ts.isExportAssignment(parent) || ts.isExportDeclaration(parent)) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private isAsync(node: ts.FunctionLikeDeclaration): boolean {
-    if (node.modifiers) {
-      return node.modifiers.some(mod => mod.kind === ts.SyntaxKind.AsyncKeyword);
-    }
-    return false;
-  }
-
-  private isGenerator(node: ts.FunctionLikeDeclaration): boolean {
-    return !!(node as any).asteriskToken;
-  }
-
-  private isStatic(node: ts.FunctionLikeDeclaration): boolean {
-    if (node.modifiers) {
-      return node.modifiers.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword);
-    }
-    return false;
-  }
-
-  private getAccessModifier(node: ts.FunctionLikeDeclaration): 'public' | 'private' | 'protected' | undefined {
-    if (!node.modifiers) return undefined;
-
-    for (const modifier of node.modifiers) {
-      switch (modifier.kind) {
-        case ts.SyntaxKind.PublicKeyword:
-          return 'public';
-        case ts.SyntaxKind.PrivateKeyword:
-          return 'private';
-        case ts.SyntaxKind.ProtectedKeyword:
-          return 'protected';
-      }
-    }
-
-    return undefined;
-  }
-
-  private getParentClassName(node: ts.FunctionLikeDeclaration): string | undefined {
-    let current = node.parent;
-    
-    while (current) {
-      if (ts.isClassDeclaration(current) && current.name) {
-        return current.name.getText();
-      }
-      current = current.parent;
-    }
-    
-    return undefined;
-  }
-
-  private getParentNamespace(node: ts.FunctionLikeDeclaration): string | undefined {
-    let current = node.parent;
-    const namespaces: string[] = [];
-    
-    while (current) {
-      if (ts.isModuleDeclaration(current) && current.name) {
-        namespaces.unshift(current.name.getText());
-      }
-      current = current.parent;
-    }
-    
-    return namespaces.length > 0 ? namespaces.join('.') : undefined;
-  }
-
-  private getJSDoc(node: ts.FunctionLikeDeclaration): string | undefined {
-    const jsDoc = (node as any).jsDoc;
-    if (jsDoc && jsDoc.length > 0) {
-      return jsDoc[0].getFullText().trim();
-    }
-    return undefined;
-  }
-
-  private extractParameters(node: ts.FunctionLikeDeclaration): ParameterInfo[] {
-    return node.parameters.map((param, index) => {
-      const defaultValue = param.initializer?.getText();
-      const description = this.getParameterDescription(param);
-      
-      return {
-        name: param.name.getText(),
-        type: param.type ? param.type.getText() : 'any',
-        typeSimple: this.simplifyType(param.type ? param.type.getText() : 'any'),
+  private extractFunctionParameters(func: FunctionDeclaration): ParameterInfo[] {
+    return func.getParameters().map((param, index) => {
+      const paramInfo: ParameterInfo = {
+        name: param.getName(),
+        type: param.getTypeNode()?.getText() || 'any',
+        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
         position: index,
-        isOptional: !!param.questionToken,
-        isRest: !!param.dotDotDotToken,
-        ...(defaultValue && { defaultValue }),
-        ...(description && { description })
+        isOptional: param.hasQuestionToken(),
+        isRest: param.isRestParameter()
       };
+
+      const defaultValue = param.getInitializer()?.getText();
+      if (defaultValue) {
+        paramInfo.defaultValue = defaultValue;
+      }
+
+      return paramInfo;
     });
   }
 
-  private extractReturnType(node: ts.FunctionLikeDeclaration): ReturnTypeInfo | undefined {
-    if (!node.type) return undefined;
+  private extractMethodParameters(method: MethodDeclaration): ParameterInfo[] {
+    return method.getParameters().map((param, index) => {
+      const paramInfo: ParameterInfo = {
+        name: param.getName(),
+        type: param.getTypeNode()?.getText() || 'any',
+        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
+        position: index,
+        isOptional: param.hasQuestionToken(),
+        isRest: param.isRestParameter()
+      };
 
-    const typeText = node.type.getText();
-    
-    const promiseType = this.extractPromiseType(typeText);
-    const description = this.getReturnDescription(node);
-    
-    return {
+      const defaultValue = param.getInitializer()?.getText();
+      if (defaultValue) {
+        paramInfo.defaultValue = defaultValue;
+      }
+
+      return paramInfo;
+    });
+  }
+
+  private extractArrowFunctionParameters(func: ArrowFunction | FunctionExpression): ParameterInfo[] {
+    return func.getParameters().map((param, index) => {
+      const paramInfo: ParameterInfo = {
+        name: param.getName(),
+        type: param.getTypeNode()?.getText() || 'any',
+        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
+        position: index,
+        isOptional: param.hasQuestionToken(),
+        isRest: param.isRestParameter()
+      };
+
+      const defaultValue = param.getInitializer()?.getText();
+      if (defaultValue) {
+        paramInfo.defaultValue = defaultValue;
+      }
+
+      return paramInfo;
+    });
+  }
+
+  private extractFunctionReturnType(func: FunctionDeclaration): ReturnTypeInfo | undefined {
+    const returnTypeNode = func.getReturnTypeNode();
+    if (!returnTypeNode) return undefined;
+
+    const typeText = returnTypeNode.getText();
+    const returnInfo: ReturnTypeInfo = {
       type: typeText,
       typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<'),
-      ...(promiseType && { promiseType }),
-      ...(description && { description })
+      isPromise: typeText.startsWith('Promise<')
     };
+
+    const promiseType = this.extractPromiseType(typeText);
+    if (promiseType) {
+      returnInfo.promiseType = promiseType;
+    }
+
+    return returnInfo;
+  }
+
+  private extractMethodReturnType(method: MethodDeclaration): ReturnTypeInfo | undefined {
+    const returnTypeNode = method.getReturnTypeNode();
+    if (!returnTypeNode) return undefined;
+
+    const typeText = returnTypeNode.getText();
+    const returnInfo: ReturnTypeInfo = {
+      type: typeText,
+      typeSimple: this.simplifyType(typeText),
+      isPromise: typeText.startsWith('Promise<')
+    };
+
+    const promiseType = this.extractPromiseType(typeText);
+    if (promiseType) {
+      returnInfo.promiseType = promiseType;
+    }
+
+    return returnInfo;
+  }
+
+  private extractArrowFunctionReturnType(func: ArrowFunction | FunctionExpression): ReturnTypeInfo | undefined {
+    const returnTypeNode = func.getReturnTypeNode();
+    if (!returnTypeNode) return undefined;
+
+    const typeText = returnTypeNode.getText();
+    const returnInfo: ReturnTypeInfo = {
+      type: typeText,
+      typeSimple: this.simplifyType(typeText),
+      isPromise: typeText.startsWith('Promise<')
+    };
+
+    const promiseType = this.extractPromiseType(typeText);
+    if (promiseType) {
+      returnInfo.promiseType = promiseType;
+    }
+
+    return returnInfo;
+  }
+
+  private extractConstructorParameters(ctor: ConstructorDeclaration): ParameterInfo[] {
+    return ctor.getParameters().map((param, index) => {
+      const paramInfo: ParameterInfo = {
+        name: param.getName(),
+        type: param.getTypeNode()?.getText() || 'any',
+        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
+        position: index,
+        isOptional: param.hasQuestionToken(),
+        isRest: param.isRestParameter()
+      };
+
+      const defaultValue = param.getInitializer()?.getText();
+      if (defaultValue) {
+        paramInfo.defaultValue = defaultValue;
+      }
+
+      return paramInfo;
+    });
   }
 
   private simplifyType(typeText: string): string {
-    // Simplify complex types to basic categories
+    if (typeText.includes('string')) return 'string';
+    if (typeText.includes('number')) return 'number';
+    if (typeText.includes('boolean')) return 'boolean';
     if (typeText.includes('Promise<')) return 'Promise';
-    if (typeText.includes('[]') || typeText.includes('Array<')) return 'Array';
-    if (typeText.includes('{') || typeText.includes('interface')) return 'Object';
-    if (typeText.includes('|')) return 'Union';
-    if (typeText.includes('&')) return 'Intersection';
-    
-    // Basic types
-    const basicTypes = ['string', 'number', 'boolean', 'void', 'null', 'undefined', 'any', 'unknown'];
-    for (const basicType of basicTypes) {
-      if (typeText.toLowerCase().includes(basicType)) {
-        return basicType;
-      }
-    }
-    
-    return 'Custom';
+    if (typeText.includes('[]')) return 'array';
+    if (typeText.includes('{}') || typeText.includes('object')) return 'object';
+    return typeText;
   }
 
   private extractPromiseType(typeText: string): string | undefined {
     const match = typeText.match(/Promise<(.+)>/);
-    return match ? match[1] : undefined;
-  }
-
-  private getParameterDescription(_param: ts.ParameterDeclaration): string | undefined {
-    // Extract from JSDoc if available
-    // This is a simplified implementation
-    return undefined;
-  }
-
-  private getReturnDescription(_node: ts.FunctionLikeDeclaration): string | undefined {
-    // Extract from JSDoc if available
-    // This is a simplified implementation
-    return undefined;
-  }
-
-  private calculateASTHash(node: ts.Node): string {
-    // Create a simplified representation of the AST structure
-    const structure = this.getASTStructure(node);
-    return crypto.createHash('md5').update(JSON.stringify(structure)).digest('hex');
-  }
-
-  private getASTStructure(node: ts.Node): any {
-    const structure: any = {
-      kind: ts.SyntaxKind[node.kind]
-    };
-
-    // Add relevant properties for function nodes
-    if (ts.isFunctionLike(node)) {
-      structure.paramCount = (node as ts.FunctionLikeDeclaration).parameters.length;
-      structure.hasReturn = !!(node as ts.FunctionLikeDeclaration).type;
-    }
-
-    // Recursively process children for structural comparison
-    const children: any[] = [];
-    ts.forEachChild(node, child => {
-      children.push(this.getASTStructure(child));
-    });
-
-    if (children.length > 0) {
-      structure.children = children;
-    }
-
-    return structure;
-  }
-
-  private calculateSignatureHash(signature: string): string {
-    return crypto.createHash('md5').update(signature).digest('hex');
+    return match?.[1];
   }
 
   private calculateFileHash(content: string): string {
     return crypto.createHash('md5').update(content).digest('hex');
   }
 
-  private generateFunctionId(func: FunctionInfo): string {
-    const components = [
-      func.filePath,
-      func.name,
-      func.startLine.toString(),
-      func.signatureHash
-    ];
+  private calculateASTHash(content: string): string {
+    const normalized = content
+      .replace(/\s+/g, ' ')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\/\/.*$/gm, '')
+      .trim();
     
-    const combined = components.join('|');
-    return crypto.createHash('sha256').update(combined).digest('hex').slice(0, 16);
+    return crypto
+      .createHash('sha256')
+      .update(normalized)
+      .digest('hex')
+      .substring(0, 8);
+  }
+
+  private calculateSignatureHash(signature: string): string {
+    return crypto.createHash('md5').update(signature).digest('hex');
+  }
+
+  private generateFunctionId(filePath: string, name: string, signatureHash: string): string {
+    const components = [filePath, name, signatureHash.substring(0, 8)];
+    return crypto.createHash('md5').update(components.join('|')).digest('hex');
   }
 }
