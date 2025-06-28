@@ -167,7 +167,7 @@ export class QualityScorer {
         const lines = f.metrics?.linesOfCode || 0;
         
         let problemScore = 0;
-        let reasons: string[] = [];
+        const reasons: string[] = [];
         
         if (complexity > 15) {
           problemScore += (complexity - 15) * 5;

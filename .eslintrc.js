@@ -1,12 +1,14 @@
 module.exports = {
   parser: '@typescript-eslint/parser',
   extends: [
-    'eslint:recommended'
+    'eslint:recommended',
+    'plugin:@typescript-eslint/recommended'
   ],
   plugins: ['@typescript-eslint'],
   parserOptions: {
     ecmaVersion: 2022,
-    sourceType: 'module'
+    sourceType: 'module',
+    project: './tsconfig.json'
   },
   env: {
     node: true,
@@ -17,6 +19,9 @@ module.exports = {
       argsIgnorePattern: '^_',
       varsIgnorePattern: '^_'
     }],
+    '@typescript-eslint/no-explicit-any': 'warn', // エラーからワーニングに緩和
+    '@typescript-eslint/ban-ts-comment': 'warn',
+    '@typescript-eslint/no-require-imports': 'warn',
     'no-case-declarations': 'error',
     'no-console': 'off',
     'prefer-const': 'error',

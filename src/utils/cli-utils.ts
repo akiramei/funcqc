@@ -150,11 +150,12 @@ export function formatTable(
         case 'right':
           formatted = formatted.padStart(width);
           break;
-        case 'center':
+        case 'center': {
           const leftPad = Math.floor((width - formatted.length) / 2);
           const rightPad = width - formatted.length - leftPad;
           formatted = ' '.repeat(leftPad) + formatted + ' '.repeat(rightPad);
           break;
+        }
         default:
           formatted = formatted.padEnd(width);
       }

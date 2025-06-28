@@ -65,7 +65,7 @@ export async function findFiles(
           }
         }
       }
-    } catch (error) {
+    } catch {
       // Skip inaccessible directories
       console.warn(`Warning: Cannot access ${currentDir}`);
     }
