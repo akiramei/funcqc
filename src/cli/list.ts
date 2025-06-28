@@ -111,54 +111,79 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
 function parseNumericCondition(field: string, condition: string): QueryFilter | null {
   // Handle conditions like ">5", "<=3", "5..10", "5,8,10"
   
+  // Early return for empty conditions
+  if (!condition || condition.trim() === '') {
+    return null;
+  }
+  
+  // Add validation for field parameter
+  if (!field) {
+    return null;
+  }
+
+  // Handle range conditions
   if (condition.includes('..')) {
-    // Range: "5..10"
-    const [min, max] = condition.split('..').map(Number);
-    if (!isNaN(min) && !isNaN(max)) {
-      return {
-        field,
-        operator: '>=',
-        value: min
-      };
-      // Note: For ranges, we'd need to return multiple filters
-      // This is simplified for the example
+    return parseRangeCondition(field, condition);
+  }
+  
+  // Handle multiple values
+  if (condition.includes(',')) {
+    return parseMultipleValues(field, condition);
+  }
+  
+  // Handle comparison operators
+  return parseComparisonOperator(field, condition);
+}
+
+function parseRangeCondition(field: string, condition: string): QueryFilter | null {
+  const [min, max] = condition.split('..').map(Number);
+  if (!isNaN(min) && !isNaN(max)) {
+    return {
+      field,
+      operator: '>=',
+      value: min
+    };
+    // Note: For ranges, we'd need to return multiple filters
+    // This is simplified for the example
+  }
+  return null;
+}
+
+function parseMultipleValues(field: string, condition: string): QueryFilter | null {
+  const values = condition.split(',').map(Number).filter(n => !isNaN(n));
+  if (values.length > 0) {
+    return {
+      field,
+      operator: 'IN',
+      value: values
+    };
+  }
+  return null;
+}
+
+function parseComparisonOperator(field: string, condition: string): QueryFilter | null {
+  // Define operator patterns
+  const operators = [
+    { pattern: '>=', slice: 2 },
+    { pattern: '<=', slice: 2 },
+    { pattern: '>', slice: 1 },
+    { pattern: '<', slice: 1 }
+  ];
+  
+  // Check each operator pattern
+  for (const { pattern, slice } of operators) {
+    if (condition.startsWith(pattern)) {
+      const value = Number(condition.slice(slice));
+      if (!isNaN(value)) {
+        return { field, operator: pattern as QueryFilter['operator'], value };
+      }
     }
-  } else if (condition.includes(',')) {
-    // Multiple values: "5,8,10"
-    const values = condition.split(',').map(Number).filter(n => !isNaN(n));
-    if (values.length > 0) {
-      return {
-        field,
-        operator: 'IN',
-        value: values
-      };
-    }
-  } else if (condition.startsWith('>=')) {
-    const value = Number(condition.slice(2));
-    if (!isNaN(value)) {
-      return { field, operator: '>=', value };
-    }
-  } else if (condition.startsWith('<=')) {
-    const value = Number(condition.slice(2));
-    if (!isNaN(value)) {
-      return { field, operator: '<=', value };
-    }
-  } else if (condition.startsWith('>')) {
-    const value = Number(condition.slice(1));
-    if (!isNaN(value)) {
-      return { field, operator: '>', value };
-    }
-  } else if (condition.startsWith('<')) {
-    const value = Number(condition.slice(1));
-    if (!isNaN(value)) {
-      return { field, operator: '<', value };
-    }
-  } else {
-    // Exact match
-    const value = Number(condition);
-    if (!isNaN(value)) {
-      return { field, operator: '=', value };
-    }
+  }
+  
+  // Handle exact match
+  const value = Number(condition);
+  if (!isNaN(value)) {
+    return { field, operator: '=', value };
   }
   
   return null;

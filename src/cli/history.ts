@@ -135,59 +135,87 @@ async function displayDetailedHistory(
     const snapshot = snapshots[i];
     const prevSnapshot = snapshots[i + 1];
     
-    console.log(chalk.yellow(`📸 Snapshot ${snapshot.id}`));
-    console.log(`   Label: ${snapshot.label || chalk.gray('(none)')}`);
-    console.log(`   Created: ${formatDate(snapshot.createdAt)}`);
+    // Display basic snapshot info
+    displaySnapshotInfo(snapshot);
     
-    if (snapshot.gitBranch) {
-      console.log(`   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`);
-    }
+    // Display metadata
+    displaySnapshotMetadata(snapshot.metadata);
     
-    console.log(`   Functions: ${snapshot.metadata.totalFunctions}`);
-    console.log(`   Files: ${snapshot.metadata.totalFiles}`);
-    console.log(`   Avg Complexity: ${snapshot.metadata.avgComplexity.toFixed(1)}`);
-    console.log(`   Max Complexity: ${snapshot.metadata.maxComplexity}`);
-    console.log(`   Exported: ${snapshot.metadata.exportedFunctions}`);
-    console.log(`   Async: ${snapshot.metadata.asyncFunctions}`);
-
-    // Show complexity distribution
-    if (snapshot.metadata.complexityDistribution) {
-      const distribution = Object.entries(snapshot.metadata.complexityDistribution)
-        .sort(([a], [b]) => parseInt(a) - parseInt(b))
-        .map(([complexity, count]) => `${complexity}:${count}`)
-        .slice(0, 5) // Show top 5
-        .join(', ');
-      console.log(`   Complexity dist: ${distribution}`);
-    }
-
-    // Show file extensions
-    if (snapshot.metadata.fileExtensions) {
-      const extensions = Object.entries(snapshot.metadata.fileExtensions)
-        .map(([ext, count]) => `${ext}:${count}`)
-        .join(', ');
-      console.log(`   Extensions: ${extensions}`);
-    }
-
-    // Show changes since previous snapshot
+    // Display distributions if available
+    displayComplexityDistribution(snapshot.metadata.complexityDistribution);
+    displayFileExtensions(snapshot.metadata.fileExtensions);
+    
+    // Display changes since previous
     if (prevSnapshot) {
-      try {
-        const diff = await storage.diffSnapshots(prevSnapshot.id, snapshot.id);
-        const changes = diff.statistics.totalChanges;
-        if (changes > 0) {
-          console.log(chalk.blue(`   Changes: +${diff.statistics.addedCount} -${diff.statistics.removedCount} ~${diff.statistics.modifiedCount}`));
-          
-          if (diff.statistics.complexityChange !== 0) {
-            const complexityIcon = diff.statistics.complexityChange > 0 ? '📈' : '📉';
-            const complexityColor = diff.statistics.complexityChange > 0 ? chalk.red : chalk.green;
-            console.log(`   Complexity: ${complexityIcon} ${complexityColor(diff.statistics.complexityChange > 0 ? '+' : '')}${diff.statistics.complexityChange}`);
-          }
-        }
-      } catch (error) {
-        logger.debug('Failed to calculate diff', error);
+      await displaySnapshotChanges(prevSnapshot.id, snapshot.id, storage, logger);
+    }
+    
+    console.log(''); // Empty line
+  }
+}
+
+function displaySnapshotInfo(snapshot: any): void {
+  console.log(chalk.yellow(`📸 Snapshot ${snapshot.id}`));
+  console.log(`   Label: ${snapshot.label || chalk.gray('(none)')}`);
+  console.log(`   Created: ${formatDate(snapshot.createdAt)}`);
+  
+  if (snapshot.gitBranch) {
+    console.log(`   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`);
+  }
+}
+
+function displaySnapshotMetadata(metadata: any): void {
+  console.log(`   Functions: ${metadata.totalFunctions}`);
+  console.log(`   Files: ${metadata.totalFiles}`);
+  console.log(`   Avg Complexity: ${metadata.avgComplexity.toFixed(1)}`);
+  console.log(`   Max Complexity: ${metadata.maxComplexity}`);
+  console.log(`   Exported: ${metadata.exportedFunctions}`);
+  console.log(`   Async: ${metadata.asyncFunctions}`);
+}
+
+function displayComplexityDistribution(distribution: Record<string, number> | undefined): void {
+  if (!distribution) return;
+  
+  const formattedDist = Object.entries(distribution)
+    .sort(([a], [b]) => parseInt(a) - parseInt(b))
+    .map(([complexity, count]) => `${complexity}:${count}`)
+    .slice(0, 5) // Show top 5
+    .join(', ');
+  
+  console.log(`   Complexity dist: ${formattedDist}`);
+}
+
+function displayFileExtensions(extensions: Record<string, number> | undefined): void {
+  if (!extensions) return;
+  
+  const formattedExts = Object.entries(extensions)
+    .map(([ext, count]) => `${ext}:${count}`)
+    .join(', ');
+  
+  console.log(`   Extensions: ${formattedExts}`);
+}
+
+async function displaySnapshotChanges(
+  prevSnapshotId: number,
+  currentSnapshotId: number,
+  storage: PGLiteStorageAdapter,
+  logger: Logger
+): Promise<void> {
+  try {
+    const diff = await storage.diffSnapshots(prevSnapshotId, currentSnapshotId);
+    const changes = diff.statistics.totalChanges;
+    
+    if (changes > 0) {
+      console.log(chalk.blue(`   Changes: +${diff.statistics.addedCount} -${diff.statistics.removedCount} ~${diff.statistics.modifiedCount}`));
+      
+      if (diff.statistics.complexityChange !== 0) {
+        const complexityIcon = diff.statistics.complexityChange > 0 ? '📈' : '📉';
+        const complexityColor = diff.statistics.complexityChange > 0 ? chalk.red : chalk.green;
+        console.log(`   Complexity: ${complexityIcon} ${complexityColor(diff.statistics.complexityChange > 0 ? '+' : '')}${diff.statistics.complexityChange}`);
       }
     }
-
-    console.log(''); // Empty line
+  } catch (error) {
+    logger.debug('Failed to calculate diff', error);
   }
 }
 

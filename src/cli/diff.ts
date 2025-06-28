@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import { table } from 'table';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
@@ -122,76 +121,99 @@ function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions): void 
   console.log(chalk.cyan.bold('\n🔍 Function Differences\n'));
   
   // Display header
+  displayDiffHeader(diff);
+  
+  // Filter and display functions
+  const filtered = filterFunctions(diff, options);
+  
+  // Display each category
+  displayAddedFunctions(filtered.added, options);
+  displayRemovedFunctions(filtered.removed, options);
+  displayModifiedFunctions(filtered.modified, options);
+  
+  // Display statistics
+  displaySummary(diff);
+}
+
+function displayDiffHeader(diff: SnapshotDiff): void {
   console.log(`${chalk.bold('From:')} ${diff.from.label || diff.from.id.substring(0, 8)} (${formatDate(diff.from.createdAt)})`);
   console.log(`${chalk.bold('To:')} ${diff.to.label || diff.to.id.substring(0, 8)} (${formatDate(diff.to.createdAt)})`);
   console.log();
+}
 
-  // Filter functions if specified
-  let addedFunctions = diff.added;
-  let removedFunctions = diff.removed;
-  let modifiedFunctions = diff.modified;
+interface FilteredFunctions {
+  added: any[];
+  removed: any[];
+  modified: any[];
+}
 
+function filterFunctions(diff: SnapshotDiff, options: DiffCommandOptions): FilteredFunctions {
+  let { added, removed, modified } = diff;
+  
+  // Apply function name filter
   if (options.function) {
     const pattern = options.function.toLowerCase();
-    addedFunctions = addedFunctions.filter(f => f.name.toLowerCase().includes(pattern));
-    removedFunctions = removedFunctions.filter(f => f.name.toLowerCase().includes(pattern));
-    modifiedFunctions = modifiedFunctions.filter(f => 
+    added = filterByFunctionName(added, pattern);
+    removed = filterByFunctionName(removed, pattern);
+    modified = modified.filter(f => 
       f.before.name.toLowerCase().includes(pattern) || 
       f.after.name.toLowerCase().includes(pattern)
     );
   }
-
+  
+  // Apply file path filter
   if (options.file) {
     const pattern = options.file.toLowerCase();
-    addedFunctions = addedFunctions.filter(f => f.filePath.toLowerCase().includes(pattern));
-    removedFunctions = removedFunctions.filter(f => f.filePath.toLowerCase().includes(pattern));
-    modifiedFunctions = modifiedFunctions.filter(f => 
+    added = filterByFilePath(added, pattern);
+    removed = filterByFilePath(removed, pattern);
+    modified = modified.filter(f => 
       f.before.filePath.toLowerCase().includes(pattern) || 
       f.after.filePath.toLowerCase().includes(pattern)
     );
   }
-
-  // Display added functions
-  if (addedFunctions.length > 0) {
-    console.log(chalk.green.bold(`➕ Added Functions (${addedFunctions.length})`));
-    addedFunctions.forEach(func => {
-      console.log(`  ${chalk.green('+')} ${func.name} in ${func.filePath}:${func.startLine}`);
-      if (options.verbose && func.metrics) {
-        console.log(`     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`);
-      }
-    });
-    console.log();
+  
+  // Apply metric filter for modified functions
+  if (options.metric && modified.length > 0) {
+    modified = modified.filter(func => 
+      func.changes.some(change => change.field === options.metric)
+    );
   }
+  
+  return { added, removed, modified };
+}
 
-  // Display removed functions
-  if (removedFunctions.length > 0) {
-    console.log(chalk.red.bold(`➖ Removed Functions (${removedFunctions.length})`));
-    removedFunctions.forEach(func => {
-      console.log(`  ${chalk.red('-')} ${func.name} in ${func.filePath}:${func.startLine}`);
-      if (options.verbose && func.metrics) {
-        console.log(`     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`);
-      }
-    });
-    console.log();
-  }
+function filterByFunctionName(functions: any[], pattern: string): any[] {
+  return functions.filter(f => f.name.toLowerCase().includes(pattern));
+}
 
-  // Display modified functions
-  if (modifiedFunctions.length > 0) {
-    console.log(chalk.yellow.bold(`📝 Modified Functions (${modifiedFunctions.length})`));
-    
-    if (options.metric) {
-      // Filter by specific metric changes
-      const filteredModified = modifiedFunctions.filter(func => 
-        func.changes.some(change => change.field === options.metric)
-      );
-      displayModifiedFunctions(filteredModified, options);
-    } else {
-      displayModifiedFunctions(modifiedFunctions, options);
+function filterByFilePath(functions: any[], pattern: string): any[] {
+  return functions.filter(f => f.filePath.toLowerCase().includes(pattern));
+}
+
+function displayAddedFunctions(functions: any[], options: DiffCommandOptions): void {
+  if (functions.length === 0) return;
+  
+  console.log(chalk.green.bold(`➕ Added Functions (${functions.length})`));
+  functions.forEach(func => {
+    console.log(`  ${chalk.green('+')} ${func.name} in ${func.filePath}:${func.startLine}`);
+    if (options.verbose && func.metrics) {
+      console.log(`     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`);
     }
-  }
+  });
+  console.log();
+}
 
-  // Display statistics
-  displaySummary(diff);
+function displayRemovedFunctions(functions: any[], options: DiffCommandOptions): void {
+  if (functions.length === 0) return;
+  
+  console.log(chalk.red.bold(`➖ Removed Functions (${functions.length})`));
+  functions.forEach(func => {
+    console.log(`  ${chalk.red('-')} ${func.name} in ${func.filePath}:${func.startLine}`);
+    if (options.verbose && func.metrics) {
+      console.log(`     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`);
+    }
+  });
+  console.log();
 }
 
 function displayModifiedFunctions(functions: FunctionChange[], options: DiffCommandOptions): void {
