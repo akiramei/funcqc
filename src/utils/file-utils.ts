@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { minimatch } from 'minimatch';
 
 /**
  * Check if a file exists
@@ -20,8 +21,14 @@ export async function ensureDir(dirPath: string): Promise<void> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
   } catch (error) {
-    // Directory might already exist
-    if ((error as any).code !== 'EEXIST') {
+    // Directory might already exist - recursive: true should handle this
+    // Only throw if it's not an EEXIST error or filesystem permission issue
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code: string }).code;
+      if (code !== 'EEXIST') {
+        throw error;
+      }
+    } else {
       throw error;
     }
   }
@@ -64,7 +71,7 @@ export async function findFiles(
           }
         }
       }
-    } catch (error) {
+    } catch {
       // Skip inaccessible directories
       console.warn(`Warning: Cannot access ${currentDir}`);
     }
@@ -81,27 +88,12 @@ export function shouldExclude(filePath: string, patterns: string[]): boolean {
   const normalizedPath = filePath.replace(/\\/g, '/');
 
   for (const pattern of patterns) {
-    if (matchPattern(normalizedPath, pattern)) {
+    if (minimatch(normalizedPath, pattern)) {
       return true;
     }
   }
 
   return false;
-}
-
-/**
- * Simple glob pattern matching
- */
-function matchPattern(text: string, pattern: string): boolean {
-  // Convert glob pattern to regex
-  const regexPattern = pattern
-    .replace(/\*\*/g, '___DOUBLESTAR___')
-    .replace(/\*/g, '[^/]*')
-    .replace(/___DOUBLESTAR___/g, '.*')
-    .replace(/\?/g, '[^/]');
-
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(text);
 }
 
 /**
@@ -250,28 +242,18 @@ export function simpleHash(str: string): string {
 }
 
 /**
- * Deep merge objects
+ * Deep merge objects using simple JSON approach
  */
-export function deepMerge<T>(target: T, ...sources: Partial<T>[]): T {
-  if (!sources.length) return target;
-  const source = sources.shift();
-
-  if (isObject(target) && isObject(source)) {
-    for (const key in source) {
-      if (isObject(source[key])) {
-        if (!target[key]) Object.assign(target, { [key]: {} });
-        deepMerge(target[key], source[key]);
-      } else {
-        Object.assign(target, { [key]: source[key] });
-      }
+export function deepMerge<T extends Record<string, any>>(target: T, ...sources: Partial<T>[]): T {
+  const result = JSON.parse(JSON.stringify(target)) as T;
+  
+  for (const source of sources) {
+    if (source) {
+      Object.assign(result, JSON.parse(JSON.stringify(source)));
     }
   }
-
-  return deepMerge(target, ...sources);
-}
-
-function isObject(item: any): boolean {
-  return item && typeof item === 'object' && !Array.isArray(item);
+  
+  return result;
 }
 
 /**

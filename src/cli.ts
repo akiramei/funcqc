@@ -8,6 +8,9 @@ import { listCommand } from './cli/list';
 import { statusCommand } from './cli/status';
 import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
+import { Logger } from './utils/cli-utils';
+import { SystemChecker } from './utils/system-checker';
+import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
 
 const program = new Command();
 
@@ -23,7 +26,9 @@ program
   .option('--cwd <path>', 'change working directory')
   .option('--verbose', 'enable verbose output')
   .option('--quiet', 'suppress output')
-  .option('--no-color', 'disable colored output');
+  .option('--no-color', 'disable colored output')
+  .option('--check-system', 'run system requirements check')
+  .option('--no-check', 'skip system requirements check');
 
 // Commands
 program
@@ -45,6 +50,7 @@ program
   .option('--incremental', 'process changed files only')
   .option('--force', 'force full rescan of all files')
   .option('--batch-size <num>', 'batch size for processing', '100')
+  .option('--quick', 'quick scan with 5-second project overview')
   .action(scanCommand);
 
 program
@@ -104,11 +110,78 @@ program.on('command:*', () => {
   process.exit(1);
 });
 
-// Show help if no command provided
-if (!process.argv.slice(2).length) {
-  program.outputHelp();
-  process.exit(0);
+// Setup error handling and system checks
+function setupErrorHandling() {
+  const options = program.opts();
+  const logger = new Logger(options['verbose'], options['quiet']);
+  const errorHandler = createErrorHandler(logger);
+  
+  // Setup global error handlers
+  setupGlobalErrorHandlers(errorHandler);
+  
+  return { logger, errorHandler };
 }
 
-// Parse command line arguments
-program.parse();
+function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean {
+  if (skipCheck) return true;
+  
+  const systemChecker = new SystemChecker(logger);
+  return systemChecker.reportSystemCheck();
+}
+
+// Main execution
+async function main() {
+  try {
+    const { logger, errorHandler } = setupErrorHandling();
+    const options = program.opts();
+    
+    // Handle system check flag
+    if (options['checkSystem']) {
+      performSystemCheck(logger, false);
+      process.exit(0);
+    }
+    
+    // Change working directory if specified
+    if (options['cwd']) {
+      try {
+        process.chdir(options['cwd']);
+      } catch (error) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.FILE_NOT_ACCESSIBLE,
+          `Cannot change to directory: ${options['cwd']}`,
+          { directory: options['cwd'] },
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+    
+    // Show help if no command provided
+    if (!process.argv.slice(2).length) {
+      program.outputHelp();
+      process.exit(0);
+    }
+    
+    // Perform system check before running commands (unless explicitly disabled)
+    if (!options['noCheck']) {
+      const systemOk = performSystemCheck(logger, false);
+      if (!systemOk) {
+        logger.error('System requirements not met. Use --no-check to bypass.');
+        process.exit(1);
+      }
+    }
+    
+    // Parse command line arguments
+    program.parse();
+    
+  } catch (error) {
+    console.error(chalk.red('Fatal error during startup:'), error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+// Run main function
+main().catch((error) => {
+  console.error(chalk.red('Unhandled error:'), error);
+  process.exit(1);
+});

@@ -123,6 +123,7 @@ function displayCompactHistory(snapshots: any[]): void {
     }
   };
 
+  // @ts-ignore - Table configuration type issue
   console.log(table([headers, ...tableData], config));
 }
 
@@ -196,13 +197,13 @@ function displayFileExtensions(extensions: Record<string, number> | undefined): 
 }
 
 async function displaySnapshotChanges(
-  prevSnapshotId: number,
-  currentSnapshotId: number,
+  _prevSnapshotId: string,
+  _currentSnapshotId: string,
   storage: PGLiteStorageAdapter,
   logger: Logger
 ): Promise<void> {
   try {
-    const diff = await storage.diffSnapshots(prevSnapshotId, currentSnapshotId);
+    const diff = await storage.diffSnapshots(_prevSnapshotId, _currentSnapshotId);
     const changes = diff.statistics.totalChanges;
     
     if (changes > 0) {

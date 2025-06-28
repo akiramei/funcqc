@@ -62,7 +62,7 @@ export interface FunctionInfo {
   isMethod: boolean;
   isConstructor: boolean;
   isStatic: boolean;
-  accessModifier?: 'public' | 'private' | 'protected' | undefined;
+  accessModifier?: 'public' | 'private' | 'protected';
   parentClass?: string;
   parentNamespace?: string;
   
@@ -84,7 +84,7 @@ export interface ParameterInfo {
   position: number;
   isOptional: boolean;
   isRest: boolean;
-  defaultValue?: string | undefined;
+  defaultValue?: string;
   description?: string;
 }
 
@@ -92,7 +92,7 @@ export interface ReturnTypeInfo {
   type: string;
   typeSimple: string;
   isPromise: boolean;
-  promiseType?: string | undefined;
+  promiseType?: string;
   description?: string;
 }
 
@@ -202,7 +202,10 @@ export interface DiffStatistics {
 // Error handling types
 export interface FuncqcError extends Error {
   code: string;
-  details?: any;
+  details?: Record<string, any>;
+  recoverable: boolean;
+  recoveryActions?: string[];
+  originalError?: Error;
 }
 
 export interface AnalysisResult<T> {
@@ -228,6 +231,7 @@ export interface InitCommandOptions extends CommandOptions {
   db?: string;
   show?: boolean;
   reset?: boolean;
+  force?: boolean;
 }
 
 export interface ScanCommandOptions extends CommandOptions {
@@ -236,6 +240,7 @@ export interface ScanCommandOptions extends CommandOptions {
   incremental?: boolean;
   force?: boolean;
   batchSize?: string;
+  quick?: boolean;
 }
 
 export interface ListCommandOptions extends CommandOptions {

@@ -36,7 +36,7 @@ export async function initCommand(options: InitCommandOptions): Promise<void> {
 
     await createConfig(options);
   } catch (error) {
-    console.error(chalk.red('Failed to initialize funcqc:'), error.message);
+    console.error(chalk.red('Failed to initialize funcqc:'), error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 }
@@ -131,7 +131,7 @@ async function ensureDataDirectory(dbPath: string): Promise<void> {
   
   try {
     await fs.mkdir(dataDir, { recursive: true });
-  } catch (error) {
+  } catch {
     // Directory might already exist, ignore
   }
 }

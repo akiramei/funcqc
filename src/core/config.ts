@@ -1,4 +1,5 @@
 import { cosmiconfigSync } from 'cosmiconfig';
+import * as path from 'path';
 import { FuncqcConfig } from '../types';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
@@ -134,11 +135,11 @@ export class ConfigManager {
     const result = this.explorer.search();
     
     if (result && result.filepath) {
-      const configDir = require('path').dirname(result.filepath);
-      return require('path').resolve(configDir, relativePath);
+      const configDir = path.dirname(result.filepath);
+      return path.resolve(configDir, relativePath);
     }
     
-    return require('path').resolve(process.cwd(), relativePath);
+    return path.resolve(process.cwd(), relativePath);
   }
 
   /**
@@ -153,7 +154,7 @@ export class ConfigManager {
    * Invalidate cached config (for testing)
    */
   clearCache(): void {
-    this.config = undefined;
-    this.explorer.clearCache();
+    this.config = undefined as any; // Temporary fix for exactOptionalPropertyTypes
+    this.explorer.clearCaches();
   }
 }

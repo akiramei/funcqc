@@ -1,12 +1,13 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import * as path from 'path';
-import * as fs from 'fs/promises';
+import { globby } from 'globby';
 import { ScanCommandOptions, FunctionInfo } from '../types';
 import { ConfigManager } from '../core/config';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityCalculator } from '../metrics/quality-calculator';
+import { QualityScorer } from '../utils/quality-scorer';
 
 export async function scanCommand(
   paths: string[] = [],
@@ -45,19 +46,40 @@ export async function scanCommand(
     // Analyze functions
     spinner.start('Analyzing functions...');
     const allFunctions: FunctionInfo[] = [];
-    const batchSize = parseInt(options.batchSize || '50');
     
-    for (let i = 0; i < files.length; i += batchSize) {
-      const batch = files.slice(i, i + batchSize);
-      const batchFunctions = await analyzeBatch(batch, analyzer, qualityCalculator);
+    if (options.quick) {
+      // Quick mode: optimize for speed, sample files if needed
+      const maxFiles = 100; // Limit files for quick scan
+      const filesToAnalyze = files.length > maxFiles ? 
+        files.slice(0, maxFiles) : files;
+      
+      if (files.length > maxFiles) {
+        spinner.text = `Quick scan: analyzing ${maxFiles} of ${files.length} files...`;
+      }
+      
+      const batchFunctions = await analyzeBatch(filesToAnalyze, analyzer, qualityCalculator);
       allFunctions.push(...batchFunctions);
       
-      spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
+      if (files.length > maxFiles) {
+        // Quick overview with limited file sampling
+        console.log(chalk.blue(`\nℹ️  Quick scan analyzed ${maxFiles}/${files.length} files (${Math.round((maxFiles/files.length)*100)}% sample)`));
+      }
+    } else {
+      // Full scan
+      const batchSize = parseInt(options.batchSize || '50');
+      
+      for (let i = 0; i < files.length; i += batchSize) {
+        const batch = files.slice(i, i + batchSize);
+        const batchFunctions = await analyzeBatch(batch, analyzer, qualityCalculator);
+        allFunctions.push(...batchFunctions);
+        
+        spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
+      }
     }
     
     spinner.succeed(`Analyzed ${allFunctions.length} functions from ${files.length} files`);
     
-    // Show analysis summary
+    // Show analysis summary with quality scoring
     showAnalysisSummary(allFunctions);
     
     // Save to storage (unless dry-run)
@@ -79,9 +101,9 @@ export async function scanCommand(
     
   } catch (error) {
     spinner.fail('Scan failed');
-    console.error(chalk.red('Error:'), error.message);
+    console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
     
-    if (options.verbose) {
+    if (options.verbose && error instanceof Error) {
       console.error(chalk.gray(error.stack));
     }
     
@@ -93,74 +115,34 @@ async function findTypeScriptFiles(
   roots: string[],
   excludePatterns: string[]
 ): Promise<string[]> {
-  const files: string[] = [];
-  
-  for (const root of roots) {
-    const rootFiles = await findFilesRecursive(root, excludePatterns);
-    files.push(...rootFiles);
-  }
-  
-  return files.filter(file => 
-    file.endsWith('.ts') || file.endsWith('.tsx')
-  );
-}
+  // Create include patterns for TypeScript files in all roots
+  const includePatterns = roots.flatMap(root => [
+    path.join(root, '**/*.ts'),
+    path.join(root, '**/*.tsx')
+  ]);
 
-async function findFilesRecursive(
-  dir: string,
-  excludePatterns: string[]
-): Promise<string[]> {
-  const files: string[] = [];
-  
+  // Convert exclude patterns to proper ignore patterns
+  const ignorePatterns = excludePatterns.map(pattern => {
+    // If pattern doesn't contain wildcards, treat as directory/file name
+    if (!pattern.includes('*') && !pattern.includes('?')) {
+      return `**/${pattern}/**`;
+    }
+    return pattern;
+  });
+
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
-    
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      
-      // Check exclude patterns
-      if (shouldExclude(fullPath, excludePatterns)) {
-        continue;
-      }
-      
-      if (entry.isDirectory()) {
-        const subFiles = await findFilesRecursive(fullPath, excludePatterns);
-        files.push(...subFiles);
-      } else if (entry.isFile()) {
-        files.push(fullPath);
-      }
-    }
-  } catch (error) {
-    // Directory might not exist or be inaccessible
-    console.warn(chalk.yellow(`Warning: Cannot access ${dir}`));
-  }
-  
-  return files;
-}
+    const files = await globby(includePatterns, {
+      ignore: ignorePatterns,
+      absolute: true,
+      onlyFiles: true,
+      followSymbolicLinks: false
+    });
 
-function shouldExclude(filePath: string, patterns: string[]): boolean {
-  // Simple pattern matching - in production, use a proper glob library
-  for (const pattern of patterns) {
-    if (pattern.includes('**')) {
-      // Handle **/ patterns
-      const simplifiedPattern = pattern.replace('**/', '').replace('**', '');
-      if (filePath.includes(simplifiedPattern)) {
-        return true;
-      }
-    } else if (pattern.includes('*')) {
-      // Handle simple * patterns
-      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-      if (regex.test(filePath)) {
-        return true;
-      }
-    } else {
-      // Exact match
-      if (filePath.includes(pattern)) {
-        return true;
-      }
-    }
+    return files;
+  } catch (error) {
+    console.warn(chalk.yellow(`Warning: Error finding files: ${error instanceof Error ? error.message : String(error)}`));
+    return [];
   }
-  
-  return false;
 }
 
 async function analyzeBatch(
@@ -181,7 +163,7 @@ async function analyzeBatch(
       
       functions.push(...fileFunctions);
     } catch (error) {
-      console.warn(chalk.yellow(`Warning: Failed to analyze ${file}: ${error.message}`));
+      console.warn(chalk.yellow(`Warning: Failed to analyze ${file}: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
   
@@ -194,20 +176,56 @@ function showAnalysisSummary(functions: FunctionInfo[]): void {
   }
   
   const stats = calculateStats(functions);
+  const qualityScorer = new QualityScorer();
+  const qualityScore = qualityScorer.calculateProjectScore(functions);
   
   console.log();
-  console.log(chalk.blue('📊 Analysis Summary:'));
-  console.log(`  Total functions: ${stats.total}`);
+  console.log(chalk.blue('📊 Project Quality Overview:'));
+  
+  // Quality grade with color coding
+  const gradeColor = qualityScore.overallGrade === 'A' ? chalk.green :
+                     qualityScore.overallGrade === 'B' ? chalk.blue :
+                     qualityScore.overallGrade === 'C' ? chalk.yellow :
+                     qualityScore.overallGrade === 'D' ? chalk.red : chalk.red;
+  
+  console.log(`  Overall Grade: ${gradeColor(qualityScore.overallGrade)} (${qualityScore.score}/100)`);
+  console.log(`  Functions Analyzed: ${qualityScore.totalFunctions} in ${calculateFileCount(functions)} files`);
+  
+  if (qualityScore.highRiskFunctions > 0) {
+    console.log(chalk.yellow(`  ⚠️  High Risk Functions: ${qualityScore.highRiskFunctions}`));
+  } else {
+    console.log(chalk.green(`  ✓ No high-risk functions detected`));
+  }
+  
+  console.log();
+  console.log(chalk.blue('📈 Quality Breakdown:'));
+  console.log(`  Complexity Score: ${qualityScore.complexityScore}/100`);
+  console.log(`  Maintainability Score: ${qualityScore.maintainabilityScore}/100`);
+  console.log(`  Size Score: ${qualityScore.sizeScore}/100`);
+  console.log(`  Code Quality Score: ${qualityScore.codeQualityScore}/100`);
+  
+  // Show top problematic functions if any
+  if (qualityScore.topProblematicFunctions.length > 0) {
+    console.log();
+    console.log(chalk.yellow('🏆 Top Functions Needing Attention:'));
+    qualityScore.topProblematicFunctions.slice(0, 3).forEach((func, index) => {
+      const shortPath = func.filePath.split('/').slice(-2).join('/');
+      console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${shortPath})`);
+      console.log(`     Complexity: ${func.complexity}, ${func.reason}`);
+    });
+  }
+  
+  console.log();
+  console.log(chalk.blue('📊 Additional Stats:'));
   console.log(`  Exported functions: ${stats.exported}`);
   console.log(`  Async functions: ${stats.async}`);
-  console.log(`  Arrow functions: ${stats.arrow}`);
-  console.log(`  Methods: ${stats.methods}`);
-  console.log();
-  console.log(chalk.blue('📈 Quality Metrics:'));
   console.log(`  Average complexity: ${stats.avgComplexity.toFixed(1)}`);
   console.log(`  Average lines: ${stats.avgLines.toFixed(1)}`);
-  console.log(`  Max complexity: ${stats.maxComplexity}`);
-  console.log(`  Functions over complexity threshold: ${stats.highComplexity}`);
+}
+
+function calculateFileCount(functions: FunctionInfo[]): number {
+  const uniqueFiles = new Set(functions.map(f => f.filePath));
+  return uniqueFiles.size;
 }
 
 function calculateStats(functions: FunctionInfo[]) {

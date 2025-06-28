@@ -4,20 +4,17 @@ export default defineConfig([
   // CLI build
   {
     entry: ['src/cli.ts'],
-    format: ['cjs'],
+    format: ['esm'],
     target: 'node18',
     outDir: 'dist',
     clean: true,
     minify: false,
-    sourcemap: true,
-    banner: {
-      js: '#!/usr/bin/env node'
-    }
+    sourcemap: true
   },
   // Library build
   {
     entry: ['src/index.ts'],
-    format: ['cjs', 'esm'],
+    format: ['esm'],
     target: 'node18',
     outDir: 'dist',
     dts: true,
