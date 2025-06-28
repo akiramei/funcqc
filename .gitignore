@@ -45,6 +45,8 @@ funcqc-*.sql
 .function-metrics/
 funcqc-analysis.json
 funcqc-analysis.meta.json
+function-index.jsonl
+function-index.meta.json
 
 # funcqc runtime directories
 .backups/
