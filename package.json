@@ -1,0 +1,94 @@
+{
+  "name": "funcqc",
+  "version": "0.1.0",
+  "description": "Function Quality Control for TypeScript projects",
+  "keywords": [
+    "typescript",
+    "code-quality",
+    "function-analysis",
+    "ast",
+    "metrics",
+    "refactoring",
+    "cli"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/funcqc.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/funcqc/issues"
+  },
+  "homepage": "https://github.com/yourusername/funcqc#readme",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "funcqc": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsup src/cli.ts src/index.ts --format cjs --dts --clean",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "test:coverage": "vitest --coverage",
+    "test:e2e": "vitest --config vitest.e2e.config.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write src/**/*.ts",
+    "format:check": "prettier --check src/**/*.ts",
+    "prepare": "husky install",
+    "prepublishOnly": "npm run build && npm run test",
+    "release": "semantic-release"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.1.0",
+    "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "cosmiconfig": "^8.3.6",
+    "kysely": "^0.27.0",
+    "ora": "^7.0.1",
+    "table": "^6.8.1",
+    "typescript": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.54.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-prettier": "^5.0.1",
+    "husky": "^8.0.3",
+    "lint-staged": "^15.2.0",
+    "prettier": "^3.1.0",
+    "semantic-release": "^22.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.6.0",
+    "vitest": "^1.0.0"
+  },
+  "peerDependencies": {
+    "typescript": "^4.5.0 || ^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ]
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged",
+      "pre-push": "npm run typecheck && npm run test"
+    }
+  }
+}
