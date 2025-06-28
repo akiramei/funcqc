@@ -50,6 +50,7 @@ program
   .option('--incremental', 'process changed files only')
   .option('--force', 'force full rescan of all files')
   .option('--batch-size <num>', 'batch size for processing', '100')
+  .option('--quick', 'quick scan with 5-second project overview')
   .action(scanCommand);
 
 program

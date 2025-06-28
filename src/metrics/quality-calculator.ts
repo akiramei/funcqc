@@ -33,10 +33,16 @@ export class QualityCalculator {
       return this.calculateFromText(functionInfo);
     }
 
-    return {
-      linesOfCode: this.calculateLinesOfCode(functionNode),
+    const linesOfCode = this.calculateLinesOfCode(functionNode);
+    const commentLines = this.calculateCommentLines(functionNode);
+    const cyclomaticComplexity = this.calculateCyclomaticComplexity(functionNode);
+    const halsteadVolume = this.calculateHalsteadVolume(functionNode);
+    const halsteadDifficulty = this.calculateHalsteadDifficulty(functionNode);
+
+    const metrics = {
+      linesOfCode,
       totalLines: this.calculateTotalLines(functionNode),
-      cyclomaticComplexity: this.calculateCyclomaticComplexity(functionNode),
+      cyclomaticComplexity,
       cognitiveComplexity: this.calculateCognitiveComplexity(functionNode),
       maxNestingLevel: this.calculateMaxNestingLevel(functionNode),
       parameterCount: functionInfo.parameters.length,
@@ -46,12 +52,18 @@ export class QualityCalculator {
       tryCatchCount: this.countTryCatch(functionNode),
       asyncAwaitCount: this.countAsyncAwait(functionNode),
       callbackCount: this.countCallbacks(functionNode),
-      commentLines: this.calculateCommentLines(functionNode),
-      codeToCommentRatio: 0, // Will be calculated after getting comment lines
-      halsteadVolume: this.calculateHalsteadVolume(functionNode),
-      halsteadDifficulty: this.calculateHalsteadDifficulty(functionNode),
-      maintainabilityIndex: 0 // Will be calculated based on other metrics
+      commentLines,
+      codeToCommentRatio: linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,
+      halsteadVolume,
+      halsteadDifficulty,
+      maintainabilityIndex: this.calculateMaintainabilityIndex({
+        cyclomaticComplexity,
+        linesOfCode,
+        halsteadVolume
+      })
     };
+
+    return metrics;
   }
 
   private isFunctionLike(node: ts.Node): boolean {
@@ -359,21 +371,47 @@ export class QualityCalculator {
   }
 
   private calculateHalsteadVolume(node: ts.FunctionLikeDeclaration): number {
-    // Simplified Halstead volume calculation
     const operators = new Set<string>();
     const operands = new Set<string>();
+    let totalOperators = 0;
+    let totalOperands = 0;
 
     const visit = (node: ts.Node) => {
-      const text = node.getText();
-      
-      // Count operators (simplified)
+      // Count operators
       if (ts.isBinaryExpression(node)) {
-        operators.add(node.operatorToken.getText());
+        const op = node.operatorToken.getText();
+        operators.add(op);
+        totalOperators++;
+      } else if (ts.isUnaryExpression(node)) {
+        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
+                   node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
+                   node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
+                   node.operator === ts.SyntaxKind.TildeToken ? '~' :
+                   node.operator === ts.SyntaxKind.PlusToken ? '+' :
+                   node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
+        if (op) {
+          operators.add(op);
+          totalOperators++;
+        }
+      } else if (ts.isAssignmentExpression(node)) {
+        operators.add('=');
+        totalOperators++;
+      } else if (ts.isCallExpression(node)) {
+        operators.add('()');
+        totalOperators++;
+      } else if (ts.isPropertyAccessExpression(node)) {
+        operators.add('.');
+        totalOperators++;
+      } else if (ts.isElementAccessExpression(node)) {
+        operators.add('[]');
+        totalOperators++;
       }
-      
-      // Count operands (identifiers, literals)
-      if (ts.isIdentifier(node) || ts.isLiteralExpression(node)) {
+
+      // Count operands (identifiers, literals, etc.)
+      if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+        const text = node.getText();
         operands.add(text);
+        totalOperands++;
       }
 
       ts.forEachChild(node, visit);
@@ -383,31 +421,84 @@ export class QualityCalculator {
 
     const n1 = operators.size; // Unique operators
     const n2 = operands.size;  // Unique operands
-    const vocabulary = n1 + n2;
-    const length = node.getFullText().length; // Simplified
+    const N1 = totalOperators; // Total operators
+    const N2 = totalOperands;  // Total operands
 
-    return vocabulary > 0 ? length * Math.log2(vocabulary) : 0;
+    const vocabulary = n1 + n2;
+    const length = N1 + N2;
+
+    // Halstead Volume = Length * log2(Vocabulary)
+    return vocabulary > 0 ? Math.round(length * Math.log2(vocabulary) * 100) / 100 : 0;
   }
 
   private calculateHalsteadDifficulty(node: ts.FunctionLikeDeclaration): number {
-    // Simplified Halstead difficulty calculation
-    // This is a placeholder implementation
-    return 1;
+    const operators = new Set<string>();
+    const operands = new Set<string>();
+    let totalOperands = 0;
+
+    const visit = (node: ts.Node) => {
+      // Count operators
+      if (ts.isBinaryExpression(node)) {
+        operators.add(node.operatorToken.getText());
+      } else if (ts.isUnaryExpression(node)) {
+        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
+                   node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
+                   node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
+                   node.operator === ts.SyntaxKind.TildeToken ? '~' :
+                   node.operator === ts.SyntaxKind.PlusToken ? '+' :
+                   node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
+        if (op) operators.add(op);
+      } else if (ts.isAssignmentExpression(node)) {
+        operators.add('=');
+      } else if (ts.isCallExpression(node)) {
+        operators.add('()');
+      } else if (ts.isPropertyAccessExpression(node)) {
+        operators.add('.');
+      } else if (ts.isElementAccessExpression(node)) {
+        operators.add('[]');
+      }
+
+      // Count operands
+      if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+        const text = node.getText();
+        operands.add(text);
+        totalOperands++;
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    visit(node);
+
+    const n1 = operators.size; // Unique operators
+    const n2 = operands.size;  // Unique operands
+    const N2 = totalOperands;  // Total operands
+
+    // Halstead Difficulty = (n1/2) * (N2/n2)
+    // Avoid division by zero
+    if (n2 === 0) return 0;
+    
+    const difficulty = (n1 / 2) * (N2 / n2);
+    return Math.round(difficulty * 100) / 100;
   }
 
-  private calculateMaintainabilityIndex(metrics: QualityMetrics): number {
+  private calculateMaintainabilityIndex(partialMetrics: { cyclomaticComplexity: number; linesOfCode: number; halsteadVolume: number }): number {
     // Microsoft's maintainability index formula (simplified)
-    const complexity = metrics.cyclomaticComplexity;
-    const loc = metrics.linesOfCode;
-    const volume = metrics.halsteadVolume || 0;
+    const complexity = partialMetrics.cyclomaticComplexity;
+    const loc = partialMetrics.linesOfCode;
+    const volume = partialMetrics.halsteadVolume || 0;
 
     if (loc === 0) return 100;
 
-    let mi = 171 - 5.2 * Math.log(volume) - 0.23 * complexity - 16.2 * Math.log(loc);
+    // Ensure we have valid values for the logarithms
+    const safeVolume = Math.max(1, volume);
+    const safeLoc = Math.max(1, loc);
+
+    let mi = 171 - 5.2 * Math.log(safeVolume) - 0.23 * complexity - 16.2 * Math.log(safeLoc);
     
     // Normalize to 0-100 scale
     mi = Math.max(0, Math.min(100, mi));
     
-    return Math.round(mi);
+    return Math.round(mi * 100) / 100;
   }
 }

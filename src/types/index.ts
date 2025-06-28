@@ -236,6 +236,7 @@ export interface ScanCommandOptions extends CommandOptions {
   incremental?: boolean;
   force?: boolean;
   batchSize?: string;
+  quick?: boolean;
 }
 
 export interface ListCommandOptions extends CommandOptions {
