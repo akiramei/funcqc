@@ -58,3 +58,6 @@ tmp/
 
 # Lock files (keep yarn.lock if using yarn)
 package-lock.json
+
+# Claude
+.claude/
