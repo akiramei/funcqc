@@ -62,7 +62,7 @@ export interface FunctionInfo {
   isMethod: boolean;
   isConstructor: boolean;
   isStatic: boolean;
-  accessModifier?: 'public' | 'private' | 'protected' | undefined;
+  accessModifier?: 'public' | 'private' | 'protected';
   parentClass?: string;
   parentNamespace?: string;
   
@@ -228,6 +228,7 @@ export interface InitCommandOptions extends CommandOptions {
   db?: string;
   show?: boolean;
   reset?: boolean;
+  force?: boolean;
 }
 
 export interface ScanCommandOptions extends CommandOptions {

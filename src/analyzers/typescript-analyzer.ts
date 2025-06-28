@@ -131,12 +131,12 @@ export class TypeScriptAnalyzer {
         isMethod: ts.isMethodDeclaration(node),
         isConstructor: ts.isConstructorDeclaration(node),
         isStatic: this.isStatic(node),
-        accessModifier: this.getAccessModifier(node),
-        parentClass: this.getParentClassName(node),
-        parentNamespace: this.getParentNamespace(node),
+        ...(this.getAccessModifier(node) && { accessModifier: this.getAccessModifier(node) }),
+        ...(this.getParentClassName(node) && { parentClass: this.getParentClassName(node) }),
+        ...(this.getParentNamespace(node) && { parentNamespace: this.getParentNamespace(node) }),
 
         // Documentation
-        jsDoc: this.getJSDoc(node),
+        ...(this.getJSDoc(node) && { jsDoc: this.getJSDoc(node) }),
         sourceCode: node.getFullText(sourceFile).trim(),
 
         // Relations
@@ -290,16 +290,21 @@ export class TypeScriptAnalyzer {
   }
 
   private extractParameters(node: ts.FunctionLikeDeclaration): ParameterInfo[] {
-    return node.parameters.map((param, index) => ({
-      name: param.name.getText(),
-      type: param.type ? param.type.getText() : 'any',
-      typeSimple: this.simplifyType(param.type ? param.type.getText() : 'any'),
-      position: index,
-      isOptional: !!param.questionToken,
-      isRest: !!param.dotDotDotToken,
-      defaultValue: param.initializer?.getText(),
-      description: this.getParameterDescription(param)
-    }));
+    return node.parameters.map((param, index) => {
+      const defaultValue = param.initializer?.getText();
+      const description = this.getParameterDescription(param);
+      
+      return {
+        name: param.name.getText(),
+        type: param.type ? param.type.getText() : 'any',
+        typeSimple: this.simplifyType(param.type ? param.type.getText() : 'any'),
+        position: index,
+        isOptional: !!param.questionToken,
+        isRest: !!param.dotDotDotToken,
+        ...(defaultValue && { defaultValue }),
+        ...(description && { description })
+      };
+    });
   }
 
   private extractReturnType(node: ts.FunctionLikeDeclaration): ReturnTypeInfo | undefined {
@@ -307,12 +312,15 @@ export class TypeScriptAnalyzer {
 
     const typeText = node.type.getText();
     
+    const promiseType = this.extractPromiseType(typeText);
+    const description = this.getReturnDescription(node);
+    
     return {
       type: typeText,
       typeSimple: this.simplifyType(typeText),
       isPromise: typeText.startsWith('Promise<'),
-      promiseType: this.extractPromiseType(typeText),
-      description: this.getReturnDescription(node)
+      ...(promiseType && { promiseType }),
+      ...(description && { description })
     };
   }
 

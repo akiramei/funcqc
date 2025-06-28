@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import * as path from 'path';
-import globby from 'globby';
+import { globby } from 'globby';
 import { ScanCommandOptions, FunctionInfo } from '../types';
 import { ConfigManager } from '../core/config';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
@@ -61,8 +61,7 @@ export async function scanCommand(
       allFunctions.push(...batchFunctions);
       
       if (files.length > maxFiles) {
-        // Extrapolate results for quick overview
-        const extrapolationFactor = files.length / maxFiles;
+        // Quick overview with limited file sampling
         console.log(chalk.blue(`\nℹ️  Quick scan analyzed ${maxFiles}/${files.length} files (${Math.round((maxFiles/files.length)*100)}% sample)`));
       }
     } else {
@@ -102,9 +101,9 @@ export async function scanCommand(
     
   } catch (error) {
     spinner.fail('Scan failed');
-    console.error(chalk.red('Error:'), error.message);
+    console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
     
-    if (options.verbose) {
+    if (options.verbose && error instanceof Error) {
       console.error(chalk.gray(error.stack));
     }
     
@@ -141,7 +140,7 @@ async function findTypeScriptFiles(
 
     return files;
   } catch (error) {
-    console.warn(chalk.yellow(`Warning: Error finding files: ${error.message}`));
+    console.warn(chalk.yellow(`Warning: Error finding files: ${error instanceof Error ? error.message : String(error)}`));
     return [];
   }
 }
@@ -164,7 +163,7 @@ async function analyzeBatch(
       
       functions.push(...fileFunctions);
     } catch (error) {
-      console.warn(chalk.yellow(`Warning: Failed to analyze ${file}: ${error.message}`));
+      console.warn(chalk.yellow(`Warning: Failed to analyze ${file}: ${error instanceof Error ? error.message : String(error)}`));
     }
   }
   

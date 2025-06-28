@@ -21,11 +21,11 @@ export async function listCommand(
     const filters = buildFilters(patterns, options);
     
     // Query functions
-    const functions = await storage.queryFunctions({ 
-      filters,
-      sort: options.sort,
-      limit: options.limit ? parseInt(options.limit) : undefined
-    });
+    const queryOptions: any = { filters };
+    if (options.sort) queryOptions.sort = options.sort;
+    if (options.limit) queryOptions.limit = parseInt(options.limit);
+    
+    const functions = await storage.queryFunctions(queryOptions);
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -37,7 +37,7 @@ export async function listCommand(
     await outputResults(functions, options);
     
   } catch (error) {
-    console.error(chalk.red('Failed to list functions:'), error.message);
+    console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 }
@@ -209,7 +209,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   }
 }
 
-function outputJSON(functions: FunctionInfo[], options: ListCommandOptions): void {
+function outputJSON(functions: FunctionInfo[], _options: ListCommandOptions): void {
   const output = {
     meta: {
       total: functions.length,
