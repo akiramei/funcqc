@@ -168,6 +168,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async getFunctionsBySnapshot(snapshotId: string): Promise<FunctionInfo[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT f.*, qm.*
+        FROM functions f
+        LEFT JOIN quality_metrics qm ON f.id = qm.function_id
+        WHERE f.snapshot_id = $1
+        ORDER BY f.start_line
+      `, [snapshotId]);
+
+      // Get parameters for each function
+      const functions = await Promise.all(
+        result.rows.map(async (row: any) => {
+          const parameters = await this.getFunctionParameters(row.id);
+          return this.mapRowToFunctionInfo(row, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions for snapshot: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async queryFunctions(): Promise<FunctionInfo[]> {
     // For now, stub implementation - can be enhanced later
     throw new Error('queryFunctions not implemented yet');
@@ -177,8 +201,155 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ANALYSIS OPERATIONS (FUTURE)
   // ========================================
 
-  async diffSnapshots(): Promise<any> {
-    throw new Error('diffSnapshots not implemented yet');
+  async diffSnapshots(fromId: string, toId: string): Promise<any> {
+    try {
+      // Get snapshot info
+      const fromSnapshot = await this.getSnapshot(fromId);
+      const toSnapshot = await this.getSnapshot(toId);
+
+      if (!fromSnapshot || !toSnapshot) {
+        throw new Error(`Snapshot not found: ${!fromSnapshot ? fromId : toId}`);
+      }
+
+      // Get functions for both snapshots
+      const fromFunctions = await this.getFunctionsBySnapshot(fromId);
+      const toFunctions = await this.getFunctionsBySnapshot(toId);
+
+      // Create lookup maps for efficient comparison
+      const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.signature, f]));
+      const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.signature, f]));
+
+      // Calculate differences
+      const added: any[] = [];
+      const removed: any[] = [];
+      const modified: any[] = [];
+      const unchanged: any[] = [];
+
+      // Find added and modified functions
+      for (const toFunc of toFunctions) {
+        const fromFunc: FunctionInfo | undefined = fromMap.get(toFunc.signature);
+        if (!fromFunc) {
+          added.push(toFunc);
+        } else if (fromFunc.astHash !== toFunc.astHash) {
+          modified.push({
+            before: fromFunc,
+            after: toFunc,
+            changes: this.calculateFunctionChanges(fromFunc, toFunc)
+          });
+        } else {
+          unchanged.push(toFunc);
+        }
+      }
+
+      // Find removed functions
+      for (const fromFunc of fromFunctions) {
+        if (!toMap.has(fromFunc.signature)) {
+          removed.push(fromFunc);
+        }
+      }
+
+      // Calculate statistics
+      const statistics = this.calculateDiffStatistics(fromFunctions, toFunctions, added, removed, modified);
+
+      return {
+        from: fromSnapshot,
+        to: toSnapshot,
+        added,
+        removed,
+        modified,
+        unchanged,
+        statistics
+      };
+    } catch (error) {
+      throw new Error(`Failed to diff snapshots: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private calculateFunctionChanges(fromFunc: any, toFunc: any): any[] {
+    const changes: any[] = [];
+
+    // Compare metrics if both have them
+    if (fromFunc.metrics && toFunc.metrics) {
+      const metrics = ['cyclomaticComplexity', 'linesOfCode', 'cognitiveComplexity', 'parameterCount'];
+      for (const metric of metrics) {
+        if (fromFunc.metrics[metric] !== toFunc.metrics[metric]) {
+          changes.push({
+            field: metric,
+            oldValue: fromFunc.metrics[metric],
+            newValue: toFunc.metrics[metric],
+            impact: this.calculateChangeImpact(metric, fromFunc.metrics[metric], toFunc.metrics[metric])
+          });
+        }
+      }
+    }
+
+    // Compare basic properties
+    const basicProps = ['name', 'filePath', 'startLine', 'endLine'];
+    for (const prop of basicProps) {
+      if (fromFunc[prop] !== toFunc[prop]) {
+        changes.push({
+          field: prop,
+          oldValue: fromFunc[prop],
+          newValue: toFunc[prop],
+          impact: 'low'
+        });
+      }
+    }
+
+    return changes;
+  }
+
+  private calculateChangeImpact(metric: string, oldValue: number, newValue: number): 'low' | 'medium' | 'high' {
+    const diff = Math.abs(newValue - oldValue);
+    const relativeChange = diff / Math.max(oldValue, 1);
+
+    switch (metric) {
+      case 'cyclomaticComplexity':
+      case 'cognitiveComplexity':
+        if (diff >= 5 || relativeChange >= 0.5) return 'high';
+        if (diff >= 2 || relativeChange >= 0.2) return 'medium';
+        return 'low';
+      
+      case 'linesOfCode':
+        if (diff >= 50 || relativeChange >= 1.0) return 'high';
+        if (diff >= 20 || relativeChange >= 0.5) return 'medium';
+        return 'low';
+      
+      default:
+        if (relativeChange >= 0.5) return 'high';
+        if (relativeChange >= 0.2) return 'medium';
+        return 'low';
+    }
+  }
+
+  private calculateDiffStatistics(fromFunctions: any[], toFunctions: any[], added: any[], removed: any[], modified: any[]): any {
+    const fromMetrics = this.aggregateMetrics(fromFunctions);
+    const toMetrics = this.aggregateMetrics(toFunctions);
+
+    return {
+      addedCount: added.length,
+      removedCount: removed.length,
+      modifiedCount: modified.length,
+      unchangedCount: toFunctions.length - added.length - modified.length,
+      complexityChange: toMetrics.avgComplexity - fromMetrics.avgComplexity,
+      linesChange: toMetrics.totalLines - fromMetrics.totalLines
+    };
+  }
+
+  private aggregateMetrics(functions: any[]): { avgComplexity: number; totalLines: number } {
+    if (functions.length === 0) {
+      return { avgComplexity: 0, totalLines: 0 };
+    }
+
+    const totalComplexity = functions.reduce((sum, f) => 
+      sum + (f.metrics?.cyclomaticComplexity || 1), 0);
+    const totalLines = functions.reduce((sum, f) => 
+      sum + (f.metrics?.linesOfCode || 0), 0);
+
+    return {
+      avgComplexity: totalComplexity / functions.length,
+      totalLines
+    };
   }
 
   // ========================================

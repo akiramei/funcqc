@@ -52,9 +52,10 @@ export class SystemChecker {
 
   private checkMemoryAvailable(): boolean {
     try {
-      const freeMem = process.memoryUsage().heapTotal;
-      // Require at least 100MB available
-      return freeMem > 100 * 1024 * 1024;
+      const memUsage = process.memoryUsage();
+      const availableHeap = memUsage.heapTotal - memUsage.heapUsed;
+      // Require at least 100MB available heap space
+      return availableHeap > 100 * 1024 * 1024;
     } catch {
       return false;
     }

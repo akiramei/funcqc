@@ -3,12 +3,7 @@ export function complexFunction(input: any): string {
     if (input.length > 10) {
       for (let i = 0; i < input.length; i++) {
         if (input[i] === 'x') {
-          try {
-            return input.substring(0, i);
-          } catch (error) {
-            console.error(error);
-            return '';
-          }
+          return input.substring(0, i);
         }
       }
       return input.toUpperCase();

@@ -123,8 +123,8 @@ export class QualityScorer {
     const avgCommentRatio = commentRatios.reduce((a, b) => a + b, 0) / commentRatios.length;
     
     // Penalize low comment ratio
-    if (avgCommentRatio < 0.1) score -= 20;
-    else if (avgCommentRatio < 0.05) score -= 30;
+    if (avgCommentRatio < 0.05) score -= 30;
+    else if (avgCommentRatio < 0.1) score -= 20;
     
     // Check for very high parameter counts
     const highParamFunctions = functions.filter(f => (f.metrics?.parameterCount || 0) > 5).length;

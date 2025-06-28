@@ -203,7 +203,7 @@ async function displaySnapshotChanges(
   logger: Logger
 ): Promise<void> {
   try {
-    const diff = await storage.diffSnapshots();
+    const diff = await storage.diffSnapshots(_prevSnapshotId, _currentSnapshotId);
     const changes = diff.statistics.totalChanges;
     
     if (changes > 0) {

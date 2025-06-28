@@ -38,7 +38,7 @@ export async function diffCommand(
 
     // Calculate diff
     logger.info('Calculating differences...');
-    const diff = await storage.diffSnapshots();
+    const diff = await storage.diffSnapshots(fromId, toId);
 
     // Output results
     if (options.json) {
