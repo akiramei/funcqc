@@ -69,66 +69,122 @@ export class UrgencyAssessor {
       return this.createDefaultAssessment();
     }
 
+    const urgencyScore = this.calculateUrgencyScore(metrics);
+    const reasons = this.generateReasons(metrics);
+
+    return this.createAssessment(
+      urgencyScore.total,
+      metrics.cyclomaticComplexity,
+      metrics.maintainabilityIndex || 100,
+      metrics.linesOfCode,
+      metrics.parameterCount,
+      reasons
+    );
+  }
+
+  private calculateUrgencyScore(metrics: any): { total: number } {
     const complexity = metrics.cyclomaticComplexity;
     const maintainability = metrics.maintainabilityIndex || 100;
     const lines = metrics.linesOfCode;
     const params = metrics.parameterCount;
     const nesting = metrics.maxNestingLevel;
 
-    // Calculate urgency score based on multiple factors
-    let urgencyScore = 0;
+    let total = 0;
+    total += this.calculateComplexityScore(complexity);
+    total += this.calculateMaintainabilityScore(maintainability);
+    total += this.calculateSizeScore(lines);
+    total += this.calculateParameterScore(params);
+    total += this.calculateNestingScore(nesting);
+
+    return { total };
+  }
+
+  private generateReasons(metrics: any): string[] {
+    const complexity = metrics.cyclomaticComplexity;
+    const maintainability = metrics.maintainabilityIndex || 100;
+    const lines = metrics.linesOfCode;
+    const params = metrics.parameterCount;
+    const nesting = metrics.maxNestingLevel;
+
     const reasons: string[] = [];
 
-    // Complexity impact
-    const { COMPLEXITY_WEIGHTS } = UrgencyAssessor;
-    if (complexity > COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) {
-      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) * COMPLEXITY_WEIGHTS.CRITICAL_PENALTY;
+    if (complexity > UrgencyAssessor.COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) {
       reasons.push(`高複雑度 (CC=${complexity})`);
-    } else if (complexity > COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) {
-      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) * COMPLEXITY_WEIGHTS.HIGH_PENALTY;
+    } else if (complexity > UrgencyAssessor.COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) {
       reasons.push(`複雑度やや高 (CC=${complexity})`);
-    } else if (complexity > COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) {
-      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) * COMPLEXITY_WEIGHTS.MODERATE_PENALTY;
     }
 
-    // Maintainability impact
-    const { MAINTAINABILITY_THRESHOLDS } = UrgencyAssessor;
-    if (maintainability < MAINTAINABILITY_THRESHOLDS.POOR) {
-      urgencyScore += (MAINTAINABILITY_THRESHOLDS.POOR - maintainability) * MAINTAINABILITY_THRESHOLDS.POOR_PENALTY;
+    if (maintainability < UrgencyAssessor.MAINTAINABILITY_THRESHOLDS.POOR) {
       reasons.push(`保守性低 (MI=${maintainability.toFixed(1)})`);
-    } else if (maintainability < MAINTAINABILITY_THRESHOLDS.FAIR) {
-      urgencyScore += (MAINTAINABILITY_THRESHOLDS.FAIR - maintainability) * MAINTAINABILITY_THRESHOLDS.FAIR_PENALTY;
+    } else if (maintainability < UrgencyAssessor.MAINTAINABILITY_THRESHOLDS.FAIR) {
       reasons.push(`保守性やや低 (MI=${maintainability.toFixed(1)})`);
     }
 
-    // Size impact
+    if (lines > UrgencyAssessor.SIZE_THRESHOLDS.LARGE) {
+      reasons.push(`長大関数 (${lines}行)`);
+    }
+
+    if (params > UrgencyAssessor.PARAMETER_THRESHOLDS.TOO_MANY) {
+      reasons.push(`引数過多 (${params}個)`);
+    }
+
+    if (nesting > UrgencyAssessor.NESTING_THRESHOLDS.DEEP) {
+      reasons.push(`深いネスト (${nesting}階層)`);
+    }
+
+    return reasons;
+  }
+
+  private calculateComplexityScore(complexity: number): number {
+    const { COMPLEXITY_WEIGHTS } = UrgencyAssessor;
+    if (complexity > COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) {
+      return (complexity - COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) * COMPLEXITY_WEIGHTS.CRITICAL_PENALTY;
+    } else if (complexity > COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) {
+      return (complexity - COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) * COMPLEXITY_WEIGHTS.HIGH_PENALTY;
+    } else if (complexity > COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) {
+      return (complexity - COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) * COMPLEXITY_WEIGHTS.MODERATE_PENALTY;
+    }
+    return 0;
+  }
+
+  private calculateMaintainabilityScore(maintainability: number): number {
+    const { MAINTAINABILITY_THRESHOLDS } = UrgencyAssessor;
+    if (maintainability < MAINTAINABILITY_THRESHOLDS.POOR) {
+      return (MAINTAINABILITY_THRESHOLDS.POOR - maintainability) * MAINTAINABILITY_THRESHOLDS.POOR_PENALTY;
+    } else if (maintainability < MAINTAINABILITY_THRESHOLDS.FAIR) {
+      return (MAINTAINABILITY_THRESHOLDS.FAIR - maintainability) * MAINTAINABILITY_THRESHOLDS.FAIR_PENALTY;
+    }
+    return 0;
+  }
+
+  private calculateSizeScore(lines: number): number {
     const { SIZE_THRESHOLDS } = UrgencyAssessor;
     if (lines > SIZE_THRESHOLDS.LARGE) {
-      urgencyScore += (lines - SIZE_THRESHOLDS.LARGE) * SIZE_THRESHOLDS.LARGE_PENALTY;
-      reasons.push(`長大関数 (${lines}行)`);
+      return (lines - SIZE_THRESHOLDS.LARGE) * SIZE_THRESHOLDS.LARGE_PENALTY;
     } else if (lines > SIZE_THRESHOLDS.MEDIUM) {
-      urgencyScore += (lines - SIZE_THRESHOLDS.MEDIUM) * SIZE_THRESHOLDS.MEDIUM_PENALTY;
+      return (lines - SIZE_THRESHOLDS.MEDIUM) * SIZE_THRESHOLDS.MEDIUM_PENALTY;
     }
+    return 0;
+  }
 
-    // Parameter count impact
+  private calculateParameterScore(params: number): number {
     const { PARAMETER_THRESHOLDS } = UrgencyAssessor;
     if (params > PARAMETER_THRESHOLDS.TOO_MANY) {
-      urgencyScore += (params - PARAMETER_THRESHOLDS.TOO_MANY) * PARAMETER_THRESHOLDS.TOO_MANY_PENALTY;
-      reasons.push(`引数過多 (${params}個)`);
+      return (params - PARAMETER_THRESHOLDS.TOO_MANY) * PARAMETER_THRESHOLDS.TOO_MANY_PENALTY;
     } else if (params > PARAMETER_THRESHOLDS.MANY) {
-      urgencyScore += (params - PARAMETER_THRESHOLDS.MANY) * PARAMETER_THRESHOLDS.MANY_PENALTY;
+      return (params - PARAMETER_THRESHOLDS.MANY) * PARAMETER_THRESHOLDS.MANY_PENALTY;
     }
+    return 0;
+  }
 
-    // Nesting impact
+  private calculateNestingScore(nesting: number): number {
     const { NESTING_THRESHOLDS } = UrgencyAssessor;
     if (nesting > NESTING_THRESHOLDS.DEEP) {
-      urgencyScore += (nesting - NESTING_THRESHOLDS.DEEP) * NESTING_THRESHOLDS.DEEP_PENALTY;
-      reasons.push(`深いネスト (${nesting}階層)`);
+      return (nesting - NESTING_THRESHOLDS.DEEP) * NESTING_THRESHOLDS.DEEP_PENALTY;
     } else if (nesting > NESTING_THRESHOLDS.MODERATE) {
-      urgencyScore += (nesting - NESTING_THRESHOLDS.MODERATE) * NESTING_THRESHOLDS.MODERATE_PENALTY;
+      return (nesting - NESTING_THRESHOLDS.MODERATE) * NESTING_THRESHOLDS.MODERATE_PENALTY;
     }
-
-    return this.createAssessment(urgencyScore, complexity, maintainability, lines, params, reasons);
+    return 0;
   }
 
   private createDefaultAssessment(): UrgencyAssessment {
