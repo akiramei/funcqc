@@ -15,18 +15,18 @@ export async function statusCommand(options: StatusCommandOptions): Promise<void
     console.log();
     
     // Show configuration
-    showConfiguration(config, options.verbose);
+    showConfiguration(config, options.verbose || false);
     
     // Show database status
-    await showDatabaseStatus(config.storage.path!, options.verbose);
+    await showDatabaseStatus(config.storage.path!, options.verbose || false);
     
     // Show Git status if enabled
     if (config.git.enabled) {
-      await showGitStatus(options.verbose);
+      await showGitStatus(options.verbose || false);
     }
     
   } catch (error) {
-    console.error(chalk.red('Failed to get status:'), error.message);
+    console.error(chalk.red('Failed to get status:'), error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
 }
@@ -123,7 +123,7 @@ async function showDatabaseStatus(dbPath: string, verbose: boolean): Promise<voi
     await storage.close();
     
   } catch (error) {
-    console.log(chalk.red(`  Error: ${error.message}`));
+    console.log(chalk.red(`  Error: ${error instanceof Error ? error.message : String(error)}`));
   }
   
   console.log();

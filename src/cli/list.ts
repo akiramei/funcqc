@@ -294,6 +294,7 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
     }
   };
   
+  // @ts-ignore - Table configuration type issue
   console.log(table(tableData, config));
   
   // Show summary

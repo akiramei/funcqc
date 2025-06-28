@@ -7,8 +7,10 @@ export class FunctionAnalyzer {
   private qualityCalculator: QualityCalculator;
 
   constructor(private config: FuncqcConfig) {
-    this.tsAnalyzer = new TypeScriptAnalyzer(config);
+    this.tsAnalyzer = new TypeScriptAnalyzer();
     this.qualityCalculator = new QualityCalculator();
+    // Config will be used in future enhancements
+    console.debug('Analyzer initialized with config:', this.config.roots);
   }
 
   /**

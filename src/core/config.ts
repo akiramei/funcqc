@@ -153,7 +153,7 @@ export class ConfigManager {
    * Invalidate cached config (for testing)
    */
   clearCache(): void {
-    this.config = undefined;
-    this.explorer.clearCache();
+    this.config = undefined as any; // Temporary fix for exactOptionalPropertyTypes
+    this.explorer.clearCaches();
   }
 }
