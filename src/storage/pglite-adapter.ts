@@ -5,7 +5,6 @@ import {
   SnapshotInfo, 
   StorageAdapter, 
   QueryOptions, 
-  BackupOptions, 
   SnapshotMetadata
 } from '../types';
 
@@ -169,7 +168,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  async queryFunctions(_options?: QueryOptions): Promise<FunctionInfo[]> {
+  async queryFunctions(): Promise<FunctionInfo[]> {
     // For now, stub implementation - can be enhanced later
     throw new Error('queryFunctions not implemented yet');
   }
@@ -178,7 +177,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ANALYSIS OPERATIONS (FUTURE)
   // ========================================
 
-  async diffSnapshots(_fromId: string, _toId: string): Promise<any> {
+  async diffSnapshots(): Promise<any> {
     throw new Error('diffSnapshots not implemented yet');
   }
 
@@ -186,15 +185,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // MAINTENANCE OPERATIONS (FUTURE)
   // ========================================
 
-  async cleanup(_retentionDays: number): Promise<number> {
+  async cleanup(): Promise<number> {
     throw new Error('cleanup not implemented yet');
   }
 
-  async backup(_options: BackupOptions): Promise<string> {
+  async backup(): Promise<string> {
     throw new Error('backup not implemented yet');
   }
 
-  async restore(_backupData: string): Promise<void> {
+  async restore(): Promise<void> {
     throw new Error('restore not implemented yet');
   }
 

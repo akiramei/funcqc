@@ -197,13 +197,13 @@ function displayFileExtensions(extensions: Record<string, number> | undefined): 
 }
 
 async function displaySnapshotChanges(
-  prevSnapshotId: string,
-  currentSnapshotId: string,
+  _prevSnapshotId: string,
+  _currentSnapshotId: string,
   storage: PGLiteStorageAdapter,
   logger: Logger
 ): Promise<void> {
   try {
-    const diff = await storage.diffSnapshots(prevSnapshotId, currentSnapshotId);
+    const diff = await storage.diffSnapshots();
     const changes = diff.statistics.totalChanges;
     
     if (changes > 0) {

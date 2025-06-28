@@ -13,9 +13,15 @@ module.exports = {
     es2022: true
   },
   rules: {
-    '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    '@typescript-eslint/no-unused-vars': ['error', { 
+      argsIgnorePattern: '^_',
+      varsIgnorePattern: '^_'
+    }],
+    'no-case-declarations': 'error',
     'no-console': 'off',
     'prefer-const': 'error',
-    'no-var': 'error'
+    'no-var': 'error',
+    'no-unreachable': 'error',
+    'no-unused-vars': 'off' // TypeScript版を使用
   }
 };

@@ -142,13 +142,14 @@ export class QualityCalculator {
           complexity++;
           break;
         
-        case ts.SyntaxKind.BinaryExpression:
+        case ts.SyntaxKind.BinaryExpression: {
           const binExpr = node as ts.BinaryExpression;
           if (binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
               binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
             complexity++;
           }
           break;
+        }
       }
 
       ts.forEachChild(node, visit);
@@ -393,9 +394,6 @@ export class QualityCalculator {
           operators.add(op);
           totalOperators++;
         }
-      } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        operators.add('=');
-        totalOperators++;
       } else if (ts.isCallExpression(node)) {
         operators.add('()');
         totalOperators++;
@@ -448,8 +446,6 @@ export class QualityCalculator {
                    node.operator === ts.SyntaxKind.PlusToken ? '+' :
                    node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
         if (op) operators.add(op);
-      } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        operators.add('=');
       } else if (ts.isCallExpression(node)) {
         operators.add('()');
       } else if (ts.isPropertyAccessExpression(node)) {

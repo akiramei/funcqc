@@ -25,7 +25,7 @@ export async function listCommand(
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
-    const functions = await storage.queryFunctions(queryOptions);
+    const functions = await storage.queryFunctions();
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -198,7 +198,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   
   switch (format) {
     case 'json':
-      outputJSON(functions, options);
+      outputJSON(functions);
       break;
     case 'csv':
       outputCSV(functions, options);
@@ -209,7 +209,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   }
 }
 
-function outputJSON(functions: FunctionInfo[], _options: ListCommandOptions): void {
+function outputJSON(functions: FunctionInfo[]): void {
   const output = {
     meta: {
       total: functions.length,
@@ -366,12 +366,13 @@ function formatFieldValue(func: FunctionInfo, field: string): string {
       return value ? chalk.green('✓') : chalk.gray('✗');
     case 'async':
       return value ? chalk.blue('async') : '';
-    case 'complexity':
+    case 'complexity': {
       // Color code complexity
       const complexity = value as number;
       if (complexity > 10) return chalk.red(complexity.toString());
       if (complexity > 5) return chalk.yellow(complexity.toString());
       return chalk.green(complexity.toString());
+    }
     default:
       return value.toString();
   }

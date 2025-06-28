@@ -131,7 +131,7 @@ async function ensureDataDirectory(dbPath: string): Promise<void> {
   
   try {
     await fs.mkdir(dataDir, { recursive: true });
-  } catch (error) {
+  } catch {
     // Directory might already exist, ignore
   }
 }
