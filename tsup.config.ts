@@ -9,10 +9,7 @@ export default defineConfig([
     outDir: 'dist',
     clean: true,
     minify: false,
-    sourcemap: true,
-    banner: {
-      js: '#!/usr/bin/env node\n'
-    }
+    sourcemap: true
   },
   // Library build
   {

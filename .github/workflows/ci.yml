@@ -40,8 +40,8 @@ jobs:
       
     - name: Test CLI functionality
       run: |
-        node dist/cli.js --version
-        node dist/cli.js init --help
+        node bin/funcqc.js --version
+        node bin/funcqc.js init --help
 
   security:
     runs-on: ubuntu-latest

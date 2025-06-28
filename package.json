@@ -25,10 +25,11 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "funcqc": "./dist/cli.js"
+    "funcqc": "./bin/funcqc.js"
   },
   "files": [
     "dist",
+    "bin",
     "README.md",
     "LICENSE"
   ],
