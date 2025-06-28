@@ -113,6 +113,7 @@ describe('UrgencyAssessor', () => {
     const assessment = assessor.assessFunction(funcWithoutMetrics);
     
     expect(assessment.level).toBe('low');
+    expect(assessment.rank).toBe('E');
     expect(assessment.estimatedMinutes).toBe(0);
   });
 
@@ -124,5 +125,45 @@ describe('UrgencyAssessor', () => {
     expect(assessment.riskDescription).toContain('バグリスク');
     expect(assessment.improvementStrategy).toBeTruthy();
     expect(assessment.impact).toBeTruthy();
+  });
+
+  it('should generate Japanese text content correctly', () => {
+    const testCases = [
+      { complexity: 20, maintainability: 25, lines: 180, params: 8 },
+      { complexity: 12, maintainability: 60, lines: 80, params: 5 },
+      { complexity: 3, maintainability: 90, lines: 20, params: 2 }
+    ];
+
+    testCases.forEach(({ complexity, maintainability, lines, params }, index) => {
+      const func = createMockFunction(`test${index}`, complexity, maintainability, lines, params);
+      const assessment = assessor.assessFunction(func);
+
+      // Risk description validation
+      expect(assessment.riskDescription).toMatch(/理解に\d+分、バグリスク\d+%/);
+      
+      // Improvement strategy validation
+      expect(assessment.improvementStrategy).toMatch(/^[ァ-ヶー\u3040-\u309F\u4E00-\u9FAF、]+$/);
+      
+      // Impact description validation
+      expect(assessment.impact).toMatch(/[時間\/月の節約|保守性向上|技術債務削減]/);
+      
+      // Reasons should be Japanese text
+      assessment.reasons.forEach(reason => {
+        expect(reason).toMatch(/[\u3040-\u309F\u4E00-\u9FAF]/); // Contains Japanese characters
+      });
+    });
+  });
+
+  it('should handle boundary values safely', () => {
+    // Test extreme values that could cause calculation errors
+    const extremeFunc = createMockFunction('extreme', 1000, -50, 50000, 100);
+    const assessment = assessor.assessFunction(extremeFunc);
+    
+    // Should not crash and should return valid assessment
+    expect(assessment).toBeDefined();
+    expect(assessment.level).toMatch(/urgent|weekly|team|low/);
+    expect(assessment.rank).toMatch(/A|B|C|D|E/);
+    expect(assessment.estimatedMinutes).toBeGreaterThan(0);
+    expect(assessment.riskDescription).toBeTruthy();
   });
 });

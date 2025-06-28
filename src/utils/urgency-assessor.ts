@@ -2,7 +2,7 @@ import { FunctionInfo } from '../types';
 
 export interface UrgencyAssessment {
   level: 'urgent' | 'weekly' | 'team' | 'low';
-  rank: 'A' | 'B' | 'C' | 'D' | 'F';
+  rank: 'A' | 'B' | 'C' | 'D' | 'E';
   estimatedMinutes: number;
   riskDescription: string;
   improvementStrategy: string;
@@ -11,6 +11,58 @@ export interface UrgencyAssessment {
 }
 
 export class UrgencyAssessor {
+  // Scoring thresholds
+  private static readonly URGENCY_THRESHOLDS = {
+    URGENT: 60,
+    WEEKLY: 25,
+    TEAM: 10,
+    LOW: 5
+  };
+
+  // Complexity scoring
+  private static readonly COMPLEXITY_WEIGHTS = {
+    MODERATE_THRESHOLD: 5,
+    HIGH_THRESHOLD: 10,
+    CRITICAL_THRESHOLD: 15,
+    MODERATE_PENALTY: 2,
+    HIGH_PENALTY: 5,
+    CRITICAL_PENALTY: 10
+  };
+
+  // Maintainability scoring
+  private static readonly MAINTAINABILITY_THRESHOLDS = {
+    POOR: 30,
+    FAIR: 50,
+    POOR_PENALTY: 2,
+    FAIR_PENALTY: 1
+  };
+
+  // Size scoring
+  private static readonly SIZE_THRESHOLDS = {
+    MEDIUM: 50,
+    LARGE: 100,
+    HUGE: 200,
+    MEDIUM_PENALTY: 0.2,
+    LARGE_PENALTY: 0.5,
+    HUGE_PENALTY: 1
+  };
+
+  // Parameter scoring
+  private static readonly PARAMETER_THRESHOLDS = {
+    MANY: 4,
+    TOO_MANY: 6,
+    MANY_PENALTY: 2,
+    TOO_MANY_PENALTY: 5
+  };
+
+  // Nesting scoring
+  private static readonly NESTING_THRESHOLDS = {
+    MODERATE: 3,
+    DEEP: 4,
+    MODERATE_PENALTY: 3,
+    DEEP_PENALTY: 8
+  };
+
   assessFunction(func: FunctionInfo): UrgencyAssessment {
     const metrics = func.metrics;
     if (!metrics) {
@@ -28,47 +80,52 @@ export class UrgencyAssessor {
     const reasons: string[] = [];
 
     // Complexity impact
-    if (complexity > 15) {
-      urgencyScore += (complexity - 15) * 10;
+    const { COMPLEXITY_WEIGHTS } = UrgencyAssessor;
+    if (complexity > COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) {
+      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.CRITICAL_THRESHOLD) * COMPLEXITY_WEIGHTS.CRITICAL_PENALTY;
       reasons.push(`高複雑度 (CC=${complexity})`);
-    } else if (complexity > 10) {
-      urgencyScore += (complexity - 10) * 5;
+    } else if (complexity > COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) {
+      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) * COMPLEXITY_WEIGHTS.HIGH_PENALTY;
       reasons.push(`複雑度やや高 (CC=${complexity})`);
-    } else if (complexity > 5) {
-      urgencyScore += (complexity - 5) * 2;
+    } else if (complexity > COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) {
+      urgencyScore += (complexity - COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD) * COMPLEXITY_WEIGHTS.MODERATE_PENALTY;
     }
 
     // Maintainability impact
-    if (maintainability < 30) {
-      urgencyScore += (30 - maintainability) * 2;
+    const { MAINTAINABILITY_THRESHOLDS } = UrgencyAssessor;
+    if (maintainability < MAINTAINABILITY_THRESHOLDS.POOR) {
+      urgencyScore += (MAINTAINABILITY_THRESHOLDS.POOR - maintainability) * MAINTAINABILITY_THRESHOLDS.POOR_PENALTY;
       reasons.push(`保守性低 (MI=${maintainability.toFixed(1)})`);
-    } else if (maintainability < 50) {
-      urgencyScore += (50 - maintainability) * 1;
+    } else if (maintainability < MAINTAINABILITY_THRESHOLDS.FAIR) {
+      urgencyScore += (MAINTAINABILITY_THRESHOLDS.FAIR - maintainability) * MAINTAINABILITY_THRESHOLDS.FAIR_PENALTY;
       reasons.push(`保守性やや低 (MI=${maintainability.toFixed(1)})`);
     }
 
     // Size impact
-    if (lines > 100) {
-      urgencyScore += (lines - 100) * 0.5;
+    const { SIZE_THRESHOLDS } = UrgencyAssessor;
+    if (lines > SIZE_THRESHOLDS.LARGE) {
+      urgencyScore += (lines - SIZE_THRESHOLDS.LARGE) * SIZE_THRESHOLDS.LARGE_PENALTY;
       reasons.push(`長大関数 (${lines}行)`);
-    } else if (lines > 50) {
-      urgencyScore += (lines - 50) * 0.2;
+    } else if (lines > SIZE_THRESHOLDS.MEDIUM) {
+      urgencyScore += (lines - SIZE_THRESHOLDS.MEDIUM) * SIZE_THRESHOLDS.MEDIUM_PENALTY;
     }
 
     // Parameter count impact
-    if (params > 6) {
-      urgencyScore += (params - 6) * 5;
+    const { PARAMETER_THRESHOLDS } = UrgencyAssessor;
+    if (params > PARAMETER_THRESHOLDS.TOO_MANY) {
+      urgencyScore += (params - PARAMETER_THRESHOLDS.TOO_MANY) * PARAMETER_THRESHOLDS.TOO_MANY_PENALTY;
       reasons.push(`引数過多 (${params}個)`);
-    } else if (params > 4) {
-      urgencyScore += (params - 4) * 2;
+    } else if (params > PARAMETER_THRESHOLDS.MANY) {
+      urgencyScore += (params - PARAMETER_THRESHOLDS.MANY) * PARAMETER_THRESHOLDS.MANY_PENALTY;
     }
 
     // Nesting impact
-    if (nesting > 4) {
-      urgencyScore += (nesting - 4) * 8;
+    const { NESTING_THRESHOLDS } = UrgencyAssessor;
+    if (nesting > NESTING_THRESHOLDS.DEEP) {
+      urgencyScore += (nesting - NESTING_THRESHOLDS.DEEP) * NESTING_THRESHOLDS.DEEP_PENALTY;
       reasons.push(`深いネスト (${nesting}階層)`);
-    } else if (nesting > 3) {
-      urgencyScore += (nesting - 3) * 3;
+    } else if (nesting > NESTING_THRESHOLDS.MODERATE) {
+      urgencyScore += (nesting - NESTING_THRESHOLDS.MODERATE) * NESTING_THRESHOLDS.MODERATE_PENALTY;
     }
 
     return this.createAssessment(urgencyScore, complexity, maintainability, lines, params, reasons);
@@ -77,7 +134,7 @@ export class UrgencyAssessor {
   private createDefaultAssessment(): UrgencyAssessment {
     return {
       level: 'low',
-      rank: 'A',
+      rank: 'E', // メトリクスなし = 最も良い評価
       estimatedMinutes: 0,
       riskDescription: '問題なし',
       improvementStrategy: '対応不要',
@@ -99,25 +156,26 @@ export class UrgencyAssessor {
     let rank: UrgencyAssessment['rank'];
     let estimatedMinutes: number;
 
-    if (urgencyScore >= 60) {
+    const { URGENCY_THRESHOLDS } = UrgencyAssessor;
+    if (urgencyScore >= URGENCY_THRESHOLDS.URGENT) {
       level = 'urgent';
       rank = 'A';
       estimatedMinutes = Math.min(15, 5 + Math.floor(urgencyScore / 20));
-    } else if (urgencyScore >= 25) {
+    } else if (urgencyScore >= URGENCY_THRESHOLDS.WEEKLY) {
       level = 'weekly';
       rank = 'B';
       estimatedMinutes = Math.min(120, 20 + Math.floor(urgencyScore / 2));
-    } else if (urgencyScore >= 10) {
+    } else if (urgencyScore >= URGENCY_THRESHOLDS.TEAM) {
       level = 'team';
       rank = 'C';
       estimatedMinutes = Math.min(480, 60 + Math.floor(urgencyScore * 2));
-    } else if (urgencyScore >= 5) {
+    } else if (urgencyScore >= URGENCY_THRESHOLDS.LOW) {
       level = 'low';
       rank = 'D';
       estimatedMinutes = Math.min(240, 30 + Math.floor(urgencyScore * 3));
     } else {
       level = 'low';
-      rank = 'F';
+      rank = 'E'; // スコアが低い = 問題が少ない = より良い評価
       estimatedMinutes = Math.max(5, Math.floor(urgencyScore));
     }
 
@@ -138,25 +196,35 @@ export class UrgencyAssessor {
   }
 
   private generateRiskDescription(complexity: number, maintainability: number, lines: number): string {
-    const understandingTime = Math.max(1, Math.floor(complexity * 0.8 + lines * 0.1));
-    const bugRisk = Math.min(95, Math.max(5, 100 - maintainability + complexity * 2));
+    // Boundary value checks
+    const safeComplexity = Math.max(0, Math.min(100, complexity));
+    const safeMaintainability = Math.max(0, Math.min(100, maintainability));
+    const safeLines = Math.max(0, Math.min(10000, lines));
+    
+    const understandingTime = Math.max(1, Math.floor(safeComplexity * 0.8 + safeLines * 0.1));
+    const bugRisk = Math.min(95, Math.max(5, 100 - safeMaintainability + safeComplexity * 2));
     
     return `理解に${understandingTime}分、バグリスク${bugRisk}%`;
   }
 
   private generateImprovementStrategy(complexity: number, lines: number, params: number): string {
+    // Boundary value checks
+    const safeComplexity = Math.max(0, Math.min(100, complexity));
+    const safeLines = Math.max(0, Math.min(10000, lines));
+    const safeParams = Math.max(0, Math.min(20, params));
+    
     const strategies: string[] = [];
     
-    if (complexity > 10) {
+    if (safeComplexity > UrgencyAssessor.COMPLEXITY_WEIGHTS.HIGH_THRESHOLD) {
       strategies.push('条件分岐の整理');
     }
-    if (lines > 50) {
+    if (safeLines > UrgencyAssessor.SIZE_THRESHOLDS.MEDIUM) {
       strategies.push('関数分割');
     }
-    if (params > 4) {
+    if (safeParams > UrgencyAssessor.PARAMETER_THRESHOLDS.MANY) {
       strategies.push('オブジェクト引数化');
     }
-    if (complexity > 5 && lines > 30) {
+    if (safeComplexity > UrgencyAssessor.COMPLEXITY_WEIGHTS.MODERATE_THRESHOLD && safeLines > 30) {
       strategies.push('早期リターン');
     }
 
