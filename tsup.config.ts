@@ -11,7 +11,7 @@ export default defineConfig([
     minify: false,
     sourcemap: true,
     banner: {
-      js: '#!/usr/bin/env node'
+      js: '#!/usr/bin/env node\n'
     }
   },
   // Library build
