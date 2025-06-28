@@ -222,120 +222,146 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async saveSnapshot(functions: FunctionInfo[], label?: string): Promise<string> {
-    const snapshotId = `snap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const snapshotId = this.generateSnapshotId();
     
     return await this.kysely.transaction().execute(async (trx) => {
-      // Calculate snapshot metadata
-      const metadata = this.calculateSnapshotMetadata(functions);
-      
-      // Create snapshot
-      await trx
-        .insertInto('snapshots')
-        .values({
-          id: snapshotId,
-          label,
-          git_commit: await this.getGitCommit(),
-          git_branch: await this.getGitBranch(),
-          git_tag: await this.getGitTag(),
-          project_root: process.cwd(),
-          config_hash: 'todo', // TODO: Calculate config hash
-          metadata
-        })
-        .execute();
-
-      // Insert functions in batches
-      const batchSize = 100;
-      for (let i = 0; i < functions.length; i += batchSize) {
-        const batch = functions.slice(i, i + batchSize);
-        
-        // Insert functions
-        await trx
-          .insertInto('functions')
-          .values(batch.map(f => ({
-            id: f.id,
-            snapshot_id: snapshotId,
-            name: f.name,
-            display_name: f.displayName,
-            signature: f.signature,
-            signature_hash: f.signatureHash,
-            file_path: f.filePath,
-            file_hash: f.fileHash,
-            start_line: f.startLine,
-            end_line: f.endLine,
-            start_column: f.startColumn || 0,
-            end_column: f.endColumn || 0,
-            ast_hash: f.astHash,
-            is_exported: f.isExported,
-            is_async: f.isAsync,
-            is_generator: f.isGenerator || false,
-            is_arrow_function: f.isArrowFunction || false,
-            is_method: f.isMethod || false,
-            is_constructor: f.isConstructor || false,
-            is_static: f.isStatic || false,
-            access_modifier: f.accessModifier || null,
-            parent_class: f.parentClass || null,
-            parent_namespace: f.parentNamespace || null,
-            js_doc: f.jsDoc || null,
-            source_code: f.sourceCode || null
-          })))
-          .execute();
-
-        // Insert parameters
-        const paramInserts = batch.flatMap(f => 
-          f.parameters.map(p => ({
-            function_id: f.id,
-            name: p.name,
-            type: p.type,
-            type_simple: p.typeSimple || '',
-            position: p.position,
-            is_optional: p.isOptional,
-            is_rest: p.isRest || false,
-            default_value: p.defaultValue || null,
-            description: p.description || null
-          }))
-        );
-
-        if (paramInserts.length > 0) {
-          await trx
-            .insertInto('function_parameters')
-            .values(paramInserts)
-            .execute();
-        }
-
-        // Insert quality metrics
-        const metricsInserts = batch
-          .filter(f => f.metrics)
-          .map(f => ({
-            function_id: f.id,
-            lines_of_code: f.metrics!.linesOfCode,
-            total_lines: f.metrics!.totalLines || f.metrics!.linesOfCode,
-            cyclomatic_complexity: f.metrics!.cyclomaticComplexity,
-            cognitive_complexity: f.metrics!.cognitiveComplexity,
-            max_nesting_level: f.metrics!.maxNestingLevel,
-            parameter_count: f.metrics!.parameterCount,
-            return_statement_count: f.metrics!.returnStatementCount || 0,
-            branch_count: f.metrics!.branchCount || 0,
-            loop_count: f.metrics!.loopCount || 0,
-            try_catch_count: f.metrics!.tryCatchCount || 0,
-            async_await_count: f.metrics!.asyncAwaitCount || 0,
-            callback_count: f.metrics!.callbackCount || 0,
-            comment_lines: f.metrics!.commentLines || 0,
-            code_to_comment_ratio: f.metrics!.codeToCommentRatio || 0,
-            halstead_volume: f.metrics!.halsteadVolume || null,
-            halstead_difficulty: f.metrics!.halsteadDifficulty || null,
-            maintainability_index: f.metrics!.maintainabilityIndex || null
-          }));
-
-        if (metricsInserts.length > 0) {
-          await trx
-            .insertInto('quality_metrics')
-            .values(metricsInserts)
-            .execute();
-        }
-      }
-
+      await this.createSnapshotRecord(trx, snapshotId, functions, label);
+      await this.saveFunctionsBatch(trx, snapshotId, functions);
       return snapshotId;
     });
+  }
+
+  private generateSnapshotId(): string {
+    return `snap_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  private async createSnapshotRecord(
+    trx: any,
+    snapshotId: string,
+    functions: FunctionInfo[],
+    label?: string
+  ): Promise<void> {
+    const metadata = this.calculateSnapshotMetadata(functions);
+    
+    await trx
+      .insertInto('snapshots')
+      .values({
+        id: snapshotId,
+        label,
+        git_commit: await this.getGitCommit(),
+        git_branch: await this.getGitBranch(),
+        git_tag: await this.getGitTag(),
+        project_root: process.cwd(),
+        config_hash: 'todo',
+        metadata
+      })
+      .execute();
+  }
+
+  private async saveFunctionsBatch(
+    trx: any,
+    snapshotId: string,
+    functions: FunctionInfo[]
+  ): Promise<void> {
+    const batchSize = 100;
+    for (let i = 0; i < functions.length; i += batchSize) {
+      const batch = functions.slice(i, i + batchSize);
+      await this.insertFunctions(trx, snapshotId, batch);
+      await this.insertParameters(trx, batch);
+      await this.insertMetrics(trx, batch);
+    }
+  }
+
+  private async insertFunctions(
+    trx: any,
+    snapshotId: string,
+    functions: FunctionInfo[]
+  ): Promise<void> {
+    await trx
+      .insertInto('functions')
+      .values(functions.map(f => ({
+        id: f.id,
+        snapshot_id: snapshotId,
+        name: f.name,
+        display_name: f.displayName,
+        signature: f.signature,
+        signature_hash: f.signatureHash,
+        file_path: f.filePath,
+        file_hash: f.fileHash,
+        start_line: f.startLine,
+        end_line: f.endLine,
+        start_column: f.startColumn || 0,
+        end_column: f.endColumn || 0,
+        ast_hash: f.astHash,
+        is_exported: f.isExported,
+        is_async: f.isAsync,
+        is_generator: f.isGenerator || false,
+        is_arrow_function: f.isArrowFunction || false,
+        is_method: f.isMethod || false,
+        is_constructor: f.isConstructor || false,
+        is_static: f.isStatic || false,
+        access_modifier: f.accessModifier || null,
+        parent_class: f.parentClass || null,
+        parent_namespace: f.parentNamespace || null,
+        js_doc: f.jsDoc || null,
+        source_code: f.sourceCode || null
+      })))
+      .execute();
+  }
+
+  private async insertParameters(trx: any, functions: FunctionInfo[]): Promise<void> {
+    const paramInserts = functions.flatMap(f => 
+      f.parameters.map(p => ({
+        function_id: f.id,
+        name: p.name,
+        type: p.type,
+        type_simple: p.typeSimple || '',
+        position: p.position,
+        is_optional: p.isOptional,
+        is_rest: p.isRest || false,
+        default_value: p.defaultValue || null,
+        description: p.description || null
+      }))
+    );
+
+    if (paramInserts.length > 0) {
+      await trx
+        .insertInto('function_parameters')
+        .values(paramInserts)
+        .execute();
+    }
+  }
+
+  private async insertMetrics(trx: any, functions: FunctionInfo[]): Promise<void> {
+    const metricsInserts = functions
+      .filter(f => f.metrics)
+      .map(f => ({
+        function_id: f.id,
+        lines_of_code: f.metrics!.linesOfCode,
+        total_lines: f.metrics!.totalLines || f.metrics!.linesOfCode,
+        cyclomatic_complexity: f.metrics!.cyclomaticComplexity,
+        cognitive_complexity: f.metrics!.cognitiveComplexity,
+        max_nesting_level: f.metrics!.maxNestingLevel,
+        parameter_count: f.metrics!.parameterCount,
+        return_statement_count: f.metrics!.returnStatementCount || 0,
+        branch_count: f.metrics!.branchCount || 0,
+        loop_count: f.metrics!.loopCount || 0,
+        try_catch_count: f.metrics!.tryCatchCount || 0,
+        async_await_count: f.metrics!.asyncAwaitCount || 0,
+        callback_count: f.metrics!.callbackCount || 0,
+        comment_lines: f.metrics!.commentLines || 0,
+        code_to_comment_ratio: f.metrics!.codeToCommentRatio || 0,
+        halstead_volume: f.metrics!.halsteadVolume || null,
+        halstead_difficulty: f.metrics!.halsteadDifficulty || null,
+        maintainability_index: f.metrics!.maintainabilityIndex || null
+      }));
+
+    if (metricsInserts.length > 0) {
+      await trx
+        .insertInto('quality_metrics')
+        .values(metricsInserts)
+        .execute();
+    }
   }
 
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
@@ -704,93 +730,102 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     for (let i = 0; i < functions.length; i += batchSize) {
       const batch = functions.slice(i, i + batchSize);
-      
-      // Insert functions
+      await this.insertFunctionsWithConflictHandling(snapshotId, batch);
+      await this.insertParametersDirectly(batch);
+      await this.insertMetricsDirectly(batch);
+    }
+  }
+
+  private async insertFunctionsWithConflictHandling(
+    snapshotId: string,
+    functions: FunctionInfo[]
+  ): Promise<void> {
+    await this.kysely
+      .insertInto('functions')
+      .values(functions.map(f => ({
+        id: f.id,
+        snapshot_id: snapshotId,
+        name: f.name,
+        display_name: f.displayName,
+        signature: f.signature,
+        signature_hash: f.signatureHash,
+        file_path: f.filePath,
+        file_hash: f.fileHash,
+        start_line: f.startLine,
+        end_line: f.endLine,
+        start_column: f.startColumn || 0,
+        end_column: f.endColumn || 0,
+        ast_hash: f.astHash,
+        is_exported: f.isExported,
+        is_async: f.isAsync,
+        is_generator: f.isGenerator || false,
+        is_arrow_function: f.isArrowFunction || false,
+        is_method: f.isMethod || false,
+        is_constructor: f.isConstructor || false,
+        is_static: f.isStatic || false,
+        access_modifier: f.accessModifier || null,
+        parent_class: f.parentClass || null,
+        parent_namespace: f.parentNamespace || null,
+        js_doc: f.jsDoc || null,
+        source_code: f.sourceCode || null
+      })))
+      .onConflict('id')
+      .doNothing()
+      .execute();
+  }
+
+  private async insertParametersDirectly(functions: FunctionInfo[]): Promise<void> {
+    const paramInserts = functions.flatMap(f => 
+      f.parameters.map(p => ({
+        function_id: f.id,
+        name: p.name,
+        type: p.type,
+        type_simple: p.typeSimple || '',
+        position: p.position,
+        is_optional: p.isOptional,
+        is_rest: p.isRest || false,
+        default_value: p.defaultValue || null,
+        description: p.description || null
+      }))
+    );
+
+    if (paramInserts.length > 0) {
       await this.kysely
-        .insertInto('functions')
-        .values(batch.map(f => ({
-          id: f.id,
-          snapshot_id: snapshotId,
-          name: f.name,
-          display_name: f.displayName,
-          signature: f.signature,
-          signature_hash: f.signatureHash,
-          file_path: f.filePath,
-          file_hash: f.fileHash,
-          start_line: f.startLine,
-          end_line: f.endLine,
-          start_column: f.startColumn || 0,
-          end_column: f.endColumn || 0,
-          ast_hash: f.astHash,
-          is_exported: f.isExported,
-          is_async: f.isAsync,
-          is_generator: f.isGenerator || false,
-          is_arrow_function: f.isArrowFunction || false,
-          is_method: f.isMethod || false,
-          is_constructor: f.isConstructor || false,
-          is_static: f.isStatic || false,
-          access_modifier: f.accessModifier || null,
-          parent_class: f.parentClass || null,
-          parent_namespace: f.parentNamespace || null,
-          js_doc: f.jsDoc || null,
-          source_code: f.sourceCode || null
-        })))
-        .onConflict('id')
-        .doNothing()
+        .insertInto('function_parameters')
+        .values(paramInserts as any)
         .execute();
+    }
+  }
 
-      // Insert parameters
-      const paramInserts = batch.flatMap(f => 
-        f.parameters.map(p => ({
-          function_id: f.id,
-          name: p.name,
-          type: p.type,
-          type_simple: p.typeSimple || '',
-          position: p.position,
-          is_optional: p.isOptional,
-          is_rest: p.isRest || false,
-          default_value: p.defaultValue || null,
-          description: p.description || null
-        }))
-      );
+  private async insertMetricsDirectly(functions: FunctionInfo[]): Promise<void> {
+    const metricsInserts = functions
+      .filter(f => f.metrics)
+      .map(f => ({
+        function_id: f.id,
+        lines_of_code: f.metrics!.linesOfCode,
+        total_lines: f.metrics!.totalLines || f.metrics!.linesOfCode,
+        cyclomatic_complexity: f.metrics!.cyclomaticComplexity,
+        cognitive_complexity: f.metrics!.cognitiveComplexity,
+        max_nesting_level: f.metrics!.maxNestingLevel,
+        parameter_count: f.metrics!.parameterCount,
+        return_statement_count: f.metrics!.returnStatementCount || 0,
+        branch_count: f.metrics!.branchCount || 0,
+        loop_count: f.metrics!.loopCount || 0,
+        try_catch_count: f.metrics!.tryCatchCount || 0,
+        async_await_count: f.metrics!.asyncAwaitCount || 0,
+        callback_count: f.metrics!.callbackCount || 0,
+        comment_lines: f.metrics!.commentLines || 0,
+        code_to_comment_ratio: f.metrics!.codeToCommentRatio || 0,
+        halstead_volume: f.metrics!.halsteadVolume || null,
+        halstead_difficulty: f.metrics!.halsteadDifficulty || null,
+        maintainability_index: f.metrics!.maintainabilityIndex || null
+      }));
 
-      if (paramInserts.length > 0) {
-        await this.kysely
-          .insertInto('function_parameters')
-          .values(paramInserts as any)
-          .execute();
-      }
-
-      // Insert quality metrics
-      const metricsInserts = batch
-        .filter(f => f.metrics)
-        .map(f => ({
-          function_id: f.id,
-          lines_of_code: f.metrics!.linesOfCode,
-          total_lines: f.metrics!.totalLines || f.metrics!.linesOfCode,
-          cyclomatic_complexity: f.metrics!.cyclomaticComplexity,
-          cognitive_complexity: f.metrics!.cognitiveComplexity,
-          max_nesting_level: f.metrics!.maxNestingLevel,
-          parameter_count: f.metrics!.parameterCount,
-          return_statement_count: f.metrics!.returnStatementCount || 0,
-          branch_count: f.metrics!.branchCount || 0,
-          loop_count: f.metrics!.loopCount || 0,
-          try_catch_count: f.metrics!.tryCatchCount || 0,
-          async_await_count: f.metrics!.asyncAwaitCount || 0,
-          callback_count: f.metrics!.callbackCount || 0,
-          comment_lines: f.metrics!.commentLines || 0,
-          code_to_comment_ratio: f.metrics!.codeToCommentRatio || 0,
-          halstead_volume: f.metrics!.halsteadVolume || null,
-          halstead_difficulty: f.metrics!.halsteadDifficulty || null,
-          maintainability_index: f.metrics!.maintainabilityIndex || null
-        }));
-
-      if (metricsInserts.length > 0) {
-        await this.kysely
-          .insertInto('quality_metrics')
-          .values(metricsInserts as any)
-          .execute();
-      }
+    if (metricsInserts.length > 0) {
+      await this.kysely
+        .insertInto('quality_metrics')
+        .values(metricsInserts as any)
+        .execute();
     }
   }
 
@@ -962,80 +997,70 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private analyzeChanges(before: FunctionInfo, after: FunctionInfo): ChangeDetail[] {
     const changes: ChangeDetail[] = [];
 
-    // Check signature changes
-    if (before.signature !== after.signature) {
-      changes.push({
-        field: 'signature',
-        oldValue: before.signature,
-        newValue: after.signature,
-        impact: 'high'
-      });
-    }
-
-    // Check complexity changes
-    if (before.metrics && after.metrics) {
-      const complexityDiff = after.metrics.cyclomaticComplexity - before.metrics.cyclomaticComplexity;
-      if (complexityDiff !== 0) {
-        changes.push({
-          field: 'cyclomaticComplexity',
-          oldValue: before.metrics.cyclomaticComplexity,
-          newValue: after.metrics.cyclomaticComplexity,
-          impact: Math.abs(complexityDiff) > 2 ? 'high' : complexityDiff > 0 ? 'medium' : 'low'
-        });
-      }
-
-      const linesDiff = after.metrics.linesOfCode - before.metrics.linesOfCode;
-      if (linesDiff !== 0) {
-        changes.push({
-          field: 'linesOfCode',
-          oldValue: before.metrics.linesOfCode,
-          newValue: after.metrics.linesOfCode,
-          impact: Math.abs(linesDiff) > 20 ? 'high' : Math.abs(linesDiff) > 5 ? 'medium' : 'low'
-        });
-      }
-
-      const paramDiff = after.metrics.parameterCount - before.metrics.parameterCount;
-      if (paramDiff !== 0) {
-        changes.push({
-          field: 'parameterCount',
-          oldValue: before.metrics.parameterCount,
-          newValue: after.metrics.parameterCount,
-          impact: 'medium'
-        });
-      }
-    }
-
-    // Check access modifier changes
-    if (before.accessModifier !== after.accessModifier) {
-      changes.push({
-        field: 'accessModifier',
-        oldValue: before.accessModifier || 'public',
-        newValue: after.accessModifier || 'public',
-        impact: 'medium'
-      });
-    }
-
-    // Check async changes
-    if (before.isAsync !== after.isAsync) {
-      changes.push({
-        field: 'isAsync',
-        oldValue: before.isAsync,
-        newValue: after.isAsync,
-        impact: 'high'
-      });
-    }
-
-    // Check export status changes
-    if (before.isExported !== after.isExported) {
-      changes.push({
-        field: 'isExported',
-        oldValue: before.isExported,
-        newValue: after.isExported,
-        impact: 'high'
-      });
-    }
+    // Check scalar field changes
+    this.addScalarFieldChanges(before, after, changes);
+    
+    // Check metric changes
+    this.addMetricChanges(before, after, changes);
 
     return changes;
+  }
+
+  private addScalarFieldChanges(before: FunctionInfo, after: FunctionInfo, changes: ChangeDetail[]): void {
+    const fieldChecks = [
+      { field: 'signature', oldValue: before.signature, newValue: after.signature, impact: 'high' as const },
+      { field: 'accessModifier', oldValue: before.accessModifier || 'public', newValue: after.accessModifier || 'public', impact: 'medium' as const },
+      { field: 'isAsync', oldValue: before.isAsync, newValue: after.isAsync, impact: 'high' as const },
+      { field: 'isExported', oldValue: before.isExported, newValue: after.isExported, impact: 'high' as const }
+    ];
+
+    for (const check of fieldChecks) {
+      if (check.oldValue !== check.newValue) {
+        changes.push({
+          field: check.field,
+          oldValue: check.oldValue,
+          newValue: check.newValue,
+          impact: check.impact
+        });
+      }
+    }
+  }
+
+  private addMetricChanges(before: FunctionInfo, after: FunctionInfo, changes: ChangeDetail[]): void {
+    if (!before.metrics || !after.metrics) return;
+
+    const metricChecks = [
+      {
+        field: 'cyclomaticComplexity',
+        oldValue: before.metrics.cyclomaticComplexity,
+        newValue: after.metrics.cyclomaticComplexity,
+        getImpact: (diff: number) => Math.abs(diff) > 2 ? 'high' as const : diff > 0 ? 'medium' as const : 'low' as const
+      },
+      {
+        field: 'linesOfCode',
+        oldValue: before.metrics.linesOfCode,
+        newValue: after.metrics.linesOfCode,
+        getImpact: (diff: number) => Math.abs(diff) > 20 ? 'high' as const : Math.abs(diff) > 5 ? 'medium' as const : 'low' as const
+      },
+      {
+        field: 'parameterCount',
+        oldValue: before.metrics.parameterCount,
+        newValue: after.metrics.parameterCount,
+        getImpact: () => 'medium' as const
+      }
+    ];
+
+    for (const check of metricChecks) {
+      const diff = check.newValue - check.oldValue;
+      if (diff !== 0) {
+        changes.push({
+          field: check.field,
+          oldValue: check.oldValue,
+          newValue: check.newValue,
+          impact: check.getImpact(diff)
+        });
+      }
+    }
   }
 
   private calculateDiffStatistics(

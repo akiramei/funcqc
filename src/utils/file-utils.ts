@@ -284,62 +284,66 @@ export function parseNumericCondition(condition: string): {
   condition = condition.trim();
 
   // Range: "5..10"
-  if (condition.includes('..')) {
-    const [min, max] = condition.split('..').map(Number);
-    if (!isNaN(min) && !isNaN(max)) {
-      return { operator: 'BETWEEN', value: [min, max] };
-    }
-  }
+  const rangeResult = parseRangeCondition(condition);
+  if (rangeResult) return rangeResult;
 
   // Multiple values: "1,2,3"
-  if (condition.includes(',')) {
-    const values = condition.split(',').map(Number).filter(n => !isNaN(n));
-    if (values.length > 0) {
-      return { operator: 'IN', value: values };
-    }
-  }
+  const inResult = parseInCondition(condition);
+  if (inResult) return inResult;
 
   // Comparison operators
-  if (condition.startsWith('>=')) {
-    const value = Number(condition.slice(2));
-    if (!isNaN(value)) {
-      return { operator: '>=', value };
-    }
-  }
-
-  if (condition.startsWith('<=')) {
-    const value = Number(condition.slice(2));
-    if (!isNaN(value)) {
-      return { operator: '<=', value };
-    }
-  }
-
-  if (condition.startsWith('!=') || condition.startsWith('<>')) {
-    const value = Number(condition.slice(2));
-    if (!isNaN(value)) {
-      return { operator: '!=', value };
-    }
-  }
-
-  if (condition.startsWith('>')) {
-    const value = Number(condition.slice(1));
-    if (!isNaN(value)) {
-      return { operator: '>', value };
-    }
-  }
-
-  if (condition.startsWith('<')) {
-    const value = Number(condition.slice(1));
-    if (!isNaN(value)) {
-      return { operator: '<', value };
-    }
-  }
+  const comparisonResult = parseComparisonCondition(condition);
+  if (comparisonResult) return comparisonResult;
 
   // Exact match
+  return parseExactCondition(condition);
+}
+
+function parseRangeCondition(condition: string) {
+  if (!condition.includes('..')) return null;
+  
+  const [min, max] = condition.split('..').map(Number);
+  if (!isNaN(min) && !isNaN(max)) {
+    return { operator: 'BETWEEN' as const, value: [min, max] };
+  }
+  return null;
+}
+
+function parseInCondition(condition: string) {
+  if (!condition.includes(',')) return null;
+  
+  const values = condition.split(',').map(Number).filter(n => !isNaN(n));
+  if (values.length > 0) {
+    return { operator: 'IN' as const, value: values };
+  }
+  return null;
+}
+
+function parseComparisonCondition(condition: string) {
+  const operators = [
+    { prefix: '>=', operator: '>=' as const, length: 2 },
+    { prefix: '<=', operator: '<=' as const, length: 2 },
+    { prefix: '!=', operator: '!=' as const, length: 2 },
+    { prefix: '<>', operator: '!=' as const, length: 2 },
+    { prefix: '>', operator: '>' as const, length: 1 },
+    { prefix: '<', operator: '<' as const, length: 1 }
+  ];
+
+  for (const { prefix, operator, length } of operators) {
+    if (condition.startsWith(prefix)) {
+      const value = Number(condition.slice(length));
+      if (!isNaN(value)) {
+        return { operator, value };
+      }
+    }
+  }
+  return null;
+}
+
+function parseExactCondition(condition: string) {
   const value = Number(condition);
   if (!isNaN(value)) {
-    return { operator: '=', value };
+    return { operator: '=' as const, value };
   }
-
   return null;
 }

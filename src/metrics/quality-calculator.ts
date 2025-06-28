@@ -151,69 +151,65 @@ export class QualityCalculator {
     let nestingLevel = 0;
 
     const visit = (node: ts.Node, isNested: boolean = false) => {
-      let localIncrement = 0;
-      let incrementsNesting = false;
-
-      switch (node.kind) {
-        case ts.SyntaxKind.IfStatement:
-          localIncrement = 1;
-          incrementsNesting = true;
-          break;
-        
-        case ts.SyntaxKind.SwitchStatement:
-          localIncrement = 1;
-          incrementsNesting = true;
-          break;
-        
-        case ts.SyntaxKind.ForStatement:
-        case ts.SyntaxKind.ForInStatement:
-        case ts.SyntaxKind.ForOfStatement:
-        case ts.SyntaxKind.WhileStatement:
-        case ts.SyntaxKind.DoStatement:
-          localIncrement = 1;
-          incrementsNesting = true;
-          break;
-        
-        case ts.SyntaxKind.CatchClause:
-          localIncrement = 1;
-          incrementsNesting = true;
-          break;
-        
-        case ts.SyntaxKind.ConditionalExpression:
-          localIncrement = 1;
-          break;
-        
-        case ts.SyntaxKind.BinaryExpression:
-          const binExpr = node as ts.BinaryExpression;
-          if (binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-              binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-            localIncrement = 1;
-          }
-          break;
-      }
-
+      const complexityInfo = this.getCognitiveComplexityInfo(node);
+      
       // Add nesting bonus
+      let localIncrement = complexityInfo.increment;
       if (isNested && localIncrement > 0) {
         localIncrement += nestingLevel;
       }
 
       complexity += localIncrement;
 
-      // Increase nesting level for children
-      if (incrementsNesting) {
+      // Manage nesting level
+      if (complexityInfo.incrementsNesting) {
         nestingLevel++;
       }
 
       ts.forEachChild(node, child => visit(child, true));
 
-      // Decrease nesting level
-      if (incrementsNesting) {
+      if (complexityInfo.incrementsNesting) {
         nestingLevel--;
       }
     };
 
     visit(node);
     return complexity;
+  }
+
+  private getCognitiveComplexityInfo(node: ts.Node): { increment: number; incrementsNesting: boolean } {
+    const controlFlowNodes = [
+      ts.SyntaxKind.IfStatement,
+      ts.SyntaxKind.SwitchStatement,
+      ts.SyntaxKind.CatchClause
+    ];
+
+    const loopNodes = [
+      ts.SyntaxKind.ForStatement,
+      ts.SyntaxKind.ForInStatement,
+      ts.SyntaxKind.ForOfStatement,
+      ts.SyntaxKind.WhileStatement,
+      ts.SyntaxKind.DoStatement
+    ];
+
+    if (controlFlowNodes.includes(node.kind) || loopNodes.includes(node.kind)) {
+      return { increment: 1, incrementsNesting: true };
+    }
+
+    if (node.kind === ts.SyntaxKind.ConditionalExpression) {
+      return { increment: 1, incrementsNesting: false };
+    }
+
+    if (node.kind === ts.SyntaxKind.BinaryExpression) {
+      const binExpr = node as ts.BinaryExpression;
+      const isLogicalOperator = 
+        binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken;
+      
+      return { increment: isLogicalOperator ? 1 : 0, incrementsNesting: false };
+    }
+
+    return { increment: 0, incrementsNesting: false };
   }
 
   private calculateMaxNestingLevel(node: ts.FunctionLikeDeclaration): number {
