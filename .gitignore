@@ -57,7 +57,7 @@ tmp/
 *.temp
 
 # Lock files (keep yarn.lock if using yarn)
-package-lock.json
+# package-lock.json  # Commented out - needed for GitHub Actions
 
 # Claude
 .claude/
