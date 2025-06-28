@@ -1,5 +1,6 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { minimatch } from 'minimatch';
 
 /**
  * Check if a file exists
@@ -81,27 +82,12 @@ export function shouldExclude(filePath: string, patterns: string[]): boolean {
   const normalizedPath = filePath.replace(/\\/g, '/');
 
   for (const pattern of patterns) {
-    if (matchPattern(normalizedPath, pattern)) {
+    if (minimatch(normalizedPath, pattern)) {
       return true;
     }
   }
 
   return false;
-}
-
-/**
- * Simple glob pattern matching
- */
-function matchPattern(text: string, pattern: string): boolean {
-  // Convert glob pattern to regex
-  const regexPattern = pattern
-    .replace(/\*\*/g, '___DOUBLESTAR___')
-    .replace(/\*/g, '[^/]*')
-    .replace(/___DOUBLESTAR___/g, '.*')
-    .replace(/\?/g, '[^/]');
-
-  const regex = new RegExp(`^${regexPattern}$`);
-  return regex.test(text);
 }
 
 /**

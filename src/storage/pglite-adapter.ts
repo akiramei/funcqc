@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { Kysely, PostgresDialect, sql } from 'kysely';
+import simpleGit, { SimpleGit } from 'simple-git';
 import { FunctionInfo, SnapshotInfo, StorageAdapter, QueryOptions, QueryFilter, SnapshotDiff, BackupOptions, FunctionChange, ChangeDetail, DiffStatistics } from '../types';
 
 interface DatabaseSchema {
@@ -1129,8 +1130,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private async getGitCommit(): Promise<string | null> {
     try {
-      const { execSync } = require('child_process');
-      return execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+      const git: SimpleGit = simpleGit();
+      const isRepo = await git.checkIsRepo();
+      if (!isRepo) return null;
+      
+      return await git.revparse(['HEAD']);
     } catch {
       return null;
     }
@@ -1138,8 +1142,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private async getGitBranch(): Promise<string | null> {
     try {
-      const { execSync } = require('child_process');
-      return execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+      const git: SimpleGit = simpleGit();
+      const isRepo = await git.checkIsRepo();
+      if (!isRepo) return null;
+      
+      return await git.revparse(['--abbrev-ref', 'HEAD']);
     } catch {
       return null;
     }
@@ -1147,8 +1154,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private async getGitTag(): Promise<string | null> {
     try {
-      const { execSync } = require('child_process');
-      return execSync('git describe --tags --exact-match HEAD', { encoding: 'utf8' }).trim();
+      const git: SimpleGit = simpleGit();
+      const isRepo = await git.checkIsRepo();
+      if (!isRepo) return null;
+      
+      const tags = await git.tags(['--points-at', 'HEAD']);
+      return tags.latest || null;
     } catch {
       return null;
     }

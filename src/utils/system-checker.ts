@@ -38,6 +38,7 @@ export class SystemChecker {
 
   private checkGitAvailable(): boolean {
     try {
+      // Try to get git version to check if git is available
       execSync('git --version', { stdio: 'ignore' });
       return true;
     } catch {

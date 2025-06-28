@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import simpleGit, { SimpleGit } from 'simple-git';
 import { StatusCommandOptions } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
@@ -132,51 +133,60 @@ async function showGitStatus(verbose: boolean): Promise<void> {
   console.log(chalk.yellow('🔧 Git Status'));
   console.log('─'.repeat(30));
   
+  const git: SimpleGit = simpleGit();
+  
   try {
-    const { execSync } = require('child_process');
+    // Check if we're in a git repository
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
+      console.log(chalk.gray('  Not a git repository'));
+      console.log();
+      return;
+    }
     
     // Current branch
-    const branch = execSync('git rev-parse --abbrev-ref HEAD', { encoding: 'utf8' }).trim();
+    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
     console.log(`  Current branch: ${branch}`);
     
     // Latest commit
-    const commit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
+    const commit = await git.revparse(['HEAD']);
     console.log(`  Latest commit: ${commit.slice(0, 8)}`);
     
     // Commit message
-    const message = execSync('git log -1 --pretty=%s', { encoding: 'utf8' }).trim();
-    console.log(`  Message: ${message}`);
+    const log = await git.log(['-1']);
+    const latestCommit = log.latest;
+    if (latestCommit) {
+      console.log(`  Message: ${latestCommit.message}`);
+    }
     
     if (verbose) {
       // Working directory status
-      try {
-        const status = execSync('git status --porcelain', { encoding: 'utf8' }).trim();
-        if (status) {
-          console.log('  Working directory:');
-          status.split('\n').slice(0, 5).forEach(line => {
-            console.log(`    ${line}`);
-          });
-        } else {
-          console.log('  Working directory: clean');
+      const status = await git.status();
+      if (status.files.length > 0) {
+        console.log('  Working directory:');
+        status.files.slice(0, 5).forEach(file => {
+          const statusChar = file.working_dir || file.index || '?';
+          console.log(`    ${statusChar} ${file.path}`);
+        });
+        if (status.files.length > 5) {
+          console.log(`    ... and ${status.files.length - 5} more files`);
         }
-      } catch {
-        console.log('  Working directory: unknown');
+      } else {
+        console.log('  Working directory: clean');
       }
       
       // Recent commits
-      try {
-        const commits = execSync('git log --oneline -5', { encoding: 'utf8' }).trim();
+      const recentLog = await git.log(['-5']);
+      if (recentLog.all.length > 0) {
         console.log('  Recent commits:');
-        commits.split('\n').forEach(commit => {
-          console.log(`    ${commit}`);
+        recentLog.all.forEach(commit => {
+          console.log(`    ${commit.hash.slice(0, 8)} ${commit.message}`);
         });
-      } catch {
-        // Ignore
       }
     }
     
   } catch (error) {
-    console.log(chalk.gray('  Not a git repository or git not available'));
+    console.log(chalk.gray('  Git operation failed:'), error instanceof Error ? error.message : String(error));
   }
   
   console.log();
