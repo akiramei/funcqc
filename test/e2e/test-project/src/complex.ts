@@ -26,11 +26,7 @@ export function complexFunction(input: any): string {
 }
 
 class Calculator {
-  private result: number = 0;
-
-  constructor(initial: number = 0) {
-    this.result = initial;
-  }
+  constructor(private result: number = 0) {}
 
   add(value: number): this {
     this.result += value;

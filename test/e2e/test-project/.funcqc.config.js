@@ -1,5 +1,5 @@
 // funcqc configuration
-// See https://github.com/yourusername/funcqc for documentation
+// See https://github.com/akiramei/funcqc for documentation
 
 module.exports = {
   "roots": [
