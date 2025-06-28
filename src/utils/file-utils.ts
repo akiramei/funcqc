@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
+import type { Dirent } from 'fs';
 
 /**
  * Check if a file exists
@@ -47,38 +48,57 @@ export async function findFiles(
 ): Promise<string[]> {
   const { extensions, exclude = [], maxDepth = 10 } = options;
   const files: string[] = [];
+  
+  await walkDirectory(dir, 0, maxDepth, extensions, exclude, files);
+  return files;
+}
 
-  async function walk(currentDir: string, depth: number = 0): Promise<void> {
-    if (depth > maxDepth) return;
+async function walkDirectory(
+  currentDir: string,
+  depth: number,
+  maxDepth: number,
+  extensions: string[] | undefined,
+  exclude: string[],
+  files: string[]
+): Promise<void> {
+  if (depth > maxDepth) return;
 
-    try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  try {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    await processDirectoryEntries(entries, currentDir, depth, maxDepth, extensions, exclude, files);
+  } catch {
+    console.warn(`Warning: Cannot access ${currentDir}`);
+  }
+}
 
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-
-        // Check exclude patterns
-        if (shouldExclude(fullPath, exclude)) {
-          continue;
-        }
-
-        if (entry.isDirectory()) {
-          await walk(fullPath, depth + 1);
-        } else if (entry.isFile()) {
-          // Check file extension
-          if (!extensions || extensions.some(ext => fullPath.endsWith(ext))) {
-            files.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-      console.warn(`Warning: Cannot access ${currentDir}`);
+async function processDirectoryEntries(
+  entries: Dirent[],
+  currentDir: string,
+  depth: number,
+  maxDepth: number,
+  extensions: string[] | undefined,
+  exclude: string[],
+  files: string[]
+): Promise<void> {
+  for (const entry of entries) {
+    const fullPath = path.join(currentDir, entry.name);
+    
+    if (shouldExclude(fullPath, exclude)) {
+      continue;
+    }
+    
+    if (entry.isDirectory()) {
+      await walkDirectory(fullPath, depth + 1, maxDepth, extensions, exclude, files);
+    } else if (entry.isFile()) {
+      addFileIfMatches(fullPath, extensions, files);
     }
   }
+}
 
-  await walk(dir);
-  return files;
+function addFileIfMatches(fullPath: string, extensions: string[] | undefined, files: string[]): void {
+  if (!extensions || extensions.some(ext => fullPath.endsWith(ext))) {
+    files.push(fullPath);
+  }
 }
 
 /**

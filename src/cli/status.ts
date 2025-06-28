@@ -139,7 +139,7 @@ function showComplexityDistribution(latest: any): void {
     .slice(0, 5)
     .forEach(([complexity, count]) => {
       const bar = '▓'.repeat(Math.min(20, Number(count) / 10));
-      console.log(`    ${complexity.padStart(2)}: ${count.toString().padStart(3)} ${bar}`);
+      console.log(`    ${complexity.padStart(2)}: ${String(count).padStart(3)} ${bar}`);
     });
 }
 

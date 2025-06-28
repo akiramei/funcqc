@@ -54,28 +54,36 @@ export class ConfigManager {
   private validateAndMergeConfig(userConfig: any): FuncqcConfig {
     const config: FuncqcConfig = { ...DEFAULT_CONFIG };
 
-    // Validate and merge roots
+    this.mergeArrayConfigs(config, userConfig);
+    this.mergeStorageConfig(config, userConfig);
+    this.mergeMetricsConfig(config, userConfig);
+    this.mergeGitConfig(config, userConfig);
+    this.mergeSimilarityConfig(config, userConfig);
+
+    return config;
+  }
+
+  private mergeArrayConfigs(config: FuncqcConfig, userConfig: any): void {
     if (Array.isArray(userConfig.roots)) {
       config.roots = userConfig.roots.filter(
         (root: any) => typeof root === 'string'
       );
     }
 
-    // Validate and merge exclude patterns
     if (Array.isArray(userConfig.exclude)) {
       config.exclude = userConfig.exclude.filter(
         (pattern: any) => typeof pattern === 'string'
       );
     }
 
-    // Validate and merge include patterns
     if (Array.isArray(userConfig.include)) {
       config.include = userConfig.include.filter(
         (pattern: any) => typeof pattern === 'string'
       );
     }
+  }
 
-    // Validate and merge storage config
+  private mergeStorageConfig(config: FuncqcConfig, userConfig: any): void {
     if (userConfig.storage && typeof userConfig.storage === 'object') {
       if (userConfig.storage.type === 'pglite' || userConfig.storage.type === 'postgres') {
         config.storage.type = userConfig.storage.type;
@@ -89,8 +97,9 @@ export class ConfigManager {
         config.storage.url = userConfig.storage.url;
       }
     }
+  }
 
-    // Validate and merge metrics config
+  private mergeMetricsConfig(config: FuncqcConfig, userConfig: any): void {
     if (userConfig.metrics && typeof userConfig.metrics === 'object') {
       if (typeof userConfig.metrics.complexityThreshold === 'number') {
         config.metrics.complexityThreshold = Math.max(1, userConfig.metrics.complexityThreshold);
@@ -104,8 +113,9 @@ export class ConfigManager {
         config.metrics.parameterCountThreshold = Math.max(1, userConfig.metrics.parameterCountThreshold);
       }
     }
+  }
 
-    // Validate and merge git config
+  private mergeGitConfig(config: FuncqcConfig, userConfig: any): void {
     if (userConfig.git && typeof userConfig.git === 'object') {
       if (typeof userConfig.git.enabled === 'boolean') {
         config.git.enabled = userConfig.git.enabled;
@@ -115,8 +125,9 @@ export class ConfigManager {
         config.git.autoLabel = userConfig.git.autoLabel;
       }
     }
+  }
 
-    // Validate and merge similarity config (for future phases)
+  private mergeSimilarityConfig(config: FuncqcConfig, userConfig: any): void {
     if (userConfig.similarity && typeof userConfig.similarity === 'object') {
       config.similarity = {
         detectors: {},
@@ -124,8 +135,6 @@ export class ConfigManager {
         ...userConfig.similarity
       };
     }
-
-    return config;
   }
 
   /**

@@ -373,8 +373,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   private async createSchema(): Promise<void> {
-    await this.db.exec(`
-      -- Snapshots table
+    await this.db.exec(this.getSnapshotsTableSQL());
+    await this.db.exec(this.getFunctionsTableSQL());
+    await this.db.exec(this.getParametersTableSQL());
+    await this.db.exec(this.getMetricsTableSQL());
+  }
+
+  private getSnapshotsTableSQL(): string {
+    return `
       CREATE TABLE IF NOT EXISTS snapshots (
         id TEXT PRIMARY KEY,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -385,9 +391,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         project_root TEXT NOT NULL DEFAULT '',
         config_hash TEXT NOT NULL DEFAULT '',
         metadata TEXT DEFAULT '{}'
-      );
+      );`;
+  }
 
-      -- Functions table
+  private getFunctionsTableSQL(): string {
+    return `
       CREATE TABLE IF NOT EXISTS functions (
         id TEXT PRIMARY KEY,
         snapshot_id TEXT NOT NULL,
@@ -416,9 +424,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         source_code TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
-      );
+      );`;
+  }
 
-      -- Function parameters table
+  private getParametersTableSQL(): string {
+    return `
       CREATE TABLE IF NOT EXISTS function_parameters (
         id SERIAL PRIMARY KEY,
         function_id TEXT NOT NULL,
@@ -431,9 +441,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         default_value TEXT,
         description TEXT,
         FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );
+      );`;
+  }
 
-      -- Quality metrics table
+  private getMetricsTableSQL(): string {
+    return `
       CREATE TABLE IF NOT EXISTS quality_metrics (
         function_id TEXT PRIMARY KEY,
         lines_of_code INTEGER NOT NULL,
@@ -454,8 +466,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         halstead_difficulty REAL,
         maintainability_index REAL,
         FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );
-    `);
+      );`;
   }
 
   private async createIndexes(): Promise<void> {
