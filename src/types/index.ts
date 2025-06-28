@@ -251,12 +251,15 @@ export interface ListCommandOptions extends CommandOptions {
   complexity?: string;
   lines?: string;
   params?: string;
-  format?: 'table' | 'json' | 'csv';
+  format?: 'table' | 'json' | 'csv' | 'friendly';
   fields?: string;
   sort?: string;
   limit?: string;
   json?: boolean;
   csv?: boolean;
+  urgent?: boolean;
+  weekly?: boolean;
+  team?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {

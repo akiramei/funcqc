@@ -70,6 +70,9 @@ program
   .option('--limit <num>', 'limit number of results', '50')
   .option('--json', 'output as JSON')
   .option('--csv', 'output as CSV')
+  .option('--urgent', 'show functions needing immediate attention (15min fixes)')
+  .option('--weekly', 'show functions for weekly planning (2hr fixes)')
+  .option('--team', 'show functions for team discussion (major refactoring)')
   .action(listCommand);
 
 program
