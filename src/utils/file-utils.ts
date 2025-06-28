@@ -236,28 +236,18 @@ export function simpleHash(str: string): string {
 }
 
 /**
- * Deep merge objects
+ * Deep merge objects using simple JSON approach
  */
-export function deepMerge<T>(target: T, ...sources: Partial<T>[]): T {
-  if (!sources.length) return target;
-  const source = sources.shift();
-
-  if (isObject(target) && isObject(source)) {
-    for (const key in source) {
-      if (isObject(source[key])) {
-        if (!target[key]) Object.assign(target, { [key]: {} });
-        deepMerge(target[key], source[key]);
-      } else {
-        Object.assign(target, { [key]: source[key] });
-      }
+export function deepMerge<T extends Record<string, any>>(target: T, ...sources: Partial<T>[]): T {
+  const result = JSON.parse(JSON.stringify(target)) as T;
+  
+  for (const source of sources) {
+    if (source) {
+      Object.assign(result, JSON.parse(JSON.stringify(source)));
     }
   }
-
-  return deepMerge(target, ...sources);
-}
-
-function isObject(item: any): boolean {
-  return item && typeof item === 'object' && !Array.isArray(item);
+  
+  return result;
 }
 
 /**

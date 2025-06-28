@@ -60,14 +60,18 @@ export class ErrorHandler {
   createError(code: ErrorCode, message: string, details?: Record<string, any>, originalError?: Error): FuncqcError {
     const errorInfo = this.getErrorInfo(code);
     
-    return {
+    const result: FuncqcError = {
       code,
       message,
-      details,
       recoverable: errorInfo.recoverable,
-      recoveryActions: errorInfo.recoveryActions,
-      originalError
-    };
+      stack: originalError?.stack || new Error().stack
+    } as FuncqcError;
+    
+    if (details) result.details = details;
+    if (errorInfo.recoveryActions) result.recoveryActions = errorInfo.recoveryActions;
+    if (originalError) result.originalError = originalError;
+    
+    return result;
   }
 
   private getErrorInfo(code: ErrorCode): { recoverable: boolean; recoveryActions?: string[] } {
@@ -259,7 +263,7 @@ export class ErrorHandler {
   safeOperation<T>(
     operation: () => T,
     operationName: string,
-    errorCode: ErrorCode,
+    _errorCode: ErrorCode,
     fallback?: T
   ): T | undefined {
     try {

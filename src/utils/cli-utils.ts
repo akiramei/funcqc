@@ -74,7 +74,6 @@ export class Logger {
  * Progress indicator for long-running operations
  */
 export class ProgressBar {
-  private current = 0;
   private startTime = Date.now();
 
   constructor(
@@ -84,7 +83,6 @@ export class ProgressBar {
   ) {}
 
   update(current: number, info?: string): void {
-    this.current = current;
     const percentage = Math.round((current / this.total) * 100);
     const filled = Math.round((current / this.total) * this.width);
     const empty = this.width - filled;
@@ -199,7 +197,7 @@ export function prompt(question: string, defaultValue?: string): Promise<string>
       ? `${question} (${defaultValue}): `
       : `${question}: `;
 
-    rl.question(promptText, (answer) => {
+    rl.question(promptText, (answer: string) => {
       rl.close();
       resolve(answer.trim() || defaultValue || '');
     });
@@ -220,7 +218,7 @@ export function confirm(question: string, defaultValue: boolean = false): Promis
     const options = defaultValue ? '[Y/n]' : '[y/N]';
     const promptText = `${question} ${options}: `;
 
-    rl.question(promptText, (answer) => {
+    rl.question(promptText, (answer: string) => {
       rl.close();
       
       if (answer.trim() === '') {
@@ -254,7 +252,7 @@ export function select(
       output: process.stdout
     });
 
-    rl.question(`Select option (1-${options.length}) [${defaultIndex + 1}]: `, (answer) => {
+    rl.question(`Select option (1-${options.length}) [${defaultIndex + 1}]: `, (answer: string) => {
       rl.close();
       
       if (answer.trim() === '') {
@@ -318,7 +316,7 @@ export function exitWithError(message: string, code: number = 1): never {
 export function setupErrorHandling(): void {
   process.on('uncaughtException', (error) => {
     console.error(chalk.red('Uncaught Exception:'), error.message);
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env['NODE_ENV'] === 'development') {
       console.error(error.stack);
     }
     process.exit(1);
@@ -326,7 +324,7 @@ export function setupErrorHandling(): void {
 
   process.on('unhandledRejection', (reason, promise) => {
     console.error(chalk.red('Unhandled Rejection at:'), promise, 'reason:', reason);
-    if (process.env.NODE_ENV === 'development') {
+    if (process.env['NODE_ENV'] === 'development') {
       console.error((reason as Error).stack);
     }
     process.exit(1);

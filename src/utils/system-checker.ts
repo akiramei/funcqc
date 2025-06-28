@@ -112,19 +112,25 @@ export class SystemChecker {
     const results = requirements.map(req => {
       try {
         const passed = req.check();
-        return {
+        const result: any = {
           name: req.name,
           passed,
-          required: req.required,
-          errorMessage: passed ? undefined : req.errorMessage
+          required: req.required
         };
+        if (!passed && req.errorMessage) {
+          result.errorMessage = req.errorMessage;
+        }
+        return result;
       } catch (error) {
-        return {
+        const result: any = {
           name: req.name,
           passed: false,
-          required: req.required,
-          errorMessage: req.errorMessage + ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`
+          required: req.required
         };
+        if (req.errorMessage) {
+          result.errorMessage = req.errorMessage + ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`;
+        }
+        return result;
       }
     });
 

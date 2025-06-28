@@ -382,8 +382,8 @@ export class QualityCalculator {
         const op = node.operatorToken.getText();
         operators.add(op);
         totalOperators++;
-      } else if (false) { // Temporary disable - ts.isUnaryExpression API changed
-        const op = (node as any).operator === ts.SyntaxKind.PlusPlusToken ? '++' :
+      } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
                    node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
                    node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
                    node.operator === ts.SyntaxKind.TildeToken ? '~' :
@@ -393,7 +393,7 @@ export class QualityCalculator {
           operators.add(op);
           totalOperators++;
         }
-      } else if (false) { // Temporary disable - ts.isAssignmentExpression API changed
+      } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         operators.add('=');
         totalOperators++;
       } else if (ts.isCallExpression(node)) {
@@ -440,15 +440,15 @@ export class QualityCalculator {
       // Count operators
       if (ts.isBinaryExpression(node)) {
         operators.add(node.operatorToken.getText());
-      } else if (false) { // Temporary disable - ts.isUnaryExpression API changed  
-        const op = (node as any).operator === ts.SyntaxKind.PlusPlusToken ? '++' :
+      } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
                    node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
                    node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
                    node.operator === ts.SyntaxKind.TildeToken ? '~' :
                    node.operator === ts.SyntaxKind.PlusToken ? '+' :
                    node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
         if (op) operators.add(op);
-      } else if (false) { // Temporary disable - ts.isAssignmentExpression API changed
+      } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
         operators.add('=');
       } else if (ts.isCallExpression(node)) {
         operators.add('()');

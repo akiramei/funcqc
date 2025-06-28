@@ -30,7 +30,8 @@ export class FunctionAnalyzer {
           errors: [{
             name: 'UnsupportedFileType',
             message: `Unsupported file type: ${filePath}`,
-            code: 'UNSUPPORTED_FILE_TYPE'
+            code: 'UNSUPPORTED_FILE_TYPE',
+            recoverable: false
           }],
           warnings: []
         };

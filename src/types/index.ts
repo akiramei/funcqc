@@ -202,7 +202,10 @@ export interface DiffStatistics {
 // Error handling types
 export interface FuncqcError extends Error {
   code: string;
-  details?: any;
+  details?: Record<string, any>;
+  recoverable: boolean;
+  recoveryActions?: string[];
+  originalError?: Error;
 }
 
 export interface AnalysisResult<T> {
