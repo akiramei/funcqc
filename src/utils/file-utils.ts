@@ -21,8 +21,14 @@ export async function ensureDir(dirPath: string): Promise<void> {
   try {
     await fs.mkdir(dirPath, { recursive: true });
   } catch (error) {
-    // Directory might already exist
-    if ((error as any).code !== 'EEXIST') {
+    // Directory might already exist - recursive: true should handle this
+    // Only throw if it's not an EEXIST error or filesystem permission issue
+    if (error && typeof error === 'object' && 'code' in error) {
+      const code = (error as { code: string }).code;
+      if (code !== 'EEXIST') {
+        throw error;
+      }
+    } else {
       throw error;
     }
   }
