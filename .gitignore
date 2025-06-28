@@ -40,6 +40,16 @@ logs/
 funcqc-*.json
 funcqc-*.sql
 
+# function-indexer generated files
+.function-indexer/
+.function-metrics/
+funcqc-analysis.json
+funcqc-analysis.meta.json
+
+# funcqc runtime directories
+.backups/
+.history/
+
 # Temporary files
 temp/
 tmp/
