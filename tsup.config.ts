@@ -4,7 +4,7 @@ export default defineConfig([
   // CLI build
   {
     entry: ['src/cli.ts'],
-    format: ['cjs'],
+    format: ['esm'],
     target: 'node18',
     outDir: 'dist',
     clean: true,
@@ -17,7 +17,7 @@ export default defineConfig([
   // Library build
   {
     entry: ['src/index.ts'],
-    format: ['cjs', 'esm'],
+    format: ['esm'],
     target: 'node18',
     outDir: 'dist',
     dts: true,

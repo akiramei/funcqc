@@ -1,5 +1,5 @@
 import { execSync } from 'child_process';
-import { existsSync } from 'fs';
+import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { Logger } from './cli-utils';
 
 export interface SystemRequirement {
@@ -64,8 +64,8 @@ export class SystemChecker {
     try {
       // Check if we can write to current directory
       const testFile = '.funcqc-write-test';
-      require('fs').writeFileSync(testFile, 'test');
-      require('fs').unlinkSync(testFile);
+      writeFileSync(testFile, 'test');
+      unlinkSync(testFile);
       return true;
     } catch {
       return false;

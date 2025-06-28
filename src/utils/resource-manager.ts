@@ -1,6 +1,7 @@
 import { Logger } from './cli-utils';
 import { createReadStream } from 'fs';
 import { stat } from 'fs/promises';
+import * as os from 'os';
 
 export interface ResourceLimits {
   maxMemoryMB: number;
@@ -202,7 +203,6 @@ export class ResourceManager {
   // Static helper to get system memory info
   static getSystemMemoryInfo(): { totalMB: number; freeMB: number } | null {
     try {
-      const os = require('os');
       const totalMem = os.totalmem();
       const freeMem = os.freemem();
       

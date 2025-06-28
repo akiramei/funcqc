@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import * as readline from 'readline';
 
 /**
  * Log levels for consistent messaging
@@ -188,7 +189,6 @@ export function formatTable(
  */
 export function prompt(question: string, defaultValue?: string): Promise<string> {
   return new Promise((resolve) => {
-    const readline = require('readline');
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
@@ -210,7 +210,6 @@ export function prompt(question: string, defaultValue?: string): Promise<string>
  */
 export function confirm(question: string, defaultValue: boolean = false): Promise<boolean> {
   return new Promise((resolve) => {
-    const readline = require('readline');
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
@@ -247,7 +246,6 @@ export function select(
       console.log(`${marker} ${index + 1}. ${option}`);
     });
 
-    const readline = require('readline');
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout
