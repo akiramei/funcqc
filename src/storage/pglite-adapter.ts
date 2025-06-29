@@ -213,65 +213,83 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async diffSnapshots(fromId: string, toId: string): Promise<any> {
     try {
-      // Get snapshot info
-      const fromSnapshot = await this.getSnapshot(fromId);
-      const toSnapshot = await this.getSnapshot(toId);
-
-      if (!fromSnapshot || !toSnapshot) {
-        throw new Error(`Snapshot not found: ${!fromSnapshot ? fromId : toId}`);
-      }
-
-      // Get functions for both snapshots
-      const fromFunctions = await this.getFunctionsBySnapshot(fromId);
-      const toFunctions = await this.getFunctionsBySnapshot(toId);
-
-      // Create lookup maps for efficient comparison
-      const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.signature, f]));
-      const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.signature, f]));
-
-      // Calculate differences
-      const added: any[] = [];
-      const removed: any[] = [];
-      const modified: any[] = [];
-      const unchanged: any[] = [];
-
-      // Find added and modified functions
-      for (const toFunc of toFunctions) {
-        const fromFunc: FunctionInfo | undefined = fromMap.get(toFunc.signature);
-        if (!fromFunc) {
-          added.push(toFunc);
-        } else if (fromFunc.astHash !== toFunc.astHash) {
-          modified.push({
-            before: fromFunc,
-            after: toFunc,
-            changes: this.calculateFunctionChanges(fromFunc, toFunc)
-          });
-        } else {
-          unchanged.push(toFunc);
-        }
-      }
-
-      // Find removed functions
-      for (const fromFunc of fromFunctions) {
-        if (!toMap.has(fromFunc.signature)) {
-          removed.push(fromFunc);
-        }
-      }
-
-      // Calculate statistics
-      const statistics = this.calculateDiffStatistics(fromFunctions, toFunctions, added, removed, modified);
+      const { fromSnapshot, toSnapshot } = await this.validateAndLoadSnapshots(fromId, toId);
+      const { fromFunctions, toFunctions } = await this.loadSnapshotFunctions(fromId, toId);
+      const diff = this.calculateSnapshotDifferences(fromFunctions, toFunctions);
+      const statistics = this.calculateDiffStatistics(fromFunctions, toFunctions, diff.added, diff.removed, diff.modified);
 
       return {
         from: fromSnapshot,
         to: toSnapshot,
-        added,
-        removed,
-        modified,
-        unchanged,
+        ...diff,
         statistics
       };
     } catch (error) {
       throw new Error(`Failed to diff snapshots: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private async validateAndLoadSnapshots(fromId: string, toId: string) {
+    const fromSnapshot = await this.getSnapshot(fromId);
+    const toSnapshot = await this.getSnapshot(toId);
+
+    if (!fromSnapshot || !toSnapshot) {
+      throw new Error(`Snapshot not found: ${!fromSnapshot ? fromId : toId}`);
+    }
+
+    return { fromSnapshot, toSnapshot };
+  }
+
+  private async loadSnapshotFunctions(fromId: string, toId: string) {
+    const fromFunctions = await this.getFunctionsBySnapshot(fromId);
+    const toFunctions = await this.getFunctionsBySnapshot(toId);
+    return { fromFunctions, toFunctions };
+  }
+
+  private calculateSnapshotDifferences(fromFunctions: FunctionInfo[], toFunctions: FunctionInfo[]) {
+    const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.signature, f]));
+    const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.signature, f]));
+
+    const added: any[] = [];
+    const removed: any[] = [];
+    const modified: any[] = [];
+    const unchanged: any[] = [];
+
+    this.categorizeChangedFunctions(toFunctions, fromMap, added, modified, unchanged);
+    this.findRemovedFunctions(fromFunctions, toMap, removed);
+
+    return { added, removed, modified, unchanged };
+  }
+
+  private categorizeChangedFunctions(
+    toFunctions: FunctionInfo[], 
+    fromMap: Map<string, FunctionInfo>, 
+    added: any[], 
+    modified: any[], 
+    unchanged: any[]
+  ) {
+    for (const toFunc of toFunctions) {
+      const fromFunc = fromMap.get(toFunc.signature);
+      
+      if (!fromFunc) {
+        added.push(toFunc);
+      } else if (fromFunc.astHash !== toFunc.astHash) {
+        modified.push({
+          before: fromFunc,
+          after: toFunc,
+          changes: this.calculateFunctionChanges(fromFunc, toFunc)
+        });
+      } else {
+        unchanged.push(toFunc);
+      }
+    }
+  }
+
+  private findRemovedFunctions(fromFunctions: FunctionInfo[], toMap: Map<string, FunctionInfo>, removed: any[]) {
+    for (const fromFunc of fromFunctions) {
+      if (!toMap.has(fromFunc.signature)) {
+        removed.push(fromFunc);
+      }
     }
   }
 

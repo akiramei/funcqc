@@ -16,99 +16,133 @@ export async function scanCommand(
   const spinner = ora();
   
   try {
-    // Load configuration
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-    
-    // Determine scan targets
-    const scanPaths = paths.length > 0 ? paths : config.roots;
-    
-    spinner.start('Initializing funcqc scan...');
-    
-    // Initialize components
-    const analyzer = new TypeScriptAnalyzer();
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
-    const qualityCalculator = new QualityCalculator();
-    
-    await storage.init();
-    spinner.succeed('Components initialized');
-    
-    // Find TypeScript files
-    spinner.start('Finding TypeScript files...');
-    const files = await findTypeScriptFiles(scanPaths, config.exclude);
-    spinner.succeed(`Found ${files.length} TypeScript files`);
+    const config = await initializeScan();
+    const scanPaths = determineScanPaths(paths, config);
+    const components = await initializeComponents(config, spinner);
+    const files = await discoverFiles(scanPaths, config, spinner);
     
     if (files.length === 0) {
       console.log(chalk.yellow('No TypeScript files found to analyze.'));
       return;
     }
     
-    // Analyze functions
-    spinner.start('Analyzing functions...');
-    const allFunctions: FunctionInfo[] = [];
-    
-    if (options.quick) {
-      // Quick mode: optimize for speed, sample files if needed
-      const maxFiles = 100; // Limit files for quick scan
-      const filesToAnalyze = files.length > maxFiles ? 
-        files.slice(0, maxFiles) : files;
-      
-      if (files.length > maxFiles) {
-        spinner.text = `Quick scan: analyzing ${maxFiles} of ${files.length} files...`;
-      }
-      
-      const batchFunctions = await analyzeBatch(filesToAnalyze, analyzer, qualityCalculator);
-      allFunctions.push(...batchFunctions);
-      
-      if (files.length > maxFiles) {
-        // Quick overview with limited file sampling
-        console.log(chalk.blue(`\nℹ️  Quick scan analyzed ${maxFiles}/${files.length} files (${Math.round((maxFiles/files.length)*100)}% sample)`));
-      }
-    } else {
-      // Full scan
-      const batchSize = parseInt(options.batchSize || '50');
-      
-      for (let i = 0; i < files.length; i += batchSize) {
-        const batch = files.slice(i, i + batchSize);
-        const batchFunctions = await analyzeBatch(batch, analyzer, qualityCalculator);
-        allFunctions.push(...batchFunctions);
-        
-        spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
-      }
-    }
-    
-    spinner.succeed(`Analyzed ${allFunctions.length} functions from ${files.length} files`);
-    
-    // Show analysis summary with quality scoring
+    const allFunctions = await performAnalysis(files, components, options, spinner);
     showAnalysisSummary(allFunctions);
     
-    // Save to storage (unless dry-run)
     if (options.dryRun) {
       console.log(chalk.blue('🔍 Dry run mode - results not saved to database'));
       return;
     }
     
-    spinner.start('Saving to database...');
-    const snapshotId = await storage.saveSnapshot(allFunctions, options.label);
-    spinner.succeed(`Saved snapshot: ${snapshotId}`);
-    
-    console.log(chalk.green('✓ Scan completed successfully!'));
-    console.log();
-    console.log(chalk.blue('Next steps:'));
-    console.log(chalk.gray('  • Run `funcqc list` to view functions'));
-    console.log(chalk.gray('  • Run `funcqc list --complexity ">5"` to find complex functions'));
-    console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
+    await saveResults(allFunctions, components.storage, options, spinner);
+    showCompletionMessage();
     
   } catch (error) {
-    spinner.fail('Scan failed');
-    console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
-    
-    if (options.verbose && error instanceof Error) {
-      console.error(chalk.gray(error.stack));
-    }
-    
-    process.exit(1);
+    handleScanError(error, options, spinner);
   }
+}
+
+async function initializeScan() {
+  const configManager = new ConfigManager();
+  return await configManager.load();
+}
+
+function determineScanPaths(paths: string[], config: any): string[] {
+  return paths.length > 0 ? paths : config.roots;
+}
+
+async function initializeComponents(config: any, spinner: any) {
+  spinner.start('Initializing funcqc scan...');
+  
+  const analyzer = new TypeScriptAnalyzer();
+  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  const qualityCalculator = new QualityCalculator();
+  
+  await storage.init();
+  spinner.succeed('Components initialized');
+  
+  return { analyzer, storage, qualityCalculator };
+}
+
+async function discoverFiles(scanPaths: string[], config: any, spinner: any): Promise<string[]> {
+  spinner.start('Finding TypeScript files...');
+  const files = await findTypeScriptFiles(scanPaths, config.exclude);
+  spinner.succeed(`Found ${files.length} TypeScript files`);
+  return files;
+}
+
+async function performAnalysis(files: string[], components: any, options: ScanCommandOptions, spinner: any): Promise<FunctionInfo[]> {
+  spinner.start('Analyzing functions...');
+  const allFunctions: FunctionInfo[] = [];
+  
+  if (options.quick) {
+    const batchFunctions = await performQuickAnalysis(files, components, spinner);
+    allFunctions.push(...batchFunctions);
+  } else {
+    const batchFunctions = await performFullAnalysis(files, components, options, spinner);
+    allFunctions.push(...batchFunctions);
+  }
+  
+  spinner.succeed(`Analyzed ${allFunctions.length} functions from ${files.length} files`);
+  return allFunctions;
+}
+
+async function performQuickAnalysis(files: string[], components: any, spinner: any): Promise<FunctionInfo[]> {
+  const maxFiles = 100;
+  const filesToAnalyze = files.length > maxFiles ? files.slice(0, maxFiles) : files;
+  
+  if (files.length > maxFiles) {
+    spinner.text = `Quick scan: analyzing ${maxFiles} of ${files.length} files...`;
+  }
+  
+  const batchFunctions = await analyzeBatch(filesToAnalyze, components.analyzer, components.qualityCalculator);
+  
+  if (files.length > maxFiles) {
+    console.log(chalk.blue(`\nℹ️  Quick scan analyzed ${maxFiles}/${files.length} files (${Math.round((maxFiles/files.length)*100)}% sample)`));
+  }
+  
+  return batchFunctions;
+}
+
+async function performFullAnalysis(files: string[], components: any, options: ScanCommandOptions, spinner: any): Promise<FunctionInfo[]> {
+  const allFunctions: FunctionInfo[] = [];
+  const batchSize = parseInt(options.batchSize || '50');
+  
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, i + batchSize);
+    const batchFunctions = await analyzeBatch(batch, components.analyzer, components.qualityCalculator);
+    allFunctions.push(...batchFunctions);
+    
+    spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
+  }
+  
+  return allFunctions;
+}
+
+async function saveResults(allFunctions: FunctionInfo[], storage: any, options: ScanCommandOptions, spinner: any): Promise<void> {
+  spinner.start('Saving to database...');
+  const snapshotId = await storage.saveSnapshot(allFunctions, options.label);
+  spinner.succeed(`Saved snapshot: ${snapshotId}`);
+}
+
+function showCompletionMessage(): void {
+  console.log(chalk.green('✓ Scan completed successfully!'));
+  console.log();
+  console.log(chalk.blue('Next steps:'));
+  console.log(chalk.gray('  • Run `funcqc list` to view functions'));
+  console.log(chalk.gray('  • Run `funcqc list --complexity ">5"` to find complex functions'));
+  console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
+}
+
+function handleScanError(error: any, options: ScanCommandOptions, spinner: any): void {
+  spinner.fail('Scan failed');
+  console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
+  
+  if (options.verbose && error instanceof Error) {
+    console.error(chalk.gray(error.stack));
+  }
+  
+  process.exit(1);
 }
 
 async function findTypeScriptFiles(
