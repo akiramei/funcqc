@@ -113,7 +113,7 @@ describe('UrgencyAssessor', () => {
     const assessment = assessor.assessFunction(funcWithoutMetrics);
     
     expect(assessment.level).toBe('low');
-    expect(assessment.rank).toBe('E');
+    expect(assessment.rank).toBe('A');
     expect(assessment.estimatedMinutes).toBe(0);
   });
 
@@ -121,10 +121,10 @@ describe('UrgencyAssessor', () => {
     const complexFunc = createMockFunction('complex', 15, 40, 120, 7);
     const assessment = assessor.assessFunction(complexFunc);
     
-    expect(assessment.riskDescription).toContain('理解に');
-    expect(assessment.riskDescription).toContain('バグリスク');
-    expect(assessment.improvementStrategy).toBeTruthy();
-    expect(assessment.impact).toBeTruthy();
+    expect(assessment.riskDescription).toMatch(/理解に\d+分/);
+    expect(assessment.riskDescription).toMatch(/バグリスク\d+%/);
+    expect(assessment.improvementStrategy).toMatch(/関数分割|条件分岐の整理|オブジェクト引数化|早期リターン|軽微な整理/);
+    expect(assessment.impact).toMatch(/\d+時間\/月の節約|保守性向上|技術債務削減/);
   });
 
   it('should generate Japanese text content correctly', () => {

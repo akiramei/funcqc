@@ -63,6 +63,35 @@ export class UrgencyAssessor {
     DEEP_PENALTY: 8
   };
 
+  // Time estimation constants
+  private static readonly TIME_ESTIMATION = {
+    URGENT_BASE: 5,
+    URGENT_DIVIDER: 20,
+    URGENT_MAX: 15,
+    WEEKLY_BASE: 20,
+    WEEKLY_DIVIDER: 2,
+    WEEKLY_MAX: 120,
+    TEAM_BASE: 60,
+    TEAM_MULTIPLIER: 2,
+    TEAM_MAX: 480,
+    LOW_BASE: 30,
+    LOW_MULTIPLIER: 3,
+    LOW_MAX: 240,
+    MINIMAL_BASE: 5
+  };
+
+  // Impact calculation constants
+  private static readonly IMPACT_CALCULATION = {
+    HOURS_FACTOR: 0.2,
+    BUG_REDUCTION_FACTOR: 0.3,
+    MAX_BUG_REDUCTION: 50
+  };
+
+  // Default values
+  private static readonly DEFAULTS = {
+    MAINTAINABILITY_INDEX: 50 // Conservative default when metrics are missing
+  };
+
   assessFunction(func: FunctionInfo): UrgencyAssessment {
     const metrics = func.metrics;
     if (!metrics) {
@@ -75,7 +104,7 @@ export class UrgencyAssessor {
     return this.createAssessment(
       urgencyScore.total,
       metrics.cyclomaticComplexity,
-      metrics.maintainabilityIndex || 100,
+      metrics.maintainabilityIndex ?? UrgencyAssessor.DEFAULTS.MAINTAINABILITY_INDEX,
       metrics.linesOfCode,
       metrics.parameterCount,
       reasons
@@ -84,7 +113,7 @@ export class UrgencyAssessor {
 
   private calculateUrgencyScore(metrics: any): { total: number } {
     const complexity = metrics.cyclomaticComplexity;
-    const maintainability = metrics.maintainabilityIndex || 100;
+    const maintainability = metrics.maintainabilityIndex ?? UrgencyAssessor.DEFAULTS.MAINTAINABILITY_INDEX;
     const lines = metrics.linesOfCode;
     const params = metrics.parameterCount;
     const nesting = metrics.maxNestingLevel;
@@ -101,7 +130,7 @@ export class UrgencyAssessor {
 
   private generateReasons(metrics: any): string[] {
     const complexity = metrics.cyclomaticComplexity;
-    const maintainability = metrics.maintainabilityIndex || 100;
+    const maintainability = metrics.maintainabilityIndex ?? UrgencyAssessor.DEFAULTS.MAINTAINABILITY_INDEX;
     const lines = metrics.linesOfCode;
     const params = metrics.parameterCount;
     const nesting = metrics.maxNestingLevel;
@@ -190,7 +219,7 @@ export class UrgencyAssessor {
   private createDefaultAssessment(): UrgencyAssessment {
     return {
       level: 'low',
-      rank: 'E', // メトリクスなし = 最も良い評価
+      rank: 'A', // メトリクスなし = 最も良い評価
       estimatedMinutes: 0,
       riskDescription: '問題なし',
       improvementStrategy: '対応不要',
@@ -212,27 +241,39 @@ export class UrgencyAssessor {
     let rank: UrgencyAssessment['rank'];
     let estimatedMinutes: number;
 
-    const { URGENCY_THRESHOLDS } = UrgencyAssessor;
+    const { URGENCY_THRESHOLDS, TIME_ESTIMATION } = UrgencyAssessor;
     if (urgencyScore >= URGENCY_THRESHOLDS.URGENT) {
       level = 'urgent';
-      rank = 'A';
-      estimatedMinutes = Math.min(15, 5 + Math.floor(urgencyScore / 20));
+      rank = 'E'; // 最も問題が多い = 最低評価
+      estimatedMinutes = Math.min(
+        TIME_ESTIMATION.URGENT_MAX,
+        TIME_ESTIMATION.URGENT_BASE + Math.floor(urgencyScore / TIME_ESTIMATION.URGENT_DIVIDER)
+      );
     } else if (urgencyScore >= URGENCY_THRESHOLDS.WEEKLY) {
       level = 'weekly';
-      rank = 'B';
-      estimatedMinutes = Math.min(120, 20 + Math.floor(urgencyScore / 2));
+      rank = 'D';
+      estimatedMinutes = Math.min(
+        TIME_ESTIMATION.WEEKLY_MAX,
+        TIME_ESTIMATION.WEEKLY_BASE + Math.floor(urgencyScore / TIME_ESTIMATION.WEEKLY_DIVIDER)
+      );
     } else if (urgencyScore >= URGENCY_THRESHOLDS.TEAM) {
       level = 'team';
       rank = 'C';
-      estimatedMinutes = Math.min(480, 60 + Math.floor(urgencyScore * 2));
+      estimatedMinutes = Math.min(
+        TIME_ESTIMATION.TEAM_MAX,
+        TIME_ESTIMATION.TEAM_BASE + Math.floor(urgencyScore * TIME_ESTIMATION.TEAM_MULTIPLIER)
+      );
     } else if (urgencyScore >= URGENCY_THRESHOLDS.LOW) {
       level = 'low';
-      rank = 'D';
-      estimatedMinutes = Math.min(240, 30 + Math.floor(urgencyScore * 3));
+      rank = 'B';
+      estimatedMinutes = Math.min(
+        TIME_ESTIMATION.LOW_MAX,
+        TIME_ESTIMATION.LOW_BASE + Math.floor(urgencyScore * TIME_ESTIMATION.LOW_MULTIPLIER)
+      );
     } else {
       level = 'low';
-      rank = 'E'; // スコアが低い = 問題が少ない = より良い評価
-      estimatedMinutes = Math.max(5, Math.floor(urgencyScore));
+      rank = 'A'; // 問題が最も少ない = 最高評価
+      estimatedMinutes = Math.max(TIME_ESTIMATION.MINIMAL_BASE, Math.floor(urgencyScore));
     }
 
     // Generate descriptions
@@ -252,6 +293,11 @@ export class UrgencyAssessor {
   }
 
   private generateRiskDescription(complexity: number, maintainability: number, lines: number): string {
+    // Input validation
+    if (!Number.isFinite(complexity) || !Number.isFinite(maintainability) || !Number.isFinite(lines)) {
+      return '評価データが不正です';
+    }
+    
     // Boundary value checks
     const safeComplexity = Math.max(0, Math.min(100, complexity));
     const safeMaintainability = Math.max(0, Math.min(100, maintainability));
@@ -288,8 +334,12 @@ export class UrgencyAssessor {
   }
 
   private generateImpactDescription(estimatedMinutes: number, urgencyScore: number): string {
-    const hoursPerMonth = Math.floor(urgencyScore * 0.2);
-    const bugReduction = Math.min(50, Math.floor(urgencyScore * 0.3));
+    const { IMPACT_CALCULATION } = UrgencyAssessor;
+    const hoursPerMonth = Math.floor(urgencyScore * IMPACT_CALCULATION.HOURS_FACTOR);
+    const bugReduction = Math.min(
+      IMPACT_CALCULATION.MAX_BUG_REDUCTION,
+      Math.floor(urgencyScore * IMPACT_CALCULATION.BUG_REDUCTION_FACTOR)
+    );
     
     if (estimatedMinutes <= 15) {
       return `${hoursPerMonth}時間/月の節約、バグリスク${bugReduction}%削減`;
@@ -300,7 +350,7 @@ export class UrgencyAssessor {
     }
   }
 
-  filterByUrgencyLevel(functions: FunctionInfo[], level: 'urgent' | 'weekly' | 'team'): FunctionInfo[] {
+  filterByUrgencyLevel(functions: FunctionInfo[], level: 'urgent' | 'weekly' | 'team' | 'low'): FunctionInfo[] {
     return functions.filter(func => {
       const assessment = this.assessFunction(func);
       return assessment.level === level;
