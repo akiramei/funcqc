@@ -345,13 +345,14 @@ describe('StatisticalEvaluator', () => {
     });
 
     it('should handle identical values', () => {
-      const identicalMetrics: QualityMetrics[] = Array(3).fill({
+      const baseMetrics = {
         linesOfCode: 10, totalLines: 15, cyclomaticComplexity: 5, cognitiveComplexity: 8,
         maxNestingLevel: 2, parameterCount: 3, returnStatementCount: 1, branchCount: 2,
         loopCount: 1, tryCatchCount: 0, asyncAwaitCount: 0, callbackCount: 0,
         commentLines: 2, codeToCommentRatio: 5.0, halsteadVolume: 60, halsteadDifficulty: 3,
         maintainabilityIndex: 70
-      });
+      };
+      const identicalMetrics: QualityMetrics[] = Array(3).fill(null).map(() => ({ ...baseMetrics }));
       
       const stats = evaluator.calculateProjectStatistics(identicalMetrics);
       

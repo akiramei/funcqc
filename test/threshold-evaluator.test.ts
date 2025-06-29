@@ -115,7 +115,7 @@ const sampleProjectStats: ProjectStatistics = {
       min: 2, max: 8, mad: 2,
       percentiles: { p25: 3, p50: 4, p75: 6, p90: 7, p95: 8, p99: 8 }
     }
-  } as any // Simplified for testing
+  } as ProjectStatistics // Simplified for testing
 };
 
 describe('ThresholdEvaluator', () => {
@@ -207,7 +207,7 @@ describe('ThresholdEvaluator', () => {
 
     it('should handle missing metrics gracefully', () => {
       const incompleteMetrics = { ...sampleMetrics };
-      delete (incompleteMetrics as any).cyclomaticComplexity;
+      (incompleteMetrics as any).cyclomaticComplexity = undefined;
 
       const thresholds: QualityThresholds = {
         complexity: { warning: 10 }
@@ -348,7 +348,7 @@ describe('ThresholdEvaluator', () => {
       const merged = evaluator.mergeWithDefaults(userThresholds);
 
       expect(merged.complexity?.warning).toBe(12); // User override
-      expect(merged.complexity?.error).toBe(12); // Default
+      expect(merged.complexity?.error).toBe(12); // Default from getDefaultQualityThresholds
       expect(merged.complexity?.critical).toBe(20); // Default
 
       expect(merged.lines?.warning).toBe(30); // Default

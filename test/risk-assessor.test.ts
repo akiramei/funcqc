@@ -277,10 +277,8 @@ describe('RiskAssessor', () => {
         thresholds
       );
 
-      // Note: maintainability thresholds work inversely (lower values are worse)
-      // The simple function has maintainabilityIndex = 85, which is good, but
-      // if there's a default maintainability threshold that's being violated, adjust test
-      expect(violations.length).toBeGreaterThanOrEqual(0);
+      // Note: With very high thresholds, no violations should occur
+      expect(violations).toEqual([]);
     });
   });
 
@@ -311,13 +309,18 @@ describe('RiskAssessor', () => {
 
     it('should handle assessment with no violations', async () => {
       const thresholds: QualityThresholds = {
-        complexity: { warning: 100, error: 200, critical: 300 }
+        complexity: { warning: 100, error: 200, critical: 300 },
+        cognitiveComplexity: { warning: 100, error: 200, critical: 300 },
+        lines: { warning: 200, error: 300, critical: 400 },
+        parameters: { warning: 20, error: 30, critical: 40 },
+        nestingLevel: { warning: 20, error: 30, critical: 40 },
+        maintainability: { warning: 10, error: 5, critical: 1 }
       };
 
       const assessment = await riskAssessor.assessProject(sampleFunctions, thresholds);
       const summary = riskAssessor.createAssessmentSummary(assessment);
 
-      // Note: There might still be some default threshold violations
+      // With very high thresholds, there should be minimal violations  
       expect(summary.totalViolations).toBeGreaterThanOrEqual(0);
       expect(summary.criticalViolations).toBeGreaterThanOrEqual(0);
       expect(summary.errorViolations).toBeGreaterThanOrEqual(0);

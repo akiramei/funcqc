@@ -48,7 +48,7 @@ export class RiskAssessor {
     
     for (const func of functionsWithMetrics) {
       const violations = thresholdEvaluator.evaluateFunctionThresholds(
-        func.metrics!,
+        func.metrics,
         configuredThresholds,
         projectStatistics
       );

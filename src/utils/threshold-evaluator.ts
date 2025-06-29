@@ -186,11 +186,11 @@ export class ThresholdEvaluator {
       case 'severity':
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
-          const severityMultiplier = violation.excess / violation.threshold;
+          // Protect against zero division
+          const severityMultiplier = violation.threshold !== 0 ? violation.excess / violation.threshold : 0;
           return score + (weight * severityMultiplier);
         }, 0);
       
-      case 'count':
       default:
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
