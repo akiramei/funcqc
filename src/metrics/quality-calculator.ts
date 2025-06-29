@@ -404,25 +404,45 @@ export class QualityCalculator {
 
   private processOperators(node: ts.Node, operators: Set<string>, incrementTotal: () => void) {
     if (ts.isBinaryExpression(node)) {
-      const op = node.operatorToken.getText();
-      operators.add(op);
-      incrementTotal();
-    } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
-      const op = this.getUnaryOperator(node);
-      if (op) {
-        operators.add(op);
-        incrementTotal();
-      }
-    } else if (ts.isCallExpression(node)) {
-      operators.add('()');
-      incrementTotal();
-    } else if (ts.isPropertyAccessExpression(node)) {
-      operators.add('.');
-      incrementTotal();
-    } else if (ts.isElementAccessExpression(node)) {
-      operators.add('[]');
-      incrementTotal();
+      this.processBinaryOperator(node, operators, incrementTotal);
+      return;
     }
+    
+    if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+      this.processUnaryOperator(node, operators, incrementTotal);
+      return;
+    }
+    
+    if (ts.isCallExpression(node)) {
+      this.addOperator('()', operators, incrementTotal);
+      return;
+    }
+    
+    if (ts.isPropertyAccessExpression(node)) {
+      this.addOperator('.', operators, incrementTotal);
+      return;
+    }
+    
+    if (ts.isElementAccessExpression(node)) {
+      this.addOperator('[]', operators, incrementTotal);
+    }
+  }
+
+  private processBinaryOperator(node: ts.BinaryExpression, operators: Set<string>, incrementTotal: () => void) {
+    const op = node.operatorToken.getText();
+    this.addOperator(op, operators, incrementTotal);
+  }
+
+  private processUnaryOperator(node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression, operators: Set<string>, incrementTotal: () => void) {
+    const op = this.getUnaryOperator(node);
+    if (op) {
+      this.addOperator(op, operators, incrementTotal);
+    }
+  }
+
+  private addOperator(operator: string, operators: Set<string>, incrementTotal: () => void) {
+    operators.add(operator);
+    incrementTotal();
   }
 
   private getUnaryOperator(node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression): string {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, OptionValues } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
@@ -10,7 +10,7 @@ import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
-import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
+import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
 
 const program = new Command();
 
@@ -133,49 +133,57 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   return systemChecker.reportSystemCheck();
 }
 
+function handleSystemCheckFlag(options: OptionValues, logger: Logger): void {
+  if (!options['checkSystem']) return;
+  
+  performSystemCheck(logger, false);
+  process.exit(0);
+}
+
+function handleWorkingDirectoryChange(options: OptionValues, errorHandler: ErrorHandler): void {
+  if (!options['cwd']) return;
+  
+  try {
+    process.chdir(options['cwd']);
+  } catch (error) {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.FILE_NOT_ACCESSIBLE,
+      `Cannot change to directory: ${options['cwd']}`,
+      { directory: options['cwd'] },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
+}
+
+function handleHelpDisplay(): void {
+  if (process.argv.slice(2).length) return;
+  
+  program.outputHelp();
+  process.exit(0);
+}
+
+function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
+  if (options['noCheck']) return;
+  
+  const systemOk = performSystemCheck(logger, false);
+  if (!systemOk) {
+    logger.error('System requirements not met. Use --no-check to bypass.');
+    process.exit(1);
+  }
+}
+
 // Main execution
 async function main() {
   try {
     const { logger, errorHandler } = setupErrorHandling();
     const options = program.opts();
     
-    // Handle system check flag
-    if (options['checkSystem']) {
-      performSystemCheck(logger, false);
-      process.exit(0);
-    }
+    handleSystemCheckFlag(options, logger);
+    handleWorkingDirectoryChange(options, errorHandler);
+    handleHelpDisplay();
+    handleSystemCheckBeforeCommands(options, logger);
     
-    // Change working directory if specified
-    if (options['cwd']) {
-      try {
-        process.chdir(options['cwd']);
-      } catch (error) {
-        const funcqcError = errorHandler.createError(
-          ErrorCode.FILE_NOT_ACCESSIBLE,
-          `Cannot change to directory: ${options['cwd']}`,
-          { directory: options['cwd'] },
-          error instanceof Error ? error : undefined
-        );
-        errorHandler.handleError(funcqcError);
-      }
-    }
-    
-    // Show help if no command provided
-    if (!process.argv.slice(2).length) {
-      program.outputHelp();
-      process.exit(0);
-    }
-    
-    // Perform system check before running commands (unless explicitly disabled)
-    if (!options['noCheck']) {
-      const systemOk = performSystemCheck(logger, false);
-      if (!systemOk) {
-        logger.error('System requirements not met. Use --no-check to bypass.');
-        process.exit(1);
-      }
-    }
-    
-    // Parse command line arguments
     program.parse();
     
   } catch (error) {

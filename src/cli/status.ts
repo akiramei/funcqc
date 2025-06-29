@@ -150,53 +150,14 @@ async function showGitStatus(verbose: boolean): Promise<void> {
   const git: SimpleGit = simpleGit();
   
   try {
-    // Check if we're in a git repository
-    const isRepo = await git.checkIsRepo();
-    if (!isRepo) {
-      console.log(chalk.gray('  Not a git repository'));
-      console.log();
+    if (!(await checkGitRepository(git))) {
       return;
     }
     
-    // Current branch
-    const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
-    console.log(`  Current branch: ${branch}`);
-    
-    // Latest commit
-    const commit = await git.revparse(['HEAD']);
-    console.log(`  Latest commit: ${commit.slice(0, 8)}`);
-    
-    // Commit message
-    const log = await git.log(['-1']);
-    const latestCommit = log.latest;
-    if (latestCommit) {
-      console.log(`  Message: ${latestCommit.message}`);
-    }
+    await displayBasicGitInfo(git);
     
     if (verbose) {
-      // Working directory status
-      const status = await git.status();
-      if (status.files.length > 0) {
-        console.log('  Working directory:');
-        status.files.slice(0, 5).forEach(file => {
-          const statusChar = file.working_dir || file.index || '?';
-          console.log(`    ${statusChar} ${file.path}`);
-        });
-        if (status.files.length > 5) {
-          console.log(`    ... and ${status.files.length - 5} more files`);
-        }
-      } else {
-        console.log('  Working directory: clean');
-      }
-      
-      // Recent commits
-      const recentLog = await git.log(['-5']);
-      if (recentLog.all.length > 0) {
-        console.log('  Recent commits:');
-        recentLog.all.forEach(commit => {
-          console.log(`    ${commit.hash.slice(0, 8)} ${commit.message}`);
-        });
-      }
+      await displayVerboseGitInfo(git);
     }
     
   } catch (error) {
@@ -204,6 +165,67 @@ async function showGitStatus(verbose: boolean): Promise<void> {
   }
   
   console.log();
+}
+
+async function checkGitRepository(git: SimpleGit): Promise<boolean> {
+  const isRepo = await git.checkIsRepo();
+  if (!isRepo) {
+    console.log(chalk.gray('  Not a git repository'));
+    console.log();
+    return false;
+  }
+  return true;
+}
+
+async function displayBasicGitInfo(git: SimpleGit): Promise<void> {
+  const branch = await git.revparse(['--abbrev-ref', 'HEAD']);
+  console.log(`  Current branch: ${branch}`);
+  
+  const commit = await git.revparse(['HEAD']);
+  console.log(`  Latest commit: ${commit.slice(0, 8)}`);
+  
+  const log = await git.log(['-1']);
+  const latestCommit = log.latest;
+  if (latestCommit) {
+    console.log(`  Message: ${latestCommit.message}`);
+  }
+}
+
+async function displayVerboseGitInfo(git: SimpleGit): Promise<void> {
+  await displayWorkingDirectoryStatus(git);
+  await displayRecentCommits(git);
+}
+
+async function displayWorkingDirectoryStatus(git: SimpleGit): Promise<void> {
+  const status = await git.status();
+  
+  if (status.files.length === 0) {
+    console.log('  Working directory: clean');
+    return;
+  }
+  
+  console.log('  Working directory:');
+  status.files.slice(0, 5).forEach(file => {
+    const statusChar = file.working_dir || file.index || '?';
+    console.log(`    ${statusChar} ${file.path}`);
+  });
+  
+  if (status.files.length > 5) {
+    console.log(`    ... and ${status.files.length - 5} more files`);
+  }
+}
+
+async function displayRecentCommits(git: SimpleGit): Promise<void> {
+  const recentLog = await git.log(['-5']);
+  
+  if (recentLog.all.length === 0) {
+    return;
+  }
+  
+  console.log('  Recent commits:');
+  recentLog.all.forEach(commit => {
+    console.log(`    ${commit.hash.slice(0, 8)} ${commit.message}`);
+  });
 }
 
 function formatDate(timestamp: number): string {
