@@ -37,7 +37,7 @@ export class RiskAssessor {
 
     // Calculate project statistics
     const projectStatistics = statisticalEvaluator.calculateProjectStatistics(
-      functionsWithMetrics.map(f => f.metrics!)
+      functionsWithMetrics.map(f => f.metrics)
     );
 
     // Merge user thresholds with defaults, considering project context
