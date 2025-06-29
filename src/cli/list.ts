@@ -3,6 +3,7 @@ import { table } from 'table';
 import { ListCommandOptions, FunctionInfo, QueryFilter } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { UrgencyAssessor } from '../utils/urgency-assessor';
 
 export async function listCommand(
   patterns: string[] = [],
@@ -25,7 +26,17 @@ export async function listCommand(
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
-    const functions = await storage.queryFunctions();
+    let functions = await storage.queryFunctions();
+    
+    // Apply urgency filtering
+    const urgencyAssessor = new UrgencyAssessor();
+    if (options.urgent) {
+      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'urgent');
+    } else if (options.weekly) {
+      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'weekly');
+    } else if (options.team) {
+      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'team');
+    }
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -196,12 +207,20 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   if (options.json) format = 'json';
   if (options.csv) format = 'csv';
   
+  // Use friendly format for urgency views
+  if (options.urgent || options.weekly || options.team) {
+    format = 'friendly';
+  }
+  
   switch (format) {
     case 'json':
       outputJSON(functions);
       break;
     case 'csv':
       outputCSV(functions, options);
+      break;
+    case 'friendly':
+      outputFriendly(functions, options);
       break;
     default:
       outputTable(functions, options);
@@ -353,6 +372,75 @@ function getFieldValue(func: FunctionInfo, field: string): any {
     default:
       return '';
   }
+}
+
+function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions): void {
+  const urgencyAssessor = new UrgencyAssessor();
+  
+  if (functions.length === 0) {
+    console.log(chalk.green('🎉 素晴らしい！該当する関数はありません。'));
+    return;
+  }
+
+  // Sort by urgency score (highest priority first)
+  const assessedFunctions = functions.map(func => ({
+    func,
+    assessment: urgencyAssessor.assessFunction(func)
+  })).sort((a, b) => b.assessment.estimatedMinutes - a.assessment.estimatedMinutes);
+
+  let title: string;
+  if (options.urgent) {
+    title = '🚨 今日対応推奨';
+  } else if (options.weekly) {
+    title = '📅 今週計画推奨';
+  } else if (options.team) {
+    title = '👥 チーム検討推奨';
+  } else {
+    title = '📋 関数一覧';
+  }
+
+  console.log(chalk.bold.cyan(`${title} (${functions.length}関数)`));
+  console.log();
+
+  assessedFunctions.forEach((item, index) => {
+    const { func, assessment } = item;
+    const number = (index + 1).toString().padStart(2, ' ');
+    
+    // Function header with urgency indicator
+    console.log(chalk.bold(`${number}. ${func.displayName}() ${chalk.yellow(`[${assessment.estimatedMinutes}分で改善可能]`)}`));
+    console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
+    
+    // Risk and impact description
+    console.log(`   ⚠️  リスク: ${assessment.riskDescription}`);
+    console.log(`   💡 改善案: ${assessment.improvementStrategy}`);
+    console.log(`   📈 効果: ${assessment.impact}`);
+    
+    // Show specific issues if any
+    if (assessment.reasons.length > 0) {
+      console.log(`   🔍 課題: ${assessment.reasons.join('、')}`);
+    }
+    
+    console.log();
+  });
+
+  // Summary
+  const totalMinutes = assessedFunctions.reduce((sum, item) => sum + item.assessment.estimatedMinutes, 0);
+  const totalHours = Math.floor(totalMinutes / 60);
+  const remainingMinutes = totalMinutes % 60;
+  
+  console.log(chalk.blue('📊 概要:'));
+  console.log(chalk.blue(`   合計改善時間: ${totalHours}時間${remainingMinutes}分`));
+  
+  const urgentCount = assessedFunctions.filter(item => item.assessment.level === 'urgent').length;
+  const weeklyCount = assessedFunctions.filter(item => item.assessment.level === 'weekly').length;
+  const teamCount = assessedFunctions.filter(item => item.assessment.level === 'team').length;
+  
+  if (urgentCount > 0) console.log(chalk.red(`   🚨 緊急: ${urgentCount}件`));
+  if (weeklyCount > 0) console.log(chalk.yellow(`   📅 今週: ${weeklyCount}件`));
+  if (teamCount > 0) console.log(chalk.blue(`   👥 チーム: ${teamCount}件`));
+  
+  console.log();
+  console.log(chalk.gray('💡 ヒント: 具体的な優先度で絞り込むには --urgent, --weekly, --team オプションを使用してください'));
 }
 
 function formatFieldValue(func: FunctionInfo, field: string): string {

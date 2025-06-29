@@ -90,3 +90,43 @@ The quality calculator computes comprehensive metrics:
 - PGLite provides embedded PostgreSQL without external dependencies
 - Kysely ensures type-safe database operations
 - Rich CLI output with progress indicators and colored formatting
+
+## コード品質管理
+
+コミット前の必須手順として`function-indexer`を使用してコードの品質を計測し、High Risk関数が0件であることを確認する。
+
+### function-indexer 基本ワークフロー
+
+```bash
+# Step 1: メトリクス収集（コード変更後は必須）
+npx github:akiramei/function-indexer metrics collect --root ./src
+
+# Step 2: 品質確認（High Risk関数のチェック）
+npx github:akiramei/function-indexer metrics trends
+
+# Step 3: High Risk関数が1件以上の場合は修正して Step 1 に戻る
+# Step 4: High Risk関数が0件になるまで繰り返し
+```
+
+### High Risk 判定基準
+- Cyclomatic Complexity > 10
+- Cognitive Complexity > 15  
+- Lines of Code > 40
+- Nesting Depth > 3
+- Parameter Count > 4
+
+### 品質改善の基本手法
+- **関数分割**: 大きな関数を小さな関数に分割
+- **パラメータオブジェクト化**: 多数のパラメータをオブジェクトにまとめる
+- **早期リターン**: ネストを減らすために早期リターンを使用
+- **ヘルパーメソッド抽出**: 複雑なロジックを専用のヘルパーメソッドに抽出
+
+### 短縮コマンド（エイリアス）
+```bash
+# function-indexerの短縮形
+fx metrics collect --root ./src    # メトリクス収集
+fx metrics trends                  # 品質確認
+fx metrics                         # 概要表示
+```
+
+詳細な使い方は `@~/.claude/templates/function-indexer/AI-INTEGRATION.md` を参照。

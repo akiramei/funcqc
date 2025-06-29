@@ -65,59 +65,20 @@ async function showDatabaseStatus(dbPath: string, verbose: boolean): Promise<voi
     const storage = new PGLiteStorageAdapter(dbPath);
     await storage.init();
     
-    // Get snapshots
     const snapshots = await storage.getSnapshots();
     
     if (snapshots.length === 0) {
-      console.log(chalk.gray('  No data found'));
-      console.log(chalk.blue('  Run `funcqc scan` to analyze your code'));
-      console.log();
+      showNoDataMessage();
       return;
     }
     
-    // Latest snapshot info
-    const latest = snapshots[0]; // Assuming sorted by date desc
-    console.log(`  Latest scan: ${formatDate(latest.createdAt)}`);
-    if (latest.label) {
-      console.log(`  Label: ${latest.label}`);
-    }
-    if (latest.gitCommit) {
-      console.log(`  Git commit: ${latest.gitCommit.slice(0, 8)}`);
-    }
-    
-    console.log(`  Total snapshots: ${snapshots.length}`);
-    console.log(`  Functions analyzed: ${latest.metadata.totalFunctions}`);
-    console.log(`  Files analyzed: ${latest.metadata.totalFiles}`);
-    console.log(`  Average complexity: ${latest.metadata.avgComplexity.toFixed(1)}`);
+    const latest = snapshots[0];
+    showLatestSnapshotInfo(latest);
+    showBasicStats(snapshots, latest);
     
     if (verbose) {
-      // Show recent snapshots
-      console.log();
-      console.log('  Recent snapshots:');
-      snapshots.slice(0, 5).forEach(snapshot => {
-        const date = formatDate(snapshot.createdAt);
-        const label = snapshot.label ? ` (${snapshot.label})` : '';
-        const git = snapshot.gitCommit ? ` [${snapshot.gitCommit.slice(0, 8)}]` : '';
-        console.log(`    • ${date}${label}${git}`);
-      });
-      
-      if (snapshots.length > 5) {
-        console.log(`    ... and ${snapshots.length - 5} more`);
-      }
-      
-      // Show complexity distribution
-      if (latest.metadata.complexityDistribution) {
-        console.log();
-        console.log('  Complexity distribution:');
-        const dist = latest.metadata.complexityDistribution;
-        Object.entries(dist)
-          .sort(([a], [b]) => Number(a) - Number(b))
-          .slice(0, 5)
-          .forEach(([complexity, count]) => {
-            const bar = '▓'.repeat(Math.min(20, Number(count) / 10));
-            console.log(`    ${complexity.padStart(2)}: ${count.toString().padStart(3)} ${bar}`);
-          });
-      }
+      showRecentSnapshots(snapshots);
+      showComplexityDistribution(latest);
     }
     
     await storage.close();
@@ -127,6 +88,59 @@ async function showDatabaseStatus(dbPath: string, verbose: boolean): Promise<voi
   }
   
   console.log();
+}
+
+function showNoDataMessage(): void {
+  console.log(chalk.gray('  No data found'));
+  console.log(chalk.blue('  Run `funcqc scan` to analyze your code'));
+  console.log();
+}
+
+function showLatestSnapshotInfo(latest: any): void {
+  console.log(`  Latest scan: ${formatDate(latest.createdAt)}`);
+  if (latest.label) {
+    console.log(`  Label: ${latest.label}`);
+  }
+  if (latest.gitCommit) {
+    console.log(`  Git commit: ${latest.gitCommit.slice(0, 8)}`);
+  }
+}
+
+function showBasicStats(snapshots: any[], latest: any): void {
+  console.log(`  Total snapshots: ${snapshots.length}`);
+  console.log(`  Functions analyzed: ${latest.metadata.totalFunctions}`);
+  console.log(`  Files analyzed: ${latest.metadata.totalFiles}`);
+  console.log(`  Average complexity: ${latest.metadata.avgComplexity.toFixed(1)}`);
+}
+
+function showRecentSnapshots(snapshots: any[]): void {
+  console.log();
+  console.log('  Recent snapshots:');
+  snapshots.slice(0, 5).forEach(snapshot => {
+    const date = formatDate(snapshot.createdAt);
+    const label = snapshot.label ? ` (${snapshot.label})` : '';
+    const git = snapshot.gitCommit ? ` [${snapshot.gitCommit.slice(0, 8)}]` : '';
+    console.log(`    • ${date}${label}${git}`);
+  });
+  
+  if (snapshots.length > 5) {
+    console.log(`    ... and ${snapshots.length - 5} more`);
+  }
+}
+
+function showComplexityDistribution(latest: any): void {
+  if (!latest.metadata.complexityDistribution) return;
+  
+  console.log();
+  console.log('  Complexity distribution:');
+  const dist = latest.metadata.complexityDistribution;
+  Object.entries(dist)
+    .sort(([a], [b]) => Number(a) - Number(b))
+    .slice(0, 5)
+    .forEach(([complexity, count]) => {
+      const bar = '▓'.repeat(Math.min(20, Number(count) / 10));
+      console.log(`    ${complexity.padStart(2)}: ${String(count).padStart(3)} ${bar}`);
+    });
 }
 
 async function showGitStatus(verbose: boolean): Promise<void> {

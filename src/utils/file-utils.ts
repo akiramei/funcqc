@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { minimatch } from 'minimatch';
+import type { Dirent } from 'fs';
 
 /**
  * Check if a file exists
@@ -37,6 +38,13 @@ export async function ensureDir(dirPath: string): Promise<void> {
 /**
  * Find files recursively in a directory with optional filtering
  */
+interface WalkContext {
+  maxDepth: number;
+  extensions: string[] | undefined;
+  exclude: string[];
+  files: string[];
+}
+
 export async function findFiles(
   dir: string,
   options: {
@@ -46,39 +54,57 @@ export async function findFiles(
   } = {}
 ): Promise<string[]> {
   const { extensions, exclude = [], maxDepth = 10 } = options;
-  const files: string[] = [];
+  const context: WalkContext = {
+    maxDepth,
+    extensions,
+    exclude,
+    files: []
+  };
+  
+  await walkDirectory(dir, 0, context);
+  return context.files;
+}
 
-  async function walk(currentDir: string, depth: number = 0): Promise<void> {
-    if (depth > maxDepth) return;
+async function walkDirectory(
+  currentDir: string,
+  depth: number,
+  context: WalkContext
+): Promise<void> {
+  if (depth > context.maxDepth) return;
 
-    try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+  try {
+    const entries = await fs.readdir(currentDir, { withFileTypes: true });
+    await processDirectoryEntries(entries, currentDir, depth, context);
+  } catch {
+    console.warn(`Warning: Cannot access ${currentDir}`);
+  }
+}
 
-      for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
-
-        // Check exclude patterns
-        if (shouldExclude(fullPath, exclude)) {
-          continue;
-        }
-
-        if (entry.isDirectory()) {
-          await walk(fullPath, depth + 1);
-        } else if (entry.isFile()) {
-          // Check file extension
-          if (!extensions || extensions.some(ext => fullPath.endsWith(ext))) {
-            files.push(fullPath);
-          }
-        }
-      }
-    } catch {
-      // Skip inaccessible directories
-      console.warn(`Warning: Cannot access ${currentDir}`);
+async function processDirectoryEntries(
+  entries: Dirent[],
+  currentDir: string,
+  depth: number,
+  context: WalkContext
+): Promise<void> {
+  for (const entry of entries) {
+    const fullPath = path.join(currentDir, entry.name);
+    
+    if (shouldExclude(fullPath, context.exclude)) {
+      continue;
+    }
+    
+    if (entry.isDirectory()) {
+      await walkDirectory(fullPath, depth + 1, context);
+    } else if (entry.isFile()) {
+      addFileIfMatches(fullPath, context);
     }
   }
+}
 
-  await walk(dir);
-  return files;
+function addFileIfMatches(fullPath: string, context: WalkContext): void {
+  if (!context.extensions || context.extensions.some(ext => fullPath.endsWith(ext))) {
+    context.files.push(fullPath);
+  }
 }
 
 /**

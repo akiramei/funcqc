@@ -372,109 +372,87 @@ export class QualityCalculator {
   }
 
   private calculateHalsteadVolume(node: ts.FunctionLikeDeclaration): number {
+    const metrics = this.collectHalsteadMetrics(node);
+    const vocabulary = metrics.uniqueOperators + metrics.uniqueOperands;
+    const length = metrics.totalOperators + metrics.totalOperands;
+
+    // Halstead Volume = Length * log2(Vocabulary)
+    return vocabulary > 0 ? Math.round(length * Math.log2(vocabulary) * 100) / 100 : 0;
+  }
+
+  private collectHalsteadMetrics(node: ts.FunctionLikeDeclaration) {
     const operators = new Set<string>();
     const operands = new Set<string>();
     let totalOperators = 0;
     let totalOperands = 0;
 
     const visit = (node: ts.Node) => {
-      // Count operators
-      if (ts.isBinaryExpression(node)) {
-        const op = node.operatorToken.getText();
-        operators.add(op);
-        totalOperators++;
-      } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
-        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
-                   node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
-                   node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
-                   node.operator === ts.SyntaxKind.TildeToken ? '~' :
-                   node.operator === ts.SyntaxKind.PlusToken ? '+' :
-                   node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
-        if (op) {
-          operators.add(op);
-          totalOperators++;
-        }
-      } else if (ts.isCallExpression(node)) {
-        operators.add('()');
-        totalOperators++;
-      } else if (ts.isPropertyAccessExpression(node)) {
-        operators.add('.');
-        totalOperators++;
-      } else if (ts.isElementAccessExpression(node)) {
-        operators.add('[]');
-        totalOperators++;
-      }
-
-      // Count operands (identifiers, literals, etc.)
-      if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-        const text = node.getText();
-        operands.add(text);
-        totalOperands++;
-      }
-
+      this.processOperators(node, operators, () => totalOperators++);
+      this.processOperands(node, operands, () => totalOperands++);
       ts.forEachChild(node, visit);
     };
 
     visit(node);
 
-    const n1 = operators.size; // Unique operators
-    const n2 = operands.size;  // Unique operands
-    const N1 = totalOperators; // Total operators
-    const N2 = totalOperands;  // Total operands
+    return {
+      uniqueOperators: operators.size,
+      uniqueOperands: operands.size,
+      totalOperators,
+      totalOperands
+    };
+  }
 
-    const vocabulary = n1 + n2;
-    const length = N1 + N2;
+  private processOperators(node: ts.Node, operators: Set<string>, incrementTotal: () => void) {
+    if (ts.isBinaryExpression(node)) {
+      const op = node.operatorToken.getText();
+      operators.add(op);
+      incrementTotal();
+    } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
+      const op = this.getUnaryOperator(node);
+      if (op) {
+        operators.add(op);
+        incrementTotal();
+      }
+    } else if (ts.isCallExpression(node)) {
+      operators.add('()');
+      incrementTotal();
+    } else if (ts.isPropertyAccessExpression(node)) {
+      operators.add('.');
+      incrementTotal();
+    } else if (ts.isElementAccessExpression(node)) {
+      operators.add('[]');
+      incrementTotal();
+    }
+  }
 
-    // Halstead Volume = Length * log2(Vocabulary)
-    return vocabulary > 0 ? Math.round(length * Math.log2(vocabulary) * 100) / 100 : 0;
+  private getUnaryOperator(node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression): string {
+    switch (node.operator) {
+      case ts.SyntaxKind.PlusPlusToken: return '++';
+      case ts.SyntaxKind.MinusMinusToken: return '--';
+      case ts.SyntaxKind.ExclamationToken: return '!';
+      case ts.SyntaxKind.TildeToken: return '~';
+      case ts.SyntaxKind.PlusToken: return '+';
+      case ts.SyntaxKind.MinusToken: return '-';
+      default: return '';
+    }
+  }
+
+  private processOperands(node: ts.Node, operands: Set<string>, incrementTotal: () => void) {
+    if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+      const text = node.getText();
+      operands.add(text);
+      incrementTotal();
+    }
   }
 
   private calculateHalsteadDifficulty(node: ts.FunctionLikeDeclaration): number {
-    const operators = new Set<string>();
-    const operands = new Set<string>();
-    let totalOperands = 0;
-
-    const visit = (node: ts.Node) => {
-      // Count operators
-      if (ts.isBinaryExpression(node)) {
-        operators.add(node.operatorToken.getText());
-      } else if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
-        const op = node.operator === ts.SyntaxKind.PlusPlusToken ? '++' :
-                   node.operator === ts.SyntaxKind.MinusMinusToken ? '--' :
-                   node.operator === ts.SyntaxKind.ExclamationToken ? '!' :
-                   node.operator === ts.SyntaxKind.TildeToken ? '~' :
-                   node.operator === ts.SyntaxKind.PlusToken ? '+' :
-                   node.operator === ts.SyntaxKind.MinusToken ? '-' : '';
-        if (op) operators.add(op);
-      } else if (ts.isCallExpression(node)) {
-        operators.add('()');
-      } else if (ts.isPropertyAccessExpression(node)) {
-        operators.add('.');
-      } else if (ts.isElementAccessExpression(node)) {
-        operators.add('[]');
-      }
-
-      // Count operands
-      if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
-        const text = node.getText();
-        operands.add(text);
-        totalOperands++;
-      }
-
-      ts.forEachChild(node, visit);
-    };
-
-    visit(node);
-
-    const n1 = operators.size; // Unique operators
-    const n2 = operands.size;  // Unique operands
-    const N2 = totalOperands;  // Total operands
-
+    const metrics = this.collectHalsteadMetrics(node);
+    
     // Halstead Difficulty = (n1/2) * (N2/n2)
     // Avoid division by zero
-    if (n2 === 0) return 0;
+    if (metrics.uniqueOperands === 0) return 0;
     
-    const difficulty = (n1 / 2) * (N2 / n2);
+    const difficulty = (metrics.uniqueOperators / 2) * (metrics.totalOperands / metrics.uniqueOperands);
     return Math.round(difficulty * 100) / 100;
   }
 
