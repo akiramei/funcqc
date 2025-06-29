@@ -12,8 +12,10 @@ export interface FuncqcConfig {
   
   metrics: {
     complexityThreshold: number;
+    cognitiveComplexityThreshold: number;
     linesOfCodeThreshold: number;
     parameterCountThreshold: number;
+    maxNestingLevelThreshold: number;
   };
   
   git: {

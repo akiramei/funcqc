@@ -17,9 +17,11 @@ const DEFAULT_CONFIG: FuncqcConfig = {
     path: '.funcqc/funcqc.db'
   },
   metrics: {
-    complexityThreshold: 10,
-    linesOfCodeThreshold: 50,
-    parameterCountThreshold: 5
+    complexityThreshold: 10,           // Cyclomatic Complexity > 10
+    cognitiveComplexityThreshold: 15,  // Cognitive Complexity > 15
+    linesOfCodeThreshold: 40,          // Lines of Code > 40
+    parameterCountThreshold: 4,        // Parameter Count > 4
+    maxNestingLevelThreshold: 3        // Nesting Depth > 3
   },
   git: {
     enabled: true,

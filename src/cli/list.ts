@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 
@@ -28,7 +28,7 @@ export async function listCommand(
     let functions = await storage.queryFunctions();
     
     // Apply threshold-based filtering
-    functions = applyThresholdFiltering(functions, options);
+    functions = applyThresholdFiltering(functions, options, config);
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -37,7 +37,7 @@ export async function listCommand(
     }
     
     // Output results
-    await outputResults(functions, options);
+    await outputResults(functions, options, config);
     
   } catch (error) {
     console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
@@ -45,7 +45,7 @@ export async function listCommand(
   }
 }
 
-function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
+function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): FunctionInfo[] {
   if (!options.thresholdViolations) {
     return functions;
   }
@@ -55,20 +55,22 @@ function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommand
     const metrics = func.metrics;
     if (!metrics) return false;
     
-    // Define objective thresholds
-    const THRESHOLDS = {
-      cyclomaticComplexity: 10,
-      linesOfCode: 50,
-      parameterCount: 4,
-      maxNestingLevel: 3
-    };
+    // Use configurable thresholds from the loaded configuration
+    const {
+      complexityThreshold,
+      cognitiveComplexityThreshold,
+      linesOfCodeThreshold,
+      parameterCountThreshold,
+      maxNestingLevelThreshold
+    } = config.metrics;
     
     // Check if function violates any threshold
     return (
-      metrics.cyclomaticComplexity > THRESHOLDS.cyclomaticComplexity ||
-      metrics.linesOfCode > THRESHOLDS.linesOfCode ||
-      metrics.parameterCount > THRESHOLDS.parameterCount ||
-      metrics.maxNestingLevel > THRESHOLDS.maxNestingLevel
+      metrics.cyclomaticComplexity > complexityThreshold ||
+      metrics.cognitiveComplexity > cognitiveComplexityThreshold ||
+      metrics.linesOfCode > linesOfCodeThreshold ||
+      metrics.parameterCount > parameterCountThreshold ||
+      metrics.maxNestingLevel > maxNestingLevelThreshold
     );
   });
 }
@@ -220,7 +222,7 @@ function parseComparisonOperator(field: string, condition: string): QueryFilter 
   return null;
 }
 
-async function outputResults(functions: FunctionInfo[], options: ListCommandOptions): Promise<void> {
+async function outputResults(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): Promise<void> {
   // Determine output format
   let format = options.format || 'table';
   
@@ -241,7 +243,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
       outputCSV(functions, options);
       break;
     case 'friendly':
-      outputFriendly(functions, options);
+      outputFriendly(functions, options, config);
       break;
     default:
       outputTable(functions, options);
@@ -395,7 +397,7 @@ function getFieldValue(func: FunctionInfo, field: string): any {
   }
 }
 
-function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions): void {
+function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): void {
   if (functions.length === 0) {
     console.log(chalk.green('No functions found matching the criteria.'));
     return;
@@ -434,11 +436,30 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions):
       
       // Show threshold violations if applicable
       if (options.thresholdViolations) {
+        const {
+          complexityThreshold,
+          cognitiveComplexityThreshold,
+          linesOfCodeThreshold,
+          parameterCountThreshold,
+          maxNestingLevelThreshold
+        } = config.metrics;
+        
         const violations = [];
-        if (metrics.cyclomaticComplexity > 10) violations.push(`CC=${metrics.cyclomaticComplexity}(+${(metrics.cyclomaticComplexity - 10).toFixed(1)})`);
-        if (metrics.linesOfCode > 50) violations.push(`LOC=${metrics.linesOfCode}(+${metrics.linesOfCode - 50})`);
-        if (metrics.parameterCount > 4) violations.push(`Params=${metrics.parameterCount}(+${metrics.parameterCount - 4})`);
-        if (metrics.maxNestingLevel > 3) violations.push(`Nesting=${metrics.maxNestingLevel}(+${metrics.maxNestingLevel - 3})`);
+        if (metrics.cyclomaticComplexity > complexityThreshold) {
+          violations.push(`CC=${metrics.cyclomaticComplexity}(+${(metrics.cyclomaticComplexity - complexityThreshold).toFixed(1)})`);
+        }
+        if (metrics.cognitiveComplexity > cognitiveComplexityThreshold) {
+          violations.push(`CogC=${metrics.cognitiveComplexity}(+${(metrics.cognitiveComplexity - cognitiveComplexityThreshold).toFixed(1)})`);
+        }
+        if (metrics.linesOfCode > linesOfCodeThreshold) {
+          violations.push(`LOC=${metrics.linesOfCode}(+${metrics.linesOfCode - linesOfCodeThreshold})`);
+        }
+        if (metrics.parameterCount > parameterCountThreshold) {
+          violations.push(`Params=${metrics.parameterCount}(+${metrics.parameterCount - parameterCountThreshold})`);
+        }
+        if (metrics.maxNestingLevel > maxNestingLevelThreshold) {
+          violations.push(`Nesting=${metrics.maxNestingLevel}(+${metrics.maxNestingLevel - maxNestingLevelThreshold})`);
+        }
         
         if (violations.length > 0) {
           console.log(`   ⚠️  Violations: ${violations.join(', ')}`);
@@ -459,11 +480,16 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions):
   console.log(chalk.blue(`   Average Complexity: ${avgComplexity.toFixed(1)}`));
   console.log(chalk.blue(`   Average Lines of Code: ${avgLines.toFixed(1)}`));
   
-  const highComplexityCount = functions.filter(f => (f.metrics?.cyclomaticComplexity || 1) > 10).length;
-  const longFunctionCount = functions.filter(f => (f.metrics?.linesOfCode || 0) > 50).length;
+  const {
+    complexityThreshold,
+    linesOfCodeThreshold
+  } = config.metrics;
   
-  if (highComplexityCount > 0) console.log(chalk.yellow(`   🔍 High Complexity (>10): ${highComplexityCount} functions`));
-  if (longFunctionCount > 0) console.log(chalk.yellow(`   📏 Long Functions (>50 LOC): ${longFunctionCount} functions`));
+  const highComplexityCount = functions.filter(f => (f.metrics?.cyclomaticComplexity || 1) > complexityThreshold).length;
+  const longFunctionCount = functions.filter(f => (f.metrics?.linesOfCode || 0) > linesOfCodeThreshold).length;
+  
+  if (highComplexityCount > 0) console.log(chalk.yellow(`   🔍 High Complexity (>${complexityThreshold}): ${highComplexityCount} functions`));
+  if (longFunctionCount > 0) console.log(chalk.yellow(`   📏 Long Functions (>${linesOfCodeThreshold} LOC): ${longFunctionCount} functions`));
 }
 
 function formatFieldValue(func: FunctionInfo, field: string): string {
