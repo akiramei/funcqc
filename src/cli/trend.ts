@@ -79,6 +79,14 @@ function determinePeriod(options: TrendCommandOptions): number {
   return 7; // Default to weekly
 }
 
+// Constants for trend analysis
+const MAX_PERIODS = 8;
+const QUALITY_SCORE_BASE = 100;
+const COMPLEXITY_PENALTY_MULTIPLIER = 5;
+const MAX_COMPLEXITY_PENALTY = 50;
+const MAX_RISK_RATIO_PENALTY = 30;
+const TREND_THRESHOLD = 5;
+
 async function analyzeTrends(
   snapshots: SnapshotInfo[], 
   periodDays: number, 
@@ -89,7 +97,7 @@ async function analyzeTrends(
   
   // Group snapshots by periods
   const periods: TrendData[] = [];
-  const maxPeriods = 8; // Show last 8 periods
+  const maxPeriods = MAX_PERIODS; // Show last 8 periods
   
   for (let i = 0; i < maxPeriods; i++) {
     const periodEnd = new Date(now.getTime() - (i * periodMs));
@@ -137,14 +145,17 @@ function calculatePeriodMetrics(
   // Estimate high risk functions (complexity > 10)
   const complexityDist = metadata.complexityDistribution || {};
   const highRiskCount = Object.entries(complexityDist)
-    .filter(([complexity, _]) => parseInt(complexity) > 10)
-    .reduce((sum, [_, count]) => sum + Number(count), 0);
+    .filter(([complexity, _]) => {
+      const complexityNum = parseInt(complexity, 10);
+      return !isNaN(complexityNum) && complexityNum > 10;
+    })
+    .reduce((sum, [_, count]) => {
+      const countNum = Number(count);
+      return sum + (isNaN(countNum) ? 0 : countNum);
+    }, 0);
   
   // Calculate quality score (0-100, higher is better)
-  let qualityScore = 100;
-  qualityScore -= Math.min(avgComplexity * 5, 50); // Penalty for high average complexity
-  qualityScore -= Math.min((highRiskCount / totalFunctions) * 100, 30); // Penalty for high risk ratio
-  qualityScore = Math.max(0, Math.min(100, qualityScore));
+  const qualityScore = calculateQualityScore(avgComplexity, highRiskCount, totalFunctions);
   
   // Determine trend compared to previous period
   let trend: 'improving' | 'stable' | 'degrading' = 'stable';
@@ -163,9 +174,9 @@ function calculatePeriodMetrics(
     const previousData = calculatePeriodMetrics(previousSnapshots, previousPeriodStart, previousPeriodEnd, periodDays);
     const scoreDiff = qualityScore - previousData.qualityScore;
     
-    if (scoreDiff > 5) {
+    if (scoreDiff > TREND_THRESHOLD) {
       trend = 'improving';
-    } else if (scoreDiff < -5) {
+    } else if (scoreDiff < -TREND_THRESHOLD) {
       trend = 'degrading';
     }
   }
@@ -181,6 +192,13 @@ function calculatePeriodMetrics(
     qualityScore,
     trend
   };
+}
+
+function calculateQualityScore(avgComplexity: number, highRiskCount: number, totalFunctions: number): number {
+  let qualityScore = QUALITY_SCORE_BASE;
+  qualityScore -= Math.min(avgComplexity * COMPLEXITY_PENALTY_MULTIPLIER, MAX_COMPLEXITY_PENALTY);
+  qualityScore -= Math.min((highRiskCount / totalFunctions) * 100, MAX_RISK_RATIO_PENALTY);
+  return Math.max(0, Math.min(100, qualityScore));
 }
 
 function calculateOverallTrend(periods: TrendData[]): 'improving' | 'stable' | 'degrading' {
