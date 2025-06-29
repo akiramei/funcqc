@@ -230,7 +230,7 @@ export class ThresholdEvaluator {
     }
 
     // Only warnings or no violations
-    return violations.length > 0 ? 'low' : 'low';
+    return 'low';
   }
 
   /**
