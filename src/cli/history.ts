@@ -4,7 +4,7 @@ import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
 import { formatDuration } from '../utils/file-utils';
-import { CommandOptions } from '../types';
+import { CommandOptions, FunctionInfo, SnapshotInfo } from '../types';
 
 export interface HistoryCommandOptions extends CommandOptions {
   verbose?: boolean;
@@ -14,6 +14,7 @@ export interface HistoryCommandOptions extends CommandOptions {
   author?: string;
   branch?: string;
   label?: string;
+  id?: string;
 }
 
 export async function historyCommand(options: HistoryCommandOptions): Promise<void> {
@@ -26,60 +27,74 @@ export async function historyCommand(options: HistoryCommandOptions): Promise<vo
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
-    // Parse options
-    const limit = options.limit ? parseInt(options.limit) : 20;
-    const since = options.since ? new Date(options.since) : undefined;
-    const until = options.until ? new Date(options.until) : undefined;
-
-    // Get snapshots with filters
-    const snapshots = await storage.getSnapshots({
-      limit,
-      // Note: More advanced filtering would be implemented here
-    });
-
-    if (snapshots.length === 0) {
-      logger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
-      return;
-    }
-
-    // Apply client-side filters (for now)
-    let filteredSnapshots = snapshots;
-    
-    if (since) {
-      filteredSnapshots = filteredSnapshots.filter(s => s.createdAt >= since.getTime());
-    }
-    
-    if (until) {
-      filteredSnapshots = filteredSnapshots.filter(s => s.createdAt <= until.getTime());
-    }
-    
-    if (options.branch) {
-      filteredSnapshots = filteredSnapshots.filter(s => s.gitBranch === options.branch);
-    }
-    
-    if (options.label) {
-      filteredSnapshots = filteredSnapshots.filter(s => 
-        s.label && s.label.includes(options.label!)
-      );
-    }
-
-    // Display results
-    console.log(chalk.cyan.bold(`\n📈 Snapshot History (${filteredSnapshots.length} snapshots)\n`));
-
-    if (options.verbose) {
-      await displayDetailedHistory(filteredSnapshots, storage, logger);
+    if (options.id) {
+      // Function tracking mode
+      await displayFunctionHistory(options.id, options, storage, logger);
     } else {
-      displayCompactHistory(filteredSnapshots);
+      // Standard snapshot history mode
+      await displaySnapshotHistory(options, storage, logger);
     }
-
-    // Display summary statistics
-    displayHistorySummary(filteredSnapshots);
 
     await storage.close();
   } catch (error) {
     logger.error('Failed to retrieve history', error);
     process.exit(1);
   }
+}
+
+async function displaySnapshotHistory(
+  options: HistoryCommandOptions, 
+  storage: PGLiteStorageAdapter, 
+  logger: Logger
+): Promise<void> {
+  // Parse options
+  const limit = options.limit ? parseInt(options.limit) : 20;
+  const since = options.since ? new Date(options.since) : undefined;
+  const until = options.until ? new Date(options.until) : undefined;
+
+  // Get snapshots with filters
+  const snapshots = await storage.getSnapshots({
+    limit,
+    // Note: More advanced filtering would be implemented here
+  });
+
+  if (snapshots.length === 0) {
+    logger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
+    return;
+  }
+
+  // Apply client-side filters (for now)
+  let filteredSnapshots = snapshots;
+  
+  if (since) {
+    filteredSnapshots = filteredSnapshots.filter(s => s.createdAt >= since.getTime());
+  }
+  
+  if (until) {
+    filteredSnapshots = filteredSnapshots.filter(s => s.createdAt <= until.getTime());
+  }
+  
+  if (options.branch) {
+    filteredSnapshots = filteredSnapshots.filter(s => s.gitBranch === options.branch);
+  }
+  
+  if (options.label) {
+    filteredSnapshots = filteredSnapshots.filter(s => 
+      s.label && s.label.includes(options.label!)
+    );
+  }
+
+  // Display results
+  console.log(chalk.cyan.bold(`\n📈 Snapshot History (${filteredSnapshots.length} snapshots)\n`));
+
+  if (options.verbose) {
+    await displayDetailedHistory(filteredSnapshots, storage, logger);
+  } else {
+    displayCompactHistory(filteredSnapshots);
+  }
+
+  // Display summary statistics
+  displayHistorySummary(filteredSnapshots);
 }
 
 function displayCompactHistory(snapshots: any[]): void {
@@ -270,4 +285,311 @@ function formatDate(timestamp: number): string {
   
   // More than 7 days ago - show date
   return date.toLocaleDateString();
+}
+
+async function displayFunctionHistory(
+  functionId: string, 
+  options: HistoryCommandOptions, 
+  storage: PGLiteStorageAdapter, 
+  logger: Logger
+): Promise<void> {
+  const snapshots = await getSnapshots(storage, logger);
+  if (snapshots.length === 0) return;
+  
+  const functionHistory = await buildFunctionHistory(snapshots, functionId, storage, logger);
+  const filteredHistory = applyFiltersToHistory(functionHistory, options);
+  
+  if (filteredHistory.length === 0) {
+    console.log(chalk.yellow(`No history found for function ID '${functionId}'.`));
+    return;
+  }
+  
+  displayFunctionHistoryResults(filteredHistory, functionId, options);
+}
+
+async function getSnapshots(storage: PGLiteStorageAdapter, logger: Logger): Promise<SnapshotInfo[]> {
+  const snapshots = await storage.getSnapshots({ limit: 100 });
+  if (snapshots.length === 0) {
+    logger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
+  }
+  return snapshots;
+}
+
+async function buildFunctionHistory(
+  snapshots: SnapshotInfo[], 
+  functionId: string, 
+  storage: PGLiteStorageAdapter, 
+  logger: Logger
+): Promise<Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>> {
+  const functionHistory = [];
+  
+  for (const snapshot of snapshots) {
+    try {
+      const functions = await storage.getFunctions(snapshot.id);
+      const func = functions.find(f => f.id === functionId || f.id.startsWith(functionId));
+      
+      functionHistory.push({
+        snapshot,
+        function: func || null,
+        isPresent: !!func
+      });
+    } catch (error) {
+      logger.debug(`Failed to get functions for snapshot ${snapshot.id}`, error);
+      functionHistory.push({
+        snapshot,
+        function: null,
+        isPresent: false
+      });
+    }
+  }
+  
+  return functionHistory;
+}
+
+function applyFiltersToHistory(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>, 
+  options: HistoryCommandOptions
+): Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }> {
+  const limit = options.limit ? parseInt(options.limit) : 20;
+  const since = options.since ? new Date(options.since) : undefined;
+  const until = options.until ? new Date(options.until) : undefined;
+  
+  let filtered = history;
+  
+  if (since) {
+    filtered = filtered.filter(h => h.snapshot.createdAt >= since.getTime());
+  }
+  if (until) {
+    filtered = filtered.filter(h => h.snapshot.createdAt <= until.getTime());
+  }
+  if (options.branch) {
+    filtered = filtered.filter(h => h.snapshot.gitBranch === options.branch);
+  }
+  if (options.label) {
+    filtered = filtered.filter(h => 
+      h.snapshot.label && h.snapshot.label.includes(options.label!)
+    );
+  }
+  
+  return filtered.slice(0, limit);
+}
+
+function displayFunctionHistoryResults(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>, 
+  functionId: string, 
+  options: HistoryCommandOptions
+): void {
+  const firstFunction = history.find(h => h.function)?.function;
+  const functionName = firstFunction ? firstFunction.displayName : 'Unknown Function';
+  const shortId = functionId.length > 8 ? functionId.substring(0, 8) : functionId;
+
+  console.log(chalk.cyan.bold(`\n🔍 Function History: ${functionName} [${shortId}]\n`));
+
+  if (options.verbose) {
+    displayDetailedFunctionHistory(history, functionName);
+  } else {
+    displayCompactFunctionHistory(history, functionName);
+  }
+
+  displayFunctionHistorySummary(history, functionName);
+}
+
+function displayCompactFunctionHistory(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
+  _functionName: string
+): void {
+  const tableData = history.map(entry => {
+    const snapshot = entry.snapshot;
+    const func = entry.function;
+    
+    return [
+      snapshot.id.substring(0, 8),
+      formatDate(snapshot.createdAt),
+      snapshot.gitBranch || '-',
+      snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-',
+      entry.isPresent ? chalk.green('✓') : chalk.red('✗'),
+      func?.metrics?.cyclomaticComplexity?.toString() || '-',
+      func?.metrics?.linesOfCode?.toString() || '-',
+      calculateQualityTrend(func)
+    ];
+  });
+
+  const headers = [
+    'Snapshot',
+    'Date',
+    'Branch',
+    'Commit',
+    'Present',
+    'Complexity',
+    'LOC',
+    'Trend'
+  ];
+
+  const config = {
+    header: {
+      alignment: 'center' as const,
+      content: headers.map(h => chalk.bold(h))
+    },
+    columnDefault: {
+      paddingLeft: 1,
+      paddingRight: 1,
+    },
+    columns: {
+      0: { alignment: 'left' as const },
+      1: { alignment: 'left' as const },
+      2: { alignment: 'left' as const },
+      3: { alignment: 'left' as const },
+      4: { alignment: 'center' as const },
+      5: { alignment: 'right' as const },
+      6: { alignment: 'right' as const },
+      7: { alignment: 'center' as const }
+    }
+  };
+
+  // @ts-ignore - Table configuration type issue
+  console.log(table([headers, ...tableData], config));
+}
+
+function displayDetailedFunctionHistory(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
+  _functionName: string
+): void {
+  history.forEach((entry, index) => {
+    const snapshot = entry.snapshot;
+    const func = entry.function;
+    const number = (index + 1).toString().padStart(2, '0');
+    
+    console.log(chalk.yellow(`[${number}] ${formatDate(snapshot.createdAt)} - ${snapshot.id.substring(0, 8)}`));
+    
+    if (entry.isPresent && func) {
+      console.log(chalk.green(`   ✓ Present in ${func.filePath}:${func.startLine}`));
+      
+      if (func.metrics) {
+        const metrics = func.metrics;
+        console.log(`   📈 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`);
+        
+        if (metrics.maintainabilityIndex) {
+          console.log(`   🔧 Maintainability: ${metrics.maintainabilityIndex.toFixed(1)}`);
+        }
+      }
+      
+      // Show signature if it's different from previous
+      if (index < history.length - 1) {
+        const prevEntry = history[index + 1];
+        if (prevEntry.function && prevEntry.function.signature !== func.signature) {
+          console.log(chalk.blue(`   🔄 Signature changed from: ${prevEntry.function.signature}`));
+          console.log(chalk.blue(`   🔄                     to: ${func.signature}`));
+        }
+      }
+    } else {
+      console.log(chalk.red(`   ✗ Not present (deleted or not analyzed)`));
+    }
+    
+    // Git info
+    if (snapshot.gitBranch) {
+      console.log(chalk.gray(`   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`));
+    }
+    if (snapshot.label) {
+      console.log(chalk.gray(`   Label: ${snapshot.label}`));
+    }
+    
+    console.log(); // Empty line
+  });
+}
+
+function displayFunctionHistorySummary(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
+  functionName: string
+): void {
+  const presentCount = history.filter(h => h.isPresent).length;
+  const totalSnapshots = history.length;
+  const presenceRate = ((presentCount / totalSnapshots) * 100).toFixed(1);
+  
+  const metricsHistory = history
+    .filter(h => h.function?.metrics)
+    .map(h => h.function!.metrics!);
+  
+  console.log(chalk.cyan('📈 Function Summary:'));
+  console.log(`   Function: ${functionName}`);
+  console.log(`   Presence: ${presentCount}/${totalSnapshots} snapshots (${presenceRate}%)`);
+  
+  if (metricsHistory.length > 0) {
+    const firstMetrics = metricsHistory[metricsHistory.length - 1]; // Oldest
+    const lastMetrics = metricsHistory[0]; // Newest
+    
+    const complexityChange = lastMetrics.cyclomaticComplexity - firstMetrics.cyclomaticComplexity;
+    const locChange = lastMetrics.linesOfCode - firstMetrics.linesOfCode;
+    
+    console.log(`   Complexity trend: ${formatChange(complexityChange)} (${firstMetrics.cyclomaticComplexity} → ${lastMetrics.cyclomaticComplexity})`);
+    console.log(`   LOC trend: ${formatChange(locChange)} (${firstMetrics.linesOfCode} → ${lastMetrics.linesOfCode})`);
+    
+    // Quality assessment
+    const qualityTrend = calculateOverallQualityTrend(firstMetrics, lastMetrics);
+    console.log(`   Overall quality: ${qualityTrend}`);
+  }
+  
+  // Time span
+  if (history.length > 1) {
+    const timespan = formatDuration(history[0].snapshot.createdAt - history[history.length - 1].snapshot.createdAt);
+    console.log(`   Time span: ${timespan}`);
+  }
+}
+
+function calculateQualityTrend(func: FunctionInfo | null): string {
+  if (!func?.metrics) return '-';
+  
+  const metrics = func.metrics;
+  let score = 0;
+  
+  // Simple quality scoring (lower complexity = better)
+  if (metrics.cyclomaticComplexity <= 5) score += 2;
+  else if (metrics.cyclomaticComplexity <= 10) score += 1;
+  else score -= 1;
+  
+  if (metrics.linesOfCode <= 20) score += 1;
+  else if (metrics.linesOfCode <= 50) score += 0;
+  else score -= 1;
+  
+  if (metrics.parameterCount <= 3) score += 1;
+  else if (metrics.parameterCount <= 5) score += 0;
+  else score -= 1;
+  
+  if (score >= 3) return chalk.green('⬆'); // ⬆ = up arrow
+  if (score >= 1) return chalk.yellow('➡'); // ➡ = right arrow
+  return chalk.red('⬇'); // ⬇ = down arrow
+}
+
+function formatChange(change: number): string {
+  if (change > 0) return chalk.red(`+${change}`);
+  if (change < 0) return chalk.green(`${change}`);
+  return chalk.gray('no change');
+}
+
+function calculateOverallQualityTrend(oldMetrics: any, newMetrics: any): string {
+  const complexityChange = newMetrics.cyclomaticComplexity - oldMetrics.cyclomaticComplexity;
+  const locChange = newMetrics.linesOfCode - oldMetrics.linesOfCode;
+  const paramChange = newMetrics.parameterCount - oldMetrics.parameterCount;
+  
+  let score = 0;
+  
+  // Complexity change (negative is better)
+  if (complexityChange < 0) score += 2;
+  else if (complexityChange === 0) score += 1;
+  else score -= 1;
+  
+  // LOC change (moderate decrease is good, large increase is bad)
+  if (locChange < -10) score -= 1; // Too much reduction might indicate lost functionality
+  else if (locChange <= 0) score += 1; // Slight reduction is good
+  else if (locChange <= 10) score += 0; // Slight increase is neutral
+  else score -= 1; // Large increase is bad
+  
+  // Parameter change (decrease is generally better)
+  if (paramChange < 0) score += 1;
+  else if (paramChange === 0) score += 0;
+  else score -= 1;
+  
+  if (score >= 3) return chalk.green('📈 Improving');
+  if (score >= 1) return chalk.yellow('📊 Stable');
+  if (score >= -1) return chalk.yellow('📉 Slightly degrading');
+  return chalk.red('📉 Degrading');
 }
