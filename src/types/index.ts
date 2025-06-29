@@ -30,7 +30,7 @@ export interface FuncqcConfig {
 export interface SimilarityDetectorConfig {
   enabled: boolean;
   threshold: number;
-  options?: Record<string, any>;
+  options?: Record<string, unknown>;
 }
 
 export interface ConsensusStrategy {
@@ -155,7 +155,7 @@ export interface SnapshotMetadata {
 export interface QueryFilter {
   field: string;
   operator: '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN';
-  value: any;
+  value: unknown;
 }
 
 export interface QueryOptions {
@@ -185,8 +185,8 @@ export interface FunctionChange {
 
 export interface ChangeDetail {
   field: string;
-  oldValue: any;
-  newValue: any;
+  oldValue: unknown;
+  newValue: unknown;
   impact: 'low' | 'medium' | 'high';
 }
 
@@ -202,7 +202,7 @@ export interface DiffStatistics {
 // Error handling types
 export interface FuncqcError extends Error {
   code: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   recoverable: boolean;
   recoveryActions?: string[];
   originalError?: Error;
@@ -241,6 +241,7 @@ export interface ScanCommandOptions extends CommandOptions {
   force?: boolean;
   batchSize?: string;
   quick?: boolean;
+  compareWith?: string;
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -265,6 +266,51 @@ export interface ListCommandOptions extends CommandOptions {
 
 export interface StatusCommandOptions extends CommandOptions {
   verbose?: boolean;
+}
+
+export interface TrendCommandOptions extends CommandOptions {
+  weekly?: boolean;
+  monthly?: boolean;
+  daily?: boolean;
+  period?: string;
+  metric?: string;
+  summary?: boolean;
+  json?: boolean;
+}
+
+// Additional type definitions for CLI components
+export interface CliComponents {
+  analyzer: { analyzeFile(file: string): Promise<FunctionInfo[]> };
+  storage: StorageAdapter;
+  qualityCalculator: { calculate(func: FunctionInfo): Promise<QualityMetrics> };
+}
+
+export interface FunctionChangeImproved {
+  after: FunctionInfo;
+  changes: ChangeDetail[];
+}
+
+export interface FunctionChangeDegraded {
+  after: FunctionInfo;
+  changes: ChangeDetail[];
+}
+
+export interface TopFunctionChanges {
+  improved: FunctionChangeImproved[];
+  degraded: FunctionChangeDegraded[];
+}
+
+export interface TrendDataSnapshot {
+  complexityChange: number;
+  functionChange: number;
+}
+
+export interface SpinnerInterface {
+  start(text?: string): void;
+  succeed(text?: string): void;
+  fail(text?: string): void;
+  warn(text?: string): void;
+  text: string;
 }
 
 // Storage adapter interface
@@ -319,7 +365,7 @@ export interface SimilarityResult {
   similarity: number;
   functions: SimilarFunction[];
   detector: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface SimilarFunction {

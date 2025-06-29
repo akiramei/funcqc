@@ -8,6 +8,7 @@ import { listCommand } from './cli/list';
 import { statusCommand } from './cli/status';
 import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
+import { trendCommand } from './cli/trend';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -51,6 +52,7 @@ program
   .option('--force', 'force full rescan of all files')
   .option('--batch-size <num>', 'batch size for processing', '100')
   .option('--quick', 'quick scan with 5-second project overview')
+  .option('--compare-with <snapshot>', 'compare with previous snapshot (ID, label, "main", "yesterday", "latest")')
   .action(scanCommand);
 
 program
@@ -106,6 +108,18 @@ program
   .option('--threshold <num>', 'minimum change threshold for numeric values')
   .option('--json', 'output as JSON')
   .action(diffCommand);
+
+program
+  .command('trend')
+  .description('Show quality trends over time')
+  .option('--weekly', 'show weekly trends (default)')
+  .option('--monthly', 'show monthly trends')
+  .option('--daily', 'show daily trends')
+  .option('--period <days>', 'custom period in days', '30')
+  .option('--metric <name>', 'focus on specific metric')
+  .option('--summary', 'show summary only')
+  .option('--json', 'output as JSON')
+  .action(trendCommand);
 
 // Handle unknown commands
 program.on('command:*', () => {
