@@ -36,6 +36,8 @@ export async function listCommand(
       functions = urgencyAssessor.filterByUrgencyLevel(functions, 'weekly');
     } else if (options.team) {
       functions = urgencyAssessor.filterByUrgencyLevel(functions, 'team');
+    } else if (options.low) {
+      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'low');
     }
     
     if (functions.length === 0) {
@@ -208,7 +210,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   if (options.csv) format = 'csv';
   
   // Use friendly format for urgency views
-  if (options.urgent || options.weekly || options.team) {
+  if (options.urgent || options.weekly || options.team || options.low) {
     format = 'friendly';
   }
   
@@ -395,6 +397,8 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions):
     title = '📅 今週計画推奨';
   } else if (options.team) {
     title = '👥 チーム検討推奨';
+  } else if (options.low) {
+    title = '🟢 軽微な改善推奨';
   } else {
     title = '📋 関数一覧';
   }

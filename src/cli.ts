@@ -73,6 +73,7 @@ program
   .option('--urgent', 'show functions needing immediate attention (15min fixes)')
   .option('--weekly', 'show functions for weekly planning (2hr fixes)')
   .option('--team', 'show functions for team discussion (major refactoring)')
+  .option('--low', 'show functions with minor improvements needed')
   .action(listCommand);
 
 program

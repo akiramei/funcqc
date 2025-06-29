@@ -260,6 +260,7 @@ export interface ListCommandOptions extends CommandOptions {
   urgent?: boolean;
   weekly?: boolean;
   team?: boolean;
+  low?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {
