@@ -425,7 +425,7 @@ export class ThresholdEvaluator {
     thresholdKeys.forEach(key => {
       if (userThresholds[key]) {
         merged[key] = {
-          ...defaults[key],
+          ...(defaults[key] || {}),
           ...userThresholds[key],
         };
       }
