@@ -262,7 +262,9 @@ export class ThresholdEvaluator {
         case '<=': return value <= evaluation.threshold;
         case '==': return value === evaluation.threshold;
         case '!=': return value !== evaluation.threshold;
-        default: return false;
+        default:
+          console.warn(`Invalid operator "${operator}" in risk condition for metric "${condition.metric}". Defaulting to false.`);
+          return false;
       }
     });
   }
@@ -413,11 +415,18 @@ export class ThresholdEvaluator {
     const merged: QualityThresholds = { ...defaults };
     
     // Merge each threshold configuration
-    Object.keys(userThresholds).forEach(key => {
-      if (userThresholds[key as keyof QualityThresholds]) {
-        merged[key as keyof QualityThresholds] = {
-          ...defaults[key as keyof QualityThresholds],
-          ...userThresholds[key as keyof QualityThresholds],
+    const thresholdKeys: (keyof QualityThresholds)[] = [
+      'complexity', 'cognitiveComplexity', 'lines', 'totalLines', 'parameters',
+      'nestingLevel', 'returnStatements', 'branches', 'loops', 'tryCatch',
+      'asyncAwait', 'callbacks', 'maintainability', 'halsteadVolume',
+      'halsteadDifficulty', 'codeToCommentRatio'
+    ];
+    
+    thresholdKeys.forEach(key => {
+      if (userThresholds[key]) {
+        merged[key] = {
+          ...defaults[key],
+          ...userThresholds[key],
         };
       }
     });
