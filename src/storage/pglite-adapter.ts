@@ -192,9 +192,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  async queryFunctions(): Promise<FunctionInfo[]> {
-    // For now, stub implementation - can be enhanced later
-    throw new Error('queryFunctions not implemented yet');
+  async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      // Get the latest snapshot
+      const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
+      if (snapshots.length === 0) {
+        return [];
+      }
+      
+      // Use the latest snapshot to get functions
+      return await this.getFunctions(snapshots[0].id, options);
+    } catch (error) {
+      throw new Error(`Failed to query functions: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // ========================================

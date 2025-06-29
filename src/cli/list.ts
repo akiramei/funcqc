@@ -29,14 +29,7 @@ export async function listCommand(
     let functions = await storage.queryFunctions();
     
     // Apply urgency filtering
-    const urgencyAssessor = new UrgencyAssessor();
-    if (options.urgent) {
-      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'urgent');
-    } else if (options.weekly) {
-      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'weekly');
-    } else if (options.team) {
-      functions = urgencyAssessor.filterByUrgencyLevel(functions, 'team');
-    }
+    functions = applyUrgencyFiltering(functions, options);
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -51,6 +44,29 @@ export async function listCommand(
     console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
+}
+
+function applyUrgencyFiltering(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
+  const urgencyAssessor = new UrgencyAssessor();
+  
+  // Early return if no urgency filtering is needed
+  if (!options.urgent && !options.weekly && !options.team && !options.low) {
+    return functions;
+  }
+  
+  // Determine the urgency level to filter by
+  const urgencyLevel = getUrgencyLevel(options);
+  if (!urgencyLevel) return functions;
+  
+  return urgencyAssessor.filterByUrgencyLevel(functions, urgencyLevel);
+}
+
+function getUrgencyLevel(options: ListCommandOptions): 'urgent' | 'weekly' | 'team' | 'low' | null {
+  if (options.urgent) return 'urgent';
+  if (options.weekly) return 'weekly';
+  if (options.team) return 'team';
+  if (options.low) return 'low';
+  return null;
 }
 
 function buildFilters(patterns: string[], options: ListCommandOptions): QueryFilter[] {
@@ -208,7 +224,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   if (options.csv) format = 'csv';
   
   // Use friendly format for urgency views
-  if (options.urgent || options.weekly || options.team) {
+  if (options.urgent || options.weekly || options.team || options.low) {
     format = 'friendly';
   }
   
@@ -395,6 +411,8 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions):
     title = '📅 今週計画推奨';
   } else if (options.team) {
     title = '👥 チーム検討推奨';
+  } else if (options.low) {
+    title = '🟢 軽微な改善推奨';
   } else {
     title = '📋 関数一覧';
   }
