@@ -148,7 +148,9 @@ function calculatePeriodMetrics(
   periodDays: number
 ): TrendData {
   // Use the latest snapshot in the period as representative
-  const latestSnapshot = snapshots.sort((a, b) => b.createdAt - a.createdAt)[0];
+  // Create a copy to avoid mutating the original array
+  const sortedSnapshots = [...snapshots].sort((a, b) => b.createdAt - a.createdAt);
+  const latestSnapshot = sortedSnapshots[0];
   const metadata = latestSnapshot.metadata;
   
   // Calculate quality score (simplified version)
@@ -189,7 +191,12 @@ function calculatePeriodMetrics(
 function calculateQualityScore(avgComplexity: number, highRiskCount: number, totalFunctions: number): number {
   let qualityScore = QUALITY_SCORE_BASE;
   qualityScore -= Math.min(avgComplexity * COMPLEXITY_PENALTY_MULTIPLIER, MAX_COMPLEXITY_PENALTY);
-  qualityScore -= Math.min((highRiskCount / totalFunctions) * 100, MAX_RISK_RATIO_PENALTY);
+  
+  // Guard against division by zero
+  if (totalFunctions > 0) {
+    qualityScore -= Math.min((highRiskCount / totalFunctions) * 100, MAX_RISK_RATIO_PENALTY);
+  }
+  
   return Math.max(0, Math.min(100, qualityScore));
 }
 
