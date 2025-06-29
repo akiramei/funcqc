@@ -254,12 +254,11 @@ export interface ListCommandOptions extends CommandOptions {
   complexity?: string;
   lines?: string;
   params?: string;
-  format?: 'table' | 'json' | 'csv' | 'friendly';
+  format?: 'table' | 'json' | 'friendly';
   fields?: string;
   sort?: string;
   limit?: string;
   json?: boolean;
-  csv?: boolean;
   thresholdViolations?: boolean;
 }
 

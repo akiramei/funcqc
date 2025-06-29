@@ -71,7 +71,6 @@ program
   .option('--sort <field>', 'sort by field[:order]', 'name')
   .option('--limit <num>', 'limit number of results', '50')
   .option('--json', 'output as JSON')
-  .option('--csv', 'output as CSV')
   .option('--threshold-violations', 'show functions that violate configurable thresholds')
   .action(listCommand);
 
