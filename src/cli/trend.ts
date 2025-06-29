@@ -110,6 +110,19 @@ async function analyzeTrends(
     if (periodSnapshots.length === 0) continue;
     
     const periodData = calculatePeriodMetrics(periodSnapshots, periodStart, periodEnd, periodDays);
+    
+    // Calculate trend by comparing with previous period
+    if (periods.length > 0) {
+      const previousPeriod = periods[0]; // Most recent period in chronological order
+      const scoreDiff = periodData.qualityScore - previousPeriod.qualityScore;
+      
+      if (scoreDiff > TREND_THRESHOLD) {
+        periodData.trend = 'improving';
+      } else if (scoreDiff < -TREND_THRESHOLD) {
+        periodData.trend = 'degrading';
+      }
+    }
+    
     periods.unshift(periodData); // Add to beginning for chronological order
   }
   
@@ -157,31 +170,8 @@ function calculatePeriodMetrics(
   // Calculate quality score (0-100, higher is better)
   const qualityScore = calculateQualityScore(avgComplexity, highRiskCount, totalFunctions);
   
-  // Determine trend compared to previous period
-  let trend: 'improving' | 'stable' | 'degrading' = 'stable';
-  
-  // Find comparison period (same duration before current period)
-  const periodDuration = periodEnd.getTime() - periodStart.getTime();
-  const previousPeriodEnd = new Date(periodStart.getTime());
-  const previousPeriodStart = new Date(previousPeriodEnd.getTime() - periodDuration);
-  
-  const previousPeriodStartTime = previousPeriodStart.getTime();
-  const previousPeriodEndTime = previousPeriodEnd.getTime();
-  
-  const previousSnapshots = snapshots.filter(s => {
-    return s.createdAt >= previousPeriodStartTime && s.createdAt < previousPeriodEndTime;
-  });
-  
-  if (previousSnapshots.length > 0) {
-    const previousData = calculatePeriodMetrics(previousSnapshots, previousPeriodStart, previousPeriodEnd, periodDays);
-    const scoreDiff = qualityScore - previousData.qualityScore;
-    
-    if (scoreDiff > TREND_THRESHOLD) {
-      trend = 'improving';
-    } else if (scoreDiff < -TREND_THRESHOLD) {
-      trend = 'degrading';
-    }
-  }
+  // Trend will be calculated in analyzeTrends by comparing with previous periods
+  const trend: 'improving' | 'stable' | 'degrading' = 'stable';
   
   const periodLabel = formatPeriodLabel(periodStart, periodEnd, periodDays);
   
