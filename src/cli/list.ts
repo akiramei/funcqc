@@ -1,9 +1,8 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
-import { UrgencyAssessor } from '../utils/urgency-assessor';
 
 export async function listCommand(
   patterns: string[] = [],
@@ -28,8 +27,8 @@ export async function listCommand(
     
     let functions = await storage.queryFunctions();
     
-    // Apply urgency filtering
-    functions = applyUrgencyFiltering(functions, options);
+    // Apply threshold-based filtering
+    functions = applyThresholdFiltering(functions, options, config);
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -38,7 +37,7 @@ export async function listCommand(
     }
     
     // Output results
-    await outputResults(functions, options);
+    await outputResults(functions, options, config);
     
   } catch (error) {
     console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
@@ -46,27 +45,34 @@ export async function listCommand(
   }
 }
 
-function applyUrgencyFiltering(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
-  const urgencyAssessor = new UrgencyAssessor();
-  
-  // Early return if no urgency filtering is needed
-  if (!options.urgent && !options.weekly && !options.team && !options.low) {
+function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): FunctionInfo[] {
+  if (!options.thresholdViolations) {
     return functions;
   }
   
-  // Determine the urgency level to filter by
-  const urgencyLevel = getUrgencyLevel(options);
-  if (!urgencyLevel) return functions;
-  
-  return urgencyAssessor.filterByUrgencyLevel(functions, urgencyLevel);
-}
-
-function getUrgencyLevel(options: ListCommandOptions): 'urgent' | 'weekly' | 'team' | 'low' | null {
-  if (options.urgent) return 'urgent';
-  if (options.weekly) return 'weekly';
-  if (options.team) return 'team';
-  if (options.low) return 'low';
-  return null;
+  // Filter functions that violate objective thresholds
+  return functions.filter(func => {
+    const metrics = func.metrics;
+    if (!metrics) return false;
+    
+    // Use configurable thresholds from the loaded configuration
+    const {
+      complexityThreshold,
+      cognitiveComplexityThreshold,
+      linesOfCodeThreshold,
+      parameterCountThreshold,
+      maxNestingLevelThreshold
+    } = config.metrics;
+    
+    // Check if function violates any threshold
+    return (
+      metrics.cyclomaticComplexity > complexityThreshold ||
+      metrics.cognitiveComplexity > cognitiveComplexityThreshold ||
+      metrics.linesOfCode > linesOfCodeThreshold ||
+      metrics.parameterCount > parameterCountThreshold ||
+      metrics.maxNestingLevel > maxNestingLevelThreshold
+    );
+  });
 }
 
 function buildFilters(patterns: string[], options: ListCommandOptions): QueryFilter[] {
@@ -216,17 +222,18 @@ function parseComparisonOperator(field: string, condition: string): QueryFilter 
   return null;
 }
 
-async function outputResults(functions: FunctionInfo[], options: ListCommandOptions): Promise<void> {
+async function outputResults(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): Promise<void> {
   // Determine output format
   let format = options.format || 'table';
   
   if (options.json) format = 'json';
   if (options.csv) format = 'csv';
   
-  // Use friendly format for urgency views
-  if (options.urgent || options.weekly || options.team || options.low) {
+  // Use friendly format for threshold violations
+  if (options.thresholdViolations) {
     format = 'friendly';
   }
+  
   
   switch (format) {
     case 'json':
@@ -236,7 +243,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
       outputCSV(functions, options);
       break;
     case 'friendly':
-      outputFriendly(functions, options);
+      outputFriendly(functions, options, config);
       break;
     default:
       outputTable(functions, options);
@@ -390,75 +397,99 @@ function getFieldValue(func: FunctionInfo, field: string): any {
   }
 }
 
-function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions): void {
-  const urgencyAssessor = new UrgencyAssessor();
-  
+function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): void {
   if (functions.length === 0) {
-    console.log(chalk.green('🎉 素晴らしい！該当する関数はありません。'));
+    console.log(chalk.green('No functions found matching the criteria.'));
     return;
   }
 
-  // Sort by urgency score (highest priority first)
-  const assessedFunctions = functions.map(func => ({
-    func,
-    assessment: urgencyAssessor.assessFunction(func)
-  })).sort((a, b) => b.assessment.estimatedMinutes - a.assessment.estimatedMinutes);
+  // Sort by complexity (highest first)
+  const sortedFunctions = functions.sort((a, b) => {
+    const aComplexity = a.metrics?.cyclomaticComplexity || 1;
+    const bComplexity = b.metrics?.cyclomaticComplexity || 1;
+    return bComplexity - aComplexity;
+  });
 
-  let title: string;
-  if (options.urgent) {
-    title = '🚨 今日対応推奨';
-  } else if (options.weekly) {
-    title = '📅 今週計画推奨';
-  } else if (options.team) {
-    title = '👥 チーム検討推奨';
-  } else if (options.low) {
-    title = '🟢 軽微な改善推奨';
-  } else {
-    title = '📋 関数一覧';
-  }
-
-  console.log(chalk.bold.cyan(`${title} (${functions.length}関数)`));
+  const title = options.thresholdViolations ? 
+    `🚨 Threshold Violations (${functions.length} functions)` :
+    `📋 Function List (${functions.length} functions)`;
+  console.log(chalk.bold.cyan(title));
   console.log();
 
-  assessedFunctions.forEach((item, index) => {
-    const { func, assessment } = item;
+  sortedFunctions.forEach((func, index) => {
     const number = (index + 1).toString().padStart(2, ' ');
+    const metrics = func.metrics;
     
-    // Function header with urgency indicator
-    console.log(chalk.bold(`${number}. ${func.displayName}() ${chalk.yellow(`[${assessment.estimatedMinutes}分で改善可能]`)}`));
+    // Function header with objective metrics
+    console.log(chalk.bold(`${number}. ${func.displayName}()`));
     console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
     
-    // Risk and impact description
-    console.log(`   ⚠️  リスク: ${assessment.riskDescription}`);
-    console.log(`   💡 改善案: ${assessment.improvementStrategy}`);
-    console.log(`   📈 効果: ${assessment.impact}`);
-    
-    // Show specific issues if any
-    if (assessment.reasons.length > 0) {
-      console.log(`   🔍 課題: ${assessment.reasons.join('、')}`);
+    // Show objective metrics
+    if (metrics) {
+      console.log(`   📊 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`);
+      if (metrics.maintainabilityIndex) {
+        console.log(`   📈 Maintainability Index: ${metrics.maintainabilityIndex.toFixed(1)}`);
+      }
+      if (metrics.maxNestingLevel > 1) {
+        console.log(`   🔄 Max Nesting Level: ${metrics.maxNestingLevel}`);
+      }
+      
+      // Show threshold violations if applicable
+      if (options.thresholdViolations) {
+        const {
+          complexityThreshold,
+          cognitiveComplexityThreshold,
+          linesOfCodeThreshold,
+          parameterCountThreshold,
+          maxNestingLevelThreshold
+        } = config.metrics;
+        
+        const violations = [];
+        if (metrics.cyclomaticComplexity > complexityThreshold) {
+          violations.push(`CC=${metrics.cyclomaticComplexity}(+${(metrics.cyclomaticComplexity - complexityThreshold).toFixed(1)})`);
+        }
+        if (metrics.cognitiveComplexity > cognitiveComplexityThreshold) {
+          violations.push(`CogC=${metrics.cognitiveComplexity}(+${(metrics.cognitiveComplexity - cognitiveComplexityThreshold).toFixed(1)})`);
+        }
+        if (metrics.linesOfCode > linesOfCodeThreshold) {
+          violations.push(`LOC=${metrics.linesOfCode}(+${metrics.linesOfCode - linesOfCodeThreshold})`);
+        }
+        if (metrics.parameterCount > parameterCountThreshold) {
+          violations.push(`Params=${metrics.parameterCount}(+${metrics.parameterCount - parameterCountThreshold})`);
+        }
+        if (metrics.maxNestingLevel > maxNestingLevelThreshold) {
+          violations.push(`Nesting=${metrics.maxNestingLevel}(+${metrics.maxNestingLevel - maxNestingLevelThreshold})`);
+        }
+        
+        if (violations.length > 0) {
+          console.log(`   ⚠️  Violations: ${violations.join(', ')}`);
+        }
+      }
     }
     
     console.log();
   });
 
-  // Summary
-  const totalMinutes = assessedFunctions.reduce((sum, item) => sum + item.assessment.estimatedMinutes, 0);
-  const totalHours = Math.floor(totalMinutes / 60);
-  const remainingMinutes = totalMinutes % 60;
+  // Objective summary
+  const avgComplexity = functions.reduce((sum, f) => 
+    sum + (f.metrics?.cyclomaticComplexity || 1), 0) / functions.length;
+  const avgLines = functions.reduce((sum, f) => 
+    sum + (f.metrics?.linesOfCode || 0), 0) / functions.length;
   
-  console.log(chalk.blue('📊 概要:'));
-  console.log(chalk.blue(`   合計改善時間: ${totalHours}時間${remainingMinutes}分`));
+  console.log(chalk.blue('📊 Summary:'));
+  console.log(chalk.blue(`   Average Complexity: ${avgComplexity.toFixed(1)}`));
+  console.log(chalk.blue(`   Average Lines of Code: ${avgLines.toFixed(1)}`));
   
-  const urgentCount = assessedFunctions.filter(item => item.assessment.level === 'urgent').length;
-  const weeklyCount = assessedFunctions.filter(item => item.assessment.level === 'weekly').length;
-  const teamCount = assessedFunctions.filter(item => item.assessment.level === 'team').length;
+  const {
+    complexityThreshold,
+    linesOfCodeThreshold
+  } = config.metrics;
   
-  if (urgentCount > 0) console.log(chalk.red(`   🚨 緊急: ${urgentCount}件`));
-  if (weeklyCount > 0) console.log(chalk.yellow(`   📅 今週: ${weeklyCount}件`));
-  if (teamCount > 0) console.log(chalk.blue(`   👥 チーム: ${teamCount}件`));
+  const highComplexityCount = functions.filter(f => (f.metrics?.cyclomaticComplexity || 1) > complexityThreshold).length;
+  const longFunctionCount = functions.filter(f => (f.metrics?.linesOfCode || 0) > linesOfCodeThreshold).length;
   
-  console.log();
-  console.log(chalk.gray('💡 ヒント: 具体的な優先度で絞り込むには --urgent, --weekly, --team オプションを使用してください'));
+  if (highComplexityCount > 0) console.log(chalk.yellow(`   🔍 High Complexity (>${complexityThreshold}): ${highComplexityCount} functions`));
+  if (longFunctionCount > 0) console.log(chalk.yellow(`   📏 Long Functions (>${linesOfCodeThreshold} LOC): ${longFunctionCount} functions`));
 }
 
 function formatFieldValue(func: FunctionInfo, field: string): string {

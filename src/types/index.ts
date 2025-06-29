@@ -12,8 +12,10 @@ export interface FuncqcConfig {
   
   metrics: {
     complexityThreshold: number;
+    cognitiveComplexityThreshold: number;
     linesOfCodeThreshold: number;
     parameterCountThreshold: number;
+    maxNestingLevelThreshold: number;
   };
   
   git: {
@@ -258,10 +260,7 @@ export interface ListCommandOptions extends CommandOptions {
   limit?: string;
   json?: boolean;
   csv?: boolean;
-  urgent?: boolean;
-  weekly?: boolean;
-  team?: boolean;
-  low?: boolean;
+  thresholdViolations?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {
