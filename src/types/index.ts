@@ -258,10 +258,7 @@ export interface ListCommandOptions extends CommandOptions {
   limit?: string;
   json?: boolean;
   csv?: boolean;
-  urgent?: boolean;
-  weekly?: boolean;
-  team?: boolean;
-  low?: boolean;
+  thresholdViolations?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {
