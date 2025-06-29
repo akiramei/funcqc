@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import simpleGit, { SimpleGit } from 'simple-git';
-import { StatusCommandOptions, FunctionInfo } from '../types';
+import { StatusCommandOptions, FunctionInfo, FuncqcConfig, SnapshotInfo, TrendDataSnapshot } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityScorer } from '../utils/quality-scorer';
@@ -32,7 +32,7 @@ export async function statusCommand(options: StatusCommandOptions): Promise<void
   }
 }
 
-function showConfiguration(config: any, verbose: boolean): void {
+function showConfiguration(config: FuncqcConfig, verbose: boolean): void {
   console.log(chalk.yellow('📝 Configuration'));
   console.log('─'.repeat(30));
   
@@ -103,7 +103,7 @@ function showNoDataMessage(): void {
   console.log();
 }
 
-function showLatestSnapshotInfo(latest: any): void {
+function showLatestSnapshotInfo(latest: SnapshotInfo): void {
   console.log(`  Latest scan: ${formatDate(latest.createdAt)}`);
   if (latest.label) {
     console.log(`  Label: ${latest.label}`);
@@ -113,14 +113,14 @@ function showLatestSnapshotInfo(latest: any): void {
   }
 }
 
-function showBasicStats(snapshots: any[], latest: any): void {
+function showBasicStats(snapshots: SnapshotInfo[], latest: SnapshotInfo): void {
   console.log(`  Total snapshots: ${snapshots.length}`);
   console.log(`  Functions analyzed: ${latest.metadata.totalFunctions}`);
   console.log(`  Files analyzed: ${latest.metadata.totalFiles}`);
   console.log(`  Average complexity: ${latest.metadata.avgComplexity.toFixed(1)}`);
 }
 
-function showRecentSnapshots(snapshots: any[]): void {
+function showRecentSnapshots(snapshots: SnapshotInfo[]): void {
   console.log();
   console.log('  Recent snapshots:');
   snapshots.slice(0, 5).forEach(snapshot => {
@@ -135,7 +135,7 @@ function showRecentSnapshots(snapshots: any[]): void {
   }
 }
 
-function showComplexityDistribution(latest: any): void {
+function showComplexityDistribution(latest: SnapshotInfo): void {
   if (!latest.metadata.complexityDistribution) return;
   
   console.log();
@@ -235,7 +235,7 @@ async function displayRecentCommits(git: SimpleGit): Promise<void> {
   });
 }
 
-async function showQualityOverview(functions: FunctionInfo[], _latest: any, verbose: boolean): Promise<void> {
+async function showQualityOverview(functions: FunctionInfo[], _latest: SnapshotInfo, verbose: boolean): Promise<void> {
   console.log(chalk.yellow('🎯 Quality Overview'));
   console.log('─'.repeat(30));
   
@@ -331,7 +331,7 @@ function getScoreDisplay(score: number): string {
   return color(`${score}/100`);
 }
 
-async function showActionableInsights(functions: FunctionInfo[], storage: PGLiteStorageAdapter, snapshots: any[]): Promise<void> {
+async function showActionableInsights(functions: FunctionInfo[], storage: PGLiteStorageAdapter, snapshots: SnapshotInfo[]): Promise<void> {
   console.log(chalk.yellow('💡 Actionable Insights'));
   console.log('─'.repeat(30));
   
@@ -360,7 +360,7 @@ async function showActionableInsights(functions: FunctionInfo[], storage: PGLite
   console.log();
 }
 
-async function showRecentQualityTrend(_storage: PGLiteStorageAdapter, snapshots: any[]): Promise<void> {
+async function showRecentQualityTrend(_storage: PGLiteStorageAdapter, snapshots: SnapshotInfo[]): Promise<void> {
   try {
     const trendData = extractTrendData(snapshots);
     if (!trendData) return;
@@ -374,7 +374,7 @@ async function showRecentQualityTrend(_storage: PGLiteStorageAdapter, snapshots:
   }
 }
 
-function extractTrendData(snapshots: any[]) {
+function extractTrendData(snapshots: SnapshotInfo[]): TrendDataSnapshot | null {
   const latest = snapshots[0];
   const previous = snapshots[1];
   

@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as path from 'path';
 import { globby } from 'globby';
-import { ScanCommandOptions, FunctionInfo, SnapshotDiff } from '../types';
+import { ScanCommandOptions, FunctionInfo, SnapshotDiff, CliComponents, TopFunctionChanges, ChangeDetail, FuncqcConfig, SpinnerInterface } from '../types';
 import { ConfigManager } from '../core/config';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
@@ -32,7 +32,7 @@ export async function scanCommand(
     
     // Handle comparison if requested
     if (options.compareWith) {
-      await handleComparison(allFunctions, components.storage, options, spinner);
+      await handleComparison(allFunctions, components.storage as PGLiteStorageAdapter, options, spinner);
     }
     
     if (options.dryRun) {
@@ -48,16 +48,16 @@ export async function scanCommand(
   }
 }
 
-async function initializeScan() {
+async function initializeScan(): Promise<FuncqcConfig> {
   const configManager = new ConfigManager();
   return await configManager.load();
 }
 
-function determineScanPaths(paths: string[], config: any): string[] {
+function determineScanPaths(paths: string[], config: FuncqcConfig): string[] {
   return paths.length > 0 ? paths : config.roots;
 }
 
-async function initializeComponents(config: any, spinner: any) {
+async function initializeComponents(config: FuncqcConfig, spinner: SpinnerInterface): Promise<CliComponents> {
   spinner.start('Initializing funcqc scan...');
   
   const analyzer = new TypeScriptAnalyzer();
@@ -70,14 +70,14 @@ async function initializeComponents(config: any, spinner: any) {
   return { analyzer, storage, qualityCalculator };
 }
 
-async function discoverFiles(scanPaths: string[], config: any, spinner: any): Promise<string[]> {
+async function discoverFiles(scanPaths: string[], config: FuncqcConfig, spinner: SpinnerInterface): Promise<string[]> {
   spinner.start('Finding TypeScript files...');
   const files = await findTypeScriptFiles(scanPaths, config.exclude);
   spinner.succeed(`Found ${files.length} TypeScript files`);
   return files;
 }
 
-async function performAnalysis(files: string[], components: any, options: ScanCommandOptions, spinner: any): Promise<FunctionInfo[]> {
+async function performAnalysis(files: string[], components: CliComponents, options: ScanCommandOptions, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   spinner.start('Analyzing functions...');
   const allFunctions: FunctionInfo[] = [];
   
@@ -93,7 +93,7 @@ async function performAnalysis(files: string[], components: any, options: ScanCo
   return allFunctions;
 }
 
-async function performQuickAnalysis(files: string[], components: any, spinner: any): Promise<FunctionInfo[]> {
+async function performQuickAnalysis(files: string[], components: CliComponents, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const maxFiles = 100;
   const filesToAnalyze = files.length > maxFiles ? files.slice(0, maxFiles) : files;
   
@@ -110,7 +110,7 @@ async function performQuickAnalysis(files: string[], components: any, spinner: a
   return batchFunctions;
 }
 
-async function performFullAnalysis(files: string[], components: any, options: ScanCommandOptions, spinner: any): Promise<FunctionInfo[]> {
+async function performFullAnalysis(files: string[], components: CliComponents, options: ScanCommandOptions, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const allFunctions: FunctionInfo[] = [];
   const batchSize = parseInt(options.batchSize || '50');
   
@@ -125,7 +125,7 @@ async function performFullAnalysis(files: string[], components: any, options: Sc
   return allFunctions;
 }
 
-async function saveResults(allFunctions: FunctionInfo[], storage: any, options: ScanCommandOptions, spinner: any): Promise<void> {
+async function saveResults(allFunctions: FunctionInfo[], storage: CliComponents['storage'], options: ScanCommandOptions, spinner: SpinnerInterface): Promise<void> {
   spinner.start('Saving to database...');
   const snapshotId = await storage.saveSnapshot(allFunctions, options.label);
   spinner.succeed(`Saved snapshot: ${snapshotId}`);
@@ -140,7 +140,7 @@ function showCompletionMessage(): void {
   console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
 }
 
-function handleScanError(error: any, options: ScanCommandOptions, spinner: any): void {
+function handleScanError(error: unknown, options: ScanCommandOptions, spinner: SpinnerInterface): void {
   spinner.fail('Scan failed');
   console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
   
@@ -187,8 +187,8 @@ async function findTypeScriptFiles(
 
 async function analyzeBatch(
   files: string[],
-  analyzer: TypeScriptAnalyzer,
-  qualityCalculator: QualityCalculator
+  analyzer: CliComponents['analyzer'],
+  qualityCalculator: CliComponents['qualityCalculator']
 ): Promise<FunctionInfo[]> {
   const functions: FunctionInfo[] = [];
   
@@ -300,7 +300,7 @@ async function handleComparison(
   currentFunctions: FunctionInfo[],
   storage: PGLiteStorageAdapter,
   options: ScanCommandOptions,
-  spinner: any
+  spinner: SpinnerInterface
 ): Promise<void> {
   try {
     spinner.start('Comparing with previous snapshot...');
@@ -586,12 +586,12 @@ function displayActionableRecommendations(diff: SnapshotDiff): void {
   console.log();
 }
 
-function getTopFunctionChanges(modified: any[]) {
+function getTopFunctionChanges(modified: SnapshotDiff['modified']): TopFunctionChanges {
   const improved = modified
-    .filter(f => f.changes.some((c: any) => c.field === 'cyclomaticComplexity' && Number(c.newValue) < Number(c.oldValue)))
+    .filter(f => f.changes.some((c: ChangeDetail) => c.field === 'cyclomaticComplexity' && Number(c.newValue) < Number(c.oldValue)))
     .sort((a, b) => {
-      const aChange = a.changes.find((c: any) => c.field === 'cyclomaticComplexity');
-      const bChange = b.changes.find((c: any) => c.field === 'cyclomaticComplexity');
+      const aChange = a.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
+      const bChange = b.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
       const aImprovement = Number(aChange?.oldValue || 0) - Number(aChange?.newValue || 0);
       const bImprovement = Number(bChange?.oldValue || 0) - Number(bChange?.newValue || 0);
       return bImprovement - aImprovement;
@@ -599,10 +599,10 @@ function getTopFunctionChanges(modified: any[]) {
     .slice(0, 3);
   
   const degraded = modified
-    .filter(f => f.changes.some((c: any) => c.field === 'cyclomaticComplexity' && Number(c.newValue) > Number(c.oldValue)))
+    .filter(f => f.changes.some((c: ChangeDetail) => c.field === 'cyclomaticComplexity' && Number(c.newValue) > Number(c.oldValue)))
     .sort((a, b) => {
-      const aChange = a.changes.find((c: any) => c.field === 'cyclomaticComplexity');
-      const bChange = b.changes.find((c: any) => c.field === 'cyclomaticComplexity');
+      const aChange = a.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
+      const bChange = b.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
       const aDegradation = Number(aChange?.newValue || 0) - Number(aChange?.oldValue || 0);
       const bDegradation = Number(bChange?.newValue || 0) - Number(bChange?.oldValue || 0);
       return bDegradation - aDegradation;
@@ -612,15 +612,17 @@ function getTopFunctionChanges(modified: any[]) {
   return { improved, degraded };
 }
 
-function displayTopChanges(changes: { improved: any[], degraded: any[] }): void {
+function displayTopChanges(changes: TopFunctionChanges): void {
   if (changes.improved.length > 0) {
     console.log(chalk.green.bold('🏆 Top Improved Functions:'));
     changes.improved.forEach((func, index) => {
-      const complexityChange = func.changes.find((c: any) => c.field === 'cyclomaticComplexity');
-      const improvement = Number(complexityChange.oldValue) - Number(complexityChange.newValue);
-      const shortPath = func.after.filePath.split('/').slice(-2).join('/');
-      console.log(`  ${index + 1}. ${chalk.cyan(func.after.name)} (${shortPath})`);
-      console.log(`     Complexity: ${complexityChange.oldValue} → ${complexityChange.newValue} (${chalk.green(`-${improvement}`)})`);
+      const complexityChange = func.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
+      if (complexityChange) {
+        const improvement = Number(complexityChange.oldValue) - Number(complexityChange.newValue);
+        const shortPath = func.after.filePath.split('/').slice(-2).join('/');
+        console.log(`  ${index + 1}. ${chalk.cyan(func.after.name)} (${shortPath})`);
+        console.log(`     Complexity: ${complexityChange.oldValue} → ${complexityChange.newValue} (${chalk.green(`-${improvement}`)})`);
+      }
     });
     console.log();
   }
@@ -628,12 +630,14 @@ function displayTopChanges(changes: { improved: any[], degraded: any[] }): void 
   if (changes.degraded.length > 0) {
     console.log(chalk.red.bold('⚠️  Functions Needing Attention:'));
     changes.degraded.forEach((func, index) => {
-      const complexityChange = func.changes.find((c: any) => c.field === 'cyclomaticComplexity');
-      const degradation = Number(complexityChange.newValue) - Number(complexityChange.oldValue);
-      const shortPath = func.after.filePath.split('/').slice(-2).join('/');
-      console.log(`  ${index + 1}. ${chalk.cyan(func.after.name)} (${shortPath})`);
-      console.log(`     Complexity: ${complexityChange.oldValue} → ${complexityChange.newValue} (${chalk.red(`+${degradation}`)})`);
-      console.log(`     ${chalk.gray('→ Consider breaking into smaller functions or reducing conditional logic')}`);
+      const complexityChange = func.changes.find((c: ChangeDetail) => c.field === 'cyclomaticComplexity');
+      if (complexityChange) {
+        const degradation = Number(complexityChange.newValue) - Number(complexityChange.oldValue);
+        const shortPath = func.after.filePath.split('/').slice(-2).join('/');
+        console.log(`  ${index + 1}. ${chalk.cyan(func.after.name)} (${shortPath})`);
+        console.log(`     Complexity: ${complexityChange.oldValue} → ${complexityChange.newValue} (${chalk.red(`+${degradation}`)})`);
+        console.log(`     ${chalk.gray('→ Consider breaking into smaller functions or reducing conditional logic')}`);
+      }
     });
     console.log();
   }
