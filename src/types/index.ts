@@ -18,6 +18,15 @@ export interface FuncqcConfig {
     maxNestingLevelThreshold: number;
   };
   
+  // Enhanced configurable thresholds system
+  thresholds?: QualityThresholds;
+  
+  // Risk assessment configuration
+  assessment?: RiskAssessmentConfig;
+  
+  // Project context for statistical evaluation
+  projectContext?: ProjectContext;
+  
   git: {
     enabled: boolean;
     autoLabel: boolean;
@@ -373,4 +382,120 @@ export interface SimilarFunction {
   startLine: number;
   endLine: number;
   originalFunction?: FunctionInfo;
+}
+
+// Enhanced configurable thresholds types
+export interface QualityThresholds {
+  complexity?: MultiLevelThreshold;
+  cognitiveComplexity?: MultiLevelThreshold;
+  lines?: MultiLevelThreshold;
+  totalLines?: MultiLevelThreshold;
+  parameters?: MultiLevelThreshold;
+  nestingLevel?: MultiLevelThreshold;
+  returnStatements?: MultiLevelThreshold;
+  branches?: MultiLevelThreshold;
+  loops?: MultiLevelThreshold;
+  tryCatch?: MultiLevelThreshold;
+  asyncAwait?: MultiLevelThreshold;
+  callbacks?: MultiLevelThreshold;
+  maintainability?: MultiLevelThreshold;
+  halsteadVolume?: MultiLevelThreshold;
+  halsteadDifficulty?: MultiLevelThreshold;
+  codeToCommentRatio?: MultiLevelThreshold;
+}
+
+export interface MultiLevelThreshold {
+  warning?: ThresholdValue;
+  error?: ThresholdValue;
+  critical?: ThresholdValue;
+}
+
+export type ThresholdValue = number | StatisticalThreshold;
+
+export interface StatisticalThreshold {
+  method: 'mean+sigma' | 'percentile' | 'median+mad';
+  multiplier?: number; // For mean+sigma (default: 1)
+  percentile?: number; // For percentile method (0-100)
+}
+
+export interface RiskAssessmentConfig {
+  highRiskConditions?: RiskCondition[];
+  minViolations?: number; // Minimum violations to be considered high risk
+  violationWeights?: Record<ViolationLevel, number>;
+  compositeScoringMethod?: 'count' | 'weighted' | 'severity';
+}
+
+export interface RiskCondition {
+  metric: keyof QualityMetrics;
+  threshold: ThresholdValue;
+  operator?: '>' | '>=' | '<' | '<=' | '==' | '!=';
+}
+
+export type ViolationLevel = 'warning' | 'error' | 'critical';
+
+export interface ProjectContext {
+  experienceLevel?: 'junior' | 'mid' | 'senior';
+  projectType?: 'prototype' | 'production' | 'legacy';
+  codebaseSize?: 'small' | 'medium' | 'large';
+  domain?: 'web' | 'api' | 'cli' | 'library' | 'embedded';
+}
+
+// Statistical analysis types
+export interface ProjectStatistics {
+  metrics: Record<keyof QualityMetrics, MetricStatistics>;
+  totalFunctions: number;
+  analysisTimestamp: number;
+}
+
+export interface MetricStatistics {
+  mean: number;
+  median: number;
+  standardDeviation: number;
+  variance: number;
+  min: number;
+  max: number;
+  percentiles: {
+    p25: number;
+    p50: number;
+    p75: number;
+    p90: number;
+    p95: number;
+    p99: number;
+  };
+  mad: number; // Median Absolute Deviation
+}
+
+// Threshold violation types
+export interface ThresholdViolation {
+  metric: keyof QualityMetrics;
+  value: number;
+  threshold: number;
+  level: ViolationLevel;
+  excess: number; // How much the value exceeds the threshold
+  method: 'absolute' | 'statistical';
+  statisticalContext?: {
+    method: StatisticalThreshold['method'];
+    multiplier?: number;
+    percentile?: number;
+    baseline: number; // mean, median, etc.
+  };
+}
+
+export interface FunctionRiskAssessment {
+  functionId: string;
+  violations: ThresholdViolation[];
+  totalViolations: number;
+  riskLevel: 'low' | 'medium' | 'high';
+  riskScore: number;
+  violationsByLevel: Record<ViolationLevel, number>;
+}
+
+export interface ProjectRiskAssessment {
+  totalFunctions: number;
+  assessedFunctions: number;
+  riskDistribution: Record<'low' | 'medium' | 'high', number>;
+  topViolations: ThresholdViolation[];
+  worstFunctions: FunctionRiskAssessment[];
+  statistics: ProjectStatistics;
+  configuredThresholds: QualityThresholds;
 }

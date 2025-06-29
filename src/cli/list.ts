@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics, ProjectRiskAssessment, FunctionRiskAssessment } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { riskAssessor } from '../core/risk-assessor.js';
 
 export async function listCommand(
   patterns: string[] = [],
@@ -28,7 +29,7 @@ export async function listCommand(
     let functions = await storage.queryFunctions();
     
     // Apply threshold-based filtering
-    functions = applyThresholdFiltering(functions, options, config);
+    functions = await applyThresholdFiltering(functions, options, config);
     
     if (functions.length === 0) {
       console.log(chalk.yellow('No functions found matching the criteria.'));
@@ -45,17 +46,39 @@ export async function listCommand(
   }
 }
 
-function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): FunctionInfo[] {
+async function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): Promise<FunctionInfo[]> {
   if (!options.thresholdViolations) {
     return functions;
   }
   
-  // Filter functions that violate objective thresholds
+  try {
+    // Use enhanced threshold system for filtering
+    const assessment = await riskAssessor.assessProject(
+      functions,
+      config.thresholds,
+      config.assessment,
+      config.projectContext
+    );
+    
+    // Filter functions that have any violations
+    const functionsWithViolations = assessment.worstFunctions
+      .filter(fa => fa.totalViolations > 0)
+      .map(fa => fa.functionId);
+    
+    return functions.filter(func => functionsWithViolations.includes(func.id));
+  } catch {
+    // Fallback to legacy threshold filtering if enhanced system fails
+    console.warn(chalk.yellow('Warning: Enhanced threshold evaluation failed, using legacy system'));
+    return applyLegacyThresholdFiltering(functions, config);
+  }
+}
+
+function applyLegacyThresholdFiltering(functions: FunctionInfo[], config: FuncqcConfig): FunctionInfo[] {
+  // Fallback to legacy threshold filtering
   return functions.filter(func => {
     const metrics = func.metrics;
     if (!metrics) return false;
     
-    // Use configurable thresholds from the loaded configuration
     const {
       complexityThreshold,
       cognitiveComplexityThreshold,
@@ -64,7 +87,6 @@ function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommand
       maxNestingLevelThreshold
     } = config.metrics;
     
-    // Check if function violates any threshold
     return (
       metrics.cyclomaticComplexity > complexityThreshold ||
       metrics.cognitiveComplexity > cognitiveComplexityThreshold ||
@@ -239,7 +261,7 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
       outputJSON(functions);
       break;
     case 'friendly':
-      outputFriendly(functions, options, config);
+      await outputFriendly(functions, options, config);
       break;
     default:
       outputTable(functions, options);
@@ -375,7 +397,7 @@ function getFieldValue(func: FunctionInfo, field: string): any {
   }
 }
 
-function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): void {
+async function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): Promise<void> {
   if (functions.length === 0) {
     console.log(chalk.green('No functions found matching the criteria.'));
     return;
@@ -383,7 +405,13 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, 
 
   const sortedFunctions = sortFunctionsByComplexity(functions);
   displayFriendlyHeader(functions.length, options.thresholdViolations);
-  displayFunctionList(sortedFunctions, options, config);
+  
+  if (options.thresholdViolations) {
+    await displayEnhancedFunctionList(sortedFunctions, config);
+  } else {
+    displayFunctionList(sortedFunctions, options, config);
+  }
+  
   displayFriendlySummary(functions, config);
 }
 
@@ -489,6 +517,128 @@ function calculateAverageComplexity(functions: FunctionInfo[]): number {
 function calculateAverageLines(functions: FunctionInfo[]): number {
   return functions.reduce((sum, f) => 
     sum + (f.metrics?.linesOfCode || 0), 0) / functions.length;
+}
+
+async function displayEnhancedFunctionList(functions: FunctionInfo[], config: FuncqcConfig): Promise<void> {
+  try {
+    // Get comprehensive risk assessment
+    const assessment = await riskAssessor.assessProject(
+      functions,
+      config.thresholds,
+      config.assessment,
+      config.projectContext
+    );
+
+    // Display functions with their detailed violation information
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      const number = (i + 1).toString().padStart(2, ' ');
+      
+      displayFunctionHeader(number, func);
+      displayFunctionMetrics(func.metrics);
+      
+      // Find the risk assessment for this function
+      const functionAssessment = assessment.worstFunctions.find(fa => fa.functionId === func.id);
+      if (functionAssessment) {
+        displayEnhancedViolations(functionAssessment);
+      }
+      
+      console.log();
+    }
+
+    // Display project-level summary
+    displayEnhancedSummary(assessment);
+  } catch {
+    console.warn(chalk.yellow('Warning: Enhanced violation display failed, using legacy display'));
+    functions.forEach((func, index) => {
+      const number = (index + 1).toString().padStart(2, ' ');
+      displayFunctionHeader(number, func);
+      displayFunctionMetrics(func.metrics);
+      
+      if (func.metrics) {
+        displayThresholdViolations(func.metrics, config.metrics);
+      }
+      
+      console.log();
+    });
+  }
+}
+
+function displayEnhancedViolations(functionAssessment: FunctionRiskAssessment): void {
+  if (functionAssessment.violations.length === 0) {
+    return;
+  }
+
+  const violationsByLevel = {
+    critical: functionAssessment.violations.filter(v => v.level === 'critical'),
+    error: functionAssessment.violations.filter(v => v.level === 'error'),
+    warning: functionAssessment.violations.filter(v => v.level === 'warning'),
+  };
+
+  // Display violations by severity
+  ['critical', 'error', 'warning'].forEach(level => {
+    const violations = violationsByLevel[level as keyof typeof violationsByLevel];
+    if (violations.length === 0) return;
+
+    const levelColor = level === 'critical' ? chalk.red : 
+                     level === 'error' ? chalk.yellow : chalk.blue;
+    const icon = level === 'critical' ? '🚨' : 
+                level === 'error' ? '⚠️' : 'ℹ️';
+
+    const violationTexts = violations.map(v => formatViolationText(v));
+    console.log(`   ${icon} ${levelColor(level.toUpperCase())}: ${violationTexts.join(', ')}`);
+  });
+
+  // Display risk assessment
+  const riskColor = functionAssessment.riskLevel === 'high' ? chalk.red :
+                   functionAssessment.riskLevel === 'medium' ? chalk.yellow : chalk.green;
+  console.log(`   🎯 Risk Level: ${riskColor(functionAssessment.riskLevel.toUpperCase())} (score: ${functionAssessment.riskScore.toFixed(1)})`);
+}
+
+function formatViolationText(violation: any): string {
+  const excessText = violation.excess > 0 ? `(+${violation.excess.toFixed(1)})` : '';
+  
+  if (violation.method === 'statistical' && violation.statisticalContext) {
+    const ctx = violation.statisticalContext;
+    let methodText = '';
+    
+    switch (ctx.method) {
+      case 'mean+sigma':
+        methodText = `(${ctx.baseline.toFixed(1)}+${(ctx.multiplier || 1)}σ)`;
+        break;
+      case 'percentile':
+        methodText = `(p${ctx.percentile || 95})`;
+        break;
+      case 'median+mad':
+        methodText = `(med+${(ctx.multiplier || 1)}mad)`;
+        break;
+    }
+    
+    return `${violation.metric}=${violation.value}${methodText}${excessText}`;
+  }
+  
+  return `${violation.metric}=${violation.value}${excessText}`;
+}
+
+function displayEnhancedSummary(assessment: ProjectRiskAssessment): void {
+  console.log(chalk.blue('📊 Enhanced Quality Assessment:'));
+  
+  const summary = riskAssessor.createAssessmentSummary(assessment);
+  
+  console.log(chalk.blue(`   Functions Analyzed: ${summary.totalFunctions}`));
+  console.log(chalk.blue(`   Risk Distribution: ${chalk.red(summary.highRiskFunctions + ' high')}, ${chalk.yellow(summary.mediumRiskFunctions + ' medium')}, ${chalk.green(summary.lowRiskFunctions + ' low')}`));
+  
+  if (summary.totalViolations > 0) {
+    console.log(chalk.blue(`   Total Violations: ${summary.totalViolations} (${chalk.red(summary.criticalViolations + ' critical')}, ${chalk.yellow(summary.errorViolations + ' error')}, ${chalk.blue(summary.warningViolations + ' warning')})`));
+  }
+  
+  if (summary.mostCommonViolation) {
+    console.log(chalk.blue(`   Most Common Issue: ${summary.mostCommonViolation}`));
+  }
+  
+  if (summary.averageRiskScore > 0) {
+    console.log(chalk.blue(`   Average Risk Score: ${summary.averageRiskScore.toFixed(1)}`));
+  }
 }
 
 function displayQualityBreakdown(functions: FunctionInfo[], thresholds: FuncqcConfig['metrics']): void {
