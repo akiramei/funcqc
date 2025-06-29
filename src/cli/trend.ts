@@ -165,9 +165,11 @@ function calculatePeriodMetrics(
   const previousPeriodEnd = new Date(periodStart.getTime());
   const previousPeriodStart = new Date(previousPeriodEnd.getTime() - periodDuration);
   
+  const previousPeriodStartTime = previousPeriodStart.getTime();
+  const previousPeriodEndTime = previousPeriodEnd.getTime();
+  
   const previousSnapshots = snapshots.filter(s => {
-    const snapshotDate = new Date(s.createdAt);
-    return snapshotDate >= previousPeriodStart && snapshotDate < previousPeriodEnd;
+    return s.createdAt >= previousPeriodStartTime && s.createdAt < previousPeriodEndTime;
   });
   
   if (previousSnapshots.length > 0) {
