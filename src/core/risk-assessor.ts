@@ -1,5 +1,6 @@
 import {
   FunctionInfo,
+  QualityMetrics,
   QualityThresholds,
   RiskAssessmentConfig,
   ProjectStatistics,
@@ -30,7 +31,9 @@ export class RiskAssessor {
     }
 
     // Filter functions with complete metrics
-    const functionsWithMetrics = functions.filter(f => f.metrics !== undefined);
+    const functionsWithMetrics = functions.filter((f): f is FunctionInfo & { metrics: QualityMetrics } => 
+      f.metrics !== undefined
+    );
     if (functionsWithMetrics.length === 0) {
       throw new Error('No functions found with complete metrics');
     }
