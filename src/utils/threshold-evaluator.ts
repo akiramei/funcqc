@@ -33,14 +33,35 @@ export class ThresholdEvaluator {
     projectStatistics: ProjectStatistics
   ): ThresholdViolation[] {
     const violations: ThresholdViolation[] = [];
+    const metricMappings = this.createMetricMappings(metrics, thresholds);
 
-    // Map of metric names to their values and threshold configurations
-    const metricMappings: Array<{
-      key: keyof QualityThresholds;
-      metricKey: keyof QualityMetrics;
-      value: number | undefined;
-      threshold: MultiLevelThreshold | undefined;
-    }> = [
+    for (const mapping of metricMappings) {
+      const violation = this.evaluateSingleMetric(
+        mapping,
+        projectStatistics
+      );
+      
+      if (violation) {
+        violations.push(violation);
+      }
+    }
+
+    return violations;
+  }
+
+  /**
+   * Create mappings between metric values and their threshold configurations
+   */
+  private createMetricMappings(
+    metrics: QualityMetrics,
+    thresholds: QualityThresholds
+  ): Array<{
+    key: keyof QualityThresholds;
+    metricKey: keyof QualityMetrics;
+    value: number | undefined;
+    threshold: MultiLevelThreshold | undefined;
+  }> {
+    return [
       { key: 'complexity', metricKey: 'cyclomaticComplexity', value: metrics.cyclomaticComplexity, threshold: thresholds.complexity },
       { key: 'cognitiveComplexity', metricKey: 'cognitiveComplexity', value: metrics.cognitiveComplexity, threshold: thresholds.cognitiveComplexity },
       { key: 'lines', metricKey: 'linesOfCode', value: metrics.linesOfCode, threshold: thresholds.lines },
@@ -58,41 +79,45 @@ export class ThresholdEvaluator {
       { key: 'halsteadDifficulty', metricKey: 'halsteadDifficulty', value: metrics.halsteadDifficulty, threshold: thresholds.halsteadDifficulty },
       { key: 'codeToCommentRatio', metricKey: 'codeToCommentRatio', value: metrics.codeToCommentRatio, threshold: thresholds.codeToCommentRatio },
     ];
+  }
 
-    for (const mapping of metricMappings) {
-      if (mapping.value === undefined || mapping.threshold === undefined) {
-        continue;
-      }
-
-      const metricStats = projectStatistics.metrics[mapping.metricKey];
-      if (!metricStats) {
-        continue;
-      }
-
-      // Handle maintainability index specially (lower is worse)
-      let violation: ThresholdViolation | null;
-      if (mapping.metricKey === 'maintainabilityIndex') {
-        violation = this.evaluateInvertedMultiLevelThreshold(
-          mapping.metricKey,
-          mapping.value,
-          mapping.threshold,
-          metricStats
-        );
-      } else {
-        violation = this.evaluateMultiLevelThreshold(
-          mapping.metricKey,
-          mapping.value,
-          mapping.threshold,
-          metricStats
-        );
-      }
-
-      if (violation) {
-        violations.push(violation);
-      }
+  /**
+   * Evaluate a single metric against its thresholds
+   */
+  private evaluateSingleMetric(
+    mapping: {
+      key: keyof QualityThresholds;
+      metricKey: keyof QualityMetrics;
+      value: number | undefined;
+      threshold: MultiLevelThreshold | undefined;
+    },
+    projectStatistics: ProjectStatistics
+  ): ThresholdViolation | null {
+    if (mapping.value === undefined || mapping.threshold === undefined) {
+      return null;
     }
 
-    return violations;
+    const metricStats = projectStatistics.metrics[mapping.metricKey];
+    if (!metricStats) {
+      return null;
+    }
+
+    // Handle maintainability index specially (lower is worse)
+    if (mapping.metricKey === 'maintainabilityIndex') {
+      return this.evaluateInvertedMultiLevelThreshold(
+        mapping.metricKey,
+        mapping.value,
+        mapping.threshold,
+        metricStats
+      );
+    }
+
+    return this.evaluateMultiLevelThreshold(
+      mapping.metricKey,
+      mapping.value,
+      mapping.threshold,
+      metricStats
+    );
   }
 
   /**
@@ -330,11 +355,9 @@ export class ThresholdEvaluator {
 
       // For inverted metrics, we check if value is LESS than threshold
       const evaluation = this.statisticalEvaluator.evaluateThreshold(value, thresholdValue, statistics);
-      const isViolated = typeof thresholdValue === 'number' ? 
-        value <= thresholdValue : 
-        value <= evaluation.threshold;
       
-      if (isViolated) {
+      // Simple check: is the value less than or equal to the threshold?
+      if (value <= evaluation.threshold) {
         // Create a custom violation with inverted logic
         return {
           metric,
