@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, OptionValues } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
@@ -10,7 +10,7 @@ import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
-import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
+import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
 
 const program = new Command();
 
@@ -133,14 +133,14 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   return systemChecker.reportSystemCheck();
 }
 
-function handleSystemCheckFlag(options: any, logger: Logger): void {
+function handleSystemCheckFlag(options: OptionValues, logger: Logger): void {
   if (!options['checkSystem']) return;
   
   performSystemCheck(logger, false);
   process.exit(0);
 }
 
-function handleWorkingDirectoryChange(options: any, errorHandler: any): void {
+function handleWorkingDirectoryChange(options: OptionValues, errorHandler: ErrorHandler): void {
   if (!options['cwd']) return;
   
   try {
@@ -163,7 +163,7 @@ function handleHelpDisplay(): void {
   process.exit(0);
 }
 
-function handleSystemCheckBeforeCommands(options: any, logger: Logger): void {
+function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
   if (options['noCheck']) return;
   
   const systemOk = performSystemCheck(logger, false);
