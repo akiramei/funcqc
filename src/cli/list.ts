@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 
@@ -227,7 +227,6 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   let format = options.format || 'table';
   
   if (options.json) format = 'json';
-  if (options.csv) format = 'csv';
   
   // Use friendly format for threshold violations
   if (options.thresholdViolations) {
@@ -238,9 +237,6 @@ async function outputResults(functions: FunctionInfo[], options: ListCommandOpti
   switch (format) {
     case 'json':
       outputJSON(functions);
-      break;
-    case 'csv':
-      outputCSV(functions, options);
       break;
     case 'friendly':
       outputFriendly(functions, options, config);
@@ -275,24 +271,6 @@ function outputJSON(functions: FunctionInfo[]): void {
   console.log(JSON.stringify(output, null, 2));
 }
 
-function outputCSV(functions: FunctionInfo[], options: ListCommandOptions): void {
-  const fields = getFields(options);
-  
-  // Header
-  console.log(fields.join(','));
-  
-  // Data rows
-  for (const func of functions) {
-    const row = fields.map(field => {
-      const value = getFieldValue(func, field);
-      // Escape CSV values
-      return typeof value === 'string' && value.includes(',') 
-        ? `"${value.replace(/"/g, '""')}"` 
-        : value;
-    });
-    console.log(row.join(','));
-  }
-}
 
 function outputTable(functions: FunctionInfo[], options: ListCommandOptions): void {
   const fields = getFields(options);
@@ -403,93 +381,129 @@ function outputFriendly(functions: FunctionInfo[], options: ListCommandOptions, 
     return;
   }
 
-  // Sort by complexity (highest first)
-  const sortedFunctions = functions.sort((a, b) => {
+  const sortedFunctions = sortFunctionsByComplexity(functions);
+  displayFriendlyHeader(functions.length, options.thresholdViolations);
+  displayFunctionList(sortedFunctions, options, config);
+  displayFriendlySummary(functions, config);
+}
+
+function sortFunctionsByComplexity(functions: FunctionInfo[]): FunctionInfo[] {
+  return functions.sort((a, b) => {
     const aComplexity = a.metrics?.cyclomaticComplexity || 1;
     const bComplexity = b.metrics?.cyclomaticComplexity || 1;
     return bComplexity - aComplexity;
   });
+}
 
-  const title = options.thresholdViolations ? 
-    `🚨 Threshold Violations (${functions.length} functions)` :
-    `📋 Function List (${functions.length} functions)`;
+function displayFriendlyHeader(functionCount: number, isThresholdViolations?: boolean): void {
+  const title = isThresholdViolations ? 
+    `🚨 Threshold Violations (${functionCount} functions)` :
+    `📋 Function List (${functionCount} functions)`;
   console.log(chalk.bold.cyan(title));
   console.log();
+}
 
-  sortedFunctions.forEach((func, index) => {
+function displayFunctionList(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): void {
+  functions.forEach((func, index) => {
     const number = (index + 1).toString().padStart(2, ' ');
-    const metrics = func.metrics;
+    displayFunctionHeader(number, func);
+    displayFunctionMetrics(func.metrics);
     
-    // Function header with objective metrics
-    console.log(chalk.bold(`${number}. ${func.displayName}()`));
-    console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
-    
-    // Show objective metrics
-    if (metrics) {
-      console.log(`   📊 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`);
-      if (metrics.maintainabilityIndex) {
-        console.log(`   📈 Maintainability Index: ${metrics.maintainabilityIndex.toFixed(1)}`);
-      }
-      if (metrics.maxNestingLevel > 1) {
-        console.log(`   🔄 Max Nesting Level: ${metrics.maxNestingLevel}`);
-      }
-      
-      // Show threshold violations if applicable
-      if (options.thresholdViolations) {
-        const {
-          complexityThreshold,
-          cognitiveComplexityThreshold,
-          linesOfCodeThreshold,
-          parameterCountThreshold,
-          maxNestingLevelThreshold
-        } = config.metrics;
-        
-        const violations = [];
-        if (metrics.cyclomaticComplexity > complexityThreshold) {
-          violations.push(`CC=${metrics.cyclomaticComplexity}(+${(metrics.cyclomaticComplexity - complexityThreshold).toFixed(1)})`);
-        }
-        if (metrics.cognitiveComplexity > cognitiveComplexityThreshold) {
-          violations.push(`CogC=${metrics.cognitiveComplexity}(+${(metrics.cognitiveComplexity - cognitiveComplexityThreshold).toFixed(1)})`);
-        }
-        if (metrics.linesOfCode > linesOfCodeThreshold) {
-          violations.push(`LOC=${metrics.linesOfCode}(+${metrics.linesOfCode - linesOfCodeThreshold})`);
-        }
-        if (metrics.parameterCount > parameterCountThreshold) {
-          violations.push(`Params=${metrics.parameterCount}(+${metrics.parameterCount - parameterCountThreshold})`);
-        }
-        if (metrics.maxNestingLevel > maxNestingLevelThreshold) {
-          violations.push(`Nesting=${metrics.maxNestingLevel}(+${metrics.maxNestingLevel - maxNestingLevelThreshold})`);
-        }
-        
-        if (violations.length > 0) {
-          console.log(`   ⚠️  Violations: ${violations.join(', ')}`);
-        }
-      }
+    if (options.thresholdViolations && func.metrics) {
+      displayThresholdViolations(func.metrics, config.metrics);
     }
     
     console.log();
   });
+}
 
-  // Objective summary
-  const avgComplexity = functions.reduce((sum, f) => 
-    sum + (f.metrics?.cyclomaticComplexity || 1), 0) / functions.length;
-  const avgLines = functions.reduce((sum, f) => 
-    sum + (f.metrics?.linesOfCode || 0), 0) / functions.length;
+function displayFunctionHeader(number: string, func: FunctionInfo): void {
+  console.log(chalk.bold(`${number}. ${func.displayName}()`));
+  console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
+}
+
+function displayFunctionMetrics(metrics?: QualityMetrics): void {
+  if (!metrics) return;
+  
+  console.log(`   📊 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`);
+  
+  if (metrics.maintainabilityIndex) {
+    console.log(`   📈 Maintainability Index: ${metrics.maintainabilityIndex.toFixed(1)}`);
+  }
+  
+  if (metrics.maxNestingLevel > 1) {
+    console.log(`   🔄 Max Nesting Level: ${metrics.maxNestingLevel}`);
+  }
+}
+
+function displayThresholdViolations(metrics: QualityMetrics, thresholds: FuncqcConfig['metrics']): void {
+  const violations = buildViolationsList(metrics, thresholds);
+  
+  if (violations.length > 0) {
+    console.log(`   ⚠️  Violations: ${violations.join(', ')}`);
+  }
+}
+
+function buildViolationsList(metrics: QualityMetrics, thresholds: FuncqcConfig['metrics']): string[] {
+  const violations: string[] = [];
+  
+  if (metrics.cyclomaticComplexity > thresholds.complexityThreshold) {
+    violations.push(`CC=${metrics.cyclomaticComplexity}(+${(metrics.cyclomaticComplexity - thresholds.complexityThreshold).toFixed(1)})`);
+  }
+  
+  if (metrics.cognitiveComplexity > thresholds.cognitiveComplexityThreshold) {
+    violations.push(`CogC=${metrics.cognitiveComplexity}(+${(metrics.cognitiveComplexity - thresholds.cognitiveComplexityThreshold).toFixed(1)})`);
+  }
+  
+  if (metrics.linesOfCode > thresholds.linesOfCodeThreshold) {
+    violations.push(`LOC=${metrics.linesOfCode}(+${metrics.linesOfCode - thresholds.linesOfCodeThreshold})`);
+  }
+  
+  if (metrics.parameterCount > thresholds.parameterCountThreshold) {
+    violations.push(`Params=${metrics.parameterCount}(+${metrics.parameterCount - thresholds.parameterCountThreshold})`);
+  }
+  
+  if (metrics.maxNestingLevel > thresholds.maxNestingLevelThreshold) {
+    violations.push(`Nesting=${metrics.maxNestingLevel}(+${metrics.maxNestingLevel - thresholds.maxNestingLevelThreshold})`);
+  }
+  
+  return violations;
+}
+
+function displayFriendlySummary(functions: FunctionInfo[], config: FuncqcConfig): void {
+  const avgComplexity = calculateAverageComplexity(functions);
+  const avgLines = calculateAverageLines(functions);
   
   console.log(chalk.blue('📊 Summary:'));
   console.log(chalk.blue(`   Average Complexity: ${avgComplexity.toFixed(1)}`));
   console.log(chalk.blue(`   Average Lines of Code: ${avgLines.toFixed(1)}`));
   
-  const {
-    complexityThreshold,
-    linesOfCodeThreshold
-  } = config.metrics;
+  displayQualityBreakdown(functions, config.metrics);
+}
+
+function calculateAverageComplexity(functions: FunctionInfo[]): number {
+  return functions.reduce((sum, f) => 
+    sum + (f.metrics?.cyclomaticComplexity || 1), 0) / functions.length;
+}
+
+function calculateAverageLines(functions: FunctionInfo[]): number {
+  return functions.reduce((sum, f) => 
+    sum + (f.metrics?.linesOfCode || 0), 0) / functions.length;
+}
+
+function displayQualityBreakdown(functions: FunctionInfo[], thresholds: FuncqcConfig['metrics']): void {
+  const highComplexityCount = functions.filter(f => 
+    (f.metrics?.cyclomaticComplexity || 1) > thresholds.complexityThreshold).length;
+  const longFunctionCount = functions.filter(f => 
+    (f.metrics?.linesOfCode || 0) > thresholds.linesOfCodeThreshold).length;
   
-  const highComplexityCount = functions.filter(f => (f.metrics?.cyclomaticComplexity || 1) > complexityThreshold).length;
-  const longFunctionCount = functions.filter(f => (f.metrics?.linesOfCode || 0) > linesOfCodeThreshold).length;
+  if (highComplexityCount > 0) {
+    console.log(chalk.yellow(`   🔍 High Complexity (>${thresholds.complexityThreshold}): ${highComplexityCount} functions`));
+  }
   
-  if (highComplexityCount > 0) console.log(chalk.yellow(`   🔍 High Complexity (>${complexityThreshold}): ${highComplexityCount} functions`));
-  if (longFunctionCount > 0) console.log(chalk.yellow(`   📏 Long Functions (>${linesOfCodeThreshold} LOC): ${longFunctionCount} functions`));
+  if (longFunctionCount > 0) {
+    console.log(chalk.yellow(`   📏 Long Functions (>${thresholds.linesOfCodeThreshold} LOC): ${longFunctionCount} functions`));
+  }
 }
 
 function formatFieldValue(func: FunctionInfo, field: string): string {
