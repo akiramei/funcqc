@@ -38,6 +38,13 @@ export async function ensureDir(dirPath: string): Promise<void> {
 /**
  * Find files recursively in a directory with optional filtering
  */
+interface WalkContext {
+  maxDepth: number;
+  extensions: string[] | undefined;
+  exclude: string[];
+  files: string[];
+}
+
 export async function findFiles(
   dir: string,
   options: {
@@ -47,25 +54,27 @@ export async function findFiles(
   } = {}
 ): Promise<string[]> {
   const { extensions, exclude = [], maxDepth = 10 } = options;
-  const files: string[] = [];
+  const context: WalkContext = {
+    maxDepth,
+    extensions,
+    exclude,
+    files: []
+  };
   
-  await walkDirectory(dir, 0, maxDepth, extensions, exclude, files);
-  return files;
+  await walkDirectory(dir, 0, context);
+  return context.files;
 }
 
 async function walkDirectory(
   currentDir: string,
   depth: number,
-  maxDepth: number,
-  extensions: string[] | undefined,
-  exclude: string[],
-  files: string[]
+  context: WalkContext
 ): Promise<void> {
-  if (depth > maxDepth) return;
+  if (depth > context.maxDepth) return;
 
   try {
     const entries = await fs.readdir(currentDir, { withFileTypes: true });
-    await processDirectoryEntries(entries, currentDir, depth, maxDepth, extensions, exclude, files);
+    await processDirectoryEntries(entries, currentDir, depth, context);
   } catch {
     console.warn(`Warning: Cannot access ${currentDir}`);
   }
@@ -75,29 +84,26 @@ async function processDirectoryEntries(
   entries: Dirent[],
   currentDir: string,
   depth: number,
-  maxDepth: number,
-  extensions: string[] | undefined,
-  exclude: string[],
-  files: string[]
+  context: WalkContext
 ): Promise<void> {
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
     
-    if (shouldExclude(fullPath, exclude)) {
+    if (shouldExclude(fullPath, context.exclude)) {
       continue;
     }
     
     if (entry.isDirectory()) {
-      await walkDirectory(fullPath, depth + 1, maxDepth, extensions, exclude, files);
+      await walkDirectory(fullPath, depth + 1, context);
     } else if (entry.isFile()) {
-      addFileIfMatches(fullPath, extensions, files);
+      addFileIfMatches(fullPath, context);
     }
   }
 }
 
-function addFileIfMatches(fullPath: string, extensions: string[] | undefined, files: string[]): void {
-  if (!extensions || extensions.some(ext => fullPath.endsWith(ext))) {
-    files.push(fullPath);
+function addFileIfMatches(fullPath: string, context: WalkContext): void {
+  if (!context.extensions || context.extensions.some(ext => fullPath.endsWith(ext))) {
+    context.files.push(fullPath);
   }
 }
 
