@@ -269,6 +269,12 @@ export interface ListCommandOptions extends CommandOptions {
   limit?: string;
   json?: boolean;
   thresholdViolations?: boolean;
+  showId?: boolean;
+}
+
+export interface ShowCommandOptions extends CommandOptions {
+  id?: string;
+  json?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {

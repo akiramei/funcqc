@@ -305,6 +305,21 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   
   const tableData = [headerRow, ...dataRows];
   
+  // Configure table columns dynamically based on fields
+  const hasIdField = fields.includes('id');
+  const baseColumns = hasIdField ? {
+    0: { width: 10, alignment: 'left' }, // ID (shortened)
+    1: { width: 18, wrapWord: true }, // Name
+    2: { width: 28, wrapWord: true }, // File
+    3: { width: 8, alignment: 'right' }, // Lines
+    4: { width: 10, alignment: 'right' } // Complexity
+  } : {
+    0: { width: 20, wrapWord: true }, // Name
+    1: { width: 30, wrapWord: true }, // File
+    2: { width: 8, alignment: 'right' }, // Lines
+    3: { width: 10, alignment: 'right' } // Complexity
+  };
+  
   // Configure table
   const config = {
     border: {
@@ -328,12 +343,7 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
       paddingLeft: 1,
       paddingRight: 1
     },
-    columns: {
-      0: { width: 20, wrapWord: true }, // Name
-      1: { width: 30, wrapWord: true }, // File
-      2: { width: 8, alignment: 'right' }, // Lines
-      3: { width: 10, alignment: 'right' } // Complexity
-    }
+    columns: baseColumns
   };
   
   // @ts-ignore - Table configuration type issue
@@ -355,12 +365,17 @@ function getFields(options: ListCommandOptions): string[] {
     return options.fields.split(',').map(f => f.trim());
   }
   
-  // Default fields
-  return ['name', 'file', 'lines', 'complexity', 'exported', 'async'];
+  // Default fields - include ID if requested
+  const defaultFields = ['name', 'file', 'lines', 'complexity', 'exported', 'async'];
+  if (options.showId) {
+    return ['id', ...defaultFields];
+  }
+  return defaultFields;
 }
 
 function formatFieldName(field: string): string {
   const names: Record<string, string> = {
+    id: 'ID',
     name: 'Name',
     file: 'File',
     lines: 'Lines',
@@ -376,6 +391,8 @@ function formatFieldName(field: string): string {
 
 function getFieldValue(func: FunctionInfo, field: string): any {
   switch (field) {
+    case 'id':
+      return func.id;
     case 'name':
       return func.name;
     case 'file':
@@ -434,7 +451,7 @@ function displayFriendlyHeader(functionCount: number, isThresholdViolations?: bo
 function displayFunctionList(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): void {
   functions.forEach((func, index) => {
     const number = (index + 1).toString().padStart(2, ' ');
-    displayFunctionHeader(number, func);
+    displayFunctionHeader(number, func, options.showId);
     displayFunctionMetrics(func.metrics);
     
     if (options.thresholdViolations && func.metrics) {
@@ -445,8 +462,9 @@ function displayFunctionList(functions: FunctionInfo[], options: ListCommandOpti
   });
 }
 
-function displayFunctionHeader(number: string, func: FunctionInfo): void {
-  console.log(chalk.bold(`${number}. ${func.displayName}()`));
+function displayFunctionHeader(number: string, func: FunctionInfo, showId?: boolean): void {
+  const idText = showId ? chalk.gray(` [ID: ${func.id.substring(0, 8)}]`) : '';
+  console.log(chalk.bold(`${number}. ${func.displayName}()${idText}`));
   console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
 }
 
@@ -534,7 +552,7 @@ async function displayEnhancedFunctionList(functions: FunctionInfo[], config: Fu
       const func = functions[i];
       const number = (i + 1).toString().padStart(2, ' ');
       
-      displayFunctionHeader(number, func);
+      displayFunctionHeader(number, func, true); // Always show ID in enhanced mode
       displayFunctionMetrics(func.metrics);
       
       // Find the risk assessment for this function
@@ -552,7 +570,7 @@ async function displayEnhancedFunctionList(functions: FunctionInfo[], config: Fu
     console.warn(chalk.yellow('Warning: Enhanced violation display failed, using legacy display'));
     functions.forEach((func, index) => {
       const number = (index + 1).toString().padStart(2, ' ');
-      displayFunctionHeader(number, func);
+      displayFunctionHeader(number, func, true); // Always show ID in enhanced mode
       displayFunctionMetrics(func.metrics);
       
       if (func.metrics) {
@@ -660,6 +678,9 @@ function formatFieldValue(func: FunctionInfo, field: string): string {
   const value = getFieldValue(func, field);
   
   switch (field) {
+    case 'id':
+      // Show first 8 characters of ID for readability
+      return chalk.gray(value.substring(0, 8));
     case 'file':
       // Shorten file paths
       return value.length > 30 ? '...' + value.slice(-27) : value;

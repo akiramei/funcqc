@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
 import { listCommand } from './cli/list';
+import { showCommand } from './cli/show';
 import { statusCommand } from './cli/status';
 import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
@@ -72,7 +73,16 @@ program
   .option('--limit <num>', 'limit number of results', '50')
   .option('--json', 'output as JSON')
   .option('--threshold-violations', 'show functions that violate configurable thresholds')
+  .option('--show-id', 'include function ID in the output')
   .action(listCommand);
+
+program
+  .command('show')
+  .description('Show detailed information about a specific function')
+  .option('--id <function-id>', 'function ID to show details for')
+  .option('--json', 'output as JSON')
+  .argument('[name-pattern]', 'function name pattern (if ID not provided)')
+  .action(showCommand);
 
 program
   .command('status')
@@ -90,6 +100,7 @@ program
   .option('--author <name>', 'filter by commit author')
   .option('--branch <name>', 'filter by git branch')
   .option('--label <text>', 'filter by snapshot label')
+  .option('--id <function-id>', 'track history of specific function by ID')
   .action(historyCommand);
 
 program
