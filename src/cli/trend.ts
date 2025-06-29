@@ -137,7 +137,7 @@ function calculatePeriodMetrics(
   qualityScore = Math.max(0, Math.min(100, qualityScore));
   
   // Determine trend compared to previous period
-  let trend: 'improving' | 'stable' | 'degrading' = 'stable';
+  const trend: 'improving' | 'stable' | 'degrading' = 'stable';
   // This is simplified - in a real implementation, we'd compare with previous period
   
   const periodLabel = formatPeriodLabel(periodStart, periodEnd, periodDays);

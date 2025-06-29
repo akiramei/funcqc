@@ -369,7 +369,7 @@ async function showRecentQualityTrend(_storage: PGLiteStorageAdapter, snapshots:
     displayComplexityTrend(trendData.complexityChange);
     displayFunctionCountTrend(trendData.functionChange);
     
-  } catch (error) {
+  } catch {
     // Silently handle errors in trend calculation
   }
 }
