@@ -28,7 +28,11 @@ export async function trendCommand(options: TrendCommandOptions): Promise<void> 
     const configManager = new ConfigManager();
     const config = await configManager.load();
     
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
+    if (!config.storage.path) {
+      logger.error('Storage path is not configured');
+      process.exit(1);
+    }
+    const storage = new PGLiteStorageAdapter(config.storage.path);
     await storage.init();
 
     // Get snapshots for analysis
@@ -65,7 +69,13 @@ function determinePeriod(options: TrendCommandOptions): number {
   if (options.daily) return 1;
   if (options.monthly) return 30;
   if (options.weekly) return 7;
-  if (options.period) return parseInt(options.period);
+  if (options.period) {
+    const parsed = parseInt(options.period, 10);
+    if (isNaN(parsed) || parsed <= 0) {
+      throw new Error(`Invalid period value: ${options.period}. Must be a positive number.`);
+    }
+    return parsed;
+  }
   return 7; // Default to weekly
 }
 
@@ -137,8 +147,28 @@ function calculatePeriodMetrics(
   qualityScore = Math.max(0, Math.min(100, qualityScore));
   
   // Determine trend compared to previous period
-  const trend: 'improving' | 'stable' | 'degrading' = 'stable';
-  // This is simplified - in a real implementation, we'd compare with previous period
+  let trend: 'improving' | 'stable' | 'degrading' = 'stable';
+  
+  // Find comparison period (same duration before current period)
+  const periodDuration = periodEnd.getTime() - periodStart.getTime();
+  const previousPeriodEnd = new Date(periodStart.getTime());
+  const previousPeriodStart = new Date(previousPeriodEnd.getTime() - periodDuration);
+  
+  const previousSnapshots = snapshots.filter(s => {
+    const snapshotDate = new Date(s.createdAt);
+    return snapshotDate >= previousPeriodStart && snapshotDate < previousPeriodEnd;
+  });
+  
+  if (previousSnapshots.length > 0) {
+    const previousData = calculatePeriodMetrics(previousSnapshots, previousPeriodStart, previousPeriodEnd, periodDays);
+    const scoreDiff = qualityScore - previousData.qualityScore;
+    
+    if (scoreDiff > 5) {
+      trend = 'improving';
+    } else if (scoreDiff < -5) {
+      trend = 'degrading';
+    }
+  }
   
   const periodLabel = formatPeriodLabel(periodStart, periodEnd, periodDays);
   
