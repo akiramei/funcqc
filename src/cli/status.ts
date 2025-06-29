@@ -1,8 +1,9 @@
 import chalk from 'chalk';
 import simpleGit, { SimpleGit } from 'simple-git';
-import { StatusCommandOptions } from '../types';
+import { StatusCommandOptions, FunctionInfo } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { QualityScorer } from '../utils/quality-scorer';
 
 export async function statusCommand(options: StatusCommandOptions): Promise<void> {
   try {
@@ -74,11 +75,17 @@ async function showDatabaseStatus(dbPath: string, verbose: boolean): Promise<voi
     
     const latest = snapshots[0];
     showLatestSnapshotInfo(latest);
+    
+    // Get detailed function data for quality analysis
+    const functions = await storage.getFunctions(latest.id);
+    await showQualityOverview(functions, latest, verbose);
+    
     showBasicStats(snapshots, latest);
     
     if (verbose) {
       showRecentSnapshots(snapshots);
       showComplexityDistribution(latest);
+      await showActionableInsights(functions, storage, snapshots);
     }
     
     await storage.close();
@@ -226,6 +233,222 @@ async function displayRecentCommits(git: SimpleGit): Promise<void> {
   recentLog.all.forEach(commit => {
     console.log(`    ${commit.hash.slice(0, 8)} ${commit.message}`);
   });
+}
+
+async function showQualityOverview(functions: FunctionInfo[], _latest: any, verbose: boolean): Promise<void> {
+  console.log(chalk.yellow('🎯 Quality Overview'));
+  console.log('─'.repeat(30));
+  
+  if (functions.length === 0) {
+    console.log(chalk.gray('  No function data available'));
+    return;
+  }
+  
+  const qualityScorer = new QualityScorer();
+  const qualityScore = qualityScorer.calculateProjectScore(functions);
+  
+  // Overall grade with color coding
+  const gradeColor = qualityScore.overallGrade === 'A' ? chalk.green :
+                     qualityScore.overallGrade === 'B' ? chalk.blue :
+                     qualityScore.overallGrade === 'C' ? chalk.yellow :
+                     qualityScore.overallGrade === 'D' ? chalk.red : chalk.red;
+  
+  console.log(`  Overall Grade: ${gradeColor.bold(qualityScore.overallGrade)} (${qualityScore.score}/100)`);
+  
+  // Quality status indicator
+  const qualityStatus = getQualityStatus(qualityScore.score);
+  console.log(`  Quality Status: ${qualityStatus.icon} ${qualityStatus.color(qualityStatus.description)}`);
+  
+  // High risk functions warning
+  if (qualityScore.highRiskFunctions > 0) {
+    console.log(`  ${chalk.red('⚠️')} High Risk Functions: ${chalk.red.bold(qualityScore.highRiskFunctions)} need attention`);
+  } else {
+    console.log(`  ${chalk.green('✅')} No high-risk functions detected`);
+  }
+  
+  // Quality breakdown (show if verbose or if there are issues)
+  if (verbose || qualityScore.score < 80) {
+    console.log();
+    console.log('  Quality Breakdown:');
+    console.log(`    Complexity: ${getScoreDisplay(qualityScore.complexityScore)}`);
+    console.log(`    Maintainability: ${getScoreDisplay(qualityScore.maintainabilityScore)}`);
+    console.log(`    Size Management: ${getScoreDisplay(qualityScore.sizeScore)}`);
+    console.log(`    Code Quality: ${getScoreDisplay(qualityScore.codeQualityScore)}`);
+  }
+  
+  // Top problematic functions
+  if (qualityScore.topProblematicFunctions.length > 0) {
+    console.log();
+    console.log('  Functions Needing Attention:');
+    qualityScore.topProblematicFunctions.slice(0, 3).forEach((func, index) => {
+      const shortPath = func.filePath.split('/').slice(-2).join('/');
+      console.log(`    ${index + 1}. ${chalk.cyan(func.name)} (${shortPath})`);
+      console.log(`       ${func.reason}`);
+    });
+  }
+  
+  console.log();
+}
+
+function getQualityStatus(score: number) {
+  if (score >= 90) {
+    return {
+      icon: '🟢',
+      color: chalk.green,
+      description: 'Excellent - Maintain current standards'
+    };
+  } else if (score >= 80) {
+    return {
+      icon: '🔵', 
+      color: chalk.blue,
+      description: 'Good - Minor improvements possible'
+    };
+  } else if (score >= 70) {
+    return {
+      icon: '🟡',
+      color: chalk.yellow,
+      description: 'Fair - Some refactoring recommended'
+    };
+  } else if (score >= 60) {
+    return {
+      icon: '🟠',
+      color: chalk.yellow,
+      description: 'Poor - Significant improvements needed'
+    };
+  } else {
+    return {
+      icon: '🔴',
+      color: chalk.red,
+      description: 'Critical - Immediate action required'
+    };
+  }
+}
+
+function getScoreDisplay(score: number): string {
+  const color = score >= 80 ? chalk.green :
+                score >= 60 ? chalk.yellow :
+                chalk.red;
+  return color(`${score}/100`);
+}
+
+async function showActionableInsights(functions: FunctionInfo[], storage: PGLiteStorageAdapter, snapshots: any[]): Promise<void> {
+  console.log(chalk.yellow('💡 Actionable Insights'));
+  console.log('─'.repeat(30));
+  
+  // Recent quality trend
+  if (snapshots.length >= 2) {
+    await showRecentQualityTrend(storage, snapshots);
+  }
+  
+  // Specific recommendations
+  const recommendations = generateRecommendations(functions);
+  if (recommendations.length > 0) {
+    console.log();
+    console.log('  Immediate Actions:');
+    recommendations.forEach((rec, index) => {
+      console.log(`    ${index + 1}. ${rec}`);
+    });
+  }
+  
+  // Development workflow suggestions
+  console.log();
+  console.log('  Development Workflow:');
+  console.log('    • Run `funcqc scan --compare-with latest` before commits');
+  console.log('    • Use `funcqc list --urgent` to find 15-min quick fixes');
+  console.log('    • Check `funcqc trend --weekly` for quality progress');
+  
+  console.log();
+}
+
+async function showRecentQualityTrend(_storage: PGLiteStorageAdapter, snapshots: any[]): Promise<void> {
+  try {
+    const trendData = extractTrendData(snapshots);
+    if (!trendData) return;
+    
+    console.log('  Recent Trend:');
+    displayComplexityTrend(trendData.complexityChange);
+    displayFunctionCountTrend(trendData.functionChange);
+    
+  } catch (error) {
+    // Silently handle errors in trend calculation
+  }
+}
+
+function extractTrendData(snapshots: any[]) {
+  const latest = snapshots[0];
+  const previous = snapshots[1];
+  
+  if (!latest || !previous) return null;
+  
+  const latestComplexity = latest.metadata.avgComplexity || 0;
+  const previousComplexity = previous.metadata.avgComplexity || 0;
+  const complexityChange = latestComplexity - previousComplexity;
+  
+  const latestFunctions = latest.metadata.totalFunctions || 0;
+  const previousFunctions = previous.metadata.totalFunctions || 0;
+  const functionChange = latestFunctions - previousFunctions;
+  
+  return { complexityChange, functionChange };
+}
+
+function displayComplexityTrend(complexityChange: number): void {
+  if (Math.abs(complexityChange) > 0.1) {
+    const direction = complexityChange > 0 ? 'increased' : 'decreased';
+    const color = complexityChange > 0 ? chalk.red : chalk.green;
+    const icon = complexityChange > 0 ? '📈' : '📉';
+    console.log(`    ${icon} Complexity ${direction} by ${color(Math.abs(complexityChange).toFixed(1))}`);
+  } else {
+    console.log(`    ➡️  Complexity remained stable`);
+  }
+}
+
+function displayFunctionCountTrend(functionChange: number): void {
+  if (functionChange !== 0) {
+    const direction = functionChange > 0 ? 'added' : 'removed';
+    const icon = functionChange > 0 ? '➕' : '➖';
+    console.log(`    ${icon} ${Math.abs(functionChange)} functions ${direction}`);
+  }
+}
+
+function generateRecommendations(functions: FunctionInfo[]): string[] {
+  const recommendations: string[] = [];
+  
+  // Find high complexity functions
+  const highComplexityFunctions = functions.filter(f => 
+    f.metrics && f.metrics.cyclomaticComplexity > 10
+  );
+  
+  if (highComplexityFunctions.length > 0) {
+    const count = Math.min(3, highComplexityFunctions.length);
+    recommendations.push(`Refactor ${count} high-complexity functions (complexity > 10)`);
+  }
+  
+  // Find long functions
+  const longFunctions = functions.filter(f => 
+    f.metrics && f.metrics.linesOfCode > 50
+  );
+  
+  if (longFunctions.length > 0) {
+    const count = Math.min(3, longFunctions.length);
+    recommendations.push(`Break down ${count} large functions (>50 lines)`);
+  }
+  
+  // Find functions with many parameters
+  const manyParamFunctions = functions.filter(f => 
+    f.parameters && f.parameters.length > 5
+  );
+  
+  if (manyParamFunctions.length > 0) {
+    recommendations.push(`Simplify ${manyParamFunctions.length} functions with too many parameters`);
+  }
+  
+  // If no issues, provide positive recommendations
+  if (recommendations.length === 0) {
+    recommendations.push('Code quality is good! Consider adding more comprehensive tests');
+    recommendations.push('Share your quality practices with other teams');
+  }
+  
+  return recommendations;
 }
 
 function formatDate(timestamp: number): string {

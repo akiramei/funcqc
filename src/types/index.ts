@@ -241,6 +241,7 @@ export interface ScanCommandOptions extends CommandOptions {
   force?: boolean;
   batchSize?: string;
   quick?: boolean;
+  compareWith?: string;
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -265,6 +266,16 @@ export interface ListCommandOptions extends CommandOptions {
 
 export interface StatusCommandOptions extends CommandOptions {
   verbose?: boolean;
+}
+
+export interface TrendCommandOptions extends CommandOptions {
+  weekly?: boolean;
+  monthly?: boolean;
+  daily?: boolean;
+  period?: string;
+  metric?: string;
+  summary?: boolean;
+  json?: boolean;
 }
 
 // Storage adapter interface
