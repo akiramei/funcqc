@@ -283,6 +283,8 @@ export interface ListCommandOptions extends CommandOptions {
   thresholdViolations?: boolean;
   showId?: boolean;
   keyword?: string;
+  withDescription?: boolean;
+  noDescription?: boolean;
 }
 
 export interface ShowCommandOptions extends CommandOptions {
@@ -517,5 +519,34 @@ export interface ProjectRiskAssessment {
   worstFunctions: FunctionRiskAssessment[];
   statistics: ProjectStatistics;
   configuredThresholds: QualityThresholds;
+}
+
+// Function description types
+export interface FunctionDescription {
+  functionId: string;
+  description: string;
+  source: 'human' | 'ai' | 'jsdoc';
+  createdAt: number;
+  updatedAt: number;
+  createdBy?: string;
+  aiModel?: string;
+  confidenceScore?: number;
+}
+
+export interface DescribeCommandOptions extends CommandOptions {
+  text?: string;
+  source?: 'human' | 'ai' | 'jsdoc';
+  model?: string;
+  confidence?: string;
+  batch?: boolean;
+  input?: string;
+  interactive?: boolean;
+  by?: string;
+}
+
+export interface SearchCommandOptions extends CommandOptions {
+  format?: 'table' | 'json' | 'friendly';
+  limit?: string;
+  json?: boolean;
 }
 

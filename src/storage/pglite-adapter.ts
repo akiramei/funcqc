@@ -15,7 +15,8 @@ import {
   ParameterRow,
   MetricsRow,
   ParameterInfo,
-  QualityMetrics
+  QualityMetrics,
+  FunctionDescription
 } from '../types';
 
 /**
@@ -421,6 +422,218 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // FUNCTION DESCRIPTION OPERATIONS
+  // ========================================
+
+  async saveFunctionDescription(description: FunctionDescription): Promise<void> {
+    try {
+      await this.db.query(`
+        INSERT INTO function_descriptions (
+          function_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT (function_id) 
+        DO UPDATE SET 
+          description = EXCLUDED.description,
+          source = EXCLUDED.source,
+          updated_at = EXCLUDED.updated_at,
+          created_by = EXCLUDED.created_by,
+          ai_model = EXCLUDED.ai_model,
+          confidence_score = EXCLUDED.confidence_score
+      `, [
+        description.functionId,
+        description.description,
+        description.source,
+        new Date(description.createdAt).toISOString(),
+        new Date(description.updatedAt).toISOString(),
+        description.createdBy || null,
+        description.aiModel || null,
+        description.confidenceScore || null
+      ]);
+    } catch (error) {
+      throw new Error(`Failed to save function description: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionDescription(functionId: string): Promise<FunctionDescription | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM function_descriptions WHERE function_id = $1',
+        [functionId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as {
+        function_id: string;
+        description: string;
+        source: string;
+        created_at: string;
+        updated_at: string;
+        created_by?: string;
+        ai_model?: string;
+        confidence_score?: number;
+      };
+      return {
+        functionId: row.function_id,
+        description: row.description,
+        source: row.source as 'human' | 'ai' | 'jsdoc',
+        createdAt: new Date(row.created_at).getTime(),
+        updatedAt: new Date(row.updated_at).getTime(),
+        ...(row.created_by && { createdBy: row.created_by }),
+        ...(row.ai_model && { aiModel: row.ai_model }),
+        ...(row.confidence_score !== null && { confidenceScore: row.confidence_score })
+      };
+    } catch (error) {
+      throw new Error(`Failed to get function description: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      // Get the latest snapshot
+      const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
+      if (snapshots.length === 0) {
+        return [];
+      }
+
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        WHERE f.snapshot_id = $1 AND (
+          f.name ILIKE $2 OR 
+          f.js_doc ILIKE $2 OR 
+          f.source_code ILIKE $2 OR
+          d.description ILIKE $2
+        )
+      `;
+      const params: (string | number)[] = [snapshots[0].id, `%${keyword}%`];
+
+      // Add pagination
+      if (options?.limit) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(options.limit);
+      }
+
+      if (options?.offset) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      // Get parameters for each function
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to search functions by description: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        WHERE f.snapshot_id = $1 AND d.description IS NOT NULL
+      `;
+      const params: (string | number)[] = [snapshotId];
+
+      // Add pagination
+      if (options?.limit) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(options.limit);
+      }
+
+      if (options?.offset) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions with descriptions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionsWithoutDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        WHERE f.snapshot_id = $1 AND d.description IS NULL
+      `;
+      const params: (string | number)[] = [snapshotId];
+
+      // Add pagination
+      if (options?.limit) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(options.limit);
+      }
+
+      if (options?.offset) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions without descriptions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // ========================================
   // MAINTENANCE OPERATIONS (FUTURE)
   // ========================================
 
@@ -445,6 +658,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.db.exec(this.getFunctionsTableSQL());
     await this.db.exec(this.getParametersTableSQL());
     await this.db.exec(this.getMetricsTableSQL());
+    await this.db.exec(this.getFunctionDescriptionsTableSQL());
   }
 
   private getSnapshotsTableSQL(): string {
@@ -533,6 +747,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         halstead_volume REAL,
         halstead_difficulty REAL,
         maintainability_index REAL,
+        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+      );`;
+  }
+
+  private getFunctionDescriptionsTableSQL(): string {
+    return `
+      CREATE TABLE IF NOT EXISTS function_descriptions (
+        function_id TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        source TEXT NOT NULL DEFAULT 'human',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_by TEXT,
+        ai_model TEXT,
+        confidence_score REAL,
         FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
       );`;
   }

@@ -11,6 +11,8 @@ import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
 import { trendCommand } from './cli/trend';
 import { similarCommand } from './cli/similar';
+import { describeCommand } from './cli/describe';
+import { searchCommand } from './cli/search';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -76,6 +78,8 @@ program
   .option('--json', 'output as JSON')
   .option('--threshold-violations', 'show functions that violate configurable thresholds')
   .option('--show-id', 'include function ID in the output')
+  .option('--with-description', 'show only functions with descriptions')
+  .option('--no-description', 'show only functions without descriptions')
   .action(listCommand);
 
 program
@@ -144,6 +148,29 @@ program
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
   .action(similarCommand);
+
+program
+  .command('describe')
+  .description('Add or manage function descriptions')
+  .argument('<function-id>', 'function ID or name pattern')
+  .option('--text <description>', 'description text')
+  .option('--source <type>', 'description source (human|ai|jsdoc)', 'human')
+  .option('--model <name>', 'AI model name (for AI-generated descriptions)')
+  .option('--confidence <score>', 'confidence score (0-1, for AI-generated descriptions)')
+  .option('--batch', 'batch mode using JSON input file')
+  .option('--input <file>', 'input JSON file for batch mode')
+  .option('--interactive', 'interactive mode (opens editor)')
+  .option('--by <author>', 'author/creator name')
+  .action(describeCommand);
+
+program
+  .command('search')
+  .description('Search functions by description keywords')
+  .argument('<keyword>', 'search keyword')
+  .option('--format <type>', 'output format (table|json|friendly)', 'table')
+  .option('--limit <num>', 'limit number of results', '50')
+  .option('--json', 'output as JSON')
+  .action(searchCommand);
 
 
 // Handle unknown commands
