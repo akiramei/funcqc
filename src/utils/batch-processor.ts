@@ -29,7 +29,7 @@ export class BatchProcessor {
     processor: (batch: FunctionInfo[]) => Promise<TResult>,
     batchSize: number = BatchProcessor.DEFAULT_BATCH_SIZE
   ): Promise<TResult[]> {
-    const batches = this.batchArray(functions, batchSize);
+    const batches = BatchProcessor.batchArray(functions, batchSize);
     const results: TResult[] = [];
     
     for (const batch of batches) {
@@ -50,7 +50,7 @@ export class BatchProcessor {
     batchSize: number = BatchProcessor.DEFAULT_BATCH_SIZE
   ): Promise<TResult[]> {
     const results: TResult[] = [];
-    const batches = this.batchArray(items, batchSize);
+    const batches = BatchProcessor.batchArray(items, batchSize);
     
     for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
       const batch = batches[batchIndex];
@@ -89,13 +89,13 @@ export class BatchProcessor {
    * Calculate memory-safe batch size for functions
    */
   static calculateFunctionBatchSize(functions: FunctionInfo[]): number {
-    if (functions.length === 0) return this.DEFAULT_BATCH_SIZE;
+    if (functions.length === 0) return BatchProcessor.DEFAULT_BATCH_SIZE;
     
     // Estimate function size based on source code length
     const sampleFunc = functions[0];
     const estimatedSize = (sampleFunc.sourceCode?.length || 1000) / 1024; // KB
     
-    return this.getOptimalBatchSize(functions.length, estimatedSize);
+    return BatchProcessor.getOptimalBatchSize(functions.length, estimatedSize);
   }
 }
 

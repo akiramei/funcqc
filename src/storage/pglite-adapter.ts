@@ -27,6 +27,7 @@ import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor 
 export class PGLiteStorageAdapter implements StorageAdapter {
   private db: PGlite;
   private git: SimpleGit;
+  private transactionDepth: number = 0;
 
   constructor(dbPath: string) {
     this.db = new PGlite(dbPath);
@@ -709,6 +710,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Provides automatic rollback on errors and commit on success
    */
   async executeInTransaction<T>(operation: () => Promise<T>): Promise<T> {
+    // Check for nested transactions
+    if (this.transactionDepth > 0) {
+      throw new Error('Nested transactions are not supported. Use savepoints if nested transaction behavior is needed.');
+    }
+    
+    this.transactionDepth++;
     await this.db.query('BEGIN');
     try {
       const result = await operation();
@@ -717,6 +724,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     } catch (error) {
       await this.db.query('ROLLBACK');
       throw error;
+    } finally {
+      this.transactionDepth--;
     }
   }
   
@@ -940,9 +949,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
       
       -- Composite indexes for common queries
-      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_complexity ON functions(snapshot_id) 
-        INCLUDE (id) WHERE id IN (SELECT function_id FROM quality_metrics WHERE cyclomatic_complexity > 5);
-      CREATE INDEX IF NOT EXISTS idx_functions_exported ON functions(snapshot_id, is_exported) WHERE is_exported = true;
+      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_exported ON functions(snapshot_id, is_exported) WHERE is_exported = true;
     `);
   }
 
@@ -1062,6 +1069,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }
       }
     });
+    
+    // Verify that all functions and metrics were saved correctly
+    if (process.env['NODE_ENV'] !== 'production') {
+      const savedCount = await this.db.query(
+        'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const metricsCount = await this.db.query(
+        'SELECT COUNT(*) as count FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
+        [snapshotId]
+      );
+      
+      const actualFunctionCount = (savedCount.rows[0] as { count: string }).count;
+      const actualMetricsCount = (metricsCount.rows[0] as { count: string }).count;
+      const expectedMetricsCount = functions.filter(f => f.metrics).length;
+      
+      if (parseInt(actualFunctionCount) !== functions.length) {
+        console.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
+      }
+      if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
+        console.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
+      }
+    }
   }
 
   private async getFunctionParameters(functionId: string): Promise<ParameterRow[]> {

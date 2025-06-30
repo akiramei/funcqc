@@ -62,7 +62,10 @@ async function initializeComponents(config: FuncqcConfig, spinner: SpinnerInterf
   spinner.start('Initializing funcqc scan...');
   
   // Configure analyzer based on expected project size
-  const maxSourceFilesInMemory = process.env['NODE_OPTIONS']?.includes('--max-old-space-size') ? 100 : 50;
+  // Parse NODE_OPTIONS to check for increased memory allocation
+  const nodeOptions = process.env['NODE_OPTIONS'] || '';
+  const hasIncreasedMemory = /--max-old-space-size[= ](\d+)/.test(nodeOptions);
+  const maxSourceFilesInMemory = hasIncreasedMemory ? 100 : 50;
   const analyzer = new TypeScriptAnalyzer(maxSourceFilesInMemory);
   const storage = new PGLiteStorageAdapter(config.storage.path!);
   const qualityCalculator = new QualityCalculator();

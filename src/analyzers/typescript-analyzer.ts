@@ -103,7 +103,9 @@ export class TypeScriptAnalyzer {
         try {
           return await this.analyzeFile(filePath);
         } catch (error) {
+          // Log the error with file path for debugging
           console.warn(`Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+          // Return empty array to continue processing other files
           return [];
         }
       },
