@@ -102,11 +102,33 @@ describe('SimilarityManager', () => {
       expect(detector.detect).toHaveBeenCalledWith(functions, options);
     });
 
-    // Note: Error handling test temporarily disabled due to Vitest async error handling
-    // The error handling code is implemented in similarity-manager.ts lines 33-44
-    it.skip('should handle detector errors gracefully', async () => {
-      // This test would verify error handling, but Vitest has issues with async rejections
-      // The actual error handling is implemented and works in production
+    it('should handle detector errors gracefully', async () => {
+      // Mock console.warn to suppress error messages in test output
+      const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      
+      const workingDetector = createMockDetector('working-detector', []);
+      const errorDetector = {
+        name: 'error-detector',
+        version: '1.0.0',
+        supportedLanguages: ['typescript'],
+        detect: vi.fn().mockRejectedValue(new Error('Detector error')),
+        isAvailable: vi.fn().mockResolvedValue(true)
+      };
+      
+      manager.registerDetector(workingDetector);
+      manager.registerDetector(errorDetector);
+
+      const functions = [createMockFunction('f1', 'func1')];
+
+      // Should not throw, but handle error gracefully and still return results from working detector
+      const results = await manager.detectSimilarities(functions, {}, ['working-detector', 'error-detector']);
+      
+      expect(results).toEqual([]);
+      expect(workingDetector.detect).toHaveBeenCalled();
+      expect(errorDetector.detect).toHaveBeenCalled();
+      expect(consoleWarnSpy).toHaveBeenCalledWith('Detector error-detector failed:', expect.any(Error));
+      
+      consoleWarnSpy.mockRestore();
     });
   });
 

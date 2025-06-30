@@ -34,7 +34,7 @@ export class SimilarityManager {
           const detector = this.detectors.get(detectorName)!;
           const isAvailable = await detector.isAvailable();
           if (isAvailable) {
-            return detector.detect(functions, options);
+            return await detector.detect(functions, options);
           }
           return [];
         } catch (error) {
