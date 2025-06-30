@@ -2,6 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+Before generating any code, you MUST read and comply with the following policy:
+
+📄 [Compliance-Policy-for-AI-generated-Code.md](./docs/Compliance-Policy-for-AI-generated-Code.md)
+
+You are strictly required to:
+
+1. Read the full compliance policy.
+2. Repeat all mandatory rules listed in the policy.
+3. Confirm your full understanding and intention to comply by stating:
+
+> “I have read, understood, and will fully comply with the Compliance Policy for AI-generated Code.”
+
+🚫 Do NOT generate any code until you complete the above steps.
+
+All violations of this policy will result in code rejection and may be flagged as compliance failures.
+
 @~/.claude/CLAUDE.md  # ユーザー設定を明示的にインポート
 
 ## Development Commands
