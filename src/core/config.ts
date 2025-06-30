@@ -40,7 +40,7 @@ const DEFAULT_CONFIG: FuncqcConfig = {
 };
 
 export class ConfigManager {
-  private config?: FuncqcConfig;
+  private config: FuncqcConfig | undefined;
   private explorer = cosmiconfigSync('funcqc');
 
   async load(): Promise<FuncqcConfig> {
@@ -178,7 +178,7 @@ export class ConfigManager {
    * Invalidate cached config (for testing)
    */
   clearCache(): void {
-    this.config = undefined!;
+    this.config = undefined;
     this.explorer.clearCaches();
   }
 
