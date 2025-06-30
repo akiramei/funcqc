@@ -138,8 +138,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Add filters if provided
       if (options?.filters) {
         const filterClauses = options.filters.map((filter) => {
-          params.push(filter.value);
-          return `f.${filter.field} ${filter.operator} $${params.length}`;
+          if (filter.operator === 'KEYWORD') {
+            // Handle keyword search across multiple fields
+            params.push(`%${filter.value}%`);
+            params.push(`%${filter.value}%`);
+            params.push(`%${filter.value}%`);
+            return `(
+              f.name ILIKE $${params.length - 2} OR 
+              f.js_doc ILIKE $${params.length - 1} OR 
+              f.source_code ILIKE $${params.length}
+            )`;
+          } else {
+            params.push(filter.value);
+            return `f.${filter.field} ${filter.operator} $${params.length}`;
+          }
         });
         sql += ' AND ' + filterClauses.join(' AND ');
       }

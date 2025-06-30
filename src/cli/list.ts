@@ -26,7 +26,12 @@ export async function listCommand(
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
-    let functions = await storage.queryFunctions();
+    let functions = await storage.queryFunctions(queryOptions);
+    
+    // Apply keyword filtering if keyword is provided but not handled by storage
+    if (options.keyword) {
+      functions = applyKeywordFiltering(functions, options.keyword);
+    }
     
     // Apply threshold-based filtering
     functions = await applyThresholdFiltering(functions, options, config);
@@ -44,6 +49,34 @@ export async function listCommand(
     console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
+}
+
+function applyKeywordFiltering(functions: FunctionInfo[], keyword: string): FunctionInfo[] {
+  const searchTerm = keyword.toLowerCase();
+  
+  return functions.filter(func => {
+    // Search in function name
+    if (func.name.toLowerCase().includes(searchTerm)) {
+      return true;
+    }
+    
+    // Search in display name
+    if (func.displayName.toLowerCase().includes(searchTerm)) {
+      return true;
+    }
+    
+    // Search in JSDoc if available
+    if (func.jsDoc && func.jsDoc.toLowerCase().includes(searchTerm)) {
+      return true;
+    }
+    
+    // Search in source code if available
+    if (func.sourceCode && func.sourceCode.toLowerCase().includes(searchTerm)) {
+      return true;
+    }
+    
+    return false;
+  });
 }
 
 async function applyThresholdFiltering(functions: FunctionInfo[], options: ListCommandOptions, config: FuncqcConfig): Promise<FunctionInfo[]> {
@@ -124,6 +157,15 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
       field: 'file_path',
       operator: 'LIKE',
       value: `%${options.file}%`
+    });
+  }
+  
+  // Keyword search - searches in name, JSDoc, and source code
+  if (options.keyword) {
+    filters.push({
+      field: 'keyword_search',
+      operator: 'KEYWORD',
+      value: options.keyword
     });
   }
   
@@ -309,15 +351,15 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   const hasIdField = fields.includes('id');
   const baseColumns = hasIdField ? {
     0: { width: 10, alignment: 'left' }, // ID (shortened)
-    1: { width: 18, wrapWord: true }, // Name
-    2: { width: 28, wrapWord: true }, // File
+    1: { width: 24, wrapWord: true }, // Name (wider for risk icons)
+    2: { width: 35, wrapWord: true }, // File (wider for better readability)
     3: { width: 8, alignment: 'right' }, // Lines
-    4: { width: 10, alignment: 'right' } // Complexity
+    4: { width: 12, alignment: 'right' } // Complexity
   } : {
-    0: { width: 20, wrapWord: true }, // Name
-    1: { width: 30, wrapWord: true }, // File
+    0: { width: 26, wrapWord: true }, // Name (wider for risk icons)
+    1: { width: 38, wrapWord: true }, // File (wider for better readability)
     2: { width: 8, alignment: 'right' }, // Lines
-    3: { width: 10, alignment: 'right' } // Complexity
+    3: { width: 12, alignment: 'right' } // Complexity
   };
   
   // Configure table
@@ -356,7 +398,33 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   if (functions.length > 0) {
     const avgComplexity = functions.reduce((sum, f) => 
       sum + (f.metrics?.cyclomaticComplexity || 1), 0) / functions.length;
+    
+    // Calculate risk distribution
+    const riskCounts = { high: 0, low: 0, noMetrics: 0 };
+    functions.forEach(func => {
+      if (!func.metrics) {
+        riskCounts.noMetrics++;
+        return;
+      }
+      
+      const { cyclomaticComplexity, linesOfCode, cognitiveComplexity, parameterCount, maxNestingLevel } = func.metrics;
+      const isHighRisk = (
+        cyclomaticComplexity > 10 ||
+        (cognitiveComplexity ?? 0) > 15 ||
+        linesOfCode > 40 ||
+        parameterCount > 4 ||
+        maxNestingLevel > 3
+      );
+      
+      if (isHighRisk) {
+        riskCounts.high++;
+      } else {
+        riskCounts.low++;
+      }
+    });
+    
     console.log(chalk.blue(`📈 Average complexity: ${avgComplexity.toFixed(1)}`));
+    console.log(chalk.blue(`⚠️  Risk distribution: ${chalk.red(riskCounts.high + ' high risk')}, ${chalk.green(riskCounts.low + ' low risk')}`));
   }
 }
 
@@ -464,7 +532,8 @@ function displayFunctionList(functions: FunctionInfo[], options: ListCommandOpti
 
 function displayFunctionHeader(number: string, func: FunctionInfo, showId?: boolean): void {
   const idText = showId ? chalk.gray(` [ID: ${func.id.substring(0, 8)}]`) : '';
-  console.log(chalk.bold(`${number}. ${func.displayName}()${idText}`));
+  const riskIcon = getRiskIcon(func);
+  console.log(chalk.bold(`${number}. ${riskIcon} ${func.displayName}()${idText}`));
   console.log(chalk.gray(`   📍 ${func.filePath}:${func.startLine}`));
 }
 
@@ -689,10 +758,24 @@ function formatFieldValue(func: FunctionInfo, field: string): string {
         return chalk.gray(value.substring(0, 8));
       }
       break;
+    case 'name': {
+      // Add risk icons to function names
+      const riskIcon = getRiskIcon(func);
+      return `${riskIcon} ${value}`;
+    }
     case 'file':
       // valueがstringであることを確認してからlengthとsliceを使用
       if (typeof value === 'string') {
-        return value.length > 30 ? '...' + value.slice(-27) : value;
+        // Better file path truncation - show directory and filename
+        if (value.length > 35) {
+          const parts = value.split('/');
+          if (parts.length > 2) {
+            // Show first directory and last 2 parts
+            return `${parts[0]}/.../${parts.slice(-2).join('/')}`;
+          }
+          return '...' + value.slice(-32);
+        }
+        return value;
       }
       break;
     case 'exported':
@@ -709,4 +792,23 @@ function formatFieldValue(func: FunctionInfo, field: string): string {
   
   // 上記のcaseで処理されなかった全ての値を文字列に変換して返す
   return String(value);
+}
+
+function getRiskIcon(func: FunctionInfo): string {
+  if (!func.metrics) {
+    return ''; // No metrics available
+  }
+  
+  const { cyclomaticComplexity, linesOfCode, cognitiveComplexity, parameterCount, maxNestingLevel } = func.metrics;
+  
+  // Determine if function is high risk based on common thresholds
+  const isHighRisk = (
+    cyclomaticComplexity > 10 ||
+    (cognitiveComplexity ?? 0) > 15 ||
+    linesOfCode > 40 ||
+    parameterCount > 4 ||
+    maxNestingLevel > 3
+  );
+  
+  return isHighRisk ? chalk.red('⚠️') : chalk.green('✅');
 }

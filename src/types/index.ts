@@ -177,7 +177,7 @@ export interface SnapshotMetadata {
 // Query and filtering types
 export interface QueryFilter {
   field: string;
-  operator: '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN';
+  operator: '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'KEYWORD';
   value: unknown;
 }
 
@@ -282,6 +282,7 @@ export interface ListCommandOptions extends CommandOptions {
   json?: boolean;
   thresholdViolations?: boolean;
   showId?: boolean;
+  keyword?: string;
 }
 
 export interface ShowCommandOptions extends CommandOptions {
