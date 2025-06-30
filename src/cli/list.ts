@@ -26,7 +26,24 @@ export async function listCommand(
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
-    let functions = await storage.queryFunctions(queryOptions);
+    let functions: FunctionInfo[] = [];
+
+    // Handle description-specific filtering
+    if (options.withDescription || options.noDescription) {
+      const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+      if (snapshots.length === 0) {
+        console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+        return;
+      }
+
+      if (options.withDescription) {
+        functions = await storage.getFunctionsWithDescriptions(snapshots[0].id, queryOptions);
+      } else if (options.noDescription) {
+        functions = await storage.getFunctionsWithoutDescriptions(snapshots[0].id, queryOptions);
+      }
+    } else {
+      functions = await storage.queryFunctions(queryOptions);
+    }
     
     // Apply keyword filtering if keyword is provided but not handled by storage
     if (options.keyword) {
