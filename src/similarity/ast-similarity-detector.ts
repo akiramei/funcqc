@@ -212,6 +212,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private calculateMetricsSimilarity(metrics1: QualityMetrics | undefined, metrics2: QualityMetrics | undefined): number {
+    if (!metrics1 || !metrics2) return 0;
     const metricKeys = [
       'cyclomaticComplexity',
       'cognitiveComplexity',
@@ -226,8 +227,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
 
     for (const key of metricKeys) {
       if (key in metrics1 && key in metrics2) {
-        const val1 = metrics1[key];
-        const val2 = metrics2[key];
+        const val1 = metrics1[key as keyof QualityMetrics] as number;
+        const val2 = metrics2[key as keyof QualityMetrics] as number;
         const maxVal = Math.max(val1, val2);
         
         if (maxVal > 0) {

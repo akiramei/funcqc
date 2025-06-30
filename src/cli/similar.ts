@@ -105,7 +105,7 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
   }
 }
 
-function parseConsensusStrategy(input: string): Partial<ConsensusStrategy> {
+function parseConsensusStrategy(input: string): ConsensusStrategy {
   const parts = input.split(':');
   const strategy = parts[0];
   

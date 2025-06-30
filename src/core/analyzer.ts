@@ -62,6 +62,7 @@ export class FunctionAnalyzer {
         name: err.constructor.name,
         message: err.message,
         code: 'ANALYSIS_ERROR',
+        recoverable: true,
         details: { filePath, stack: err.stack }
       });
 

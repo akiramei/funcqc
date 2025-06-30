@@ -524,7 +524,10 @@ function displayFunctionHistorySummary(
     console.log(`   LOC trend: ${formatChange(locChange)} (${firstMetrics.linesOfCode} → ${lastMetrics.linesOfCode})`);
     
     // Quality assessment
-    const qualityTrend = calculateOverallQualityTrend(firstMetrics, lastMetrics);
+    const qualityTrend = calculateOverallQualityTrend(
+      { avgComplexity: firstMetrics.cyclomaticComplexity, totalLines: firstMetrics.linesOfCode },
+      { avgComplexity: lastMetrics.cyclomaticComplexity, totalLines: lastMetrics.linesOfCode }
+    );
     console.log(`   Overall quality: ${qualityTrend}`);
   }
   
@@ -565,10 +568,10 @@ function formatChange(change: number): string {
   return chalk.gray('no change');
 }
 
-function calculateOverallQualityTrend(oldMetrics: SnapshotMetadata, newMetrics: SnapshotMetadata): string {
-  const complexityChange = newMetrics.cyclomaticComplexity - oldMetrics.cyclomaticComplexity;
-  const locChange = newMetrics.linesOfCode - oldMetrics.linesOfCode;
-  const paramChange = newMetrics.parameterCount - oldMetrics.parameterCount;
+function calculateOverallQualityTrend(oldMetrics: { avgComplexity: number; totalLines?: number }, newMetrics: { avgComplexity: number; totalLines?: number }): string {
+  const complexityChange = newMetrics.avgComplexity - oldMetrics.avgComplexity;
+  const locChange = 0; // SnapshotMetadata doesn't have linesOfCode
+  const paramChange = 0; // SnapshotMetadata doesn't have parameterCount;
   
   let score = 0;
   

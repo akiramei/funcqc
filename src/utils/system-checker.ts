@@ -119,7 +119,7 @@ export class SystemChecker {
           required: req.required
         };
         if (!passed && req.errorMessage) {
-          result.errorMessage = req.errorMessage;
+          result['errorMessage'] = req.errorMessage;
         }
         return result;
       } catch (error) {
@@ -129,17 +129,17 @@ export class SystemChecker {
           required: req.required
         };
         if (req.errorMessage) {
-          result.errorMessage = req.errorMessage + ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`;
+          result['errorMessage'] = req.errorMessage + ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`;
         }
         return result;
       }
     });
 
-    const requiredPassed = results.every(r => !r.required || r.passed);
+    const requiredPassed = results.every(r => !r['required'] || r['passed']);
     
     return {
       passed: requiredPassed,
-      requirements: results
+      requirements: results as { name: string; passed: boolean; required: boolean; errorMessage?: string }[]
     };
   }
 
