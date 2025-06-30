@@ -1,4 +1,4 @@
-import { FunctionInfo, RefactoringOpportunity } from '../types';
+import { FunctionInfo, RefactoringOpportunity, RefactoringPhase } from '../types';
 
 export class RefactoringAnalyzer {
   // Pattern detection thresholds
@@ -81,7 +81,7 @@ export class RefactoringAnalyzer {
         totalComplexity,
         totalLines,
         avgComplexity,
-        maxComplexity: Math.max(...potentialValidationFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)),
+        maxComplexity: potentialValidationFunctions.length > 0 ? Math.max(...potentialValidationFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)) : 0,
         potentialSavings: totalLines * RefactoringAnalyzer.VALIDATION_SAVINGS_RATIO
       },
       description: `Common validation patterns (${potentialValidationFunctions.length} functions)`,
@@ -123,7 +123,7 @@ export class RefactoringAnalyzer {
         totalComplexity,
         totalLines,
         avgComplexity,
-        maxComplexity: Math.max(...functionsWithErrorHandling.map(f => f.metrics?.cyclomaticComplexity || 0)),
+        maxComplexity: functionsWithErrorHandling.length > 0 ? Math.max(...functionsWithErrorHandling.map(f => f.metrics?.cyclomaticComplexity || 0)) : 0,
         potentialSavings: totalLines * RefactoringAnalyzer.ERROR_HANDLING_SAVINGS_RATIO
       },
       description: `Repeated error handling patterns (${functionsWithErrorHandling.length} functions)`,
@@ -165,7 +165,7 @@ export class RefactoringAnalyzer {
         totalComplexity,
         totalLines,
         avgComplexity,
-        maxComplexity: Math.max(...transformationFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)),
+        maxComplexity: transformationFunctions.length > 0 ? Math.max(...transformationFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)) : 0,
         potentialSavings: totalLines * RefactoringAnalyzer.TRANSFORM_SAVINGS_RATIO
       },
       description: `Data transformation patterns (${transformationFunctions.length} functions)`,
@@ -205,7 +205,7 @@ export class RefactoringAnalyzer {
         totalComplexity,
         totalLines,
         avgComplexity,
-        maxComplexity: Math.max(...complexConditionalFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)),
+        maxComplexity: complexConditionalFunctions.length > 0 ? Math.max(...complexConditionalFunctions.map(f => f.metrics?.cyclomaticComplexity || 0)) : 0,
         potentialSavings: totalComplexity * RefactoringAnalyzer.CONDITIONAL_SAVINGS_RATIO
       },
       description: `Complex conditional patterns (${complexConditionalFunctions.length} functions)`,
@@ -259,7 +259,23 @@ export class RefactoringAnalyzer {
     estimatedDuration: string;
     prerequisites: string[];
   } {
-    const sortedOpportunities = opportunities.sort((a, b) => {
+    const sortedOpportunities = this.sortOpportunitiesByPriority(opportunities);
+    const phases = this.groupOpportunitiesIntoPhases(sortedOpportunities);
+    this.estimateDurationForPhases(phases);
+
+    const totalDays = phases.reduce((sum, phase) => sum + phase.estimatedDays, 0);
+    const estimatedDuration = this.formatDuration(totalDays);
+    const prerequisites = this.getRefactoringPrerequisites();
+
+    return {
+      phases,
+      estimatedDuration,
+      prerequisites
+    };
+  }
+
+  private sortOpportunitiesByPriority(opportunities: RefactoringOpportunity[]): RefactoringOpportunity[] {
+    return opportunities.sort((a, b) => {
       // Sort by priority first, then by potential impact
       const priorityOrder = { high: 3, medium: 2, low: 1 };
       const priorityDiff = priorityOrder[b.priority] - priorityOrder[a.priority];
@@ -267,7 +283,9 @@ export class RefactoringAnalyzer {
       
       return b.metrics.potentialSavings - a.metrics.potentialSavings;
     });
+  }
 
+  private groupOpportunitiesIntoPhases(sortedOpportunities: RefactoringOpportunity[]): RefactoringPhase[] {
     const phases: RefactoringPhase[] = [];
     let currentPhase: RefactoringPhase = {
       name: 'Phase 1: Critical Issues',
@@ -309,26 +327,22 @@ export class RefactoringAnalyzer {
       phases.push(currentPhase);
     }
 
-    // Estimate duration for each phase
+    return phases;
+  }
+
+  private estimateDurationForPhases(phases: RefactoringPhase[]): void {
     phases.forEach(phase => {
       phase.estimatedDays = this.estimatePhaseDuration(phase.opportunities);
     });
+  }
 
-    const totalDays = phases.reduce((sum, phase) => sum + phase.estimatedDays, 0);
-    const estimatedDuration = this.formatDuration(totalDays);
-
-    const prerequisites = [
+  private getRefactoringPrerequisites(): string[] {
+    return [
       'Ensure comprehensive test coverage before refactoring',
       'Set up automated quality metrics monitoring',
       'Create backup branches for all refactoring work',
       'Establish code review process for refactored code'
     ];
-
-    return {
-      phases,
-      estimatedDuration,
-      prerequisites
-    };
   }
 
   private estimatePhaseDuration(opportunities: RefactoringOpportunity[]): number {
@@ -367,9 +381,3 @@ export class RefactoringAnalyzer {
   }
 }
 
-interface RefactoringPhase {
-  name: string;
-  opportunities: RefactoringOpportunity[];
-  estimatedDays: number;
-  dependencies: string[];
-}

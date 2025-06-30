@@ -594,3 +594,10 @@ export interface RefactoringImpact {
   totalPotentialSavings: number;
   estimatedEffort: string;
 }
+
+export interface RefactoringPhase {
+  name: string;
+  opportunities: RefactoringOpportunity[];
+  estimatedDays: number;
+  dependencies: string[];
+}
