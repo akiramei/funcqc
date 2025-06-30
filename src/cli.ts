@@ -80,6 +80,7 @@ program
   .option('--show-id', 'include function ID in the output')
   .option('--with-description', 'show only functions with descriptions')
   .option('--no-description', 'show only functions without descriptions')
+  .option('--needs-description', 'show functions that need descriptions (new/updated since last description)')
   .action(listCommand);
 
 program

@@ -285,6 +285,7 @@ export interface ListCommandOptions extends CommandOptions {
   keyword?: string;
   withDescription?: boolean;
   noDescription?: boolean;
+  needsDescription?: boolean;
 }
 
 export interface ShowCommandOptions extends CommandOptions {
@@ -355,6 +356,14 @@ export interface StorageAdapter {
   // Function operations
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
+  getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
+  getFunctionsWithoutDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
+  getFunctionsNeedingDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
+  
+  // Function description operations
+  saveFunctionDescription(description: FunctionDescription): Promise<void>;
+  getFunctionDescription(functionId: string): Promise<FunctionDescription | null>;
+  searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   
   // Analysis operations
   diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff>;

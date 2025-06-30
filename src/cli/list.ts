@@ -30,7 +30,7 @@ export async function listCommand(
       let functions: FunctionInfo[] = [];
 
       // Handle description-specific filtering
-      if (options.withDescription || options.noDescription) {
+      if (options.withDescription || options.noDescription || options.needsDescription) {
         const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
         if (snapshots.length === 0) {
           console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
@@ -41,6 +41,8 @@ export async function listCommand(
           functions = await storage.getFunctionsWithDescriptions(snapshots[0].id, queryOptions);
         } else if (options.noDescription) {
           functions = await storage.getFunctionsWithoutDescriptions(snapshots[0].id, queryOptions);
+        } else if (options.needsDescription) {
+          functions = await storage.getFunctionsNeedingDescriptions(snapshots[0].id, queryOptions);
         }
       } else {
         functions = await storage.queryFunctions(queryOptions);
@@ -368,19 +370,13 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   
   const tableData = [headerRow, ...dataRows];
   
-  // Configure table columns dynamically based on fields
-  const hasIdField = fields.includes('id');
-  const baseColumns = hasIdField ? {
+  // Configure table columns with ID always present
+  const baseColumns = {
     0: { width: 10, alignment: 'left' }, // ID (shortened)
     1: { width: 24, wrapWord: true }, // Name (wider for risk icons)
     2: { width: 35, wrapWord: true }, // File (wider for better readability)
     3: { width: 8, alignment: 'right' }, // Lines
     4: { width: 12, alignment: 'right' } // Complexity
-  } : {
-    0: { width: 26, wrapWord: true }, // Name (wider for risk icons)
-    1: { width: 38, wrapWord: true }, // File (wider for better readability)
-    2: { width: 8, alignment: 'right' }, // Lines
-    3: { width: 12, alignment: 'right' } // Complexity
   };
   
   // Configure table
@@ -454,12 +450,8 @@ function getFields(options: ListCommandOptions): string[] {
     return options.fields.split(',').map(f => f.trim());
   }
   
-  // Default fields - include ID if requested
-  const defaultFields = ['name', 'file', 'lines', 'complexity', 'exported', 'async'];
-  if (options.showId) {
-    return ['id', ...defaultFields];
-  }
-  return defaultFields;
+  // Default fields - always include ID for better function identification
+  return ['id', 'name', 'file', 'lines', 'complexity', 'exported', 'async'];
 }
 
 function formatFieldName(field: string): string {

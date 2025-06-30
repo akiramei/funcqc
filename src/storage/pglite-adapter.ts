@@ -490,6 +490,56 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async getFunctionsNeedingDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      // Query functions where:
+      // 1. No description exists, OR
+      // 2. Function was created/modified after the description was last updated
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.parameter_count, q.max_nesting_level, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.maintainability_index, q.halstead_volume, q.halstead_difficulty, q.code_to_comment_ratio
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        WHERE f.snapshot_id = $1 
+        AND (
+          d.function_id IS NULL 
+          OR f.created_at > d.updated_at
+        )
+      `;
+      
+      const params: (string | number)[] = [snapshotId];
+      
+      if (options?.limit) {
+        sql += ' LIMIT $' + (params.length + 1);
+        params.push(options.limit);
+      }
+      
+      if (options?.offset) {
+        sql += ' OFFSET $' + (params.length + 1);
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      // Get parameters for each function
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions needing descriptions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]> {
     try {
       // Get the latest snapshot
