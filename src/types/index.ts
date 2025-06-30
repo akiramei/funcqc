@@ -41,7 +41,16 @@ export interface FuncqcConfig {
 export interface SimilarityDetectorConfig {
   enabled: boolean;
   threshold: number;
+  weights?: SimilarityWeights;
   options?: Record<string, unknown>;
+}
+
+export interface SimilarityWeights {
+  astStructure?: number;      // Default: 0.4
+  signature?: number;         // Default: 0.2
+  metrics?: number;          // Default: 0.2
+  parameters?: number;       // Default: 0.1
+  returnType?: number;       // Default: 0.1
 }
 
 export interface ConsensusStrategy {

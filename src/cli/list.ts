@@ -346,7 +346,7 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
     columns: baseColumns
   };
   
-  // @ts-ignore - Table configuration type issue
+  // @ts-expect-error - Table configuration type issue
   console.log(table(tableData, config));
   
   // Show summary

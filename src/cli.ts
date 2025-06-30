@@ -10,6 +10,7 @@ import { statusCommand } from './cli/status';
 import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
 import { trendCommand } from './cli/trend';
+import { similarCommand } from './cli/similar';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -127,6 +128,21 @@ program
   .option('--summary', 'show summary only')
   .option('--json', 'output as JSON')
   .action(trendCommand);
+
+program
+  .command('similar')
+  .description('Detect similar functions using AST analysis')
+  .option('--threshold <value>', 'similarity threshold (0-1)', '0.8')
+  .option('--json', 'output as JSON')
+  .option('--jsonl', 'output as JSON Lines (for large datasets)')
+  .option('--snapshot <id>', 'analyze specific snapshot (default: latest)')
+  .option('--min-lines <num>', 'minimum lines of code to consider', '5')
+  .option('--no-cross-file', 'only detect similarities within same file')
+  .option('--detectors <list>', 'comma-separated list of detectors to use')
+  .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
+  .option('--output <file>', 'save JSON output to file')
+  .option('--limit <num>', 'limit number of results')
+  .action(similarCommand);
 
 // Handle unknown commands
 program.on('command:*', () => {
