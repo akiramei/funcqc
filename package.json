@@ -8,7 +8,6 @@
     "function-analysis",
     "ast",
     "metrics",
-    "refactoring",
     "cli"
   ],
   "author": "Your Name",
