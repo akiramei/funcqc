@@ -677,25 +677,36 @@ function displayQualityBreakdown(functions: FunctionInfo[], thresholds: FuncqcCo
 function formatFieldValue(func: FunctionInfo, field: string): string {
   const value = getFieldValue(func, field);
   
+  // valueがnullまたはundefinedの場合は早期に空文字列を返す
+  if (value === null || value === undefined) {
+    return '';
+  }
+
   switch (field) {
     case 'id':
-      // Show first 8 characters of ID for readability
-      return chalk.gray(value.substring(0, 8));
+      // valueがstringであることを確認してからsubstringを使用
+      if (typeof value === 'string') {
+        return chalk.gray(value.substring(0, 8));
+      }
+      break;
     case 'file':
-      // Shorten file paths
-      return value.length > 30 ? '...' + value.slice(-27) : value;
+      // valueがstringであることを確認してからlengthとsliceを使用
+      if (typeof value === 'string') {
+        return value.length > 30 ? '...' + value.slice(-27) : value;
+      }
+      break;
     case 'exported':
       return value ? chalk.green('✓') : chalk.gray('✗');
     case 'async':
       return value ? chalk.blue('async') : '';
     case 'complexity': {
-      // Color code complexity
       const complexity = value as number;
       if (complexity > 10) return chalk.red(complexity.toString());
       if (complexity > 5) return chalk.yellow(complexity.toString());
       return chalk.green(complexity.toString());
     }
-    default:
-      return value.toString();
   }
+  
+  // 上記のcaseで処理されなかった全ての値を文字列に変換して返す
+  return String(value);
 }

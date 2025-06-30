@@ -184,12 +184,13 @@ export function throttle<T extends (...args: unknown[]) => unknown>(
 ): T {
   let lastCall = 0;
   
-  return ((...args: Parameters<T>) => {
+  return ((...args: Parameters<T>): ReturnType<T> => {
     const now = Date.now();
     if (now - lastCall >= delay) {
       lastCall = now;
-      return func(...args);
+      return func(...args) as ReturnType<T>;
     }
+    return undefined as ReturnType<T>;
   }) as T;
 }
 
