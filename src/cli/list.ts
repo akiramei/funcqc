@@ -69,7 +69,24 @@ export async function listCommand(
     }
     
   } catch (error) {
-    console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    
+    // Show specific error for developers
+    console.error(chalk.red('Failed to list functions:'));
+    console.error(chalk.gray('Error details:'), errorMsg);
+    
+    // Add helpful context based on error type
+    if (errorMsg.includes('syntax error') || errorMsg.includes('ORDER')) {
+      console.error(chalk.yellow('\nPossible cause: Database query syntax issue'));
+      console.error(chalk.blue('Try: funcqc scan --dry-run to test without saving'));
+    } else if (errorMsg.includes('no such table') || errorMsg.includes('database')) {
+      console.error(chalk.yellow('\nPossible cause: Database not initialized'));
+      console.error(chalk.blue('Try: funcqc init'));
+    } else if (errorMsg.includes('no such column')) {
+      console.error(chalk.yellow('\nPossible cause: Database schema mismatch'));
+      console.error(chalk.blue('Try: Remove .funcqc directory and run funcqc init'));
+    }
+    
     process.exit(1);
   }
 }

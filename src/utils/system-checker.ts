@@ -53,11 +53,16 @@ export class SystemChecker {
   private checkMemoryAvailable(): boolean {
     try {
       const memUsage = process.memoryUsage();
-      const availableHeap = memUsage.heapTotal - memUsage.heapUsed;
-      // Require at least 100MB available heap space
-      return availableHeap > 100 * 1024 * 1024;
+      // Check if memory pressure is high (>90% heap usage)
+      const heapUsageRatio = memUsage.heapUsed / memUsage.heapTotal;
+      
+      // Only warn if heap usage is extremely high AND total heap is small
+      const isHighPressure = heapUsageRatio > 0.9;
+      const isSmallHeap = memUsage.heapTotal < 20 * 1024 * 1024; // 20MB
+      
+      return !(isHighPressure && isSmallHeap);
     } catch {
-      return false;
+      return true; // Default to no warning if check fails
     }
   }
 
@@ -96,7 +101,7 @@ export class SystemChecker {
       {
         name: 'Memory Available',
         check: () => this.checkMemoryAvailable(),
-        errorMessage: 'Insufficient memory available. At least 100MB is recommended.',
+        errorMessage: 'High memory pressure detected. Consider using --quick option or increasing Node.js memory limit.',
         required: false
       },
       {

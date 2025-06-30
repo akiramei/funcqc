@@ -3,14 +3,18 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
+import { BatchProcessor } from '../utils/batch-processor';
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
+ * Optimized for large-scale projects with streaming and memory management
  */
 export class TypeScriptAnalyzer {
   private project: Project;
+  private readonly maxSourceFilesInMemory: number;
 
-  constructor() {
+  constructor(maxSourceFilesInMemory: number = 50) {
+    this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
@@ -72,12 +76,79 @@ export class TypeScriptAnalyzer {
       } finally {
         // Prevent memory leaks by removing the file
         this.project.removeSourceFile(sourceFile);
+        this.manageMemory();
       }
 
       return functions;
 
     } catch (error) {
       throw new Error(`Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  /**
+   * Analyze multiple files in batches for optimal memory usage
+   */
+  async analyzeFilesBatch(
+    filePaths: string[], 
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<FunctionInfo[]> {
+    const batchSize = Math.min(this.maxSourceFilesInMemory, 20); // Conservative batch size
+    const allFunctions: FunctionInfo[] = [];
+    
+    // Process files in batches to control memory usage
+    const results = await BatchProcessor.processWithProgress(
+      filePaths,
+      async (filePath: string) => {
+        try {
+          return await this.analyzeFile(filePath);
+        } catch (error) {
+          // Log the error with file path for debugging
+          console.warn(`Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+          // Return empty array to continue processing other files
+          return [];
+        }
+      },
+      onProgress,
+      batchSize
+    );
+    
+    // Flatten results
+    for (const batch of results) {
+      allFunctions.push(...batch);
+    }
+    
+    return allFunctions;
+  }
+  
+  /**
+   * Stream analyze files one by one with callback for each file
+   * Most memory-efficient approach for very large projects
+   */
+  async analyzeFilesStream(
+    filePaths: string[],
+    onFileAnalyzed: (filePath: string, functions: FunctionInfo[]) => Promise<void>,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<void> {
+    for (let i = 0; i < filePaths.length; i++) {
+      const filePath = filePaths[i];
+      
+      try {
+        const functions = await this.analyzeFile(filePath);
+        await onFileAnalyzed(filePath, functions);
+      } catch (error) {
+        console.warn(`Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        await onFileAnalyzed(filePath, []);
+      }
+      
+      if (onProgress) {
+        onProgress(i + 1, filePaths.length);
+      }
+      
+      // Force garbage collection every 100 files
+      if (i % 100 === 0 && global.gc) {
+        global.gc();
+      }
     }
   }
 
@@ -529,5 +600,39 @@ export class TypeScriptAnalyzer {
   private generateFunctionId(filePath: string, name: string, signatureHash: string): string {
     const components = [filePath, name, signatureHash.substring(0, 8)];
     return crypto.createHash('md5').update(components.join('|')).digest('hex');
+  }
+  
+  /**
+   * Manage memory by cleaning up project if too many source files are loaded
+   */
+  private manageMemory(): void {
+    const sourceFiles = this.project.getSourceFiles();
+    if (sourceFiles.length > this.maxSourceFilesInMemory) {
+      // Remove oldest source files to free memory
+      const filesToRemove = sourceFiles.slice(0, Math.floor(sourceFiles.length / 2));
+      filesToRemove.forEach(file => {
+        this.project.removeSourceFile(file);
+      });
+    }
+  }
+  
+  /**
+   * Clean up all source files from memory
+   */
+  cleanup(): void {
+    const sourceFiles = this.project.getSourceFiles();
+    sourceFiles.forEach(file => {
+      this.project.removeSourceFile(file);
+    });
+  }
+  
+  /**
+   * Get memory usage statistics
+   */
+  getMemoryStats(): { sourceFilesInMemory: number; maxSourceFiles: number } {
+    return {
+      sourceFilesInMemory: this.project.getSourceFiles().length,
+      maxSourceFiles: this.maxSourceFilesInMemory
+    };
   }
 }
