@@ -113,7 +113,7 @@ export class SystemChecker {
     const results = requirements.map(req => {
       try {
         const passed = req.check();
-        const result: any = {
+        const result: Record<string, unknown> = {
           name: req.name,
           passed,
           required: req.required
@@ -123,7 +123,7 @@ export class SystemChecker {
         }
         return result;
       } catch (error) {
-        const result: any = {
+        const result: Record<string, unknown> = {
           name: req.name,
           passed: false,
           required: req.required

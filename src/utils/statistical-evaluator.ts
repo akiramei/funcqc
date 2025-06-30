@@ -130,7 +130,7 @@ export class StatisticalEvaluator {
     value: number,
     threshold: ThresholdValue,
     statistics: MetricStatistics
-  ): { threshold: number; exceeded: boolean; method: 'absolute' | 'statistical'; statisticalContext?: any } {
+  ): { threshold: number; exceeded: boolean; method: 'absolute' | 'statistical'; statisticalContext?: Record<string, unknown> } {
     if (typeof threshold === 'number') {
       return {
         threshold,
@@ -179,7 +179,7 @@ export class StatisticalEvaluator {
       }
       
       default:
-        throw new Error(`Unknown statistical threshold method: ${(threshold as any).method}`);
+        throw new Error(`Unknown statistical threshold method: ${(threshold as StatisticalThreshold).method}`);
     }
   }
 

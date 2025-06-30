@@ -163,13 +163,13 @@ export function formatDuration(ms: number): string {
 /**
  * Debounce function execution
  */
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   delay: number
 ): T {
   let timeoutId: NodeJS.Timeout;
   
-  return ((...args: any[]) => {
+  return ((...args: Parameters<T>) => {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => func(...args), delay);
   }) as T;
@@ -178,13 +178,13 @@ export function debounce<T extends (...args: any[]) => any>(
 /**
  * Throttle function execution
  */
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => unknown>(
   func: T,
   delay: number
 ): T {
   let lastCall = 0;
   
-  return ((...args: any[]) => {
+  return ((...args: Parameters<T>) => {
     const now = Date.now();
     if (now - lastCall >= delay) {
       lastCall = now;
@@ -270,7 +270,7 @@ export function simpleHash(str: string): string {
 /**
  * Deep merge objects using simple JSON approach
  */
-export function deepMerge<T extends Record<string, any>>(target: T, ...sources: Partial<T>[]): T {
+export function deepMerge<T extends Record<string, unknown>>(target: T, ...sources: Partial<T>[]): T {
   const result = JSON.parse(JSON.stringify(target)) as T;
   
   for (const source of sources) {

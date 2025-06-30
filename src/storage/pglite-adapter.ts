@@ -5,7 +5,17 @@ import {
   SnapshotInfo, 
   StorageAdapter, 
   QueryOptions, 
-  SnapshotMetadata
+  SnapshotMetadata,
+  SnapshotDiff,
+  FunctionChange,
+  ChangeDetail,
+  DiffStatistics,
+  SnapshotRow,
+  FunctionRow,
+  ParameterRow,
+  MetricsRow,
+  ParameterInfo,
+  QualityMetrics
 } from '../types';
 
 /**
@@ -62,7 +72,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
     try {
       let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC';
-      const params: any[] = [];
+      const params: (string | number)[] = [];
 
       if (options?.limit) {
         sql += ' LIMIT $' + (params.length + 1);
@@ -76,7 +86,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       const result = await this.db.query(sql, params);
 
-      return result.rows.map(this.mapRowToSnapshotInfo);
+      return result.rows.map(row => this.mapRowToSnapshotInfo(row as SnapshotRow));
     } catch (error) {
       throw new Error(`Failed to get snapshots: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -90,7 +100,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         return null;
       }
 
-      return this.mapRowToSnapshotInfo(result.rows[0]);
+      return this.mapRowToSnapshotInfo(result.rows[0] as SnapshotRow);
     } catch (error) {
       throw new Error(`Failed to get snapshot: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -99,7 +109,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async deleteSnapshot(id: string): Promise<boolean> {
     try {
       const result = await this.db.query('DELETE FROM snapshots WHERE id = $1', [id]);
-      return (result as any).changes > 0;
+      return (result as unknown as { changes: number }).changes > 0;
     } catch (error) {
       throw new Error(`Failed to delete snapshot: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -123,7 +133,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         WHERE f.snapshot_id = $1
       `;
-      const params: any[] = [snapshotId];
+      const params: (string | number | unknown)[] = [snapshotId];
 
       // Add filters if provided
       if (options?.filters) {
@@ -156,9 +166,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row: any) => {
-          const parameters = await this.getFunctionParameters(row.id);
-          return this.mapRowToFunctionInfo(row, parameters);
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
       );
 
@@ -180,9 +190,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row: any) => {
-          const parameters = await this.getFunctionParameters(row.id);
-          return this.mapRowToFunctionInfo(row, parameters);
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
       );
 
@@ -211,7 +221,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ANALYSIS OPERATIONS (FUTURE)
   // ========================================
 
-  async diffSnapshots(fromId: string, toId: string): Promise<any> {
+  async diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff> {
     try {
       const { fromSnapshot, toSnapshot } = await this.validateAndLoadSnapshots(fromId, toId);
       const { fromFunctions, toFunctions } = await this.loadSnapshotFunctions(fromId, toId);
@@ -250,10 +260,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.signature, f]));
     const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.signature, f]));
 
-    const added: any[] = [];
-    const removed: any[] = [];
-    const modified: any[] = [];
-    const unchanged: any[] = [];
+    const added: FunctionInfo[] = [];
+    const removed: FunctionInfo[] = [];
+    const modified: FunctionChange[] = [];
+    const unchanged: FunctionInfo[] = [];
 
     this.categorizeChangedFunctions(toFunctions, fromMap, added, modified, unchanged);
     this.findRemovedFunctions(fromFunctions, toMap, removed);
@@ -264,9 +274,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private categorizeChangedFunctions(
     toFunctions: FunctionInfo[], 
     fromMap: Map<string, FunctionInfo>, 
-    added: any[], 
-    modified: any[], 
-    unchanged: any[]
+    added: FunctionInfo[], 
+    modified: FunctionChange[], 
+    unchanged: FunctionInfo[]
   ) {
     for (const toFunc of toFunctions) {
       const fromFunc = fromMap.get(toFunc.signature);
@@ -285,7 +295,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private findRemovedFunctions(fromFunctions: FunctionInfo[], toMap: Map<string, FunctionInfo>, removed: any[]) {
+  private findRemovedFunctions(fromFunctions: FunctionInfo[], toMap: Map<string, FunctionInfo>, removed: FunctionInfo[]) {
     for (const fromFunc of fromFunctions) {
       if (!toMap.has(fromFunc.signature)) {
         removed.push(fromFunc);
@@ -293,32 +303,50 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private calculateFunctionChanges(fromFunc: any, toFunc: any): any[] {
-    const changes: any[] = [];
+  private calculateFunctionChanges(fromFunc: FunctionInfo, toFunc: FunctionInfo): ChangeDetail[] {
+    const changes: ChangeDetail[] = [];
 
     // Compare metrics if both have them
     if (fromFunc.metrics && toFunc.metrics) {
-      const metrics = ['cyclomaticComplexity', 'linesOfCode', 'cognitiveComplexity', 'parameterCount'];
-      for (const metric of metrics) {
-        if (fromFunc.metrics[metric] !== toFunc.metrics[metric]) {
+      const metricsToCompare = [
+        { key: 'cyclomaticComplexity' as const, name: 'cyclomaticComplexity' },
+        { key: 'linesOfCode' as const, name: 'linesOfCode' },
+        { key: 'cognitiveComplexity' as const, name: 'cognitiveComplexity' },
+        { key: 'parameterCount' as const, name: 'parameterCount' }
+      ];
+      
+      for (const { key, name } of metricsToCompare) {
+        const oldValue = fromFunc.metrics[key];
+        const newValue = toFunc.metrics[key];
+        
+        if (oldValue !== newValue) {
           changes.push({
-            field: metric,
-            oldValue: fromFunc.metrics[metric],
-            newValue: toFunc.metrics[metric],
-            impact: this.calculateChangeImpact(metric, fromFunc.metrics[metric], toFunc.metrics[metric])
+            field: name,
+            oldValue,
+            newValue,
+            impact: this.calculateChangeImpact(name, oldValue, newValue)
           });
         }
       }
     }
 
     // Compare basic properties
-    const basicProps = ['name', 'filePath', 'startLine', 'endLine'];
-    for (const prop of basicProps) {
-      if (fromFunc[prop] !== toFunc[prop]) {
+    const basicPropsToCompare = [
+      { key: 'name' as const },
+      { key: 'filePath' as const },
+      { key: 'startLine' as const },
+      { key: 'endLine' as const }
+    ];
+    
+    for (const { key } of basicPropsToCompare) {
+      const oldValue = fromFunc[key];
+      const newValue = toFunc[key];
+      
+      if (oldValue !== newValue) {
         changes.push({
-          field: prop,
-          oldValue: fromFunc[prop],
-          newValue: toFunc[prop],
+          field: key,
+          oldValue,
+          newValue,
           impact: 'low'
         });
       }
@@ -350,21 +378,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private calculateDiffStatistics(fromFunctions: any[], toFunctions: any[], added: any[], removed: any[], modified: any[]): any {
+  private calculateDiffStatistics(fromFunctions: FunctionInfo[], toFunctions: FunctionInfo[], added: FunctionInfo[], removed: FunctionInfo[], modified: FunctionChange[]): DiffStatistics {
     const fromMetrics = this.aggregateMetrics(fromFunctions);
     const toMetrics = this.aggregateMetrics(toFunctions);
 
     return {
+      totalChanges: added.length + removed.length + modified.length,
       addedCount: added.length,
       removedCount: removed.length,
       modifiedCount: modified.length,
-      unchangedCount: toFunctions.length - added.length - modified.length,
       complexityChange: toMetrics.avgComplexity - fromMetrics.avgComplexity,
       linesChange: toMetrics.totalLines - fromMetrics.totalLines
     };
   }
 
-  private aggregateMetrics(functions: any[]): { avgComplexity: number; totalLines: number } {
+  private aggregateMetrics(functions: FunctionInfo[]): { avgComplexity: number; totalLines: number } {
     if (functions.length === 0) {
       return { avgComplexity: 0, totalLines: 0 };
     }
@@ -590,30 +618,37 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private async getFunctionParameters(functionId: string): Promise<any[]> {
+  private async getFunctionParameters(functionId: string): Promise<ParameterRow[]> {
     const result = await this.db.query(
       'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
       [functionId]
     );
-    return result.rows;
+    return result.rows as ParameterRow[];
   }
 
-  private mapRowToSnapshotInfo(row: any): SnapshotInfo {
+  private mapRowToSnapshotInfo(row: SnapshotRow): SnapshotInfo {
     return {
       id: row.id,
       createdAt: new Date(row.created_at).getTime(),
-      label: row.label || undefined,
-      gitCommit: row.git_commit || undefined,
-      gitBranch: row.git_branch || undefined,
-      gitTag: row.git_tag || undefined,
+      ...(row.label && { label: row.label }),
+      ...(row.git_commit && { gitCommit: row.git_commit }),
+      ...(row.git_branch && { gitBranch: row.git_branch }),
+      ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
       metadata: JSON.parse(row.metadata || '{}')
     };
   }
 
-  private mapRowToFunctionInfo(row: any, parameters: any[]): FunctionInfo {
-    const functionInfo: FunctionInfo = {
+  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow>, parameters: ParameterRow[]): FunctionInfo {
+    const functionInfo = this.createBaseFunctionInfo(row, parameters);
+    this.addOptionalProperties(functionInfo, row);
+    this.addMetricsIfAvailable(functionInfo, row);
+    return functionInfo;
+  }
+
+  private createBaseFunctionInfo(row: FunctionRow, parameters: ParameterRow[]): FunctionInfo {
+    return {
       id: row.id,
       name: row.name,
       displayName: row.display_name,
@@ -633,49 +668,59 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       isMethod: row.is_method,
       isConstructor: row.is_constructor,
       isStatic: row.is_static,
-      parameters: parameters.map(p => ({
-        name: p.name,
-        type: p.type,
-        typeSimple: p.type_simple,
-        position: p.position,
-        isOptional: p.is_optional,
-        isRest: p.is_rest,
-        defaultValue: p.default_value || undefined,
-        description: p.description || undefined
-      }))
+      parameters: this.mapParameters(parameters)
     };
+  }
 
-    // Add optional properties only if they exist
+  private mapParameters(parameters: ParameterRow[]): ParameterInfo[] {
+    return parameters.map(p => ({
+      name: p.name,
+      type: p.type,
+      typeSimple: p.type_simple,
+      position: p.position,
+      isOptional: p.is_optional,
+      isRest: p.is_rest,
+      ...(p.default_value && { defaultValue: p.default_value }),
+      ...(p.description && { description: p.description })
+    }));
+  }
+
+  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
     if (row.parent_class) functionInfo.parentClass = row.parent_class;
     if (row.parent_namespace) functionInfo.parentNamespace = row.parent_namespace;
     if (row.js_doc) functionInfo.jsDoc = row.js_doc;
     if (row.source_code) functionInfo.sourceCode = row.source_code;
+  }
 
-    // Add metrics if available
-    if (row.lines_of_code !== null) {
-      functionInfo.metrics = {
-        linesOfCode: row.lines_of_code,
-        totalLines: row.total_lines,
-        cyclomaticComplexity: row.cyclomatic_complexity,
-        cognitiveComplexity: row.cognitive_complexity,
-        maxNestingLevel: row.max_nesting_level,
-        parameterCount: row.parameter_count,
-        returnStatementCount: row.return_statement_count,
-        branchCount: row.branch_count,
-        loopCount: row.loop_count,
-        tryCatchCount: row.try_catch_count,
-        asyncAwaitCount: row.async_await_count,
-        callbackCount: row.callback_count,
-        commentLines: row.comment_lines,
-        codeToCommentRatio: row.code_to_comment_ratio,
-        halsteadVolume: row.halstead_volume || undefined,
-        halsteadDifficulty: row.halstead_difficulty || undefined,
-        maintainabilityIndex: row.maintainability_index || undefined
-      };
-    }
+  private addMetricsIfAvailable(functionInfo: FunctionInfo, row: Partial<MetricsRow>): void {
+    if (row.lines_of_code === null || row.lines_of_code === undefined) return;
+    
+    functionInfo.metrics = {
+      linesOfCode: row.lines_of_code ?? 0,
+      totalLines: row.total_lines ?? 0,
+      cyclomaticComplexity: row.cyclomatic_complexity ?? 1,
+      cognitiveComplexity: row.cognitive_complexity ?? 0,
+      maxNestingLevel: row.max_nesting_level ?? 0,
+      parameterCount: row.parameter_count ?? 0,
+      returnStatementCount: row.return_statement_count ?? 0,
+      branchCount: row.branch_count ?? 0,
+      loopCount: row.loop_count ?? 0,
+      tryCatchCount: row.try_catch_count ?? 0,
+      asyncAwaitCount: row.async_await_count ?? 0,
+      callbackCount: row.callback_count ?? 0,
+      commentLines: row.comment_lines ?? 0,
+      codeToCommentRatio: row.code_to_comment_ratio ?? 0,
+      ...this.getOptionalMetrics(row)
+    };
+  }
 
-    return functionInfo;
+  private getOptionalMetrics(row: Partial<MetricsRow>): Partial<QualityMetrics> {
+    return {
+      ...(row.halstead_volume !== null && row.halstead_volume !== undefined && { halsteadVolume: row.halstead_volume }),
+      ...(row.halstead_difficulty !== null && row.halstead_difficulty !== undefined && { halsteadDifficulty: row.halstead_difficulty }),
+      ...(row.maintainability_index !== null && row.maintainability_index !== undefined && { maintainabilityIndex: row.maintainability_index })
+    };
   }
 
   private calculateSnapshotMetadata(functions: FunctionInfo[]): SnapshotMetadata {

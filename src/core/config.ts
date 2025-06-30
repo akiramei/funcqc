@@ -1,6 +1,16 @@
 import { cosmiconfigSync } from 'cosmiconfig';
 import * as path from 'path';
-import { FuncqcConfig } from '../types';
+import { 
+  FuncqcConfig, 
+  UserConfig, 
+  QualityThresholds,
+  MultiLevelThreshold,
+  ThresholdValue,
+  StatisticalThreshold,
+  RiskAssessmentConfig,
+  RiskCondition,
+  ProjectContext
+} from '../types';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
   roots: ['src'],
@@ -53,7 +63,7 @@ export class ConfigManager {
     return { ...DEFAULT_CONFIG };
   }
 
-  private validateAndMergeConfig(userConfig: any): FuncqcConfig {
+  private validateAndMergeConfig(userConfig: UserConfig): FuncqcConfig {
     const config: FuncqcConfig = { ...DEFAULT_CONFIG };
 
     this.mergeArrayConfigs(config, userConfig);
@@ -68,27 +78,27 @@ export class ConfigManager {
     return config;
   }
 
-  private mergeArrayConfigs(config: FuncqcConfig, userConfig: any): void {
+  private mergeArrayConfigs(config: FuncqcConfig, userConfig: UserConfig): void {
     if (Array.isArray(userConfig.roots)) {
       config.roots = userConfig.roots.filter(
-        (root: any) => typeof root === 'string'
+        (root): root is string => typeof root === 'string'
       );
     }
 
     if (Array.isArray(userConfig.exclude)) {
       config.exclude = userConfig.exclude.filter(
-        (pattern: any) => typeof pattern === 'string'
+        (pattern): pattern is string => typeof pattern === 'string'
       );
     }
 
     if (Array.isArray(userConfig.include)) {
       config.include = userConfig.include.filter(
-        (pattern: any) => typeof pattern === 'string'
+        (pattern): pattern is string => typeof pattern === 'string'
       );
     }
   }
 
-  private mergeStorageConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeStorageConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.storage && typeof userConfig.storage === 'object') {
       if (userConfig.storage.type === 'pglite' || userConfig.storage.type === 'postgres') {
         config.storage.type = userConfig.storage.type;
@@ -104,7 +114,7 @@ export class ConfigManager {
     }
   }
 
-  private mergeMetricsConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeMetricsConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.metrics && typeof userConfig.metrics === 'object') {
       if (typeof userConfig.metrics.complexityThreshold === 'number') {
         config.metrics.complexityThreshold = Math.max(1, userConfig.metrics.complexityThreshold);
@@ -120,7 +130,7 @@ export class ConfigManager {
     }
   }
 
-  private mergeGitConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeGitConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.git && typeof userConfig.git === 'object') {
       if (typeof userConfig.git.enabled === 'boolean') {
         config.git.enabled = userConfig.git.enabled;
@@ -132,7 +142,7 @@ export class ConfigManager {
     }
   }
 
-  private mergeSimilarityConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeSimilarityConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.similarity && typeof userConfig.similarity === 'object') {
       config.similarity = {
         detectors: {},
@@ -168,30 +178,30 @@ export class ConfigManager {
    * Invalidate cached config (for testing)
    */
   clearCache(): void {
-    this.config = undefined as any; // Temporary fix for exactOptionalPropertyTypes
+    this.config = undefined!;
     this.explorer.clearCaches();
   }
 
-  private mergeThresholdsConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeThresholdsConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.thresholds && typeof userConfig.thresholds === 'object') {
       config.thresholds = this.validateThresholds(userConfig.thresholds);
     }
   }
 
-  private mergeAssessmentConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeAssessmentConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.assessment && typeof userConfig.assessment === 'object') {
       config.assessment = this.validateAssessmentConfig(userConfig.assessment);
     }
   }
 
-  private mergeProjectContextConfig(config: FuncqcConfig, userConfig: any): void {
+  private mergeProjectContextConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.projectContext && typeof userConfig.projectContext === 'object') {
       config.projectContext = this.validateProjectContext(userConfig.projectContext);
     }
   }
 
-  private validateThresholds(thresholds: any): any {
-    const validatedThresholds: any = {};
+  private validateThresholds(thresholds: Record<string, unknown>): QualityThresholds {
+    const validatedThresholds: Partial<QualityThresholds> = {};
     
     const metricNames = [
       'complexity', 'cognitiveComplexity', 'lines', 'totalLines', 'parameters',
@@ -202,98 +212,107 @@ export class ConfigManager {
 
     for (const metricName of metricNames) {
       if (thresholds[metricName] && typeof thresholds[metricName] === 'object') {
-        validatedThresholds[metricName] = this.validateMultiLevelThreshold(thresholds[metricName]);
+        validatedThresholds[metricName as keyof QualityThresholds] = this.validateMultiLevelThreshold(thresholds[metricName] as Record<string, unknown>);
       }
     }
 
-    return validatedThresholds;
+    return validatedThresholds as QualityThresholds;
   }
 
-  private validateMultiLevelThreshold(threshold: any): any {
-    const validated: any = {};
+  private validateMultiLevelThreshold(threshold: Record<string, unknown>): MultiLevelThreshold {
+    const validated: Partial<MultiLevelThreshold> = {};
     
-    ['warning', 'error', 'critical'].forEach(level => {
+    (['warning', 'error', 'critical'] as const).forEach(level => {
       if (threshold[level] !== undefined) {
         validated[level] = this.validateThresholdValue(threshold[level]);
       }
     });
 
-    return validated;
+    return validated as MultiLevelThreshold;
   }
 
-  private validateThresholdValue(value: any): any {
+  private validateThresholdValue(value: unknown): ThresholdValue {
     if (typeof value === 'number' && value > 0) {
       return value;
     }
     
-    if (typeof value === 'object' && value.method) {
-      const validMethods = ['mean+sigma', 'percentile', 'median+mad'];
-      if (validMethods.includes(value.method)) {
-        const validated: any = { method: value.method };
+    if (typeof value === 'object' && value !== null && 'method' in value) {
+      const validMethods = ['mean+sigma', 'percentile', 'median+mad'] as const;
+      const method = (value as Record<string, unknown>)['method'];
+      if (typeof method === 'string' && validMethods.includes(method as typeof validMethods[number])) {
+        const validated: Partial<StatisticalThreshold> = { method: method as StatisticalThreshold['method'] };
         
-        if (typeof value.multiplier === 'number' && value.multiplier > 0) {
-          validated.multiplier = value.multiplier;
+        const valueObj = value as Record<string, unknown>;
+        if (typeof valueObj['multiplier'] === 'number' && valueObj['multiplier'] > 0) {
+          validated.multiplier = valueObj['multiplier'];
         }
         
-        if (typeof value.percentile === 'number' && value.percentile >= 0 && value.percentile <= 100) {
-          validated.percentile = value.percentile;
+        if (typeof valueObj['percentile'] === 'number' && valueObj['percentile'] >= 0 && valueObj['percentile'] <= 100) {
+          validated.percentile = valueObj['percentile'];
         }
         
-        return validated;
+        return validated as StatisticalThreshold;
       }
     }
 
     throw new Error(`Invalid threshold value: ${JSON.stringify(value)}`);
   }
 
-  private validateAssessmentConfig(assessment: any): any {
-    const validated: any = {};
+  private validateAssessmentConfig(assessment: Record<string, unknown>): RiskAssessmentConfig {
+    const validated: Partial<RiskAssessmentConfig> = {};
     
-    if (Array.isArray(assessment.highRiskConditions)) {
-      validated.highRiskConditions = assessment.highRiskConditions.filter((condition: any) => 
-        condition.metric && condition.threshold !== undefined
+    if (Array.isArray(assessment['highRiskConditions'])) {
+      validated.highRiskConditions = (assessment['highRiskConditions'] as unknown[]).filter((condition): condition is RiskCondition => 
+        typeof condition === 'object' && condition !== null && 
+        'metric' in condition && 'threshold' in condition
       );
     }
     
-    if (typeof assessment.minViolations === 'number' && assessment.minViolations >= 0) {
-      validated.minViolations = Math.floor(assessment.minViolations);
+    if (typeof assessment['minViolations'] === 'number' && assessment['minViolations'] >= 0) {
+      validated.minViolations = Math.floor(assessment['minViolations']);
     }
     
-    if (assessment.violationWeights && typeof assessment.violationWeights === 'object') {
-      validated.violationWeights = {};
-      ['warning', 'error', 'critical'].forEach(level => {
-        if (typeof assessment.violationWeights[level] === 'number' && assessment.violationWeights[level] > 0) {
-          validated.violationWeights[level] = assessment.violationWeights[level];
+    if (assessment['violationWeights'] && typeof assessment['violationWeights'] === 'object') {
+      validated.violationWeights = {} as Record<'warning' | 'error' | 'critical', number>;
+      const weights = assessment['violationWeights'] as Record<string, unknown>;
+      (['warning', 'error', 'critical'] as const).forEach(level => {
+        if (typeof weights[level] === 'number' && weights[level] > 0) {
+          validated.violationWeights![level] = weights[level];
         }
       });
     }
     
-    if (['count', 'weighted', 'severity'].includes(assessment.compositeScoringMethod)) {
-      validated.compositeScoringMethod = assessment.compositeScoringMethod;
+    const scoringMethod = assessment['compositeScoringMethod'];
+    if (typeof scoringMethod === 'string' && ['count', 'weighted', 'severity'].includes(scoringMethod)) {
+      validated.compositeScoringMethod = scoringMethod as 'count' | 'weighted' | 'severity';
     }
 
-    return validated;
+    return validated as RiskAssessmentConfig;
   }
 
-  private validateProjectContext(context: any): any {
-    const validated: any = {};
+  private validateProjectContext(context: Record<string, unknown>): ProjectContext {
+    const validated: Partial<ProjectContext> = {};
     
-    if (['junior', 'mid', 'senior'].includes(context.experienceLevel)) {
-      validated.experienceLevel = context.experienceLevel;
+    const experienceLevel = context['experienceLevel'];
+    if (typeof experienceLevel === 'string' && ['junior', 'mid', 'senior'].includes(experienceLevel)) {
+      validated.experienceLevel = experienceLevel as 'junior' | 'mid' | 'senior';
     }
     
-    if (['prototype', 'production', 'legacy'].includes(context.projectType)) {
-      validated.projectType = context.projectType;
+    const projectType = context['projectType'];
+    if (typeof projectType === 'string' && ['prototype', 'production', 'legacy'].includes(projectType)) {
+      validated.projectType = projectType as 'prototype' | 'production' | 'legacy';
     }
     
-    if (['small', 'medium', 'large'].includes(context.codebaseSize)) {
-      validated.codebaseSize = context.codebaseSize;
+    const codebaseSize = context['codebaseSize'];
+    if (typeof codebaseSize === 'string' && ['small', 'medium', 'large'].includes(codebaseSize)) {
+      validated.codebaseSize = codebaseSize as 'small' | 'medium' | 'large';
     }
     
-    if (['web', 'api', 'cli', 'library', 'embedded'].includes(context.domain)) {
-      validated.domain = context.domain;
+    const domain = context['domain'];
+    if (typeof domain === 'string' && ['web', 'api', 'cli', 'library', 'embedded'].includes(domain)) {
+      validated.domain = domain as 'web' | 'api' | 'cli' | 'library' | 'embedded';
     }
 
-    return validated;
+    return validated as ProjectContext;
   }
 }

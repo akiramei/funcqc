@@ -1,4 +1,4 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction, SimilarityWeights } from '../types';
+import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction, SimilarityWeights, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../types';
 import { ASTCanonicalizer, calculateASTSimilarity } from './ast-canonicalizer';
 import { Project } from 'ts-morph';
 
@@ -211,7 +211,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     return factors > 0 ? score / factors : 0;
   }
 
-  private calculateMetricsSimilarity(metrics1: any, metrics2: any): number {
+  private calculateMetricsSimilarity(metrics1: QualityMetrics | undefined, metrics2: QualityMetrics | undefined): number {
     const metricKeys = [
       'cyclomaticComplexity',
       'cognitiveComplexity',
@@ -241,7 +241,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     return count > 0 ? totalDiff / count : 0;
   }
 
-  private calculateParameterSimilarity(params1: any[], params2: any[]): number {
+  private calculateParameterSimilarity(params1: ParameterInfo[], params2: ParameterInfo[]): number {
     if (params1.length !== params2.length) {
       const maxLen = Math.max(params1.length, params2.length);
       return maxLen > 0 ? 1 - Math.abs(params1.length - params2.length) / maxLen : 1;
@@ -257,7 +257,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     return params1.length > 0 ? matches / params1.length : 1;
   }
 
-  private calculateReturnTypeSimilarity(ret1: any, ret2: any): number {
+  private calculateReturnTypeSimilarity(ret1: ReturnTypeInfo | undefined, ret2: ReturnTypeInfo | undefined): number {
     if (!ret1 && !ret2) return 1;
     if (!ret1 || !ret2) return 0;
     

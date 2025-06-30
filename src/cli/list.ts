@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics, ProjectRiskAssessment, FunctionRiskAssessment } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics, ProjectRiskAssessment, FunctionRiskAssessment, QueryOptions, FieldValue, ThresholdViolation } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { riskAssessor } from '../core/risk-assessor.js';
@@ -22,7 +22,7 @@ export async function listCommand(
     const filters = buildFilters(patterns, options);
     
     // Query functions
-    const queryOptions: any = { filters };
+    const queryOptions: QueryOptions = { filters };
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
@@ -389,7 +389,7 @@ function formatFieldName(field: string): string {
   return names[field] || field;
 }
 
-function getFieldValue(func: FunctionInfo, field: string): any {
+function getFieldValue(func: FunctionInfo, field: string): FieldValue {
   switch (field) {
     case 'id':
       return func.id;
@@ -613,7 +613,7 @@ function displayEnhancedViolations(functionAssessment: FunctionRiskAssessment): 
   console.log(`   🎯 Risk Level: ${riskColor(functionAssessment.riskLevel.toUpperCase())} (score: ${functionAssessment.riskScore.toFixed(1)})`);
 }
 
-function formatViolationText(violation: any): string {
+function formatViolationText(violation: ThresholdViolation): string {
   const excessText = violation.excess > 0 ? `(+${violation.excess.toFixed(1)})` : '';
   
   if (violation.method === 'statistical' && violation.statisticalContext) {

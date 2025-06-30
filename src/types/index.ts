@@ -1,3 +1,6 @@
+// Re-export common types
+export * from './common';
+
 // Core configuration types
 export interface FuncqcConfig {
   roots: string[];

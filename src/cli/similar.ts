@@ -5,7 +5,7 @@ import fs from 'fs';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { SimilarityManager } from '../similarity/similarity-manager';
-import { FunctionInfo, SimilarityResult } from '../types';
+import { FunctionInfo, SimilarityResult, ConsensusStrategy } from '../types';
 import { createErrorHandler } from '../utils/error-handler';
 import { Logger } from '../utils/cli-utils';
 
@@ -105,7 +105,7 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
   }
 }
 
-function parseConsensusStrategy(input: string): any {
+function parseConsensusStrategy(input: string): Partial<ConsensusStrategy> {
   const parts = input.split(':');
   const strategy = parts[0];
   

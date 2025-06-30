@@ -4,7 +4,7 @@ import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
 import { formatDuration } from '../utils/file-utils';
-import { CommandOptions, FunctionInfo, SnapshotInfo } from '../types';
+import { CommandOptions, FunctionInfo, SnapshotInfo, SnapshotMetadata } from '../types';
 
 export interface HistoryCommandOptions extends CommandOptions {
   verbose?: boolean;
@@ -97,7 +97,7 @@ async function displaySnapshotHistory(
   displayHistorySummary(filteredSnapshots);
 }
 
-function displayCompactHistory(snapshots: any[]): void {
+function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   const tableData = snapshots.map(snapshot => [
     snapshot.id.substring(0, 8),
     snapshot.label || '-',
@@ -143,7 +143,7 @@ function displayCompactHistory(snapshots: any[]): void {
 }
 
 async function displayDetailedHistory(
-  snapshots: any[], 
+  snapshots: SnapshotInfo[], 
   storage: PGLiteStorageAdapter, 
   logger: Logger
 ): Promise<void> {
@@ -170,7 +170,7 @@ async function displayDetailedHistory(
   }
 }
 
-function displaySnapshotInfo(snapshot: any): void {
+function displaySnapshotInfo(snapshot: SnapshotInfo): void {
   console.log(chalk.yellow(`📸 Snapshot ${snapshot.id}`));
   console.log(`   Label: ${snapshot.label || chalk.gray('(none)')}`);
   console.log(`   Created: ${formatDate(snapshot.createdAt)}`);
@@ -180,7 +180,7 @@ function displaySnapshotInfo(snapshot: any): void {
   }
 }
 
-function displaySnapshotMetadata(metadata: any): void {
+function displaySnapshotMetadata(metadata: SnapshotMetadata): void {
   console.log(`   Functions: ${metadata.totalFunctions}`);
   console.log(`   Files: ${metadata.totalFiles}`);
   console.log(`   Avg Complexity: ${metadata.avgComplexity.toFixed(1)}`);
@@ -235,7 +235,7 @@ async function displaySnapshotChanges(
   }
 }
 
-function displayHistorySummary(snapshots: any[]): void {
+function displayHistorySummary(snapshots: SnapshotInfo[]): void {
   if (snapshots.length === 0) return;
 
   const totalFunctions = snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0);
@@ -565,7 +565,7 @@ function formatChange(change: number): string {
   return chalk.gray('no change');
 }
 
-function calculateOverallQualityTrend(oldMetrics: any, newMetrics: any): string {
+function calculateOverallQualityTrend(oldMetrics: SnapshotMetadata, newMetrics: SnapshotMetadata): string {
   const complexityChange = newMetrics.cyclomaticComplexity - oldMetrics.cyclomaticComplexity;
   const locChange = newMetrics.linesOfCode - oldMetrics.linesOfCode;
   const paramChange = newMetrics.parameterCount - oldMetrics.parameterCount;
