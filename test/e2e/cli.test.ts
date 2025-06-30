@@ -256,6 +256,103 @@ describe('funcqc CLI E2E Tests', () => {
     });
   });
 
+  describe('refactor command', () => {
+    beforeEach(() => {
+      // Ensure we have data for refactor analysis
+      execSync(
+        `node "${CLI_PATH}" scan --label "refactor-test"`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+    });
+
+    it('should analyze refactoring opportunities', () => {
+      const output = execSync(
+        `node "${CLI_PATH}" refactor --format summary`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+
+      expect(output).toContain('Refactoring Opportunity Analysis');
+      expect(output).toContain('Analysis Summary');
+      expect(output).toContain('Functions Analyzed');
+    });
+
+    it('should output refactoring analysis in JSON format', () => {
+      const output = execSync(
+        `node "${CLI_PATH}" refactor --json`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+
+      const parsed = JSON.parse(output);
+      expect(parsed).toHaveProperty('version');
+      expect(parsed).toHaveProperty('timestamp');
+      expect(parsed).toHaveProperty('configuration');
+      expect(parsed).toHaveProperty('summary');
+      expect(parsed).toHaveProperty('opportunities');
+      expect(parsed).toHaveProperty('statistics');
+      expect(parsed).toHaveProperty('recommendations');
+      expect(Array.isArray(parsed.opportunities)).toBe(true);
+      expect(Array.isArray(parsed.recommendations)).toBe(true);
+    });
+
+    it('should respect threshold parameter', () => {
+      const output = execSync(
+        `node "${CLI_PATH}" refactor --threshold 5 --json`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+
+      const parsed = JSON.parse(output);
+      expect(parsed.configuration.complexityThreshold).toBe(5);
+    });
+
+    it('should limit number of opportunities displayed', () => {
+      const output = execSync(
+        `node "${CLI_PATH}" refactor --max-functions 3 --json`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+
+      const parsed = JSON.parse(output);
+      expect(parsed.configuration.maxFunctions).toBe(3);
+      expect(parsed.opportunities.length).toBeLessThanOrEqual(3);
+    });
+
+    it('should save output to file when specified', () => {
+      const outputFile = path.join(TEST_PROJECT_DIR, 'refactor-output.json');
+      
+      const output = execSync(
+        `node "${CLI_PATH}" refactor --json --output "${outputFile}"`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+
+      expect(output).toContain('Saved refactoring analysis');
+      
+      // Check if file exists and contains valid JSON
+      const fileContent = execSync(`cat "${outputFile}"`, { 
+        cwd: TEST_PROJECT_DIR, 
+        encoding: 'utf8' 
+      });
+      const parsed = JSON.parse(fileContent);
+      expect(parsed).toHaveProperty('version');
+    });
+  });
+
   describe('workflow integration', () => {
     it('should support complete analysis workflow', () => {
       // Initialize
@@ -288,6 +385,17 @@ describe('funcqc CLI E2E Tests', () => {
       );
       const listData = JSON.parse(listOutput);
       expect(listData.functions.length).toBeGreaterThan(0);
+
+      // Refactor analysis
+      const refactorOutput = execSync(
+        `node "${CLI_PATH}" refactor --json`,
+        {
+          cwd: TEST_PROJECT_DIR,
+          encoding: 'utf8'
+        }
+      );
+      const refactorData = JSON.parse(refactorOutput);
+      expect(refactorData).toHaveProperty('opportunities');
 
       // Status
       const statusOutput = execSync(

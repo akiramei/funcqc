@@ -517,3 +517,80 @@ export interface ProjectRiskAssessment {
   statistics: ProjectStatistics;
   configuredThresholds: QualityThresholds;
 }
+
+// Refactoring analysis types
+export interface RefactorCommandOptions extends CommandOptions {
+  threshold?: string;
+  json?: boolean;
+  output?: string;
+  minLines?: string;
+  maxFunctions?: string;
+  priorityMetric?: string;
+  format?: 'table' | 'summary' | 'detailed';
+  includePatterns?: boolean;
+  includeTrends?: boolean;
+  snapshot?: string;
+}
+
+export interface RefactoringAnalysisResult {
+  version: string;
+  timestamp: string;
+  configuration: RefactoringConfiguration;
+  summary: RefactoringSummary;
+  opportunities: RefactoringOpportunity[];
+  statistics: RefactoringStatistics;
+  recommendations: string[];
+}
+
+export interface RefactoringConfiguration {
+  complexityThreshold: number;
+  minLines: number;
+  maxFunctions: number;
+  includePatterns: boolean;
+  includeTrends: boolean;
+}
+
+export interface RefactoringSummary {
+  totalFunctions: number;
+  totalOpportunities: number;
+  displayedOpportunities: number;
+  priorityDistribution: Record<string, number>;
+  typeDistribution: Record<string, number>;
+  estimatedImpact: number;
+}
+
+export interface RefactoringOpportunity {
+  type: 'complexity' | 'similarity' | 'length' | 'patterns';
+  priority: 'high' | 'medium' | 'low';
+  functions: FunctionInfo[];
+  metrics: RefactoringMetrics;
+  description: string;
+  recommendation: string;
+}
+
+export interface RefactoringMetrics {
+  totalComplexity: number;
+  totalLines: number;
+  avgComplexity: number;
+  maxComplexity: number;
+  potentialSavings: number;
+}
+
+export interface RefactoringStatistics {
+  codebaseMetrics: CodebaseMetrics;
+  refactoringImpact: RefactoringImpact;
+}
+
+export interface CodebaseMetrics {
+  totalFunctions: number;
+  totalComplexity: number;
+  totalLines: number;
+  avgComplexity: number;
+  complexityDistribution: Record<number, number>;
+}
+
+export interface RefactoringImpact {
+  affectedFunctions: number;
+  totalPotentialSavings: number;
+  estimatedEffort: string;
+}

@@ -11,6 +11,7 @@ import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
 import { trendCommand } from './cli/trend';
 import { similarCommand } from './cli/similar';
+import { refactorCommand } from './cli/refactor';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -143,6 +144,21 @@ program
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
   .action(similarCommand);
+
+program
+  .command('refactor')
+  .description('Analyze functions for refactoring opportunities')
+  .option('--threshold <value>', 'complexity threshold for recommendations', '10')
+  .option('--json', 'output as JSON')
+  .option('--output <file>', 'save JSON output to file')
+  .option('--min-lines <num>', 'minimum lines of code to consider', '5')
+  .option('--max-functions <num>', 'maximum number of opportunities to display', '50')
+  .option('--priority-metric <metric>', 'metric to prioritize by (complexity, lines, functions, savings)', 'savings')
+  .option('--format <type>', 'output format (table, summary, detailed)', 'detailed')
+  .option('--include-patterns', 'include pattern-based analysis')
+  .option('--include-trends', 'include trend analysis')
+  .option('--snapshot <id>', 'analyze specific snapshot (default: latest)')
+  .action(refactorCommand);
 
 // Handle unknown commands
 program.on('command:*', () => {
