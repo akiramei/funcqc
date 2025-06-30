@@ -35,6 +35,12 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     });
   }
 
+  dispose(): void {
+    // Clean up any remaining temporary files in the project
+    const sourceFiles = this.project.getSourceFiles();
+    sourceFiles.forEach(file => this.project.removeSourceFile(file));
+  }
+
   async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
     const threshold = options.threshold || 0.8;
     const minLines = options.minLines || 5;

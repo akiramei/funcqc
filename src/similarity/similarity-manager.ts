@@ -30,11 +30,17 @@ export class SimilarityManager {
     // Run all detectors in parallel
     const allResults = await Promise.all(
       detectorsToUse.map(async detectorName => {
-        const detector = this.detectors.get(detectorName)!;
-        if (await detector.isAvailable()) {
-          return detector.detect(functions, options);
+        try {
+          const detector = this.detectors.get(detectorName)!;
+          const isAvailable = await detector.isAvailable();
+          if (isAvailable) {
+            return detector.detect(functions, options);
+          }
+          return [];
+        } catch (error) {
+          console.warn(`Detector ${detectorName} failed:`, error);
+          return [];
         }
-        return [];
       })
     );
 
