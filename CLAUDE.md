@@ -185,3 +185,20 @@ interface CognitiveResourceAllocation {
 - 👥 エッジケースの検証
 
 この心構えにより、AIと人間の協働システムが最も効果的に機能し、より価値の高いソフトウェアを生み出すことができる。
+
+## AI協調による調査方針
+
+### Geminiツールの活用
+調査や技術検討時に、以下のツールを状況に応じて組み合わせて使用：
+- ローカルファイル調査（Read/Grep/Glob）
+- Web検索（WebSearch）
+- Gemini AI相談（geminiChat/googleSearch）
+
+### Gemini使用の明示的指示
+ユーザーがGeminiを使いたい場合の指示方法：
+- 「Geminiに聞いて: ○○」
+- 「Geminiで検索: ○○」
+- 「Gemini経由で: ○○」
+
+### 自動的なGemini活用
+Claudeが調査時に必要と判断した場合、Geminiへの相談も選択肢として検討する。
