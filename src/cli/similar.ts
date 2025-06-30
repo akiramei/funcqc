@@ -22,78 +22,36 @@ interface SimilarCommandOptions {
   limit?: string;
 }
 
-export async function similarCommand(options: SimilarCommandOptions, cmd: Command) {
-  const parentOpts = cmd.parent?.opts() || {};
-  const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
-  const errorHandler = createErrorHandler(logger);
+interface CommandContext {
+  logger: Logger;
+  errorHandler: ReturnType<typeof createErrorHandler>;
+  parentOpts: Record<string, unknown>;
+}
+
+interface DetectionConfig {
+  threshold: number;
+  minLines: number;
+  limit: number | undefined;
+  enabledDetectors: string[];
+  consensusStrategy: ConsensusStrategy | undefined;
+  crossFile: boolean;
+}
+
+export async function similarCommand(options: SimilarCommandOptions, cmd: Command): Promise<void> {
+  const context = initializeCommand(options, cmd);
   const spinner = ora();
 
   try {
-    // Load configuration
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+    const storage = await initializeStorage();
     
-    await storage.init();
-
     try {
-      // Get functions to analyze
-      spinner.start('Loading functions...');
+      const functions = await loadFunctions(storage, options, spinner);
+      const detectionConfig = parseDetectionOptions(options);
+      const results = await detectSimilarities(functions, detectionConfig, spinner);
+      const limitedResults = applyLimit(results, detectionConfig.limit);
       
-      let functions: FunctionInfo[];
-      if (options.snapshot) {
-        // Load from specific snapshot
-        functions = await storage.getFunctions(options.snapshot);
-      } else {
-        // Load from latest snapshot
-        const snapshots = await storage.getSnapshots({ limit: 1 });
-        if (snapshots.length === 0) {
-          throw new Error('No snapshots found. Run "funcqc scan" first.');
-        }
-        functions = await storage.getFunctions(snapshots[0].id);
-      }
-
-      spinner.succeed(`Loaded ${functions.length} functions`);
-
-      // Parse options
-      const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
-      const minLines = options.minLines ? parseInt(options.minLines) : 5;
-      const limit = options.limit ? parseInt(options.limit) : undefined;
-
-      // Configure similarity detection
-      const similarityManager = new SimilarityManager();
-      const enabledDetectors = options.detectors ? options.detectors.split(',') : [];
-
-      // Detect similarities
-      spinner.start('Detecting similar functions...');
-      
-      const results = await similarityManager.detectSimilarities(
-        functions,
-        {
-          threshold,
-          minLines,
-          crossFile: options.crossFile !== false
-        },
-        enabledDetectors,
-        options.consensus ? parseConsensusStrategy(options.consensus) : undefined
-      );
-
-      spinner.succeed(`Found ${results.length} groups of similar functions`);
-
-      // Apply limit if specified
-      const limitedResults = limit ? results.slice(0, limit) : results;
-
-      // Output results
-      if (options.json || options.jsonl) {
-        outputJSON(limitedResults, options.output, options.jsonl);
-      } else {
-        displayResults(limitedResults, logger);
-      }
-
-      // Show summary
-      if (!options.json && !parentOpts['quiet']) {
-        displaySummary(results, limitedResults, logger);
-      }
+      outputResults(limitedResults, options, context.logger);
+      showSummaryIfNeeded(results, limitedResults, options, context);
 
     } finally {
       await storage.close();
@@ -101,7 +59,119 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
 
   } catch (error) {
     spinner.fail();
-    errorHandler.handleError(error as Error);
+    context.errorHandler.handleError(error as Error);
+  }
+}
+
+function initializeCommand(_options: SimilarCommandOptions, cmd: Command): CommandContext {
+  const parentOpts = cmd.parent?.opts() || {};
+  const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
+  const errorHandler = createErrorHandler(logger);
+  
+  return {
+    logger,
+    errorHandler,
+    parentOpts
+  };
+}
+
+async function initializeStorage(): Promise<PGLiteStorageAdapter> {
+  const configManager = new ConfigManager();
+  const config = await configManager.load();
+  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+  
+  await storage.init();
+  return storage;
+}
+
+async function loadFunctions(
+  storage: PGLiteStorageAdapter, 
+  options: SimilarCommandOptions, 
+  spinner: ReturnType<typeof ora>
+): Promise<FunctionInfo[]> {
+  spinner.start('Loading functions...');
+  
+  let functions: FunctionInfo[];
+  if (options.snapshot) {
+    functions = await storage.getFunctions(options.snapshot);
+  } else {
+    const snapshots = await storage.getSnapshots({ limit: 1 });
+    if (snapshots.length === 0) {
+      throw new Error('No snapshots found. Run "funcqc scan" first.');
+    }
+    functions = await storage.getFunctions(snapshots[0].id);
+  }
+
+  spinner.succeed(`Loaded ${functions.length} functions`);
+  return functions;
+}
+
+function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig {
+  const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
+  const minLines = options.minLines ? parseInt(options.minLines) : 5;
+  const limit = options.limit ? parseInt(options.limit) : undefined;
+  const enabledDetectors = options.detectors ? options.detectors.split(',') : [];
+  const consensusStrategy = options.consensus ? parseConsensusStrategy(options.consensus) : undefined;
+  const crossFile = options.crossFile !== false;
+  
+  return {
+    threshold,
+    minLines,
+    limit,
+    enabledDetectors,
+    consensusStrategy,
+    crossFile
+  };
+}
+
+async function detectSimilarities(
+  functions: FunctionInfo[],
+  config: DetectionConfig,
+  spinner: ReturnType<typeof ora>
+): Promise<SimilarityResult[]> {
+  const similarityManager = new SimilarityManager();
+  
+  spinner.start('Detecting similar functions...');
+  
+  const results = await similarityManager.detectSimilarities(
+    functions,
+    {
+      threshold: config.threshold,
+      minLines: config.minLines,
+      crossFile: config.crossFile
+    },
+    config.enabledDetectors,
+    config.consensusStrategy
+  );
+
+  spinner.succeed(`Found ${results.length} groups of similar functions`);
+  return results;
+}
+
+function applyLimit(results: SimilarityResult[], limit: number | undefined): SimilarityResult[] {
+  return limit ? results.slice(0, limit) : results;
+}
+
+function outputResults(
+  results: SimilarityResult[], 
+  options: SimilarCommandOptions, 
+  logger: Logger
+): void {
+  if (options.json || options.jsonl) {
+    outputJSON(results, options.output, options.jsonl);
+  } else {
+    displayResults(results, logger);
+  }
+}
+
+function showSummaryIfNeeded(
+  allResults: SimilarityResult[],
+  displayedResults: SimilarityResult[],
+  options: SimilarCommandOptions,
+  context: CommandContext
+): void {
+  if (!options.json && !context.parentOpts['quiet']) {
+    displaySummary(allResults, displayedResults, context.logger);
   }
 }
 

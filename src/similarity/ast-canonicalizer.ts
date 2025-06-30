@@ -71,97 +71,25 @@ export class ASTCanonicalizer {
   private canonicalizeNode(node: Node): string {
     const kind = node.getKind();
 
-    // Handle different node types
-    switch (kind) {
-      case SyntaxKind.Block:
-        return this.canonicalizeBlock(node);
-      
-      case SyntaxKind.IfStatement:
-        return this.canonicalizeIfStatement(node);
-      
-      case SyntaxKind.ForStatement:
-      case SyntaxKind.ForInStatement:
-      case SyntaxKind.ForOfStatement:
-      case SyntaxKind.WhileStatement:
-        return this.canonicalizeLoop(node);
-      
-      case SyntaxKind.ReturnStatement:
-        return this.canonicalizeReturnStatement(node);
-      
-      case SyntaxKind.VariableStatement:
-        return this.canonicalizeVariableStatement(node);
-      
-      case SyntaxKind.ExpressionStatement:
-        return this.canonicalizeExpressionStatement(node);
-      
-      case SyntaxKind.TryStatement:
-        return this.canonicalizeTryStatement(node);
-      
-      case SyntaxKind.SwitchStatement:
-        return this.canonicalizeSwitchStatement(node);
-      
-      case SyntaxKind.Identifier:
-        return this.canonicalizeIdentifier(node.getText());
-      
-      case SyntaxKind.CallExpression:
-        return this.canonicalizeCallExpression(node);
-      
-      case SyntaxKind.BinaryExpression:
-        return this.canonicalizeBinaryExpression(node);
-      
-      case SyntaxKind.PropertyAccessExpression:
-        return this.canonicalizePropertyAccess(node);
-      
-      // Literals and constants
-      case SyntaxKind.StringLiteral:
-      case SyntaxKind.NoSubstitutionTemplateLiteral:
-        return '"STRING"';
-      
-      case SyntaxKind.NumericLiteral:
-        return 'NUMBER';
-      
-      case SyntaxKind.TrueKeyword:
-      case SyntaxKind.FalseKeyword:
-        return 'BOOLEAN';
-      
-      case SyntaxKind.NullKeyword:
-        return 'NULL';
-      
-      case SyntaxKind.UndefinedKeyword:
-        return 'UNDEFINED';
-      
-      // Keywords - preserve structural meaning
-      case SyntaxKind.IfKeyword:
-        return 'if';
-      case SyntaxKind.ElseKeyword:
-        return 'else';
-      case SyntaxKind.ForKeyword:
-        return 'for';
-      case SyntaxKind.WhileKeyword:
-        return 'while';
-      case SyntaxKind.ReturnKeyword:
-        return 'return';
-      case SyntaxKind.TryKeyword:
-        return 'try';
-      case SyntaxKind.CatchKeyword:
-        return 'catch';
-      case SyntaxKind.FinallyKeyword:
-        return 'finally';
-      case SyntaxKind.SwitchKeyword:
-        return 'switch';
-      case SyntaxKind.CaseKeyword:
-        return 'case';
-      case SyntaxKind.DefaultKeyword:
-        return 'default';
-      case SyntaxKind.BreakKeyword:
-        return 'break';
-      case SyntaxKind.ContinueKeyword:
-        return 'continue';
-      
-      default:
-        // For unhandled nodes, recursively process children
-        return this.canonicalizeChildren(node);
+    // Dispatch to specific canonicalization methods by category
+    if (this.isStatementNode(kind)) {
+      return this.canonicalizeStatementNode(node, kind);
     }
+    
+    if (this.isExpressionNode(kind)) {
+      return this.canonicalizeExpressionNode(node, kind);
+    }
+    
+    if (this.isLiteralNode(kind)) {
+      return this.canonicalizeLiteralNode(kind);
+    }
+    
+    if (this.isKeywordNode(kind)) {
+      return this.canonicalizeKeywordNode(kind);
+    }
+    
+    // For unhandled nodes, recursively process children
+    return this.canonicalizeChildren(node);
   }
 
   private canonicalizeBlock(node: Node): string {
@@ -304,6 +232,120 @@ export class ASTCanonicalizer {
     }
     
     return this.identifierMap.get(identifier)!;
+  }
+
+  private isStatementNode(kind: SyntaxKind): boolean {
+    return [
+      SyntaxKind.Block, SyntaxKind.IfStatement, SyntaxKind.ForStatement,
+      SyntaxKind.ForInStatement, SyntaxKind.ForOfStatement, SyntaxKind.WhileStatement,
+      SyntaxKind.ReturnStatement, SyntaxKind.VariableStatement, SyntaxKind.ExpressionStatement,
+      SyntaxKind.TryStatement, SyntaxKind.SwitchStatement
+    ].includes(kind);
+  }
+
+  private isExpressionNode(kind: SyntaxKind): boolean {
+    return [
+      SyntaxKind.Identifier, SyntaxKind.CallExpression, SyntaxKind.BinaryExpression,
+      SyntaxKind.PropertyAccessExpression
+    ].includes(kind);
+  }
+
+  private isLiteralNode(kind: SyntaxKind): boolean {
+    return [
+      SyntaxKind.StringLiteral, SyntaxKind.NoSubstitutionTemplateLiteral,
+      SyntaxKind.NumericLiteral, SyntaxKind.TrueKeyword, SyntaxKind.FalseKeyword,
+      SyntaxKind.NullKeyword, SyntaxKind.UndefinedKeyword
+    ].includes(kind);
+  }
+
+  private isKeywordNode(kind: SyntaxKind): boolean {
+    return [
+      SyntaxKind.IfKeyword, SyntaxKind.ElseKeyword, SyntaxKind.ForKeyword,
+      SyntaxKind.WhileKeyword, SyntaxKind.ReturnKeyword, SyntaxKind.TryKeyword,
+      SyntaxKind.CatchKeyword, SyntaxKind.FinallyKeyword, SyntaxKind.SwitchKeyword,
+      SyntaxKind.CaseKeyword, SyntaxKind.DefaultKeyword, SyntaxKind.BreakKeyword,
+      SyntaxKind.ContinueKeyword
+    ].includes(kind);
+  }
+
+  private canonicalizeStatementNode(node: Node, kind: SyntaxKind): string {
+    switch (kind) {
+      case SyntaxKind.Block:
+        return this.canonicalizeBlock(node);
+      case SyntaxKind.IfStatement:
+        return this.canonicalizeIfStatement(node);
+      case SyntaxKind.ForStatement:
+      case SyntaxKind.ForInStatement:
+      case SyntaxKind.ForOfStatement:
+      case SyntaxKind.WhileStatement:
+        return this.canonicalizeLoop(node);
+      case SyntaxKind.ReturnStatement:
+        return this.canonicalizeReturnStatement(node);
+      case SyntaxKind.VariableStatement:
+        return this.canonicalizeVariableStatement(node);
+      case SyntaxKind.ExpressionStatement:
+        return this.canonicalizeExpressionStatement(node);
+      case SyntaxKind.TryStatement:
+        return this.canonicalizeTryStatement(node);
+      case SyntaxKind.SwitchStatement:
+        return this.canonicalizeSwitchStatement(node);
+      default:
+        return this.canonicalizeChildren(node);
+    }
+  }
+
+  private canonicalizeExpressionNode(node: Node, kind: SyntaxKind): string {
+    switch (kind) {
+      case SyntaxKind.Identifier:
+        return this.canonicalizeIdentifier(node.getText());
+      case SyntaxKind.CallExpression:
+        return this.canonicalizeCallExpression(node);
+      case SyntaxKind.BinaryExpression:
+        return this.canonicalizeBinaryExpression(node);
+      case SyntaxKind.PropertyAccessExpression:
+        return this.canonicalizePropertyAccess(node);
+      default:
+        return this.canonicalizeChildren(node);
+    }
+  }
+
+  private canonicalizeLiteralNode(kind: SyntaxKind): string {
+    switch (kind) {
+      case SyntaxKind.StringLiteral:
+      case SyntaxKind.NoSubstitutionTemplateLiteral:
+        return '"STRING"';
+      case SyntaxKind.NumericLiteral:
+        return 'NUMBER';
+      case SyntaxKind.TrueKeyword:
+      case SyntaxKind.FalseKeyword:
+        return 'BOOLEAN';
+      case SyntaxKind.NullKeyword:
+        return 'NULL';
+      case SyntaxKind.UndefinedKeyword:
+        return 'UNDEFINED';
+      default:
+        return '';
+    }
+  }
+
+  private canonicalizeKeywordNode(kind: SyntaxKind): string {
+    const keywordMap: Record<number, string> = {
+      [SyntaxKind.IfKeyword]: 'if',
+      [SyntaxKind.ElseKeyword]: 'else',
+      [SyntaxKind.ForKeyword]: 'for',
+      [SyntaxKind.WhileKeyword]: 'while',
+      [SyntaxKind.ReturnKeyword]: 'return',
+      [SyntaxKind.TryKeyword]: 'try',
+      [SyntaxKind.CatchKeyword]: 'catch',
+      [SyntaxKind.FinallyKeyword]: 'finally',
+      [SyntaxKind.SwitchKeyword]: 'switch',
+      [SyntaxKind.CaseKeyword]: 'case',
+      [SyntaxKind.DefaultKeyword]: 'default',
+      [SyntaxKind.BreakKeyword]: 'break',
+      [SyntaxKind.ContinueKeyword]: 'continue'
+    };
+    
+    return keywordMap[kind] ?? '';
   }
 
   private canonicalizeChildren(node: Node): string {
