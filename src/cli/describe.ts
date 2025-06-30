@@ -3,7 +3,7 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from '../core/config';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { DescribeCommandOptions, FunctionDescription } from '../types';
+import { DescribeCommandOptions, FunctionDescription, FunctionInfo } from '../types';
 import fs from 'fs';
 
 interface DescribeBatchInput {
@@ -138,15 +138,31 @@ async function handleSingleDescribe(
     });
 
     if (functionsByName.length === 0) {
-      throw new Error(`Function not found: ${functionIdOrPattern}`);
+      logger.info(chalk.red(`❌ Function not found: ${functionIdOrPattern}`));
+      logger.info(chalk.blue('💡 Tips:'));
+      logger.info('  • Use `funcqc list` to see all available functions with their IDs');
+      logger.info('  • Use `funcqc search <keyword>` to find functions by content');
+      logger.info('  • Function IDs are shown in the first column of list/search results');
+      return;
     }
 
     if (functionsByName.length > 1) {
-      logger.info('Multiple functions found:');
+      logger.info(chalk.yellow(`Multiple functions found matching "${functionIdOrPattern}". Please specify a function ID:`));
+      logger.info('');
       functionsByName.forEach((func, index) => {
-        logger.info(`  ${index + 1}. ${func.id} - ${func.name} (${func.filePath}:${func.startLine})`);
+        const riskIcon = getRiskIcon(func);
+        logger.info(`  ${index + 1}. ${chalk.cyan(func.id.substring(0, 8))} - ${riskIcon} ${func.displayName}`);
+        logger.info(`     📍 ${func.filePath}:${func.startLine}`);
+        if (func.jsDoc) {
+          const jsDocPreview = func.jsDoc.replace(/\n/g, ' ').substring(0, 80);
+          logger.info(`     📝 ${chalk.gray(jsDocPreview)}${func.jsDoc.length > 80 ? '...' : ''}`);
+        }
+        logger.info('');
       });
-      throw new Error('Multiple functions match the pattern. Please use a specific function ID.');
+      logger.info(chalk.blue('Usage examples:'));
+      logger.info(`  funcqc describe ${functionsByName[0].id.substring(0, 8)} --text "Your description"`);
+      logger.info(`  funcqc describe ${functionsByName[0].id} --text "Your description"`);
+      return;
     }
 
     // Use the single matched function
@@ -158,7 +174,11 @@ async function handleSingleDescribe(
   }))[0];
 
   if (!targetFunction) {
-    throw new Error(`Function not found: ${functionIdOrPattern}`);
+    logger.info(chalk.red(`❌ Function not found: ${functionIdOrPattern}`));
+    logger.info(chalk.blue('💡 Tips:'));
+    logger.info('  • Use `funcqc list` to see all available functions with their IDs');
+    logger.info('  • Use `funcqc search <keyword>` to find functions by content');
+    return;
   }
 
   if (options.text) {
@@ -213,4 +233,23 @@ async function handleSingleDescribe(
       logger.info(`  funcqc describe ${functionIdOrPattern} --text "Your description here"`);
     }
   }
+}
+
+function getRiskIcon(func: FunctionInfo): string {
+  if (!func.metrics) {
+    return ''; // No metrics available
+  }
+  
+  const { cyclomaticComplexity, linesOfCode, cognitiveComplexity, parameterCount, maxNestingLevel } = func.metrics;
+  
+  // Determine if function is high risk based on common thresholds
+  const isHighRisk = (
+    cyclomaticComplexity > 10 ||
+    (cognitiveComplexity ?? 0) > 15 ||
+    linesOfCode > 40 ||
+    parameterCount > 4 ||
+    maxNestingLevel > 3
+  );
+  
+  return isHighRisk ? chalk.red('⚠️') : chalk.green('✅');
 }

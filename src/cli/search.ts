@@ -77,22 +77,23 @@ function displaySearchResults(
 }
 
 function displayTable(functions: FunctionInfo[], logger: Logger): void {
-  // Print table header
-  logger.info(chalk.bold('Complexity   Function                  File:Line                                Exported Async'));
-  logger.info(chalk.gray('─'.repeat(95)));
+  // Print table header with ID column
+  logger.info(chalk.bold('ID        Complexity   Function                  File:Line                                Exported Async'));
+  logger.info(chalk.gray('─'.repeat(105)));
 
   // Print function rows
   functions.forEach(func => {
     const complexity = func.metrics?.cyclomaticComplexity || 1;
     const complexityColor = getComplexityColor(complexity);
     
+    const functionId = chalk.gray(func.id.substring(0, 8));
     const functionName = truncate(func.name, 25).padEnd(25);
     const fileLocation = truncate(`${path.basename(func.filePath)}:${func.startLine}`, 40).padEnd(40);
     const exported = func.isExported ? chalk.green('✓') : chalk.gray('✗');
     const async = func.isAsync ? chalk.blue('✓') : chalk.gray('✗');
 
     const complexityStr = complexityColor(complexity.toString()).padEnd(12);
-    logger.info(`${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
+    logger.info(`${functionId} ${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
   });
 }
 
@@ -101,7 +102,7 @@ function displayFriendly(functions: FunctionInfo[], logger: Logger): void {
     const complexity = func.metrics?.cyclomaticComplexity || 1;
     const complexityColor = getComplexityColor(complexity);
     
-    logger.info(`${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)}`);
+    logger.info(`${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)} ${chalk.gray(`[ID: ${func.id.substring(0, 8)}]`)}`);
     logger.info(`   File: ${func.filePath}:${func.startLine}`);
     logger.info(`   Complexity: ${complexityColor(complexity.toString())} | ` +
       `Exported: ${func.isExported ? chalk.green('Yes') : chalk.gray('No')} | ` +
