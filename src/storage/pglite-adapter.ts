@@ -18,6 +18,7 @@ import {
   QualityMetrics,
   FunctionDescription
 } from '../types';
+import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 
 /**
  * Clean PGLite storage adapter implementation
@@ -700,6 +701,100 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // TRANSACTION MANAGEMENT
+  // ========================================
+  
+  /**
+   * Execute operations within a database transaction
+   * Provides automatic rollback on errors and commit on success
+   */
+  async executeInTransaction<T>(operation: () => Promise<T>): Promise<T> {
+    await this.db.query('BEGIN');
+    try {
+      const result = await operation();
+      await this.db.query('COMMIT');
+      return result;
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      throw error;
+    }
+  }
+  
+  /**
+   * Begin a database transaction manually
+   */
+  async beginTransaction(): Promise<void> {
+    await this.db.query('BEGIN');
+  }
+  
+  /**
+   * Commit the current transaction
+   */
+  async commitTransaction(): Promise<void> {
+    await this.db.query('COMMIT');
+  }
+  
+  /**
+   * Rollback the current transaction
+   */
+  async rollbackTransaction(): Promise<void> {
+    await this.db.query('ROLLBACK');
+  }
+  
+  // ========================================
+  // BULK OPERATIONS
+  // ========================================
+  
+  /**
+   * Bulk delete functions by snapshot ID with transaction support
+   */
+  async bulkDeleteFunctionsBySnapshot(snapshotId: string): Promise<number> {
+    return await this.executeInTransaction(async () => {
+      // Delete in reverse dependency order
+      await this.db.query('DELETE FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
+      await this.db.query('DELETE FROM function_parameters WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
+      await this.db.query('DELETE FROM function_descriptions WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
+      
+      const result = await this.db.query('DELETE FROM functions WHERE snapshot_id = $1', [snapshotId]);
+      return (result as unknown as { changes: number }).changes || 0;
+    });
+  }
+  
+  /**
+   * Bulk update quality metrics with transaction support
+   */
+  async bulkUpdateQualityMetrics(updates: Array<{ functionId: string; metrics: QualityMetrics }>): Promise<void> {
+    if (updates.length === 0) return;
+    
+    const batchSize = BatchProcessor.getOptimalBatchSize(updates.length, 2); // 2KB estimated per metric
+    
+    await this.executeInTransaction(async () => {
+      const batches = BatchProcessor.batchArray(updates, batchSize);
+      
+      for (const batch of batches) {
+        for (const { functionId, metrics } of batch) {
+          await this.db.query(`
+            UPDATE quality_metrics SET
+              lines_of_code = $2, total_lines = $3, cyclomatic_complexity = $4, cognitive_complexity = $5,
+              max_nesting_level = $6, parameter_count = $7, return_statement_count = $8, branch_count = $9,
+              loop_count = $10, try_catch_count = $11, async_await_count = $12, callback_count = $13,
+              comment_lines = $14, code_to_comment_ratio = $15, halstead_volume = $16, halstead_difficulty = $17,
+              maintainability_index = $18
+            WHERE function_id = $1
+          `, [
+            functionId, metrics.linesOfCode, metrics.totalLines, metrics.cyclomaticComplexity,
+            metrics.cognitiveComplexity, metrics.maxNestingLevel, metrics.parameterCount,
+            metrics.returnStatementCount, metrics.branchCount, metrics.loopCount,
+            metrics.tryCatchCount, metrics.asyncAwaitCount, metrics.callbackCount,
+            metrics.commentLines, metrics.codeToCommentRatio, metrics.halsteadVolume || null,
+            metrics.halsteadDifficulty || null, metrics.maintainabilityIndex || null
+          ]);
+        }
+      }
+    });
+  }
+  
+  // ========================================
   // PRIVATE HELPER METHODS
   // ========================================
 
@@ -818,11 +913,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private async createIndexes(): Promise<void> {
     await this.db.exec(`
+      -- Core indexes for performance
       CREATE INDEX IF NOT EXISTS idx_functions_snapshot_id ON functions(snapshot_id);
       CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
       CREATE INDEX IF NOT EXISTS idx_functions_file_path ON functions(file_path);
+      CREATE INDEX IF NOT EXISTS idx_functions_signature_hash ON functions(signature_hash);
+      CREATE INDEX IF NOT EXISTS idx_functions_ast_hash ON functions(ast_hash);
+      
+      -- Snapshot indexes
       CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
       CREATE INDEX IF NOT EXISTS idx_snapshots_git_commit ON snapshots(git_commit);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_git_branch ON snapshots(git_branch);
+      
+      -- Quality metrics indexes for fast filtering
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_lines ON quality_metrics(lines_of_code);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
+      
+      -- Parameter search indexes
+      CREATE INDEX IF NOT EXISTS idx_function_parameters_function_id ON function_parameters(function_id);
+      CREATE INDEX IF NOT EXISTS idx_function_parameters_position ON function_parameters(function_id, position);
+      
+      -- Description search indexes
+      CREATE INDEX IF NOT EXISTS idx_function_descriptions_function_id ON function_descriptions(function_id);
+      CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
+      
+      -- Composite indexes for common queries
+      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_complexity ON functions(snapshot_id) 
+        INCLUDE (id) WHERE id IN (SELECT function_id FROM quality_metrics WHERE cyclomatic_complexity > 5);
+      CREATE INDEX IF NOT EXISTS idx_functions_exported ON functions(snapshot_id, is_exported) WHERE is_exported = true;
     `);
   }
 
@@ -852,61 +972,96 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     ]);
   }
 
+  /**
+   * Save functions using batch processing and transactions for optimal performance
+   */
   private async saveFunctions(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
-    for (const func of functions) {
-      // Insert function
-      await this.db.query(`
-        INSERT INTO functions (
-          id, snapshot_id, name, display_name, signature, signature_hash,
-          file_path, file_hash, start_line, end_line, start_column, end_column,
-          ast_hash, is_exported, is_async, is_generator, is_arrow_function,
-          is_method, is_constructor, is_static, access_modifier, parent_class,
-          parent_namespace, js_doc, source_code
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-          $17, $18, $19, $20, $21, $22, $23, $24, $25
-        )
-      `, [
-        func.id, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
-        func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
-        func.astHash, func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
-        func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null, func.parentClass || null,
-        func.parentNamespace || null, func.jsDoc || null, func.sourceCode || null
-      ]);
-
-      // Insert parameters
-      for (const param of func.parameters) {
-        await this.db.query(`
-          INSERT INTO function_parameters (
-            function_id, name, type, type_simple, position, is_optional, is_rest, default_value, description
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        `, [
-          func.id, param.name, param.type, param.typeSimple, param.position,
-          param.isOptional, param.isRest, param.defaultValue || null, param.description || null
-        ]);
+    if (functions.length === 0) return;
+    
+    // Use optimal batch size based on function count and estimated memory usage
+    const batchSize = BatchProcessor.calculateFunctionBatchSize(functions);
+    
+    // Create transaction processor for functions
+    const processor: BatchTransactionProcessor<FunctionInfo> = {
+      processBatch: async (batch: FunctionInfo[]) => {
+        await this.saveFunctionsBatch(snapshotId, batch);
+      },
+      onError: async (error: Error, _batch: FunctionInfo[]) => {
+        console.warn(`Failed to save batch of ${_batch.length} functions: ${error.message}`);
+      },
+      onSuccess: async (_batch: FunctionInfo[]) => {
+        // Optional: Log successful batch processing
       }
-
-      // Insert metrics if available
-      if (func.metrics) {
+    };
+    
+    // Process all functions in batches with transaction support
+    await TransactionalBatchProcessor.processWithTransaction(
+      functions,
+      processor,
+      batchSize
+    );
+  }
+  
+  /**
+   * Save a batch of functions with transaction management
+   */
+  async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    await this.executeInTransaction(async () => {
+      for (const func of functions) {
+        // Insert function
         await this.db.query(`
-          INSERT INTO quality_metrics (
-            function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-            max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-            try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-            halstead_volume, halstead_difficulty, maintainability_index
+          INSERT INTO functions (
+            id, snapshot_id, name, display_name, signature, signature_hash,
+            file_path, file_hash, start_line, end_line, start_column, end_column,
+            ast_hash, is_exported, is_async, is_generator, is_arrow_function,
+            is_method, is_constructor, is_static, access_modifier, parent_class,
+            parent_namespace, js_doc, source_code
           ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+            $17, $18, $19, $20, $21, $22, $23, $24, $25
           )
         `, [
-          func.id, func.metrics.linesOfCode, func.metrics.totalLines, func.metrics.cyclomaticComplexity,
-          func.metrics.cognitiveComplexity, func.metrics.maxNestingLevel, func.metrics.parameterCount,
-          func.metrics.returnStatementCount, func.metrics.branchCount, func.metrics.loopCount,
-          func.metrics.tryCatchCount, func.metrics.asyncAwaitCount, func.metrics.callbackCount,
-          func.metrics.commentLines, func.metrics.codeToCommentRatio, func.metrics.halsteadVolume || null,
-          func.metrics.halsteadDifficulty || null, func.metrics.maintainabilityIndex || null
+          func.id, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
+          func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
+          func.astHash, func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
+          func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null, func.parentClass || null,
+          func.parentNamespace || null, func.jsDoc || null, func.sourceCode || null
         ]);
+
+        // Insert parameters
+        for (const param of func.parameters) {
+          await this.db.query(`
+            INSERT INTO function_parameters (
+              function_id, name, type, type_simple, position, is_optional, is_rest, default_value, description
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          `, [
+            func.id, param.name, param.type, param.typeSimple, param.position,
+            param.isOptional, param.isRest, param.defaultValue || null, param.description || null
+          ]);
+        }
+
+        // Insert metrics if available
+        if (func.metrics) {
+          await this.db.query(`
+            INSERT INTO quality_metrics (
+              function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+              max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
+              try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
+              halstead_volume, halstead_difficulty, maintainability_index
+            ) VALUES (
+              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+            )
+          `, [
+            func.id, func.metrics.linesOfCode, func.metrics.totalLines, func.metrics.cyclomaticComplexity,
+            func.metrics.cognitiveComplexity, func.metrics.maxNestingLevel, func.metrics.parameterCount,
+            func.metrics.returnStatementCount, func.metrics.branchCount, func.metrics.loopCount,
+            func.metrics.tryCatchCount, func.metrics.asyncAwaitCount, func.metrics.callbackCount,
+            func.metrics.commentLines, func.metrics.codeToCommentRatio, func.metrics.halsteadVolume || null,
+            func.metrics.halsteadDifficulty || null, func.metrics.maintainabilityIndex || null
+          ]);
+        }
       }
-    }
+    });
   }
 
   private async getFunctionParameters(functionId: string): Promise<ParameterRow[]> {

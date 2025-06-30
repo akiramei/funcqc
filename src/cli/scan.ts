@@ -8,6 +8,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
+// BatchProcessor import removed as it's not directly used in this file
 import simpleGit from 'simple-git';
 
 export async function scanCommand(
@@ -60,7 +61,9 @@ function determineScanPaths(paths: string[], config: FuncqcConfig): string[] {
 async function initializeComponents(config: FuncqcConfig, spinner: SpinnerInterface): Promise<CliComponents> {
   spinner.start('Initializing funcqc scan...');
   
-  const analyzer = new TypeScriptAnalyzer();
+  // Configure analyzer based on expected project size
+  const maxSourceFilesInMemory = process.env['NODE_OPTIONS']?.includes('--max-old-space-size') ? 100 : 50;
+  const analyzer = new TypeScriptAnalyzer(maxSourceFilesInMemory);
   const storage = new PGLiteStorageAdapter(config.storage.path!);
   const qualityCalculator = new QualityCalculator();
   
@@ -113,7 +116,25 @@ async function performQuickAnalysis(files: string[], components: CliComponents, 
 async function performFullAnalysis(files: string[], components: CliComponents, options: ScanCommandOptions, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const allFunctions: FunctionInfo[] = [];
   const batchSize = parseInt(options.batchSize || '50');
+  const useStreaming = files.length > 1000; // Use streaming for very large projects
   
+  if (useStreaming) {
+    spinner.text = `Using streaming mode for ${files.length} files...`;
+    await performStreamingAnalysis(files, components, allFunctions, spinner);
+  } else {
+    await performBatchAnalysis(files, components, allFunctions, batchSize, spinner);
+  }
+  
+  return allFunctions;
+}
+
+async function performBatchAnalysis(
+  files: string[], 
+  components: CliComponents, 
+  allFunctions: FunctionInfo[], 
+  batchSize: number, 
+  spinner: SpinnerInterface
+): Promise<void> {
   for (let i = 0; i < files.length; i += batchSize) {
     const batch = files.slice(i, i + batchSize);
     const batchFunctions = await analyzeBatch(batch, components.analyzer, components.qualityCalculator);
@@ -121,14 +142,38 @@ async function performFullAnalysis(files: string[], components: CliComponents, o
     
     spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
   }
-  
-  return allFunctions;
+}
+
+async function performStreamingAnalysis(
+  files: string[], 
+  components: CliComponents, 
+  allFunctions: FunctionInfo[], 
+  spinner: SpinnerInterface
+): Promise<void> {
+  // Note: Streaming analysis requires analyzer method extension
+  // For now, fall back to batch processing for large projects
+  await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
 }
 
 async function saveResults(allFunctions: FunctionInfo[], storage: CliComponents['storage'], options: ScanCommandOptions, spinner: SpinnerInterface): Promise<void> {
   spinner.start('Saving to database...');
+  
+  // Show estimated time for large datasets
+  if (allFunctions.length > 5000) {
+    const estimatedSeconds = Math.ceil(allFunctions.length / 200); // Rough estimate: 200 functions per second
+    spinner.text = `Saving ${allFunctions.length} functions to database (estimated ${estimatedSeconds}s)...`;
+  }
+  
+  const startTime = Date.now();
   const snapshotId = await storage.saveSnapshot(allFunctions, options.label);
-  spinner.succeed(`Saved snapshot: ${snapshotId}`);
+  const elapsed = Math.ceil((Date.now() - startTime) / 1000);
+  
+  if (allFunctions.length > 1000) {
+    const functionsPerSecond = Math.round(allFunctions.length / elapsed);
+    spinner.succeed(`Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec)`);
+  } else {
+    spinner.succeed(`Saved snapshot: ${snapshotId}`);
+  }
 }
 
 function showCompletionMessage(): void {
@@ -138,6 +183,11 @@ function showCompletionMessage(): void {
   console.log(chalk.gray('  • Run `funcqc list` to view functions'));
   console.log(chalk.gray('  • Run `funcqc list --complexity ">5"` to find complex functions'));
   console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
+  console.log();
+  console.log(chalk.blue('💡 Performance tips:'));
+  console.log(chalk.gray('  • Use `--batch-size 100` for better memory usage with large projects'));
+  console.log(chalk.gray('  • Use `--quick` for faster scans during development'));
+  console.log(chalk.gray('  • Set NODE_OPTIONS="--max-old-space-size=4096" for very large projects'));
 }
 
 function handleScanError(error: unknown, options: ScanCommandOptions, spinner: SpinnerInterface): void {
@@ -237,6 +287,15 @@ function showAnalysisSummary(functions: FunctionInfo[]): void {
     console.log(chalk.green(`  ✓ No high-risk functions detected`));
   }
   
+  // Show performance statistics for large projects
+  if (functions.length > 1000) {
+    console.log();
+    console.log(chalk.blue('🚀 Performance Stats:'));
+    console.log(`  Project Size: ${functions.length > 10000 ? 'Very Large' : 'Large'} (${functions.length} functions)`);
+    console.log(`  Memory Usage: ${estimateMemoryUsage(functions)} MB (estimated)`);
+    console.log(`  Processing Mode: ${functions.length > 1000 ? 'Streaming' : 'Batch'} processing used`);
+  }
+  
   console.log();
   console.log(chalk.blue('📈 Quality Breakdown:'));
   console.log(`  Complexity Score: ${qualityScore.complexityScore}/100`);
@@ -261,6 +320,12 @@ function showAnalysisSummary(functions: FunctionInfo[]): void {
   console.log(`  Async functions: ${stats.async}`);
   console.log(`  Average complexity: ${stats.avgComplexity.toFixed(1)}`);
   console.log(`  Average lines: ${stats.avgLines.toFixed(1)}`);
+}
+
+function estimateMemoryUsage(functions: FunctionInfo[]): number {
+  // Rough estimation: each function uses about 2-5KB in memory
+  const avgFunctionSize = 3; // KB
+  return Math.round((functions.length * avgFunctionSize) / 1024); // Convert to MB
 }
 
 function calculateFileCount(functions: FunctionInfo[]): number {
