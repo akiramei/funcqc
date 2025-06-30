@@ -63,6 +63,7 @@ program
   .argument('[patterns...]', 'function name patterns (glob)')
   .option('--name <pattern>', 'filter by function name pattern')
   .option('--file <pattern>', 'filter by file path pattern')
+  .option('--keyword <keyword>', 'search in function names, JSDoc, and comments')
   .option('--exported', 'show exported functions only')
   .option('--async', 'show async functions only')
   .option('--complexity <condition>', 'filter by complexity (e.g., ">5", "3..10")')
