@@ -138,7 +138,7 @@ function displayCompactHistory(snapshots: any[]): void {
     }
   };
 
-  // @ts-ignore - Table configuration type issue
+  // @ts-expect-error - Table configuration type issue
   console.log(table([headers, ...tableData], config));
 }
 
@@ -446,7 +446,7 @@ function displayCompactFunctionHistory(
     }
   };
 
-  // @ts-ignore - Table configuration type issue
+  // @ts-expect-error - Table configuration type issue
   console.log(table([headers, ...tableData], config));
 }
 

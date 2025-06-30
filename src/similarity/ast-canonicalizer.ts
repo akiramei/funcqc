@@ -51,7 +51,7 @@ export class ASTCanonicalizer {
       // Clean up
       sourceFile.getProject().removeSourceFile(tempFile);
       return '';
-    } catch (error) {
+    } catch {
       return '';
     }
   }

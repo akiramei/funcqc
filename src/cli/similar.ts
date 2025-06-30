@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import ora from 'ora';
 import chalk from 'chalk';
+import fs from 'fs';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { SimilarityManager } from '../similarity/similarity-manager';
@@ -121,7 +122,7 @@ function parseConsensusStrategy(input: string): any {
     case 'union':
       return { strategy: 'union' };
     
-    case 'weighted':
+    case 'weighted': {
       // Parse weighted format: weighted:detector1=0.5,detector2=0.3
       const weightings: Record<string, number> = {};
       if (parts[1]) {
@@ -132,6 +133,7 @@ function parseConsensusStrategy(input: string): any {
         }
       }
       return { strategy: 'weighted', weightings };
+    }
     
     default:
       throw new Error(`Unknown consensus strategy: ${strategy}`);
@@ -190,7 +192,6 @@ function outputJSON(results: SimilarityResult[], outputPath?: string, jsonLines:
   const jsonString = JSON.stringify(output, null, 2);
   
   if (outputPath) {
-    const fs = require('fs');
     fs.writeFileSync(outputPath, jsonString);
     console.log(chalk.green(`✓ Saved similarity data to ${outputPath}`));
   } else {
@@ -237,7 +238,6 @@ function outputJSONLines(results: Array<SimilarityResult & { priority: number; r
   const output = lines.join('\n');
   
   if (outputPath) {
-    const fs = require('fs');
     fs.writeFileSync(outputPath, output);
     console.log(chalk.green(`✓ Saved similarity data (JSON Lines) to ${outputPath}`));
   } else {

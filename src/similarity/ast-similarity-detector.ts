@@ -146,7 +146,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
 
       // Calculate similarity using canonicalized AST representations
       return calculateASTSimilarity(canonical1, canonical2);
-    } catch (error) {
+    } catch {
       // Fallback to text-based comparison if AST parsing fails
       return this.calculateTextBasedSimilarity(code1, code2);
     }
