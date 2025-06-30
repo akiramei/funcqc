@@ -23,7 +23,7 @@ export async function searchCommand(
 
     try {
       const functions = await storage.searchFunctionsByDescription(keyword, {
-        limit: options.limit ? parseInt(options.limit) : 50
+        limit: options.limit ? parseInt(options.limit, 10) : 50
       });
 
       if (functions.length === 0) {
@@ -122,10 +122,10 @@ function getComplexityColor(complexity: number): (text: string) => string {
   return chalk.green;
 }
 
+// Import path module for basename
+import path from 'path';
+
 function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.substring(0, maxLength - 3) + '...';
 }
-
-// Import path module for basename
-import path from 'path';

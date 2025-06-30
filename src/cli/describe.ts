@@ -66,7 +66,12 @@ async function handleBatchDescribe(
     throw new Error(`Input file not found: ${options.input}`);
   }
 
-  const inputData = JSON.parse(fs.readFileSync(options.input, 'utf-8'));
+  let inputData: unknown;
+  try {
+    inputData = JSON.parse(fs.readFileSync(options.input, 'utf-8'));
+  } catch (error) {
+    throw new Error(`Failed to parse JSON from input file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
   
   if (!Array.isArray(inputData)) {
     throw new Error('Input file must contain an array of descriptions');
@@ -92,8 +97,8 @@ async function handleBatchDescribe(
       ...(options.by && { createdBy: options.by }),
       ...(desc.aiModel && { aiModel: desc.aiModel }),
       ...(options.model && { aiModel: options.model }),
-      ...(desc.confidenceScore !== undefined && { confidenceScore: desc.confidenceScore }),
-      ...(options.confidence && { confidenceScore: parseFloat(options.confidence) })
+      ...(desc.confidenceScore !== undefined && !isNaN(desc.confidenceScore) && { confidenceScore: desc.confidenceScore }),
+      ...(options.confidence && !isNaN(parseFloat(options.confidence)) && { confidenceScore: parseFloat(options.confidence) })
     };
 
     await storage.saveFunctionDescription(description);
@@ -148,7 +153,7 @@ async function handleSingleDescribe(
     functionIdOrPattern = functionsByName[0].id;
   }
 
-  const targetFunction = functions[0] || (await storage.queryFunctions({
+  const targetFunction = functions.length > 0 ? functions[0] : (await storage.queryFunctions({
     filters: [{ field: 'id', operator: '=', value: functionIdOrPattern }]
   }))[0];
 
@@ -166,7 +171,7 @@ async function handleSingleDescribe(
       updatedAt: Date.now(),
       ...(options.by && { createdBy: options.by }),
       ...(options.model && { aiModel: options.model }),
-      ...(options.confidence && { confidenceScore: parseFloat(options.confidence) })
+      ...(options.confidence && !isNaN(parseFloat(options.confidence)) && { confidenceScore: parseFloat(options.confidence) })
     };
 
     await storage.saveFunctionDescription(description);
@@ -178,8 +183,7 @@ async function handleSingleDescribe(
 
   } else if (options.interactive) {
     // Interactive mode (future enhancement)
-    logger.info('Interactive mode is not yet implemented. Please use --text option.');
-    process.exit(1);
+    throw new Error('Interactive mode is not yet implemented. Please use --text option.');
     
   } else {
     // Show current description or prompt for input

@@ -17,50 +17,54 @@ export async function listCommand(
     // Initialize storage
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
-    
-    // Build query filters
-    const filters = buildFilters(patterns, options);
-    
-    // Query functions
-    const queryOptions: QueryOptions = { filters };
-    if (options.sort) queryOptions.sort = options.sort;
-    if (options.limit) queryOptions.limit = parseInt(options.limit);
-    
-    let functions: FunctionInfo[] = [];
 
-    // Handle description-specific filtering
-    if (options.withDescription || options.noDescription) {
-      const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
-      if (snapshots.length === 0) {
-        console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    try {
+      // Build query filters
+      const filters = buildFilters(patterns, options);
+      
+      // Query functions
+      const queryOptions: QueryOptions = { filters };
+      if (options.sort) queryOptions.sort = options.sort;
+      if (options.limit) queryOptions.limit = parseInt(options.limit, 10);
+      
+      let functions: FunctionInfo[] = [];
+
+      // Handle description-specific filtering
+      if (options.withDescription || options.noDescription) {
+        const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+        if (snapshots.length === 0) {
+          console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+          return;
+        }
+
+        if (options.withDescription) {
+          functions = await storage.getFunctionsWithDescriptions(snapshots[0].id, queryOptions);
+        } else if (options.noDescription) {
+          functions = await storage.getFunctionsWithoutDescriptions(snapshots[0].id, queryOptions);
+        }
+      } else {
+        functions = await storage.queryFunctions(queryOptions);
+      }
+      
+      // Apply keyword filtering if keyword is provided but not handled by storage
+      if (options.keyword) {
+        functions = applyKeywordFiltering(functions, options.keyword);
+      }
+      
+      // Apply threshold-based filtering
+      functions = await applyThresholdFiltering(functions, options, config);
+      
+      if (functions.length === 0) {
+        console.log(chalk.yellow('No functions found matching the criteria.'));
+        console.log(chalk.blue('Try running `funcqc scan` first to analyze your code.'));
         return;
       }
-
-      if (options.withDescription) {
-        functions = await storage.getFunctionsWithDescriptions(snapshots[0].id, queryOptions);
-      } else if (options.noDescription) {
-        functions = await storage.getFunctionsWithoutDescriptions(snapshots[0].id, queryOptions);
-      }
-    } else {
-      functions = await storage.queryFunctions(queryOptions);
+      
+      // Output results
+      await outputResults(functions, options, config);
+    } finally {
+      await storage.close();
     }
-    
-    // Apply keyword filtering if keyword is provided but not handled by storage
-    if (options.keyword) {
-      functions = applyKeywordFiltering(functions, options.keyword);
-    }
-    
-    // Apply threshold-based filtering
-    functions = await applyThresholdFiltering(functions, options, config);
-    
-    if (functions.length === 0) {
-      console.log(chalk.yellow('No functions found matching the criteria.'));
-      console.log(chalk.blue('Try running `funcqc scan` first to analyze your code.'));
-      return;
-    }
-    
-    // Output results
-    await outputResults(functions, options, config);
     
   } catch (error) {
     console.error(chalk.red('Failed to list functions:'), error instanceof Error ? error.message : String(error));
