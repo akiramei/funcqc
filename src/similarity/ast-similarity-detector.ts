@@ -42,10 +42,35 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
-    const threshold = options.threshold || 0.8;
-    const minLines = options.minLines || 5;
-    const crossFile = options.crossFile !== false;
+    const config = this.parseDetectionOptions(options);
+    const validFunctions = this.filterValidFunctions(functions, config);
+    const pairwiseResults = this.detectPairwiseSimilarities(validFunctions, config);
+    
+    return this.groupSimilarFunctions(pairwiseResults);
+  }
 
+  async isAvailable(): Promise<boolean> {
+    return true;
+  }
+
+  private parseDetectionOptions(options: SimilarityOptions) {
+    return {
+      threshold: options.threshold || 0.8,
+      minLines: options.minLines || 5,
+      crossFile: options.crossFile !== false
+    };
+  }
+
+  private filterValidFunctions(functions: FunctionInfo[], config: { minLines: number }): FunctionInfo[] {
+    return functions.filter(func => 
+      !func.metrics || func.metrics.linesOfCode >= config.minLines
+    );
+  }
+
+  private detectPairwiseSimilarities(
+    functions: FunctionInfo[], 
+    config: { threshold: number; crossFile: boolean }
+  ): SimilarityResult[] {
     const results: SimilarityResult[] = [];
     const processedPairs = new Set<string>();
 
@@ -54,46 +79,60 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         const func1 = functions[i];
         const func2 = functions[j];
 
-        // Skip if functions are too small
-        if (func1.metrics && func1.metrics.linesOfCode < minLines) continue;
-        if (func2.metrics && func2.metrics.linesOfCode < minLines) continue;
+        if (this.shouldSkipComparison(func1, func2, config, processedPairs)) {
+          continue;
+        }
 
-        // Skip cross-file comparisons if disabled
-        if (!crossFile && func1.filePath !== func2.filePath) continue;
-
-        // Skip if already processed
         const pairKey = this.getPairKey(func1.id, func2.id);
-        if (processedPairs.has(pairKey)) continue;
         processedPairs.add(pairKey);
 
         const similarity = this.calculateSimilarity(func1, func2);
         
-        if (similarity >= threshold) {
-          results.push({
-            type: 'structural',
-            similarity,
-            functions: [
-              this.createSimilarFunction(func1),
-              this.createSimilarFunction(func2)
-            ],
-            detector: this.name,
-            metadata: {
-              astHashMatch: func1.astHash === func2.astHash,
-              signatureHashMatch: func1.signatureHash === func2.signatureHash,
-              complexityDiff: Math.abs((func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)),
-              linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0))
-            }
-          });
+        if (similarity >= config.threshold) {
+          results.push(this.createSimilarityResult(func1, func2, similarity));
         }
       }
     }
 
-    // Group similar functions together
-    return this.groupSimilarFunctions(results);
+    return results;
   }
 
-  async isAvailable(): Promise<boolean> {
-    return true;
+  private shouldSkipComparison(
+    func1: FunctionInfo, 
+    func2: FunctionInfo, 
+    config: { crossFile: boolean }, 
+    processedPairs: Set<string>
+  ): boolean {
+    // Skip cross-file comparisons if disabled
+    if (!config.crossFile && func1.filePath !== func2.filePath) {
+      return true;
+    }
+
+    // Skip if already processed
+    const pairKey = this.getPairKey(func1.id, func2.id);
+    return processedPairs.has(pairKey);
+  }
+
+  private createSimilarityResult(
+    func1: FunctionInfo, 
+    func2: FunctionInfo, 
+    similarity: number
+  ): SimilarityResult {
+    return {
+      type: 'structural',
+      similarity,
+      functions: [
+        this.createSimilarFunction(func1),
+        this.createSimilarFunction(func2)
+      ],
+      detector: this.name,
+      metadata: {
+        astHashMatch: func1.astHash === func2.astHash,
+        signatureHashMatch: func1.signatureHash === func2.signatureHash,
+        complexityDiff: Math.abs((func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)),
+        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0))
+      }
+    };
   }
 
   private calculateSimilarity(func1: FunctionInfo, func2: FunctionInfo): number {
@@ -306,90 +345,138 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private groupSimilarFunctions(results: SimilarityResult[]): SimilarityResult[] {
-    // Create groups of similar functions
-    const groups: Map<string, Set<string>> = new Map();
-    const functionGroups: Map<string, SimilarFunction> = new Map();
+    const graph = this.buildSimilarityGraph(results);
+    const components = this.findConnectedComponents(graph.adjacencyList);
+    
+    return this.createGroupedResults(components, graph.functionMap, results);
+  }
 
-    // Build adjacency list
+  private buildSimilarityGraph(results: SimilarityResult[]) {
+    const adjacencyList: Map<string, Set<string>> = new Map();
+    const functionMap: Map<string, SimilarFunction> = new Map();
+
     for (const result of results) {
       const [func1, func2] = result.functions;
       
-      if (!groups.has(func1.functionId)) {
-        groups.set(func1.functionId, new Set());
-      }
-      if (!groups.has(func2.functionId)) {
-        groups.set(func2.functionId, new Set());
-      }
+      this.ensureNodeExists(adjacencyList, func1.functionId);
+      this.ensureNodeExists(adjacencyList, func2.functionId);
       
-      groups.get(func1.functionId)!.add(func2.functionId);
-      groups.get(func2.functionId)!.add(func1.functionId);
+      adjacencyList.get(func1.functionId)!.add(func2.functionId);
+      adjacencyList.get(func2.functionId)!.add(func1.functionId);
 
-      // Store function details
-      functionGroups.set(func1.functionId, func1);
-      functionGroups.set(func2.functionId, func2);
+      functionMap.set(func1.functionId, func1);
+      functionMap.set(func2.functionId, func2);
     }
 
-    // Find connected components
+    return { adjacencyList, functionMap };
+  }
+
+  private ensureNodeExists(adjacencyList: Map<string, Set<string>>, nodeId: string): void {
+    if (!adjacencyList.has(nodeId)) {
+      adjacencyList.set(nodeId, new Set());
+    }
+  }
+
+  private findConnectedComponents(adjacencyList: Map<string, Set<string>>): Set<string>[] {
     const visited = new Set<string>();
-    const groupedResults: SimilarityResult[] = [];
+    const components: Set<string>[] = [];
 
-    for (const [funcId] of groups) {
-      if (visited.has(funcId)) continue;
-
-      const component = new Set<string>();
-      const queue = [funcId];
-
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (visited.has(current)) continue;
-
-        visited.add(current);
-        component.add(current);
-
-        for (const neighbor of groups.get(current) || []) {
-          if (!visited.has(neighbor)) {
-            queue.push(neighbor);
-          }
+    for (const [funcId] of adjacencyList) {
+      if (!visited.has(funcId)) {
+        const component = this.exploreComponent(funcId, adjacencyList, visited);
+        if (component.size > 1) {
+          components.push(component);
         }
-      }
-
-      if (component.size > 1) {
-        const functions = Array.from(component)
-          .map(id => functionGroups.get(id)!)
-          .filter(f => f !== undefined);
-
-        // Calculate average similarity for the group
-        let totalSimilarity = 0;
-        let count = 0;
-
-        for (const result of results) {
-          const ids = result.functions.map(f => f.functionId);
-          if (ids.every(id => component.has(id))) {
-            totalSimilarity += result.similarity;
-            count++;
-          }
-        }
-
-        // Find the first result to preserve its metadata
-        const firstResult = results.find(result => {
-          const ids = result.functions.map(f => f.functionId);
-          return ids.every(id => component.has(id));
-        });
-
-        groupedResults.push({
-          type: 'structural',
-          similarity: count > 0 ? totalSimilarity / count : 0,
-          functions,
-          detector: this.name,
-          metadata: {
-            ...firstResult?.metadata,
-            groupSize: component.size,
-            averageSimilarity: count > 0 ? totalSimilarity / count : 0
-          }
-        });
       }
     }
 
-    return groupedResults;
+    return components;
+  }
+
+  private exploreComponent(
+    startId: string, 
+    adjacencyList: Map<string, Set<string>>, 
+    visited: Set<string>
+  ): Set<string> {
+    const component = new Set<string>();
+    const queue = [startId];
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+
+      visited.add(current);
+      component.add(current);
+
+      const neighbors = adjacencyList.get(current) || new Set();
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    return component;
+  }
+
+  private createGroupedResults(
+    components: Set<string>[], 
+    functionMap: Map<string, SimilarFunction>, 
+    originalResults: SimilarityResult[]
+  ): SimilarityResult[] {
+    return components.map(component => {
+      const functions = this.getFunctionsInComponent(component, functionMap);
+      const avgSimilarity = this.calculateAverageSimilarity(component, originalResults);
+      const firstResult = this.findFirstMatchingResult(component, originalResults);
+
+      return {
+        type: 'structural' as const,
+        similarity: avgSimilarity,
+        functions,
+        detector: this.name,
+        metadata: {
+          ...firstResult?.metadata,
+          groupSize: component.size,
+          averageSimilarity: avgSimilarity
+        }
+      };
+    });
+  }
+
+  private getFunctionsInComponent(
+    component: Set<string>, 
+    functionMap: Map<string, SimilarFunction>
+  ): SimilarFunction[] {
+    return Array.from(component)
+      .map(id => functionMap.get(id)!)
+      .filter(f => f !== undefined);
+  }
+
+  private calculateAverageSimilarity(
+    component: Set<string>, 
+    results: SimilarityResult[]
+  ): number {
+    let totalSimilarity = 0;
+    let count = 0;
+
+    for (const result of results) {
+      const ids = result.functions.map(f => f.functionId);
+      if (ids.every(id => component.has(id))) {
+        totalSimilarity += result.similarity;
+        count++;
+      }
+    }
+
+    return count > 0 ? totalSimilarity / count : 0;
+  }
+
+  private findFirstMatchingResult(
+    component: Set<string>, 
+    results: SimilarityResult[]
+  ): SimilarityResult | undefined {
+    return results.find(result => {
+      const ids = result.functions.map(f => f.functionId);
+      return ids.every(id => component.has(id));
+    });
   }
 }
