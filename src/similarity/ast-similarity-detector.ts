@@ -1,9 +1,39 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
+import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction, SimilarityWeights } from '../types';
+import { ASTCanonicalizer, calculateASTSimilarity } from './ast-canonicalizer';
+import { Project } from 'ts-morph';
 
 export class ASTSimilarityDetector implements SimilarityDetector {
   name = 'ast-structural';
-  version = '1.0.0';
+  version = '2.0.0'; // Updated for AST canonicalization
   supportedLanguages = ['typescript', 'javascript'];
+  
+  private canonicalizer = new ASTCanonicalizer();
+  private project: Project;
+  private weights: Required<SimilarityWeights>;
+
+  constructor(weights?: SimilarityWeights) {
+    // Set default weights, allow override
+    this.weights = {
+      astStructure: weights?.astStructure ?? 0.4,
+      signature: weights?.signature ?? 0.2,
+      metrics: weights?.metrics ?? 0.2,
+      parameters: weights?.parameters ?? 0.1,
+      returnType: weights?.returnType ?? 0.1
+    };
+    this.project = new Project({
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+      skipLoadingLibFiles: true,
+      compilerOptions: {
+        isolatedModules: true,
+        skipLibCheck: true,
+        noResolve: true,
+        noLib: true,
+        target: 99, // ESNext
+        jsx: 4 // Preserve
+      }
+    });
+  }
 
   async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
     const threshold = options.threshold || 0.8;
@@ -69,29 +99,29 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     // Calculate structural similarity based on multiple factors
     const factors: Array<{ weight: number; score: number }> = [];
 
-    // AST structure similarity (simplified using normalized source code)
+    // AST structure similarity (using true AST canonicalization)
     if (func1.sourceCode && func2.sourceCode) {
       const astScore = this.calculateASTStructureSimilarity(func1.sourceCode, func2.sourceCode);
-      factors.push({ weight: 0.4, score: astScore });
+      factors.push({ weight: this.weights.astStructure, score: astScore });
     }
 
     // Signature similarity
     const signatureScore = this.calculateSignatureSimilarity(func1, func2);
-    factors.push({ weight: 0.2, score: signatureScore });
+    factors.push({ weight: this.weights.signature, score: signatureScore });
 
     // Metrics similarity
     if (func1.metrics && func2.metrics) {
       const metricsScore = this.calculateMetricsSimilarity(func1.metrics, func2.metrics);
-      factors.push({ weight: 0.2, score: metricsScore });
+      factors.push({ weight: this.weights.metrics, score: metricsScore });
     }
 
     // Parameter similarity
     const paramScore = this.calculateParameterSimilarity(func1.parameters, func2.parameters);
-    factors.push({ weight: 0.1, score: paramScore });
+    factors.push({ weight: this.weights.parameters, score: paramScore });
 
     // Return type similarity
     const returnScore = this.calculateReturnTypeSimilarity(func1.returnType, func2.returnType);
-    factors.push({ weight: 0.1, score: returnScore });
+    factors.push({ weight: this.weights.returnType, score: returnScore });
 
     // Calculate weighted average
     const totalWeight = factors.reduce((sum, f) => sum + f.weight, 0);
@@ -101,11 +131,32 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private calculateASTStructureSimilarity(code1: string, code2: string): number {
-    // Normalize code for comparison
+    try {
+      // Create temporary source files for AST parsing
+      const sourceFile1 = this.project.createSourceFile('temp1.ts', code1, { overwrite: true });
+      const sourceFile2 = this.project.createSourceFile('temp2.ts', code2, { overwrite: true });
+
+      // Canonicalize both code snippets using true AST analysis
+      const canonical1 = this.canonicalizer.canonicalizeSourceCode(code1, sourceFile1);
+      const canonical2 = this.canonicalizer.canonicalizeSourceCode(code2, sourceFile2);
+
+      // Clean up temporary files
+      this.project.removeSourceFile(sourceFile1);
+      this.project.removeSourceFile(sourceFile2);
+
+      // Calculate similarity using canonicalized AST representations
+      return calculateASTSimilarity(canonical1, canonical2);
+    } catch (error) {
+      // Fallback to text-based comparison if AST parsing fails
+      return this.calculateTextBasedSimilarity(code1, code2);
+    }
+  }
+
+  private calculateTextBasedSimilarity(code1: string, code2: string): number {
+    // Fallback: Use the original text-based normalization
     const normalized1 = this.normalizeCode(code1);
     const normalized2 = this.normalizeCode(code2);
 
-    // Use Levenshtein distance for structural similarity
     const distance = this.levenshteinDistance(normalized1, normalized2);
     const maxLength = Math.max(normalized1.length, normalized2.length);
     

@@ -11,6 +11,7 @@ import { Logger } from '../utils/cli-utils';
 interface SimilarCommandOptions {
   threshold?: string;
   json?: boolean;
+  jsonl?: boolean;  // JSON Lines format
   snapshot?: string;
   minLines?: string;
   crossFile?: boolean;
@@ -82,8 +83,8 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
       const limitedResults = limit ? results.slice(0, limit) : results;
 
       // Output results
-      if (options.json) {
-        outputJSON(limitedResults, options.output);
+      if (options.json || options.jsonl) {
+        outputJSON(limitedResults, options.output, options.jsonl);
       } else {
         displayResults(limitedResults, logger);
       }
@@ -137,20 +138,49 @@ function parseConsensusStrategy(input: string): any {
   }
 }
 
-function outputJSON(results: SimilarityResult[], outputPath?: string): void {
+function calculatePriority(result: SimilarityResult): number {
+  // Priority based on similarity score and total lines of code
+  const totalLines = result.functions.reduce((sum, func) => {
+    const lines = func.originalFunction?.metrics?.linesOfCode || 0;
+    return sum + lines;
+  }, 0);
+  
+  return result.similarity * totalLines;
+}
+
+function outputJSON(results: SimilarityResult[], outputPath?: string, jsonLines: boolean = false): void {
+  // Add priority and sort by it
+  const enrichedResults = results
+    .map(result => ({
+      ...result,
+      priority: calculatePriority(result),
+      refactoringImpact: calculateRefactoringImpact(result)
+    }))
+    .sort((a, b) => b.priority - a.priority);
+
+  if (jsonLines) {
+    outputJSONLines(enrichedResults, outputPath);
+    return;
+  }
+
   const output = {
-    version: '1.0',
+    version: '2.0', // Updated version for improved format
     timestamp: new Date().toISOString(),
     totalGroups: results.length,
-    groups: results.map(result => ({
+    groups: enrichedResults.map(result => ({
       type: result.type,
       similarity: result.similarity,
       detector: result.detector,
+      priority: result.priority,
+      refactoringImpact: result.refactoringImpact,
       functions: result.functions.map(func => ({
         id: func.functionId,
         name: func.functionName,
         file: func.filePath,
-        lines: `${func.startLine}-${func.endLine}`,
+        lines: {
+          start: func.startLine,
+          end: func.endLine
+        },
         metrics: func.originalFunction?.metrics
       })),
       metadata: result.metadata
@@ -165,6 +195,53 @@ function outputJSON(results: SimilarityResult[], outputPath?: string): void {
     console.log(chalk.green(`✓ Saved similarity data to ${outputPath}`));
   } else {
     console.log(jsonString);
+  }
+}
+
+function calculateRefactoringImpact(result: SimilarityResult): 'high' | 'medium' | 'low' {
+  const avgComplexity = result.functions.reduce((sum, func) => {
+    const complexity = func.originalFunction?.metrics?.cyclomaticComplexity || 0;
+    return sum + complexity;
+  }, 0) / result.functions.length;
+
+  const totalLines = result.functions.reduce((sum, func) => {
+    const lines = func.originalFunction?.metrics?.linesOfCode || 0;
+    return sum + lines;
+  }, 0);
+
+  if (avgComplexity > 8 && totalLines > 100) return 'high';
+  if (avgComplexity > 5 || totalLines > 50) return 'medium';
+  return 'low';
+}
+
+function outputJSONLines(results: Array<SimilarityResult & { priority: number; refactoringImpact: string }>, outputPath?: string): void {
+  const lines = results.map(result => JSON.stringify({
+    type: result.type,
+    similarity: result.similarity,
+    detector: result.detector,
+    priority: result.priority,
+    refactoringImpact: result.refactoringImpact,
+    functions: result.functions.map(func => ({
+      id: func.functionId,
+      name: func.functionName,
+      file: func.filePath,
+      lines: {
+        start: func.startLine,
+        end: func.endLine
+      },
+      metrics: func.originalFunction?.metrics
+    })),
+    metadata: result.metadata
+  }));
+
+  const output = lines.join('\n');
+  
+  if (outputPath) {
+    const fs = require('fs');
+    fs.writeFileSync(outputPath, output);
+    console.log(chalk.green(`✓ Saved similarity data (JSON Lines) to ${outputPath}`));
+  } else {
+    console.log(output);
   }
 }
 

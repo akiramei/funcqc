@@ -1,12 +1,12 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, ConsensusStrategy, SimilarFunction } from '../types';
+import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, ConsensusStrategy, SimilarFunction, SimilarityWeights } from '../types';
 import { ASTSimilarityDetector } from './ast-similarity-detector';
 
 export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
-  constructor() {
-    // Register default detectors
-    this.registerDetector(new ASTSimilarityDetector());
+  constructor(weights?: SimilarityWeights) {
+    // Register default detectors with configurable weights
+    this.registerDetector(new ASTSimilarityDetector(weights));
   }
 
   registerDetector(detector: SimilarityDetector): void {

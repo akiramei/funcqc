@@ -1,6 +1,16 @@
 # Similar Code Detection
 
-funcqc provides AST-based similar code detection to help identify duplicate or near-duplicate functions in your codebase. This feature exports objective similarity data that can be used by external tools for visualization and refactoring suggestions.
+funcqc provides advanced AST-based similar code detection to help identify duplicate or near-duplicate functions in your codebase. This feature exports objective similarity data that can be used by external tools for visualization and refactoring suggestions.
+
+## 🚀 Version 2.0 Improvements
+
+Based on expert review feedback, version 2.0 includes significant enhancements:
+
+- **True AST Canonicalization**: Replaced text-based normalization with proper AST parsing and canonicalization using ts-morph
+- **Configurable Similarity Weights**: Customizable weights for different similarity factors (AST structure, signature, metrics, etc.)
+- **Enhanced JSON Output**: Structured line ranges, priority scoring, and refactoring impact assessment
+- **JSON Lines Format**: Efficient streaming format for large datasets
+- **Improved Accuracy**: Better detection of structurally similar code regardless of variable names or formatting
 
 ## Quick Start
 
@@ -11,17 +21,24 @@ funcqc similar
 # Output as JSON for external tool integration
 funcqc similar --json > similarity.json
 
+# Use JSON Lines format for large datasets (streaming-friendly)
+funcqc similar --jsonl > similarity.jsonl
+
 # Adjust similarity threshold (0-1 scale)
 funcqc similar --threshold 0.9
 
 # Limit analysis to functions with at least 10 lines
 funcqc similar --min-lines 10
+
+# Get priority-sorted results with refactoring impact assessment
+funcqc similar --json | jq '.groups | sort_by(-.priority)'
 ```
 
 ## Command Options
 
 - `--threshold <value>` - Similarity threshold (0-1), default: 0.8
 - `--json` - Output results as JSON
+- `--jsonl` - Output as JSON Lines (streaming format for large datasets)
 - `--snapshot <id>` - Analyze specific snapshot (default: latest)
 - `--min-lines <num>` - Minimum lines of code to consider, default: 5
 - `--no-cross-file` - Only detect similarities within same file
@@ -46,7 +63,7 @@ The JSON output is designed for easy integration with external tools:
 
 ```json
 {
-  "version": "1.0",
+  "version": "2.0",
   "timestamp": "2024-01-01T12:00:00Z",
   "totalGroups": 3,
   "groups": [
@@ -54,12 +71,17 @@ The JSON output is designed for easy integration with external tools:
       "type": "structural",
       "similarity": 0.92,
       "detector": "ast-structural",
+      "priority": 27.6,
+      "refactoringImpact": "medium",
       "functions": [
         {
           "id": "abc123...",
           "name": "processUserData",
           "file": "src/users/processor.ts",
-          "lines": "15-45",
+          "lines": {
+            "start": 15,
+            "end": 45
+          },
           "metrics": {
             "cyclomaticComplexity": 5,
             "linesOfCode": 30
@@ -69,7 +91,10 @@ The JSON output is designed for easy integration with external tools:
           "id": "def456...",
           "name": "handleUserInfo",
           "file": "src/handlers/user.ts",
-          "lines": "22-52",
+          "lines": {
+            "start": 22,
+            "end": 52
+          },
           "metrics": {
             "cyclomaticComplexity": 6,
             "linesOfCode": 31

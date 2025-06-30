@@ -134,6 +134,7 @@ program
   .description('Detect similar functions using AST analysis')
   .option('--threshold <value>', 'similarity threshold (0-1)', '0.8')
   .option('--json', 'output as JSON')
+  .option('--jsonl', 'output as JSON Lines (for large datasets)')
   .option('--snapshot <id>', 'analyze specific snapshot (default: latest)')
   .option('--min-lines <num>', 'minimum lines of code to consider', '5')
   .option('--no-cross-file', 'only detect similarities within same file')
