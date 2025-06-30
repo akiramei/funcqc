@@ -52,8 +52,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         if (func1.metrics && func1.metrics.linesOfCode < minLines) continue;
         if (func2.metrics && func2.metrics.linesOfCode < minLines) continue;
 
-        // Skip if same file comparison is disabled
-        if (!crossFile && func1.filePath === func2.filePath) continue;
+        // Skip cross-file comparisons if disabled
+        if (!crossFile && func1.filePath !== func2.filePath) continue;
 
         // Skip if already processed
         const pairKey = this.getPairKey(func1.id, func2.id);
@@ -363,12 +363,19 @@ export class ASTSimilarityDetector implements SimilarityDetector {
           }
         }
 
+        // Find the first result to preserve its metadata
+        const firstResult = results.find(result => {
+          const ids = result.functions.map(f => f.functionId);
+          return ids.every(id => component.has(id));
+        });
+
         groupedResults.push({
           type: 'structural',
           similarity: count > 0 ? totalSimilarity / count : 0,
           functions,
           detector: this.name,
           metadata: {
+            ...firstResult?.metadata,
             groupSize: component.size,
             averageSimilarity: count > 0 ? totalSimilarity / count : 0
           }

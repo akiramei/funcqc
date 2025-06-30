@@ -63,7 +63,8 @@ describe('SimilarityManager', () => {
         createMockFunction('f2', 'func2')
       ];
 
-      const results = await manager.detectSimilarities(functions);
+      // Use enabledDetectors to only run the mock detector
+      const results = await manager.detectSimilarities(functions, {}, ['mock-detector']);
 
       expect(mockDetector.detect).toHaveBeenCalledWith(functions, {});
       expect(results).toHaveLength(1);
