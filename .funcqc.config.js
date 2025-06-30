@@ -17,8 +17,10 @@ module.exports = {
   },
   "metrics": {
     "complexityThreshold": 10,
-    "linesOfCodeThreshold": 50,
-    "parameterCountThreshold": 5
+    "cognitiveComplexityThreshold": 15,
+    "linesOfCodeThreshold": 40,
+    "parameterCountThreshold": 4,
+    "maxNestingLevelThreshold": 3
   },
   "git": {
     "enabled": true,

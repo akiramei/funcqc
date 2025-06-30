@@ -139,7 +139,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const params: (string | number | unknown)[] = [snapshotId];
 
       // Add filters if provided
-      if (options?.filters) {
+      if (options?.filters && options.filters.length > 0) {
         const filterClauses = options.filters.map((filter) => {
           if (filter.operator === 'KEYWORD') {
             // Handle keyword search across multiple fields
@@ -159,12 +159,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         sql += ' AND ' + filterClauses.join(' AND ');
       }
 
-      // Add sorting
-      if (options?.sort) {
-        sql += ` ORDER BY f.${options.sort}`;
-      } else {
-        sql += ' ORDER BY f.start_line';
-      }
+      // Add sorting with validation and proper field mapping
+      const validSortFields = new Map([
+        ['name', 'f.name'],
+        ['file_path', 'f.file_path'], 
+        ['start_line', 'f.start_line'],
+        ['complexity', 'q.cyclomatic_complexity'],
+        ['lines_of_code', 'q.lines_of_code'],
+        ['parameter_count', 'q.parameter_count'],
+        ['is_exported', 'f.is_exported'],
+        ['is_async', 'f.is_async'],
+        ['display_name', 'f.display_name']
+      ]);
+      
+      const sortColumn = options?.sort && validSortFields.has(options.sort) 
+        ? validSortFields.get(options.sort)!
+        : 'f.start_line';
+      
+      sql += ` ORDER BY ${sortColumn}`;
 
       // Add pagination
       if (options?.limit) {
