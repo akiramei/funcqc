@@ -22,7 +22,8 @@ export async function refactorCommand(options: RefactorCommandOptions): Promise<
     const config = await configManager.load();
     
     // Initialize storage
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
+    const storagePath = config.storage.path || '.funcqc/funcqc.db';
+    const storage = new PGLiteStorageAdapter(storagePath);
     await storage.init();
     
     try {
@@ -159,7 +160,7 @@ async function gatherRefactoringOpportunities(
   let patternOpportunities: RefactoringOpportunity[] = [];
   if (options.includePatterns) {
     spinner.start('Analyzing common patterns for extraction...');
-    patternOpportunities = await refactoringAnalyzer.analyzeCommonPatterns(functions);
+    patternOpportunities = refactoringAnalyzer.analyzeCommonPatterns(functions);
     spinner.succeed(`Found ${patternOpportunities.length} pattern-based opportunities`);
   }
   

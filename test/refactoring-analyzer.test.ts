@@ -18,7 +18,7 @@ describe('RefactoringAnalyzer', () => {
         createMockFunction('verifyData', 5, 9, 4)
       ];
 
-      const patterns = await analyzer.analyzeCommonPatterns(functions);
+      const patterns = analyzer.analyzeCommonPatterns(functions);
       
       expect(patterns).toHaveLength(1);
       expect(patterns[0].type).toBe('patterns');
@@ -35,7 +35,7 @@ describe('RefactoringAnalyzer', () => {
         createMockAsyncFunction('sendNotification', 7, 11, 1)
       ];
 
-      const patterns = await analyzer.analyzeCommonPatterns(functions);
+      const patterns = analyzer.analyzeCommonPatterns(functions);
       
       expect(patterns).toHaveLength(1);
       expect(patterns[0].type).toBe('patterns');
@@ -53,7 +53,7 @@ describe('RefactoringAnalyzer', () => {
         createMockFunction('normalizeValues', 6, 16, 1)
       ];
 
-      const patterns = await analyzer.analyzeCommonPatterns(functions);
+      const patterns = analyzer.analyzeCommonPatterns(functions);
       
       expect(patterns).toHaveLength(1);
       expect(patterns[0].type).toBe('patterns');
@@ -68,7 +68,7 @@ describe('RefactoringAnalyzer', () => {
         createMockFunction('routeRequest', 18, 45, 10, 5)
       ];
 
-      const patterns = await analyzer.analyzeCommonPatterns(functions);
+      const patterns = analyzer.analyzeCommonPatterns(functions);
       
       expect(patterns).toHaveLength(1);
       expect(patterns[0].type).toBe('patterns');

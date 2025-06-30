@@ -1,9 +1,7 @@
 import { FunctionInfo, RefactoringOpportunity } from '../types';
 
 export class RefactoringAnalyzer {
-  constructor() {}
-
-  async analyzeCommonPatterns(functions: FunctionInfo[]): Promise<RefactoringOpportunity[]> {
+  analyzeCommonPatterns(functions: FunctionInfo[]): RefactoringOpportunity[] {
     const opportunities: RefactoringOpportunity[] = [];
     
     // Pattern 1: Functions with repeated validation logic
