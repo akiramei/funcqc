@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { table } from 'table';
-import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics, ProjectRiskAssessment, FunctionRiskAssessment } from '../types';
+import { ListCommandOptions, FunctionInfo, QueryFilter, FuncqcConfig, QualityMetrics, ProjectRiskAssessment, FunctionRiskAssessment, QueryOptions, FieldValue, ThresholdViolation } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { riskAssessor } from '../core/risk-assessor.js';
@@ -22,7 +22,7 @@ export async function listCommand(
     const filters = buildFilters(patterns, options);
     
     // Query functions
-    const queryOptions: any = { filters };
+    const queryOptions: QueryOptions = { filters };
     if (options.sort) queryOptions.sort = options.sort;
     if (options.limit) queryOptions.limit = parseInt(options.limit);
     
@@ -389,7 +389,7 @@ function formatFieldName(field: string): string {
   return names[field] || field;
 }
 
-function getFieldValue(func: FunctionInfo, field: string): any {
+function getFieldValue(func: FunctionInfo, field: string): FieldValue {
   switch (field) {
     case 'id':
       return func.id;
@@ -613,7 +613,7 @@ function displayEnhancedViolations(functionAssessment: FunctionRiskAssessment): 
   console.log(`   🎯 Risk Level: ${riskColor(functionAssessment.riskLevel.toUpperCase())} (score: ${functionAssessment.riskScore.toFixed(1)})`);
 }
 
-function formatViolationText(violation: any): string {
+function formatViolationText(violation: ThresholdViolation): string {
   const excessText = violation.excess > 0 ? `(+${violation.excess.toFixed(1)})` : '';
   
   if (violation.method === 'statistical' && violation.statisticalContext) {
@@ -677,25 +677,36 @@ function displayQualityBreakdown(functions: FunctionInfo[], thresholds: FuncqcCo
 function formatFieldValue(func: FunctionInfo, field: string): string {
   const value = getFieldValue(func, field);
   
+  // valueがnullまたはundefinedの場合は早期に空文字列を返す
+  if (value === null || value === undefined) {
+    return '';
+  }
+
   switch (field) {
     case 'id':
-      // Show first 8 characters of ID for readability
-      return chalk.gray(value.substring(0, 8));
+      // valueがstringであることを確認してからsubstringを使用
+      if (typeof value === 'string') {
+        return chalk.gray(value.substring(0, 8));
+      }
+      break;
     case 'file':
-      // Shorten file paths
-      return value.length > 30 ? '...' + value.slice(-27) : value;
+      // valueがstringであることを確認してからlengthとsliceを使用
+      if (typeof value === 'string') {
+        return value.length > 30 ? '...' + value.slice(-27) : value;
+      }
+      break;
     case 'exported':
       return value ? chalk.green('✓') : chalk.gray('✗');
     case 'async':
       return value ? chalk.blue('async') : '';
     case 'complexity': {
-      // Color code complexity
       const complexity = value as number;
       if (complexity > 10) return chalk.red(complexity.toString());
       if (complexity > 5) return chalk.yellow(complexity.toString());
       return chalk.green(complexity.toString());
     }
-    default:
-      return value.toString();
   }
+  
+  // 上記のcaseで処理されなかった全ての値を文字列に変換して返す
+  return String(value);
 }

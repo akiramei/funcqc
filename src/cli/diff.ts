@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail } from '../types';
+import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo } from '../types';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -142,9 +142,9 @@ function displayDiffHeader(diff: SnapshotDiff): void {
 }
 
 interface FilteredFunctions {
-  added: any[];
-  removed: any[];
-  modified: any[];
+  added: FunctionInfo[];
+  removed: FunctionInfo[];
+  modified: FunctionChange[];
 }
 
 function filterFunctions(diff: SnapshotDiff, options: DiffCommandOptions): FilteredFunctions {
@@ -182,15 +182,15 @@ function filterFunctions(diff: SnapshotDiff, options: DiffCommandOptions): Filte
   return { added, removed, modified };
 }
 
-function filterByFunctionName(functions: any[], pattern: string): any[] {
+function filterByFunctionName(functions: FunctionInfo[], pattern: string): FunctionInfo[] {
   return functions.filter(f => f.name.toLowerCase().includes(pattern));
 }
 
-function filterByFilePath(functions: any[], pattern: string): any[] {
+function filterByFilePath(functions: FunctionInfo[], pattern: string): FunctionInfo[] {
   return functions.filter(f => f.filePath.toLowerCase().includes(pattern));
 }
 
-function displayAddedFunctions(functions: any[], options: DiffCommandOptions): void {
+function displayAddedFunctions(functions: FunctionInfo[], options: DiffCommandOptions): void {
   if (functions.length === 0) return;
   
   console.log(chalk.green.bold(`➕ Added Functions (${functions.length})`));
@@ -203,7 +203,7 @@ function displayAddedFunctions(functions: any[], options: DiffCommandOptions): v
   console.log();
 }
 
-function displayRemovedFunctions(functions: any[], options: DiffCommandOptions): void {
+function displayRemovedFunctions(functions: FunctionInfo[], options: DiffCommandOptions): void {
   if (functions.length === 0) return;
   
   console.log(chalk.red.bold(`➖ Removed Functions (${functions.length})`));

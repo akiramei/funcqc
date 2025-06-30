@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import * as readline from 'readline';
+import { LogDetails } from '../types';
 
 /**
  * Log levels for consistent messaging
@@ -18,7 +19,7 @@ export enum LogLevel {
 export class Logger {
   constructor(private verbose: boolean = false, private quiet: boolean = false) {}
 
-  error(message: string, details?: any): void {
+  error(message: string, details?: LogDetails): void {
     if (this.quiet) return;
     console.error(chalk.red('❌ Error:'), message);
     if (this.verbose && details) {
@@ -26,7 +27,7 @@ export class Logger {
     }
   }
 
-  warn(message: string, details?: any): void {
+  warn(message: string, details?: LogDetails): void {
     if (this.quiet) return;
     console.warn(chalk.yellow('⚠️  Warning:'), message);
     if (this.verbose && details) {
@@ -34,7 +35,7 @@ export class Logger {
     }
   }
 
-  info(message: string, details?: any): void {
+  info(message: string, details?: LogDetails): void {
     if (this.quiet) return;
     console.log(chalk.blue('ℹ️  Info:'), message);
     if (this.verbose && details) {
@@ -42,7 +43,7 @@ export class Logger {
     }
   }
 
-  success(message: string, details?: any): void {
+  success(message: string, details?: LogDetails): void {
     if (this.quiet) return;
     console.log(chalk.green('✅ Success:'), message);
     if (this.verbose && details) {
@@ -50,7 +51,7 @@ export class Logger {
     }
   }
 
-  debug(message: string, details?: any): void {
+  debug(message: string, details?: LogDetails): void {
     if (!this.verbose || this.quiet) return;
     console.log(chalk.gray('🔍 Debug:'), message);
     if (details) {
@@ -63,7 +64,7 @@ export class Logger {
     console.log(message);
   }
 
-  private formatDetails(details: any): string {
+  private formatDetails(details: LogDetails): string {
     if (typeof details === 'string') {
       return details;
     }
@@ -113,7 +114,7 @@ export class ProgressBar {
  * Format table data for console output
  */
 export function formatTable(
-  data: any[],
+  data: unknown[][],
   headers: string[],
   options: {
     maxWidth?: number;
@@ -137,7 +138,7 @@ export function formatTable(
   });
 
   // Format row
-  const formatRow = (row: any[], isHeader = false): string => {
+  const formatRow = (row: unknown[], isHeader = false): string => {
     return row.map((cell, index) => {
       const cellStr = String(cell || '');
       const width = columnWidths[index];

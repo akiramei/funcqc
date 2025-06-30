@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { ShowCommandOptions, FunctionInfo, FuncqcConfig } from '../types';
+import { ShowCommandOptions, FunctionInfo, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 
@@ -238,21 +238,21 @@ function displayFunctionMetrics(func: FunctionInfo, config: FuncqcConfig): void 
   console.log();
 }
 
-function displaySizeMetrics(metrics: any, config: FuncqcConfig): void {
+function displaySizeMetrics(metrics: QualityMetrics, config: FuncqcConfig): void {
   console.log(`   ${chalk.bold('Size:')}`);
   console.log(`     Lines of Code: ${formatMetricValue(metrics.linesOfCode, 'lines', config)}`);
   console.log(`     Total Lines: ${metrics.totalLines}`);
   console.log(`     Parameters: ${formatMetricValue(metrics.parameterCount, 'params', config)}`);
 }
 
-function displayComplexityMetrics(metrics: any, config: FuncqcConfig): void {
+function displayComplexityMetrics(metrics: QualityMetrics, config: FuncqcConfig): void {
   console.log(`   ${chalk.bold('Complexity:')}`);
   console.log(`     Cyclomatic: ${formatMetricValue(metrics.cyclomaticComplexity, 'complexity', config)}`);
   console.log(`     Cognitive: ${formatMetricValue(metrics.cognitiveComplexity, 'cognitive', config)}`);
   console.log(`     Max Nesting: ${formatMetricValue(metrics.maxNestingLevel, 'nesting', config)}`);
 }
 
-function displayStructureMetrics(metrics: any): void {
+function displayStructureMetrics(metrics: QualityMetrics): void {
   console.log(`   ${chalk.bold('Structure:')}`);
   console.log(`     Branches: ${metrics.branchCount}`);
   console.log(`     Loops: ${metrics.loopCount}`);
@@ -267,13 +267,13 @@ function displayStructureMetrics(metrics: any): void {
   }
 }
 
-function displayDocumentationMetrics(metrics: any): void {
+function displayDocumentationMetrics(metrics: QualityMetrics): void {
   console.log(`   ${chalk.bold('Documentation:')}`);
   console.log(`     Comment Lines: ${metrics.commentLines}`);
   console.log(`     Code-to-Comment Ratio: ${metrics.codeToCommentRatio.toFixed(2)}`);
 }
 
-function displayAdvancedMetrics(metrics: any): void {
+function displayAdvancedMetrics(metrics: QualityMetrics): void {
   if (!metrics.maintainabilityIndex) return;
   
   console.log(`   ${chalk.bold('Advanced:')}`);

@@ -359,15 +359,25 @@ export class ThresholdEvaluator {
       // Simple check: is the value less than or equal to the threshold?
       if (value <= evaluation.threshold) {
         // Create a custom violation with inverted logic
-        return {
+        const violation: ThresholdViolation = {
           metric,
           value,
           threshold: evaluation.threshold,
           level,
           excess: evaluation.threshold - value, // Inverted excess calculation
           method: evaluation.method,
-          statisticalContext: evaluation.statisticalContext,
         };
+        
+        if (evaluation.statisticalContext) {
+          violation.statisticalContext = evaluation.statisticalContext as {
+            method: 'mean+sigma' | 'percentile' | 'median+mad';
+            multiplier?: number;
+            percentile?: number;
+            baseline: number;
+          };
+        }
+        
+        return violation;
       }
     }
 

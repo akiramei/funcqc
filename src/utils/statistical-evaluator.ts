@@ -130,7 +130,7 @@ export class StatisticalEvaluator {
     value: number,
     threshold: ThresholdValue,
     statistics: MetricStatistics
-  ): { threshold: number; exceeded: boolean; method: 'absolute' | 'statistical'; statisticalContext?: any } {
+  ): { threshold: number; exceeded: boolean; method: 'absolute' | 'statistical'; statisticalContext?: Record<string, unknown> } {
     if (typeof threshold === 'number') {
       return {
         threshold,
@@ -179,7 +179,7 @@ export class StatisticalEvaluator {
       }
       
       default:
-        throw new Error(`Unknown statistical threshold method: ${(threshold as any).method}`);
+        throw new Error(`Unknown statistical threshold method: ${(threshold as StatisticalThreshold).method}`);
     }
   }
 
@@ -291,15 +291,25 @@ export class StatisticalEvaluator {
   ): ThresholdViolation {
     const evaluation = this.evaluateThreshold(value, threshold, statistics);
     
-    return {
+    const violation: ThresholdViolation = {
       metric,
       value,
       threshold: evaluation.threshold,
       level,
       excess: value - evaluation.threshold,
       method: evaluation.method,
-      statisticalContext: evaluation.statisticalContext,
     };
+    
+    if (evaluation.statisticalContext) {
+      violation.statisticalContext = evaluation.statisticalContext as {
+        method: 'mean+sigma' | 'percentile' | 'median+mad';
+        multiplier?: number;
+        percentile?: number;
+        baseline: number;
+      };
+    }
+    
+    return violation;
   }
 }
 

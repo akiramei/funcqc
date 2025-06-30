@@ -1,4 +1,4 @@
-import { FunctionInfo, FuncqcConfig, AnalysisResult } from '../types';
+import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError } from '../types';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 
@@ -17,7 +17,7 @@ export class FunctionAnalyzer {
    * Analyze a single file and extract function information
    */
   async analyzeFile(filePath: string): Promise<AnalysisResult<FunctionInfo[]>> {
-    const errors: any[] = [];
+    const errors: FuncqcError[] = [];
     const warnings: string[] = [];
 
     try {
@@ -62,6 +62,7 @@ export class FunctionAnalyzer {
         name: err.constructor.name,
         message: err.message,
         code: 'ANALYSIS_ERROR',
+        recoverable: true,
         details: { filePath, stack: err.stack }
       });
 
@@ -78,7 +79,7 @@ export class FunctionAnalyzer {
    */
   async analyzeFiles(filePaths: string[]): Promise<AnalysisResult<FunctionInfo[]>> {
     const allFunctions: FunctionInfo[] = [];
-    const allErrors: any[] = [];
+    const allErrors: FuncqcError[] = [];
     const allWarnings: string[] = [];
 
     for (const filePath of filePaths) {

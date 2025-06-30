@@ -29,7 +29,7 @@ export enum ErrorCode {
 export interface FuncqcError {
   code: ErrorCode;
   message: string;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
   recoverable: boolean;
   recoveryActions?: string[];
   originalError?: Error;
@@ -57,7 +57,7 @@ export class ErrorHandler {
     };
   }
 
-  createError(code: ErrorCode, message: string, details?: Record<string, any>, originalError?: Error): FuncqcError {
+  createError(code: ErrorCode, message: string, details?: Record<string, unknown>, originalError?: Error): FuncqcError {
     const errorInfo = this.getErrorInfo(code);
     
     const result: FuncqcError = {
@@ -240,7 +240,7 @@ export class ErrorHandler {
     this.handleError(funcqcError);
   }
 
-  wrapAsync<T extends any[], R>(
+  wrapAsync<T extends unknown[], R>(
     fn: (...args: T) => Promise<R>,
     operationName: string,
     errorCode: ErrorCode
