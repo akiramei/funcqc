@@ -57,9 +57,13 @@ npm run dev -- list --fields name,complexity,lines  # 表示項目指定
 
 ### 関数詳細表示
 ```bash
+# ❗ 重要: ID指定には--idオプションが必須
+npm run dev -- show --id "13b46d5e"  # ID指定（正しい）
 npm run dev -- show "functionName"   # 関数名で検索
-npm run dev -- show --id "func-id"   # ID指定
-npm run dev -- show --json           # JSON出力
+npm run dev -- show "Logger.info"    # メソッド名もOK
+
+# ❌ 間違いやすい使い方
+npm run dev -- show "13b46d5e"      # IDを名前として検索してしまう
 ```
 
 ### 意味的検索
@@ -101,10 +105,43 @@ npm run dev -- similar --min-lines 10   # 最小行数
 
 ### 関数説明管理
 ```bash
-npm run dev -- describe "funcName" --text "説明"  # 説明追加
-npm run dev -- list --no-description --exported   # 未文書化関数
-npm run dev -- list --needs-description          # 文書化要更新
+# 説明追加（IDまたは名前で指定）
+npm run dev -- describe "13b46d5e" --text "Description in English"
+npm run dev -- describe "functionName" --text "Description"
+
+# 説明が必要な関数の確認
+npm run dev -- list --no-description --exported    # 未文書化関数
+npm run dev -- list --needs-description --show-id  # 更新要+ID表示
+
+# 💡 効率的な文書化ワークフロー
+npm run dev -- list --needs-description --show-id --format friendly
 ```
+
+## 📄 出力フォーマットの使い分け
+
+### 利用可能なフォーマット
+
+| フォーマット | 用途 | 特徴 |
+|------------|------|------|
+| `table` (デフォルト) | 一般的な確認 | テーブル形式、レスポンシブ |
+| `friendly` | 詳細分析 | 縦型、メトリクス詳細 |
+| `json` | 自動処理 | 構造化データ |
+
+```bash
+# テーブル形式（デフォルト）
+npm run dev -- list --show-id
+
+# フレンドリー形式（ID確実に表示）
+npm run dev -- list --format friendly --show-id
+
+# JSON形式（パイプライン処理）
+npm run dev -- list --format json | jq '.functions[].id'
+```
+
+### 💡 テーブルレンダリング失敗時
+
+テーブル表示が失敗した場合、自動的にシンプルリストにフォールバックされます。
+IDが表示されない場合は`--format friendly`を使用してください。
 
 ## 🎯 用途別コマンド選択ガイド
 
@@ -180,6 +217,49 @@ npm run dev -- list --file "src/cli/*.ts" --threshold-violations
 # 説明が必要なエクスポート関数
 npm run dev -- list --exported --no-description --complexity ">5"
 ```
+
+## 📝 関数文書化の完全ワークフロー
+
+### 基本フロー
+
+```bash
+# Step 1: 文書化が必要な関数をID付きで表示
+npm run dev -- list --needs-description --show-id
+
+# Step 2: テーブルから情報を読み取る
+# ID: 13b46d5e
+# File: src/utils/cli-utils.ts
+# Location: 38-44
+
+# Step 3: 関数の内容を確認
+Read src/utils/cli-utils.ts:38
+
+# Step 4: 英語で説明を登録
+npm run dev -- describe "13b46d5e" --text "Displays informational message with blue icon"
+```
+
+### 効率化のTips
+
+1. **複数関数の一括処理**
+   ```bash
+   # エクスポート関数優先
+   npm run dev -- list --needs-description --exported --show-id
+   
+   # 複雑な関数優先
+   npm run dev -- list --needs-description --complexity ">5" --show-id
+   ```
+
+2. **確実なID表示**
+   ```bash
+   # テーブルが崩れる場合
+   npm run dev -- list --needs-description --show-id --format friendly
+   ```
+
+3. **文書化状況の確認**
+   ```bash
+   # 文書化済み関数の確認
+   npm run dev -- show --id "13b46d5e"
+   ```
 
 ## ⚡ パフォーマンス最適化
 

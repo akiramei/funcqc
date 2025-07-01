@@ -1104,47 +1104,47 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.exec(`
       -- 3次元識別に最適化されたインデックス
-      CREATE INDEX idx_functions_snapshot_id ON functions(snapshot_id);
-      CREATE INDEX idx_functions_semantic_id ON functions(semantic_id);
-      CREATE INDEX idx_functions_content_id ON functions(content_id);
-      CREATE INDEX idx_functions_name ON functions(name);
-      CREATE INDEX idx_functions_file_path ON functions(file_path);
-      CREATE INDEX idx_functions_signature_hash ON functions(signature_hash);
-      CREATE INDEX idx_functions_ast_hash ON functions(ast_hash);
+      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_id ON functions(snapshot_id);
+      CREATE INDEX IF NOT EXISTS idx_functions_semantic_id ON functions(semantic_id);
+      CREATE INDEX IF NOT EXISTS idx_functions_content_id ON functions(content_id);
+      CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
+      CREATE INDEX IF NOT EXISTS idx_functions_file_path ON functions(file_path);
+      CREATE INDEX IF NOT EXISTS idx_functions_signature_hash ON functions(signature_hash);
+      CREATE INDEX IF NOT EXISTS idx_functions_ast_hash ON functions(ast_hash);
 
       -- 複合インデックス
-      CREATE INDEX idx_functions_semantic_content ON functions(semantic_id, content_id);
-      CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_id);
+      CREATE INDEX IF NOT EXISTS idx_functions_semantic_content ON functions(semantic_id, content_id);
+      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_id);
 
       -- 条件付きインデックス
-      CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
-      CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
 
       -- 重複検出用インデックス
-      CREATE INDEX idx_content_duplication ON functions(content_id, snapshot_id);
+      CREATE INDEX IF NOT EXISTS idx_content_duplication ON functions(content_id, snapshot_id);
       
       -- Snapshot indexes
-      CREATE INDEX idx_snapshots_created_at ON snapshots(created_at);
-      CREATE INDEX idx_snapshots_git_commit ON snapshots(git_commit);
-      CREATE INDEX idx_snapshots_git_branch ON snapshots(git_branch);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_git_commit ON snapshots(git_commit);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_git_branch ON snapshots(git_branch);
       
       -- パフォーマンス最適化インデックス
-      CREATE INDEX idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
-      CREATE INDEX idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
-      CREATE INDEX idx_quality_metrics_lines ON quality_metrics(lines_of_code);
-      CREATE INDEX idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_lines ON quality_metrics(lines_of_code);
+      CREATE INDEX IF NOT EXISTS idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
       
       -- Parameter search indexes
-      CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);
-      CREATE INDEX idx_function_parameters_position ON function_parameters(function_id, position);
+      CREATE INDEX IF NOT EXISTS idx_function_parameters_function_id ON function_parameters(function_id);
+      CREATE INDEX IF NOT EXISTS idx_function_parameters_position ON function_parameters(function_id, position);
       
       -- 意味ベース関数説明管理インデックス
-      CREATE INDEX idx_function_descriptions_source ON function_descriptions(source);
-      CREATE INDEX idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
+      CREATE INDEX IF NOT EXISTS idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
     `);
     } catch (error) {
-      // Ignore index creation errors as they may already exist
-      console.warn('Some indexes may already exist:', error instanceof Error ? error.message : String(error));
+      // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
+      throw new Error(`Failed to create database indexes: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

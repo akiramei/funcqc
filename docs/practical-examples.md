@@ -182,7 +182,54 @@ npm run dev -- show "buildFilters"
 # → 改善効果を数値で確認
 ```
 
-### シナリオ2: 重複コードの発見
+### シナリオ2: showコマンドの正しい使い方
+
+**問題**: IDで関数を表示したいがエラーが出る
+
+**❌ 間違った使い方**:
+```bash
+npm run dev -- show "13b46d5e"
+# エラー: No functions found matching pattern '13b46d5e'.
+```
+
+**✅ 正しい使い方**:
+```bash
+# ID指定には--idオプションが必須
+npm run dev -- show --id "13b46d5e"
+```
+
+**出力例**:
+```
+📋 Function Details
+
+🔗 Logger.info()
+   ID: 13b46d5e
+   📍 src/utils/cli-utils.ts:38-44
+
+📝 Signature:
+   public Logger.info(message: string, details?: LogDetails): void
+
+🏷️  Attributes:
+   exported, method
+
+📚 Documentation:
+   User Description:
+   Displays an informational message with blue info icon...
+```
+
+**名前パターンでの検索**:
+```bash
+# 関数名で検索
+npm run dev -- show "info"
+
+# メソッド名で検索
+npm run dev -- show "Logger.info"
+
+# ワイルドカード使用
+npm run dev -- show "*Auth*"
+```
+
+### シナリオ3: 重複コードの発見
 
 **Step 1: 類似性検出**
 ```bash
@@ -281,7 +328,97 @@ npm run dev -- list --exported --no-description --complexity ">5"
 npm run dev -- list --async --threshold-violations
 ```
 
+## 📝 関数文書化の実際のワークフロー
+
+### 完全な文書化フローの実例
+
+**Step 1: 文書化が必要な関数の特定**
+```bash
+npm run dev -- list --needs-description --show-id --limit 3
+```
+
+**出力例**:
+```
+╔═══════════╤═════════════════════════════╤══════════════════════════════════════╤═══════════╤═══════════╤══════════╤═══════╗
+║ ID        │ Name                        │ File                                 │  Location │ Complexit │ Exported │ Async ║
+╟───────────┼─────────────────────────────┼──────────────────────────────────────┼───────────┼───────────┼──────────┼───────╢
+║ c88edcfc  │ ✅ truncate                 │ src/cli/search.ts                    │   129-132 │         2 │ ✗        │       ║
+║ 2e25b3da  │ ✅ displayFunctionContext   │ src/cli/show.ts                      │   321-330 │         4 │ ✗        │       ║
+║ dd7bfb4f  │ ✅ debug                    │ src/utils/cli-utils.ts               │     54-60 │         1 │ ✓        │       ║
+╚═══════════╧═════════════════════════════╧══════════════════════════════════════╧═══════════╧═══════════╧══════════╧═══════╝
+```
+
+**Step 2: 最初の関数(truncate)の内容確認**
+```bash
+# ファイルと行番号から内容を読み取る
+Read src/cli/search.ts:129
+```
+
+**関数の内容**:
+```typescript
+function truncate(text: string, maxLength: number): string {
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength - 3) + '...';
+}
+```
+
+**Step 3: 英語で説明を登録**
+```bash
+npm run dev -- describe "c88edcfc" --text "Truncates text to specified maximum length, appending ellipsis if text exceeds the limit"
+```
+
+**出力**:
+```
+ℹ️  Info: ✓ Description saved for function: truncate
+ℹ️  Info:   Function ID: c88edcfc
+ℹ️  Info:   Description: Truncates text to specified maximum length, appending ellipsis if text exceeds the limit
+ℹ️  Info:   Source: human
+```
+
+**Step 4: 文書化状況の確認**
+```bash
+npm run dev -- show --id "c88edcfc"
+```
+
+**出力例**:
+```
+📚 Documentation:
+   User Description:
+   Truncates text to specified maximum length, appending ellipsis if text exceeds the limit
+```
+
+### テーブルが崩れる場合の対処
+
+```bash
+# テーブルレンダリングが失敗してIDが見えない場合
+npm run dev -- list --needs-description --show-id --format friendly
+```
+
+**friendly形式の出力**:
+```
+📋 Function List (3 functions)
+
+ 1. ✅ truncate() [ID: c88edcfc]
+   📍 src/cli/search.ts:129
+   📊 Metrics: CC=2, LOC=4, Params=2
+   📈 Maintainability Index: 100.0
+```
+
 ## 🔍 トラブルシューティング実例
+
+### 問題: "showコマンドでID指定ができない"
+
+```bash
+# 現象
+npm run dev -- show "13b46d5e"
+# エラー: No functions found matching pattern '13b46d5e'.
+
+# 原因
+# IDを名前パターンとして検索している
+
+# 解決策
+npm run dev -- show --id "13b46d5e"  # --idオプションを使用
+```
 
 ### 問題: "関数が見つからない"
 ```bash

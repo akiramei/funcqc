@@ -319,7 +319,8 @@ npm run dev -- list --exported --no-description --complexity ">5"
 **正しい書き方**:
 ```bash
 ✅ npm run dev -- list --threshold-violations
-✅ npm run dev -- show "functionName"
+✅ npm run dev -- show "functionName"      # 関数名で検索
+✅ npm run dev -- show --id "13b46d5e"     # ID指定（重要: --idオプション必須）
 ✅ npm run dev -- list --complexity ">10"
 ```
 
@@ -327,7 +328,22 @@ npm run dev -- list --exported --no-description --complexity ">5"
 ```bash
 ❌ npm run dev list --threshold-violations    # --がない
 ❌ npm run dev show functionName             # 引用符なし
+❌ npm run dev show "13b46d5e"              # IDを名前として検索（エラーになる）
 ❌ npm run dev list --complexity >10         # 特殊文字未エスケープ
+```
+
+**🚨 showコマンドの正しい使い方**:
+```bash
+# ID指定の場合（最も確実）
+npm run dev -- show --id "13b46d5e"        # ✅ 正解: --idオプションを使用
+
+# 関数名指定の場合
+npm run dev -- show "functionName"         # ✅ 名前パターンで検索
+npm run dev -- show "Logger.info"          # ✅ メソッド名もOK
+npm run dev -- show "*Auth*"               # ✅ ワイルドカード使用可能
+
+# ❌ よくある間違い
+npm run dev -- show "13b46d5e"             # IDを名前として扱ってしまう
 ```
 
 ### 🔍 関数探索の段階的アプローチ
@@ -339,15 +355,73 @@ npm run dev -- list --exported --no-description --complexity ">5"
 
 ### 📈 出力形式の使い分け
 
-- **人間向け**: デフォルト表示 (色付き、表形式)
-- **AI処理向け**: `--json` オプション (構造化データ)
-- **パイプライン処理**: `| jq` 等で後処理可能
+**利用可能なフォーマット**:
+- **table** (デフォルト): テーブル形式、レスポンシブ
+- **friendly**: 縦型詳細表示、メトリクス詳細あり、ID確実表示
+- **json**: 構造化データ、パイプライン処理可能
+
+**使い分け**:
+```bash
+# 通常の一覧表示
+npm run dev -- list                         # テーブル形式
+
+# 詳細分析・ID表示確実
+npm run dev -- list --format friendly       # friendly形式
+
+# データ処理・自動化
+npm run dev -- list --format json | jq     # JSON形式
+```
+
+**⚠️ テーブルレンダリング失敗時の対処**:
+```bash
+# テーブルが崩れてIDが見えない場合
+npm run dev -- list --needs-description --show-id --format friendly
+```
+
+**IDが必要な場合の確実な表示方法**:
+```bash
+# 文書化が必要な関数をID付きで表示
+npm run dev -- list --needs-description --show-id --format friendly
+
+# 複雑な関数TOP10をID付きで表示
+npm run dev -- list --complexity ">5" --show-id --format friendly --limit 10
+```
 
 ### 📚 詳細ガイド
 
 包括的なコマンドリファレンス: [funcqc-cheatsheet.md](./docs/funcqc-cheatsheet.md)
 AI統合ガイド: [ai-integration-guide.md](./docs/ai-integration-guide.md)
 実用例集: [practical-examples.md](./docs/practical-examples.md)
+関数文書化ワークフロー: [function-documentation-workflow.md](./docs/function-documentation-workflow.md)
+
+### 🎯 関数文書化の効率的ワークフロー
+
+**基本文書化フロー**:
+```bash
+# Step 1: 文書化が必要な関数をID付きで表示
+npm run dev -- list --needs-description --show-id --format friendly
+
+# Step 2: 関数の内容を確認
+Read src/path/to/file.ts:lineNumber
+
+# Step 3: 英語で説明を登録
+npm run dev -- describe "functionId" --text "Clear English description"
+
+# Step 4: 登録確認
+npm run dev -- show --id "functionId"
+```
+
+**効率化のコツ**:
+```bash
+# エクスポート関数優先
+npm run dev -- list --needs-description --exported --show-id --format friendly
+
+# 複雑な関数優先
+npm run dev -- list --needs-description --complexity ">5" --show-id --format friendly
+
+# 同一ファイル内でまとめて処理
+npm run dev -- list --needs-description --file "src/cli/list.ts" --show-id --format friendly
+```
 
 ## 🚀 次世代品質管理の実現
 
