@@ -396,9 +396,6 @@ async function handleANNIndexOperations(
     
     // Prepare test queries (use random subset of embeddings)
     const queryCount = Math.min(5, allEmbeddings.length);
-    const queryIndices = Array.from({ length: queryCount }, () => 
-      Math.floor(Math.random() * allEmbeddings.length)
-    );
     
     spinner.text = 'Running performance benchmark...';
     
@@ -410,7 +407,6 @@ async function handleANNIndexOperations(
 
     // Run benchmark queries
     for (let i = 0; i < queryCount; i++) {
-      const queryEmbedding = allEmbeddings[queryIndices[i]];
       const queryText = `test-query-${i}`;
 
       // ANN search
