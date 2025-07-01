@@ -14,13 +14,19 @@ describe('Function ID Generation System', () => {
   beforeEach(async () => {
     tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'funcqc-test-'));
     analyzer = new TypeScriptAnalyzer({ maxSourceFilesInMemory: 100 });
-    storage = new PGLiteStorageAdapter(':memory:');
+    
+    // Use proper temporary file instead of :memory: to avoid filesystem pollution
+    const dbPath = path.join(tempDir, 'test.db');
+    storage = new PGLiteStorageAdapter(dbPath);
     await storage.init();
   });
 
   afterEach(async () => {
-    await storage.close();
-    await fs.promises.rmdir(tempDir, { recursive: true });
+    if (storage) {
+      await storage.close();
+    }
+    // Clean up temporary directory including database files
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
   });
 
   it('should generate unique physical UUIDs for each function', async () => {
