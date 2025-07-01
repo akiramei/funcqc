@@ -736,6 +736,209 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // EMBEDDING OPERATIONS
+  // ========================================
+
+  async saveEmbedding(semanticId: string, embedding: number[], model: string = 'text-embedding-ada-002'): Promise<void> {
+    try {
+      // Convert array to PostgreSQL array literal
+      const embeddingStr = `{${embedding.join(',')}}`;
+      
+      await this.db.query(`
+        INSERT INTO function_embeddings (semantic_id, embedding_model, vector_dimension, embedding)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (semantic_id) 
+        DO UPDATE SET 
+          embedding_model = EXCLUDED.embedding_model,
+          vector_dimension = EXCLUDED.vector_dimension,
+          embedding = EXCLUDED.embedding,
+          updated_at = CURRENT_TIMESTAMP
+      `, [semanticId, model, embedding.length, embeddingStr]);
+    } catch (error) {
+      throw new Error(`Failed to save embedding: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getEmbedding(semanticId: string): Promise<{ embedding: number[]; model: string } | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT embedding, embedding_model FROM function_embeddings WHERE semantic_id = $1',
+        [semanticId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as { embedding: number[]; embedding_model: string };
+      return {
+        embedding: row.embedding,
+        model: row.embedding_model
+      };
+    } catch (error) {
+      throw new Error(`Failed to get embedding: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async searchByEmbedding(queryEmbedding: number[], threshold: number = 0.8, limit: number = 10): Promise<Array<FunctionInfo & { similarity: number }>> {
+    try {
+      // Get the latest snapshot
+      const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
+      if (snapshots.length === 0) {
+        return [];
+      }
+
+      // Since PGLite doesn't have native vector operations, we need to calculate similarity in application
+      // First, get all embeddings
+      const embeddings = await this.db.query(`
+        SELECT 
+          f.*, 
+          e.embedding,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        INNER JOIN function_embeddings e ON f.semantic_id = e.semantic_id
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        WHERE f.snapshot_id = $1
+      `, [snapshots[0].id]);
+
+      // Calculate similarities and filter
+      const results: Array<{ row: any; similarity: number }> = [];
+      
+      for (const row of embeddings.rows) {
+        const rowData = row as any;
+        const embedding = rowData.embedding as number[];
+        const similarity = this.cosineSimilarity(queryEmbedding, embedding);
+        
+        if (similarity >= threshold) {
+          results.push({ row: rowData, similarity });
+        }
+      }
+
+      // Sort by similarity descending
+      results.sort((a, b) => b.similarity - a.similarity);
+
+      // Take top N results
+      const topResults = results.slice(0, limit);
+
+      // Map to FunctionInfo with similarity
+      const functions = await Promise.all(
+        topResults.map(async ({ row, similarity }) => {
+          const parameters = await this.getFunctionParameters(row.id);
+          const functionInfo = this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+          return { ...functionInfo, similarity };
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to search by embedding: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void> {
+    if (embeddings.length === 0) return;
+
+    await this.executeInTransaction(async () => {
+      for (const { semanticId, embedding, model } of embeddings) {
+        await this.saveEmbedding(semanticId, embedding, model);
+      }
+    });
+  }
+
+  async getFunctionsWithoutEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]> {
+    try {
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        LEFT JOIN function_embeddings e ON f.semantic_id = e.semantic_id
+        WHERE f.snapshot_id = $1 
+        AND d.description IS NOT NULL
+        AND e.semantic_id IS NULL
+      `;
+      const params: (string | number)[] = [snapshotId];
+
+      if (limit) {
+        sql += ' LIMIT $' + (params.length + 1);
+        params.push(limit);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions without embeddings: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }> {
+    try {
+      const result = await this.db.query(`
+        SELECT 
+          COUNT(DISTINCT d.semantic_id) as total,
+          COUNT(DISTINCT e.semantic_id) as with_embeddings
+        FROM function_descriptions d
+        LEFT JOIN function_embeddings e ON d.semantic_id = e.semantic_id
+      `);
+
+      const stats = result.rows[0] as { total: string; with_embeddings: string };
+      const total = parseInt(stats.total);
+      const withEmbeddings = parseInt(stats.with_embeddings);
+
+      return {
+        total,
+        withEmbeddings,
+        withoutEmbeddings: total - withEmbeddings
+      };
+    } catch (error) {
+      throw new Error(`Failed to get embedding stats: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Calculate cosine similarity between two vectors
+   */
+  private cosineSimilarity(vec1: number[], vec2: number[]): number {
+    if (vec1.length !== vec2.length) {
+      throw new Error('Vectors must have the same dimension');
+    }
+
+    let dotProduct = 0;
+    let norm1 = 0;
+    let norm2 = 0;
+
+    for (let i = 0; i < vec1.length; i++) {
+      dotProduct += vec1[i] * vec2[i];
+      norm1 += vec1[i] * vec1[i];
+      norm2 += vec2[i] * vec2[i];
+    }
+
+    const denominator = Math.sqrt(norm1) * Math.sqrt(norm2);
+    return denominator === 0 ? 0 : dotProduct / denominator;
+  }
+
+  // ========================================
   // MAINTENANCE OPERATIONS (FUTURE)
   // ========================================
 
@@ -867,7 +1070,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
     
     // Create tables if they don't exist
-    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions'];
+    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings'];
     
     for (const tableName of tables) {
       const exists = await this.tableExists(tableName);
@@ -887,6 +1090,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             break;
           case 'function_descriptions':
             await this.db.exec(this.getFunctionDescriptionsTableSQL());
+            break;
+          case 'function_embeddings':
+            await this.db.exec(this.getFunctionEmbeddingsTableSQL());
             break;
         }
       }
@@ -942,6 +1148,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const dropTables = [
         'quality_metrics',
         'function_parameters', 
+        'function_embeddings',
         'function_descriptions',
         'functions',
         'snapshots'
@@ -1076,6 +1283,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         created_by TEXT,                       -- 作成者
         ai_model TEXT,                         -- AI生成時のモデル名
         confidence_score REAL                  -- AI生成時の信頼度
+      );`;
+  }
+
+  private getFunctionEmbeddingsTableSQL(): string {
+    return `
+      CREATE TABLE function_embeddings (
+        semantic_id TEXT PRIMARY KEY,
+        embedding_model TEXT NOT NULL DEFAULT 'text-embedding-ada-002',
+        vector_dimension INTEGER NOT NULL DEFAULT 1536,
+        embedding REAL[] NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (semantic_id) REFERENCES function_descriptions(semantic_id) ON DELETE CASCADE
       );`;
   }
 

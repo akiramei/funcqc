@@ -4,6 +4,7 @@ import { ConfigManager } from '../core/config';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
 import { SearchCommandOptions, FunctionInfo } from '../types';
+import { EmbeddingService } from '../services/embedding-service';
 
 export async function searchCommand(
   keyword: string,
@@ -22,12 +23,52 @@ export async function searchCommand(
     await storage.init();
 
     try {
-      const functions = await storage.searchFunctionsByDescription(keyword, {
-        limit: options.limit ? parseInt(options.limit, 10) : 50
-      });
+      let functions: (FunctionInfo & { similarity?: number })[];
+
+      if (options.semantic || options.hybrid) {
+        // Semantic search requires API key
+        const apiKey = options.apiKey || process.env['OPENAI_API_KEY'];
+        if (!apiKey) {
+          logger.error(chalk.red('Error: OpenAI API key is required for semantic search'));
+          logger.info('Provide it via --api-key option or OPENAI_API_KEY environment variable');
+          process.exit(1);
+        }
+
+        // Initialize embedding service
+        const embeddingService = new EmbeddingService({
+          apiKey,
+          model: options.model || 'text-embedding-ada-002'
+        });
+
+        if (options.hybrid) {
+          // Hybrid search: combine keyword and semantic results
+          functions = await performHybridSearch(
+            storage, 
+            embeddingService, 
+            keyword, 
+            options, 
+            logger
+          );
+        } else {
+          // Pure semantic search
+          functions = await performSemanticSearch(
+            storage, 
+            embeddingService, 
+            keyword, 
+            options, 
+            logger
+          );
+        }
+      } else {
+        // Traditional keyword search
+        functions = await storage.searchFunctionsByDescription(keyword, {
+          limit: options.limit ? parseInt(options.limit, 10) : 50
+        });
+      }
 
       if (functions.length === 0) {
-        logger.info(chalk.yellow(`No functions found matching keyword: "${keyword}"`));
+        const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
+        logger.info(chalk.yellow(`No functions found matching ${searchType} search: "${keyword}"`));
         return;
       }
 
@@ -55,8 +96,100 @@ export async function searchCommand(
   }
 }
 
+async function performSemanticSearch(
+  storage: PGLiteStorageAdapter,
+  embeddingService: EmbeddingService,
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): Promise<(FunctionInfo & { similarity: number })[]> {
+  logger.info(chalk.blue('Generating embedding for search query...'));
+  
+  // Generate embedding for the search keyword
+  const queryEmbedding = await embeddingService.generateEmbedding(keyword);
+  
+  // Search by embedding
+  const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
+  const limit = options.limit ? parseInt(options.limit, 10) : 50;
+  
+  logger.info(chalk.blue(`Searching with semantic similarity (threshold: ${threshold})...`));
+  
+  const results = await storage.searchByEmbedding(queryEmbedding, threshold, limit);
+  
+  // Filter by minimum similarity if specified
+  if (options.minSimilarity) {
+    const minSim = parseFloat(options.minSimilarity);
+    return results.filter(f => f.similarity >= minSim);
+  }
+  
+  return results;
+}
+
+async function performHybridSearch(
+  storage: PGLiteStorageAdapter,
+  embeddingService: EmbeddingService,
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): Promise<(FunctionInfo & { similarity?: number })[]> {
+  logger.info(chalk.blue('Performing hybrid search (keyword + semantic)...'));
+  
+  // Get keyword search results
+  const keywordResults = await storage.searchFunctionsByDescription(keyword, {
+    limit: options.limit ? parseInt(options.limit, 10) * 2 : 100 // Get more for merging
+  });
+  
+  // Get semantic search results
+  const semanticResults = await performSemanticSearch(
+    storage, 
+    embeddingService, 
+    keyword, 
+    options, 
+    logger
+  );
+  
+  // Merge and score results
+  const weight = options.hybridWeight ? parseFloat(options.hybridWeight) : 0.5;
+  const mergedResults = mergeHybridResults(keywordResults, semanticResults, weight);
+  
+  // Apply limit
+  const limit = options.limit ? parseInt(options.limit, 10) : 50;
+  return mergedResults.slice(0, limit);
+}
+
+function mergeHybridResults(
+  keywordResults: FunctionInfo[],
+  semanticResults: (FunctionInfo & { similarity: number })[],
+  semanticWeight: number
+): (FunctionInfo & { similarity?: number })[] {
+  const merged = new Map<string, FunctionInfo & { similarity?: number; keywordScore?: number; semanticScore?: number }>();
+  
+  // Add keyword results with base score
+  keywordResults.forEach((func, index) => {
+    const keywordScore = 1 - (index / keywordResults.length); // Higher for earlier results
+    merged.set(func.id, { ...func, keywordScore, similarity: keywordScore * (1 - semanticWeight) });
+  });
+  
+  // Add/merge semantic results
+  semanticResults.forEach(func => {
+    const existing = merged.get(func.id);
+    if (existing) {
+      // Combine scores
+      const hybridScore = (existing.keywordScore || 0) * (1 - semanticWeight) + func.similarity * semanticWeight;
+      existing.similarity = hybridScore;
+      existing.semanticScore = func.similarity;
+    } else {
+      // Pure semantic result
+      merged.set(func.id, { ...func, semanticScore: func.similarity, similarity: func.similarity * semanticWeight });
+    }
+  });
+  
+  // Sort by hybrid score
+  return Array.from(merged.values()).sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
+}
+
 function displaySearchResults(
-  functions: FunctionInfo[],
+  functions: (FunctionInfo & { similarity?: number })[],
   keyword: string,
   logger: Logger,
   options: SearchCommandOptions
@@ -67,19 +200,28 @@ function displaySearchResults(
   logger.info('');
 
   if (format === 'table') {
-    displayTable(functions, logger);
+    displayTable(functions, logger, options);
   } else if (format === 'friendly') {
-    displayFriendly(functions, logger);
+    displayFriendly(functions, logger, options);
   } else {
     // Default to table format
-    displayTable(functions, logger);
+    displayTable(functions, logger, options);
   }
 }
 
-function displayTable(functions: FunctionInfo[], logger: Logger): void {
-  // Print table header with ID column
-  logger.info(chalk.bold('ID        Complexity   Function                  File:Line                                Exported Async'));
-  logger.info(chalk.gray('─'.repeat(105)));
+function displayTable(functions: (FunctionInfo & { similarity?: number })[], logger: Logger, options: SearchCommandOptions): void {
+  // Determine if we should show similarity scores
+  const showSimilarity = options.showSimilarity || options.semantic || options.hybrid;
+  
+  if (showSimilarity) {
+    // Print table header with similarity column
+    logger.info(chalk.bold('ID        Similarity  Complexity   Function                  File:Line                                Exported Async'));
+    logger.info(chalk.gray('─'.repeat(120)));
+  } else {
+    // Print table header without similarity column
+    logger.info(chalk.bold('ID        Complexity   Function                  File:Line                                Exported Async'));
+    logger.info(chalk.gray('─'.repeat(105)));
+  }
 
   // Print function rows
   functions.forEach(func => {
@@ -93,24 +235,45 @@ function displayTable(functions: FunctionInfo[], logger: Logger): void {
     const async = func.isAsync ? chalk.blue('✓') : chalk.gray('✗');
 
     const complexityStr = complexityColor(complexity.toString()).padEnd(12);
-    logger.info(`${functionId} ${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
+    
+    if (showSimilarity && func.similarity !== undefined) {
+      const similarityStr = getSimilarityColor(func.similarity)(func.similarity.toFixed(3)).padEnd(11);
+      logger.info(`${functionId} ${similarityStr} ${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
+    } else {
+      logger.info(`${functionId} ${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
+    }
   });
 }
 
-function displayFriendly(functions: FunctionInfo[], logger: Logger): void {
+function displayFriendly(functions: (FunctionInfo & { similarity?: number })[], logger: Logger, options: SearchCommandOptions): void {
+  const showSimilarity = options.showSimilarity || options.semantic || options.hybrid;
+  
   functions.forEach((func, index) => {
     const complexity = func.metrics?.cyclomaticComplexity || 1;
     const complexityColor = getComplexityColor(complexity);
     
     logger.info(`${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)} ${chalk.gray(`[ID: ${func.id.substring(0, 8)}]`)}`);
     logger.info(`   File: ${func.filePath}:${func.startLine}`);
-    logger.info(`   Complexity: ${complexityColor(complexity.toString())} | ` +
+    
+    let metricLine = `   Complexity: ${complexityColor(complexity.toString())} | ` +
       `Exported: ${func.isExported ? chalk.green('Yes') : chalk.gray('No')} | ` +
-      `Async: ${func.isAsync ? chalk.blue('Yes') : chalk.gray('No')}`);
+      `Async: ${func.isAsync ? chalk.blue('Yes') : chalk.gray('No')}`;
+    
+    if (showSimilarity && func.similarity !== undefined) {
+      const similarityColor = getSimilarityColor(func.similarity);
+      metricLine += ` | Similarity: ${similarityColor(func.similarity.toFixed(3))}`;
+    }
+    
+    logger.info(metricLine);
     
     if (func.jsDoc) {
       const jsDocPreview = truncate(func.jsDoc.replace(/\n/g, ' '), 80);
       logger.info(`   JSDoc: ${chalk.gray(jsDocPreview)}`);
+    }
+    
+    if (func.description) {
+      const descPreview = truncate(func.description, 80);
+      logger.info(`   Description: ${chalk.gray(descPreview)}`);
     }
     
     logger.info('');
@@ -121,6 +284,13 @@ function getComplexityColor(complexity: number): (text: string) => string {
   if (complexity >= 10) return chalk.red;
   if (complexity >= 5) return chalk.yellow;
   return chalk.green;
+}
+
+function getSimilarityColor(similarity: number): (text: string) => string {
+  if (similarity >= 0.9) return chalk.green;
+  if (similarity >= 0.7) return chalk.yellow;
+  if (similarity >= 0.5) return chalk.cyan;
+  return chalk.gray;
 }
 
 // Import path module for basename
