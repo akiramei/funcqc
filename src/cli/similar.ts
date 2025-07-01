@@ -47,7 +47,7 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
     try {
       const functions = await loadFunctions(storage, options, spinner);
       const detectionConfig = parseDetectionOptions(options);
-      const results = await detectSimilarities(functions, detectionConfig, spinner);
+      const results = await detectSimilarities(functions, detectionConfig, spinner, storage);
       const limitedResults = applyLimit(results, detectionConfig.limit);
       
       outputResults(limitedResults, options, context.logger);
@@ -107,7 +107,7 @@ async function loadFunctions(
 }
 
 function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig {
-  const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
+  const threshold = options.threshold ? parseFloat(options.threshold) : 0.95;
   const minLines = options.minLines ? parseInt(options.minLines) : 5;
   const limit = options.limit ? parseInt(options.limit) : undefined;
   const enabledDetectors = options.detectors ? options.detectors.split(',') : [];
@@ -127,11 +127,17 @@ function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig 
 async function detectSimilarities(
   functions: FunctionInfo[],
   config: DetectionConfig,
-  spinner: ReturnType<typeof ora>
+  spinner: ReturnType<typeof ora>,
+  storage: PGLiteStorageAdapter
 ): Promise<SimilarityResult[]> {
-  const similarityManager = new SimilarityManager();
+  const similarityManager = new SimilarityManager(undefined, storage);
   
   spinner.start('Detecting similar functions...');
+  
+  // Add timeout warning for slow operations
+  const timeoutWarning = setTimeout(() => {
+    spinner.text = 'Still processing... (use higher threshold for faster results)';
+  }, 5000);
   
   const results = await similarityManager.detectSimilarities(
     functions,
@@ -144,6 +150,7 @@ async function detectSimilarities(
     config.consensusStrategy
   );
 
+  clearTimeout(timeoutWarning);
   spinner.succeed(`Found ${results.length} groups of similar functions`);
   return results;
 }
@@ -324,8 +331,16 @@ function displayResults(results: SimilarityResult[], logger: Logger): void {
   console.log(chalk.bold('\nSimilar Function Groups:\n'));
 
   results.forEach((result, index) => {
-    console.log(chalk.yellow(`Group ${index + 1}`) + chalk.gray(` (${result.detector})`));
+    const detectorInfo = getDetectorInfo(result.detector);
+    console.log(chalk.yellow(`Group ${index + 1}`) + chalk.gray(` (${detectorInfo.name})`));
     console.log(chalk.cyan(`Similarity: ${(result.similarity * 100).toFixed(1)}%`));
+    console.log(chalk.blue(`Algorithm: ${detectorInfo.description}`));
+    
+    // Explain why they are similar
+    const reason = getSimilarityReason(result);
+    if (reason) {
+      console.log(chalk.gray(`Reason: ${reason}`));
+    }
     
     if (result.metadata?.['groupSize']) {
       console.log(chalk.gray(`Group size: ${result.metadata['groupSize']} functions`));
@@ -374,4 +389,136 @@ function displaySummary(allResults: SimilarityResult[], displayedResults: Simila
   console.log(`    High (≥90%): ${distribution.high}`);
   console.log(`    Medium (70-90%): ${distribution.medium}`);
   console.log(`    Low (<70%): ${distribution.low}`);
+
+  // Distribution by detector
+  const detectorStats = new Map<string, number>();
+  allResults.forEach(result => {
+    const detectorInfo = getDetectorInfo(result.detector);
+    const count = detectorStats.get(detectorInfo.name) || 0;
+    detectorStats.set(detectorInfo.name, count + 1);
+  });
+
+  if (detectorStats.size > 1) {
+    console.log('\n  Detection algorithms used:');
+    Array.from(detectorStats.entries())
+      .sort((a, b) => b[1] - a[1])
+      .forEach(([detector, count]) => {
+        console.log(`    ${detector}: ${count} group${count !== 1 ? 's' : ''}`);
+      });
+  }
+}
+
+function getDetectorInfo(detector: string): { name: string; description: string } {
+  switch (detector) {
+    case 'advanced-structural':
+      return {
+        name: 'Advanced AST',
+        description: 'AST canonicalization + Merkle hashing + SimHash fingerprinting'
+      };
+    case 'advanced-structural-fast':
+      return {
+        name: 'Advanced Fast',
+        description: 'Source code hashing (Stage 1 of 2-stage filtering)'
+      };
+    case 'advanced-structural-hybrid':
+      return {
+        name: 'Advanced Hybrid',
+        description: 'AST canonicalization + SimHash (Stage 2 of 2-stage filtering)'
+      };
+    case 'hash-duplicate':
+      return {
+        name: 'Hash-based',
+        description: 'Pre-computed hash comparison (AST, semantic, signature)'
+      };
+    case 'ast-structural':
+      return {
+        name: 'AST Structural',
+        description: 'Traditional AST structure comparison with weighted similarity'
+      };
+    case 'ann-semantic':
+      return {
+        name: 'ANN Semantic',
+        description: 'Approximate Nearest Neighbor with embedding vectors'
+      };
+    case 'consensus-majority':
+      return {
+        name: 'Consensus Majority',
+        description: 'Agreement between multiple detection algorithms'
+      };
+    case 'consensus-intersection':
+      return {
+        name: 'Consensus Intersection',
+        description: 'Functions detected by all enabled algorithms'
+      };
+    case 'consensus-weighted':
+      return {
+        name: 'Consensus Weighted',
+        description: 'Weighted combination of multiple detection algorithms'
+      };
+    default:
+      return {
+        name: detector,
+        description: 'Unknown detection algorithm'
+      };
+  }
+}
+
+function getSimilarityReason(result: SimilarityResult): string | null {
+  const metadata = result.metadata;
+  
+  if (!metadata) return null;
+  
+  // Advanced detector reasons
+  if (result.detector.startsWith('advanced-structural')) {
+    const algorithm = metadata['algorithm'] as string;
+    const resultType = metadata['resultType'] as string;
+    
+    if (algorithm === 'source-code-hash') {
+      return 'Identical source code';
+    } else if (algorithm === 'merkle-tree') {
+      return 'Identical AST structure (Merkle hash match)';
+    } else if (algorithm === 'simhash-lsh') {
+      const hammingDistance = metadata['hammingDistance'] as number;
+      return `Near-duplicate code (Hamming distance: ${hammingDistance})`;
+    } else if (algorithm === 'structural-signature') {
+      return 'Similar control flow patterns';
+    } else if (resultType) {
+      return `${resultType.replace('-', ' ')} detected`;
+    }
+  }
+  
+  // Hash-based detector reasons
+  if (result.detector === 'hash-duplicate') {
+    const hashType = metadata['hashType'] as string;
+    switch (hashType) {
+      case 'ast-exact':
+        return 'Exact AST match - identical code structure';
+      case 'semantic-match':
+        return 'Same semantic ID - functionally equivalent';
+      case 'signature-match':
+        return 'Same function signature - identical parameters and return type';
+      case 'name-match':
+        return 'Same function name - potential duplication';
+      default:
+        return null;
+    }
+  }
+  
+  // ANN detector reasons
+  if (result.detector === 'ann-semantic') {
+    return 'Semantic similarity based on embeddings';
+  }
+  
+  // AST detector reasons
+  if (result.detector === 'ast-structural') {
+    if (metadata['astHashMatch']) {
+      return 'Exact AST structure match';
+    }
+    if (metadata['signatureHashMatch']) {
+      return 'Matching function signatures with similar implementation';
+    }
+    return 'Structural similarity in code patterns';
+  }
+  
+  return null;
 }

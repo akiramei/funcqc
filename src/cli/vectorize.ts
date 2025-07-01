@@ -240,8 +240,15 @@ async function handleANNIndexOperations(
   const spinner = ora();
 
   if (options.rebuildIndex) {
-    // Parse ANN configuration
-    let annConfig: ANNConfig = { ...DEFAULT_ANN_CONFIG };
+    // Load configuration
+    const configManager = new ConfigManager();
+    const config = await configManager.load();
+    
+    // Parse ANN configuration with config file support
+    let annConfig: ANNConfig = { 
+      ...DEFAULT_ANN_CONFIG,
+      ...(config.ann || {})
+    };
     
     if (options.indexAlgorithm) {
       annConfig.algorithm = options.indexAlgorithm as 'hierarchical' | 'lsh' | 'hybrid';

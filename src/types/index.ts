@@ -38,6 +38,15 @@ export interface FuncqcConfig {
   similarity?: {
     detectors: Record<string, SimilarityDetectorConfig>;
     consensus: ConsensusStrategy;
+    defaultThreshold?: number;
+  };
+  
+  ann?: {
+    algorithm?: 'hierarchical' | 'lsh' | 'hybrid';
+    clusterCount?: number;
+    hashBits?: number;
+    approximationLevel?: 'fast' | 'balanced' | 'accurate';
+    cacheSize?: number;
   };
 }
 
