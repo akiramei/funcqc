@@ -1186,11 +1186,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         this.db.query('SELECT AVG(build_time_ms) as avg_time FROM ann_index_metadata')
       ]);
 
+      type CurrentIndexRow = {
+        algorithm: string;
+        vector_count: number;
+        build_time_ms: number;
+        embedding_model: string;
+      };
+
       const currentIndex = currentResult.rows.length > 0 ? {
-        algorithm: (currentResult.rows[0] as { algorithm: string }).algorithm,
-        vectorCount: (currentResult.rows[0] as { vector_count: number }).vector_count,
-        buildTimeMs: (currentResult.rows[0] as { build_time_ms: number }).build_time_ms,
-        model: (currentResult.rows[0] as { embedding_model: string }).embedding_model
+        algorithm: (currentResult.rows[0] as CurrentIndexRow).algorithm,
+        vectorCount: (currentResult.rows[0] as CurrentIndexRow).vector_count,
+        buildTimeMs: (currentResult.rows[0] as CurrentIndexRow).build_time_ms,
+        model: (currentResult.rows[0] as CurrentIndexRow).embedding_model
       } : null;
 
       return {

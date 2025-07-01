@@ -227,6 +227,15 @@ export class HierarchicalIndex {
             break;
           }
         }
+      } else {
+        // If all points are already selected or distances are zero,
+        // select a random unselected point
+        const unselected = embeddings
+          .map((_, idx) => idx)
+          .filter(idx => !selectedIndices.includes(idx));
+        if (unselected.length > 0) {
+          selectedIndices.push(unselected[Math.floor(Math.random() * unselected.length)]);
+        }
       }
     }
 

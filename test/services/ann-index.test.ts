@@ -272,9 +272,11 @@ describe('ANN Index Services', () => {
       const results = await index.searchApproximate([0.5, 0.5, 0.5], 10);
       const searchTime = Date.now() - searchStart;
       
-      // Basic performance expectations
-      expect(buildTime).toBeLessThan(5000); // Should build in under 5 seconds
-      expect(searchTime).toBeLessThan(1000); // Should search in under 1 second
+      // Basic performance expectations (configurable for different environments)
+      const buildTimeLimit = parseInt(process.env['ANN_BUILD_TIME_LIMIT'] || '5000', 10);
+      const searchTimeLimit = parseInt(process.env['ANN_SEARCH_TIME_LIMIT'] || '1000', 10);
+      expect(buildTime).toBeLessThan(buildTimeLimit);
+      expect(searchTime).toBeLessThan(searchTimeLimit);
       expect(results.length).toBeLessThanOrEqual(10);
       
       const stats = index.getIndexStats();

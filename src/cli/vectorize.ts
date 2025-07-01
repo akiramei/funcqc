@@ -360,21 +360,126 @@ async function handleANNIndexOperations(
       process.exit(1);
     }
 
-    // Run benchmark
+    // Load all embeddings
+    const allEmbeddings = [];
+    for (const func of functionsWithEmbeddings) {
+      const embedding = await storage.getEmbedding(func.semanticId);
+      if (embedding) {
+        allEmbeddings.push({
+          functionId: func.semanticId,
+          semanticId: func.semanticId,
+          embedding: embedding.embedding,
+          model: embedding.model,
+          timestamp: Date.now()
+        });
+      }
+    }
+
+    if (allEmbeddings.length === 0) {
+      spinner.fail('No embeddings found for benchmark.');
+      process.exit(1);
+    }
+
+    // Initialize embedding services for comparison
+    const annEmbeddingService = new EmbeddingService({
+      enableANN: true,
+      annConfig: { ...DEFAULT_ANN_CONFIG, algorithm: 'hierarchical' }
+    });
+    
+    const exactEmbeddingService = new EmbeddingService({
+      enableANN: false
+    });
+
+    // Build ANN index
+    spinner.text = 'Building ANN index for benchmark...';
+    await annEmbeddingService.buildANNIndex(allEmbeddings);
+    
+    // Prepare test queries (use random subset of embeddings)
+    const queryCount = Math.min(5, allEmbeddings.length);
+    const queryIndices = Array.from({ length: queryCount }, () => 
+      Math.floor(Math.random() * allEmbeddings.length)
+    );
+    
     spinner.text = 'Running performance benchmark...';
     
-    // Sample queries (use first few embeddings as queries)
-    const queryCount = Math.min(5, functionsWithEmbeddings.length);
-    
-    console.log('\n🏁 ANN Search Benchmark:');
-    console.log(chalk.gray('─'.repeat(50)));
-    console.log(`Dataset size: ${chalk.cyan(functionsWithEmbeddings.length)} vectors`);
-    console.log(`Query count: ${chalk.cyan(queryCount)} queries`);
-    
-    // Note: Full benchmark implementation would require actual search timing
-    // This is a simplified version showing the structure
-    
+    const k = 10; // Number of results to retrieve
+    const results = {
+      ann: { totalTime: 0, accuracySum: 0 },
+      exact: { totalTime: 0 }
+    };
+
+    // Run benchmark queries
+    for (let i = 0; i < queryCount; i++) {
+      const queryEmbedding = allEmbeddings[queryIndices[i]];
+      const queryText = `test-query-${i}`;
+
+      // ANN search
+      const annStartTime = Date.now();
+      const annResults = await annEmbeddingService.semanticSearch(queryText, allEmbeddings, {
+        useANN: true,
+        limit: k,
+        threshold: 0.0
+      });
+      const annTime = Date.now() - annStartTime;
+      results.ann.totalTime += annTime;
+
+      // Exact search
+      const exactStartTime = Date.now();
+      const exactResults = await exactEmbeddingService.semanticSearch(queryText, allEmbeddings, {
+        useANN: false,
+        limit: k,
+        threshold: 0.0
+      });
+      const exactTime = Date.now() - exactStartTime;
+      results.exact.totalTime += exactTime;
+
+      // Calculate recall@k (accuracy)
+      const exactIds = new Set(exactResults.slice(0, k).map(r => r.functionId));
+      const annIds = new Set(annResults.slice(0, k).map(r => r.functionId));
+      const intersection = new Set([...exactIds].filter(id => annIds.has(id)));
+      const recall = intersection.size / Math.min(k, exactIds.size);
+      results.ann.accuracySum += recall;
+    }
+
     spinner.succeed('Benchmark completed');
-    console.log('\n📈 Results: Benchmark implementation pending full integration');
+
+    // Calculate averages
+    const avgAnnTime = results.ann.totalTime / queryCount;
+    const avgExactTime = results.exact.totalTime / queryCount;
+    const avgAccuracy = results.ann.accuracySum / queryCount;
+    const speedup = avgExactTime / avgAnnTime;
+
+    // Display results
+    console.log('\n🏁 ANN Search Benchmark Results:');
+    console.log(chalk.gray('─'.repeat(50)));
+    console.log(`Dataset size: ${chalk.cyan(allEmbeddings.length)} vectors`);
+    console.log(`Query count: ${chalk.cyan(queryCount)} queries`);
+    console.log(`Results per query (k): ${chalk.cyan(k)}`);
+    console.log('');
+    console.log('📊 Performance Comparison:');
+    console.log(`  ANN Search:   ${chalk.green(avgAnnTime.toFixed(1) + 'ms')} (average)`);
+    console.log(`  Exact Search: ${chalk.yellow(avgExactTime.toFixed(1) + 'ms')} (average)`);
+    console.log(`  Speedup:      ${chalk.bold(speedup.toFixed(1) + 'x')}`);
+    console.log('');
+    console.log('🎯 Accuracy Metrics:');
+    console.log(`  Recall@${k}:     ${chalk.green((avgAccuracy * 100).toFixed(1) + '%')}`);
+    console.log('');
+    
+    // Performance assessment
+    if (speedup > 2) {
+      console.log(chalk.green('✅ Excellent performance improvement!'));
+    } else if (speedup > 1.5) {
+      console.log(chalk.yellow('⚡ Good performance improvement'));
+    } else {
+      console.log(chalk.red('⚠️  Limited performance gain - consider larger dataset or different algorithm'));
+    }
+
+    if (avgAccuracy > 0.95) {
+      console.log(chalk.green('✅ Excellent accuracy maintained'));
+    } else if (avgAccuracy > 0.9) {
+      console.log(chalk.yellow('⚡ Good accuracy maintained'));
+    } else {
+      console.log(chalk.red('⚠️  Lower accuracy - consider adjusting ANN parameters'));
+    }
   }
 }
