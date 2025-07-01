@@ -251,7 +251,7 @@ async function handleANNIndexOperations(
       try {
         const customConfig = JSON.parse(options.indexConfig);
         annConfig = { ...annConfig, ...customConfig };
-      } catch (error) {
+      } catch {
         console.error(chalk.red('Error: Invalid JSON in --index-config'));
         process.exit(1);
       }
