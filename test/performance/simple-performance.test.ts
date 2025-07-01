@@ -36,6 +36,8 @@ describe('Performance Optimization Tests', () => {
     for (let i = 0; i < 100; i++) {
       testFunctions.push({
         id: `func-${i}-${Date.now()}`,
+        semanticId: `semantic-${i}-${Date.now()}`,
+        contentId: `content-${i}-${Date.now()}`,
         name: `testFunction${i}`,
         displayName: `testFunction${i}`,
         signature: `testFunction${i}(): void`,
@@ -101,6 +103,8 @@ describe('Performance Optimization Tests', () => {
     for (let i = 0; i < 500; i++) {
       largeBatch.push({
         id: `large-func-${i}`,
+        semanticId: `large-semantic-${i}`,
+        contentId: `large-content-${i}`,
         name: `largeFunction${i}`,
         displayName: `largeFunction${i}`,
         signature: `largeFunction${i}(param: string): void`,

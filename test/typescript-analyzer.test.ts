@@ -37,7 +37,7 @@ describe('TypeScriptAnalyzer', () => {
       const getUser = functions.find(f => f.name === 'getUser');
       expect(getUser).toBeDefined();
       expect(getUser?.isMethod).toBe(true);
-      expect(getUser?.parentClass).toBe('UserService');
+      expect(getUser?.contextPath).toContain('UserService');
       expect(getUser?.accessModifier).toBeUndefined(); // public is default
 
       const fetchWithAuth = functions.find(f => f.name === 'fetchWithAuth');
