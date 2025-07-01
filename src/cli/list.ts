@@ -398,11 +398,11 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   
   // Distribute width proportionally with minimum values
   const baseColumns = {
-    0: { width: Math.max(8, unitWidth * 1), alignment: 'left' }, // ID (10%)
+    0: { width: Math.max(8, unitWidth * 1), alignment: 'left' as const }, // ID (10%)
     1: { width: Math.max(12, unitWidth * 3), wrapWord: true }, // Name (30%)
     2: { width: Math.max(15, unitWidth * 4), wrapWord: true }, // File (40%)
-    3: { width: Math.max(6, unitWidth * 1), alignment: 'right' }, // Lines (10%)
-    4: { width: Math.max(8, unitWidth * 1), alignment: 'right' } // Complexity (10%)
+    3: { width: Math.max(8, unitWidth * 1), alignment: 'right' as const }, // Location (10%)
+    4: { width: Math.max(8, unitWidth * 1), alignment: 'right' as const } // Complexity (10%)
   };
   
   // Verify total width doesn't exceed available space
@@ -410,11 +410,11 @@ function outputTable(functions: FunctionInfo[], options: ListCommandOptions): vo
   if (totalWidth > availableWidth) {
     // Fallback to minimal safe widths
     Object.assign(baseColumns, {
-      0: { width: 8, alignment: 'left' },
+      0: { width: 8, alignment: 'left' as const },
       1: { width: 12, wrapWord: true },
       2: { width: 15, wrapWord: true },
-      3: { width: 6, alignment: 'right' },
-      4: { width: 8, alignment: 'right' }
+      3: { width: 8, alignment: 'right' as const },
+      4: { width: 8, alignment: 'right' as const }
     });
   }
   
@@ -478,7 +478,7 @@ function getFields(options: ListCommandOptions): string[] {
   }
   
   // Default fields - always include ID for better function identification
-  return ['id', 'name', 'file', 'lines', 'complexity', 'exported', 'async'];
+  return ['id', 'name', 'file', 'location', 'complexity', 'exported', 'async'];
 }
 
 function formatFieldName(field: string): string {
@@ -487,6 +487,7 @@ function formatFieldName(field: string): string {
     name: 'Name',
     file: 'File',
     lines: 'Lines',
+    location: 'Location',
     complexity: 'Complexity',
     exported: 'Exported',
     async: 'Async',
@@ -507,6 +508,8 @@ function getFieldValue(func: FunctionInfo, field: string): FieldValue {
       return func.filePath;
     case 'lines':
       return func.metrics?.linesOfCode || 0;
+    case 'location':
+      return `${func.startLine}-${func.endLine}`;
     case 'complexity':
       return func.metrics?.cyclomaticComplexity || 1;
     case 'exported':
