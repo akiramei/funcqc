@@ -69,6 +69,34 @@ export async function searchCommand(
       if (functions.length === 0) {
         const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
         logger.info(chalk.yellow(`No functions found matching ${searchType} search: "${keyword}"`));
+        
+        // Provide helpful suggestions based on search type
+        if (options.semantic || options.hybrid) {
+          const threshold = parseFloat(options.threshold || '0.8');
+          if (threshold > 0.7) {
+            logger.info(chalk.gray(`💡 Try lowering the similarity threshold: ${chalk.cyan(`--threshold ${Math.max(threshold - 0.2, 0.5).toFixed(1)}`)}`));
+          }
+          if (options.semantic) {
+            logger.info(chalk.gray(`💡 Try hybrid search for broader results: ${chalk.cyan('--hybrid')}`));
+          }
+        } else {
+          logger.info(chalk.gray(`💡 Try semantic search for concept-based matching: ${chalk.cyan('--semantic')}`));
+        }
+        
+        // Check if embeddings exist
+        const storage = await new (require('../storage/pglite-adapter').PGLiteStorageAdapter)(
+          (await new (require('../core/config').ConfigManager)().load()).storage.path || '.funcqc/funcqc.db'
+        );
+        await storage.init();
+        const stats = await storage.getEmbeddingStats();
+        await storage.close();
+        
+        if (stats.total === 0) {
+          logger.info(chalk.gray(`💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`));
+        } else if (stats.withEmbeddings === 0 && (options.semantic || options.hybrid)) {
+          logger.info(chalk.gray(`💡 No embeddings found. Generate embeddings first: ${chalk.cyan('funcqc vectorize')}`));
+        }
+        
         return;
       }
 

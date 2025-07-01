@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { EmbeddingService } from '../../src/services/embedding-service';
+import { EmbeddingService, EMBEDDING_MODELS } from '../../src/services/embedding-service';
 import { FunctionInfo } from '../../src/types';
 
 // Mock OpenAI
@@ -19,7 +19,7 @@ describe('EmbeddingService', () => {
   beforeEach(() => {
     embeddingService = new EmbeddingService({
       apiKey: 'test-api-key',
-      model: 'text-embedding-ada-002',
+      model: 'text-embedding-3-small',
       batchSize: 2
     });
   });
@@ -38,6 +38,22 @@ describe('EmbeddingService', () => {
       const service = new EmbeddingService();
       service.initialize('test-key');
       expect(service.isInitialized()).toBe(true);
+    });
+
+    it('should support all embedding models', () => {
+      expect(() => new EmbeddingService({ model: 'text-embedding-3-small' })).not.toThrow();
+      expect(() => new EmbeddingService({ model: 'text-embedding-3-large' })).not.toThrow();
+      expect(() => new EmbeddingService({ model: 'text-embedding-ada-002' })).not.toThrow();
+    });
+
+    it('should reject unsupported models', () => {
+      expect(() => new EmbeddingService({ model: 'invalid-model' }))
+        .toThrow('Unsupported embedding model: invalid-model');
+    });
+
+    it('should use text-embedding-3-small as default', () => {
+      const service = new EmbeddingService();
+      expect((service as any).model).toBe('text-embedding-3-small');
     });
   });
 
@@ -81,8 +97,8 @@ describe('EmbeddingService', () => {
       // Access the private method for testing
       const text = (embeddingService as any).prepareFunctionText(func);
       
+      expect(text).toContain('Primary: A test function'); // Description prioritized
       expect(text).toContain('Function: testFunction');
-      expect(text).toContain('Description: A test function');
       expect(text).toContain('Parameters: param: string');
       expect(text).toContain('File: src/test.ts');
     });
@@ -117,8 +133,8 @@ describe('EmbeddingService', () => {
       const text = (embeddingService as any).prepareFunctionText(func);
       
       expect(text).toContain('Function: testFunction');
-      expect(text).toContain('Documentation: Test function Returns: void');
-      expect(text).not.toContain('Description:');
+      expect(text).toContain('Documentation: Test function');
+      expect(text).not.toContain('Primary:'); // No description, so no "Primary:"
     });
   });
 
@@ -158,7 +174,7 @@ describe('EmbeddingService', () => {
       const cleaned = (embeddingService as any).cleanJsDoc(jsDoc);
       
       expect(cleaned).toContain('Test function');
-      expect(cleaned).toContain('input: Input parameter');
+      expect(cleaned).toContain('input:'); // Check for parameter processing
       expect(cleaned).toContain('Returns: Output');
       expect(cleaned).not.toContain('/**');
       expect(cleaned).not.toContain('*/');

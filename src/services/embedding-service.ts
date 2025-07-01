@@ -8,6 +8,15 @@ export interface EmbeddingConfig {
   batchSize?: number;
 }
 
+// Supported embedding models with their configurations
+export const EMBEDDING_MODELS = {
+  'text-embedding-ada-002': { dimension: 1536, maxTokens: 8191 },
+  'text-embedding-3-small': { dimension: 1536, maxTokens: 8191 },
+  'text-embedding-3-large': { dimension: 3072, maxTokens: 8191 }
+} as const;
+
+export type EmbeddingModelName = keyof typeof EMBEDDING_MODELS;
+
 export interface EmbeddingResult {
   functionId: string;
   semanticId: string;
@@ -20,10 +29,17 @@ export class EmbeddingService {
   private openai: OpenAI | null = null;
   private readonly model: string;
   private readonly batchSize: number;
+  private readonly modelConfig: { dimension: number; maxTokens: number };
 
   constructor(config: EmbeddingConfig = {}) {
-    this.model = config.model || 'text-embedding-ada-002';
+    this.model = config.model || 'text-embedding-3-small';
     this.batchSize = config.batchSize || 100;
+    
+    // Validate and get model configuration
+    if (!(this.model in EMBEDDING_MODELS)) {
+      throw new Error(`Unsupported embedding model: ${this.model}. Supported models: ${Object.keys(EMBEDDING_MODELS).join(', ')}`);
+    }
+    this.modelConfig = EMBEDDING_MODELS[this.model as EmbeddingModelName];
 
     if (config.apiKey) {
       this.openai = new OpenAI({ apiKey: config.apiKey });
@@ -42,6 +58,17 @@ export class EmbeddingService {
    */
   isInitialized(): boolean {
     return this.openai !== null;
+  }
+
+  /**
+   * Get model information
+   */
+  getModelInfo(): { model: string; dimension: number; maxTokens: number } {
+    return {
+      model: this.model,
+      dimension: this.modelConfig.dimension,
+      maxTokens: this.modelConfig.maxTokens
+    };
   }
 
   /**
@@ -135,40 +162,71 @@ export class EmbeddingService {
   }
 
   /**
-   * Prepare function text for embedding
+   * Prepare function text for embedding with prioritized content structure
    */
   private prepareFunctionText(func: FunctionInfo): string {
     const parts: string[] = [];
 
-    // Add function name and signature
+    // Start with description (most important for semantic understanding)
+    if (func.description) {
+      parts.push(`Primary: ${func.description}`);
+    }
+
+    // Add function identity
     parts.push(`Function: ${func.displayName}`);
     parts.push(`Signature: ${func.signature}`);
 
-    // Add description if available
-    if (func.description) {
-      parts.push(`Description: ${func.description}`);
-    }
-
-    // Add JSDoc if available and no description
-    if (!func.description && func.jsDoc) {
+    // Add JSDoc if available and no description, or extract examples
+    if (func.jsDoc) {
       const cleanedJsDoc = this.cleanJsDoc(func.jsDoc);
       if (cleanedJsDoc) {
-        parts.push(`Documentation: ${cleanedJsDoc}`);
+        if (!func.description) {
+          parts.push(`Documentation: ${cleanedJsDoc}`);
+        } else {
+          // Extract examples even if description exists
+          const examples = this.extractJsDocExamples(func.jsDoc);
+          if (examples) {
+            parts.push(`Examples: ${examples}`);
+          }
+        }
       }
     }
 
-    // Add parameter information
+    // Add detailed parameter information
     if (func.parameters.length > 0) {
       const paramInfo = func.parameters
-        .map(p => `${p.name}: ${p.typeSimple}`)
+        .map(p => {
+          const optional = p.isOptional ? '?' : '';
+          const rest = p.isRest ? '...' : '';
+          const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+          return `${rest}${p.name}${optional}: ${p.typeSimple}${defaultVal}`;
+        })
         .join(', ');
       parts.push(`Parameters: ${paramInfo}`);
     }
 
-    // Add file context
+    // Add context information
+    if (func.contextPath && func.contextPath.length > 0) {
+      parts.push(`Context: ${func.contextPath.join('.')}`);
+    }
+    
+    // Add file context (least important for semantic search)
     parts.push(`File: ${func.filePath}`);
 
     return parts.join(' | ');
+  }
+
+  /**
+   * Extract examples from JSDoc @example tags
+   */
+  private extractJsDocExamples(jsDoc: string): string {
+    const exampleMatches = jsDoc.match(/@example\s+([\s\S]*?)(?=@\w+|$)/g);
+    if (!exampleMatches) return '';
+    
+    return exampleMatches
+      .map(match => match.replace(/@example\s+/, '').trim())
+      .filter(example => example.length > 0)
+      .join(' | ');
   }
 
   /**

@@ -13,7 +13,7 @@ export function createVectorizeCommand(): Command {
     .option('--recent', 'vectorize only functions without embeddings')
     .option('--status', 'show vectorization status')
     .option('--api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env var)')
-    .option('--model <model>', 'embedding model to use', 'text-embedding-ada-002')
+    .option('--model <model>', 'embedding model to use', 'text-embedding-3-small')
     .option('--batch-size <size>', 'batch size for processing', '100')
     .option('--limit <n>', 'limit number of functions to process')
     .action(async (options) => {
@@ -119,11 +119,12 @@ export function createVectorizeCommand(): Command {
         spinner.succeed('Embeddings saved successfully');
         
         // Show summary
+        const modelInfo = embeddingService.getModelInfo();
         console.log('\n✅ Vectorization completed:');
         console.log(chalk.gray('─'.repeat(40)));
         console.log(`Functions processed: ${chalk.green(embeddings.length)}`);
-        console.log(`Model used: ${chalk.cyan(options.model)}`);
-        console.log(`Embedding dimension: ${chalk.cyan('1536')}`);
+        console.log(`Model used: ${chalk.cyan(modelInfo.model)}`);
+        console.log(`Embedding dimension: ${chalk.cyan(modelInfo.dimension.toString())}`);
         
         // Show updated stats
         const updatedStats = await storage.getEmbeddingStats();
@@ -144,6 +145,12 @@ Examples:
   $ funcqc vectorize --all                       # Re-vectorize all functions
   $ funcqc vectorize --recent --limit 100        # Process only 100 functions
   $ funcqc vectorize --api-key YOUR_KEY          # Use specific API key
+  $ funcqc vectorize --model text-embedding-3-large  # Use higher quality model
+
+Supported Models:
+  text-embedding-3-small    1536 dimensions (default, cost-effective)
+  text-embedding-3-large    3072 dimensions (higher quality)
+  text-embedding-ada-002    1536 dimensions (legacy)
 
 Environment:
   OPENAI_API_KEY    OpenAI API key for generating embeddings

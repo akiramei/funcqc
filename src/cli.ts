@@ -176,11 +176,24 @@ program
   .option('--threshold <value>', 'similarity threshold for semantic search (0-1)', '0.8')
   .option('--hybrid', 'use hybrid search (keyword + semantic)')
   .option('--hybrid-weight <value>', 'weight for semantic vs keyword (0-1)', '0.5')
-  .option('--model <model>', 'embedding model for query vectorization', 'text-embedding-ada-002')
+  .option('--model <model>', 'embedding model for query vectorization', 'text-embedding-3-small')
   .option('--show-similarity', 'show similarity scores in results')
   .option('--min-similarity <value>', 'minimum similarity score to include results', '0.5')
   .option('--api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env var)')
-  .action(searchCommand);
+  .action(searchCommand)
+  .addHelpText('after', `
+Examples:
+  $ funcqc search "authentication"                        # Basic keyword search
+  $ funcqc search "user login" --semantic                 # Semantic search
+  $ funcqc search "error handling" --hybrid               # Hybrid search
+  $ funcqc search "validation" --semantic --threshold 0.9 # High precision
+  $ funcqc search "database" --hybrid --show-similarity   # Show scores
+
+Semantic Search:
+  Requires embeddings generated with 'funcqc vectorize'
+  Uses OpenAI embeddings for concept-based matching
+  Better for finding functions by purpose/behavior
+`);
 
 // Add vectorize command
 program.addCommand(createVectorizeCommand());
