@@ -58,6 +58,9 @@ tmp/
 *.tmp
 *.temp
 
+# PGLite database files (prevent filesystem pollution)
+:memory:/
+
 # Lock files (keep yarn.lock if using yarn)
 # package-lock.json  # Commented out - needed for GitHub Actions
 

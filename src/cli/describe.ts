@@ -7,7 +7,7 @@ import { DescribeCommandOptions, FunctionDescription, FunctionInfo } from '../ty
 import fs from 'fs';
 
 interface DescribeBatchInput {
-  functionId: string;
+  semanticId: string;
   description: string;
   source?: 'human' | 'ai' | 'jsdoc';
   aiModel?: string;
@@ -82,17 +82,39 @@ async function handleBatchDescribe(
   logger.info(`Processing ${descriptions.length} function descriptions...`);
 
   for (const desc of descriptions) {
-    if (!desc.functionId || !desc.description) {
+    if (!desc.semanticId || !desc.description) {
       logger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
       continue;
     }
 
+    // Find the current function with this semantic ID to get its content ID
+    let validatedForContentId: string | undefined;
+    try {
+      const functions = await storage.queryFunctions({
+        filters: [
+          {
+            field: 'semantic_id',
+            operator: '=',
+            value: desc.semanticId
+          }
+        ],
+        limit: 1
+      });
+      
+      if (functions.length > 0) {
+        validatedForContentId = functions[0].contentId;
+      }
+    } catch (error) {
+      logger.warn(`Could not find function with semantic ID ${desc.semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+
     const description: FunctionDescription = {
-      functionId: desc.functionId,
+      semanticId: desc.semanticId,
       description: desc.description,
       source: desc.source || options.source || 'human',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      ...(validatedForContentId && { validatedForContentId }),
       ...(desc.createdBy && { createdBy: desc.createdBy }),
       ...(options.by && { createdBy: options.by }),
       ...(desc.aiModel && { aiModel: desc.aiModel }),
@@ -102,7 +124,7 @@ async function handleBatchDescribe(
     };
 
     await storage.saveFunctionDescription(description);
-    logger.info(`✓ Saved description for function: ${desc.functionId}`);
+    logger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
   }
 
   logger.info(chalk.green(`Successfully processed ${descriptions.length} function descriptions`));
@@ -114,8 +136,8 @@ async function handleSingleDescribe(
   options: DescribeCommandOptions,
   logger: Logger
 ): Promise<void> {
-  // Check if function exists
-  const functions = await storage.queryFunctions({
+  // Check if function exists (support both full and short IDs)
+  let functions = await storage.queryFunctions({
     filters: [
       {
         field: 'id',
@@ -124,6 +146,19 @@ async function handleSingleDescribe(
       }
     ]
   });
+
+  // If exact match not found, try partial ID match (for short IDs)
+  if (functions.length === 0) {
+    functions = await storage.queryFunctions({
+      filters: [
+        {
+          field: 'id',
+          operator: 'LIKE',
+          value: `${functionIdOrPattern}%`
+        }
+      ]
+    });
+  }
 
   if (functions.length === 0) {
     // Try to find by name pattern
@@ -184,11 +219,12 @@ async function handleSingleDescribe(
   if (options.text) {
     // Direct text input
     const description: FunctionDescription = {
-      functionId: functionIdOrPattern,
+      semanticId: targetFunction.semanticId,
       description: options.text,
       source: options.source || 'human',
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      validatedForContentId: targetFunction.contentId,
       ...(options.by && { createdBy: options.by }),
       ...(options.model && { aiModel: options.model }),
       ...(options.confidence && !isNaN(parseFloat(options.confidence)) && { confidenceScore: parseFloat(options.confidence) })
@@ -198,6 +234,7 @@ async function handleSingleDescribe(
     
     logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
     logger.info(`  Function ID: ${functionIdOrPattern}`);
+    logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
     logger.info(`  Description: ${options.text}`);
     logger.info(`  Source: ${description.source}`);
 

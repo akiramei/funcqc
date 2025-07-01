@@ -64,20 +64,25 @@ export interface ConsensusStrategy {
 
 // Function analysis types
 export interface FunctionInfo {
-  id: string;
-  name: string;
-  displayName: string;
-  signature: string;
-  signatureHash: string;
-  filePath: string;
-  fileHash: string;
-  startLine: number;
-  endLine: number;
-  startColumn: number;
-  endColumn: number;
-  astHash: string;
+  // 物理識別次元
+  id: string;                    // Physical UUID（物理的実体の一意識別）
+  startLine: number;             // ファイル内開始行
+  endLine: number;               // ファイル内終了行
+  startColumn: number;           // ファイル内開始列
+  endColumn: number;             // ファイル内終了列
   
-  // Function attributes
+  // 意味識別次元
+  semanticId: string;            // Semantic hash（役割ベース識別）
+  name: string;                  // 関数名
+  displayName: string;           // 表示用名前（クラス.メソッド等）
+  signature: string;             // 完全なシグネチャ
+  filePath: string;              // プロジェクトルートからの相対パス
+  contextPath?: string[];        // 階層コンテキスト ['Class', 'method']
+  functionType?: 'function' | 'method' | 'arrow' | 'local';
+  modifiers?: string[];          // ['static', 'private', 'async']
+  nestingLevel?: number;         // ネスト深度
+  
+  // 関数属性（意味ベース）
   isExported: boolean;
   isAsync: boolean;
   isGenerator: boolean;
@@ -86,12 +91,21 @@ export interface FunctionInfo {
   isConstructor: boolean;
   isStatic: boolean;
   accessModifier?: 'public' | 'private' | 'protected';
-  parentClass?: string;
-  parentNamespace?: string;
   
-  // Documentation
-  jsDoc?: string;
-  sourceCode?: string;
+  // 内容識別次元
+  contentId: string;             // Content hash（実装内容識別）
+  astHash: string;               // AST構造のハッシュ
+  sourceCode?: string;           // 関数のソースコード
+  signatureHash: string;         // シグネチャのハッシュ
+  
+  // 効率化用フィールド
+  fileHash: string;              // ファイル内容のハッシュ
+  fileContentHash?: string;      // ファイル変更検出高速化用
+  
+  // ドキュメント
+  jsDoc?: string;                // JSDocコメント
+  description?: string;          // ユーザー説明（function_descriptionsテーブルから）
+  
   
   // Relations
   parameters: ParameterInfo[];
@@ -362,7 +376,7 @@ export interface StorageAdapter {
   
   // Function description operations
   saveFunctionDescription(description: FunctionDescription): Promise<void>;
-  getFunctionDescription(functionId: string): Promise<FunctionDescription | null>;
+  getFunctionDescription(semanticId: string): Promise<FunctionDescription | null>;
   searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   
   // Analysis operations
@@ -532,7 +546,7 @@ export interface ProjectRiskAssessment {
 
 // Function description types
 export interface FunctionDescription {
-  functionId: string;
+  semanticId: string;
   description: string;
   source: 'human' | 'ai' | 'jsdoc';
   createdAt: number;
@@ -540,6 +554,7 @@ export interface FunctionDescription {
   createdBy?: string;
   aiModel?: string;
   confidenceScore?: number;
+  validatedForContentId?: string;
 }
 
 export interface DescribeCommandOptions extends CommandOptions {

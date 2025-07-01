@@ -140,6 +140,35 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Add filters if provided
       if (options?.filters && options.filters.length > 0) {
+        // Create field mapping for proper table aliases
+        const fieldMapping = new Map([
+          // Functions table fields (f alias)
+          ['name', 'f.name'],
+          ['file_path', 'f.file_path'],
+          ['start_line', 'f.start_line'],
+          ['is_exported', 'f.is_exported'],
+          ['is_async', 'f.is_async'],
+          ['display_name', 'f.display_name'],
+          // Quality metrics table fields (q alias)
+          ['cyclomatic_complexity', 'q.cyclomatic_complexity'],
+          ['cognitive_complexity', 'q.cognitive_complexity'],
+          ['lines_of_code', 'q.lines_of_code'],
+          ['total_lines', 'q.total_lines'],
+          ['parameter_count', 'q.parameter_count'],
+          ['max_nesting_level', 'q.max_nesting_level'],
+          ['return_statement_count', 'q.return_statement_count'],
+          ['branch_count', 'q.branch_count'],
+          ['loop_count', 'q.loop_count'],
+          ['try_catch_count', 'q.try_catch_count'],
+          ['async_await_count', 'q.async_await_count'],
+          ['callback_count', 'q.callback_count'],
+          ['comment_lines', 'q.comment_lines'],
+          ['code_to_comment_ratio', 'q.code_to_comment_ratio'],
+          ['halstead_volume', 'q.halstead_volume'],
+          ['halstead_difficulty', 'q.halstead_difficulty'],
+          ['maintainability_index', 'q.maintainability_index']
+        ]);
+
         const filterClauses = options.filters.map((filter) => {
           if (filter.operator === 'KEYWORD') {
             // Handle keyword search across multiple fields
@@ -152,8 +181,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
               f.source_code ILIKE $${params.length}
             )`;
           } else {
+            // Use field mapping to get correct table alias and column name
+            const mappedField = fieldMapping.get(filter.field) || `f.${filter.field}`;
             params.push(filter.value);
-            return `f.${filter.field} ${filter.operator} $${params.length}`;
+            return `${mappedField} ${filter.operator} $${params.length}`;
           }
         });
         sql += ' AND ' + filterClauses.join(' AND ');
@@ -443,36 +474,39 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.query(`
         INSERT INTO function_descriptions (
-          function_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (function_id) 
+          semantic_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score, validated_for_content_id, needs_review
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE)
+        ON CONFLICT (semantic_id) 
         DO UPDATE SET 
           description = EXCLUDED.description,
           source = EXCLUDED.source,
           updated_at = EXCLUDED.updated_at,
           created_by = EXCLUDED.created_by,
           ai_model = EXCLUDED.ai_model,
-          confidence_score = EXCLUDED.confidence_score
+          confidence_score = EXCLUDED.confidence_score,
+          validated_for_content_id = EXCLUDED.validated_for_content_id,
+          needs_review = FALSE
       `, [
-        description.functionId,
+        description.semanticId,
         description.description,
         description.source,
         new Date(description.createdAt).toISOString(),
         new Date(description.updatedAt).toISOString(),
         description.createdBy || null,
         description.aiModel || null,
-        description.confidenceScore || null
+        description.confidenceScore || null,
+        description.validatedForContentId || null
       ]);
     } catch (error) {
       throw new Error(`Failed to save function description: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async getFunctionDescription(functionId: string): Promise<FunctionDescription | null> {
+  async getFunctionDescription(semanticId: string): Promise<FunctionDescription | null> {
     try {
       const result = await this.db.query(
-        'SELECT * FROM function_descriptions WHERE function_id = $1',
-        [functionId]
+        'SELECT * FROM function_descriptions WHERE semantic_id = $1',
+        [semanticId]
       );
 
       if (result.rows.length === 0) {
@@ -480,7 +514,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
 
       const row = result.rows[0] as {
-        function_id: string;
+        semantic_id: string;
         description: string;
         source: string;
         created_at: string;
@@ -488,16 +522,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         created_by?: string;
         ai_model?: string;
         confidence_score?: number;
+        validated_for_content_id?: string;
       };
       return {
-        functionId: row.function_id,
+        semanticId: row.semantic_id,
         description: row.description,
         source: row.source as 'human' | 'ai' | 'jsdoc',
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
         ...(row.created_by && { createdBy: row.created_by }),
         ...(row.ai_model && { aiModel: row.ai_model }),
-        ...(row.confidence_score !== null && { confidenceScore: row.confidence_score })
+        ...(row.confidence_score !== null && { confidenceScore: row.confidence_score }),
+        ...(row.validated_for_content_id && { validatedForContentId: row.validated_for_content_id })
       };
     } catch (error) {
       throw new Error(`Failed to get function description: ${error instanceof Error ? error.message : String(error)}`);
@@ -508,7 +544,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       // Query functions where:
       // 1. No description exists, OR
-      // 2. Function was created/modified after the description was last updated
+      // 2. Function content has changed (content_id differs from validated_for_content_id), OR
+      // 3. Description needs review flag is set
       let sql = `
         SELECT 
           f.*,
@@ -518,11 +555,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           q.maintainability_index, q.halstead_volume, q.halstead_difficulty, q.code_to_comment_ratio
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 
         AND (
-          d.function_id IS NULL 
-          OR f.created_at > d.updated_at
+          d.semantic_id IS NULL 
+          OR d.needs_review = TRUE
+          OR (d.validated_for_content_id IS NULL OR d.validated_for_content_id != f.content_id)
         )
       `;
       
@@ -573,7 +611,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           d.description
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND (
           f.name ILIKE $2 OR 
           f.js_doc ILIKE $2 OR 
@@ -623,7 +661,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           d.description
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND d.description IS NOT NULL
       `;
       const params: (string | number)[] = [snapshotId];
@@ -666,7 +704,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           q.maintainability_index
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND d.description IS NULL
       `;
       const params: (string | number)[] = [snapshotId];
@@ -820,16 +858,107 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   private async createSchema(): Promise<void> {
-    await this.db.exec(this.getSnapshotsTableSQL());
-    await this.db.exec(this.getFunctionsTableSQL());
-    await this.db.exec(this.getParametersTableSQL());
-    await this.db.exec(this.getMetricsTableSQL());
-    await this.db.exec(this.getFunctionDescriptionsTableSQL());
+    // Check if functions table has the new schema
+    const needsSchemaUpdate = await this.needsSchemaUpdate();
+    
+    if (needsSchemaUpdate) {
+      // Drop old tables and recreate with new schema
+      await this.dropOldTablesIfNeeded();
+    }
+    
+    // Create tables if they don't exist
+    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions'];
+    
+    for (const tableName of tables) {
+      const exists = await this.tableExists(tableName);
+      if (!exists) {
+        switch (tableName) {
+          case 'snapshots':
+            await this.db.exec(this.getSnapshotsTableSQL());
+            break;
+          case 'functions':
+            await this.db.exec(this.getFunctionsTableSQL());
+            break;
+          case 'function_parameters':
+            await this.db.exec(this.getParametersTableSQL());
+            break;
+          case 'quality_metrics':
+            await this.db.exec(this.getMetricsTableSQL());
+            break;
+          case 'function_descriptions':
+            await this.db.exec(this.getFunctionDescriptionsTableSQL());
+            break;
+        }
+      }
+    }
+    
+    // Create triggers (they can be created multiple times safely)
+    try {
+      await this.db.exec(this.getTriggersSQL());
+    } catch (error) {
+      // Ignore trigger creation errors as they may already exist or not be supported
+      console.warn('Trigger creation failed:', error instanceof Error ? error.message : String(error));
+    }
+  }
+  
+  private async tableExists(tableName: string): Promise<boolean> {
+    try {
+      const result = await this.db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_name = $1
+        );
+      `, [tableName]);
+      return (result.rows[0] as { exists: boolean })?.exists === true;
+    } catch {
+      return false;
+    }
+  }
+  
+  private async needsSchemaUpdate(): Promise<boolean> {
+    try {
+      const functionsExists = await this.tableExists('functions');
+      if (!functionsExists) {
+        return false; // No update needed if table doesn't exist
+      }
+      
+      // Check if semantic_id column exists (indicates new schema)
+      const result = await this.db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'functions' AND column_name = 'semantic_id';
+      `);
+      
+      return result.rows.length === 0; // Need update if semantic_id doesn't exist
+    } catch {
+      return false;
+    }
+  }
+  
+  private async dropOldTablesIfNeeded(): Promise<void> {
+    try {
+      
+      // Drop tables in reverse dependency order
+      const dropTables = [
+        'quality_metrics',
+        'function_parameters', 
+        'function_descriptions',
+        'functions',
+        'snapshots'
+      ];
+      
+      for (const table of dropTables) {
+        await this.db.exec(`DROP TABLE IF EXISTS ${table} CASCADE;`);
+      }
+      
+    } catch (error) {
+      console.warn('Error dropping old tables:', error instanceof Error ? error.message : String(error));
+    }
   }
 
   private getSnapshotsTableSQL(): string {
     return `
-      CREATE TABLE IF NOT EXISTS snapshots (
+      CREATE TABLE snapshots (
         id TEXT PRIMARY KEY,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         label TEXT,
@@ -844,20 +973,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private getFunctionsTableSQL(): string {
     return `
-      CREATE TABLE IF NOT EXISTS functions (
-        id TEXT PRIMARY KEY,
-        snapshot_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        display_name TEXT NOT NULL,
-        signature TEXT NOT NULL,
-        signature_hash TEXT NOT NULL,
-        file_path TEXT NOT NULL,
-        file_hash TEXT NOT NULL,
-        start_line INTEGER NOT NULL,
-        end_line INTEGER NOT NULL,
+      CREATE TABLE functions (
+        -- Physical identification dimension
+        id TEXT PRIMARY KEY,                   -- Physical UUID for unique function instance
+        snapshot_id TEXT NOT NULL,             -- Snapshot reference
+        start_line INTEGER NOT NULL,           -- Start line in file
+        end_line INTEGER NOT NULL,             -- End line in file
         start_column INTEGER NOT NULL DEFAULT 0,
         end_column INTEGER NOT NULL DEFAULT 0,
-        ast_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        
+        -- Semantic identification dimension
+        semantic_id TEXT NOT NULL,             -- Semantic hash for role-based identification
+        name TEXT NOT NULL,                    -- Function name
+        display_name TEXT NOT NULL,            -- Display name (Class.method etc.)
+        signature TEXT NOT NULL,               -- Complete signature
+        file_path TEXT NOT NULL,               -- Relative path from project root
+        context_path TEXT,                     -- Hierarchical context JSON ['Class', 'method']
+        function_type TEXT,                    -- 'function' | 'method' | 'arrow' | 'local'
+        modifiers TEXT,                        -- Modifiers JSON ['static', 'private', 'async']
+        nesting_level INTEGER DEFAULT 0,       -- Nesting depth
+        
+        -- Function attributes (semantic-based)
         is_exported BOOLEAN DEFAULT FALSE,
         is_async BOOLEAN DEFAULT FALSE,
         is_generator BOOLEAN DEFAULT FALSE,
@@ -865,19 +1002,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         is_method BOOLEAN DEFAULT FALSE,
         is_constructor BOOLEAN DEFAULT FALSE,
         is_static BOOLEAN DEFAULT FALSE,
-        access_modifier TEXT,
-        parent_class TEXT,
-        parent_namespace TEXT,
-        js_doc TEXT,
-        source_code TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        access_modifier TEXT,                  -- 'public' | 'private' | 'protected'
+        
+        -- Content identification dimension
+        content_id TEXT NOT NULL,              -- Content hash for implementation identification
+        ast_hash TEXT NOT NULL,                -- AST structure hash
+        source_code TEXT,                      -- Function source code
+        signature_hash TEXT NOT NULL,          -- Signature hash
+        
+        -- Efficiency fields
+        file_hash TEXT NOT NULL,               -- File content hash
+        file_content_hash TEXT,                -- File change detection optimization
+        
+        -- Documentation (to be moved to separate table in the future)
+        js_doc TEXT,                          -- JSDoc comment
+        
         FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
       );`;
   }
 
   private getParametersTableSQL(): string {
     return `
-      CREATE TABLE IF NOT EXISTS function_parameters (
+      CREATE TABLE function_parameters (
         id SERIAL PRIMARY KEY,
         function_id TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -894,7 +1040,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private getMetricsTableSQL(): string {
     return `
-      CREATE TABLE IF NOT EXISTS quality_metrics (
+      CREATE TABLE quality_metrics (
         function_id TEXT PRIMARY KEY,
         lines_of_code INTEGER NOT NULL,
         total_lines INTEGER NOT NULL,
@@ -919,50 +1065,87 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private getFunctionDescriptionsTableSQL(): string {
     return `
-      CREATE TABLE IF NOT EXISTS function_descriptions (
-        function_id TEXT PRIMARY KEY,
+      CREATE TABLE function_descriptions (
+        semantic_id TEXT PRIMARY KEY,          -- 意味ベース参照
         description TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'human',
+        source TEXT NOT NULL DEFAULT 'human',  -- 'human' | 'ai' | 'jsdoc'
+        validated_for_content_id TEXT,         -- 実装確認済みマーク
+        needs_review BOOLEAN DEFAULT FALSE,    -- 実装変更時の確認要求
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        created_by TEXT,
-        ai_model TEXT,
-        confidence_score REAL,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+        created_by TEXT,                       -- 作成者
+        ai_model TEXT,                         -- AI生成時のモデル名
+        confidence_score REAL                  -- AI生成時の信頼度
       );`;
   }
 
+  private getTriggersSQL(): string {
+    return `
+      -- 自動トリガー: 内容変更検出
+      CREATE OR REPLACE FUNCTION update_function_description_review() RETURNS TRIGGER AS $$
+      BEGIN
+        UPDATE function_descriptions 
+        SET needs_review = TRUE 
+        WHERE semantic_id = NEW.semantic_id;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+      
+      DROP TRIGGER IF EXISTS function_content_change_detection ON functions;
+      CREATE TRIGGER function_content_change_detection
+        AFTER UPDATE ON functions
+        FOR EACH ROW
+        WHEN (OLD.content_id IS DISTINCT FROM NEW.content_id)
+        EXECUTE FUNCTION update_function_description_review();
+    `;
+  }
+
   private async createIndexes(): Promise<void> {
-    await this.db.exec(`
-      -- Core indexes for performance
-      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_id ON functions(snapshot_id);
-      CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
-      CREATE INDEX IF NOT EXISTS idx_functions_file_path ON functions(file_path);
-      CREATE INDEX IF NOT EXISTS idx_functions_signature_hash ON functions(signature_hash);
-      CREATE INDEX IF NOT EXISTS idx_functions_ast_hash ON functions(ast_hash);
+    try {
+      await this.db.exec(`
+      -- 3次元識別に最適化されたインデックス
+      CREATE INDEX idx_functions_snapshot_id ON functions(snapshot_id);
+      CREATE INDEX idx_functions_semantic_id ON functions(semantic_id);
+      CREATE INDEX idx_functions_content_id ON functions(content_id);
+      CREATE INDEX idx_functions_name ON functions(name);
+      CREATE INDEX idx_functions_file_path ON functions(file_path);
+      CREATE INDEX idx_functions_signature_hash ON functions(signature_hash);
+      CREATE INDEX idx_functions_ast_hash ON functions(ast_hash);
+
+      -- 複合インデックス
+      CREATE INDEX idx_functions_semantic_content ON functions(semantic_id, content_id);
+      CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_id);
+
+      -- 条件付きインデックス
+      CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
+      CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
+
+      -- 重複検出用インデックス
+      CREATE INDEX idx_content_duplication ON functions(content_id, snapshot_id);
       
       -- Snapshot indexes
-      CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
-      CREATE INDEX IF NOT EXISTS idx_snapshots_git_commit ON snapshots(git_commit);
-      CREATE INDEX IF NOT EXISTS idx_snapshots_git_branch ON snapshots(git_branch);
+      CREATE INDEX idx_snapshots_created_at ON snapshots(created_at);
+      CREATE INDEX idx_snapshots_git_commit ON snapshots(git_commit);
+      CREATE INDEX idx_snapshots_git_branch ON snapshots(git_branch);
       
-      -- Quality metrics indexes for fast filtering
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_lines ON quality_metrics(lines_of_code);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
+      -- パフォーマンス最適化インデックス
+      CREATE INDEX idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
+      CREATE INDEX idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
+      CREATE INDEX idx_quality_metrics_lines ON quality_metrics(lines_of_code);
+      CREATE INDEX idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
       
       -- Parameter search indexes
-      CREATE INDEX IF NOT EXISTS idx_function_parameters_function_id ON function_parameters(function_id);
-      CREATE INDEX IF NOT EXISTS idx_function_parameters_position ON function_parameters(function_id, position);
+      CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);
+      CREATE INDEX idx_function_parameters_position ON function_parameters(function_id, position);
       
-      -- Description search indexes
-      CREATE INDEX IF NOT EXISTS idx_function_descriptions_function_id ON function_descriptions(function_id);
-      CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
-      
-      -- Composite indexes for common queries
-      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_exported ON functions(snapshot_id, is_exported) WHERE is_exported = true;
+      -- 意味ベース関数説明管理インデックス
+      CREATE INDEX idx_function_descriptions_source ON function_descriptions(source);
+      CREATE INDEX idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
     `);
+    } catch (error) {
+      // Ignore index creation errors as they may already exist
+      console.warn('Some indexes may already exist:', error instanceof Error ? error.message : String(error));
+    }
   }
 
   private generateSnapshotId(): string {
@@ -1019,6 +1202,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       processor,
       batchSize
     );
+    
+    // Verify that all functions and metrics were saved correctly
+    if (process.env['NODE_ENV'] !== 'production') {
+      const savedCount = await this.db.query(
+        'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const metricsCount = await this.db.query(
+        'SELECT COUNT(*) as count FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
+        [snapshotId]
+      );
+      
+      const actualFunctionCount = (savedCount.rows[0] as { count: string }).count;
+      const actualMetricsCount = (metricsCount.rows[0] as { count: string }).count;
+      const expectedMetricsCount = functions.filter(f => f.metrics).length;
+      
+      if (parseInt(actualFunctionCount) !== functions.length) {
+        console.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
+      }
+      if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
+        console.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
+      }
+    }
   }
   
   /**
@@ -1027,24 +1233,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     await this.executeInTransaction(async () => {
       for (const func of functions) {
-        // Insert function
+        // Insert function with enhanced identification fields
         await this.db.query(`
           INSERT INTO functions (
-            id, snapshot_id, name, display_name, signature, signature_hash,
+            id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
             file_path, file_hash, start_line, end_line, start_column, end_column,
-            ast_hash, is_exported, is_async, is_generator, is_arrow_function,
-            is_method, is_constructor, is_static, access_modifier, parent_class,
-            parent_namespace, js_doc, source_code
+            ast_hash, context_path, function_type, modifiers, nesting_level,
+            is_exported, is_async, is_generator, is_arrow_function,
+            is_method, is_constructor, is_static, access_modifier,
+            js_doc, source_code
           ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-            $17, $18, $19, $20, $21, $22, $23, $24, $25
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
           )
         `, [
-          func.id, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
+          func.id, func.semanticId, func.contentId, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
           func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
-          func.astHash, func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
-          func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null, func.parentClass || null,
-          func.parentNamespace || null, func.jsDoc || null, func.sourceCode || null
+          func.astHash, JSON.stringify(func.contextPath || []), func.functionType || null, JSON.stringify(func.modifiers || []), func.nestingLevel || 0,
+          func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
+          func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null,
+          func.jsDoc || null, func.sourceCode || null
         ]);
 
         // Insert parameters
@@ -1081,29 +1289,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }
       }
     });
-    
-    // Verify that all functions and metrics were saved correctly
-    if (process.env['NODE_ENV'] !== 'production') {
-      const savedCount = await this.db.query(
-        'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
-        [snapshotId]
-      );
-      const metricsCount = await this.db.query(
-        'SELECT COUNT(*) as count FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
-        [snapshotId]
-      );
-      
-      const actualFunctionCount = (savedCount.rows[0] as { count: string }).count;
-      const actualMetricsCount = (metricsCount.rows[0] as { count: string }).count;
-      const expectedMetricsCount = functions.filter(f => f.metrics).length;
-      
-      if (parseInt(actualFunctionCount) !== functions.length) {
-        console.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
-      }
-      if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
-        console.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
-      }
-    }
   }
 
   private async getFunctionParameters(functionId: string): Promise<ParameterRow[]> {
@@ -1128,7 +1313,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     };
   }
 
-  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow>, parameters: ParameterRow[]): FunctionInfo {
+  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string }, parameters: ParameterRow[]): FunctionInfo {
     const functionInfo = this.createBaseFunctionInfo(row, parameters);
     this.addOptionalProperties(functionInfo, row);
     this.addMetricsIfAvailable(functionInfo, row);
@@ -1138,6 +1323,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private createBaseFunctionInfo(row: FunctionRow, parameters: ParameterRow[]): FunctionInfo {
     return {
       id: row.id,
+      semanticId: row.semantic_id,
+      contentId: row.content_id,
       name: row.name,
       displayName: row.display_name,
       signature: row.signature,
@@ -1149,6 +1336,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       startColumn: row.start_column,
       endColumn: row.end_column,
       astHash: row.ast_hash,
+      
+      // Enhanced function identification
+      ...(row.context_path && { contextPath: this.safeJsonParse(row.context_path, []) }),
+      ...(row.function_type && { functionType: row.function_type }),
+      ...(row.modifiers && { modifiers: this.safeJsonParse(row.modifiers, []) }),
+      ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
+      
+      // Existing function attributes
       isExported: row.is_exported,
       isAsync: row.is_async,
       isGenerator: row.is_generator,
@@ -1173,12 +1368,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }));
   }
 
-  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow): void {
+  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow & { description?: string }): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
-    if (row.parent_class) functionInfo.parentClass = row.parent_class;
-    if (row.parent_namespace) functionInfo.parentNamespace = row.parent_namespace;
     if (row.js_doc) functionInfo.jsDoc = row.js_doc;
     if (row.source_code) functionInfo.sourceCode = row.source_code;
+    if (row.description) functionInfo.description = row.description;
   }
 
   private addMetricsIfAvailable(functionInfo: FunctionInfo, row: Partial<MetricsRow>): void {
@@ -1286,6 +1480,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return tags.latest || null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Safely parse JSON with fallback value
+   */
+  private safeJsonParse<T>(jsonString: string, fallback: T): T {
+    try {
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.warn(`Failed to parse JSON: ${jsonString}`, error);
+      return fallback;
     }
   }
 }

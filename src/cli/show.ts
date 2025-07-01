@@ -77,11 +77,44 @@ async function findFunctionByNameOrThrow(storage: PGLiteStorageAdapter, namePatt
 }
 
 async function findFunctionById(storage: PGLiteStorageAdapter, id: string): Promise<FunctionInfo | null> {
+  // Get the latest snapshot first
+  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  if (snapshots.length === 0) {
+    return null;
+  }
+  
+  // Try to get function with description first
+  const functionsWithDescriptions = await storage.getFunctionsWithDescriptions(snapshots[0].id);
+  const func = functionsWithDescriptions.find(f => f.id === id || f.id.startsWith(id));
+  
+  if (func) {
+    return func;
+  }
+  
+  // Fallback to regular query if not found in functions with descriptions
   const functions = await storage.queryFunctions();
   return functions.find(f => f.id === id || f.id.startsWith(id)) || null;
 }
 
 async function findFunctionsByName(storage: PGLiteStorageAdapter, namePattern: string): Promise<FunctionInfo[]> {
+  // Get the latest snapshot first
+  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  if (snapshots.length === 0) {
+    return [];
+  }
+  
+  // Try to get functions with descriptions first
+  const functionsWithDescriptions = await storage.getFunctionsWithDescriptions(snapshots[0].id);
+  const matchingWithDesc = functionsWithDescriptions.filter(f => 
+    f.name.includes(namePattern) || 
+    f.displayName.includes(namePattern)
+  );
+  
+  if (matchingWithDesc.length > 0) {
+    return matchingWithDesc;
+  }
+  
+  // Fallback to regular query
   const functions = await storage.queryFunctions();
   return functions.filter(f => 
     f.name.includes(namePattern) || 
@@ -129,8 +162,7 @@ function outputJSON(func: FunctionInfo): void {
       isConstructor: func.isConstructor,
       isStatic: func.isStatic,
       accessModifier: func.accessModifier,
-      parentClass: func.parentClass,
-      parentNamespace: func.parentNamespace
+      contextPath: func.contextPath
     },
     parameters: func.parameters,
     returnType: func.returnType,
@@ -287,23 +319,32 @@ function displayAdvancedMetrics(metrics: QualityMetrics): void {
 }
 
 function displayFunctionContext(func: FunctionInfo): void {
-  if (!func.parentClass && !func.parentNamespace) return;
+  if (!func.contextPath || func.contextPath.length === 0) return;
   
   console.log(chalk.bold(`🏗️  Context:`));
-  if (func.parentClass) {
-    console.log(`   Class: ${func.parentClass}`);
-  }
-  if (func.parentNamespace) {
-    console.log(`   Namespace: ${func.parentNamespace}`);
+  console.log(`   Path: ${func.contextPath.join(' → ')}`);
+  if (func.functionType) {
+    console.log(`   Type: ${func.functionType}`);
   }
   console.log();
 }
 
 function displayFunctionDocumentation(func: FunctionInfo): void {
-  if (!func.jsDoc) return;
+  if (!func.jsDoc && !func.description) return;
   
   console.log(chalk.bold(`📚 Documentation:`));
-  console.log(`   ${func.jsDoc.replace(/\n/g, '\n   ')}`);
+  
+  if (func.description) {
+    console.log(chalk.bold(`   User Description:`));
+    console.log(`   ${func.description.replace(/\n/g, '\n   ')}`);
+    console.log();
+  }
+  
+  if (func.jsDoc) {
+    console.log(chalk.bold(`   JSDoc:`));
+    console.log(`   ${func.jsDoc.replace(/\n/g, '\n   ')}`);
+  }
+  
   console.log();
 }
 
