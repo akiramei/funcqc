@@ -379,6 +379,14 @@ export interface StorageAdapter {
   getFunctionDescription(semanticId: string): Promise<FunctionDescription | null>;
   searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   
+  // Embedding operations
+  saveEmbedding(semanticId: string, embedding: number[], model?: string): Promise<void>;
+  getEmbedding(semanticId: string): Promise<{ embedding: number[]; model: string } | null>;
+  searchByEmbedding(queryEmbedding: number[], threshold?: number, limit?: number): Promise<Array<FunctionInfo & { similarity: number }>>;
+  bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void>;
+  getFunctionsWithoutEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]>;
+  getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }>;
+  
   // Analysis operations
   diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff>;
   
@@ -572,5 +580,13 @@ export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
   json?: boolean;
+  semantic?: boolean;              // Enable semantic search using embeddings
+  threshold?: string;              // Similarity threshold (0-1) for semantic search
+  hybrid?: boolean;                // Use hybrid search (keyword + semantic)
+  hybridWeight?: string;           // Weight for semantic vs keyword (0-1, default 0.5)
+  model?: string;                  // Embedding model to use for query vectorization
+  showSimilarity?: boolean;        // Show similarity scores in results
+  minSimilarity?: string;          // Minimum similarity score to include results
+  apiKey?: string;                 // OpenAI API key for semantic search
 }
 
