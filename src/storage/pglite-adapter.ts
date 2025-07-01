@@ -474,36 +474,39 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.query(`
         INSERT INTO function_descriptions (
-          function_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (function_id) 
+          semantic_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score, validated_for_content_id, needs_review
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE)
+        ON CONFLICT (semantic_id) 
         DO UPDATE SET 
           description = EXCLUDED.description,
           source = EXCLUDED.source,
           updated_at = EXCLUDED.updated_at,
           created_by = EXCLUDED.created_by,
           ai_model = EXCLUDED.ai_model,
-          confidence_score = EXCLUDED.confidence_score
+          confidence_score = EXCLUDED.confidence_score,
+          validated_for_content_id = EXCLUDED.validated_for_content_id,
+          needs_review = FALSE
       `, [
-        description.functionId,
+        description.semanticId,
         description.description,
         description.source,
         new Date(description.createdAt).toISOString(),
         new Date(description.updatedAt).toISOString(),
         description.createdBy || null,
         description.aiModel || null,
-        description.confidenceScore || null
+        description.confidenceScore || null,
+        description.validatedForContentId || null
       ]);
     } catch (error) {
       throw new Error(`Failed to save function description: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  async getFunctionDescription(functionId: string): Promise<FunctionDescription | null> {
+  async getFunctionDescription(semanticId: string): Promise<FunctionDescription | null> {
     try {
       const result = await this.db.query(
-        'SELECT * FROM function_descriptions WHERE function_id = $1',
-        [functionId]
+        'SELECT * FROM function_descriptions WHERE semantic_id = $1',
+        [semanticId]
       );
 
       if (result.rows.length === 0) {
@@ -511,7 +514,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
 
       const row = result.rows[0] as {
-        function_id: string;
+        semantic_id: string;
         description: string;
         source: string;
         created_at: string;
@@ -519,16 +522,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         created_by?: string;
         ai_model?: string;
         confidence_score?: number;
+        validated_for_content_id?: string;
       };
       return {
-        functionId: row.function_id,
+        semanticId: row.semantic_id,
         description: row.description,
         source: row.source as 'human' | 'ai' | 'jsdoc',
         createdAt: new Date(row.created_at).getTime(),
         updatedAt: new Date(row.updated_at).getTime(),
         ...(row.created_by && { createdBy: row.created_by }),
         ...(row.ai_model && { aiModel: row.ai_model }),
-        ...(row.confidence_score !== null && { confidenceScore: row.confidence_score })
+        ...(row.confidence_score !== null && { confidenceScore: row.confidence_score }),
+        ...(row.validated_for_content_id && { validatedForContentId: row.validated_for_content_id })
       };
     } catch (error) {
       throw new Error(`Failed to get function description: ${error instanceof Error ? error.message : String(error)}`);
@@ -539,7 +544,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       // Query functions where:
       // 1. No description exists, OR
-      // 2. Function was created/modified after the description was last updated
+      // 2. Function content has changed (content_id differs from validated_for_content_id), OR
+      // 3. Description needs review flag is set
       let sql = `
         SELECT 
           f.*,
@@ -549,11 +555,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           q.maintainability_index, q.halstead_volume, q.halstead_difficulty, q.code_to_comment_ratio
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 
         AND (
-          d.function_id IS NULL 
-          OR f.created_at > d.updated_at
+          d.semantic_id IS NULL 
+          OR d.needs_review = TRUE
+          OR (d.validated_for_content_id IS NULL OR d.validated_for_content_id != f.content_id)
         )
       `;
       
@@ -604,7 +611,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           d.description
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND (
           f.name ILIKE $2 OR 
           f.js_doc ILIKE $2 OR 
@@ -654,7 +661,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           d.description
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND d.description IS NOT NULL
       `;
       const params: (string | number)[] = [snapshotId];
@@ -697,7 +704,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           q.maintainability_index
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
-        LEFT JOIN function_descriptions d ON f.id = d.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND d.description IS NULL
       `;
       const params: (string | number)[] = [snapshotId];
@@ -1306,7 +1313,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     };
   }
 
-  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow>, parameters: ParameterRow[]): FunctionInfo {
+  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string }, parameters: ParameterRow[]): FunctionInfo {
     const functionInfo = this.createBaseFunctionInfo(row, parameters);
     this.addOptionalProperties(functionInfo, row);
     this.addMetricsIfAvailable(functionInfo, row);
@@ -1361,10 +1368,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }));
   }
 
-  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow): void {
+  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow & { description?: string }): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
     if (row.js_doc) functionInfo.jsDoc = row.js_doc;
     if (row.source_code) functionInfo.sourceCode = row.source_code;
+    if (row.description) functionInfo.description = row.description;
   }
 
   private addMetricsIfAvailable(functionInfo: FunctionInfo, row: Partial<MetricsRow>): void {

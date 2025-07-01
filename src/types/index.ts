@@ -104,6 +104,7 @@ export interface FunctionInfo {
   
   // ドキュメント
   jsDoc?: string;                // JSDocコメント
+  description?: string;          // ユーザー説明（function_descriptionsテーブルから）
   
   
   // Relations
@@ -375,7 +376,7 @@ export interface StorageAdapter {
   
   // Function description operations
   saveFunctionDescription(description: FunctionDescription): Promise<void>;
-  getFunctionDescription(functionId: string): Promise<FunctionDescription | null>;
+  getFunctionDescription(semanticId: string): Promise<FunctionDescription | null>;
   searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   
   // Analysis operations
@@ -545,7 +546,7 @@ export interface ProjectRiskAssessment {
 
 // Function description types
 export interface FunctionDescription {
-  functionId: string;
+  semanticId: string;
   description: string;
   source: 'human' | 'ai' | 'jsdoc';
   createdAt: number;
@@ -553,6 +554,7 @@ export interface FunctionDescription {
   createdBy?: string;
   aiModel?: string;
   confidenceScore?: number;
+  validatedForContentId?: string;
 }
 
 export interface DescribeCommandOptions extends CommandOptions {
