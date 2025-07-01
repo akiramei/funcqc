@@ -1,0 +1,240 @@
+# funcqc チートシート
+
+## 🚀 クイックスタート
+
+```bash
+# 初期化 (1回のみ)
+npm run dev init
+
+# 基本ワークフロー
+npm run dev scan                              # 関数分析
+npm run dev -- list --threshold-violations   # 問題関数確認
+npm run dev status                           # プロジェクト概要
+```
+
+## 📋 全コマンド一覧
+
+### 初期化・設定
+```bash
+npm run dev init                    # プロジェクト初期化
+npm run dev init --show            # 現在の設定表示
+npm run dev init --reset           # 設定リセット
+```
+
+### スキャン・分析
+```bash
+npm run dev scan                    # 全ファイルスキャン
+npm run dev scan --quick           # 高速スキャン（5秒概要）
+npm run dev scan --dry-run         # 実行テスト（保存なし）
+npm run dev scan --label "v1.0"    # ラベル付きスキャン
+npm run dev scan --incremental     # 変更ファイルのみ
+```
+
+### 関数検索・一覧
+```bash
+# 基本一覧
+npm run dev list                    # 全関数表示
+npm run dev -- list --limit 10     # 件数制限
+npm run dev -- list --json         # JSON出力
+
+# フィルタ検索
+npm run dev -- list --name "*Auth*"           # 名前パターン
+npm run dev -- list --file "**/auth/*.ts"     # ファイルパターン
+npm run dev -- list --exported               # エクスポート関数のみ
+npm run dev -- list --async                  # 非同期関数のみ
+
+# 品質ベース検索
+npm run dev -- list --complexity ">10"       # 複雑度高
+npm run dev -- list --lines ">50"           # 長い関数
+npm run dev -- list --params ">4"           # パラメータ多
+npm run dev -- list --threshold-violations   # 品質基準違反
+
+# ソート・表示
+npm run dev -- list --sort complexity:desc   # 複雑度降順
+npm run dev -- list --sort lines:desc        # 行数降順
+npm run dev -- list --fields name,complexity,lines  # 表示項目指定
+```
+
+### 関数詳細表示
+```bash
+npm run dev -- show "functionName"   # 関数名で検索
+npm run dev -- show --id "func-id"   # ID指定
+npm run dev -- show --json           # JSON出力
+```
+
+### 意味的検索
+```bash
+npm run dev -- search "authentication"  # キーワード検索
+npm run dev -- search "database"       # DB関連関数
+npm run dev -- search "validation"     # 検証系関数
+```
+
+### 品質分析
+```bash
+npm run dev status                     # プロジェクト状況
+npm run dev status --verbose          # 詳細情報
+```
+
+### 履歴・比較
+```bash
+npm run dev history                    # スナップショット履歴
+npm run dev history --limit 10        # 件数制限
+npm run dev -- history --since "2024-01-01"  # 期間指定
+
+npm run dev -- diff latest main       # スナップショット比較
+npm run dev -- diff --summary         # 概要のみ
+```
+
+### トレンド分析
+```bash
+npm run dev -- trend --weekly         # 週次トレンド
+npm run dev -- trend --monthly        # 月次トレンド
+npm run dev -- trend --period 30      # 30日期間
+```
+
+### 類似性検出
+```bash
+npm run dev -- similar                # 類似関数検出
+npm run dev -- similar --threshold 0.8  # 類似度閾値
+npm run dev -- similar --min-lines 10   # 最小行数
+```
+
+### 関数説明管理
+```bash
+npm run dev -- describe "funcName" --text "説明"  # 説明追加
+npm run dev -- list --no-description --exported   # 未文書化関数
+npm run dev -- list --needs-description          # 文書化要更新
+```
+
+## 🎯 用途別コマンド選択ガイド
+
+### 品質確認したい
+```bash
+# Step 1: 全体状況確認
+npm run dev status
+
+# Step 2: 問題関数特定
+npm run dev -- list --threshold-violations
+
+# Step 3: 詳細分析
+npm run dev -- show "problemFunction"
+```
+
+### 関数を探したい
+```bash
+# 名前が分かっている場合
+npm run dev -- list --name "*keyword*"
+npm run dev -- show "functionName"
+
+# 機能から探す場合
+npm run dev -- search "authentication"
+npm run dev -- search "validation"
+
+# 品質特性で絞り込む場合
+npm run dev -- list --complexity ">10" --exported
+npm run dev -- list --async --lines ">30"
+```
+
+### リファクタリング対象を見つけたい
+```bash
+# 複雑な関数
+npm run dev -- list --complexity ">10" --sort complexity:desc
+
+# 大きな関数
+npm run dev -- list --lines ">50" --sort lines:desc
+
+# 重複コード
+npm run dev -- similar --threshold 0.8
+
+# 品質劣化確認
+npm run dev -- trend --weekly
+```
+
+### 品質改善効果を測定したい
+```bash
+# Before: スキャン実行
+npm run dev scan --label "before-refactor"
+
+# After: リファクタリング後スキャン
+npm run dev scan --label "after-refactor"
+
+# 比較
+npm run dev -- diff "before-refactor" "after-refactor"
+```
+
+## 🔧 よく使うオプション組み合わせ
+
+```bash
+# 高複雑度のエクスポート関数TOP10
+npm run dev -- list --complexity ">5" --exported --sort complexity:desc --limit 10
+
+# 大きくて複雑な関数
+npm run dev -- list --complexity ">10" --lines ">40"
+
+# 非同期の問題関数
+npm run dev -- list --async --threshold-violations
+
+# ファイル別品質確認
+npm run dev -- list --file "src/cli/*.ts" --threshold-violations
+
+# 説明が必要なエクスポート関数
+npm run dev -- list --exported --no-description --complexity ">5"
+```
+
+## ⚡ パフォーマンス最適化
+
+```bash
+# 大規模プロジェクト用
+npm run dev scan --batch-size 50
+
+# 開発中の高速チェック
+npm run dev scan --quick
+
+# 変更分のみ分析
+npm run dev scan --incremental
+
+# JSON出力でパイプライン処理
+npm run dev -- list --json | jq '.[] | select(.complexity > 10)'
+```
+
+## 🚨 トラブルシューティング
+
+```bash
+# システム要件確認
+npm run dev -- --check-system
+
+# 設定確認
+npm run dev init --show
+
+# データベース状況確認
+npm run dev status --verbose
+
+# 設定リセット
+npm run dev init --reset
+```
+
+## 💡 Tips
+
+### エイリアス設定 (package.json推奨)
+```json
+{
+  "scripts": {
+    "q:scan": "npm run dev scan",
+    "q:check": "npm run dev -- list --threshold-violations",
+    "q:status": "npm run dev status",
+    "q:complex": "npm run dev -- list --complexity '>10' --limit 10"
+  }
+}
+```
+
+### よくあるユースケース
+1. **日常チェック**: `npm run dev status` → 問題があれば `npm run dev -- list --threshold-violations`
+2. **関数調査**: `npm run dev -- search "keyword"` → `npm run dev -- show "function"`
+3. **リファクタリング**: `npm run dev -- similar` → `npm run dev -- list --complexity ">10"`
+4. **品質トレンド**: `npm run dev -- trend --weekly`
+
+### コマンド短縮のポイント
+- `npm run dev --` を使ってオプション付きコマンド実行
+- `--json` でパイプライン処理可能
+- `--limit` で大量出力を制御
+- 複数フィルタの組み合わせで精密検索
