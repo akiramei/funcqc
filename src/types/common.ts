@@ -44,7 +44,8 @@ export interface SnapshotRow {
 
 export interface FunctionRow {
   id: string;                                              // Physical UUID
-  logical_id?: string;                                     // SHA-256 logical ID
+  semantic_id: string;                                     // Semantic hash (role-based identification)
+  content_id: string;                                      // Content hash (implementation-based identification)
   snapshot_id: string;
   name: string;
   display_name: string;
@@ -59,9 +60,9 @@ export interface FunctionRow {
   ast_hash: string;
   
   // Enhanced function identification
-  context_path?: string[];                                 // Hierarchical context
+  context_path?: string;                                   // Hierarchical context JSON
   function_type?: 'function' | 'method' | 'arrow' | 'local';
-  modifiers?: string[];                                    // ['static', 'private', 'async']
+  modifiers?: string;                                      // Modifiers JSON ['static', 'private', 'async']
   nesting_level?: number;                                  // Nesting depth
   
   // Existing function attributes
@@ -73,8 +74,6 @@ export interface FunctionRow {
   is_constructor: boolean;
   is_static: boolean;
   access_modifier?: 'public' | 'private' | 'protected';
-  parent_class?: string;
-  parent_namespace?: string;
   js_doc?: string;
   source_code?: string;
 }

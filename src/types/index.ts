@@ -64,29 +64,25 @@ export interface ConsensusStrategy {
 
 // Function analysis types
 export interface FunctionInfo {
-  // BREAKING CHANGE: ID field is now physical UUID for this specific instance
-  id: string;                    // Physical UUID for this specific function version
-  logicalId?: string;            // SHA-256 logical ID for function identity across versions
+  // 物理識別次元
+  id: string;                    // Physical UUID（物理的実体の一意識別）
+  startLine: number;             // ファイル内開始行
+  endLine: number;               // ファイル内終了行
+  startColumn: number;           // ファイル内開始列
+  endColumn: number;             // ファイル内終了列
   
-  name: string;
-  displayName: string;
-  signature: string;
-  signatureHash: string;
-  filePath: string;
-  fileHash: string;
-  startLine: number;
-  endLine: number;
-  startColumn: number;
-  endColumn: number;
-  astHash: string;
-  
-  // Enhanced function identification
-  contextPath?: string[];        // Hierarchical context ['Class', 'method']
+  // 意味識別次元
+  semanticId: string;            // Semantic hash（役割ベース識別）
+  name: string;                  // 関数名
+  displayName: string;           // 表示用名前（クラス.メソッド等）
+  signature: string;             // 完全なシグネチャ
+  filePath: string;              // プロジェクトルートからの相対パス
+  contextPath?: string[];        // 階層コンテキスト ['Class', 'method']
   functionType?: 'function' | 'method' | 'arrow' | 'local';
   modifiers?: string[];          // ['static', 'private', 'async']
-  nestingLevel?: number;         // Nesting depth for local functions
+  nestingLevel?: number;         // ネスト深度
   
-  // Function attributes
+  // 関数属性（意味ベース）
   isExported: boolean;
   isAsync: boolean;
   isGenerator: boolean;
@@ -95,12 +91,20 @@ export interface FunctionInfo {
   isConstructor: boolean;
   isStatic: boolean;
   accessModifier?: 'public' | 'private' | 'protected';
-  parentClass?: string;
-  parentNamespace?: string;
   
-  // Documentation
-  jsDoc?: string;
-  sourceCode?: string;
+  // 内容識別次元
+  contentId: string;             // Content hash（実装内容識別）
+  astHash: string;               // AST構造のハッシュ
+  sourceCode?: string;           // 関数のソースコード
+  signatureHash: string;         // シグネチャのハッシュ
+  
+  // 効率化用フィールド
+  fileHash: string;              // ファイル内容のハッシュ
+  fileContentHash?: string;      // ファイル変更検出高速化用
+  
+  // ドキュメント
+  jsDoc?: string;                // JSDocコメント
+  
   
   // Relations
   parameters: ParameterInfo[];

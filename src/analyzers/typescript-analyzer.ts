@@ -175,15 +175,16 @@ export class TypeScriptAnalyzer {
     const modifiers = this.extractModifiers(func);
     const functionType = this.determineFunctionType(func);
     const nestingLevel = this.calculateNestingLevel(func);
-    const position = { line: func.getStartLineNumber(), column: func.getStart() };
     
-    // Generate both physical and logical IDs
+    // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const logicalId = this.generateLogicalId(relativePath, name, signature, contextPath, modifiers, position);
+    const semanticId = this.generateSemanticId(relativePath, name, signature, contextPath, modifiers);
+    const contentId = this.generateContentId(astHash, functionBody);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
-      logicalId,
+      semanticId,
+      contentId,
       name,
       displayName: name,
       signature,
@@ -253,15 +254,16 @@ export class TypeScriptAnalyzer {
     const modifiers = this.extractModifiers(method);
     const functionType = this.determineFunctionType(method);
     const nestingLevel = this.calculateNestingLevel(method);
-    const position = { line: method.getStartLineNumber(), column: method.getStart() };
     
-    // Generate both physical and logical IDs
+    // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const logicalId = this.generateLogicalId(relativePath, fullName, signature, contextPath, modifiers, position);
+    const semanticId = this.generateSemanticId(relativePath, fullName, signature, contextPath, modifiers);
+    const contentId = this.generateContentId(astHash, methodBody);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
-      logicalId,
+      semanticId,
+      contentId,
       name: name,
       displayName: fullName,
       signature,
@@ -301,8 +303,6 @@ export class TypeScriptAnalyzer {
       functionInfo.accessModifier = scope;
     }
 
-    functionInfo.parentClass = className;
-
     return functionInfo;
   }
 
@@ -335,15 +335,16 @@ export class TypeScriptAnalyzer {
     
     const functionType = 'method';  // Constructors are a type of method
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
-    const position = { line: ctor.getStartLineNumber(), column: ctor.getStart() };
     
-    // Generate both physical and logical IDs
+    // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const logicalId = this.generateLogicalId(relativePath, fullName, signature, contextPath, modifiers, position);
+    const semanticId = this.generateSemanticId(relativePath, fullName, signature, contextPath, modifiers);
+    const contentId = this.generateContentId(astHash, constructorBody);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
-      logicalId,
+      semanticId,
+      contentId,
       name: 'constructor',
       displayName: fullName,
       signature,
@@ -378,8 +379,6 @@ export class TypeScriptAnalyzer {
     if (scope && scope !== 'public') {
       functionInfo.accessModifier = scope;
     }
-
-    functionInfo.parentClass = className;
 
     return functionInfo;
   }
@@ -423,15 +422,15 @@ export class TypeScriptAnalyzer {
           
           const functionType = this.determineFunctionType(functionNode as ArrowFunction);
           const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
-          const position = { line: functionNode.getStartLineNumber(), column: functionNode.getStart() };
           
-          // Generate both physical and logical IDs
+          // Generate 3D identification system
           const physicalId = this.generatePhysicalId();
-          const logicalId = this.generateLogicalId(relativePath, name, signature, contextPath, modifiers, position);
-
+          const semanticId = this.generateSemanticId(relativePath, name, signature, contextPath, modifiers);
+          const contentId = this.generateContentId(astHash, functionBody);
           const functionInfo: FunctionInfo = {
             id: physicalId,
-            logicalId,
+            semanticId,
+            contentId,
             name,
             displayName: name,
             signature,
@@ -690,28 +689,41 @@ export class TypeScriptAnalyzer {
   }
 
   /**
-   * Generate a logical ID that identifies the same function across versions
-   * Uses SHA-256 with comprehensive function context for collision resistance
+   * Generate a semantic ID that identifies the same function role across versions
+   * Excludes position information for stability during refactoring
    */
-  private generateLogicalId(
+  private generateSemanticId(
     filePath: string, 
     name: string, 
     signature: string,
     contextPath: string[],
-    modifiers: string[],
-    position: { line: number; column: number }
+    modifiers: string[]
   ): string {
     const components = [
       filePath,
       ...contextPath,
       name || '<anonymous>',
       signature,
-      ...modifiers.sort(),
-      `${position.line}:${position.column}`
+      ...modifiers.sort()
+      // Position information deliberately excluded for stability
     ];
     
     return crypto.createHash('sha256').update(components.join('|')).digest('hex');
   }
+
+  /**
+   * Generate a content ID that identifies the same implementation
+   * Changes when function body or AST structure changes
+   */
+  private generateContentId(astHash: string, sourceCode: string): string {
+    const contentComponents = [
+      astHash,
+      sourceCode.trim()
+    ];
+    
+    return crypto.createHash('sha256').update(contentComponents.join('|')).digest('hex');
+  }
+
 
   /**
    * Extract hierarchical context path for a function

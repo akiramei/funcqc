@@ -129,8 +129,7 @@ function outputJSON(func: FunctionInfo): void {
       isConstructor: func.isConstructor,
       isStatic: func.isStatic,
       accessModifier: func.accessModifier,
-      parentClass: func.parentClass,
-      parentNamespace: func.parentNamespace
+      contextPath: func.contextPath
     },
     parameters: func.parameters,
     returnType: func.returnType,
@@ -287,14 +286,12 @@ function displayAdvancedMetrics(metrics: QualityMetrics): void {
 }
 
 function displayFunctionContext(func: FunctionInfo): void {
-  if (!func.parentClass && !func.parentNamespace) return;
+  if (!func.contextPath || func.contextPath.length === 0) return;
   
   console.log(chalk.bold(`🏗️  Context:`));
-  if (func.parentClass) {
-    console.log(`   Class: ${func.parentClass}`);
-  }
-  if (func.parentNamespace) {
-    console.log(`   Namespace: ${func.parentNamespace}`);
+  console.log(`   Path: ${func.contextPath.join(' → ')}`);
+  if (func.functionType) {
+    console.log(`   Type: ${func.functionType}`);
   }
   console.log();
 }
