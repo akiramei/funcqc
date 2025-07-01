@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { EmbeddingService } from '../services/embedding-service';
+import { ANNConfig } from '../services/ann-index';
 import { 
   FunctionInfo, 
   SnapshotInfo, 
@@ -898,6 +899,76 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async getFunctionsWithEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]> {
+    try {
+      let sql = `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        INNER JOIN function_embeddings e ON f.semantic_id = e.semantic_id
+        WHERE f.snapshot_id = $1 
+        AND d.description IS NOT NULL
+      `;
+      const params: (string | number)[] = [snapshotId];
+
+      if (limit) {
+        sql += ' LIMIT $' + (params.length + 1);
+        params.push(limit);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      const functions = await Promise.all(
+        result.rows.map(async (row) => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new Error(`Failed to get functions with embeddings: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunction(functionId: string): Promise<FunctionInfo | null> {
+    try {
+      const result = await this.db.query(`
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        WHERE f.id = $1 OR f.semantic_id = $1
+        LIMIT 1
+      `, [functionId]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as FunctionRow & Partial<MetricsRow>;
+      const parameters = await this.getFunctionParameters(row.id);
+      return this.mapRowToFunctionInfo(row, parameters);
+    } catch (error) {
+      throw new Error(`Failed to get function: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }> {
     try {
       const result = await this.db.query(`
@@ -922,6 +993,215 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+
+  // ========================================
+  // ANN INDEX MANAGEMENT
+  // ========================================
+
+  /**
+   * Save ANN index metadata and serialized index data
+   */
+  async saveANNIndex(
+    indexId: string,
+    config: ANNConfig,
+    embeddingModel: string,
+    vectorDimension: number,
+    vectorCount: number,
+    indexData: string,
+    buildTimeMs: number,
+    accuracyMetrics?: Record<string, unknown>
+  ): Promise<void> {
+    try {
+      // Mark all existing indexes as not current
+      await this.db.query('UPDATE ann_index_metadata SET is_current = FALSE');
+
+      // Insert new index metadata
+      await this.db.query(`
+        INSERT INTO ann_index_metadata (
+          id, algorithm, config_json, embedding_model, vector_dimension, 
+          vector_count, index_data, build_time_ms, accuracy_metrics, is_current
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
+        ON CONFLICT (id) DO UPDATE SET
+          algorithm = EXCLUDED.algorithm,
+          config_json = EXCLUDED.config_json,
+          embedding_model = EXCLUDED.embedding_model,
+          vector_dimension = EXCLUDED.vector_dimension,
+          vector_count = EXCLUDED.vector_count,
+          index_data = EXCLUDED.index_data,
+          build_time_ms = EXCLUDED.build_time_ms,
+          accuracy_metrics = EXCLUDED.accuracy_metrics,
+          updated_at = CURRENT_TIMESTAMP,
+          is_current = TRUE
+      `, [
+        indexId,
+        config.algorithm,
+        JSON.stringify(config),
+        embeddingModel,
+        vectorDimension,
+        vectorCount,
+        indexData,
+        buildTimeMs,
+        accuracyMetrics ? JSON.stringify(accuracyMetrics) : null
+      ]);
+    } catch (error) {
+      throw new Error(`Failed to save ANN index: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get current ANN index metadata and data
+   */
+  async getCurrentANNIndex(): Promise<{
+    id: string;
+    config: ANNConfig;
+    embeddingModel: string;
+    vectorDimension: number;
+    vectorCount: number;
+    indexData: string;
+    buildTimeMs: number;
+    accuracyMetrics?: Record<string, unknown>;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM ann_index_metadata 
+        WHERE is_current = TRUE 
+        ORDER BY updated_at DESC 
+        LIMIT 1
+      `);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as {
+        id: string;
+        algorithm: string;
+        config_json: string;
+        embedding_model: string;
+        vector_dimension: number;
+        vector_count: number;
+        index_data: string;
+        build_time_ms: number;
+        accuracy_metrics: string | null;
+        created_at: string;
+        updated_at: string;
+      };
+
+      return {
+        id: row.id,
+        config: JSON.parse(row.config_json) as ANNConfig,
+        embeddingModel: row.embedding_model,
+        vectorDimension: row.vector_dimension,
+        vectorCount: row.vector_count,
+        indexData: row.index_data,
+        buildTimeMs: row.build_time_ms,
+        accuracyMetrics: row.accuracy_metrics ? JSON.parse(row.accuracy_metrics) : undefined,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
+      };
+    } catch (error) {
+      throw new Error(`Failed to get current ANN index: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get all ANN index metadata (for history/comparison)
+   */
+  async getAllANNIndexes(): Promise<Array<{
+    id: string;
+    algorithm: string;
+    embeddingModel: string;
+    vectorCount: number;
+    buildTimeMs: number;
+    isCurrent: boolean;
+    createdAt: Date;
+  }>> {
+    try {
+      const result = await this.db.query(`
+        SELECT id, algorithm, embedding_model, vector_count, build_time_ms, is_current, created_at
+        FROM ann_index_metadata 
+        ORDER BY created_at DESC
+      `);
+
+      return result.rows.map((row: unknown) => {
+        const typedRow = row as {
+          id: string;
+          algorithm: string;
+          embedding_model: string;
+          vector_count: number;
+          build_time_ms: number;
+          is_current: boolean;
+          created_at: string;
+        };
+        return {
+          id: typedRow.id,
+          algorithm: typedRow.algorithm,
+          embeddingModel: typedRow.embedding_model,
+          vectorCount: typedRow.vector_count,
+          buildTimeMs: typedRow.build_time_ms,
+          isCurrent: typedRow.is_current,
+          createdAt: new Date(typedRow.created_at)
+        };
+      });
+    } catch (error) {
+      throw new Error(`Failed to get ANN indexes: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Delete ANN index by ID
+   */
+  async deleteANNIndex(indexId: string): Promise<void> {
+    try {
+      await this.db.query('DELETE FROM ann_index_metadata WHERE id = $1', [indexId]);
+    } catch (error) {
+      throw new Error(`Failed to delete ANN index: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get ANN index statistics
+   */
+  async getANNIndexStats(): Promise<{
+    totalIndexes: number;
+    currentIndex: {
+      algorithm: string;
+      vectorCount: number;
+      buildTimeMs: number;
+      model: string;
+    } | null;
+    averageBuildTime: number;
+  }> {
+    try {
+      const [totalResult, currentResult, avgResult] = await Promise.all([
+        this.db.query('SELECT COUNT(*) as total FROM ann_index_metadata'),
+        this.db.query(`
+          SELECT algorithm, vector_count, build_time_ms, embedding_model 
+          FROM ann_index_metadata 
+          WHERE is_current = TRUE
+        `),
+        this.db.query('SELECT AVG(build_time_ms) as avg_time FROM ann_index_metadata')
+      ]);
+
+      const currentIndex = currentResult.rows.length > 0 ? {
+        algorithm: (currentResult.rows[0] as { algorithm: string }).algorithm,
+        vectorCount: (currentResult.rows[0] as { vector_count: number }).vector_count,
+        buildTimeMs: (currentResult.rows[0] as { build_time_ms: number }).build_time_ms,
+        model: (currentResult.rows[0] as { embedding_model: string }).embedding_model
+      } : null;
+
+      return {
+        totalIndexes: (totalResult.rows[0] as { total: number }).total,
+        currentIndex,
+        averageBuildTime: (avgResult.rows[0] as { avg_time: number }).avg_time || 0
+      };
+    } catch (error) {
+      throw new Error(`Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   // ========================================
   // MAINTENANCE OPERATIONS (FUTURE)
@@ -1055,7 +1335,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
     
     // Create tables if they don't exist
-    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings'];
+    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'ann_index_metadata'];
     
     for (const tableName of tables) {
       const exists = await this.tableExists(tableName);
@@ -1078,6 +1358,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             break;
           case 'function_embeddings':
             await this.db.exec(this.getFunctionEmbeddingsTableSQL());
+            break;
+          case 'ann_index_metadata':
+            await this.db.exec(this.getANNIndexTableSQL());
             break;
         }
       }
@@ -1281,6 +1564,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (semantic_id) REFERENCES function_descriptions(semantic_id) ON DELETE CASCADE
+      );`;
+  }
+
+  private getANNIndexTableSQL(): string {
+    return `
+      CREATE TABLE ann_index_metadata (
+        id TEXT PRIMARY KEY,
+        algorithm TEXT NOT NULL CHECK (algorithm IN ('hierarchical', 'lsh', 'hybrid')),
+        config_json TEXT NOT NULL,                   -- JSON serialized ANNConfig
+        embedding_model TEXT NOT NULL,               -- Model used for embeddings
+        vector_dimension INTEGER NOT NULL,           -- Dimension of vectors in index
+        vector_count INTEGER NOT NULL DEFAULT 0,    -- Number of vectors indexed
+        index_data TEXT,                            -- Serialized index data (clusters, hash tables, etc.)
+        build_time_ms INTEGER,                      -- Time taken to build index
+        accuracy_metrics TEXT,                      -- JSON with accuracy/performance metrics
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_current BOOLEAN DEFAULT TRUE             -- Whether this is the current active index
       );`;
   }
 

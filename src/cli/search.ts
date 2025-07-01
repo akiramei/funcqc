@@ -34,10 +34,11 @@ export async function searchCommand(
           process.exit(1);
         }
 
-        // Initialize embedding service
+        // Initialize embedding service with ANN support
         const embeddingService = new EmbeddingService({
           apiKey,
-          model: options.model || 'text-embedding-3-small'
+          model: options.model || 'text-embedding-3-small',
+          enableANN: true // Enable ANN for faster search
         });
 
         if (options.hybrid) {
@@ -133,10 +134,7 @@ async function performSemanticSearch(
 ): Promise<(FunctionInfo & { similarity: number })[]> {
   logger.info(chalk.blue('Generating embedding for search query...'));
   
-  // Generate embedding for the search keyword
-  const queryEmbedding = await embeddingService.generateEmbedding(keyword);
-  
-  // Search by embedding
+  // Search by embedding with ANN optimization
   const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
   const limit = options.limit ? parseInt(options.limit, 10) : 50;
   
@@ -148,9 +146,82 @@ async function performSemanticSearch(
     throw new Error('Limit must be a positive number');
   }
   
-  logger.info(chalk.blue(`Searching with semantic similarity (threshold: ${threshold})...`));
+  // Check if ANN index is available
+  const isANNReady = embeddingService.isANNIndexReady();
+  if (isANNReady) {
+    logger.info(chalk.blue(`Searching with ANN optimization (threshold: ${threshold})...`));
+  } else {
+    logger.info(chalk.blue(`ANN index not ready, building index...`));
+    
+    // Load existing embeddings and build ANN index
+    const snapshots = await storage.getSnapshots({ limit: 1 });
+    if (snapshots.length > 0) {
+      const snapshotId = snapshots[0].id;
+      const functionsWithEmbeddings = await storage.getFunctionsWithEmbeddings(snapshotId);
+      
+      if (functionsWithEmbeddings.length > 0) {
+        const embeddingResults = [];
+        for (const func of functionsWithEmbeddings) {
+          const embedding = await storage.getEmbedding(func.semanticId);
+          if (embedding) {
+            embeddingResults.push({
+              functionId: func.semanticId,
+              semanticId: func.semanticId,
+              embedding: embedding.embedding,
+              model: embedding.model,
+              timestamp: Date.now()
+            });
+          }
+        }
+        
+        if (embeddingResults.length > 0) {
+          await embeddingService.buildANNIndex(embeddingResults);
+          logger.info(chalk.green(`Built ANN index with ${embeddingResults.length} vectors`));
+        }
+      }
+    }
+  }
   
-  const results = await storage.searchByEmbedding(queryEmbedding, threshold, limit);
+  // Get all existing embeddings for fallback
+  const snapshots = await storage.getSnapshots({ limit: 1 });
+  const allEmbeddings = [];
+  if (snapshots.length > 0) {
+    const snapshotId = snapshots[0].id;
+    const functionsWithEmbeddings = await storage.getFunctionsWithEmbeddings(snapshotId);
+    
+    for (const func of functionsWithEmbeddings) {
+      const embedding = await storage.getEmbedding(func.semanticId);
+      if (embedding) {
+        allEmbeddings.push({
+          functionId: func.semanticId,
+          semanticId: func.semanticId,
+          embedding: embedding.embedding,
+          model: embedding.model,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+  
+  // Perform semantic search using ANN or exact search
+  const searchResults = await embeddingService.semanticSearch(keyword, allEmbeddings, {
+    useANN: true,
+    threshold,
+    limit,
+    approximationLevel: 'balanced'
+  });
+  
+  // Convert search results back to FunctionInfo format
+  const results: (FunctionInfo & { similarity: number })[] = [];
+  for (const result of searchResults) {
+    const func = await storage.getFunction(result.functionId);
+    if (func) {
+      results.push({
+        ...func,
+        similarity: result.similarity
+      });
+    }
+  }
   
   // Filter by minimum similarity if specified
   if (options.minSimilarity) {
