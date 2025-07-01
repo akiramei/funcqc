@@ -37,7 +37,7 @@ export async function searchCommand(
         // Initialize embedding service
         const embeddingService = new EmbeddingService({
           apiKey,
-          model: options.model || 'text-embedding-ada-002'
+          model: options.model || 'text-embedding-3-small'
         });
 
         if (options.hybrid) {
@@ -140,6 +140,14 @@ async function performSemanticSearch(
   const threshold = options.threshold ? parseFloat(options.threshold) : 0.8;
   const limit = options.limit ? parseInt(options.limit, 10) : 50;
   
+  // Validate parsed values
+  if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+    throw new Error('Threshold must be a number between 0 and 1');
+  }
+  if (isNaN(limit) || limit <= 0) {
+    throw new Error('Limit must be a positive number');
+  }
+  
   logger.info(chalk.blue(`Searching with semantic similarity (threshold: ${threshold})...`));
   
   const results = await storage.searchByEmbedding(queryEmbedding, threshold, limit);
@@ -147,6 +155,9 @@ async function performSemanticSearch(
   // Filter by minimum similarity if specified
   if (options.minSimilarity) {
     const minSim = parseFloat(options.minSimilarity);
+    if (isNaN(minSim) || minSim < 0 || minSim > 1) {
+      throw new Error('Minimum similarity must be a number between 0 and 1');
+    }
     return results.filter(f => f.similarity >= minSim);
   }
   
@@ -178,6 +189,9 @@ async function performHybridSearch(
   
   // Merge and score results
   const weight = options.hybridWeight ? parseFloat(options.hybridWeight) : 0.5;
+  if (options.hybridWeight && (isNaN(weight) || weight < 0 || weight > 1)) {
+    throw new Error('Hybrid weight must be a number between 0 and 1');
+  }
   const mergedResults = mergeHybridResults(keywordResults, semanticResults, weight);
   
   // Apply limit
@@ -194,7 +208,7 @@ function mergeHybridResults(
   
   // Add keyword results with base score
   keywordResults.forEach((func, index) => {
-    const keywordScore = 1 - (index / keywordResults.length); // Higher for earlier results
+    const keywordScore = keywordResults.length > 0 ? 1 - (index / keywordResults.length) : 1; // Higher for earlier results
     merged.set(func.id, { ...func, keywordScore, similarity: keywordScore * (1 - semanticWeight) });
   });
   
@@ -264,7 +278,7 @@ function displayTable(functions: (FunctionInfo & { similarity?: number })[], log
 
     const complexityStr = complexityColor(complexity.toString()).padEnd(12);
     
-    if (showSimilarity && func.similarity !== undefined) {
+    if (showSimilarity && typeof func.similarity === 'number') {
       const similarityStr = getSimilarityColor(func.similarity)(func.similarity.toFixed(3)).padEnd(11);
       logger.info(`${functionId} ${similarityStr} ${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`);
     } else {
@@ -287,7 +301,7 @@ function displayFriendly(functions: (FunctionInfo & { similarity?: number })[], 
       `Exported: ${func.isExported ? chalk.green('Yes') : chalk.gray('No')} | ` +
       `Async: ${func.isAsync ? chalk.blue('Yes') : chalk.gray('No')}`;
     
-    if (showSimilarity && func.similarity !== undefined) {
+    if (showSimilarity && typeof func.similarity === 'number') {
       const similarityColor = getSimilarityColor(func.similarity);
       metricLine += ` | Similarity: ${similarityColor(func.similarity.toFixed(3))}`;
     }

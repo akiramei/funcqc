@@ -18,12 +18,13 @@ export function createVectorizeCommand(): Command {
     .option('--limit <n>', 'limit number of functions to process')
     .action(async (options) => {
       const spinner = ora();
+      let storage: PGLiteStorageAdapter | null = null;
       
       try {
         // Load configuration and initialize storage
         const configManager = new ConfigManager();
         const config = await configManager.load();
-        const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+        storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
         await storage.init();
         
         const apiKey = options.apiKey || process.env['OPENAI_API_KEY'];
@@ -60,7 +61,7 @@ export function createVectorizeCommand(): Command {
         const embeddingService = new EmbeddingService({
           apiKey,
           model: options.model,
-          batchSize: parseInt(options.batchSize)
+          batchSize: parseInt(options.batchSize, 10)
         });
         
         // Get functions to vectorize
@@ -80,13 +81,13 @@ export function createVectorizeCommand(): Command {
           // Get all functions with descriptions
           functions = await storage.getFunctionsWithDescriptions(
             snapshotId, 
-            options.limit ? { limit: parseInt(options.limit) } : undefined
+            options.limit ? { limit: parseInt(options.limit, 10) } : undefined
           );
         } else {
           // Get only functions without embeddings (default)
           functions = await storage.getFunctionsWithoutEmbeddings(
             snapshotId,
-            options.limit ? parseInt(options.limit) : undefined
+            options.limit ? parseInt(options.limit, 10) : undefined
           );
         }
         
@@ -128,13 +129,23 @@ export function createVectorizeCommand(): Command {
         
         // Show updated stats
         const updatedStats = await storage.getEmbeddingStats();
-        console.log(`\nTotal coverage: ${chalk.bold(Math.round((updatedStats.withEmbeddings / updatedStats.total) * 100) + '%')}`);
+        const coveragePercentage = updatedStats.total > 0 
+          ? Math.round((updatedStats.withEmbeddings / updatedStats.total) * 100)
+          : 0;
+        console.log(`\nTotal coverage: ${chalk.bold(coveragePercentage + '%')}`);
         
         await storage.close();
         
       } catch (error) {
         spinner.fail('Vectorization failed');
         console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
+        if (storage) {
+          try {
+            await storage.close();
+          } catch (closeError) {
+            console.error(chalk.red('Failed to close storage:'), closeError instanceof Error ? closeError.message : String(closeError));
+          }
+        }
         process.exit(1);
       }
     })
