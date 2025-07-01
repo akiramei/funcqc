@@ -883,4 +883,21 @@ export class TypeScriptAnalyzer {
       maxSourceFiles: this.maxSourceFilesInMemory
     };
   }
+
+  /**
+   * Safely traverse parent nodes with callback
+   * Currently unused but available for future parent traversal optimization
+   */
+  // private traverseParents(
+  //   node: Node,
+  //   callback: (parent: Node) => void | boolean
+  // ): void {
+  //   let current = node.getParent();
+  //   while (current && !Node.isSourceFile(current)) {
+  //     if (callback(current) === false) break;
+  //     const next = current.getParent();
+  //     if (!next) break;
+  //     current = next;
+  //   }
+  // }
 }

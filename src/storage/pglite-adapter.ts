@@ -974,27 +974,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private getFunctionsTableSQL(): string {
     return `
       CREATE TABLE functions (
-        -- 物理識別次元
-        id TEXT PRIMARY KEY,                   -- Physical UUID（物理的実体の一意識別）
-        snapshot_id TEXT NOT NULL,             -- スナップショット参照
-        start_line INTEGER NOT NULL,           -- ファイル内開始行
-        end_line INTEGER NOT NULL,             -- ファイル内終了行
+        -- Physical identification dimension
+        id TEXT PRIMARY KEY,                   -- Physical UUID for unique function instance
+        snapshot_id TEXT NOT NULL,             -- Snapshot reference
+        start_line INTEGER NOT NULL,           -- Start line in file
+        end_line INTEGER NOT NULL,             -- End line in file
         start_column INTEGER NOT NULL DEFAULT 0,
         end_column INTEGER NOT NULL DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         
-        -- 意味識別次元
-        semantic_id TEXT NOT NULL,             -- Semantic hash（役割ベース識別）
-        name TEXT NOT NULL,                    -- 関数名
-        display_name TEXT NOT NULL,            -- 表示用名前（クラス.メソッド等）
-        signature TEXT NOT NULL,               -- 完全なシグネチャ
-        file_path TEXT NOT NULL,               -- プロジェクトルートからの相対パス
-        context_path TEXT,                     -- 階層コンテキスト JSON ['Class', 'method']
+        -- Semantic identification dimension
+        semantic_id TEXT NOT NULL,             -- Semantic hash for role-based identification
+        name TEXT NOT NULL,                    -- Function name
+        display_name TEXT NOT NULL,            -- Display name (Class.method etc.)
+        signature TEXT NOT NULL,               -- Complete signature
+        file_path TEXT NOT NULL,               -- Relative path from project root
+        context_path TEXT,                     -- Hierarchical context JSON ['Class', 'method']
         function_type TEXT,                    -- 'function' | 'method' | 'arrow' | 'local'
-        modifiers TEXT,                        -- モディファイア JSON ['static', 'private', 'async']
-        nesting_level INTEGER DEFAULT 0,       -- ネスト深度
+        modifiers TEXT,                        -- Modifiers JSON ['static', 'private', 'async']
+        nesting_level INTEGER DEFAULT 0,       -- Nesting depth
         
-        -- 関数属性（意味ベース）
+        -- Function attributes (semantic-based)
         is_exported BOOLEAN DEFAULT FALSE,
         is_async BOOLEAN DEFAULT FALSE,
         is_generator BOOLEAN DEFAULT FALSE,
@@ -1004,18 +1004,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         is_static BOOLEAN DEFAULT FALSE,
         access_modifier TEXT,                  -- 'public' | 'private' | 'protected'
         
-        -- 内容識別次元
-        content_id TEXT NOT NULL,              -- Content hash（実装内容識別）
-        ast_hash TEXT NOT NULL,                -- AST構造のハッシュ
-        source_code TEXT,                      -- 関数のソースコード
-        signature_hash TEXT NOT NULL,          -- シグネチャのハッシュ
+        -- Content identification dimension
+        content_id TEXT NOT NULL,              -- Content hash for implementation identification
+        ast_hash TEXT NOT NULL,                -- AST structure hash
+        source_code TEXT,                      -- Function source code
+        signature_hash TEXT NOT NULL,          -- Signature hash
         
-        -- 効率化用フィールド
-        file_hash TEXT NOT NULL,               -- ファイル内容のハッシュ
-        file_content_hash TEXT,                -- ファイル変更検出高速化用
+        -- Efficiency fields
+        file_hash TEXT NOT NULL,               -- File content hash
+        file_content_hash TEXT,                -- File change detection optimization
         
-        -- ドキュメント（将来は別テーブルに移動予定）
-        js_doc TEXT,                          -- JSDocコメント
+        -- Documentation (to be moved to separate table in the future)
+        js_doc TEXT,                          -- JSDoc comment
         
         FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
       );`;
@@ -1338,9 +1338,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
       
       // Enhanced function identification
-      ...(row.context_path && { contextPath: JSON.parse(row.context_path) }),
+      ...(row.context_path && { contextPath: this.safeJsonParse(row.context_path, []) }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: JSON.parse(row.modifiers) }),
+      ...(row.modifiers && { modifiers: this.safeJsonParse(row.modifiers, []) }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
       
       // Existing function attributes
@@ -1480,6 +1480,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return tags.latest || null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Safely parse JSON with fallback value
+   */
+  private safeJsonParse<T>(jsonString: string, fallback: T): T {
+    try {
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.warn(`Failed to parse JSON: ${jsonString}`, error);
+      return fallback;
     }
   }
 }
