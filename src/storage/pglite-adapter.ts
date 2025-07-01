@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
+import { EmbeddingService } from '../services/embedding-service';
 import { 
   FunctionInfo, 
   SnapshotInfo, 
@@ -808,12 +809,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `, [snapshots[0].id]);
 
       // Calculate similarities and filter
-      const results: Array<{ row: any; similarity: number }> = [];
+      type EmbeddingSearchRow = FunctionRow & Partial<MetricsRow> & {
+        embedding: number[];
+        description?: string;
+      };
+      
+      const results: Array<{ row: EmbeddingSearchRow; similarity: number }> = [];
       
       for (const row of embeddings.rows) {
-        const rowData = row as any;
-        const embedding = rowData.embedding as number[];
-        const similarity = this.cosineSimilarity(queryEmbedding, embedding);
+        const rowData = row as EmbeddingSearchRow;
+        const embedding = rowData.embedding;
+        const similarity = EmbeddingService.cosineSimilarity(queryEmbedding, embedding);
         
         if (similarity >= threshold) {
           results.push({ row: rowData, similarity });
@@ -916,27 +922,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Calculate cosine similarity between two vectors
-   */
-  private cosineSimilarity(vec1: number[], vec2: number[]): number {
-    if (vec1.length !== vec2.length) {
-      throw new Error('Vectors must have the same dimension');
-    }
-
-    let dotProduct = 0;
-    let norm1 = 0;
-    let norm2 = 0;
-
-    for (let i = 0; i < vec1.length; i++) {
-      dotProduct += vec1[i] * vec2[i];
-      norm1 += vec1[i] * vec1[i];
-      norm2 += vec2[i] * vec2[i];
-    }
-
-    const denominator = Math.sqrt(norm1) * Math.sqrt(norm2);
-    return denominator === 0 ? 0 : dotProduct / denominator;
-  }
 
   // ========================================
   // MAINTENANCE OPERATIONS (FUTURE)

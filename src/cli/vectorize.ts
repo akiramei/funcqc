@@ -70,7 +70,7 @@ export function createVectorizeCommand(): Command {
         if (snapshots.length === 0) {
           spinner.fail('No snapshots found. Run "funcqc scan" first.');
           await storage.close();
-          return;
+          process.exit(1);
         }
         
         const snapshotId = snapshots[0].id;
@@ -95,7 +95,7 @@ export function createVectorizeCommand(): Command {
         if (functions.length === 0) {
           console.log(chalk.gray('No functions need vectorization.'));
           await storage.close();
-          return;
+          process.exit(0);
         }
         
         // Generate embeddings

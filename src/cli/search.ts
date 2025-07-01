@@ -84,12 +84,12 @@ export async function searchCommand(
         }
         
         // Check if embeddings exist
-        const storage = await new (require('../storage/pglite-adapter').PGLiteStorageAdapter)(
-          (await new (require('../core/config').ConfigManager)().load()).storage.path || '.funcqc/funcqc.db'
-        );
-        await storage.init();
-        const stats = await storage.getEmbeddingStats();
-        await storage.close();
+        const configManager = new ConfigManager();
+        const statsConfig = await configManager.load();
+        const statsStorage = new PGLiteStorageAdapter(statsConfig.storage.path || '.funcqc/funcqc.db');
+        await statsStorage.init();
+        const stats = await statsStorage.getEmbeddingStats();
+        await statsStorage.close();
         
         if (stats.total === 0) {
           logger.info(chalk.gray(`💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`));
