@@ -64,7 +64,10 @@ export interface ConsensusStrategy {
 
 // Function analysis types
 export interface FunctionInfo {
-  id: string;
+  // BREAKING CHANGE: ID field is now physical UUID for this specific instance
+  id: string;                    // Physical UUID for this specific function version
+  logicalId?: string;            // SHA-256 logical ID for function identity across versions
+  
   name: string;
   displayName: string;
   signature: string;
@@ -76,6 +79,12 @@ export interface FunctionInfo {
   startColumn: number;
   endColumn: number;
   astHash: string;
+  
+  // Enhanced function identification
+  contextPath?: string[];        // Hierarchical context ['Class', 'method']
+  functionType?: 'function' | 'method' | 'arrow' | 'local';
+  modifiers?: string[];          // ['static', 'private', 'async']
+  nestingLevel?: number;         // Nesting depth for local functions
   
   // Function attributes
   isExported: boolean;

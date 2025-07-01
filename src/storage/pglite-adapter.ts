@@ -845,7 +845,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private getFunctionsTableSQL(): string {
     return `
       CREATE TABLE IF NOT EXISTS functions (
-        id TEXT PRIMARY KEY,
+        id TEXT PRIMARY KEY,                    -- Physical UUID for this function instance
+        logical_id TEXT,                        -- SHA-256 logical ID for cross-version identity
         snapshot_id TEXT NOT NULL,
         name TEXT NOT NULL,
         display_name TEXT NOT NULL,
@@ -858,6 +859,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         start_column INTEGER NOT NULL DEFAULT 0,
         end_column INTEGER NOT NULL DEFAULT 0,
         ast_hash TEXT NOT NULL,
+        
+        -- Enhanced function identification
+        context_path TEXT[],                    -- Hierarchical context array
+        function_type TEXT,                     -- 'function', 'method', 'arrow', 'local'
+        modifiers TEXT[],                       -- ['static', 'private', 'async']
+        nesting_level INTEGER DEFAULT 0,       -- Nesting depth for local functions
+        
+        -- Existing function attributes
         is_exported BOOLEAN DEFAULT FALSE,
         is_async BOOLEAN DEFAULT FALSE,
         is_generator BOOLEAN DEFAULT FALSE,
@@ -871,6 +880,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         js_doc TEXT,
         source_code TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        
         FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
       );`;
   }
@@ -1027,22 +1037,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     await this.executeInTransaction(async () => {
       for (const func of functions) {
-        // Insert function
+        // Insert function with enhanced identification fields
         await this.db.query(`
           INSERT INTO functions (
-            id, snapshot_id, name, display_name, signature, signature_hash,
+            id, logical_id, snapshot_id, name, display_name, signature, signature_hash,
             file_path, file_hash, start_line, end_line, start_column, end_column,
-            ast_hash, is_exported, is_async, is_generator, is_arrow_function,
+            ast_hash, context_path, function_type, modifiers, nesting_level,
+            is_exported, is_async, is_generator, is_arrow_function,
             is_method, is_constructor, is_static, access_modifier, parent_class,
             parent_namespace, js_doc, source_code
           ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-            $17, $18, $19, $20, $21, $22, $23, $24, $25
+            $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30
           )
         `, [
-          func.id, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
+          func.id, func.logicalId || null, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
           func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
-          func.astHash, func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
+          func.astHash, func.contextPath || null, func.functionType || null, func.modifiers || null, func.nestingLevel || 0,
+          func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
           func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null, func.parentClass || null,
           func.parentNamespace || null, func.jsDoc || null, func.sourceCode || null
         ]);
@@ -1138,6 +1150,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private createBaseFunctionInfo(row: FunctionRow, parameters: ParameterRow[]): FunctionInfo {
     return {
       id: row.id,
+      ...(row.logical_id && { logicalId: row.logical_id }),
       name: row.name,
       displayName: row.display_name,
       signature: row.signature,
@@ -1149,6 +1162,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       startColumn: row.start_column,
       endColumn: row.end_column,
       astHash: row.ast_hash,
+      
+      // Enhanced function identification
+      ...(row.context_path && { contextPath: row.context_path }),
+      ...(row.function_type && { functionType: row.function_type }),
+      ...(row.modifiers && { modifiers: row.modifiers }),
+      ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
+      
+      // Existing function attributes
       isExported: row.is_exported,
       isAsync: row.is_async,
       isGenerator: row.is_generator,

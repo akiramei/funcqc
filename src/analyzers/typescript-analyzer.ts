@@ -1,4 +1,4 @@
-import { Project, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, SyntaxKind, ClassDeclaration, ConstructorDeclaration } from 'ts-morph';
+import { Project, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, SyntaxKind, ClassDeclaration, ConstructorDeclaration, Node, ModuleDeclaration } from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -170,8 +170,20 @@ export class TypeScriptAnalyzer {
     const signatureHash = this.calculateSignatureHash(signature);
     const returnType = this.extractFunctionReturnType(func);
 
+    // Extract comprehensive function context
+    const contextPath = this.extractContextPath(func);
+    const modifiers = this.extractModifiers(func);
+    const functionType = this.determineFunctionType(func);
+    const nestingLevel = this.calculateNestingLevel(func);
+    const position = { line: func.getStartLineNumber(), column: func.getStart() };
+    
+    // Generate both physical and logical IDs
+    const physicalId = this.generatePhysicalId();
+    const logicalId = this.generateLogicalId(relativePath, name, signature, contextPath, modifiers, position);
+
     const functionInfo: FunctionInfo = {
-      id: this.generateFunctionId(relativePath, name, signatureHash),
+      id: physicalId,
+      logicalId,
       name,
       displayName: name,
       signature,
@@ -183,6 +195,14 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
+      
+      // Enhanced function identification
+      contextPath,
+      functionType,
+      modifiers,
+      nestingLevel,
+      
+      // Existing function attributes
       isExported: func.isExported(),
       isAsync: func.isAsync(),
       isGenerator: !!func.getAsteriskToken(),
@@ -228,8 +248,20 @@ export class TypeScriptAnalyzer {
 
     const returnType = this.extractMethodReturnType(method);
 
+    // Extract comprehensive function context
+    const contextPath = this.extractContextPath(method);
+    const modifiers = this.extractModifiers(method);
+    const functionType = this.determineFunctionType(method);
+    const nestingLevel = this.calculateNestingLevel(method);
+    const position = { line: method.getStartLineNumber(), column: method.getStart() };
+    
+    // Generate both physical and logical IDs
+    const physicalId = this.generatePhysicalId();
+    const logicalId = this.generateLogicalId(relativePath, fullName, signature, contextPath, modifiers, position);
+
     const functionInfo: FunctionInfo = {
-      id: this.generateFunctionId(relativePath, fullName, signatureHash),
+      id: physicalId,
+      logicalId,
       name: name,
       displayName: fullName,
       signature,
@@ -241,6 +273,14 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
+      
+      // Enhanced function identification
+      contextPath,
+      functionType,
+      modifiers,
+      nestingLevel,
+      
+      // Existing function attributes
       isExported: isClassExported,
       isAsync: method.isAsync(),
       isGenerator: !!method.getAsteriskToken(),
@@ -288,8 +328,22 @@ export class TypeScriptAnalyzer {
       isClassExported = (parent as ClassDeclaration).isExported();
     }
 
+    // Extract comprehensive function context
+    const contextPath = this.extractConstructorContextPath(ctor);
+    const modifiers: string[] = [];
+    if (isClassExported) modifiers.push('exported');
+    
+    const functionType = 'method';  // Constructors are a type of method
+    const nestingLevel = this.calculateConstructorNestingLevel(ctor);
+    const position = { line: ctor.getStartLineNumber(), column: ctor.getStart() };
+    
+    // Generate both physical and logical IDs
+    const physicalId = this.generatePhysicalId();
+    const logicalId = this.generateLogicalId(relativePath, fullName, signature, contextPath, modifiers, position);
+
     const functionInfo: FunctionInfo = {
-      id: this.generateFunctionId(relativePath, fullName, signatureHash),
+      id: physicalId,
+      logicalId,
       name: 'constructor',
       displayName: fullName,
       signature,
@@ -301,6 +355,14 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
+      
+      // Enhanced function identification
+      contextPath,
+      functionType,
+      modifiers,
+      nestingLevel,
+      
+      // Existing function attributes
       isExported: isClassExported,
       isAsync: false,
       isGenerator: false,
@@ -353,8 +415,23 @@ export class TypeScriptAnalyzer {
           const signatureHash = this.calculateSignatureHash(signature);
           const returnType = this.extractArrowFunctionReturnType(functionNode);
 
+          // Extract comprehensive function context
+          const contextPath = this.extractContextPath(functionNode as ArrowFunction);
+          const modifiers: string[] = [];
+          if (functionNode.isAsync()) modifiers.push('async');
+          if (stmt.isExported()) modifiers.push('exported');
+          
+          const functionType = this.determineFunctionType(functionNode as ArrowFunction);
+          const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
+          const position = { line: functionNode.getStartLineNumber(), column: functionNode.getStart() };
+          
+          // Generate both physical and logical IDs
+          const physicalId = this.generatePhysicalId();
+          const logicalId = this.generateLogicalId(relativePath, name, signature, contextPath, modifiers, position);
+
           const functionInfo: FunctionInfo = {
-            id: this.generateFunctionId(relativePath, name, signatureHash),
+            id: physicalId,
+            logicalId,
             name,
             displayName: name,
             signature,
@@ -366,6 +443,14 @@ export class TypeScriptAnalyzer {
             startColumn: 0,
             endColumn: 0,
             astHash,
+            
+            // Enhanced function identification
+            contextPath,
+            functionType,
+            modifiers,
+            nestingLevel,
+            
+            // Existing function attributes
             isExported: stmt.isExported(),
             isAsync: functionNode.isAsync(),
             isGenerator: functionNode.getKind() === SyntaxKind.FunctionExpression ? !!(functionNode as FunctionExpression).getAsteriskToken() : false,
@@ -594,13 +679,164 @@ export class TypeScriptAnalyzer {
   }
 
   private calculateSignatureHash(signature: string): string {
-    return crypto.createHash('md5').update(signature).digest('hex');
+    return crypto.createHash('sha256').update(signature).digest('hex');
   }
 
-  private generateFunctionId(filePath: string, name: string, signatureHash: string): string {
-    const components = [filePath, name, signatureHash.substring(0, 8)];
-    return crypto.createHash('md5').update(components.join('|')).digest('hex');
+  /**
+   * Generate a UUID for the physical function instance
+   */
+  private generatePhysicalId(): string {
+    return crypto.randomUUID();
   }
+
+  /**
+   * Generate a logical ID that identifies the same function across versions
+   * Uses SHA-256 with comprehensive function context for collision resistance
+   */
+  private generateLogicalId(
+    filePath: string, 
+    name: string, 
+    signature: string,
+    contextPath: string[],
+    modifiers: string[],
+    position: { line: number; column: number }
+  ): string {
+    const components = [
+      filePath,
+      ...contextPath,
+      name || '<anonymous>',
+      signature,
+      ...modifiers.sort(),
+      `${position.line}:${position.column}`
+    ];
+    
+    return crypto.createHash('sha256').update(components.join('|')).digest('hex');
+  }
+
+  /**
+   * Extract hierarchical context path for a function
+   */
+  private extractContextPath(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): string[] {
+    const path: string[] = [];
+    let current = node.getParent();
+    
+    while (current) {
+      if (current.getKind() === SyntaxKind.ClassDeclaration) {
+        const className = (current as ClassDeclaration).getName();
+        if (className) path.unshift(className);
+      } else if (current.getKind() === SyntaxKind.ModuleDeclaration) {
+        const moduleName = (current as ModuleDeclaration).getName();
+        path.unshift(moduleName);
+      } else if (current.getKind() === SyntaxKind.FunctionDeclaration) {
+        const funcName = (current as FunctionDeclaration).getName();
+        if (funcName) path.unshift(funcName);
+      }
+      const nextParent = current.getParent();
+      if (!nextParent) break;
+      current = nextParent;
+    }
+    
+    return path;
+  }
+
+  /**
+   * Extract function modifiers as string array
+   */
+  private extractModifiers(node: FunctionDeclaration | MethodDeclaration): string[] {
+    const modifiers: string[] = [];
+    
+    if (Node.isFunctionDeclaration(node)) {
+      if (node.isAsync()) modifiers.push('async');
+      if (node.isExported()) modifiers.push('exported');
+      if (node.getAsteriskToken()) modifiers.push('generator');
+    }
+    
+    if (Node.isMethodDeclaration(node)) {
+      if (node.isAsync()) modifiers.push('async');
+      if (node.isStatic()) modifiers.push('static');
+      if (node.getAsteriskToken()) modifiers.push('generator');
+      
+      const accessModifier = node.getModifiers()
+        .find(m => [SyntaxKind.PublicKeyword, SyntaxKind.PrivateKeyword, SyntaxKind.ProtectedKeyword]
+          .includes(m.getKind()));
+      if (accessModifier) {
+        modifiers.push(accessModifier.getText());
+      } else {
+        modifiers.push('public'); // Default access modifier
+      }
+    }
+    
+    return modifiers;
+  }
+
+  /**
+   * Determine function type based on node type and context
+   */
+  private determineFunctionType(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): 'function' | 'method' | 'arrow' | 'local' {
+    if (Node.isMethodDeclaration(node)) {
+      return 'method';
+    }
+    if (Node.isArrowFunction(node)) {
+      return 'arrow';
+    }
+    
+    // Check if it's a local function (inside another function)
+    let parent = node.getParent();
+    while (parent && !Node.isSourceFile(parent)) {
+      if (Node.isFunctionDeclaration(parent) || Node.isMethodDeclaration(parent) || Node.isArrowFunction(parent)) {
+        return 'local';
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    
+    return 'function';
+  }
+
+  /**
+   * Calculate nesting level for the function
+   */
+  private calculateNestingLevel(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): number {
+    let level = 0;
+    let parent = node.getParent();
+    
+    while (parent && !Node.isSourceFile(parent)) {
+      if (Node.isFunctionDeclaration(parent) || Node.isMethodDeclaration(parent) || Node.isArrowFunction(parent)) {
+        level++;
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    
+    return level;
+  }
+
+  /**
+   * Extract hierarchical context path for a constructor
+   */
+  private extractConstructorContextPath(ctor: ConstructorDeclaration): string[] {
+    const path: string[] = [];
+    
+    // For constructors, we know the immediate parent is a class
+    const parent = ctor.getParent();
+    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
+      const className = (parent as ClassDeclaration).getName();
+      if (className) path.push(className);
+    }
+    
+    return path;
+  }
+
+  /**
+   * Calculate nesting level for a constructor
+   */
+  private calculateConstructorNestingLevel(_ctor: ConstructorDeclaration): number {
+    // Constructors are not typically nested, but we can check for nested classes
+    return 0;
+  }
+
   
   /**
    * Manage memory by cleaning up project if too many source files are loaded

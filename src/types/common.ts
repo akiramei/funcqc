@@ -43,7 +43,8 @@ export interface SnapshotRow {
 }
 
 export interface FunctionRow {
-  id: string;
+  id: string;                                              // Physical UUID
+  logical_id?: string;                                     // SHA-256 logical ID
   snapshot_id: string;
   name: string;
   display_name: string;
@@ -56,6 +57,14 @@ export interface FunctionRow {
   start_column: number;
   end_column: number;
   ast_hash: string;
+  
+  // Enhanced function identification
+  context_path?: string[];                                 // Hierarchical context
+  function_type?: 'function' | 'method' | 'arrow' | 'local';
+  modifiers?: string[];                                    // ['static', 'private', 'async']
+  nesting_level?: number;                                  // Nesting depth
+  
+  // Existing function attributes
   is_exported: boolean;
   is_async: boolean;
   is_generator: boolean;
