@@ -58,15 +58,14 @@ export const VectorizeOptionsSchema = z.object({
     message: "Cannot specify multiple operation modes (--all, --recent, --status) simultaneously",
     path: ["all", "recent", "status"]
   }
-).refine(
+).transform(
   (data) => {
     // If no operation mode is specified, default to recent
     const operationModes = [data.all, data.recent, data.status].filter(Boolean);
-    return operationModes.length > 0;
-  },
-  {
-    message: "Must specify at least one operation mode (--all, --recent, or --status)",
-    path: ["all", "recent", "status"]
+    if (operationModes.length === 0) {
+      return { ...data, recent: true };
+    }
+    return data;
   }
 );
 

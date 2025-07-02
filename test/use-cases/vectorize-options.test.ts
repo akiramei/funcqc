@@ -76,6 +76,18 @@ describe('VectorizeOptionsValidator', () => {
       expect(result.errors).toBeDefined();
     });
 
+    it('should default to recent mode when no operation mode specified', () => {
+      const result = validator.validate({
+        model: 'text-embedding-3-small',
+        batchSize: 100
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.recent).toBe(true);
+      expect(result.data?.all).toBeUndefined();
+      expect(result.data?.status).toBeUndefined();
+    });
+
     it('should coerce string numbers to numbers', () => {
       const result = validator.validate({
         recent: true,

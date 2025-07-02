@@ -39,12 +39,7 @@ export function createVectorizeCommand(): Command {
       try {
         // Phase 1: Validate options with comprehensive error reporting
         const validator = new VectorizeOptionsValidator();
-        const validation = validator.validate({
-          ...rawOptions,
-          // Set default operation if none specified
-          recent: !rawOptions.all && !rawOptions.status && !rawOptions.rebuildIndex && 
-                  !rawOptions.benchmark && !rawOptions.indexStats
-        });
+        const validation = validator.validate(rawOptions);
         
         if (!validation.success) {
           console.error(chalk.red('❌ Invalid options:'));
