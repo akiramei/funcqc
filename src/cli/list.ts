@@ -173,7 +173,15 @@ function applyLegacyThresholdFiltering(functions: FunctionInfo[], config: Funcqc
 function buildFilters(patterns: string[], options: ListCommandOptions): QueryFilter[] {
   const filters: QueryFilter[] = [];
   
-  // Name patterns
+  addNameFilters(filters, patterns, options);
+  addSearchFilters(filters, options);
+  addBooleanFilters(filters, options);
+  addNumericFilters(filters, options);
+  
+  return filters;
+}
+
+function addNameFilters(filters: QueryFilter[], patterns: string[], options: ListCommandOptions): void {
   if (patterns.length > 0) {
     const namePattern = patterns.join('|');
     filters.push({
@@ -190,8 +198,9 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
       value: `%${options.name}%`
     });
   }
-  
-  // File pattern
+}
+
+function addSearchFilters(filters: QueryFilter[], options: ListCommandOptions): void {
   if (options.file) {
     filters.push({
       field: 'file_path',
@@ -200,7 +209,6 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
     });
   }
   
-  // Keyword search - searches in name, JSDoc, and source code
   if (options.keyword) {
     filters.push({
       field: 'keyword_search',
@@ -208,8 +216,9 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
       value: options.keyword
     });
   }
-  
-  // Boolean filters
+}
+
+function addBooleanFilters(filters: QueryFilter[], options: ListCommandOptions): void {
   if (options.exported) {
     filters.push({
       field: 'is_exported',
@@ -225,24 +234,21 @@ function buildFilters(patterns: string[], options: ListCommandOptions): QueryFil
       value: true
     });
   }
+}
+
+function addNumericFilters(filters: QueryFilter[], options: ListCommandOptions): void {
+  const numericMappings = [
+    { option: options.complexity, field: 'cyclomatic_complexity' },
+    { option: options.lines, field: 'lines_of_code' },
+    { option: options.params, field: 'parameter_count' }
+  ];
   
-  // Numeric filters
-  if (options.complexity) {
-    const complexityFilter = parseNumericCondition('cyclomatic_complexity', options.complexity);
-    if (complexityFilter) filters.push(complexityFilter);
+  for (const { option, field } of numericMappings) {
+    if (option) {
+      const filter = parseNumericCondition(field, option);
+      if (filter) filters.push(filter);
+    }
   }
-  
-  if (options.lines) {
-    const linesFilter = parseNumericCondition('lines_of_code', options.lines);
-    if (linesFilter) filters.push(linesFilter);
-  }
-  
-  if (options.params) {
-    const paramsFilter = parseNumericCondition('parameter_count', options.params);
-    if (paramsFilter) filters.push(paramsFilter);
-  }
-  
-  return filters;
 }
 
 function parseNumericCondition(field: string, condition: string): QueryFilter | null {
