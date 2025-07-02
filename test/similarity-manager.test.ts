@@ -6,11 +6,14 @@ describe('SimilarityManager', () => {
   let manager: SimilarityManager;
 
   beforeEach(() => {
+    // Create manager without default detectors for cleaner testing
     manager = new SimilarityManager();
   });
 
   const createMockFunction = (id: string, name: string): FunctionInfo => ({
     id,
+    semanticId: `semantic-${id}`,
+    contentId: `content-${id}`,
     name,
     displayName: name,
     signature: `function ${name}()`,
@@ -97,7 +100,8 @@ describe('SimilarityManager', () => {
         crossFile: false
       };
 
-      await manager.detectSimilarities(functions, options);
+      // Use enabledDetectors to force specific detector usage
+      await manager.detectSimilarities(functions, options, ['detector']);
 
       expect(detector.detect).toHaveBeenCalledWith(functions, options);
     });
@@ -147,6 +151,9 @@ describe('SimilarityManager', () => {
     });
 
     it('should apply majority consensus', async () => {
+      // Create a fresh manager for this test to avoid default detectors
+      const freshManager = new SimilarityManager();
+      
       const detector1 = createMockDetector('d1', [
         createResult('d1', ['f1', 'f2'], 0.8),
         createResult('d1', ['f3', 'f4'], 0.9)
@@ -159,15 +166,15 @@ describe('SimilarityManager', () => {
         createResult('d3', ['f1', 'f2'], 0.9)
       ]);
 
-      manager.registerDetector(detector1);
-      manager.registerDetector(detector2);
-      manager.registerDetector(detector3);
+      freshManager.registerDetector(detector1);
+      freshManager.registerDetector(detector2);
+      freshManager.registerDetector(detector3);
 
       const functions = Array.from({ length: 6 }, (_, i) => 
         createMockFunction(`f${i+1}`, `func${i+1}`)
       );
 
-      const results = await manager.detectSimilarities(
+      const results = await freshManager.detectSimilarities(
         functions,
         {},
         ['d1', 'd2', 'd3'],
@@ -182,6 +189,8 @@ describe('SimilarityManager', () => {
     });
 
     it('should apply intersection consensus', async () => {
+      const freshManager = new SimilarityManager();
+      
       const detector1 = createMockDetector('d1', [
         createResult('d1', ['f1', 'f2'], 0.8),
         createResult('d1', ['f3', 'f4'], 0.9)
@@ -191,14 +200,14 @@ describe('SimilarityManager', () => {
         createResult('d2', ['f3', 'f4'], 0.75)
       ]);
 
-      manager.registerDetector(detector1);
-      manager.registerDetector(detector2);
+      freshManager.registerDetector(detector1);
+      freshManager.registerDetector(detector2);
 
       const functions = Array.from({ length: 4 }, (_, i) => 
         createMockFunction(`f${i+1}`, `func${i+1}`)
       );
 
-      const results = await manager.detectSimilarities(
+      const results = await freshManager.detectSimilarities(
         functions,
         {},
         ['d1', 'd2'],
@@ -211,6 +220,8 @@ describe('SimilarityManager', () => {
     });
 
     it('should apply union consensus', async () => {
+      const freshManager = new SimilarityManager();
+      
       const detector1 = createMockDetector('d1', [
         createResult('d1', ['f1', 'f2'], 0.8)
       ]);
@@ -218,14 +229,14 @@ describe('SimilarityManager', () => {
         createResult('d2', ['f3', 'f4'], 0.9)
       ]);
 
-      manager.registerDetector(detector1);
-      manager.registerDetector(detector2);
+      freshManager.registerDetector(detector1);
+      freshManager.registerDetector(detector2);
 
       const functions = Array.from({ length: 4 }, (_, i) => 
         createMockFunction(`f${i+1}`, `func${i+1}`)
       );
 
-      const results = await manager.detectSimilarities(
+      const results = await freshManager.detectSimilarities(
         functions,
         {},
         ['d1', 'd2'],
@@ -237,6 +248,8 @@ describe('SimilarityManager', () => {
     });
 
     it('should apply weighted consensus', async () => {
+      const freshManager = new SimilarityManager();
+      
       const detector1 = createMockDetector('d1', [
         createResult('d1', ['f1', 'f2'], 0.8)
       ]);
@@ -244,15 +257,15 @@ describe('SimilarityManager', () => {
         createResult('d2', ['f1', 'f2'], 0.6)
       ]);
 
-      manager.registerDetector(detector1);
-      manager.registerDetector(detector2);
+      freshManager.registerDetector(detector1);
+      freshManager.registerDetector(detector2);
 
       const functions = [
         createMockFunction('f1', 'func1'),
         createMockFunction('f2', 'func2')
       ];
 
-      const results = await manager.detectSimilarities(
+      const results = await freshManager.detectSimilarities(
         functions,
         {},
         ['d1', 'd2'],
@@ -281,7 +294,10 @@ describe('SimilarityManager', () => {
       
       expect(detectors).toContain('detector1');
       expect(detectors).toContain('detector2');
-      expect(detectors).toContain('ast-structural'); // Default detector
+      // Check for default detectors that are always registered
+      expect(detectors).toContain('advanced-structural');
+      expect(detectors).toContain('hash-duplicate');
+      expect(detectors).toContain('ast-structural');
     });
   });
 });

@@ -78,7 +78,7 @@ export class SimilarityManager {
 
     // Apply consensus strategy if multiple detectors
     if (detectorsToUse.length > 1 && consensus) {
-      return this.applyConsensus(flatResults, consensus);
+      return this.applyConsensus(flatResults, consensus, detectorsToUse.length);
     }
 
     return flatResults;
@@ -126,10 +126,10 @@ export class SimilarityManager {
     return [];
   }
 
-  private applyConsensus(results: SimilarityResult[], strategy: ConsensusStrategy): SimilarityResult[] {
+  private applyConsensus(results: SimilarityResult[], strategy: ConsensusStrategy, detectorCount?: number): SimilarityResult[] {
     switch (strategy.strategy) {
       case 'majority':
-        return this.majorityConsensus(results, strategy.threshold || 0.5);
+        return this.majorityConsensus(results, strategy.threshold || 0.5, detectorCount);
       
       case 'intersection':
         return this.intersectionConsensus(results);
@@ -145,7 +145,7 @@ export class SimilarityManager {
     }
   }
 
-  private majorityConsensus(results: SimilarityResult[], threshold: number): SimilarityResult[] {
+  private majorityConsensus(results: SimilarityResult[], threshold: number, detectorCount?: number): SimilarityResult[] {
     // Group results by function pairs
     const pairCounts = new Map<string, { count: number; results: SimilarityResult[] }>();
 
@@ -161,7 +161,7 @@ export class SimilarityManager {
 
     // Filter by majority threshold
     const consensusResults: SimilarityResult[] = [];
-    const totalDetectors = this.detectors.size;
+    const totalDetectors = detectorCount || this.detectors.size;
 
     for (const [, entry] of pairCounts) {
       if (entry.count / totalDetectors >= threshold) {
