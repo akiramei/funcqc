@@ -2,6 +2,8 @@ import { createHash } from 'crypto';
 import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
 import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
+import { winnowHashes, extractKGrams } from '../utils/hash-winnowing-utility';
+import { findConnectedComponents, buildItemToGroupsMapping } from '../utils/graph-algorithms';
 
 /**
  * Advanced similarity detector using AST canonicalization, Merkle hashing, 
@@ -59,7 +61,17 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     // Generate fingerprints for all functions
     const functionFingerprints = await this.generateFingerprints(functions, config);
     
-    // Detect similarities using multiple algorithms
+    // Execute detection algorithms in sequence
+    return this.executeDetectionAlgorithms(functionFingerprints, config);
+  }
+
+  /**
+   * Execute all detection algorithms and combine results
+   */
+  private executeDetectionAlgorithms(
+    functionFingerprints: FunctionFingerprint[],
+    config: ReturnType<typeof this.parseDetectionOptions>
+  ): SimilarityResult[] {
     const results: SimilarityResult[] = [];
     
     // 1. Exact matches using Merkle hash (O(n))
@@ -560,38 +572,17 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const kind = SyntaxKind[node.getKind()];
 
     // Skip type annotations and decorators
-    if (Node.isTypeNode(node) || Node.isDecorator(node)) {
+    if (this.shouldSkipNode(node)) {
       return '';
     }
 
-    // Preserve function structure with more context
+    // Handle different node types with dedicated methods
     if (Node.isIdentifier(node)) {
-      const text = node.getText();
-      const parent = node.getParent();
-      
-      // Preserve function names for better differentiation
-      if (parent && (
-        Node.isFunctionDeclaration(parent) ||
-        Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent)
-      )) {
-        return `FUNC_${text}`;
-      }
-      
-      // Create contextual identifiers
-      if (!idMap.has(text)) {
-        idMap.set(text, `ID${++idCounter.value}`);
-      }
-      return idMap.get(text)!;
+      return this.canonicalizeIdentifier(node, idMap, idCounter);
     }
 
-    // Preserve literal types for better differentiation
     if (Node.isLiteralLike(node)) {
-      const text = node.getText();
-      if (Node.isStringLiteral(node)) return 'STR_LIT';
-      if (Node.isNumericLiteral(node)) return 'NUM_LIT';
-      if (text === 'true' || text === 'false') return 'BOOL_LIT';
-      return 'LIT';
+      return this.canonicalizeLiteral(node);
     }
 
     // Recursively process children
@@ -600,6 +591,48 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       .filter(child => child.length > 0);
 
     return `${kind}(${children.join(',')})`;
+  }
+
+  private shouldSkipNode(node: Node): boolean {
+    return Node.isTypeNode(node) || Node.isDecorator(node);
+  }
+
+  private canonicalizeIdentifier(node: Node, idMap: Map<string, string>, idCounter: { value: number }): string {
+    if (!Node.isIdentifier(node)) {
+      return '';
+    }
+
+    const text = node.getText();
+    const parent = node.getParent();
+    
+    // Preserve function names for better differentiation
+    if (parent && this.isFunctionContext(parent)) {
+      return `FUNC_${text}`;
+    }
+    
+    // Create contextual identifiers
+    if (!idMap.has(text)) {
+      idMap.set(text, `ID${++idCounter.value}`);
+    }
+    return idMap.get(text)!;
+  }
+
+  private isFunctionContext(parent: Node): boolean {
+    return Node.isFunctionDeclaration(parent) ||
+           Node.isMethodDeclaration(parent) ||
+           Node.isArrowFunction(parent);
+  }
+
+  private canonicalizeLiteral(node: Node): string {
+    if (!Node.isLiteralLike(node)) {
+      return 'LIT';
+    }
+
+    const text = node.getText();
+    if (Node.isStringLiteral(node)) return 'STR_LIT';
+    if (Node.isNumericLiteral(node)) return 'NUM_LIT';
+    if (text === 'true' || text === 'false') return 'BOOL_LIT';
+    return 'LIT';
   }
 
   /**
@@ -667,66 +700,19 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const optimizedKSize = tokens.length < 15 
       ? Math.max(3, tokens.length) 
       : Math.min(config.kGramSize, Math.max(15, tokens.length / 4));
-    const kGrams = this.extractKGrams(tokens, optimizedKSize);
+    const kGrams = extractKGrams(tokens, optimizedKSize);
     
     // Limit the number of k-grams for performance
     const limitedKGrams = kGrams.slice(0, Math.min(50, kGrams.length));
     const hashes = limitedKGrams.map(gram => this.hash64(gram.join('')));
     
     // Apply winnowing to reduce fingerprint count
-    const winnowed = this.winnowHashes(hashes, config.winnowingWindow);
+    const winnowed = winnowHashes(hashes, config.winnowingWindow);
     
     // Generate single SimHash from all winnowed features
     return winnowed.length > 0 ? [this.computeSimHash(winnowed)] : [];
   }
 
-  private extractKGrams(tokens: string[], k: number): string[][] {
-    const kGrams: string[][] = [];
-    for (let i = 0; i <= tokens.length - k; i++) {
-      kGrams.push(tokens.slice(i, i + k));
-    }
-    return kGrams;
-  }
-
-  private winnowHashes(hashes: bigint[], windowSize: number): bigint[] {
-    if (hashes.length === 0) return [];
-    if (windowSize >= hashes.length) return [Math.min(...hashes.map(Number)).toString()].map(BigInt);
-    
-    const winnowed: bigint[] = [];
-    const seen = new Set<string>(); // Track hash+position to avoid exact duplicates
-    
-    // Rolling minimum with deque for O(n) complexity instead of O(n*w)
-    const deque: { value: bigint; index: number }[] = [];
-    
-    for (let i = 0; i < hashes.length; i++) {
-      // Remove elements outside current window
-      while (deque.length > 0 && deque[0].index <= i - windowSize) {
-        deque.shift();
-      }
-      
-      // Remove elements larger than current (they can't be minimum in future windows)
-      while (deque.length > 0 && deque[deque.length - 1].value > hashes[i]) {
-        deque.pop();
-      }
-      
-      deque.push({ value: hashes[i], index: i });
-      
-      // If we have a complete window, take the minimum
-      if (i >= windowSize - 1) {
-        const minHash = deque[0].value;
-        const windowStart = i - windowSize + 1;
-        
-        // Add with position info to avoid duplicates while preserving different positions
-        const key = `${minHash.toString()}_${windowStart}`;
-        if (!seen.has(key)) {
-          winnowed.push(minHash);
-          seen.add(key);
-        }
-      }
-    }
-    
-    return winnowed;
-  }
 
   /**
    * True SimHash implementation: combine multiple features into single fingerprint
@@ -1200,17 +1186,10 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    */
   private mergeOverlappingGroups(results: SimilarityResult[]): SimilarityResult[] {
     // Step 1: Build function-to-groups mapping
-    const functionToGroups = new Map<string, number[]>();
-    
-    results.forEach((result, index) => {
-      result.functions.forEach(func => {
-        const funcId = func.functionId;
-        if (!functionToGroups.has(funcId)) {
-          functionToGroups.set(funcId, []);
-        }
-        functionToGroups.get(funcId)!.push(index);
-      });
-    });
+    const functionToGroups = buildItemToGroupsMapping(
+      results,
+      (result) => result.functions.map(func => func.functionId)
+    );
     
     // Step 2: Find connected components (groups that share functions)
     const visited = new Set<number>();
@@ -1236,27 +1215,18 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     results: SimilarityResult[], 
     functionToGroups: Map<string, number[]>
   ): number[] {
-    const connected = new Set<number>();
-    const queue = [startIndex];
-    
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (connected.has(current)) continue;
-      
-      connected.add(current);
-      
-      // Find all groups that share functions with current group
-      results[current].functions.forEach(func => {
-        const relatedGroups = functionToGroups.get(func.functionId) || [];
-        relatedGroups.forEach(groupIdx => {
-          if (!connected.has(groupIdx)) {
-            queue.push(groupIdx);
-          }
+    return findConnectedComponents(
+      startIndex,
+      results,
+      (current, items) => {
+        const relatedGroups: number[] = [];
+        items[current].functions.forEach(func => {
+          const groups = functionToGroups.get(func.functionId) || [];
+          relatedGroups.push(...groups);
         });
-      });
-    }
-    
-    return Array.from(connected);
+        return relatedGroups;
+      }
+    );
   }
 
   private mergeGroupsIntoOne(groups: SimilarityResult[]): SimilarityResult {
