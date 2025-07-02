@@ -1193,17 +1193,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         embedding_model: string;
       };
 
-      const currentIndex = currentResult.rows.length > 0 ? {
-        algorithm: (currentResult.rows[0] as CurrentIndexRow).algorithm,
-        vectorCount: (currentResult.rows[0] as CurrentIndexRow).vector_count,
-        buildTimeMs: (currentResult.rows[0] as CurrentIndexRow).build_time_ms,
-        model: (currentResult.rows[0] as CurrentIndexRow).embedding_model
-      } : null;
+      type TotalRow = { total: number };
+      type AvgTimeRow = { avg_time: number };
+
+      const currentIndex = currentResult.rows.length > 0 ? (() => {
+        const row = currentResult.rows[0] as CurrentIndexRow;
+        return {
+          algorithm: row.algorithm,
+          vectorCount: row.vector_count,
+          buildTimeMs: row.build_time_ms,
+          model: row.embedding_model
+        };
+      })() : null;
+
+      const totalRow = totalResult.rows[0] as TotalRow;
+      const avgRow = avgResult.rows[0] as AvgTimeRow;
 
       return {
-        totalIndexes: (totalResult.rows[0] as { total: number }).total,
+        totalIndexes: totalRow.total,
         currentIndex,
-        averageBuildTime: (avgResult.rows[0] as { avg_time: number }).avg_time || 0
+        averageBuildTime: avgRow.avg_time || 0
       };
     } catch (error) {
       throw new Error(`Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`);
