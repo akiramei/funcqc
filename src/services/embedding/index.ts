@@ -134,7 +134,7 @@ export class EmbeddingServiceBuilder {
    * Build and initialize the service
    */
   async buildAndInitialize(): Promise<EnhancedEmbeddingService> {
-    const service = new EnhancedEmbeddingService();
+    const service = new EnhancedEmbeddingService(this.config);
     await service.initialize(this.config);
     return service;
   }

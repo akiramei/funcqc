@@ -37,15 +37,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
 
   constructor(config: EnhancedEmbeddingConfig = {}) {
     this.enableANN = config.enableANN ?? true;
-    
-    // Initialize components based on configuration
-    if (config.client) {
-      this.client = new OpenAIEmbeddingsClient(config.client);
-    }
-    
-    if (this.enableANN && config.vectorStore) {
-      this.vectorStore = new EnhancedVectorStore(config.vectorStore);
-    }
+    this.initializeComponents(config);
   }
 
   /**
@@ -53,25 +45,32 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
    */
   async initialize(config: EnhancedEmbeddingConfig): Promise<void> {
     try {
-      // Initialize embeddings client
-      if (config.client) {
-        this.client = new OpenAIEmbeddingsClient(config.client);
-        
-        // If API key provided, initialize immediately
-        if (config.client.apiKey) {
-          (this.client as OpenAIEmbeddingsClient).initialize(config.client.apiKey);
-        }
-      }
-
-      // Initialize vector store
-      if (this.enableANN && config.vectorStore) {
-        this.vectorStore = new EnhancedVectorStore(config.vectorStore);
+      this.initializeComponents(config);
+      
+      // If API key provided, initialize client immediately
+      if (config.client?.apiKey && this.client) {
+        (this.client as OpenAIEmbeddingsClient).initialize(config.client.apiKey);
       }
 
     } catch (error) {
       this.stats.errors++;
       this.stats.lastError = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to initialize embedding service: ${this.stats.lastError}`);
+    }
+  }
+
+  /**
+   * Initialize components based on configuration
+   */
+  private initializeComponents(config: EnhancedEmbeddingConfig): void {
+    // Initialize embeddings client
+    if (config.client) {
+      this.client = new OpenAIEmbeddingsClient(config.client);
+    }
+    
+    // Initialize vector store
+    if (this.enableANN && config.vectorStore) {
+      this.vectorStore = new EnhancedVectorStore(config.vectorStore);
     }
   }
 

@@ -6,7 +6,7 @@
 import { FunctionInfo } from '../../types';
 
 // Model definitions with strict typing
-export const enum EmbeddingModel {
+export enum EmbeddingModel {
   ADA_002 = 'text-embedding-ada-002',
   SMALL_3 = 'text-embedding-3-small',
   LARGE_3 = 'text-embedding-3-large'
