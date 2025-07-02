@@ -1188,20 +1188,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       type CurrentIndexRow = {
         algorithm: string;
-        vector_count: number;
-        build_time_ms: number;
+        vector_count: string | number;
+        build_time_ms: string | number;
         embedding_model: string;
       };
 
-      type TotalRow = { total: number };
-      type AvgTimeRow = { avg_time: number };
+      type TotalRow = { total: string };
+      type AvgTimeRow = { avg_time: string | null };
 
       const currentIndex = currentResult.rows.length > 0 ? (() => {
         const row = currentResult.rows[0] as CurrentIndexRow;
         return {
           algorithm: row.algorithm,
-          vectorCount: row.vector_count,
-          buildTimeMs: row.build_time_ms,
+          vectorCount: typeof row.vector_count === 'string' ? parseInt(row.vector_count, 10) : row.vector_count,
+          buildTimeMs: typeof row.build_time_ms === 'string' ? parseInt(row.build_time_ms, 10) : row.build_time_ms,
           model: row.embedding_model
         };
       })() : null;
@@ -1209,10 +1209,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const totalRow = totalResult.rows[0] as TotalRow;
       const avgRow = avgResult.rows[0] as AvgTimeRow;
 
+      // Parse and validate numeric values with proper fallbacks
+      const totalIndexes = totalRow?.total ? parseInt(totalRow.total, 10) : 0;
+      const averageBuildTime = avgRow?.avg_time ? parseFloat(avgRow.avg_time) : 0;
+
       return {
-        totalIndexes: totalRow.total,
+        totalIndexes: isNaN(totalIndexes) ? 0 : totalIndexes,
         currentIndex,
-        averageBuildTime: avgRow.avg_time || 0
+        averageBuildTime: isNaN(averageBuildTime) ? 0 : averageBuildTime
       };
     } catch (error) {
       throw new Error(`Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`);
