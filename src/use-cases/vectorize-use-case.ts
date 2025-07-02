@@ -216,48 +216,21 @@ export class VectorizeUseCase {
   /**
    * Benchmark index performance
    */
-  private async benchmarkIndex(options: VectorizeOptions): Promise<VectorizeResult> {
-    const startTime = Date.now();
-    
+  private async benchmarkIndex(_options: VectorizeOptions): Promise<VectorizeResult> {
     if (!this.dependencies.embeddingService) {
       throw new Error('EmbeddingService not initialized. API key required.');
     }
 
-    // Implementation would depend on the EmbeddingService benchmark capabilities
-    // For now, return mock data structure
-    return {
-      success: true,
-      operation: 'benchmark',
-      data: {
-        algorithm: options.indexAlgorithm,
-        queryCount: 100,
-        avgQueryTime: 5.2, // ms
-        accuracy: 0.95,
-        throughput: 192.3 // queries/sec
-      },
-      timeTaken: Date.now() - startTime
-    };
+    // TODO: This feature will be implemented when enhanced embedding service is integrated
+    throw new Error('Index benchmarking feature is not yet available with current embedding service');
   }
 
   /**
    * Get index statistics
    */
   private async getIndexStats(): Promise<VectorizeResult> {
-    const startTime = Date.now();
-    
-    // Implementation would get actual index stats
-    // For now, return basic structure
-    return {
-      success: true,
-      operation: 'index-stats',
-      data: {
-        algorithm: 'hierarchical',
-        vectorCount: 0,
-        buildTime: 0,
-        indexSize: 0
-      },
-      timeTaken: Date.now() - startTime
-    };
+    // TODO: This feature will be implemented when enhanced embedding service is integrated
+    throw new Error('Index statistics feature is not yet available with current embedding service');
   }
 
   /**

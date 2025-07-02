@@ -133,16 +133,46 @@ describe('VectorizeUseCase', () => {
 
       const result = await useCase.execute(options);
 
-      expect(result.success).toBe(true); // benchmark returns mock data successfully
+      expect(result.success).toBe(false); // benchmark now throws error
       expect(result.operation).toBe('benchmark');
+      expect(result.errors).toEqual(['Index benchmarking feature is not yet available with current embedding service']);
       
       // Verify the data structure matches BenchmarkData
       expect(result.data).toEqual({
         algorithm: 'hierarchical',
-        queryCount: 100,
-        avgQueryTime: 5.2,
-        accuracy: 0.95,
-        throughput: 192.3
+        queryCount: 0,
+        avgQueryTime: 0,
+        accuracy: 0,
+        throughput: 0
+      });
+    });
+
+    it('should return appropriate empty IndexData for index-stats operations', async () => {
+      const useCase = new VectorizeUseCase({
+        storage: mockStorage,
+        embeddingService: mockEmbeddingService
+      });
+
+      const options: VectorizeOptions = {
+        indexStats: true,
+        model: 'text-embedding-3-small',
+        batchSize: 100,
+        indexAlgorithm: 'hierarchical',
+        output: 'console'
+      };
+
+      const result = await useCase.execute(options);
+
+      expect(result.success).toBe(false); // index-stats now throws error
+      expect(result.operation).toBe('index-stats');
+      expect(result.errors).toEqual(['Index statistics feature is not yet available with current embedding service']);
+      
+      // Verify the data structure matches IndexData
+      expect(result.data).toEqual({
+        algorithm: 'hierarchical',
+        vectorCount: 0,
+        buildTime: 0,
+        indexSize: 0
       });
     });
   });
