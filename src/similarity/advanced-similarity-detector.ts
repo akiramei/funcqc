@@ -339,7 +339,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       } catch (error) {
         // Skip files that can't be added - this is expected for some database entries
         // Log only in debug mode to avoid cluttering output
-        if (process.env.DEBUG) {
+        if (process.env['DEBUG']) {
           console.debug(`Skipping file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
