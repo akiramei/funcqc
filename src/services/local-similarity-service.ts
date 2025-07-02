@@ -347,6 +347,8 @@ export class LocalSimilarityService {
             combinedSim *= (1 + aiHints.weights[term]);
           }
         }
+        // Normalize to ensure score stays within 0-1 range
+        combinedSim = Math.min(combinedSim, 1.0);
       }
 
       if (combinedSim >= minSimilarity) {
