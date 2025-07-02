@@ -15,6 +15,12 @@ interface DescribeBatchInput {
   createdBy?: string;
 }
 
+interface DescribeContext {
+  storage: PGLiteStorageAdapter;
+  logger: Logger;
+  options: DescribeCommandOptions;
+}
+
 export async function describeCommand(
   functionIdOrPattern: string,
   options: DescribeCommandOptions
@@ -31,11 +37,13 @@ export async function describeCommand(
     const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
     await storage.init();
 
+    const context: DescribeContext = { storage, logger, options };
+
     try {
       if (options.batch && options.input) {
-        await handleBatchDescribe(storage, options, logger);
+        await handleBatchDescribe(context);
       } else {
-        await handleSingleDescribe(storage, functionIdOrPattern, options, logger);
+        await handleSingleDescribe(context, functionIdOrPattern);
       }
     } finally {
       await storage.close();
@@ -53,22 +61,28 @@ export async function describeCommand(
   }
 }
 
-async function handleBatchDescribe(
-  storage: PGLiteStorageAdapter,
-  options: DescribeCommandOptions,
-  logger: Logger
-): Promise<void> {
-  if (!options.input) {
-    throw new Error('Input file path is required for batch mode');
+async function handleBatchDescribe(context: DescribeContext): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  const descriptions = await loadBatchDescriptions(options.input!);
+  
+  logger.info(`Processing ${descriptions.length} function descriptions...`);
+
+  for (const desc of descriptions) {
+    await processBatchDescription(storage, desc, options, logger);
   }
 
-  if (!fs.existsSync(options.input)) {
-    throw new Error(`Input file not found: ${options.input}`);
+  logger.info(chalk.green(`Successfully processed ${descriptions.length} function descriptions`));
+}
+
+async function loadBatchDescriptions(inputPath: string): Promise<DescribeBatchInput[]> {
+  if (!fs.existsSync(inputPath)) {
+    throw new Error(`Input file not found: ${inputPath}`);
   }
 
   let inputData: unknown;
   try {
-    inputData = JSON.parse(fs.readFileSync(options.input, 'utf-8'));
+    inputData = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
   } catch (error) {
     throw new Error(`Failed to parse JSON from input file: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
@@ -77,199 +91,305 @@ async function handleBatchDescribe(
     throw new Error('Input file must contain an array of descriptions');
   }
 
-  const descriptions = inputData as DescribeBatchInput[];
-  
-  logger.info(`Processing ${descriptions.length} function descriptions...`);
-
-  for (const desc of descriptions) {
-    if (!desc.semanticId || !desc.description) {
-      logger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
-      continue;
-    }
-
-    // Find the current function with this semantic ID to get its content ID
-    let validatedForContentId: string | undefined;
-    try {
-      const functions = await storage.queryFunctions({
-        filters: [
-          {
-            field: 'semantic_id',
-            operator: '=',
-            value: desc.semanticId
-          }
-        ],
-        limit: 1
-      });
-      
-      if (functions.length > 0) {
-        validatedForContentId = functions[0].contentId;
-      }
-    } catch (error) {
-      logger.warn(`Could not find function with semantic ID ${desc.semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-
-    const description: FunctionDescription = {
-      semanticId: desc.semanticId,
-      description: desc.description,
-      source: desc.source || options.source || 'human',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      ...(validatedForContentId && { validatedForContentId }),
-      ...(desc.createdBy && { createdBy: desc.createdBy }),
-      ...(options.by && { createdBy: options.by }),
-      ...(desc.aiModel && { aiModel: desc.aiModel }),
-      ...(options.model && { aiModel: options.model }),
-      ...(desc.confidenceScore !== undefined && !isNaN(desc.confidenceScore) && { confidenceScore: desc.confidenceScore }),
-      ...(options.confidence && !isNaN(parseFloat(options.confidence)) && { confidenceScore: parseFloat(options.confidence) })
-    };
-
-    await storage.saveFunctionDescription(description);
-    logger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
-  }
-
-  logger.info(chalk.green(`Successfully processed ${descriptions.length} function descriptions`));
+  return inputData as DescribeBatchInput[];
 }
 
-async function handleSingleDescribe(
+async function processBatchDescription(
   storage: PGLiteStorageAdapter,
-  functionIdOrPattern: string,
+  desc: DescribeBatchInput,
   options: DescribeCommandOptions,
   logger: Logger
 ): Promise<void> {
-  // Check if function exists (support both full and short IDs)
-  let functions = await storage.queryFunctions({
-    filters: [
-      {
-        field: 'id',
-        operator: '=',
-        value: functionIdOrPattern
-      }
-    ]
-  });
-
-  // If exact match not found, try partial ID match (for short IDs)
-  if (functions.length === 0) {
-    functions = await storage.queryFunctions({
-      filters: [
-        {
-          field: 'id',
-          operator: 'LIKE',
-          value: `${functionIdOrPattern}%`
-        }
-      ]
-    });
+  if (!desc.semanticId || !desc.description) {
+    logger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
+    return;
   }
 
-  if (functions.length === 0) {
-    // Try to find by name pattern
-    const functionsByName = await storage.queryFunctions({
+  const validatedForContentId = await findContentIdBySemanticId(storage, desc.semanticId, logger);
+
+  const description = createFunctionDescription(
+    desc.semanticId,
+    desc.description,
+    {
+      source: desc.source || options.source || 'human',
+      validatedForContentId,
+      createdBy: desc.createdBy || options.by,
+      aiModel: desc.aiModel || options.model,
+      confidenceScore: desc.confidenceScore ?? (options.confidence ? parseFloat(options.confidence) : undefined)
+    }
+  );
+
+  await storage.saveFunctionDescription(description);
+  logger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
+}
+
+async function findContentIdBySemanticId(
+  storage: PGLiteStorageAdapter,
+  semanticId: string,
+  logger: Logger
+): Promise<string | undefined> {
+  try {
+    const functions = await storage.queryFunctions({
       filters: [
         {
-          field: 'name',
-          operator: 'LIKE',
-          value: `%${functionIdOrPattern}%`
+          field: 'semantic_id',
+          operator: '=',
+          value: semanticId
         }
-      ]
+      ],
+      limit: 1
     });
-
-    if (functionsByName.length === 0) {
-      logger.info(chalk.red(`❌ Function not found: ${functionIdOrPattern}`));
-      logger.info(chalk.blue('💡 Tips:'));
-      logger.info('  • Use `funcqc list` to see all available functions with their IDs');
-      logger.info('  • Use `funcqc search <keyword>` to find functions by content');
-      logger.info('  • Function IDs are shown in the first column of list/search results');
-      return;
-    }
-
-    if (functionsByName.length > 1) {
-      logger.info(chalk.yellow(`Multiple functions found matching "${functionIdOrPattern}". Please specify a function ID:`));
-      logger.info('');
-      functionsByName.forEach((func, index) => {
-        const riskIcon = getRiskIcon(func);
-        logger.info(`  ${index + 1}. ${chalk.cyan(func.id.substring(0, 8))} - ${riskIcon} ${func.displayName}`);
-        logger.info(`     📍 ${func.filePath}:${func.startLine}`);
-        if (func.jsDoc) {
-          const jsDocPreview = func.jsDoc.replace(/\n/g, ' ').substring(0, 80);
-          logger.info(`     📝 ${chalk.gray(jsDocPreview)}${func.jsDoc.length > 80 ? '...' : ''}`);
-        }
-        logger.info('');
-      });
-      logger.info(chalk.blue('Usage examples:'));
-      logger.info(`  funcqc describe ${functionsByName[0].id.substring(0, 8)} --text "Your description"`);
-      logger.info(`  funcqc describe ${functionsByName[0].id} --text "Your description"`);
-      return;
-    }
-
-    // Use the single matched function
-    functionIdOrPattern = functionsByName[0].id;
+    
+    return functions.length > 0 ? functions[0].contentId : undefined;
+  } catch (error) {
+    logger.warn(`Could not find function with semantic ID ${semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return undefined;
   }
+}
 
-  const targetFunction = functions.length > 0 ? functions[0] : (await storage.queryFunctions({
-    filters: [{ field: 'id', operator: '=', value: functionIdOrPattern }]
-  }))[0];
-
+async function handleSingleDescribe(
+  context: DescribeContext,
+  functionIdOrPattern: string
+): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
+  
   if (!targetFunction) {
-    logger.info(chalk.red(`❌ Function not found: ${functionIdOrPattern}`));
-    logger.info(chalk.blue('💡 Tips:'));
-    logger.info('  • Use `funcqc list` to see all available functions with their IDs');
-    logger.info('  • Use `funcqc search <keyword>` to find functions by content');
     return;
   }
 
   if (options.text) {
-    // Direct text input
-    const description: FunctionDescription = {
-      semanticId: targetFunction.semanticId,
-      description: options.text,
-      source: options.source || 'human',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      validatedForContentId: targetFunction.contentId,
-      ...(options.by && { createdBy: options.by }),
-      ...(options.model && { aiModel: options.model }),
-      ...(options.confidence && !isNaN(parseFloat(options.confidence)) && { confidenceScore: parseFloat(options.confidence) })
-    };
-
-    await storage.saveFunctionDescription(description);
-    
-    logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
-    logger.info(`  Function ID: ${functionIdOrPattern}`);
-    logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
-    logger.info(`  Description: ${options.text}`);
-    logger.info(`  Source: ${description.source}`);
-
+    await saveDescription(context, targetFunction, options.text);
   } else if (options.interactive) {
-    // Interactive mode (future enhancement)
     throw new Error('Interactive mode is not yet implemented. Please use --text option.');
-    
   } else {
-    // Show current description or prompt for input
-    const existingDescription = await storage.getFunctionDescription(functionIdOrPattern);
+    await showExistingDescription(context, targetFunction);
+  }
+}
+
+async function findTargetFunction(
+  storage: PGLiteStorageAdapter,
+  functionIdOrPattern: string,
+  logger: Logger
+): Promise<FunctionInfo | null> {
+  // Try exact ID match first
+  let functions = await findFunctionById(storage, functionIdOrPattern);
+  
+  // Try partial ID match
+  if (functions.length === 0) {
+    functions = await findFunctionByPartialId(storage, functionIdOrPattern);
+  }
+  
+  // Try name pattern match
+  if (functions.length === 0) {
+    const result = await findFunctionByName(storage, functionIdOrPattern, logger);
+    if (!result) return null;
     
-    if (existingDescription) {
-      logger.info(chalk.blue(`Current description for ${targetFunction.name}:`));
-      logger.info(`  Description: ${existingDescription.description}`);
-      logger.info(`  Source: ${existingDescription.source}`);
-      logger.info(`  Created: ${new Date(existingDescription.createdAt).toISOString()}`);
-      if (existingDescription.createdBy) {
-        logger.info(`  Created by: ${existingDescription.createdBy}`);
-      }
-      if (existingDescription.aiModel) {
-        logger.info(`  AI Model: ${existingDescription.aiModel}`);
-      }
-      if (existingDescription.confidenceScore !== undefined) {
-        logger.info(`  Confidence: ${existingDescription.confidenceScore}`);
-      }
+    if (typeof result === 'string') {
+      // Single match, use its ID
+      functions = await findFunctionById(storage, result);
     } else {
-      logger.info(chalk.yellow(`No description found for function: ${targetFunction.name}`));
-      logger.info(`  Function ID: ${functionIdOrPattern}`);
-      logger.info(`  File: ${targetFunction.filePath}:${targetFunction.startLine}`);
-      logger.info(`  Signature: ${targetFunction.signature}`);
-      logger.info('');
-      logger.info('Use --text to add a description:');
-      logger.info(`  funcqc describe ${functionIdOrPattern} --text "Your description here"`);
+      // Multiple matches were displayed
+      return null;
     }
   }
+  
+  if (functions.length === 0) {
+    showFunctionNotFound(logger, functionIdOrPattern);
+    return null;
+  }
+  
+  return functions[0];
+}
+
+async function findFunctionById(
+  storage: PGLiteStorageAdapter,
+  functionId: string
+): Promise<FunctionInfo[]> {
+  return await storage.queryFunctions({
+    filters: [
+      {
+        field: 'id',
+        operator: '=',
+        value: functionId
+      }
+    ]
+  });
+}
+
+async function findFunctionByPartialId(
+  storage: PGLiteStorageAdapter,
+  partialId: string
+): Promise<FunctionInfo[]> {
+  return await storage.queryFunctions({
+    filters: [
+      {
+        field: 'id',
+        operator: 'LIKE',
+        value: `${partialId}%`
+      }
+    ]
+  });
+}
+
+async function findFunctionByName(
+  storage: PGLiteStorageAdapter,
+  namePattern: string,
+  logger: Logger
+): Promise<string | boolean | null> {
+  const functions = await storage.queryFunctions({
+    filters: [
+      {
+        field: 'name',
+        operator: 'LIKE',
+        value: `%${namePattern}%`
+      }
+    ]
+  });
+
+  if (functions.length === 0) {
+    showFunctionNotFound(logger, namePattern);
+    return null;
+  }
+
+  if (functions.length > 1) {
+    showMultipleMatches(logger, functions, namePattern);
+    return false;
+  }
+
+  return functions[0].id;
+}
+
+function showFunctionNotFound(logger: Logger, pattern: string): void {
+  logger.info(chalk.red(`❌ Function not found: ${pattern}`));
+  logger.info(chalk.blue('💡 Tips:'));
+  logger.info('  • Use `funcqc list` to see all available functions with their IDs');
+  logger.info('  • Use `funcqc search <keyword>` to find functions by content');
+  logger.info('  • Function IDs are shown in the first column of list/search results');
+}
+
+function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern: string): void {
+  logger.info(chalk.yellow(`Multiple functions found matching "${pattern}". Please specify a function ID:`));
+  logger.info('');
+  
+  functions.forEach((func, index) => {
+    const riskIcon = getRiskIcon(func);
+    logger.info(`  ${index + 1}. ${chalk.cyan(func.id.substring(0, 8))} - ${riskIcon} ${func.displayName}`);
+    logger.info(`     📍 ${func.filePath}:${func.startLine}`);
+    
+    if (func.jsDoc) {
+      const jsDocPreview = func.jsDoc.replace(/\n/g, ' ').substring(0, 80);
+      logger.info(`     📝 ${chalk.gray(jsDocPreview)}${func.jsDoc.length > 80 ? '...' : ''}`);
+    }
+    logger.info('');
+  });
+  
+  logger.info(chalk.blue('Usage examples:'));
+  logger.info(`  funcqc describe ${functions[0].id.substring(0, 8)} --text "Your description"`);
+  logger.info(`  funcqc describe ${functions[0].id} --text "Your description"`);
+}
+
+async function saveDescription(
+  context: DescribeContext,
+  targetFunction: FunctionInfo,
+  text: string
+): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  const description = createFunctionDescription(
+    targetFunction.semanticId,
+    text,
+    {
+      source: options.source || 'human',
+      validatedForContentId: targetFunction.contentId,
+      createdBy: options.by,
+      aiModel: options.model,
+      confidenceScore: options.confidence ? parseFloat(options.confidence) : undefined
+    }
+  );
+
+  await storage.saveFunctionDescription(description);
+  
+  logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
+  logger.info(`  Function ID: ${targetFunction.id}`);
+  logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
+  logger.info(`  Description: ${text}`);
+  logger.info(`  Source: ${description.source}`);
+}
+
+async function showExistingDescription(
+  context: DescribeContext,
+  targetFunction: FunctionInfo
+): Promise<void> {
+  const { storage, logger } = context;
+  
+  const existingDescription = await storage.getFunctionDescription(targetFunction.id);
+  
+  if (existingDescription) {
+    displayDescription(logger, targetFunction, existingDescription);
+  } else {
+    showNoDescription(logger, targetFunction);
+  }
+}
+
+function displayDescription(
+  logger: Logger,
+  func: FunctionInfo,
+  description: FunctionDescription
+): void {
+  logger.info(chalk.blue(`Current description for ${func.name}:`));
+  logger.info(`  Description: ${description.description}`);
+  logger.info(`  Source: ${description.source}`);
+  logger.info(`  Created: ${new Date(description.createdAt).toISOString()}`);
+  
+  if (description.createdBy) {
+    logger.info(`  Created by: ${description.createdBy}`);
+  }
+  if (description.aiModel) {
+    logger.info(`  AI Model: ${description.aiModel}`);
+  }
+  if (description.confidenceScore !== undefined) {
+    logger.info(`  Confidence: ${description.confidenceScore}`);
+  }
+}
+
+function showNoDescription(logger: Logger, func: FunctionInfo): void {
+  logger.info(chalk.yellow(`No description found for function: ${func.name}`));
+  logger.info(`  Function ID: ${func.id}`);
+  logger.info(`  File: ${func.filePath}:${func.startLine}`);
+  logger.info(`  Signature: ${func.signature}`);
+  logger.info('');
+  logger.info('Use --text to add a description:');
+  logger.info(`  funcqc describe ${func.id} --text "Your description here"`);
+}
+
+function createFunctionDescription(
+  semanticId: string,
+  description: string,
+  options: {
+    source: 'human' | 'ai' | 'jsdoc';
+    validatedForContentId?: string | undefined;
+    createdBy?: string | undefined;
+    aiModel?: string | undefined;
+    confidenceScore?: number | undefined;
+  }
+): FunctionDescription {
+  const now = Date.now();
+  
+  return {
+    semanticId,
+    description,
+    source: options.source,
+    createdAt: now,
+    updatedAt: now,
+    ...(options.validatedForContentId && { validatedForContentId: options.validatedForContentId }),
+    ...(options.createdBy && { createdBy: options.createdBy }),
+    ...(options.aiModel && { aiModel: options.aiModel }),
+    ...(options.confidenceScore !== undefined && !isNaN(options.confidenceScore) && { 
+      confidenceScore: options.confidenceScore 
+    })
+  };
 }
 
 function getRiskIcon(func: FunctionInfo): string {

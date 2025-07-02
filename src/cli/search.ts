@@ -164,66 +164,112 @@ function displayTable(functions: FunctionInfo[], logger: Logger): void {
 
 function displayFriendly(functions: FunctionInfo[], logger: Logger): void {
   functions.forEach((func, index) => {
-    const complexity = func.metrics?.cyclomaticComplexity || 1;
-    const complexityColor = getComplexityColor(complexity);
-    
-    logger.info(`${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)} ${chalk.gray(`[ID: ${func.id.substring(0, 8)}]`)}`);
-    logger.info(`   File: ${func.filePath}:${func.startLine}`);
-    
-    let metricLine = `   Complexity: ${complexityColor(complexity.toString())} | ` +
-      `Exported: ${func.isExported ? chalk.green('Yes') : chalk.gray('No')} | ` +
-      `Async: ${func.isAsync ? chalk.blue('Yes') : chalk.gray('No')}`;
-    
-    // Add similarity information if available
-    const funcWithDetails = func as FunctionWithSimilarityDetails;
-    const similarity = funcWithDetails._similarity;
-    const hybridScore = funcWithDetails._hybridScore;
-    const explanation = funcWithDetails._explanation;
-    const matchedTerms = funcWithDetails._matchedTerms;
-    
-    if (similarity !== undefined) {
-      const similarityColor = similarity > 0.8 ? chalk.green : similarity > 0.5 ? chalk.yellow : chalk.gray;
-      metricLine += ` | Similarity: ${similarityColor(similarity.toFixed(3))}`;
-    } else if (hybridScore !== undefined) {
-      const scoreColor = hybridScore > 0.8 ? chalk.green : hybridScore > 0.5 ? chalk.yellow : chalk.gray;
-      metricLine += ` | Hybrid Score: ${scoreColor(hybridScore.toFixed(3))}`;
-    }
-    
-    logger.info(metricLine);
-    
-    // Show detailed similarity breakdown for hybrid search
-    if (funcWithDetails._semanticScore !== undefined) {
-      const semanticScore = funcWithDetails._semanticScore;
-      const keywordScore = funcWithDetails._keywordScore || 0;
-      const astScore = funcWithDetails._astScore || 0;
-      
-      logger.info(`   ${chalk.gray('Breakdown:')} Semantic: ${chalk.cyan(semanticScore.toFixed(3))} | ` +
-        `Keyword: ${chalk.blue(keywordScore.toFixed(3))} | AST: ${chalk.magenta(astScore.toFixed(3))}`);
-    }
-    
-    // Show matched terms for semantic search
-    if (matchedTerms && matchedTerms.length > 0) {
-      const terms = matchedTerms.slice(0, 5).join(', ');
-      logger.info(`   ${chalk.gray('Matched terms:')} ${chalk.yellow(terms)}${matchedTerms.length > 5 ? '...' : ''}`);
-    }
-    
-    // Show similarity explanation
-    if (explanation) {
-      logger.info(`   ${chalk.gray('Metrics:')} ${explanation}`);
-    }
-    
-    if (func.jsDoc) {
-      const jsDocPreview = truncate(func.jsDoc.replace(/\n/g, ' '), 80);
-      logger.info(`   JSDoc: ${chalk.gray(jsDocPreview)}`);
-    }
-    
-    if (func.description) {
-      const descPreview = truncate(func.description, 80);
-      logger.info(`   Description: ${chalk.gray(descPreview)}`);
-    }
-    
+    displayFunctionHeader(func, index, logger);
+    displayFunctionLocation(func, logger);
+    displayMetricsLine(func, logger);
+    displaySimilarityDetails(func, logger);
+    displayDocumentation(func, logger);
     logger.info('');
   });
+}
+
+function displayFunctionHeader(func: FunctionInfo, index: number, logger: Logger): void {
+  logger.info(`${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)} ${chalk.gray(`[ID: ${func.id.substring(0, 8)}]`)}`);
+}
+
+function displayFunctionLocation(func: FunctionInfo, logger: Logger): void {
+  logger.info(`   File: ${func.filePath}:${func.startLine}`);
+}
+
+function displayMetricsLine(func: FunctionInfo, logger: Logger): void {
+  const complexity = func.metrics?.cyclomaticComplexity || 1;
+  const complexityColor = getComplexityColor(complexity);
+  
+  let metricLine = buildBasicMetricsLine(func, complexity, complexityColor);
+  metricLine = addSimilarityToMetricLine(metricLine, func);
+  
+  logger.info(metricLine);
+}
+
+function buildBasicMetricsLine(func: FunctionInfo, complexity: number, complexityColor: (text: string) => string): string {
+  return `   Complexity: ${complexityColor(complexity.toString())} | ` +
+    `Exported: ${func.isExported ? chalk.green('Yes') : chalk.gray('No')} | ` +
+    `Async: ${func.isAsync ? chalk.blue('Yes') : chalk.gray('No')}`;
+}
+
+function addSimilarityToMetricLine(metricLine: string, func: FunctionInfo): string {
+  const funcWithDetails = func as FunctionWithSimilarityDetails;
+  
+  if (funcWithDetails._similarity !== undefined) {
+    return addSimilarityScore(metricLine, funcWithDetails._similarity);
+  }
+  
+  if (funcWithDetails._hybridScore !== undefined) {
+    return addHybridScore(metricLine, funcWithDetails._hybridScore);
+  }
+  
+  return metricLine;
+}
+
+function addSimilarityScore(metricLine: string, similarity: number): string {
+  const similarityColor = getSimilarityColor(similarity);
+  return metricLine + ` | Similarity: ${similarityColor(similarity.toFixed(3))}`;
+}
+
+function addHybridScore(metricLine: string, hybridScore: number): string {
+  const scoreColor = getSimilarityColor(hybridScore);
+  return metricLine + ` | Hybrid Score: ${scoreColor(hybridScore.toFixed(3))}`;
+}
+
+function displaySimilarityDetails(func: FunctionInfo, logger: Logger): void {
+  const funcWithDetails = func as FunctionWithSimilarityDetails;
+  
+  displaySimilarityBreakdown(funcWithDetails, logger);
+  displayMatchedTerms(funcWithDetails, logger);
+  displaySimilarityExplanation(funcWithDetails, logger);
+}
+
+function displaySimilarityBreakdown(func: FunctionWithSimilarityDetails, logger: Logger): void {
+  if (func._semanticScore === undefined) return;
+  
+  const semanticScore = func._semanticScore;
+  const keywordScore = func._keywordScore || 0;
+  const astScore = func._astScore || 0;
+  
+  logger.info(`   ${chalk.gray('Breakdown:')} Semantic: ${chalk.cyan(semanticScore.toFixed(3))} | ` +
+    `Keyword: ${chalk.blue(keywordScore.toFixed(3))} | AST: ${chalk.magenta(astScore.toFixed(3))}`);
+}
+
+function displayMatchedTerms(func: FunctionWithSimilarityDetails, logger: Logger): void {
+  const matchedTerms = func._matchedTerms;
+  if (!matchedTerms || matchedTerms.length === 0) return;
+  
+  const terms = matchedTerms.slice(0, 5).join(', ');
+  logger.info(`   ${chalk.gray('Matched terms:')} ${chalk.yellow(terms)}${matchedTerms.length > 5 ? '...' : ''}`);
+}
+
+function displaySimilarityExplanation(func: FunctionWithSimilarityDetails, logger: Logger): void {
+  if (func._explanation) {
+    logger.info(`   ${chalk.gray('Metrics:')} ${func._explanation}`);
+  }
+}
+
+function displayDocumentation(func: FunctionInfo, logger: Logger): void {
+  if (func.jsDoc) {
+    const jsDocPreview = truncate(func.jsDoc.replace(/\n/g, ' '), 80);
+    logger.info(`   JSDoc: ${chalk.gray(jsDocPreview)}`);
+  }
+  
+  if (func.description) {
+    const descPreview = truncate(func.description, 80);
+    logger.info(`   Description: ${chalk.gray(descPreview)}`);
+  }
+}
+
+function getSimilarityColor(score: number): (text: string) => string {
+  if (score > 0.8) return chalk.green;
+  if (score > 0.5) return chalk.yellow;
+  return chalk.gray;
 }
 
 function getComplexityColor(complexity: number): (text: string) => string {
