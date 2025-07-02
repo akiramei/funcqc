@@ -398,25 +398,63 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   ): Promise<FunctionFingerprint[]> {
     const fingerprints: FunctionFingerprint[] = [];
     
-    // Process in batches for better performance
+    // Use parallel processing for large datasets to utilize multiple CPU cores
     const batchSize = 50;
-    for (let i = 0; i < functions.length; i += batchSize) {
-      const batch = functions.slice(i, i + batchSize);
+    const useParallelProcessing = functions.length > 200; // Threshold for parallel processing
+    
+    if (useParallelProcessing) {
+      console.log(`🚀 Using parallel fingerprint generation for ${functions.length} functions`);
       
-      for (const func of batch) {
-        try {
-          const fingerprint = await this.generateFunctionFingerprint(func, config);
-          if (fingerprint) {
-            fingerprints.push(fingerprint);
-          }
-        } catch (error) {
-          console.warn(`Failed to generate fingerprint for ${func.name}:`, error);
-        }
+      // Create batches for parallel processing
+      const batches: FunctionInfo[][] = [];
+      for (let i = 0; i < functions.length; i += batchSize) {
+        batches.push(functions.slice(i, i + batchSize));
       }
       
-      // Progress indication for large batches
-      if (functions.length > 100 && i % (batchSize * 4) === 0) {
-        console.log(`Processing fingerprints: ${Math.min(i + batchSize, functions.length)}/${functions.length}`);
+      // Process batches in parallel using Promise.all
+      const batchPromises = batches.map(async (batch, batchIndex) => {
+        const batchFingerprints: FunctionFingerprint[] = [];
+        
+        for (const func of batch) {
+          try {
+            const fingerprint = await this.generateFunctionFingerprint(func, config);
+            if (fingerprint) {
+              batchFingerprints.push(fingerprint);
+            }
+          } catch (error) {
+            console.warn(`Failed to generate fingerprint for ${func.name}:`, error);
+          }
+        }
+        
+        // Progress indication for parallel batches
+        console.log(`✅ Batch ${batchIndex + 1}/${batches.length} completed (${batchFingerprints.length} fingerprints)`);
+        return batchFingerprints;
+      });
+      
+      // Wait for all batches to complete and flatten results
+      const batchResults = await Promise.all(batchPromises);
+      fingerprints.push(...batchResults.flat());
+      
+    } else {
+      // Sequential processing for smaller datasets
+      for (let i = 0; i < functions.length; i += batchSize) {
+        const batch = functions.slice(i, i + batchSize);
+        
+        for (const func of batch) {
+          try {
+            const fingerprint = await this.generateFunctionFingerprint(func, config);
+            if (fingerprint) {
+              fingerprints.push(fingerprint);
+            }
+          } catch (error) {
+            console.warn(`Failed to generate fingerprint for ${func.name}:`, error);
+          }
+        }
+        
+        // Progress indication for large batches
+        if (functions.length > 100 && i % (batchSize * 4) === 0) {
+          console.log(`Processing fingerprints: ${Math.min(i + batchSize, functions.length)}/${functions.length}`);
+        }
       }
     }
     
@@ -685,7 +723,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       const childHash = childHashes[i];
       const position = BigInt(i);
       // Mix child hash with its position using BigInt arithmetic (faster than string conversion)
-      result = (result ^ ((childHash + position) << 1n)) * PRIME;
+      result = ((result ^ ((childHash + position) << 1n)) * PRIME) & 0xFFFFFFFFFFFFFFFFn;
     }
     return result;
   }
@@ -695,6 +733,12 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    */
   private generateSimHashFingerprints(canonical: string, config: ReturnType<typeof this.parseDetectionOptions>): bigint[] {
     const tokens = canonical.split(/[(),]/g).filter(t => t.length > 0);
+    
+    // Handle very short functions (≤2 tokens) by using entire content as single feature
+    if (tokens.length < 3) {
+      const fullContentHash = this.hash64(canonical);
+      return [this.computeSimHash([fullContentHash])];
+    }
     
     // Ensure minimum k-gram size for meaningful features, with fallback for short functions
     const optimizedKSize = tokens.length < 15 
@@ -849,6 +893,9 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       }
     }
     
+    // Log LSH bucket size distribution for tuning optimization
+    this.logLSHBucketDistribution(lshBuckets, fingerprints.length);
+    
     // Check candidates within each bucket - ONLY small buckets for O(n) performance
     for (const [bucketKey, candidates] of lshBuckets) {
       if (candidates.length >= 2 && candidates.length <= this.MAX_LSH_BUCKET_SIZE) {
@@ -867,6 +914,41 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     // Use top bits as bucket key
     const bucket = simHash >> BigInt(this.SIMHASH_BITS - bits);
     return bucket.toString();
+  }
+
+  /**
+   * Log LSH bucket size distribution for performance tuning
+   */
+  private logLSHBucketDistribution(
+    lshBuckets: Map<string, FunctionFingerprint[]>, 
+    totalFunctions: number
+  ): void {
+    const bucketSizes = Array.from(lshBuckets.values()).map(bucket => bucket.length);
+    const sizeDistribution = new Map<number, number>();
+    
+    // Count bucket size frequencies
+    for (const size of bucketSizes) {
+      sizeDistribution.set(size, (sizeDistribution.get(size) ?? 0) + 1);
+    }
+    
+    // Generate histogram bins
+    const emptyBuckets = Math.max(0, (1 << this.DEFAULT_LSH_BITS) - lshBuckets.size);
+    const singleBuckets = sizeDistribution.get(1) ?? 0;
+    const optimalBuckets = Array.from(sizeDistribution.entries())
+      .filter(([size]) => size >= 2 && size <= this.MAX_LSH_BUCKET_SIZE)
+      .reduce((sum, [, count]) => sum + count, 0);
+    const oversizedBuckets = Array.from(sizeDistribution.entries())
+      .filter(([size]) => size > this.MAX_LSH_BUCKET_SIZE)
+      .reduce((sum, [, count]) => sum + count, 0);
+    
+    // Log one-line histogram for easy monitoring
+    console.log(
+      `📊 LSH Distribution (${totalFunctions} funcs): ` +
+      `Empty=${emptyBuckets} Single=${singleBuckets} ` +
+      `Optimal(2-${this.MAX_LSH_BUCKET_SIZE})=${optimalBuckets} ` +
+      `Oversized(>${this.MAX_LSH_BUCKET_SIZE})=${oversizedBuckets} ` +
+      `bits=${this.DEFAULT_LSH_BITS}`
+    );
   }
 
   /**

@@ -9,7 +9,9 @@
  */
 export function winnowHashes(hashes: bigint[], windowSize: number): bigint[] {
   if (hashes.length === 0) return [];
-  if (windowSize >= hashes.length) {
+  
+  // Handle edge cases: window size larger than hash array or invalid window size
+  if (windowSize <= 0 || windowSize >= hashes.length) {
     // Find minimum bigint value without type conversion to avoid precision loss
     let minHash = hashes[0];
     for (let i = 1; i < hashes.length; i++) {
