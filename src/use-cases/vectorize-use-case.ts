@@ -102,10 +102,11 @@ export class VectorizeUseCase {
       throw new Error('No valid operation specified');
       
     } catch (error) {
+      const operation = this.getOperationType(options);
       return {
         success: false,
-        operation: this.getOperationType(options),
-        data: {} as VectorizeData | StatusData | IndexData | BenchmarkData,
+        operation,
+        data: this.getEmptyDataForOperation(operation),
         errors: [error instanceof Error ? error.message : String(error)],
         timeTaken: Date.now() - startTime
       };
@@ -302,5 +303,59 @@ export class VectorizeUseCase {
     if (options.benchmark) return 'benchmark';
     if (options.indexStats) return 'index-stats';
     return 'vectorize';
+  }
+
+  /**
+   * Get appropriate empty data structure for each operation type
+   */
+  private getEmptyDataForOperation(operation: VectorizeResult['operation']): VectorizeData | StatusData | IndexData | BenchmarkData {
+    switch (operation) {
+      case 'vectorize':
+        return {
+          functionsProcessed: 0,
+          model: 'text-embedding-3-small',
+          dimension: 1536,
+          batchSize: 100,
+          embeddings: []
+        } as VectorizeData;
+        
+      case 'status':
+        return {
+          total: 0,
+          withEmbeddings: 0,
+          withoutEmbeddings: 0,
+          coverage: 0,
+          models: [],
+          indexStatus: { isBuilt: false }
+        } as StatusData;
+        
+      case 'rebuild-index':
+      case 'index-stats':
+        return {
+          algorithm: 'hierarchical',
+          vectorCount: 0,
+          buildTime: 0,
+          indexSize: 0
+        } as IndexData;
+        
+      case 'benchmark':
+        return {
+          algorithm: 'hierarchical',
+          queryCount: 0,
+          avgQueryTime: 0,
+          accuracy: 0,
+          throughput: 0
+        } as BenchmarkData;
+        
+      default:
+        // This should never happen, but provides a safe fallback
+        return {
+          functionsProcessed: 0,
+          model: 'text-embedding-3-small',
+          dimension: 1536,
+          batchSize: 100,
+          embeddings: []
+        } as VectorizeData;
+    }
   }
 }
