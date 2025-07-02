@@ -324,14 +324,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
 
     // Add detailed parameter information
     if (func.parameters.length > 0) {
-      const paramInfo = func.parameters
-        .map(p => {
-          const optional = p.isOptional ? '?' : '';
-          const rest = p.isRest ? '...' : '';
-          const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
-          return `${rest}${p.name}${optional}: ${p.typeSimple}${defaultVal}`;
-        })
-        .join(', ');
+      const paramInfo = this.formatParameterInfo(func.parameters);
       parts.push(`Parameters: ${paramInfo}`);
     }
 
@@ -344,6 +337,20 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
     parts.push(`File: ${func.filePath}`);
 
     return parts.join(' | ');
+  }
+
+  /**
+   * Format parameter information for embedding text
+   */
+  private formatParameterInfo(parameters: Array<{ name: string; typeSimple: string; isOptional?: boolean; isRest?: boolean; defaultValue?: string }>): string {
+    return parameters
+      .map(p => {
+        const optional = p.isOptional ? '?' : '';
+        const rest = p.isRest ? '...' : '';
+        const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+        return `${rest}${p.name}${optional}: ${p.typeSimple}${defaultVal}`;
+      })
+      .join(', ');
   }
 
   /**
