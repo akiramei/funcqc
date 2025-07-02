@@ -13,6 +13,7 @@ import { trendCommand } from './cli/trend';
 import { similarCommand } from './cli/similar';
 import { describeCommand } from './cli/describe';
 import { searchCommand } from './cli/search';
+import { createVectorizeCommand } from './cli/vectorize';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -203,6 +204,9 @@ Hybrid Search:
   Context-aware with reference function IDs
   Optimal for comprehensive code exploration
 `);
+
+// Add vectorize command
+program.addCommand(createVectorizeCommand());
 
 
 // Handle unknown commands
