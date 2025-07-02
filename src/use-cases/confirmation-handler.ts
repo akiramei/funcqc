@@ -92,7 +92,7 @@ export class ConfirmationHandler {
     model: string = 'text-embedding-3-small',
     avgTokensPerFunction: number = 200
   ): number {
-    // OpenAI pricing (as of 2024)
+    // OpenAI pricing (as of 2025年7月)
     const pricing: Record<string, number> = {
       'text-embedding-ada-002': 0.0001, // per 1K tokens
       'text-embedding-3-small': 0.00002, // per 1K tokens  
