@@ -5,89 +5,159 @@ import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { riskAssessor } from '../core/risk-assessor.js';
 
+interface ListContext {
+  storage: PGLiteStorageAdapter;
+  config: any;
+  options: ListCommandOptions;
+}
+
 export async function listCommand(
   patterns: string[] = [],
   options: ListCommandOptions
 ): Promise<void> {
   try {
-    // Load configuration
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
+    const context = await initializeListContext(options);
     
-    // Initialize storage
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
-    await storage.init();
-
     try {
-      // Build query filters
-      const filters = buildFilters(patterns, options);
-      
-      // Query functions
-      const queryOptions: QueryOptions = { filters };
-      if (options.sort) queryOptions.sort = options.sort;
-      if (options.limit) queryOptions.limit = parseInt(options.limit, 10);
-      
-      let functions: FunctionInfo[] = [];
-
-      // Handle description-specific filtering
-      if (options.withDescription || options.noDescription || options.needsDescription) {
-        const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
-        if (snapshots.length === 0) {
-          console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-          return;
-        }
-
-        if (options.withDescription) {
-          functions = await storage.getFunctionsWithDescriptions(snapshots[0].id, queryOptions);
-        } else if (options.noDescription) {
-          functions = await storage.getFunctionsWithoutDescriptions(snapshots[0].id, queryOptions);
-        } else if (options.needsDescription) {
-          functions = await storage.getFunctionsNeedingDescriptions(snapshots[0].id, queryOptions);
-        }
-      } else {
-        functions = await storage.queryFunctions(queryOptions);
-      }
-      
-      // Apply keyword filtering if keyword is provided but not handled by storage
-      if (options.keyword) {
-        functions = applyKeywordFiltering(functions, options.keyword);
-      }
-      
-      // Apply threshold-based filtering
-      functions = await applyThresholdFiltering(functions, options, config);
+      const functions = await retrieveFunctions(context, patterns);
       
       if (functions.length === 0) {
-        console.log(chalk.yellow('No functions found matching the criteria.'));
-        console.log(chalk.blue('Try running `funcqc scan` first to analyze your code.'));
+        showNoFunctionsFound();
         return;
       }
       
-      // Output results
-      await outputResults(functions, options, config);
+      await outputResults(functions, options, context.config);
     } finally {
-      await storage.close();
+      await context.storage.close();
     }
     
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
-    
-    // Show specific error for developers
-    console.error(chalk.red('Failed to list functions:'));
-    console.error(chalk.gray('Error details:'), errorMsg);
-    
-    // Add helpful context based on error type
-    if (errorMsg.includes('syntax error') || errorMsg.includes('ORDER')) {
-      console.error(chalk.yellow('\nPossible cause: Database query syntax issue'));
-      console.error(chalk.blue('Try: funcqc scan --dry-run to test without saving'));
-    } else if (errorMsg.includes('no such table') || errorMsg.includes('database')) {
-      console.error(chalk.yellow('\nPossible cause: Database not initialized'));
-      console.error(chalk.blue('Try: funcqc init'));
-    } else if (errorMsg.includes('no such column')) {
-      console.error(chalk.yellow('\nPossible cause: Database schema mismatch'));
-      console.error(chalk.blue('Try: Remove .funcqc directory and run funcqc init'));
-    }
-    
-    process.exit(1);
+    handleListError(error);
+  }
+}
+
+async function initializeListContext(options: ListCommandOptions): Promise<ListContext> {
+  const configManager = new ConfigManager();
+  const config = await configManager.load();
+  
+  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  await storage.init();
+  
+  return { storage, config, options };
+}
+
+async function retrieveFunctions(
+  context: ListContext,
+  patterns: string[]
+): Promise<FunctionInfo[]> {
+  const { storage, options } = context;
+  
+  const filters = buildFilters(patterns, options);
+  const queryOptions = buildQueryOptions(filters, options);
+  
+  let functions = await queryFunctions(storage, options, queryOptions);
+  
+  // Apply post-query filters
+  functions = applyPostQueryFilters(functions, options);
+  
+  // Apply threshold-based filtering
+  functions = await applyThresholdFiltering(functions, options, context.config);
+  
+  return functions;
+}
+
+function buildQueryOptions(filters: QueryFilter[], options: ListCommandOptions): QueryOptions {
+  const queryOptions: QueryOptions = { filters };
+  
+  if (options.sort) {
+    queryOptions.sort = options.sort;
+  }
+  
+  if (options.limit) {
+    queryOptions.limit = parseInt(options.limit, 10);
+  }
+  
+  return queryOptions;
+}
+
+async function queryFunctions(
+  storage: PGLiteStorageAdapter,
+  options: ListCommandOptions,
+  queryOptions: QueryOptions
+): Promise<FunctionInfo[]> {
+  if (needsDescriptionBasedQuery(options)) {
+    return await queryWithDescriptionFilter(storage, options, queryOptions);
+  }
+  
+  return await storage.queryFunctions(queryOptions);
+}
+
+function needsDescriptionBasedQuery(options: ListCommandOptions): boolean {
+  return !!(options.withDescription || options.noDescription || options.needsDescription);
+}
+
+async function queryWithDescriptionFilter(
+  storage: PGLiteStorageAdapter,
+  options: ListCommandOptions,
+  queryOptions: QueryOptions
+): Promise<FunctionInfo[]> {
+  const snapshot = await getLatestSnapshot(storage);
+  
+  if (!snapshot) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return [];
+  }
+  
+  if (options.withDescription) {
+    return await storage.getFunctionsWithDescriptions(snapshot.id, queryOptions);
+  } else if (options.noDescription) {
+    return await storage.getFunctionsWithoutDescriptions(snapshot.id, queryOptions);
+  } else if (options.needsDescription) {
+    return await storage.getFunctionsNeedingDescriptions(snapshot.id, queryOptions);
+  }
+  
+  return [];
+}
+
+async function getLatestSnapshot(storage: PGLiteStorageAdapter) {
+  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  return snapshots.length > 0 ? snapshots[0] : null;
+}
+
+function applyPostQueryFilters(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
+  if (options.keyword) {
+    return applyKeywordFiltering(functions, options.keyword);
+  }
+  
+  return functions;
+}
+
+function showNoFunctionsFound(): void {
+  console.log(chalk.yellow('No functions found matching the criteria.'));
+  console.log(chalk.blue('Try running `funcqc scan` first to analyze your code.'));
+}
+
+function handleListError(error: unknown): void {
+  const errorMsg = error instanceof Error ? error.message : String(error);
+  
+  console.error(chalk.red('Failed to list functions:'));
+  console.error(chalk.gray('Error details:'), errorMsg);
+  
+  showErrorContext(errorMsg);
+  
+  process.exit(1);
+}
+
+function showErrorContext(errorMsg: string): void {
+  if (errorMsg.includes('syntax error') || errorMsg.includes('ORDER')) {
+    console.error(chalk.yellow('\nPossible cause: Database query syntax issue'));
+    console.error(chalk.blue('Try: funcqc scan --dry-run to test without saving'));
+  } else if (errorMsg.includes('no such table') || errorMsg.includes('database')) {
+    console.error(chalk.yellow('\nPossible cause: Database not initialized'));
+    console.error(chalk.blue('Try: funcqc init'));
+  } else if (errorMsg.includes('no such column')) {
+    console.error(chalk.yellow('\nPossible cause: Database schema mismatch'));
+    console.error(chalk.blue('Try: Remove .funcqc directory and run funcqc init'));
   }
 }
 
@@ -244,10 +314,16 @@ function addNumericFilters(filters: QueryFilter[], options: ListCommandOptions):
   ];
   
   for (const { option, field } of numericMappings) {
-    if (option) {
-      const filter = parseNumericCondition(field, option);
-      if (filter) filters.push(filter);
-    }
+    addNumericFilterIfPresent(filters, option, field);
+  }
+}
+
+function addNumericFilterIfPresent(filters: QueryFilter[], option: string | undefined, field: string): void {
+  if (!option) return;
+  
+  const filter = parseNumericCondition(field, option);
+  if (filter) {
+    filters.push(filter);
   }
 }
 
