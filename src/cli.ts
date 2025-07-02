@@ -139,11 +139,11 @@ program
 program
   .command('similar')
   .description('Detect similar functions using AST analysis')
-  .option('--threshold <value>', 'similarity threshold (0-1)', '0.95')
+  .option('--threshold <value>', 'similarity threshold (0-1)', '0.65')
   .option('--json', 'output as JSON')
   .option('--jsonl', 'output as JSON Lines (for large datasets)')
   .option('--snapshot <id>', 'analyze specific snapshot (default: latest)')
-  .option('--min-lines <num>', 'minimum lines of code to consider', '5')
+  .option('--min-lines <num>', 'minimum lines of code to consider', '3')
   .option('--no-cross-file', 'only detect similarities within same file')
   .option('--detectors <list>', 'comma-separated list of detectors to use')
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')

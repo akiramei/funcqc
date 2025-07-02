@@ -26,7 +26,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
   private parseDetectionOptions(options: SimilarityOptions) {
     return {
       threshold: options.threshold || 0.95,
-      minLines: options.minLines || 5,
+      minLines: options.minLines || 3,
       crossFile: options.crossFile !== false
     };
   }

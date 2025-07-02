@@ -20,8 +20,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private canonicalCache = new LRUCache<string, string>({ max: 1000 });
   
   // Configuration - optimized LSH parameters for O(n) performance
-  private readonly DEFAULT_K_GRAM_SIZE = 15;  // Reduced for finer granularity
-  private readonly DEFAULT_WINNOWING_WINDOW = 8;  // Increased for stability
+  private readonly DEFAULT_K_GRAM_SIZE = 12;  // Optimized for short functions and performance
+  private readonly DEFAULT_WINNOWING_WINDOW = 6;  // Optimized for lightweight processing
   private readonly DEFAULT_LSH_BITS = 24;  // Increased for better distribution (16.7M buckets)
   private readonly SIMHASH_BITS = 64;
   private readonly MAX_LSH_BUCKET_SIZE = 10;  // Maximum bucket size for O(n) performance guarantee
@@ -290,8 +290,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
   private parseDetectionOptions(options: SimilarityOptions) {
     return {
-      threshold: options.threshold || 0.7,
-      minLines: options.minLines || 5,
+      threshold: options.threshold || 0.65,
+      minLines: options.minLines || 3,
       crossFile: options.crossFile !== false,
       kGramSize: this.DEFAULT_K_GRAM_SIZE,
       winnowingWindow: this.DEFAULT_WINNOWING_WINDOW,
