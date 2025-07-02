@@ -49,7 +49,6 @@ function simpleStem(word: string): string {
   // Basic Porter stemmer-like rules
   const stemRules = [
     [/ies$/, 'y'],
-    [/ies$/, 'y'],
     [/ied$/, 'y'],
     [/s$/, ''],
     [/ing$/, ''],
