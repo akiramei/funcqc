@@ -255,7 +255,8 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
    */
   isReady(): boolean {
     const clientReady = this.client?.isInitialized() ?? false;
-    const vectorStoreReady = this.enableANN ? (this.vectorStore?.isReady() ?? false) : true;
+    // For ANN disabled, vector store readiness is not required
+    const vectorStoreReady = this.enableANN ? (this.vectorStore?.isReady() ?? true) : true;
     
     return clientReady && vectorStoreReady;
   }

@@ -244,8 +244,7 @@ export class OpenAIEmbeddingsClient implements EmbeddingsClient {
       return message.includes('invalid api key') || 
              message.includes('unauthorized') ||
              message.includes('forbidden') ||
-             message.includes('quota') ||
-             message.includes('invalid');
+             message.includes('quota');
     }
     return false;
   }
