@@ -2,7 +2,7 @@ import { createHash } from 'crypto';
 import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
 import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
-import { HashWinnowingUtility } from '../utils/hash-winnowing-utility';
+import { winnowHashes, extractKGrams } from '../utils/hash-winnowing-utility';
 import { GraphAlgorithms } from '../utils/graph-algorithms';
 
 /**
@@ -700,14 +700,14 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const optimizedKSize = tokens.length < 15 
       ? Math.max(3, tokens.length) 
       : Math.min(config.kGramSize, Math.max(15, tokens.length / 4));
-    const kGrams = HashWinnowingUtility.extractKGrams(tokens, optimizedKSize);
+    const kGrams = extractKGrams(tokens, optimizedKSize);
     
     // Limit the number of k-grams for performance
     const limitedKGrams = kGrams.slice(0, Math.min(50, kGrams.length));
     const hashes = limitedKGrams.map(gram => this.hash64(gram.join('')));
     
     // Apply winnowing to reduce fingerprint count
-    const winnowed = HashWinnowingUtility.winnowHashes(hashes, config.winnowingWindow);
+    const winnowed = winnowHashes(hashes, config.winnowingWindow);
     
     // Generate single SimHash from all winnowed features
     return winnowed.length > 0 ? [this.computeSimHash(winnowed)] : [];
