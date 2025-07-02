@@ -28,7 +28,7 @@ export interface DocumentVector {
   metadata?: Record<string, unknown>;
 }
 
-export interface SimilarityResult {
+export interface LocalSimilarityResult {
   id: string;
   similarity: number;
   explanation: string;
@@ -285,7 +285,7 @@ export class LocalSimilarityService {
         weights?: Record<string, number>;
       };
     } = {}
-  ): Promise<SimilarityResult[]> {
+  ): Promise<LocalSimilarityResult[]> {
     if (!this.tfidfMetrics || this.documents.size === 0) {
       return [];
     }
@@ -320,7 +320,7 @@ export class LocalSimilarityService {
     const queryTermSet = new Set(queryTerms);
 
     // Calculate similarities
-    const results: SimilarityResult[] = [];
+    const results: LocalSimilarityResult[] = [];
 
     for (const [docId, docVector] of this.documents) {
       // TF-IDF cosine similarity
