@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
+import { LRUCache } from 'lru-cache';
 import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
 
 /**
@@ -13,11 +14,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   supportedLanguages = ['typescript', 'javascript'];
 
   private project: Project | null = null;
-  private merkleCache = new Map<string, bigint>();
-  private canonicalCache = new Map<string, string>();
-  
-  // LRU cache limits to prevent memory leaks
-  private readonly MAX_CACHE_SIZE = 1000;
+  private merkleCache = new LRUCache<string, bigint>({ max: 1000 });
+  private canonicalCache = new LRUCache<string, string>({ max: 1000 });
   
   // Configuration - optimized LSH parameters for O(n) performance
   private readonly DEFAULT_K_GRAM_SIZE = 15;  // Reduced for finer granularity
@@ -553,7 +551,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const idCounter = { value: 0 };
     
     const canonical = this.canonicalizeNode(node, idMap, idCounter);
-    this.setWithLRU(this.canonicalCache, cacheKey, canonical);
+    this.canonicalCache.set(cacheKey, canonical);
     
     return canonical;
   }
@@ -614,7 +612,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
 
     const hash = this.computeNodeMerkleHash(node);
-    this.setWithLRU(this.merkleCache, cacheKey, hash);
+    this.merkleCache.set(cacheKey, hash);
     
     return hash;
   }
@@ -1299,25 +1297,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   }
 
 
-  /**
-   * LRU cache management to prevent memory leaks
-   */
-  private manageLRUCache<K, V>(cache: Map<K, V>): void {
-    if (cache.size > this.MAX_CACHE_SIZE) {
-      // Remove only the excess entries (more efficient than removing 20%)
-      const entriesToRemove = cache.size - this.MAX_CACHE_SIZE;
-      let count = 0;
-      for (const key of cache.keys()) {
-        cache.delete(key);
-        if (++count >= entriesToRemove) break;
-      }
-    }
-  }
-
-  private setWithLRU<K, V>(cache: Map<K, V>, key: K, value: V): void {
-    cache.set(key, value);
-    this.manageLRUCache(cache);
-  }
 }
 
 /**
