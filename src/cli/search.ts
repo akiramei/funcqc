@@ -194,8 +194,8 @@ function displayFriendly(functions: FunctionInfo[], logger: Logger): void {
     // Show detailed similarity breakdown for hybrid search
     if (funcWithDetails._semanticScore !== undefined) {
       const semanticScore = funcWithDetails._semanticScore;
-      const keywordScore = funcWithDetails._keywordScore;
-      const astScore = funcWithDetails._astScore;
+      const keywordScore = funcWithDetails._keywordScore || 0;
+      const astScore = funcWithDetails._astScore || 0;
       
       logger.info(`   ${chalk.gray('Breakdown:')} Semantic: ${chalk.cyan(semanticScore.toFixed(3))} | ` +
         `Keyword: ${chalk.blue(keywordScore.toFixed(3))} | AST: ${chalk.magenta(astScore.toFixed(3))}`);
