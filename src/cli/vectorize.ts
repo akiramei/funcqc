@@ -4,7 +4,7 @@
  */
 
 import { Command } from 'commander';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
@@ -16,9 +16,9 @@ import { OutputFormatter } from '../use-cases/output-formatter';
 
 interface VectorizeContext {
   storage: PGLiteStorageAdapter;
-  embeddingService?: EmbeddingService;
+  embeddingService: EmbeddingService | undefined;
   validator: VectorizeOptionsValidator;
-  spinner: ora.Ora;
+  spinner: Ora;
 }
 
 export function createVectorizeCommand(): Command {
@@ -89,7 +89,7 @@ async function validateOptions(validator: VectorizeOptionsValidator, rawOptions:
   return validation.data!;
 }
 
-async function initializeStorage(spinner: ora.Ora): Promise<PGLiteStorageAdapter> {
+async function initializeStorage(spinner: Ora): Promise<PGLiteStorageAdapter> {
   spinner.start('Initializing...');
   const configManager = new ConfigManager();
   const config = await configManager.load();
@@ -193,7 +193,7 @@ async function displayResults(result: any, options: any): Promise<void> {
   console.log(output);
 }
 
-async function handleError(error: unknown, rawOptions: any, spinner: ora.Ora): Promise<void> {
+async function handleError(error: unknown, rawOptions: any, spinner: Ora): Promise<void> {
   spinner.fail('Operation failed');
   
   if (rawOptions.output === 'json') {
