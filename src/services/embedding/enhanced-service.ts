@@ -7,6 +7,7 @@ import {
   IEmbeddingService,
   EnhancedEmbeddingConfig,
   EmbeddingResult,
+  EmbeddingVector,
   SemanticSearchOptions,
   EmbeddingsClient,
   VectorStore,
