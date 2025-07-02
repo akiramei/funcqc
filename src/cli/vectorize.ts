@@ -182,8 +182,16 @@ async function getFunctionCount(storage: PGLiteStorageAdapter, options: Vectoriz
     if (snapshots.length === 0) return 0;
     
     const functions = await storage.getFunctionsWithDescriptions(snapshots[0].id);
-    return options.limit ? Math.min(functions.length, options.limit) : functions.length;
-  } catch {
+    
+    // Safely handle limit as it comes from VectorizeOptions as number | undefined
+    if (options.limit !== undefined) {
+      return Math.min(functions.length, options.limit);
+    }
+    
+    return functions.length;
+  } catch (error) {
+    // Log the error for debugging purposes while returning safe fallback
+    console.warn('Failed to get function count:', error instanceof Error ? error.message : String(error));
     return 0;
   }
 }
