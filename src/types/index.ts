@@ -589,13 +589,5 @@ export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
   json?: boolean;
-  semantic?: boolean;              // Enable semantic search using embeddings
-  threshold?: string;              // Similarity threshold (0-1) for semantic search
-  hybrid?: boolean;                // Use hybrid search (keyword + semantic)
-  hybridWeight?: string;           // Weight for semantic vs keyword (0-1, default 0.5)
-  model?: string;                  // Embedding model to use for query vectorization
-  showSimilarity?: boolean;        // Show similarity scores in results
-  minSimilarity?: string;          // Minimum similarity score to include results
-  apiKey?: string;                 // OpenAI API key for semantic search
 }
 

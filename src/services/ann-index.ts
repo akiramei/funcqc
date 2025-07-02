@@ -17,7 +17,7 @@ export interface ANNConfig {
 export interface EmbeddingVector {
   id: string;
   semanticId: string;
-  vector: number[];
+  vector: Float32Array | number[];
   metadata?: Record<string, unknown>;
 }
 
@@ -30,7 +30,7 @@ export interface SearchResult {
 
 export interface FunctionCluster {
   id: string;
-  centroid: number[];
+  centroid: Float32Array;
   memberIds: string[];
   memberCount: number;
 }
@@ -38,6 +38,146 @@ export interface FunctionCluster {
 export interface LSHBucket {
   hash: string;
   vectorIds: string[];
+}
+
+/**
+ * Utility functions for optimized vector operations
+ */
+function toFloat32Array(vector: Float32Array | number[]): Float32Array {
+  if (vector instanceof Float32Array) {
+    return vector;
+  }
+  return new Float32Array(vector);
+}
+
+function ensureFloat32Array(vector: Float32Array | number[]): Float32Array {
+  return toFloat32Array(vector);
+}
+
+/**
+ * Calculate L2 norm (magnitude) of a vector
+ */
+function calculateNorm(vector: Float32Array): number {
+  let sum = 0;
+  for (let i = vector.length - 1; i >= 0; i--) {
+    sum += vector[i] * vector[i];
+  }
+  return Math.sqrt(sum);
+}
+
+/**
+ * Optimized cosine similarity calculation with pre-computed norms
+ */
+function calculateCosineSimilarityOptimized(
+  vec1: Float32Array,
+  vec2: Float32Array,
+  norm1?: number,
+  norm2?: number
+): number {
+  let dotProduct = 0;
+  const len = vec1.length;
+  
+  // Unrolled loop for better performance
+  let i = 0;
+  for (; i < len - 3; i += 4) {
+    dotProduct += vec1[i] * vec2[i] +
+                  vec1[i+1] * vec2[i+1] +
+                  vec1[i+2] * vec2[i+2] +
+                  vec1[i+3] * vec2[i+3];
+  }
+  
+  // Handle remaining elements
+  for (; i < len; i++) {
+    dotProduct += vec1[i] * vec2[i];
+  }
+  
+  // Use pre-computed norms if available
+  const n1 = norm1 ?? calculateNorm(vec1);
+  const n2 = norm2 ?? calculateNorm(vec2);
+  
+  if (n1 === 0 || n2 === 0) {
+    return 0;
+  }
+  
+  return dotProduct / (n1 * n2);
+}
+
+/**
+ * Optimized L2 distance calculation
+ */
+function calculateL2DistanceOptimized(vec1: Float32Array, vec2: Float32Array): number {
+  let sum = 0;
+  const len = vec1.length;
+  
+  // Reverse loop can be faster in some JS engines
+  for (let i = len - 1; i >= 0; i--) {
+    const diff = vec1[i] - vec2[i];
+    sum += diff * diff;
+  }
+  
+  return Math.sqrt(sum);
+}
+
+/**
+ * Quickselect algorithm for efficient top-k selection
+ */
+function quickselect<T>(
+  arr: T[],
+  k: number,
+  left: number,
+  right: number,
+  compare: (a: T, b: T) => number
+): void {
+  if (left === right) return;
+  
+  const pivotIndex = partition(arr, left, right, compare);
+  
+  if (k === pivotIndex) {
+    return;
+  } else if (k < pivotIndex) {
+    quickselect(arr, k, left, pivotIndex - 1, compare);
+  } else {
+    quickselect(arr, k, pivotIndex + 1, right, compare);
+  }
+}
+
+function partition<T>(
+  arr: T[],
+  left: number,
+  right: number,
+  compare: (a: T, b: T) => number
+): number {
+  const pivot = arr[right];
+  let i = left;
+  
+  for (let j = left; j < right; j++) {
+    if (compare(arr[j], pivot) <= 0) {
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+      i++;
+    }
+  }
+  
+  [arr[i], arr[right]] = [arr[right], arr[i]];
+  return i;
+}
+
+/**
+ * Get top-k elements using quickselect for O(n) average time complexity
+ */
+function topK<T>(
+  arr: T[],
+  k: number,
+  compare: (a: T, b: T) => number
+): T[] {
+  if (arr.length <= k) {
+    return arr.slice().sort(compare);
+  }
+  
+  const result = arr.slice();
+  quickselect(result, k, 0, result.length - 1, compare);
+  
+  // Only sort the top k elements
+  return result.slice(0, k).sort(compare);
 }
 
 /**
@@ -92,6 +232,8 @@ export class HierarchicalIndex {
   private vectorMap: Map<string, EmbeddingVector> = new Map();
   private config: ANNConfig;
   private queryCache: LRUCache<string, SearchResult[]>;
+  private vectorNorms: Map<string, number> = new Map();
+  private clusterNorms: Map<string, number> = new Map();
 
   constructor(config: ANNConfig) {
     this.config = config;
@@ -106,10 +248,19 @@ export class HierarchicalIndex {
       return;
     }
 
-    // Store vectors for quick lookup
+    // Store vectors for quick lookup and convert to Float32Array
     this.vectorMap.clear();
+    this.vectorNorms.clear();
     for (const embedding of embeddings) {
-      this.vectorMap.set(embedding.id, embedding);
+      // Convert to Float32Array for efficiency
+      const optimizedEmbedding = {
+        ...embedding,
+        vector: ensureFloat32Array(embedding.vector)
+      };
+      this.vectorMap.set(embedding.id, optimizedEmbedding);
+      
+      // Pre-calculate and cache vector norms
+      this.vectorNorms.set(embedding.id, calculateNorm(optimizedEmbedding.vector));
     }
 
     // Initialize clusters with random centroids
@@ -129,53 +280,76 @@ export class HierarchicalIndex {
   /**
    * Perform approximate nearest neighbor search
    */
-  async searchApproximate(queryVector: number[], k: number): Promise<SearchResult[]> {
+  async searchApproximate(queryVector: number[] | Float32Array, k: number): Promise<SearchResult[]> {
     if (this.clusters.length === 0) {
       return [];
     }
 
+    // Convert query vector to Float32Array for optimal performance
+    const queryFloat32 = ensureFloat32Array(queryVector);
+    const queryNorm = calculateNorm(queryFloat32);
+
     // Create cache key from query vector (simplified hash)
-    const cacheKey = `${queryVector.slice(0, 10).join(',')}_${k}_${this.config.approximationLevel}`;
+    const cacheKey = `${queryFloat32.slice(0, 10).join(',')}_${k}_${this.config.approximationLevel}`;
     const cachedResult = this.queryCache.get(cacheKey);
     if (cachedResult) {
       return cachedResult;
     }
 
-    // Find nearest cluster centroids
+    // Find nearest cluster centroids using optimized distance calculation
     const clusterDistances = this.clusters.map((cluster, index) => ({
       index,
-      distance: this.calculateDistance(queryVector, cluster.centroid)
+      distance: calculateL2DistanceOptimized(queryFloat32, cluster.centroid)
     }));
 
-    // Sort clusters by distance to query
-    clusterDistances.sort((a, b) => a.distance - b.distance);
-
-    // Determine how many clusters to search based on approximation level
+    // Use quickselect to find top clusters in O(n) time
     const clustersToSearch = this.getSearchDepth(clusterDistances.length);
-    const candidateResults: SearchResult[] = [];
+    const topClusters = topK(
+      clusterDistances,
+      clustersToSearch,
+      (a, b) => a.distance - b.distance
+    );
+
+    // Prepare candidates with similarity scores
+    interface CandidateWithScore extends SearchResult {
+      score: number;
+    }
+    const candidateResults: CandidateWithScore[] = [];
 
     // Search within top clusters
-    for (let i = 0; i < clustersToSearch; i++) {
-      const clusterIndex = clusterDistances[i].index;
-      const cluster = this.clusters[clusterIndex];
+    for (const clusterInfo of topClusters) {
+      const cluster = this.clusters[clusterInfo.index];
 
       for (const memberId of cluster.memberIds) {
         const vector = this.vectorMap.get(memberId);
-        if (vector) {
-          const similarity = this.calculateCosineSimilarity(queryVector, vector.vector);
+        if (vector && vector.vector instanceof Float32Array) {
+          const norm = this.vectorNorms.get(memberId);
+          const similarity = calculateCosineSimilarityOptimized(
+            queryFloat32,
+            vector.vector,
+            queryNorm,
+            norm
+          );
           candidateResults.push({
             id: vector.id,
             semanticId: vector.semanticId,
             similarity,
+            score: -similarity, // Negative for sorting (higher is better)
             ...(vector.metadata ? { metadata: vector.metadata } : {})
           });
         }
       }
     }
 
-    // Sort by similarity and return top k
-    candidateResults.sort((a, b) => b.similarity - a.similarity);
-    const results = candidateResults.slice(0, k);
+    // Use quickselect for top-k selection
+    const topResults = topK(
+      candidateResults,
+      k,
+      (a, b) => a.score - b.score // Lower score (higher similarity) first
+    );
+    
+    // Remove score field and return
+    const results: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
     
     // Cache the results
     this.queryCache.set(cacheKey, results);
@@ -242,12 +416,16 @@ export class HierarchicalIndex {
     // Create initial clusters
     for (let i = 0; i < selectedIndices.length; i++) {
       const selectedIndex = selectedIndices[i];
+      const sourceVector = this.vectorMap.get(embeddings[selectedIndex].id)?.vector || embeddings[selectedIndex].vector;
       clusters.push({
         id: `cluster-${i}`,
-        centroid: [...embeddings[selectedIndex].vector],
+        centroid: new Float32Array(sourceVector),
         memberIds: [],
         memberCount: 0
       });
+      
+      // Cache cluster centroid norms
+      this.clusterNorms.set(`cluster-${i}`, calculateNorm(clusters[i].centroid));
     }
 
     return clusters;
@@ -292,11 +470,11 @@ export class HierarchicalIndex {
 
       // Calculate new centroid as average of member vectors
       const dimension = cluster.centroid.length;
-      const newCentroid = new Array(dimension).fill(0);
+      const newCentroid = new Float32Array(dimension);
 
       for (const memberId of cluster.memberIds) {
         const vector = this.vectorMap.get(memberId);
-        if (vector) {
+        if (vector && vector.vector instanceof Float32Array) {
           for (let i = 0; i < dimension; i++) {
             newCentroid[i] += vector.vector[i];
           }
@@ -308,13 +486,15 @@ export class HierarchicalIndex {
         newCentroid[i] /= cluster.memberIds.length;
       }
 
-      // Check convergence
-      const centroidChange = this.calculateDistance(cluster.centroid, newCentroid);
+      // Check convergence using optimized distance
+      const centroidChange = calculateL2DistanceOptimized(cluster.centroid, newCentroid);
       if (centroidChange > convergenceThreshold) {
         converged = false;
       }
 
       cluster.centroid = newCentroid;
+      // Update cached norm
+      this.clusterNorms.set(cluster.id, calculateNorm(newCentroid));
     }
 
     return converged;
@@ -333,32 +513,12 @@ export class HierarchicalIndex {
     }
   }
 
-  private calculateDistance(vec1: number[], vec2: number[]): number {
-    let sum = 0;
-    for (let i = 0; i < vec1.length; i++) {
-      const diff = vec1[i] - vec2[i];
-      sum += diff * diff;
-    }
-    return Math.sqrt(sum);
+  private calculateDistance(vec1: Float32Array | number[], vec2: Float32Array | number[]): number {
+    const v1 = ensureFloat32Array(vec1);
+    const v2 = ensureFloat32Array(vec2);
+    return calculateL2DistanceOptimized(v1, v2);
   }
 
-  private calculateCosineSimilarity(vec1: number[], vec2: number[]): number {
-    let dotProduct = 0;
-    let norm1 = 0;
-    let norm2 = 0;
-
-    for (let i = 0; i < vec1.length; i++) {
-      dotProduct += vec1[i] * vec2[i];
-      norm1 += vec1[i] * vec1[i];
-      norm2 += vec2[i] * vec2[i];
-    }
-
-    if (norm1 === 0 || norm2 === 0) {
-      return 0;
-    }
-
-    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-  }
 
   getIndexStats(): Record<string, unknown> {
     return {
@@ -381,8 +541,9 @@ export class LSHIndex {
   private hashTables: Map<string, LSHBucket>[] = [];
   private vectorMap: Map<string, EmbeddingVector> = new Map();
   private config: ANNConfig;
-  private randomProjections: number[][] = [];
+  private randomProjections: Float32Array[] = [];
   private queryCache: LRUCache<string, SearchResult[]>;
+  private vectorNorms: Map<string, number> = new Map();
 
   constructor(config: ANNConfig) {
     this.config = config;
@@ -394,10 +555,19 @@ export class LSHIndex {
       return;
     }
 
-    // Store vectors for quick lookup
+    // Store vectors for quick lookup and convert to Float32Array
     this.vectorMap.clear();
+    this.vectorNorms.clear();
     for (const embedding of embeddings) {
-      this.vectorMap.set(embedding.id, embedding);
+      // Convert to Float32Array for efficiency
+      const optimizedEmbedding = {
+        ...embedding,
+        vector: ensureFloat32Array(embedding.vector)
+      };
+      this.vectorMap.set(embedding.id, optimizedEmbedding);
+      
+      // Pre-calculate and cache vector norms
+      this.vectorNorms.set(embedding.id, calculateNorm(optimizedEmbedding.vector));
     }
 
     // Initialize hash tables and random projections
@@ -427,13 +597,17 @@ export class LSHIndex {
     }
   }
 
-  async searchApproximate(queryVector: number[], k: number): Promise<SearchResult[]> {
+  async searchApproximate(queryVector: number[] | Float32Array, k: number): Promise<SearchResult[]> {
     if (this.hashTables.length === 0) {
       return [];
     }
 
+    // Convert query vector to Float32Array for optimal performance
+    const queryFloat32 = ensureFloat32Array(queryVector);
+    const queryNorm = calculateNorm(queryFloat32);
+
     // Create cache key from query vector (simplified hash)
-    const cacheKey = `lsh_${queryVector.slice(0, 10).join(',')}_${k}_${this.config.hashBits}`;
+    const cacheKey = `lsh_${queryFloat32.slice(0, 10).join(',')}_${k}_${this.config.hashBits}`;
     const cachedResult = this.queryCache.get(cacheKey);
     if (cachedResult) {
       return cachedResult;
@@ -441,7 +615,7 @@ export class LSHIndex {
 
     // Get candidate vectors from all hash tables
     const candidateIds = new Set<string>();
-    const queryHashes = this.computeHashes(queryVector);
+    const queryHashes = this.computeHashes(queryFloat32);
 
     for (let tableIndex = 0; tableIndex < this.hashTables.length; tableIndex++) {
       const hash = queryHashes[tableIndex];
@@ -454,24 +628,41 @@ export class LSHIndex {
       }
     }
 
-    // Calculate exact similarities for candidates
-    const results: SearchResult[] = [];
+    // Prepare candidates with similarity scores
+    interface CandidateWithScore extends SearchResult {
+      score: number;
+    }
+    const candidates: CandidateWithScore[] = [];
+    
     for (const candidateId of candidateIds) {
       const vector = this.vectorMap.get(candidateId);
-      if (vector) {
-        const similarity = this.calculateCosineSimilarity(queryVector, vector.vector);
-        results.push({
+      if (vector && vector.vector instanceof Float32Array) {
+        const norm = this.vectorNorms.get(candidateId);
+        const similarity = calculateCosineSimilarityOptimized(
+          queryFloat32,
+          vector.vector,
+          queryNorm,
+          norm
+        );
+        candidates.push({
           id: vector.id,
           semanticId: vector.semanticId,
           similarity,
+          score: -similarity, // Negative for sorting (higher is better)
           ...(vector.metadata ? { metadata: vector.metadata } : {})
         });
       }
     }
 
-    // Sort by similarity and return top k
-    results.sort((a, b) => b.similarity - a.similarity);
-    const finalResults = results.slice(0, k);
+    // Use quickselect for top-k selection
+    const topResults = topK(
+      candidates,
+      k,
+      (a, b) => a.score - b.score // Lower score (higher similarity) first
+    );
+    
+    // Remove score field and return
+    const finalResults: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
     
     // Cache the results
     this.queryCache.set(cacheKey, finalResults);
@@ -492,17 +683,17 @@ export class LSHIndex {
     }
   }
 
-  private generateRandomProjections(numTables: number, dimension: number): number[][] {
-    const projections: number[][] = [];
+  private generateRandomProjections(numTables: number, dimension: number): Float32Array[] {
+    const projections: Float32Array[] = [];
     
     for (let table = 0; table < numTables; table++) {
-      const projection: number[] = [];
+      const projection = new Float32Array(dimension);
       for (let dim = 0; dim < dimension; dim++) {
         // Random normal distribution (Box-Muller transform)
         const u1 = Math.random();
         const u2 = Math.random();
         const randNormal = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        projection.push(randNormal);
+        projection[dim] = randNormal;
       }
       projections.push(projection);
     }
@@ -510,7 +701,7 @@ export class LSHIndex {
     return projections;
   }
 
-  private computeHashes(vector: number[]): string[] {
+  private computeHashes(vector: Float32Array | number[]): string[] {
     const hashes: string[] = [];
     
     for (let tableIndex = 0; tableIndex < this.randomProjections.length; tableIndex++) {
@@ -536,23 +727,6 @@ export class LSHIndex {
     return hashes;
   }
 
-  private calculateCosineSimilarity(vec1: number[], vec2: number[]): number {
-    let dotProduct = 0;
-    let norm1 = 0;
-    let norm2 = 0;
-
-    for (let i = 0; i < vec1.length; i++) {
-      dotProduct += vec1[i] * vec2[i];
-      norm1 += vec1[i] * vec1[i];
-      norm2 += vec2[i] * vec2[i];
-    }
-
-    if (norm1 === 0 || norm2 === 0) {
-      return 0;
-    }
-
-    return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
-  }
 
   getIndexStats(): Record<string, unknown> {
     const bucketCounts = this.hashTables.map(table => table.size);
@@ -591,7 +765,7 @@ export class HybridANNIndex {
     ]);
   }
 
-  async searchApproximate(queryVector: number[], k: number): Promise<SearchResult[]> {
+  async searchApproximate(queryVector: number[] | Float32Array, k: number): Promise<SearchResult[]> {
     // Get results from both indexes
     const [hierarchicalResults, lshResults] = await Promise.all([
       this.hierarchicalIndex.searchApproximate(queryVector, k * 2),

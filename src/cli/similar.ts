@@ -107,8 +107,8 @@ async function loadFunctions(
 }
 
 function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig {
-  const threshold = options.threshold ? parseFloat(options.threshold) : 0.95;
-  const minLines = options.minLines ? parseInt(options.minLines) : 5;
+  const threshold = options.threshold ? parseFloat(options.threshold) : 0.65;
+  const minLines = options.minLines ? parseInt(options.minLines) : 3;
   const limit = options.limit ? parseInt(options.limit) : undefined;
   const enabledDetectors = options.detectors ? options.detectors.split(',') : [];
   const consensusStrategy = options.consensus ? parseConsensusStrategy(options.consensus) : undefined;
