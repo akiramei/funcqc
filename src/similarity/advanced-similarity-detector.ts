@@ -3,7 +3,7 @@ import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
 import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
 import { winnowHashes, extractKGrams } from '../utils/hash-winnowing-utility';
-import { GraphAlgorithms } from '../utils/graph-algorithms';
+import { findConnectedComponents, buildItemToGroupsMapping } from '../utils/graph-algorithms';
 
 /**
  * Advanced similarity detector using AST canonicalization, Merkle hashing, 
@@ -1186,7 +1186,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    */
   private mergeOverlappingGroups(results: SimilarityResult[]): SimilarityResult[] {
     // Step 1: Build function-to-groups mapping
-    const functionToGroups = GraphAlgorithms.buildItemToGroupsMapping(
+    const functionToGroups = buildItemToGroupsMapping(
       results,
       (result) => result.functions.map(func => func.functionId)
     );
@@ -1215,7 +1215,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     results: SimilarityResult[], 
     functionToGroups: Map<string, number[]>
   ): number[] {
-    return GraphAlgorithms.findConnectedComponents(
+    return findConnectedComponents(
       startIndex,
       results,
       (current, items) => {
