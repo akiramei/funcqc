@@ -1,11 +1,28 @@
 import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, ConsensusStrategy, SimilarFunction, SimilarityWeights } from '../types';
 import { ASTSimilarityDetector } from './ast-similarity-detector';
+import { ANNSimilarityDetector } from './ann-similarity-detector';
+import { HashSimilarityDetector } from './hash-similarity-detector';
+import { AdvancedSimilarityDetector } from './advanced-similarity-detector';
+import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 
 export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
-  constructor(weights?: SimilarityWeights) {
-    // Register default detectors with configurable weights
+  constructor(weights?: SimilarityWeights, storage?: PGLiteStorageAdapter) {
+    
+    // Register detectors in priority order:
+    // 1. Advanced detector with AST canonicalization, Merkle hashing, and SimHash (O(n))
+    this.registerDetector(new AdvancedSimilarityDetector());
+    
+    // 2. ANN detector for semantic similarity (if storage available)
+    if (storage) {
+      this.registerDetector(new ANNSimilarityDetector(storage));
+    }
+    
+    // 3. Hash detector for basic exact/near matches (O(n))
+    this.registerDetector(new HashSimilarityDetector());
+    
+    // 4. AST detector as comprehensive fallback (O(n²))
     this.registerDetector(new ASTSimilarityDetector(weights));
   }
 
@@ -19,15 +36,28 @@ export class SimilarityManager {
     enabledDetectors: string[] = [],
     consensus?: ConsensusStrategy
   ): Promise<SimilarityResult[]> {
-    const detectorsToUse = enabledDetectors.length > 0
-      ? enabledDetectors.filter(name => this.detectors.has(name))
-      : Array.from(this.detectors.keys());
-
-    if (detectorsToUse.length === 0) {
-      throw new Error('No similarity detectors available');
+    // If specific detectors are requested, use those
+    if (enabledDetectors.length > 0) {
+      return this.runSpecificDetectors(functions, options, enabledDetectors, consensus);
     }
 
-    // Run all detectors in parallel
+    // Otherwise, use priority-based detection for optimal performance
+    return this.runPriorityBasedDetection(functions, options);
+  }
+
+  private async runSpecificDetectors(
+    functions: FunctionInfo[],
+    options: SimilarityOptions,
+    enabledDetectors: string[],
+    consensus?: ConsensusStrategy
+  ): Promise<SimilarityResult[]> {
+    const detectorsToUse = enabledDetectors.filter(name => this.detectors.has(name));
+
+    if (detectorsToUse.length === 0) {
+      throw new Error('No specified detectors available');
+    }
+
+    // Run specified detectors in parallel
     const allResults = await Promise.all(
       detectorsToUse.map(async detectorName => {
         try {
@@ -44,21 +74,60 @@ export class SimilarityManager {
       })
     );
 
-    // Flatten results
     const flatResults = allResults.flat();
 
     // Apply consensus strategy if multiple detectors
     if (detectorsToUse.length > 1 && consensus) {
-      return this.applyConsensus(flatResults, consensus);
+      return this.applyConsensus(flatResults, consensus, detectorsToUse.length);
     }
 
     return flatResults;
   }
 
-  private applyConsensus(results: SimilarityResult[], strategy: ConsensusStrategy): SimilarityResult[] {
+  private async runPriorityBasedDetection(
+    functions: FunctionInfo[],
+    options: SimilarityOptions
+  ): Promise<SimilarityResult[]> {
+    // Try detectors in priority order (registered order)
+    // Stop at first successful detector to maximize performance
+    for (const [detectorName, detector] of this.detectors) {
+      try {
+        const isAvailable = await detector.isAvailable();
+        if (isAvailable) {
+          console.log(`Using detector: ${detectorName}`);
+          
+          // Suggest performance optimization if using slower detector
+          if (detectorName === 'ast-structural') {
+            console.log('💡 Tip: For faster results, consider using "funcqc vectorize" to enable semantic search');
+          } else if (detectorName === 'advanced-structural') {
+            console.log('🚀 Using advanced similarity detection with AST canonicalization and SimHash');
+          }
+          const results = await detector.detect(functions, options);
+          
+          // If we get good results, return them
+          if (results.length > 0) {
+            return results;
+          }
+          
+          // For high-performance detectors (hash), continue to next detector
+          // For slower detectors, return empty results to avoid performance issues
+          if (detectorName !== 'hash-duplicate') {
+            return results;
+          }
+        }
+      } catch (error) {
+        console.warn(`Detector ${detectorName} failed:`, error);
+        continue;
+      }
+    }
+
+    return [];
+  }
+
+  private applyConsensus(results: SimilarityResult[], strategy: ConsensusStrategy, detectorCount?: number): SimilarityResult[] {
     switch (strategy.strategy) {
       case 'majority':
-        return this.majorityConsensus(results, strategy.threshold || 0.5);
+        return this.majorityConsensus(results, strategy.threshold || 0.5, detectorCount);
       
       case 'intersection':
         return this.intersectionConsensus(results);
@@ -74,7 +143,7 @@ export class SimilarityManager {
     }
   }
 
-  private majorityConsensus(results: SimilarityResult[], threshold: number): SimilarityResult[] {
+  private majorityConsensus(results: SimilarityResult[], threshold: number, detectorCount?: number): SimilarityResult[] {
     // Group results by function pairs
     const pairCounts = new Map<string, { count: number; results: SimilarityResult[] }>();
 
@@ -90,7 +159,7 @@ export class SimilarityManager {
 
     // Filter by majority threshold
     const consensusResults: SimilarityResult[] = [];
-    const totalDetectors = this.detectors.size;
+    const totalDetectors = detectorCount || this.detectors.size;
 
     for (const [, entry] of pairCounts) {
       if (entry.count / totalDetectors >= threshold) {

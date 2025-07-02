@@ -1,11 +1,22 @@
 import OpenAI from 'openai';
 import { FunctionInfo } from '../types';
+import { 
+  ANNConfig, 
+  EmbeddingVector, 
+  HierarchicalIndex, 
+  LSHIndex, 
+  HybridANNIndex, 
+  createANNIndex, 
+  DEFAULT_ANN_CONFIG 
+} from './ann-index';
 
 export interface EmbeddingConfig {
   apiKey?: string;
   model?: string;
   dimension?: number;
   batchSize?: number;
+  annConfig?: ANNConfig;
+  enableANN?: boolean;
 }
 
 // Supported embedding models with their configurations
@@ -25,15 +36,28 @@ export interface EmbeddingResult {
   timestamp: number;
 }
 
+export interface SemanticSearchOptions {
+  useANN?: boolean;
+  threshold?: number;
+  limit?: number;
+  approximationLevel?: 'fast' | 'balanced' | 'accurate';
+}
+
 export class EmbeddingService {
   private openai: OpenAI | null = null;
   private readonly model: string;
   private readonly batchSize: number;
   private readonly modelConfig: { dimension: number; maxTokens: number };
+  private readonly annConfig: ANNConfig;
+  private readonly enableANN: boolean;
+  private annIndex: HierarchicalIndex | LSHIndex | HybridANNIndex | null = null;
+  private indexedEmbeddings: Map<string, EmbeddingVector> = new Map();
 
   constructor(config: EmbeddingConfig = {}) {
     this.model = config.model || 'text-embedding-3-small';
     this.batchSize = config.batchSize || 100;
+    this.enableANN = config.enableANN ?? true;
+    this.annConfig = { ...DEFAULT_ANN_CONFIG, ...config.annConfig };
     
     // Validate and get model configuration
     if (!(this.model in EMBEDDING_MODELS)) {
@@ -43,6 +67,11 @@ export class EmbeddingService {
 
     if (config.apiKey) {
       this.openai = new OpenAI({ apiKey: config.apiKey });
+    }
+
+    // Initialize ANN index if enabled
+    if (this.enableANN) {
+      this.annIndex = createANNIndex(this.annConfig);
     }
   }
 
@@ -69,6 +98,195 @@ export class EmbeddingService {
       dimension: this.modelConfig.dimension,
       maxTokens: this.modelConfig.maxTokens
     };
+  }
+
+  /**
+   * Get ANN configuration and status
+   */
+  getANNInfo(): { enabled: boolean; config: ANNConfig; indexStats?: Record<string, unknown> } {
+    const indexStats = this.annIndex?.getIndexStats();
+    return {
+      enabled: this.enableANN,
+      config: this.annConfig,
+      ...(indexStats ? { indexStats } : {})
+    };
+  }
+
+  /**
+   * Build ANN index from stored embeddings
+   */
+  async buildANNIndex(embeddings: EmbeddingResult[]): Promise<void> {
+    if (!this.enableANN || !this.annIndex) {
+      throw new Error('ANN index is not enabled or initialized');
+    }
+
+    // Convert EmbeddingResult to EmbeddingVector format
+    const embeddingVectors: EmbeddingVector[] = embeddings.map(result => ({
+      id: result.functionId,
+      semanticId: result.semanticId,
+      vector: result.embedding,
+      metadata: {
+        model: result.model,
+        timestamp: result.timestamp
+      }
+    }));
+
+    // Build the index
+    await this.annIndex.buildIndex(embeddingVectors);
+
+    // Store embeddings for quick lookup during search
+    this.indexedEmbeddings.clear();
+    for (const vector of embeddingVectors) {
+      this.indexedEmbeddings.set(vector.id, vector);
+    }
+  }
+
+  /**
+   * Add new embeddings to existing ANN index (incremental update)
+   */
+  async addToANNIndex(newEmbeddings: EmbeddingResult[]): Promise<void> {
+    if (!this.enableANN || !this.annIndex) {
+      return;
+    }
+
+    // Convert to EmbeddingVector format
+    const newVectors: EmbeddingVector[] = newEmbeddings.map(result => ({
+      id: result.functionId,
+      semanticId: result.semanticId,
+      vector: result.embedding,
+      metadata: {
+        model: result.model,
+        timestamp: result.timestamp
+      }
+    }));
+
+    // Add to local storage
+    for (const vector of newVectors) {
+      this.indexedEmbeddings.set(vector.id, vector);
+    }
+
+    // Rebuild index with all embeddings (for now - future: incremental updates)
+    const allVectors = Array.from(this.indexedEmbeddings.values());
+    await this.annIndex.buildIndex(allVectors);
+  }
+
+  /**
+   * Perform semantic search using ANN index or fall back to exact search
+   */
+  async semanticSearch(
+    queryText: string, 
+    allEmbeddings: EmbeddingResult[], 
+    options: SemanticSearchOptions = {}
+  ): Promise<Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }>> {
+    // Generate embedding for query
+    const queryEmbedding = await this.generateEmbedding(queryText);
+    
+    // Use ANN search if enabled and available
+    if (options.useANN !== false && this.enableANN && this.annIndex && this.indexedEmbeddings.size > 0) {
+      try {
+        // TODO: Pass approximation level per search instead of modifying shared state
+        // This requires updating ANN index interface to accept approximationLevel parameter
+        // For now, we'll document this limitation
+        const searchResults = await this.annIndex.searchApproximate(
+          queryEmbedding, 
+          options.limit || 20
+        );
+
+        // Filter by threshold if specified
+        const threshold = options.threshold || 0;
+        return searchResults
+          .filter(result => result.similarity >= threshold)
+          .map(result => ({
+            functionId: result.id,
+            semanticId: result.semanticId,
+            similarity: result.similarity,
+            ...(result.metadata ? { metadata: result.metadata } : {})
+          }));
+      } catch (error) {
+        // Fall back to exact search if ANN search fails
+        console.warn('ANN search failed, falling back to exact search:', error);
+      }
+    }
+
+    // Exact search (original implementation)
+    return this.exactSemanticSearch(queryEmbedding, allEmbeddings, options);
+  }
+
+  /**
+   * Exact semantic search (original implementation)
+   */
+  private exactSemanticSearch(
+    queryEmbedding: number[], 
+    allEmbeddings: EmbeddingResult[], 
+    options: SemanticSearchOptions = {}
+  ): Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }> {
+    const results: Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }> = [];
+
+    for (const embeddingResult of allEmbeddings) {
+      const similarity = EmbeddingService.cosineSimilarity(queryEmbedding, embeddingResult.embedding);
+      
+      // Apply threshold filter
+      const threshold = options.threshold || 0;
+      if (similarity >= threshold) {
+        results.push({
+          functionId: embeddingResult.functionId,
+          semanticId: embeddingResult.semanticId,
+          similarity,
+          metadata: {
+            model: embeddingResult.model,
+            timestamp: embeddingResult.timestamp
+          }
+        });
+      }
+    }
+
+    // Sort by similarity (descending) and limit results
+    results.sort((a, b) => b.similarity - a.similarity);
+    const limit = options.limit || results.length;
+    return results.slice(0, limit);
+  }
+
+  /**
+   * Check if ANN index is built and ready
+   */
+  isANNIndexReady(): boolean {
+    return this.enableANN && this.annIndex !== null && this.indexedEmbeddings.size > 0;
+  }
+
+  /**
+   * Get statistics about the current ANN index
+   */
+  getIndexStatistics(): Record<string, unknown> | null {
+    if (!this.enableANN || !this.annIndex) {
+      return null;
+    }
+
+    return {
+      ...this.annIndex.getIndexStats(),
+      indexedCount: this.indexedEmbeddings.size,
+      ready: this.isANNIndexReady()
+    };
+  }
+
+  /**
+   * Rebuild ANN index with updated configuration
+   */
+  async rebuildANNIndex(newConfig?: Partial<ANNConfig>): Promise<void> {
+    if (!this.enableANN) {
+      throw new Error('ANN index is disabled');
+    }
+
+    // Update configuration if provided
+    if (newConfig) {
+      Object.assign(this.annConfig, newConfig);
+      this.annIndex = createANNIndex(this.annConfig);
+    }
+
+    // Rebuild index with existing embeddings
+    if (this.indexedEmbeddings.size > 0) {
+      const allVectors = Array.from(this.indexedEmbeddings.values());
+      await this.annIndex?.buildIndex(allVectors);
+    }
   }
 
   /**
