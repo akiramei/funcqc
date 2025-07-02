@@ -10,7 +10,14 @@
 export function winnowHashes(hashes: bigint[], windowSize: number): bigint[] {
   if (hashes.length === 0) return [];
   if (windowSize >= hashes.length) {
-    return [Math.min(...hashes.map(Number)).toString()].map(BigInt);
+    // Find minimum bigint value without type conversion to avoid precision loss
+    let minHash = hashes[0];
+    for (let i = 1; i < hashes.length; i++) {
+      if (hashes[i] < minHash) {
+        minHash = hashes[i];
+      }
+    }
+    return [minHash];
   }
   
   const winnowed: bigint[] = [];
