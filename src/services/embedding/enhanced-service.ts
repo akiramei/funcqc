@@ -45,17 +45,32 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
    */
   async initialize(config: EnhancedEmbeddingConfig): Promise<void> {
     try {
+      // Clean up existing resources before reinitializing
+      this.cleanupResources();
       this.initializeComponents(config);
-      
-      // If API key provided, initialize client immediately
-      if (config.client?.apiKey && this.client) {
-        (this.client as OpenAIEmbeddingsClient).initialize(config.client.apiKey);
-      }
 
     } catch (error) {
       this.stats.errors++;
       this.stats.lastError = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to initialize embedding service: ${this.stats.lastError}`);
+    }
+  }
+
+  /**
+   * Clean up existing resources to prevent leaks
+   */
+  private cleanupResources(): void {
+    // Clean up vector store resources (timers, etc.)
+    if (this.vectorStore) {
+      // EnhancedVectorStore has internal cleanup for buffer timers
+      // Setting to null will allow garbage collection
+      this.vectorStore = null;
+    }
+    
+    // Clean up client resources
+    if (this.client) {
+      // OpenAI client doesn't require explicit cleanup, but we clear the reference
+      this.client = null;
     }
   }
 
@@ -83,6 +98,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
     }
 
     try {
+      const client = this.client; // Safe reference after null check
       const textsToEmbed: string[] = [];
       const functionMap = new Map<number, FunctionInfo>();
 
@@ -100,7 +116,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
       }
 
       // Generate embeddings using enhanced client
-      const embeddings = await this.client.batchGenerateEmbeddings(textsToEmbed);
+      const embeddings = await client.batchGenerateEmbeddings(textsToEmbed);
 
       // Map embeddings back to functions
       const results: EmbeddingResult[] = [];
@@ -111,7 +127,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
             functionId: func.id,
             semanticId: func.semanticId,
             embedding, // Already Float32Array from enhanced client
-            model: this.client!.getModelInfo().model,
+            model: client.getModelInfo().model,
             timestamp: Date.now(),
             tokenCount: this.estimateTokenCount(textsToEmbed[index])
           });
@@ -137,18 +153,7 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
     }
 
     try {
-      // Convert EmbeddingResult to EmbeddingVector format
-      const embeddingVectors = embeddings.map(result => ({
-        id: result.functionId,
-        semanticId: result.semanticId,
-        vector: result.embedding,
-        metadata: {
-          model: result.model,
-          timestamp: result.timestamp,
-          tokenCount: result.tokenCount
-        }
-      }));
-
+      const embeddingVectors = this.convertToEmbeddingVectors(embeddings);
       await this.vectorStore.buildIndex(embeddingVectors);
       this.stats.indexBuilds++;
 
@@ -168,18 +173,8 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
     }
 
     try {
-      // Convert to vector format
-      const embeddingVectors = newEmbeddings.map(result => ({
-        id: result.functionId,
-        semanticId: result.semanticId,
-        vector: result.embedding,
-        metadata: {
-          model: result.model,
-          timestamp: result.timestamp,
-          tokenCount: result.tokenCount
-        }
-      }));
-
+      const embeddingVectors = this.convertToEmbeddingVectors(newEmbeddings);
+      
       // Use incremental update instead of full rebuild
       await this.vectorStore.addEmbeddings(embeddingVectors);
 
@@ -188,6 +183,22 @@ export class EnhancedEmbeddingService implements IEmbeddingService {
       this.stats.lastError = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to add to index: ${this.stats.lastError}`);
     }
+  }
+
+  /**
+   * Convert EmbeddingResult objects to EmbeddingVector format
+   */
+  private convertToEmbeddingVectors(embeddings: EmbeddingResult[]): EmbeddingVector[] {
+    return embeddings.map(result => ({
+      id: result.functionId,
+      semanticId: result.semanticId,
+      vector: result.embedding,
+      metadata: {
+        model: result.model,
+        timestamp: result.timestamp,
+        tokenCount: result.tokenCount
+      }
+    }));
   }
 
   /**
