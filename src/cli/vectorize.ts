@@ -9,10 +9,31 @@ import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { EmbeddingService } from '../services/embedding-service';
-import { VectorizeUseCase } from '../use-cases/vectorize-use-case';
-import { VectorizeOptionsValidator } from '../use-cases/vectorize-options';
+import { VectorizeUseCase, VectorizeResult } from '../use-cases/vectorize-use-case';
+import { VectorizeOptionsValidator, VectorizeOptions } from '../use-cases/vectorize-options';
 import { ConfirmationHandler } from '../use-cases/confirmation-handler';
 import { OutputFormatter } from '../use-cases/output-formatter';
+
+/**
+ * Raw options from Commander.js before validation
+ */
+interface RawVectorizeOptions {
+  all?: boolean;
+  recent?: boolean;
+  status?: boolean;
+  rebuildIndex?: boolean;
+  benchmark?: boolean;
+  indexStats?: boolean;
+  apiKey?: string;
+  model?: string;
+  batchSize?: string;
+  limit?: string;
+  indexAlgorithm?: string;
+  indexConfig?: string;
+  output?: string;
+  quiet?: boolean;
+  force?: boolean;
+}
 
 interface VectorizeContext {
   storage: PGLiteStorageAdapter;
@@ -42,7 +63,7 @@ export function createVectorizeCommand(): Command {
     .action(vectorizeActionHandler);
 }
 
-async function vectorizeActionHandler(rawOptions: any): Promise<void> {
+async function vectorizeActionHandler(rawOptions: RawVectorizeOptions): Promise<void> {
   const spinner = ora();
   let storage: PGLiteStorageAdapter | null = null;
   
@@ -75,7 +96,7 @@ async function vectorizeActionHandler(rawOptions: any): Promise<void> {
   }
 }
 
-async function validateOptions(validator: VectorizeOptionsValidator, rawOptions: any) {
+async function validateOptions(validator: VectorizeOptionsValidator, rawOptions: RawVectorizeOptions): Promise<VectorizeOptions> {
   const validation = validator.validate(rawOptions);
   
   if (!validation.success) {
@@ -99,7 +120,7 @@ async function initializeStorage(spinner: Ora): Promise<PGLiteStorageAdapter> {
 }
 
 async function initializeEmbeddingService(
-  options: any, 
+  options: VectorizeOptions, 
   validator: VectorizeOptionsValidator
 ): Promise<EmbeddingService | undefined> {
   const apiKey = options.apiKey || process.env['OPENAI_API_KEY'];
@@ -123,7 +144,7 @@ async function initializeEmbeddingService(
 
 async function handleConfirmationIfNeeded(
   context: VectorizeContext, 
-  options: any
+  options: VectorizeOptions
 ): Promise<void> {
   if (!context.validator.isDangerousOperation(options) || options.force) {
     return;
@@ -155,7 +176,7 @@ async function handleConfirmationIfNeeded(
   }
 }
 
-async function getFunctionCount(storage: PGLiteStorageAdapter, options: any): Promise<number> {
+async function getFunctionCount(storage: PGLiteStorageAdapter, options: VectorizeOptions): Promise<number> {
   try {
     const snapshots = await storage.getSnapshots({ limit: 1 });
     if (snapshots.length === 0) return 0;
@@ -167,7 +188,7 @@ async function getFunctionCount(storage: PGLiteStorageAdapter, options: any): Pr
   }
 }
 
-async function executeVectorizeOperation(context: VectorizeContext, options: any) {
+async function executeVectorizeOperation(context: VectorizeContext, options: VectorizeOptions) {
   const operationDescription = context.validator.getOperationDescription(options);
   context.spinner.start(`Executing ${operationDescription.toLowerCase()}...`);
   
@@ -182,7 +203,7 @@ async function executeVectorizeOperation(context: VectorizeContext, options: any
   return result;
 }
 
-async function displayResults(result: any, options: any): Promise<void> {
+async function displayResults(result: VectorizeResult, options: VectorizeOptions): Promise<void> {
   const formatter = new OutputFormatter({
     format: options.output,
     quiet: options.quiet || false,
@@ -193,7 +214,7 @@ async function displayResults(result: any, options: any): Promise<void> {
   console.log(output);
 }
 
-async function handleError(error: unknown, rawOptions: any, spinner: Ora): Promise<void> {
+async function handleError(error: unknown, rawOptions: RawVectorizeOptions, spinner: Ora): Promise<void> {
   spinner.fail('Operation failed');
   
   if (rawOptions.output === 'json') {

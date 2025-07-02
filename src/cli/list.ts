@@ -7,7 +7,7 @@ import { riskAssessor } from '../core/risk-assessor.js';
 
 interface ListContext {
   storage: PGLiteStorageAdapter;
-  config: any;
+  config: FuncqcConfig;
   options: ListCommandOptions;
 }
 
