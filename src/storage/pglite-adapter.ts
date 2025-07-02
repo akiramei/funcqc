@@ -1188,22 +1188,35 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       type CurrentIndexRow = {
         algorithm: string;
-        vector_count: number;
-        build_time_ms: number;
+        vector_count: string | number;
+        build_time_ms: string | number;
         embedding_model: string;
       };
 
-      const currentIndex = currentResult.rows.length > 0 ? {
-        algorithm: (currentResult.rows[0] as CurrentIndexRow).algorithm,
-        vectorCount: (currentResult.rows[0] as CurrentIndexRow).vector_count,
-        buildTimeMs: (currentResult.rows[0] as CurrentIndexRow).build_time_ms,
-        model: (currentResult.rows[0] as CurrentIndexRow).embedding_model
-      } : null;
+      type TotalRow = { total: string };
+      type AvgTimeRow = { avg_time: string | null };
+
+      const currentIndex = currentResult.rows.length > 0 ? (() => {
+        const row = currentResult.rows[0] as CurrentIndexRow;
+        return {
+          algorithm: row.algorithm,
+          vectorCount: typeof row.vector_count === 'string' ? parseInt(row.vector_count, 10) : row.vector_count,
+          buildTimeMs: typeof row.build_time_ms === 'string' ? parseInt(row.build_time_ms, 10) : row.build_time_ms,
+          model: row.embedding_model
+        };
+      })() : null;
+
+      const totalRow = totalResult.rows[0] as TotalRow;
+      const avgRow = avgResult.rows[0] as AvgTimeRow;
+
+      // Parse and validate numeric values with proper fallbacks
+      const totalIndexes = totalRow?.total ? parseInt(totalRow.total, 10) : 0;
+      const averageBuildTime = avgRow?.avg_time ? parseFloat(avgRow.avg_time) : 0;
 
       return {
-        totalIndexes: (totalResult.rows[0] as { total: number }).total,
+        totalIndexes: isNaN(totalIndexes) ? 0 : totalIndexes,
         currentIndex,
-        averageBuildTime: (avgResult.rows[0] as { avg_time: number }).avg_time || 0
+        averageBuildTime: isNaN(averageBuildTime) ? 0 : averageBuildTime
       };
     } catch (error) {
       throw new Error(`Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`);
