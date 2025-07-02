@@ -589,5 +589,15 @@ export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
   json?: boolean;
+  semantic?: boolean;              // Enable semantic search using local embeddings
+  threshold?: string;              // Similarity threshold (0-1) for semantic search
+  hybrid?: boolean;                // Use hybrid search (keyword + semantic + AST)
+  hybridWeight?: string;           // Weight for semantic vs keyword (0-1, default 0.5)
+  showSimilarity?: boolean;        // Show similarity scores in results
+  minSimilarity?: string;          // Minimum similarity score to include results
+  aiHints?: string;                // JSON string with AI hints for enhanced search
+  similarityWeights?: string;      // JSON string with similarity algorithm weights
+  contextFunctions?: string;       // Comma-separated list of context function IDs
+  intermediate?: boolean;          // Output intermediate results for AI analysis
 }
 

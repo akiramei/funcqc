@@ -171,13 +171,37 @@ program
   .option('--format <type>', 'output format (table|json|friendly)', 'table')
   .option('--limit <num>', 'limit number of results', '50')
   .option('--json', 'output as JSON')
+  .option('--semantic', 'use semantic search with local TF-IDF embeddings')
+  .option('--threshold <value>', 'similarity threshold for semantic search (0-1)', '0.3')
+  .option('--hybrid', 'use hybrid search (keyword + semantic + AST)')
+  .option('--hybrid-weight <value>', 'weight for semantic vs keyword (0-1)', '0.5')
+  .option('--show-similarity', 'show similarity scores in results')
+  .option('--min-similarity <value>', 'minimum similarity score to include results', '0.1')
+  .option('--ai-hints <json>', 'AI hints as JSON: {"relatedTerms":["term1"],"context":"..."}')
+  .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
+  .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
+  .option('--intermediate', 'output intermediate results for AI analysis')
   .action(searchCommand)
   .addHelpText('after', `
 Examples:
-  $ funcqc search "authentication"        # Keyword search in descriptions
-  $ funcqc search "user login"            # Search for login-related functions
-  $ funcqc search "error handling"        # Find error handling functions
-  $ funcqc search "validation"            # Search for validation functions
+  $ funcqc search "authentication"                        # Basic keyword search
+  $ funcqc search "user login" --semantic                 # Local semantic search
+  $ funcqc search "error handling" --hybrid               # Hybrid search (keyword + semantic + AST)
+  $ funcqc search "validation" --semantic --threshold 0.5 # Higher precision semantic search
+  $ funcqc search "database" --hybrid --show-similarity   # Show similarity scores
+  $ funcqc search "auth" --semantic --ai-hints '{"relatedTerms":["login","verify"]}' # AI-enhanced search
+
+Local Semantic Search:
+  Uses TF-IDF vectorization and cosine similarity
+  No external API required - purely local computation
+  Supports AI hints for enhanced relevance
+  Better for finding functions by purpose/behavior
+
+Hybrid Search:
+  Combines keyword, semantic, and AST structural similarity
+  Weighted scoring across multiple algorithms
+  Context-aware with reference function IDs
+  Optimal for comprehensive code exploration
 `);
 
 
