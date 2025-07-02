@@ -110,7 +110,6 @@ export class ANNSimilarityDetector implements SimilarityDetector {
         }
       } catch {
         // Skip functions without embeddings
-        continue;
       }
     }
 

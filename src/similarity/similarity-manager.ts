@@ -109,13 +109,11 @@ export class SimilarityManager {
             return results;
           }
           
-          // If no results but high-performance detector, continue to next
-          if (detectorName === 'hash-duplicate') {
-            continue; // Hash detector found nothing, try next
+          // For high-performance detectors (hash), continue to next detector
+          // For slower detectors, return empty results to avoid performance issues
+          if (detectorName !== 'hash-duplicate') {
+            return results;
           }
-          
-          // For slower detectors, return empty results rather than continue
-          return results;
         }
       } catch (error) {
         console.warn(`Detector ${detectorName} failed:`, error);

@@ -184,12 +184,9 @@ export class EmbeddingService {
     // Use ANN search if enabled and available
     if (options.useANN !== false && this.enableANN && this.annIndex && this.indexedEmbeddings.size > 0) {
       try {
-        // Update approximation level if specified
-        if (options.approximationLevel) {
-          this.annConfig.approximationLevel = options.approximationLevel;
-          // Note: In production, you might want to rebuild index or make this configurable per search
-        }
-
+        // TODO: Pass approximation level per search instead of modifying shared state
+        // This requires updating ANN index interface to accept approximationLevel parameter
+        // For now, we'll document this limitation
         const searchResults = await this.annIndex.searchApproximate(
           queryEmbedding, 
           options.limit || 20

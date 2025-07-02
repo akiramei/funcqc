@@ -258,8 +258,8 @@ async function handleANNIndexOperations(
       try {
         const customConfig = JSON.parse(options.indexConfig);
         annConfig = { ...annConfig, ...customConfig };
-      } catch {
-        console.error(chalk.red('Error: Invalid JSON in --index-config'));
+      } catch (error) {
+        console.error(chalk.red('Error: Invalid JSON in --index-config:'), error instanceof Error ? error.message : String(error));
         process.exit(1);
       }
     }

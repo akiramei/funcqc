@@ -613,8 +613,9 @@ export class HybridANNIndex {
     for (const result of lshResults) {
       const existing = combinedResults.get(result.id);
       if (existing) {
-        // Average the similarities if found in both
-        existing.similarity = (existing.similarity + result.similarity * 0.4) / 2;
+        // Properly weight and combine similarities if found in both
+        // Existing already has 0.6 weight from hierarchical, add 0.4 weight from LSH
+        existing.similarity = (existing.similarity / 0.6) * 0.6 + result.similarity * 0.4;
       } else {
         combinedResults.set(result.id, {
           ...result,

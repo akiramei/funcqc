@@ -24,6 +24,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private readonly DEFAULT_WINNOWING_WINDOW = 8;  // Increased for stability
   private readonly DEFAULT_LSH_BITS = 24;  // Increased for better distribution (16.7M buckets)
   private readonly SIMHASH_BITS = 64;
+  private readonly MAX_LSH_BUCKET_SIZE = 10;  // Maximum bucket size for O(n) performance guarantee
+  private readonly SINGLE_STAGE_THRESHOLD = 1000;  // Function count threshold for single-stage analysis
 
   async isAvailable(): Promise<boolean> {
     return true; // Always available since it only uses ts-morph
@@ -36,7 +38,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     console.log(`Advanced detector processing ${validFunctions.length} functions...`);
     
     // For small datasets, use direct advanced analysis
-    if (validFunctions.length <= 1000) {
+    if (validFunctions.length <= this.SINGLE_STAGE_THRESHOLD) {
       console.log('🎯 Direct O(n) advanced analysis (testing single-stage performance)');
       return this.detectAdvancedMode(validFunctions, config);
     }
@@ -147,7 +149,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     
     // Add functions from LSH buckets with 2-10 functions (sweet spot)
     for (const [bucketKey, bucketFunctions] of lshBuckets) {
-      if (bucketFunctions.length >= 2 && bucketFunctions.length <= 10) {
+      if (bucketFunctions.length >= 2 && bucketFunctions.length <= this.MAX_LSH_BUCKET_SIZE) {
         bucketFunctions.forEach(funcId => candidateIds.add(funcId));
         console.log(`LSH bucket ${bucketKey.slice(0, 8)}... has ${bucketFunctions.length} candidates`);
       }
@@ -334,8 +336,12 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
           this.project.addSourceFileAtPathIfExists(filePath);
           successCount++;
         }
-      } catch {
-        // Silently skip files that can't be added - this is expected for some database entries
+      } catch (error) {
+        // Skip files that can't be added - this is expected for some database entries
+        // Log only in debug mode to avoid cluttering output
+        if (process.env.DEBUG) {
+          console.debug(`Skipping file ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
       }
     }
     
@@ -861,11 +867,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     
     // Check candidates within each bucket - ONLY small buckets for O(n) performance
     for (const [bucketKey, candidates] of lshBuckets) {
-      if (candidates.length >= 2 && candidates.length <= 10) {
+      if (candidates.length >= 2 && candidates.length <= this.MAX_LSH_BUCKET_SIZE) {
         console.log(`Processing LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions`);
         const bucketResults = this.checkSmallBucketCandidates(candidates, config, excludedPairs);
         results.push(...bucketResults);
-      } else if (candidates.length > 10) {
+      } else if (candidates.length > this.MAX_LSH_BUCKET_SIZE) {
         console.log(`Skipping large LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions (too large for O(n) guarantee)`);
       }
     }

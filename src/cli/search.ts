@@ -146,45 +146,10 @@ async function performSemanticSearch(
     throw new Error('Limit must be a positive number');
   }
   
-  // Check if ANN index is available
-  const isANNReady = embeddingService.isANNIndexReady();
-  if (isANNReady) {
-    logger.info(chalk.blue(`Searching with ANN optimization (threshold: ${threshold})...`));
-  } else {
-    logger.info(chalk.blue(`ANN index not ready, building index...`));
-    
-    // Load existing embeddings and build ANN index
-    const snapshots = await storage.getSnapshots({ limit: 1 });
-    if (snapshots.length > 0) {
-      const snapshotId = snapshots[0].id;
-      const functionsWithEmbeddings = await storage.getFunctionsWithEmbeddings(snapshotId);
-      
-      if (functionsWithEmbeddings.length > 0) {
-        const embeddingResults = [];
-        for (const func of functionsWithEmbeddings) {
-          const embedding = await storage.getEmbedding(func.semanticId);
-          if (embedding) {
-            embeddingResults.push({
-              functionId: func.semanticId,
-              semanticId: func.semanticId,
-              embedding: embedding.embedding,
-              model: embedding.model,
-              timestamp: Date.now()
-            });
-          }
-        }
-        
-        if (embeddingResults.length > 0) {
-          await embeddingService.buildANNIndex(embeddingResults);
-          logger.info(chalk.green(`Built ANN index with ${embeddingResults.length} vectors`));
-        }
-      }
-    }
-  }
-  
-  // Get all existing embeddings for fallback
+  // Get all existing embeddings first
   const snapshots = await storage.getSnapshots({ limit: 1 });
   const allEmbeddings = [];
+  
   if (snapshots.length > 0) {
     const snapshotId = snapshots[0].id;
     const functionsWithEmbeddings = await storage.getFunctionsWithEmbeddings(snapshotId);
@@ -201,6 +166,18 @@ async function performSemanticSearch(
         });
       }
     }
+  }
+  
+  // Check if ANN index is available
+  const isANNReady = embeddingService.isANNIndexReady();
+  if (isANNReady) {
+    logger.info(chalk.blue(`Searching with ANN optimization (threshold: ${threshold})...`));
+  } else if (allEmbeddings.length > 0) {
+    logger.info(chalk.blue(`ANN index not ready, building index...`));
+    
+    // Build ANN index from existing embeddings
+    await embeddingService.buildANNIndex(allEmbeddings);
+    logger.info(chalk.green(`Built ANN index with ${allEmbeddings.length} vectors`));
   }
   
   // Perform semantic search using ANN or exact search
