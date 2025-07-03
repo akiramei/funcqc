@@ -20,6 +20,7 @@ export interface UserConfig {
     maxNestingLevelThreshold: number;
   }>;
   thresholds?: Record<string, unknown>;
+  funcqcThresholds?: Record<string, unknown>;
   assessment?: Record<string, unknown>;
   projectContext?: Record<string, unknown>;
   git?: {

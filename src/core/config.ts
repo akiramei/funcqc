@@ -9,8 +9,14 @@ import {
   StatisticalThreshold,
   RiskAssessmentConfig,
   RiskCondition,
-  ProjectContext
+  ProjectContext,
+  QualityScorerThresholds,
+  FuncqcThresholds
 } from '../types';
+import { 
+  ThresholdConfigManager, 
+  parseQualityThresholdConfig
+} from '../config/thresholds-simple.js';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
   roots: ['src'],
@@ -42,6 +48,7 @@ const DEFAULT_CONFIG: FuncqcConfig = {
 export class ConfigManager {
   private config: FuncqcConfig | undefined;
   private explorer = cosmiconfigSync('funcqc');
+  private thresholdManager: ThresholdConfigManager | undefined;
 
   async load(): Promise<FuncqcConfig> {
     if (this.config) {
@@ -55,6 +62,10 @@ export class ConfigManager {
     } else {
       this.config = { ...DEFAULT_CONFIG };
     }
+
+    // Initialize threshold manager with config
+    const qualityConfig = this.config.funcqcThresholds?.quality;
+    this.thresholdManager = new ThresholdConfigManager(qualityConfig);
 
     return this.config;
   }
@@ -72,6 +83,7 @@ export class ConfigManager {
     this.mergeGitConfig(config, userConfig);
     this.mergeSimilarityConfig(config, userConfig);
     this.mergeThresholdsConfig(config, userConfig);
+    this.mergeFuncqcThresholdsConfig(config, userConfig);
     this.mergeAssessmentConfig(config, userConfig);
     this.mergeProjectContextConfig(config, userConfig);
 
@@ -175,11 +187,44 @@ export class ConfigManager {
   }
 
   /**
+   * Get threshold configuration manager
+   */
+  getThresholdManager(): ThresholdConfigManager {
+    if (!this.thresholdManager) {
+      throw new Error('Configuration not loaded. Call load() first.');
+    }
+    return this.thresholdManager;
+  }
+
+  /**
+   * Get quality scorer thresholds configuration
+   */
+  getQualityThresholds(): QualityScorerThresholds {
+    return this.getThresholdManager().getQualityThresholds();
+  }
+
+  /**
+   * Update quality scorer thresholds configuration
+   */
+  updateQualityThresholds(thresholds: Partial<QualityScorerThresholds>): void {
+    this.getThresholdManager().updateThresholds(thresholds);
+    
+    // Update the cached config as well
+    if (this.config) {
+      if (!this.config.funcqcThresholds) {
+        this.config.funcqcThresholds = {};
+      }
+      this.config.funcqcThresholds.quality = { ...this.config.funcqcThresholds.quality, ...thresholds } as QualityScorerThresholds;
+    }
+  }
+
+  /**
    * Invalidate cached config (for testing)
    */
   clearCache(): void {
     this.config = undefined;
     this.explorer.clearCaches();
+    this.thresholdManager = new ThresholdConfigManager();
   }
 
   private mergeThresholdsConfig(config: FuncqcConfig, userConfig: UserConfig): void {
@@ -197,6 +242,20 @@ export class ConfigManager {
   private mergeProjectContextConfig(config: FuncqcConfig, userConfig: UserConfig): void {
     if (userConfig.projectContext && typeof userConfig.projectContext === 'object') {
       config.projectContext = this.validateProjectContext(userConfig.projectContext);
+    }
+  }
+
+  private mergeFuncqcThresholdsConfig(config: FuncqcConfig, userConfig: UserConfig): void {
+    if (userConfig.funcqcThresholds && typeof userConfig.funcqcThresholds === 'object') {
+      try {
+        const parsedThresholds = parseQualityThresholdConfig(userConfig);
+        if (parsedThresholds) {
+          // For now, only store the quality thresholds
+          config.funcqcThresholds = { quality: parsedThresholds } as Partial<FuncqcThresholds>;
+        }
+      } catch (error) {
+        console.warn(`Invalid funcqc threshold configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   }
 
