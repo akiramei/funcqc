@@ -1,6 +1,10 @@
 // Re-export common types
 export * from './common';
 
+// Re-export quality enhancement types
+export * from './quality-enhancements';
+import { NamingEvaluation } from './quality-enhancements';
+
 // Core configuration types
 export interface FuncqcConfig {
   roots: string[];
@@ -309,6 +313,14 @@ export interface ListCommandOptions extends CommandOptions {
   withDescription?: boolean;
   noDescription?: boolean;
   needsDescription?: boolean;
+  // v1.6 evaluation enhancements
+  needsEvaluation?: boolean;
+  hasEvaluation?: boolean;
+  rating?: string;
+  evaluatedBy?: string;
+  showNamingScore?: boolean;
+  showTypeSafetyScore?: boolean;
+  showEnhancedMetrics?: boolean;
 }
 
 export interface ShowCommandOptions extends CommandOptions {
@@ -395,6 +407,21 @@ export interface StorageAdapter {
   bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void>;
   getFunctionsWithoutEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]>;
   getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }>;
+  
+  // Naming evaluation operations (v1.6 enhancement)
+  saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void>;
+  getNamingEvaluation(functionId: string): Promise<NamingEvaluation | null>;
+  getFunctionsNeedingEvaluation(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>>;
+  getFunctionsWithEvaluations(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>>;
+  updateEvaluationRevisionStatus(functionId: string, revisionNeeded: boolean): Promise<void>;
+  batchSaveEvaluations(evaluations: NamingEvaluation[]): Promise<void>;
+  getEvaluationStatistics(snapshotId: string): Promise<{
+    total: number;
+    withEvaluations: number;
+    needingEvaluation: number;
+    averageRating: number;
+    ratingDistribution: Record<1 | 2 | 3, number>;
+  }>;
   
   // Analysis operations
   diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff>;
