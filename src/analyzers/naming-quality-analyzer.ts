@@ -8,8 +8,16 @@
  * - Redundancy (10%): Avoidance of class/filename duplication
  */
 
+import * as ts from 'typescript';
 import { FunctionInfo } from '../types';
 import { NamingQualityScore, NamingIssue } from '../types/quality-enhancements';
+
+interface ASTContext {
+  sourceFile: ts.SourceFile | undefined;
+  functionNode: ts.Node | undefined;
+  hasValidAST: boolean;
+  error: string | undefined;
+}
 
 export class NamingQualityAnalyzer {
   private readonly GENERIC_NAMES = new Set([
@@ -41,16 +49,19 @@ export class NamingQualityAnalyzer {
   ]);
 
   /**
-   * Analyzes naming quality for a single function
+   * Analyzes naming quality for a single function using AST-based analysis
    */
   analyze(functionInfo: FunctionInfo, contextFunctions: FunctionInfo[] = []): NamingQualityScore {
     const issues: NamingIssue[] = [];
     
-    // Calculate component scores
-    const basicRules = this.checkBasicNamingRules(functionInfo, issues);
-    const semanticAppropriate = this.checkSemanticAppropriateness(functionInfo, issues);
-    const consistency = this.checkConsistency(functionInfo, contextFunctions, issues);
-    const redundancy = this.checkRedundancy(functionInfo, issues);
+    // Parse function source code into AST
+    const astContext = this.parseToAST(functionInfo);
+    
+    // Calculate component scores using AST analysis
+    const basicRules = this.checkBasicNamingRules(functionInfo, astContext, issues);
+    const semanticAppropriate = this.checkSemanticAppropriateness(functionInfo, astContext, issues);
+    const consistency = this.checkConsistency(functionInfo, contextFunctions, astContext, issues);
+    const redundancy = this.checkRedundancy(functionInfo, astContext, issues);
 
     // Calculate overall score with weights
     const score = Math.round(
@@ -60,8 +71,8 @@ export class NamingQualityAnalyzer {
       redundancy * 0.10
     );
 
-    // Calculate confidence based on function attributes
-    const confidence = this.calculateConfidence(functionInfo, issues);
+    // Calculate confidence based on function attributes and AST information
+    const confidence = this.calculateConfidence(functionInfo, astContext, issues);
 
     return {
       score: Math.max(0, Math.min(100, score)),
@@ -77,12 +88,100 @@ export class NamingQualityAnalyzer {
   }
 
   /**
-   * Checks basic naming rules (30% weight)
+   * Parses function source code into TypeScript AST
+   */
+  private parseToAST(functionInfo: FunctionInfo): ASTContext {
+    try {
+      // Create a simple source file for parsing
+      const sourceText = this.createParseableSource(functionInfo);
+      const sourceFile = ts.createSourceFile(
+        'temp.ts',
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      
+      // Find the function declaration/expression in the AST
+      const functionNode = this.findFunctionNode(sourceFile, functionInfo.name);
+      
+      return {
+        sourceFile,
+        functionNode,
+        hasValidAST: functionNode !== undefined,
+        error: undefined
+      };
+    } catch (error) {
+      return {
+        sourceFile: undefined,
+        functionNode: undefined,
+        hasValidAST: false,
+        error: error instanceof Error ? error.message : 'Unknown AST parsing error'
+      };
+    }
+  }
+
+  /**
+   * Creates parseable TypeScript source from function info
+   */
+  private createParseableSource(functionInfo: FunctionInfo): string {
+    // Try to construct a minimal parseable function based on available information
+    const name = functionInfo.name;
+    const params = functionInfo.parameters?.map(p => `${p.name}: ${p.type || 'any'}`).join(', ') || '';
+    const returnType = functionInfo.returnType?.type || 'void';
+    
+    if (functionInfo.isConstructor) {
+      return `class TempClass { constructor(${params}) {} }`;
+    } else if (functionInfo.functionType === 'arrow') {
+      return `const ${name} = (${params}): ${returnType} => { return undefined; };`;
+    } else {
+      return `function ${name}(${params}): ${returnType} { return undefined; }`;
+    }
+  }
+
+  /**
+   * Finds the function node in the AST
+   */
+  private findFunctionNode(sourceFile: ts.SourceFile, functionName: string): ts.Node | undefined {
+    let result: ts.Node | undefined;
+    
+    const visit = (node: ts.Node): void => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
+        result = node;
+        return;
+      }
+      if (ts.isVariableDeclaration(node) && 
+          node.name.kind === ts.SyntaxKind.Identifier &&
+          (node.name as ts.Identifier).text === functionName &&
+          node.initializer && 
+          ts.isArrowFunction(node.initializer)) {
+        result = node.initializer;
+        return;
+      }
+      if (ts.isMethodDeclaration(node) && 
+          node.name?.kind === ts.SyntaxKind.Identifier &&
+          (node.name as ts.Identifier).text === functionName) {
+        result = node;
+        return;
+      }
+      if (ts.isConstructorDeclaration(node) && functionName === 'constructor') {
+        result = node;
+        return;
+      }
+      
+      ts.forEachChild(node, visit);
+    };
+    
+    visit(sourceFile);
+    return result;
+  }
+
+  /**
+   * Checks basic naming rules (30% weight) using AST analysis
    * - Length appropriateness (3-50 characters)
    * - camelCase compliance
    * - Generic name prohibition
    */
-  private checkBasicNamingRules(functionInfo: FunctionInfo, issues: NamingIssue[]): number {
+  private checkBasicNamingRules(functionInfo: FunctionInfo, _astContext: ASTContext, issues: NamingIssue[]): number {
     let score = 100;
     const name = functionInfo.name;
 
@@ -147,15 +246,16 @@ export class NamingQualityAnalyzer {
   }
 
   /**
-   * Checks semantic appropriateness (40% weight)
+   * Checks semantic appropriateness (40% weight) using AST analysis
    * - Action verbs for functions/methods
    * - Boolean naming patterns
    * - Constructor vs function naming distinction
    */
-  private checkSemanticAppropriateness(functionInfo: FunctionInfo, issues: NamingIssue[]): number {
+  private checkSemanticAppropriateness(functionInfo: FunctionInfo, astContext: ASTContext, issues: NamingIssue[]): number {
     let score = 100;
     const name = functionInfo.name;
-    const returnType = functionInfo.returnType?.type || '';
+    // Use AST to determine return type more accurately
+    const returnType = this.getReturnTypeFromAST(astContext) || functionInfo.returnType?.type || '';
 
     // Check action verbs for non-boolean functions
     if (!this.isReturnTypeBoolean(returnType)) {
@@ -215,10 +315,10 @@ export class NamingQualityAnalyzer {
   }
 
   /**
-   * Checks consistency within file (20% weight)
+   * Checks consistency within file (20% weight) using AST analysis
    * - Pattern consistency with other functions in same file
    */
-  private checkConsistency(functionInfo: FunctionInfo, contextFunctions: FunctionInfo[], issues: NamingIssue[]): number {
+  private checkConsistency(functionInfo: FunctionInfo, contextFunctions: FunctionInfo[], _astContext: ASTContext, issues: NamingIssue[]): number {
     if (contextFunctions.length < 2) {
       return 100; // Can't check consistency with insufficient context
     }
@@ -264,11 +364,11 @@ export class NamingQualityAnalyzer {
   }
 
   /**
-   * Checks redundancy avoidance (10% weight)
+   * Checks redundancy avoidance (10% weight) using AST analysis
    * - Class name duplication avoidance
    * - Filename duplication avoidance
    */
-  private checkRedundancy(functionInfo: FunctionInfo, issues: NamingIssue[]): number {
+  private checkRedundancy(functionInfo: FunctionInfo, _astContext: ASTContext, issues: NamingIssue[]): number {
     let score = 100;
     const name = functionInfo.name;
 
@@ -304,10 +404,36 @@ export class NamingQualityAnalyzer {
   }
 
   /**
-   * Calculates confidence in the analysis based on available information
+   * Gets return type from AST analysis
    */
-  private calculateConfidence(functionInfo: FunctionInfo, issues: NamingIssue[]): number {
-    let confidence = 0.8; // Base confidence
+  private getReturnTypeFromAST(astContext: ASTContext): string | undefined {
+    if (!astContext.hasValidAST || !astContext.functionNode) {
+      return undefined;
+    }
+    
+    const node = astContext.functionNode;
+    
+    // Check for explicit return type annotation
+    if (ts.isFunctionLike(node) && node.type) {
+      return node.type.getText();
+    }
+    
+    // For arrow functions, check the variable declaration
+    if (ts.isArrowFunction(node)) {
+      const parent = node.parent;
+      if (ts.isVariableDeclaration(parent) && parent.type) {
+        return parent.type.getText();
+      }
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Calculates confidence in the analysis based on available information and AST quality
+   */
+  private calculateConfidence(functionInfo: FunctionInfo, astContext: ASTContext, issues: NamingIssue[]): number {
+    let confidence = astContext.hasValidAST ? 0.85 : 0.75; // Higher confidence with valid AST
 
     // Higher confidence for exported functions (more important)
     if (functionInfo.isExported) confidence += 0.1;
