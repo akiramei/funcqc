@@ -9,7 +9,7 @@
  * - Type Safety: 15% (new, TypeScript best practices)
  */
 
-import { FunctionInfo } from '../types';
+import { FunctionInfo, QualityScorerThresholds } from '../types';
 import { 
   EnhancedQualityMetrics, 
   EnhancedProjectQualityScore, 
@@ -20,16 +20,22 @@ import {
 } from '../types/quality-enhancements';
 import { NamingQualityAnalyzer } from '../analyzers/naming-quality-analyzer';
 import { TypeSafetyAnalyzer } from '../analyzers/type-safety-analyzer';
+import { DEFAULT_QUALITY_SCORER_THRESHOLDS } from '../config/thresholds-simple.js';
 
 export class QualityScorerV16 {
   private namingAnalyzer: NamingQualityAnalyzer;
   private typeSafetyAnalyzer: TypeSafetyAnalyzer;
   private weights: QualityScoreWeights;
+  private thresholds: QualityScorerThresholds;
 
-  constructor(customWeights?: Partial<QualityScoreWeights>) {
+  constructor(
+    customWeights?: Partial<QualityScoreWeights>,
+    customThresholds?: Partial<QualityScorerThresholds>
+  ) {
     this.namingAnalyzer = new NamingQualityAnalyzer();
     this.typeSafetyAnalyzer = new TypeSafetyAnalyzer();
     this.weights = { ...DEFAULT_QUALITY_WEIGHTS, ...customWeights };
+    this.thresholds = { ...DEFAULT_QUALITY_SCORER_THRESHOLDS, ...customThresholds };
   }
 
   /**
@@ -146,18 +152,26 @@ export class QualityScorerV16 {
       metrics.maintainabilityIndex || 100
     ));
 
-    // Complexity score based on cyclomatic complexity
+    // Complexity score based on cyclomatic complexity with configurable thresholds
     let complexityScore = 100;
     const complexity = metrics.cyclomaticComplexity;
-    if (complexity > 5) complexityScore -= (complexity - 5) * 8;
-    if (complexity > 10) complexityScore -= (complexity - 10) * 15;
+    if (complexity > this.thresholds.complexity.warning) {
+      complexityScore -= (complexity - this.thresholds.complexity.warning) * this.thresholds.complexity.warningPenalty;
+    }
+    if (complexity > this.thresholds.complexity.critical) {
+      complexityScore -= (complexity - this.thresholds.complexity.critical) * this.thresholds.complexity.criticalPenalty;
+    }
     complexityScore = Math.max(0, Math.min(100, complexityScore));
 
-    // Size score based on lines of code
+    // Size score based on lines of code with configurable thresholds
     let sizeScore = 100;
     const lines = metrics.linesOfCode;
-    if (lines > 20) sizeScore -= (lines - 20) * 2;
-    if (lines > 50) sizeScore -= (lines - 50) * 5;
+    if (lines > this.thresholds.size.warning) {
+      sizeScore -= (lines - this.thresholds.size.warning) * this.thresholds.size.warningPenalty;
+    }
+    if (lines > this.thresholds.size.critical) {
+      sizeScore -= (lines - this.thresholds.size.critical) * this.thresholds.size.criticalPenalty;
+    }
     sizeScore = Math.max(0, Math.min(100, sizeScore));
 
     return {
@@ -226,7 +240,10 @@ export class QualityScorerV16 {
       const maintainability = metrics.base.maintainabilityScore;
       const overallScore = metrics.final.score;
       
-      return complexity > 10 || lines > 40 || maintainability < 50 || overallScore < 60;
+      return complexity > this.thresholds.complexity.critical || 
+             lines > this.thresholds.size.critical || 
+             maintainability < this.thresholds.maintainability.critical || 
+             overallScore < this.thresholds.grading.D;
     }).length;
 
     const functionsWithEvaluations = functions.filter(func => 
@@ -264,24 +281,24 @@ export class QualityScorerV16 {
         const issues: string[] = [];
         let problemScore = 0;
 
-        // Check complexity issues
+        // Check complexity issues using configurable thresholds
         const complexity = func.metrics?.cyclomaticComplexity || 1;
-        if (complexity > 10) {
+        if (complexity > this.thresholds.complexity.critical) {
           issues.push(`High complexity (${complexity})`);
-          problemScore += (complexity - 10) * 5;
+          problemScore += (complexity - this.thresholds.complexity.critical) * 5;
         }
 
-        // Check size issues
+        // Check size issues using configurable thresholds
         const lines = func.metrics?.linesOfCode || 0;
-        if (lines > 40) {
+        if (lines > this.thresholds.size.critical) {
           issues.push(`Large function (${lines} lines)`);
-          problemScore += (lines - 40) * 0.5;
+          problemScore += (lines - this.thresholds.size.critical) * 0.5;
         }
 
-        // Check maintainability issues
-        if (metrics.base.maintainabilityScore < 70) {
+        // Check maintainability issues using configurable thresholds
+        if (metrics.base.maintainabilityScore < this.thresholds.maintainability.warning) {
           issues.push(`Low maintainability (${metrics.base.maintainabilityScore})`);
-          problemScore += (70 - metrics.base.maintainabilityScore) * 2;
+          problemScore += (this.thresholds.maintainability.warning - metrics.base.maintainabilityScore) * 2;
         }
 
         // Check naming issues
@@ -407,13 +424,13 @@ export class QualityScorerV16 {
   }
 
   /**
-   * Convert score to letter grade
+   * Convert score to letter grade using configurable thresholds
    */
   private scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {
-    if (score >= 90) return 'A';
-    if (score >= 80) return 'B';
-    if (score >= 70) return 'C';
-    if (score >= 60) return 'D';
+    if (score >= this.thresholds.grading.A) return 'A';
+    if (score >= this.thresholds.grading.B) return 'B';
+    if (score >= this.thresholds.grading.C) return 'C';
+    if (score >= this.thresholds.grading.D) return 'D';
     return 'F';
   }
 
@@ -460,6 +477,50 @@ export class QualityScorerV16 {
     const total = Object.values(this.weights).reduce((sum, weight) => sum + weight, 0);
     if (Math.abs(total - 1.0) > 0.01) {
       throw new Error(`Quality score weights must sum to 1.0, but sum to ${total}`);
+    }
+  }
+
+  /**
+   * Get current threshold configuration
+   */
+  getThresholds(): QualityScorerThresholds {
+    return { ...this.thresholds };
+  }
+
+  /**
+   * Update threshold configuration
+   */
+  updateThresholds(newThresholds: Partial<QualityScorerThresholds>): void {
+    this.thresholds = { ...this.thresholds, ...newThresholds };
+    
+    // Validate threshold consistency
+    this.validateThresholds();
+  }
+
+  /**
+   * Validate threshold configuration
+   */
+  private validateThresholds(): void {
+    const { complexity, size, maintainability, grading } = this.thresholds;
+    
+    // Validate complexity thresholds
+    if (complexity.warning >= complexity.critical) {
+      throw new Error('Complexity warning threshold must be less than critical threshold');
+    }
+    
+    // Validate size thresholds
+    if (size.warning >= size.critical) {
+      throw new Error('Size warning threshold must be less than critical threshold');
+    }
+    
+    // Validate maintainability thresholds
+    if (maintainability.critical >= maintainability.warning) {
+      throw new Error('Maintainability critical threshold must be less than warning threshold');
+    }
+    
+    // Validate grading thresholds are in descending order
+    if (grading.A <= grading.B || grading.B <= grading.C || grading.C <= grading.D) {
+      throw new Error('Grading thresholds must be in descending order (A > B > C > D)');
     }
   }
 }

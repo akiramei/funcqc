@@ -28,6 +28,9 @@ export interface FuncqcConfig {
   // Enhanced configurable thresholds system
   thresholds?: QualityThresholds;
   
+  // Enhanced funcqc-specific thresholds (new)
+  funcqcThresholds?: Partial<FuncqcThresholds>;
+  
   // Risk assessment configuration
   assessment?: RiskAssessmentConfig;
   
@@ -490,6 +493,99 @@ export interface QualityThresholds {
   halsteadVolume?: MultiLevelThreshold;
   halsteadDifficulty?: MultiLevelThreshold;
   codeToCommentRatio?: MultiLevelThreshold;
+}
+
+/**
+ * Enhanced quality scorer thresholds with configurable penalties
+ */
+export interface QualityScorerThresholds {
+  complexity: {
+    warning: number;        // Default: 5
+    critical: number;       // Default: 10
+    warningPenalty: number; // Default: 8
+    criticalPenalty: number;// Default: 15
+  };
+  size: {
+    warning: number;        // Default: 20
+    critical: number;       // Default: 50
+    warningPenalty: number; // Default: 2
+    criticalPenalty: number;// Default: 5
+  };
+  maintainability: {
+    critical: number;       // Default: 50
+    warning: number;        // Default: 70
+  };
+  grading: {
+    A: number;             // Default: 90
+    B: number;             // Default: 80
+    C: number;             // Default: 70
+    D: number;             // Default: 60
+  };
+}
+
+/**
+ * Similarity detection thresholds with advanced algorithm parameters
+ */
+export interface SimilarityThresholds {
+  threshold: number;        // Default: 0.8
+  minLines: number;         // Default: 3
+  advanced: {
+    kGramSize: number;      // Default: 12 (range: 3-20)
+    winnowingWindow: number;// Default: 6 (range: 3-10)
+    lshBits: number;        // Default: 24 (range: 16-32)
+    maxBucketSize: number;  // Default: 10
+  };
+  weights: {
+    ast: number;           // Default: 0.4
+    signature: number;     // Default: 0.2
+    metrics: number;       // Default: 0.2
+    parameters: number;    // Default: 0.1
+    returnType: number;    // Default: 0.1
+  };
+}
+
+/**
+ * Naming quality analysis thresholds
+ */
+export interface NamingThresholds {
+  minLength: number;       // Default: 3
+  maxLength: number;       // Default: 50
+  weights: {
+    basicRules: number;    // Default: 0.3
+    semantics: number;     // Default: 0.4
+    consistency: number;   // Default: 0.2
+    redundancy: number;    // Default: 0.1
+  };
+  penalties: {
+    tooShort: number;      // Default: 15
+    tooLong: number;       // Default: 10
+  };
+}
+
+/**
+ * Performance and batch processing thresholds
+ */
+export interface PerformanceThresholds {
+  batchSize: number;       // Default: 100
+  maxMemoryMB: number;     // Default: 100
+  dynamicBatchSizing: {
+    enabled: boolean;      // Default: true
+    thresholds: {
+      large: { items: number; batchSize: number; };    // > 10000 items → 50 batch
+      medium: { items: number; batchSize: number; };   // > 5000 items → 100 batch
+      small: { items: number; batchSize: number; };    // > 1000 items → 200 batch
+    };
+  };
+}
+
+/**
+ * Comprehensive threshold configuration interface
+ */
+export interface FuncqcThresholds {
+  quality: QualityScorerThresholds;
+  similarity: SimilarityThresholds;
+  naming: NamingThresholds;
+  performance: PerformanceThresholds;
 }
 
 export interface MultiLevelThreshold {
