@@ -14,6 +14,7 @@ import { similarCommand } from './cli/similar';
 import { describeCommand } from './cli/describe';
 import { searchCommand } from './cli/search';
 import { createVectorizeCommand } from './cli/vectorize';
+import { createEvaluateCommand } from './cli/evaluate';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
@@ -207,6 +208,9 @@ Hybrid Search:
 
 // Add vectorize command
 program.addCommand(createVectorizeCommand());
+
+// Add evaluate command (v1.6 enhancement)
+program.addCommand(createEvaluateCommand());
 
 
 // Handle unknown commands

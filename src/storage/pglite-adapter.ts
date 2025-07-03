@@ -18,7 +18,8 @@ import {
   MetricsRow,
   ParameterInfo,
   QualityMetrics,
-  FunctionDescription
+  FunctionDescription,
+  NamingEvaluation
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 
@@ -1355,7 +1356,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
     
     // Create tables if they don't exist
-    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'ann_index_metadata'];
+    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'ann_index_metadata'];
     
     for (const tableName of tables) {
       const exists = await this.tableExists(tableName);
@@ -1378,6 +1379,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             break;
           case 'function_embeddings':
             await this.db.exec(this.getFunctionEmbeddingsTableSQL());
+            break;
+          case 'naming_evaluations':
+            await this.db.exec(this.getNamingEvaluationsTableSQL());
             break;
           case 'ann_index_metadata':
             await this.db.exec(this.getANNIndexTableSQL());
@@ -1605,6 +1609,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );`;
   }
 
+  private getNamingEvaluationsTableSQL(): string {
+    return `
+      CREATE TABLE naming_evaluations (
+        function_id TEXT PRIMARY KEY,
+        semantic_id TEXT NOT NULL,
+        function_name TEXT NOT NULL,
+        description_hash TEXT NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3)),
+        evaluated_at BIGINT NOT NULL,
+        evaluated_by TEXT NOT NULL CHECK (evaluated_by IN ('human', 'ai', 'auto')),
+        issues TEXT,
+        suggestions TEXT,
+        revision_needed BOOLEAN DEFAULT FALSE,
+        ai_model TEXT,
+        confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+      );`;
+  }
+
   private getTriggersSQL(): string {
     return `
       -- 自動トリガー: 内容変更検出
@@ -1667,6 +1692,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       -- 意味ベース関数説明管理インデックス
       CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
       CREATE INDEX IF NOT EXISTS idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
+      
+      -- Naming evaluations indexes
+      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_semantic_id ON naming_evaluations(semantic_id);
+      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_rating ON naming_evaluations(rating);
+      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_by ON naming_evaluations(evaluated_by);
+      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_revision_needed ON naming_evaluations(revision_needed) WHERE revision_needed = TRUE;
+      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_at ON naming_evaluations(evaluated_at);
     `);
     } catch (error) {
       // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
@@ -2006,6 +2038,344 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return tags.latest || null;
     } catch {
       return null;
+    }
+  }
+
+  // ========================================
+  // NAMING EVALUATION OPERATIONS (v1.6 Enhancement)
+  // ========================================
+
+  async saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void> {
+    try {
+      await this.db.query(`
+        INSERT INTO naming_evaluations (
+          function_id, semantic_id, function_name, description_hash, rating,
+          evaluated_at, evaluated_by, issues, suggestions, revision_needed,
+          ai_model, confidence
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        ON CONFLICT (function_id) DO UPDATE SET
+          semantic_id = EXCLUDED.semantic_id,
+          function_name = EXCLUDED.function_name,
+          description_hash = EXCLUDED.description_hash,
+          rating = EXCLUDED.rating,
+          evaluated_at = EXCLUDED.evaluated_at,
+          evaluated_by = EXCLUDED.evaluated_by,
+          issues = EXCLUDED.issues,
+          suggestions = EXCLUDED.suggestions,
+          revision_needed = EXCLUDED.revision_needed,
+          ai_model = EXCLUDED.ai_model,
+          confidence = EXCLUDED.confidence,
+          updated_at = CURRENT_TIMESTAMP
+      `, [
+        evaluation.functionId,
+        evaluation.semanticId,
+        evaluation.functionName,
+        evaluation.descriptionHash,
+        evaluation.rating,
+        evaluation.evaluatedAt,
+        evaluation.evaluatedBy,
+        evaluation.issues || null,
+        evaluation.suggestions || null,
+        evaluation.revisionNeeded,
+        evaluation.aiModel || null,
+        evaluation.confidence || null
+      ]);
+    } catch (error) {
+      throw new Error(`Failed to save naming evaluation: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getNamingEvaluation(functionId: string): Promise<NamingEvaluation | null> {
+    try {
+      const queryResult = await this.db.query(
+        'SELECT * FROM naming_evaluations WHERE function_id = $1',
+        [functionId]
+      );
+
+      if (queryResult.rows.length === 0) {
+        return null;
+      }
+
+      const row = queryResult.rows[0] as {
+        function_id: string;
+        semantic_id: string;
+        function_name: string;
+        description_hash: string;
+        rating: 1 | 2 | 3;
+        evaluated_at: string;
+        evaluated_by: 'human' | 'ai' | 'auto';
+        issues?: string;
+        suggestions?: string;
+        revision_needed: boolean;
+        ai_model?: string;
+        confidence?: number;
+      };
+
+      const result: NamingEvaluation = {
+        functionId: row.function_id,
+        semanticId: row.semantic_id,
+        functionName: row.function_name,
+        descriptionHash: row.description_hash,
+        rating: row.rating,
+        evaluatedAt: parseInt(row.evaluated_at),
+        evaluatedBy: row.evaluated_by,
+        revisionNeeded: row.revision_needed
+      };
+
+      if (row.issues) result.issues = row.issues;
+      if (row.suggestions) result.suggestions = row.suggestions;
+      if (row.ai_model) result.aiModel = row.ai_model;
+      if (row.confidence !== null && row.confidence !== undefined) result.confidence = row.confidence;
+
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to get naming evaluation: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionsNeedingEvaluation(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
+    try {
+      let sql = `
+        SELECT 
+          f.id as function_id,
+          f.name as function_name,
+          EXTRACT(EPOCH FROM f.created_at) * 1000 as last_modified
+        FROM functions f
+        LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
+        WHERE f.snapshot_id = $1 
+        AND (
+          ne.function_id IS NULL 
+          OR ne.revision_needed = TRUE
+        )
+        ORDER BY f.created_at DESC
+      `;
+      
+      const params: (string | number)[] = [snapshotId];
+      
+      if (options?.limit) {
+        sql += ' LIMIT $' + (params.length + 1);
+        params.push(options.limit);
+      }
+      
+      if (options?.offset) {
+        sql += ' OFFSET $' + (params.length + 1);
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      return result.rows.map(row => ({
+        functionId: (row as { function_id: string }).function_id,
+        functionName: (row as { function_name: string }).function_name,
+        lastModified: (row as { last_modified: number }).last_modified
+      }));
+    } catch (error) {
+      throw new Error(`Failed to get functions needing evaluation: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionsWithEvaluations(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>> {
+    try {
+      let sql = `
+        SELECT 
+          f.id as function_id,
+          ne.*
+        FROM functions f
+        INNER JOIN naming_evaluations ne ON f.id = ne.function_id
+        WHERE f.snapshot_id = $1
+        ORDER BY ne.evaluated_at DESC
+      `;
+      
+      const params: (string | number)[] = [snapshotId];
+      
+      if (options?.limit) {
+        sql += ' LIMIT $' + (params.length + 1);
+        params.push(options.limit);
+      }
+      
+      if (options?.offset) {
+        sql += ' OFFSET $' + (params.length + 1);
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      return result.rows.map(row => {
+        const r = row as {
+          function_id: string;
+          semantic_id: string;
+          function_name: string;
+          description_hash: string;
+          rating: 1 | 2 | 3;
+          evaluated_at: string;
+          evaluated_by: 'human' | 'ai' | 'auto';
+          issues?: string;
+          suggestions?: string;
+          revision_needed: boolean;
+          ai_model?: string;
+          confidence?: number;
+        };
+
+        const evaluation: NamingEvaluation = {
+          functionId: r.function_id,
+          semanticId: r.semantic_id,
+          functionName: r.function_name,
+          descriptionHash: r.description_hash,
+          rating: r.rating,
+          evaluatedAt: parseInt(r.evaluated_at),
+          evaluatedBy: r.evaluated_by,
+          revisionNeeded: r.revision_needed
+        };
+
+        if (r.issues) evaluation.issues = r.issues;
+        if (r.suggestions) evaluation.suggestions = r.suggestions;
+        if (r.ai_model) evaluation.aiModel = r.ai_model;
+        if (r.confidence !== null && r.confidence !== undefined) evaluation.confidence = r.confidence;
+
+        return {
+          functionId: r.function_id,
+          evaluation
+        };
+      });
+    } catch (error) {
+      throw new Error(`Failed to get functions with evaluations: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async updateEvaluationRevisionStatus(functionId: string, revisionNeeded: boolean): Promise<void> {
+    try {
+      await this.db.query(
+        'UPDATE naming_evaluations SET revision_needed = $1, updated_at = CURRENT_TIMESTAMP WHERE function_id = $2',
+        [revisionNeeded, functionId]
+      );
+    } catch (error) {
+      throw new Error(`Failed to update evaluation revision status: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async batchSaveEvaluations(evaluations: NamingEvaluation[]): Promise<void> {
+    if (evaluations.length === 0) return;
+
+    try {
+      await TransactionalBatchProcessor.processWithTransaction(
+        evaluations,
+        {
+          processBatch: async (batch: NamingEvaluation[]) => {
+            const values = batch.map((_, index) => {
+              const offset = index * 12;
+              return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`;
+            }).join(', ');
+
+            const params = batch.flatMap((evaluation: NamingEvaluation) => [
+              evaluation.functionId,
+              evaluation.semanticId,
+              evaluation.functionName,
+              evaluation.descriptionHash,
+              evaluation.rating,
+              evaluation.evaluatedAt,
+              evaluation.evaluatedBy,
+              evaluation.issues || null,
+              evaluation.suggestions || null,
+              evaluation.revisionNeeded,
+              evaluation.aiModel || null,
+              evaluation.confidence || null
+            ]);
+
+            await this.db.query(`
+              INSERT INTO naming_evaluations (
+                function_id, semantic_id, function_name, description_hash, rating,
+                evaluated_at, evaluated_by, issues, suggestions, revision_needed,
+                ai_model, confidence
+              ) VALUES ${values}
+              ON CONFLICT (function_id) DO UPDATE SET
+                semantic_id = EXCLUDED.semantic_id,
+                function_name = EXCLUDED.function_name,
+                description_hash = EXCLUDED.description_hash,
+                rating = EXCLUDED.rating,
+                evaluated_at = EXCLUDED.evaluated_at,
+                evaluated_by = EXCLUDED.evaluated_by,
+                issues = EXCLUDED.issues,
+                suggestions = EXCLUDED.suggestions,
+                revision_needed = EXCLUDED.revision_needed,
+                ai_model = EXCLUDED.ai_model,
+                confidence = EXCLUDED.confidence,
+                updated_at = CURRENT_TIMESTAMP
+            `, params);
+          },
+          onError: async (error: Error, _batch: NamingEvaluation[]) => {
+            throw error;
+          },
+          onSuccess: async (_batch: NamingEvaluation[]) => {
+            // Success callback
+          }
+        },
+        10 // Process in batches of 10
+      );
+    } catch (error) {
+      throw new Error(`Failed to batch save evaluations: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getEvaluationStatistics(snapshotId: string): Promise<{
+    total: number;
+    withEvaluations: number;
+    needingEvaluation: number;
+    averageRating: number;
+    ratingDistribution: Record<1 | 2 | 3, number>;
+  }> {
+    try {
+      // Get total functions count
+      const totalResult = await this.db.query(
+        'SELECT COUNT(*) as total FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const total = Number((totalResult.rows[0] as { total: string | number }).total);
+
+      // Get functions with evaluations
+      const evaluationsResult = await this.db.query(`
+        SELECT 
+          COUNT(*) as with_evaluations,
+          AVG(ne.rating::numeric) as average_rating,
+          SUM(CASE WHEN ne.rating = 1 THEN 1 ELSE 0 END) as rating_1,
+          SUM(CASE WHEN ne.rating = 2 THEN 1 ELSE 0 END) as rating_2,
+          SUM(CASE WHEN ne.rating = 3 THEN 1 ELSE 0 END) as rating_3
+        FROM functions f
+        INNER JOIN naming_evaluations ne ON f.id = ne.function_id
+        WHERE f.snapshot_id = $1
+      `, [snapshotId]);
+
+      const evalRow = evaluationsResult.rows[0] as {
+        with_evaluations: string | number;
+        average_rating: string | number;
+        rating_1: string | number;
+        rating_2: string | number;
+        rating_3: string | number;
+      };
+
+      // Get functions needing evaluation
+      const needingResult = await this.db.query(`
+        SELECT COUNT(*) as needing_evaluation
+        FROM functions f
+        LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
+        WHERE f.snapshot_id = $1 
+        AND (ne.function_id IS NULL OR ne.revision_needed = TRUE)
+      `, [snapshotId]);
+
+      const needingEvaluation = Number((needingResult.rows[0] as { needing_evaluation: string | number }).needing_evaluation);
+
+      return {
+        total,
+        withEvaluations: Number(evalRow.with_evaluations) || 0,
+        needingEvaluation,
+        averageRating: Number(evalRow.average_rating) || 0,
+        ratingDistribution: {
+          1: Number(evalRow.rating_1) || 0,
+          2: Number(evalRow.rating_2) || 0,
+          3: Number(evalRow.rating_3) || 0
+        }
+      };
+    } catch (error) {
+      throw new Error(`Failed to get evaluation statistics: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
