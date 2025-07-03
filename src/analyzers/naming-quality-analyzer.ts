@@ -361,9 +361,9 @@ export class NamingQualityAnalyzer {
   }
 
   private extractFirstWord(name: string): string {
-    // Extract first word from camelCase
-    const match = name.match(/^[a-z]+/);
-    return match ? match[0] : name;
+    // Extract first word from camelCase, handling edge cases
+    const match = name.match(/^[a-z]+/i);
+    return match ? match[0].toLowerCase() : name.toLowerCase();
   }
 
   private isReturnTypeBoolean(returnType: string): boolean {
@@ -387,7 +387,12 @@ export class NamingQualityAnalyzer {
   }
 
   private splitCamelCase(name: string): string[] {
-    return name.replace(/([a-z])([A-Z])/g, '$1 $2').split(' ');
+    return name
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([a-z])([0-9])/g, '$1 $2')
+      .replace(/([0-9])([A-Z])/g, '$1 $2')
+      .split(' ')
+      .filter(word => word.length > 0);
   }
 
   private suggestActionVerbs(name: string): string[] {

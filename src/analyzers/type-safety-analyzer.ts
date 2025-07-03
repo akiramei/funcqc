@@ -324,7 +324,9 @@ export class TypeSafetyAnalyzer {
   private isAnyType(type: string): boolean {
     if (!type) return false;
     const cleanType = type.trim().toLowerCase();
-    return cleanType === 'any' || cleanType.includes('any');
+    // Check for exact 'any' or 'any' as part of union types like 'any | string'
+    return cleanType === 'any' || 
+           cleanType.match(/\bany\b/) !== null;
   }
 
   private isGenericType(type: string): boolean {
