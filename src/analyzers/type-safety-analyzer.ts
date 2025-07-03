@@ -8,8 +8,17 @@
  * - Return Type Explicitness (10%): Explicit return type declarations
  */
 
+import * as ts from 'typescript';
 import { FunctionInfo } from '../types';
 import { TypeSafetyScore, TypeSafetyIssue } from '../types/quality-enhancements';
+
+interface ASTContext {
+  sourceFile: ts.SourceFile | undefined;
+  functionNode: ts.Node | undefined;
+  typeChecker: ts.TypeChecker | undefined;
+  hasValidAST: boolean;
+  error: string | undefined;
+}
 
 export class TypeSafetyAnalyzer {
   private readonly GENERIC_TYPES = new Set([
@@ -35,11 +44,14 @@ export class TypeSafetyAnalyzer {
   analyze(functionInfo: FunctionInfo): TypeSafetyScore {
     const issues: TypeSafetyIssue[] = [];
     
-    // Calculate component scores
+    // Parse function source code into AST for accurate analysis
+    const astContext = this.parseToAST(functionInfo);
+    
+    // Calculate component scores using AST analysis where possible
     const anyTypeUsage = this.checkAnyTypeUsage(functionInfo, issues);
     const typeAnnotation = this.checkTypeAnnotationCompleteness(functionInfo, issues);
     const typeSpecificity = this.checkTypeSpecificity(functionInfo, issues);
-    const returnTypeExplicit = this.checkReturnTypeExplicitness(functionInfo, issues);
+    const returnTypeExplicit = this.checkReturnTypeExplicitness(functionInfo, astContext, issues);
 
     // Calculate overall score with weights
     const score = Math.round(
@@ -259,7 +271,7 @@ export class TypeSafetyAnalyzer {
    * Checks return type explicitness (10% weight)
    * Explicit return type declarations for non-void functions
    */
-  private checkReturnTypeExplicitness(functionInfo: FunctionInfo, issues: TypeSafetyIssue[]): number {
+  private checkReturnTypeExplicitness(functionInfo: FunctionInfo, astContext: ASTContext, issues: TypeSafetyIssue[]): number {
     let score = 100;
 
     // Skip constructors and void-like functions
@@ -281,8 +293,8 @@ export class TypeSafetyAnalyzer {
         location: 'return type'
       });
     } else {
-      // Check if return type is just inferred (implicit)
-      if (this.isImplicitReturnType(functionInfo)) {
+      // Use AST analysis for accurate implicit return type detection
+      if (this.isImplicitReturnType(functionInfo, astContext)) {
         const penalty = 5;
         score -= penalty;
         
@@ -391,15 +403,62 @@ export class TypeSafetyAnalyzer {
     return complexity > 5 || lines > 20 || params > 3;
   }
 
-  private isImplicitReturnType(functionInfo: FunctionInfo): boolean {
-    // This is a heuristic - in practice, we'd need AST analysis to determine
-    // if the return type was explicitly declared or inferred
+  /**
+   * Uses AST analysis to accurately determine if return type is implicit
+   */
+  private isImplicitReturnType(functionInfo: FunctionInfo, astContext: ASTContext): boolean {
+    // If AST analysis is available, use it for accurate detection
+    if (astContext.hasValidAST && astContext.functionNode) {
+      return this.hasImplicitReturnTypeFromAST(astContext);
+    }
+    
+    // Fallback to heuristic approach if AST is not available
     const returnType = functionInfo.returnType?.type;
     if (!returnType) return true;
     
     // Simple heuristics for common inferred types
     const commonInferredTypes = ['string', 'number', 'boolean', 'void', 'undefined'];
     return commonInferredTypes.includes(returnType.toLowerCase());
+  }
+
+  /**
+   * Checks if function has implicit return type using AST analysis
+   */
+  private hasImplicitReturnTypeFromAST(astContext: ASTContext): boolean {
+    if (!astContext.functionNode || !astContext.typeChecker) {
+      return false;
+    }
+    
+    const node = astContext.functionNode;
+    
+    // Check if function has explicit return type annotation
+    if (ts.isFunctionLike(node)) {
+      // If there's a type annotation, it's explicit
+      if (node.type) {
+        return false;
+      }
+      
+      // If no type annotation, it's implicit
+      return true;
+    }
+    
+    // For arrow functions, check the variable declaration
+    if (ts.isArrowFunction(node)) {
+      const parent = node.parent;
+      if (ts.isVariableDeclaration(parent)) {
+        // Check if the variable has type annotation
+        if (parent.type) {
+          // Check if it's a function type or just the return type
+          const typeText = parent.type.getText();
+          // If it contains '=>' it's a function type, otherwise it might be just return type
+          return !typeText.includes('=>');
+        }
+        // No type annotation on variable, check the arrow function itself
+        return !node.type;
+      }
+    }
+    
+    return false;
   }
 
   private countAnyTypes(functionInfo: FunctionInfo): number {
@@ -495,5 +554,113 @@ export class TypeSafetyAnalyzer {
         commonIssues
       }
     };
+  }
+
+  /**
+   * Parses function source code into TypeScript AST for accurate type analysis
+   */
+  private parseToAST(functionInfo: FunctionInfo): ASTContext {
+    try {
+      // Create a simple source file for parsing
+      const sourceText = this.createParseableSource(functionInfo);
+      const sourceFile = ts.createSourceFile(
+        "temp.ts",
+        sourceText,
+        ts.ScriptTarget.Latest,
+        true
+      );
+      
+      // Create a basic program and type checker for type analysis
+      const program = ts.createProgram(["temp.ts"], {
+        target: ts.ScriptTarget.Latest,
+        moduleResolution: ts.ModuleResolutionKind.NodeJs
+      }, {
+        getSourceFile: (fileName) => fileName === "temp.ts" ? sourceFile : undefined,
+        writeFile: () => {},
+        getCurrentDirectory: () => "",
+        getDirectories: () => [],
+        fileExists: (fileName) => fileName === "temp.ts",
+        readFile: () => "",
+        getCanonicalFileName: (fileName) => fileName,
+        useCaseSensitiveFileNames: () => true,
+        getNewLine: () => "\n",
+        getDefaultLibFileName: () => "lib.d.ts"
+      });
+      
+      const typeChecker = program.getTypeChecker();
+      
+      // Find the function declaration/expression in the AST
+      const functionNode = this.findFunctionNode(sourceFile, functionInfo.name);
+      
+      return {
+        sourceFile,
+        functionNode,
+        typeChecker,
+        hasValidAST: functionNode !== undefined,
+        error: undefined
+      };
+    } catch (error) {
+      return {
+        sourceFile: undefined,
+        functionNode: undefined,
+        typeChecker: undefined,
+        hasValidAST: false,
+        error: error instanceof Error ? error.message : "Unknown AST parsing error"
+      };
+    }
+  }
+
+  /**
+   * Creates parseable TypeScript source from function info
+   */
+  private createParseableSource(functionInfo: FunctionInfo): string {
+    const name = functionInfo.name;
+    const params = functionInfo.parameters?.map(p => `${p.name}: ${p.type || "any"}`).join(", ") || "";
+    const returnType = functionInfo.returnType?.type || "void";
+    
+    if (functionInfo.isConstructor) {
+      return `class TempClass { constructor(${params}) {} }`;
+    } else if (functionInfo.functionType === "arrow") {
+      return `const ${name} = (${params}): ${returnType} => { return undefined; };`;
+    } else {
+      return `function ${name}(${params}): ${returnType} { return undefined; }`;
+    }
+  }
+
+  /**
+   * Finds the function node in the AST
+   */
+  private findFunctionNode(sourceFile: ts.SourceFile, functionName: string): ts.Node | undefined {
+    let result: ts.Node | undefined;
+    
+    const visit = (node: ts.Node): void => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
+        result = node;
+        return;
+      }
+      if (ts.isVariableDeclaration(node) && 
+          node.name.kind === ts.SyntaxKind.Identifier &&
+          (node.name as ts.Identifier).text === functionName &&
+          node.initializer && 
+          ts.isArrowFunction(node.initializer)) {
+        result = node.initializer;
+        return;
+      }
+      if (ts.isMethodDeclaration(node) && 
+          node.name?.kind === ts.SyntaxKind.Identifier &&
+          (node.name as ts.Identifier).text === functionName) {
+        result = node;
+        return;
+      }
+      if (ts.isConstructorDeclaration(node) && functionName === "constructor") {
+        result = node;
+        return;
+      }
+      
+      ts.forEachChild(node, visit);
+    };
+    
+    visit(sourceFile);
+    return result;
   }
 }
