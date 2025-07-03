@@ -448,10 +448,9 @@ export class TypeSafetyAnalyzer {
       if (ts.isVariableDeclaration(parent)) {
         // Check if the variable has type annotation
         if (parent.type) {
-          // Check if it's a function type or just the return type
-          const typeText = parent.type.getText();
-          // If it contains '=>' it's a function type, otherwise it might be just return type
-          return !typeText.includes('=>');
+          // Check if the type annotation is a function type
+          return !ts.isFunctionTypeNode(parent.type) &&
+                 !ts.isCallSignatureDeclaration(parent.type);
         }
         // No type annotation on variable, check the arrow function itself
         return !node.type;
@@ -614,7 +613,10 @@ export class TypeSafetyAnalyzer {
    * Creates parseable TypeScript source from function info
    */
   private createParseableSource(functionInfo: FunctionInfo): string {
-    const name = functionInfo.name;
+    const name = functionInfo.name || "anonymousFunction";
+    if (!name || name.trim() === "") {
+      throw new Error("Function name is required for AST parsing");
+    }
     const params = functionInfo.parameters?.map(p => `${p.name}: ${p.type || "any"}`).join(", ") || "";
     const returnType = functionInfo.returnType?.type || "void";
     
