@@ -335,8 +335,8 @@ export class NamingQualityAnalyzer {
   // =============================================================================
 
   private isCamelCase(name: string): boolean {
-    // Should start with lowercase and use camelCase
-    return /^[a-z][a-zA-Z0-9]*$/.test(name) && name !== name.toLowerCase();
+    // Should start with lowercase and use camelCase (single lowercase words are valid)
+    return /^[a-z][a-zA-Z0-9]*$/.test(name);
   }
 
   private toCamelCase(name: string): string {

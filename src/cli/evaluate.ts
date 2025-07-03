@@ -9,9 +9,10 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
+import { createHash } from 'crypto';
 import { EvaluateCommandOptions, NamingEvaluation, EvaluationBatch, FunctionInfo } from '../types';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from '../core/config';
@@ -106,8 +107,8 @@ function validateEvaluateOptions(functionId: string | undefined, options: Evalua
 async function handleSingleEvaluation(
   functionId: string,
   options: EvaluateOptions,
-  storage: any,
-  spinner: any
+  storage: PGLiteStorageAdapter,
+  spinner: Ora
 ): Promise<void> {
   spinner.start(`Evaluating function ${functionId}...`);
 
@@ -149,8 +150,8 @@ async function handleSingleEvaluation(
 
 async function handleBatchEvaluation(
   options: EvaluateOptions,
-  storage: any,
-  spinner: any
+  storage: PGLiteStorageAdapter,
+  spinner: Ora
 ): Promise<void> {
   spinner.start(`Loading batch evaluation data from ${options.input}...`);
 
@@ -248,7 +249,7 @@ async function handleBatchEvaluation(
 function generateDescriptionHash(functionInfo: FunctionInfo): string {
   // Create hash based on function description or signature if no description
   const content = functionInfo.description || functionInfo.signature || functionInfo.name;
-  return require('crypto').createHash('md5').update(content).digest('hex');
+  return createHash('md5').update(content).digest('hex');
 }
 
 function displayEvaluationResult(

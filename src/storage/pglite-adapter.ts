@@ -2329,7 +2329,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         'SELECT COUNT(*) as total FROM functions WHERE snapshot_id = $1',
         [snapshotId]
       );
-      const total = (totalResult.rows[0] as { total: number }).total;
+      const total = Number((totalResult.rows[0] as { total: string | number }).total);
 
       // Get functions with evaluations
       const evaluationsResult = await this.db.query(`
@@ -2345,11 +2345,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `, [snapshotId]);
 
       const evalRow = evaluationsResult.rows[0] as {
-        with_evaluations: number;
-        average_rating: number;
-        rating_1: number;
-        rating_2: number;
-        rating_3: number;
+        with_evaluations: string | number;
+        average_rating: string | number;
+        rating_1: string | number;
+        rating_2: string | number;
+        rating_3: string | number;
       };
 
       // Get functions needing evaluation
@@ -2361,17 +2361,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         AND (ne.function_id IS NULL OR ne.revision_needed = TRUE)
       `, [snapshotId]);
 
-      const needingEvaluation = (needingResult.rows[0] as { needing_evaluation: number }).needing_evaluation;
+      const needingEvaluation = Number((needingResult.rows[0] as { needing_evaluation: string | number }).needing_evaluation);
 
       return {
         total,
-        withEvaluations: evalRow.with_evaluations || 0,
+        withEvaluations: Number(evalRow.with_evaluations) || 0,
         needingEvaluation,
-        averageRating: evalRow.average_rating || 0,
+        averageRating: Number(evalRow.average_rating) || 0,
         ratingDistribution: {
-          1: evalRow.rating_1 || 0,
-          2: evalRow.rating_2 || 0,
-          3: evalRow.rating_3 || 0
+          1: Number(evalRow.rating_1) || 0,
+          2: Number(evalRow.rating_2) || 0,
+          3: Number(evalRow.rating_3) || 0
         }
       };
     } catch (error) {
