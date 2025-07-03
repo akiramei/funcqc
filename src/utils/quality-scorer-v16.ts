@@ -312,7 +312,7 @@ export class QualityScorerV16 {
       .filter(func => func.problemScore > 0)
       .sort((a, b) => b.problemScore - a.problemScore)
       .slice(0, 10)
-      .map(({ problemScore, ...rest }) => rest); // Remove problemScore from final result
+      .map(({ problemScore: _, ...rest }) => rest); // Remove problemScore from final result
   }
 
   /**

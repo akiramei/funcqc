@@ -199,12 +199,10 @@ export class TypeSafetyAnalyzer {
    */
   private checkTypeSpecificity(functionInfo: FunctionInfo, issues: TypeSafetyIssue[]): number {
     let score = 100;
-    let genericTypeCount = 0;
 
     // Check parameters for generic types
     functionInfo.parameters.forEach((param, index) => {
       if (this.isGenericType(param.type)) {
-        genericTypeCount++;
         const penalty = 8;
         score -= penalty;
         
@@ -223,7 +221,6 @@ export class TypeSafetyAnalyzer {
 
     // Check return type for generic types
     if (functionInfo.returnType && this.isGenericType(functionInfo.returnType.type)) {
-      genericTypeCount++;
       const penalty = 10;
       score -= penalty;
       
