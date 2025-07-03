@@ -48,7 +48,7 @@ const DEFAULT_CONFIG: FuncqcConfig = {
 export class ConfigManager {
   private config: FuncqcConfig | undefined;
   private explorer = cosmiconfigSync('funcqc');
-  private thresholdManager: ThresholdConfigManager = new ThresholdConfigManager();
+  private thresholdManager: ThresholdConfigManager | undefined;
 
   async load(): Promise<FuncqcConfig> {
     if (this.config) {
@@ -191,7 +191,7 @@ export class ConfigManager {
    */
   getThresholdManager(): ThresholdConfigManager {
     if (!this.thresholdManager) {
-      this.thresholdManager = new ThresholdConfigManager();
+      throw new Error('Configuration not loaded. Call load() first.');
     }
     return this.thresholdManager;
   }

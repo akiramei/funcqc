@@ -222,7 +222,7 @@ The system validates threshold configurations:
 5. **Penalties**: Must be positive numbers
 6. **All thresholds**: Must be positive numbers within reasonable ranges
 
-Invalid configurations will throw validation errors with specific details.
+Invalid configurations will throw validation errors with details.
 
 ## Migration from Hard-coded Values
 

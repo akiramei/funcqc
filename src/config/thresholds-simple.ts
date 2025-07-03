@@ -129,45 +129,86 @@ export function parseQualityThresholdConfig(userConfig: UserConfig): Partial<Qua
   }
 }
 
+/**
+ * Helper function to parse number field with default value
+ */
+function parseNumberField(
+  config: Record<string, unknown>,
+  field: string,
+  defaultValue: number
+): number {
+  return typeof config[field] === 'number' ? config[field] : defaultValue;
+}
+
+/**
+ * Helper function to parse threshold section with given field names
+ */
+function parseThresholdSection<T extends Record<string, number>>(
+  config: Record<string, unknown>,
+  sectionName: string,
+  defaultSection: T,
+  fieldNames: (keyof T)[]
+): T | undefined {
+  const section = config[sectionName];
+  if (!section || typeof section !== 'object') {
+    return undefined;
+  }
+  
+  const sectionConfig = section as Record<string, unknown>;
+  const parsed = {} as T;
+  
+  for (const field of fieldNames) {
+    (parsed as Record<string, number>)[field as string] = parseNumberField(sectionConfig, field as string, defaultSection[field]);
+  }
+  
+  return parsed;
+}
+
 function parseQualityThresholds(config: Record<string, unknown>): Partial<QualityScorerThresholds> {
   const parsed: Partial<QualityScorerThresholds> = {};
 
-  if (config['complexity'] && typeof config['complexity'] === 'object') {
-    const complexity = config['complexity'] as Record<string, unknown>;
-    parsed.complexity = {
-      warning: typeof complexity['warning'] === 'number' ? complexity['warning'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.complexity.warning,
-      critical: typeof complexity['critical'] === 'number' ? complexity['critical'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.complexity.critical,
-      warningPenalty: typeof complexity['warningPenalty'] === 'number' ? complexity['warningPenalty'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.complexity.warningPenalty,
-      criticalPenalty: typeof complexity['criticalPenalty'] === 'number' ? complexity['criticalPenalty'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.complexity.criticalPenalty
-    };
+  // Parse complexity section
+  const complexity = parseThresholdSection(
+    config,
+    'complexity',
+    DEFAULT_QUALITY_SCORER_THRESHOLDS.complexity,
+    ['warning', 'critical', 'warningPenalty', 'criticalPenalty']
+  );
+  if (complexity) {
+    parsed.complexity = complexity;
   }
 
-  if (config['size'] && typeof config['size'] === 'object') {
-    const size = config['size'] as Record<string, unknown>;
-    parsed.size = {
-      warning: typeof size['warning'] === 'number' ? size['warning'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.size.warning,
-      critical: typeof size['critical'] === 'number' ? size['critical'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.size.critical,
-      warningPenalty: typeof size['warningPenalty'] === 'number' ? size['warningPenalty'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.size.warningPenalty,
-      criticalPenalty: typeof size['criticalPenalty'] === 'number' ? size['criticalPenalty'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.size.criticalPenalty
-    };
+  // Parse size section
+  const size = parseThresholdSection(
+    config,
+    'size',
+    DEFAULT_QUALITY_SCORER_THRESHOLDS.size,
+    ['warning', 'critical', 'warningPenalty', 'criticalPenalty']
+  );
+  if (size) {
+    parsed.size = size;
   }
 
-  if (config['maintainability'] && typeof config['maintainability'] === 'object') {
-    const maintainability = config['maintainability'] as Record<string, unknown>;
-    parsed.maintainability = {
-      critical: typeof maintainability['critical'] === 'number' ? maintainability['critical'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.maintainability.critical,
-      warning: typeof maintainability['warning'] === 'number' ? maintainability['warning'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.maintainability.warning
-    };
+  // Parse maintainability section
+  const maintainability = parseThresholdSection(
+    config,
+    'maintainability',
+    DEFAULT_QUALITY_SCORER_THRESHOLDS.maintainability,
+    ['critical', 'warning']
+  );
+  if (maintainability) {
+    parsed.maintainability = maintainability;
   }
 
-  if (config['grading'] && typeof config['grading'] === 'object') {
-    const grading = config['grading'] as Record<string, unknown>;
-    parsed.grading = {
-      A: typeof grading['A'] === 'number' ? grading['A'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.grading.A,
-      B: typeof grading['B'] === 'number' ? grading['B'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.grading.B,
-      C: typeof grading['C'] === 'number' ? grading['C'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.grading.C,
-      D: typeof grading['D'] === 'number' ? grading['D'] : DEFAULT_QUALITY_SCORER_THRESHOLDS.grading.D
-    };
+  // Parse grading section
+  const grading = parseThresholdSection(
+    config,
+    'grading',
+    DEFAULT_QUALITY_SCORER_THRESHOLDS.grading,
+    ['A', 'B', 'C', 'D']
+  );
+  if (grading) {
+    parsed.grading = grading;
   }
 
   return parsed;
