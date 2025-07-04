@@ -298,32 +298,7 @@ export interface ScanCommandOptions extends CommandOptions {
 }
 
 export interface ListCommandOptions extends CommandOptions {
-  name?: string;
-  file?: string;
-  exported?: boolean;
-  async?: boolean;
-  complexity?: string;
-  lines?: string;
-  params?: string;
-  format?: 'table' | 'json' | 'friendly';
-  fields?: string;
-  sort?: string;
-  limit?: string;
   json?: boolean;
-  thresholdViolations?: boolean;
-  showId?: boolean;
-  keyword?: string;
-  withDescription?: boolean;
-  noDescription?: boolean;
-  needsDescription?: boolean;
-  // v1.6 evaluation enhancements
-  needsEvaluation?: boolean;
-  hasEvaluation?: boolean;
-  rating?: string;
-  evaluatedBy?: string;
-  showNamingScore?: boolean;
-  showTypeSafetyScore?: boolean;
-  showEnhancedMetrics?: boolean;
 }
 
 export interface ShowCommandOptions extends CommandOptions {

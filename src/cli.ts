@@ -63,26 +63,8 @@ program
 
 program
   .command('list')
-  .description('List and search functions')
-  .argument('[patterns...]', 'function name patterns (glob)')
-  .option('--name <pattern>', 'filter by function name pattern')
-  .option('--file <pattern>', 'filter by file path pattern')
-  .option('--keyword <keyword>', 'search in function names, JSDoc, and comments')
-  .option('--exported', 'show exported functions only')
-  .option('--async', 'show async functions only')
-  .option('--complexity <condition>', 'filter by complexity (e.g., ">5", "3..10")')
-  .option('--lines <condition>', 'filter by lines of code')
-  .option('--params <condition>', 'filter by parameter count')
-  .option('--format <type>', 'output format', 'table')
-  .option('--fields <list>', 'fields to display (comma-separated)')
-  .option('--sort <field>', 'sort by field[:order]', 'name')
-  .option('--limit <num>', 'limit number of results', '50')
+  .description('List all functions')
   .option('--json', 'output as JSON')
-  .option('--threshold-violations', 'show functions that violate configurable thresholds')
-  .option('--show-id', 'include function ID in the output')
-  .option('--with-description', 'show only functions with descriptions')
-  .option('--no-description', 'show only functions without descriptions')
-  .option('--needs-description', 'show functions that need descriptions (new/updated since last description)')
   .action(listCommand);
 
 program
@@ -269,8 +251,20 @@ function handleHelpDisplay(): void {
   process.exit(0);
 }
 
+const READ_ONLY_COMMANDS = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'] as const;
+
+function isReadOnlyCommand(): boolean {
+  const command = process.argv[2];
+  return READ_ONLY_COMMANDS.includes(command as typeof READ_ONLY_COMMANDS[number]);
+}
+
 function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
   if (options['noCheck']) return;
+  
+  // Skip system checks for read-only commands unless explicitly requested
+  if (isReadOnlyCommand() && !options['checkSystem']) {
+    return;
+  }
   
   const systemOk = performSystemCheck(logger, false);
   if (!systemOk) {
