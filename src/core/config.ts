@@ -256,6 +256,7 @@ export class ConfigManager {
     this.config = undefined;
     this.explorer.clearCaches();
     this.thresholdManager = new ThresholdConfigManager();
+    ConfigManager.lightweightCache = undefined;
   }
 
   private mergeThresholdsConfig(config: FuncqcConfig, userConfig: UserConfig): void {

@@ -1,5 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
+import * as path from 'path';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
 import { 
@@ -37,7 +38,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private static schemaCache = new Map<string, boolean>();
 
   constructor(dbPath: string) {
-    this.dbPath = dbPath;
+    // パスを正規化してキャッシュの一貫性を保証
+    this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
   }
@@ -48,9 +50,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       
       // Use cache to avoid redundant schema initialization  
       if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
-        await this.createSchema();
-        await this.createIndexes();
+        // 同期的にキャッシュに追加して競合を防ぐ
         PGLiteStorageAdapter.schemaCache.set(this.dbPath, true);
+        try {
+          await this.createSchema();
+          await this.createIndexes();
+        } catch (error) {
+          // エラーが発生した場合はキャッシュから削除
+          PGLiteStorageAdapter.schemaCache.delete(this.dbPath);
+          throw error;
+        }
       }
     } catch (error) {
       throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`);

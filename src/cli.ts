@@ -251,10 +251,11 @@ function handleHelpDisplay(): void {
   process.exit(0);
 }
 
+const READ_ONLY_COMMANDS = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'] as const;
+
 function isReadOnlyCommand(): boolean {
   const command = process.argv[2];
-  const readOnlyCommands = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'];
-  return readOnlyCommands.includes(command);
+  return READ_ONLY_COMMANDS.includes(command as typeof READ_ONLY_COMMANDS[number]);
 }
 
 function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
