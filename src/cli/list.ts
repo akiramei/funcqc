@@ -7,9 +7,10 @@ export async function listCommand(
 ): Promise<void> {
   try {
     const configManager = new ConfigManager();
-    const config = await configManager.load();
+    // Use lightweight config loading for read-only operations
+    const config = configManager.loadLightweight();
     
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
+    const storage = new PGLiteStorageAdapter(config.storage.path);
     await storage.init();
     
     try {

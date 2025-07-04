@@ -31,8 +31,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private db: PGlite;
   private git: SimpleGit;
   private transactionDepth: number = 0;
+  private dbPath: string;
+  
+  // Static cache to avoid redundant schema checks across instances
+  private static schemaCache = new Map<string, boolean>();
 
   constructor(dbPath: string) {
+    this.dbPath = dbPath;
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
   }
@@ -40,8 +45,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async init(): Promise<void> {
     try {
       await this.db.waitReady;
-      await this.createSchema();
-      await this.createIndexes();
+      
+      // Use cache to avoid redundant schema initialization  
+      if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
+        await this.createSchema();
+        await this.createIndexes();
+        PGLiteStorageAdapter.schemaCache.set(this.dbPath, true);
+      }
     } catch (error) {
       throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1355,12 +1365,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.dropOldTablesIfNeeded();
     }
     
-    // Create tables if they don't exist
-    const tables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'ann_index_metadata'];
+    // Check if all core tables exist in one query to optimize startup
+    const existingTables = await this.getExistingTables();
+    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'ann_index_metadata'];
     
-    for (const tableName of tables) {
-      const exists = await this.tableExists(tableName);
-      if (!exists) {
+    // Only create tables that don't exist
+    for (const tableName of requiredTables) {
+      if (!existingTables.has(tableName)) {
         switch (tableName) {
           case 'snapshots':
             await this.db.exec(this.getSnapshotsTableSQL());
@@ -1410,6 +1421,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return (result.rows[0] as { exists: boolean })?.exists === true;
     } catch {
       return false;
+    }
+  }
+  
+  private async getExistingTables(): Promise<Set<string>> {
+    try {
+      const result = await this.db.query(`
+        SELECT table_name 
+        FROM information_schema.tables 
+        WHERE table_schema = 'public'
+      `);
+      return new Set(result.rows.map(row => (row as { table_name: string }).table_name));
+    } catch {
+      return new Set();
     }
   }
   

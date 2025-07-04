@@ -49,6 +49,9 @@ export class ConfigManager {
   private config: FuncqcConfig | undefined;
   private explorer = cosmiconfigSync('funcqc');
   private thresholdManager: ThresholdConfigManager | undefined;
+  
+  // Static cache for lightweight config
+  private static lightweightCache: { storage: { path: string } } | undefined;
 
   async load(): Promise<FuncqcConfig> {
     if (this.config) {
@@ -72,6 +75,34 @@ export class ConfigManager {
 
   getDefaults(): FuncqcConfig {
     return { ...DEFAULT_CONFIG };
+  }
+  
+  /**
+   * Lightweight config loading for read-only commands.
+   * Only loads essential settings like storage path.
+   */
+  loadLightweight(): { storage: { path: string } } {
+    if (ConfigManager.lightweightCache) {
+      return ConfigManager.lightweightCache;
+    }
+    
+    try {
+      const result = this.explorer.search();
+      const storagePath = result?.config?.storage?.path || DEFAULT_CONFIG.storage.path!;
+      
+      ConfigManager.lightweightCache = {
+        storage: { path: storagePath }
+      };
+      
+      return ConfigManager.lightweightCache;
+    } catch {
+      // Fallback to defaults if config loading fails
+      ConfigManager.lightweightCache = {
+        storage: { path: DEFAULT_CONFIG.storage.path! }
+      };
+      
+      return ConfigManager.lightweightCache;
+    }
   }
 
   private validateAndMergeConfig(userConfig: UserConfig): FuncqcConfig {

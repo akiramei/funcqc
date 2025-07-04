@@ -251,8 +251,19 @@ function handleHelpDisplay(): void {
   process.exit(0);
 }
 
+function isReadOnlyCommand(): boolean {
+  const command = process.argv[2];
+  const readOnlyCommands = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'];
+  return readOnlyCommands.includes(command);
+}
+
 function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
   if (options['noCheck']) return;
+  
+  // Skip system checks for read-only commands unless explicitly requested
+  if (isReadOnlyCommand() && !options['checkSystem']) {
+    return;
+  }
   
   const systemOk = performSystemCheck(logger, false);
   if (!systemOk) {
