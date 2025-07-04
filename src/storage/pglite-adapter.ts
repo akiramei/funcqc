@@ -225,11 +225,25 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ['display_name', 'f.display_name']
       ]);
       
-      const sortColumn = options?.sort && validSortFields.has(options.sort) 
-        ? validSortFields.get(options.sort)!
-        : 'f.start_line';
+      // Handle multi-field sorting (e.g., 'file_path,start_line')
+      let orderByClause = 'f.start_line'; // default
       
-      sql += ` ORDER BY ${sortColumn}`;
+      if (options?.sort) {
+        const sortFields = options.sort.split(',').map(field => field.trim());
+        const validOrderByFields: string[] = [];
+        
+        for (const field of sortFields) {
+          if (validSortFields.has(field)) {
+            validOrderByFields.push(validSortFields.get(field)!);
+          }
+        }
+        
+        if (validOrderByFields.length > 0) {
+          orderByClause = validOrderByFields.join(', ');
+        }
+      }
+      
+      sql += ` ORDER BY ${orderByClause}`;
 
       // Add pagination
       if (options?.limit) {
