@@ -98,15 +98,15 @@ async function displaySnapshotHistory(
 
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
-  console.log('ID       Label                     Created              Branch      Commit  Functions  Avg CC');
-  console.log('-------- ------------------------- -------------------- ----------- ------- ---------- ------');
+  console.log('ID       Label                     Created              Branch           Commit  Functions  Avg CC');
+  console.log('-------- ------------------------- -------------------- --------------- ------- ---------- ------');
   
   // Display each snapshot
   for (const snapshot of snapshots) {
     const id = snapshot.id.substring(0, 8);
     const label = (snapshot.label || '-').substring(0, 25).padEnd(25);
     const created = formatDate(snapshot.createdAt).substring(0, 20).padEnd(20);
-    const branch = (snapshot.gitBranch || '-').substring(0, 11).padEnd(11);
+    const branch = (snapshot.gitBranch || '-').substring(0, 15).padEnd(15);
     const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
     const functions = snapshot.metadata.totalFunctions.toString().padStart(10);
     const avgComplexity = snapshot.metadata.avgComplexity.toFixed(1).padStart(6);
@@ -372,8 +372,8 @@ function displayCompactFunctionHistory(
   _functionName: string
 ): void {
   // Display header with fixed-width columns
-  console.log('Snapshot Date                 Branch      Commit  Present    CC    LOC  Trend');
-  console.log('-------- -------------------- ----------- ------- ------- ----- ------ ------');
+  console.log('Snapshot Date                 Branch           Commit  Present    CC    LOC  Trend');
+  console.log('-------- -------------------- --------------- ------- ------- ----- ------ ------');
   
   // Display each history entry
   for (const entry of history) {
@@ -382,7 +382,7 @@ function displayCompactFunctionHistory(
     
     const id = snapshot.id.substring(0, 8);
     const date = formatDate(snapshot.createdAt).substring(0, 20).padEnd(20);
-    const branch = (snapshot.gitBranch || '-').substring(0, 11).padEnd(11);
+    const branch = (snapshot.gitBranch || '-').substring(0, 15).padEnd(15);
     const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
     const present = entry.isPresent ? chalk.green('✓').padEnd(7) : chalk.red('✗').padEnd(7);
     const cc = (func?.metrics?.cyclomaticComplexity?.toString() || '-').padStart(5);
