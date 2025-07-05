@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import { table } from 'table';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
@@ -97,49 +96,31 @@ async function displaySnapshotHistory(
   displayHistorySummary(filteredSnapshots);
 }
 
+function truncateWithEllipsis(str: string, maxLength: number): string {
+  if (!str || str.length <= maxLength) {
+    return str;
+  }
+  // Reserve 3 characters for ellipsis
+  return str.substring(0, maxLength - 3) + '...';
+}
+
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
-  const tableData = snapshots.map(snapshot => [
-    snapshot.id.substring(0, 8),
-    snapshot.label || '-',
-    formatDate(snapshot.createdAt),
-    snapshot.gitBranch || '-',
-    snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-',
-    snapshot.metadata.totalFunctions.toString(),
-    snapshot.metadata.avgComplexity.toFixed(1)
-  ]);
-
-  const headers = [
-    'ID',
-    'Label',
-    'Created',
-    'Branch',
-    'Commit',
-    'Functions',
-    'Avg Complexity'
-  ];
-
-  const config = {
-    header: {
-      alignment: 'center' as const,
-      content: headers.map(h => chalk.bold(h))
-    },
-    columnDefault: {
-      paddingLeft: 1,
-      paddingRight: 1,
-    },
-    columns: {
-      0: { alignment: 'left' as const },
-      1: { alignment: 'left' as const },
-      2: { alignment: 'left' as const },
-      3: { alignment: 'left' as const },
-      4: { alignment: 'left' as const },
-      5: { alignment: 'right' as const },
-      6: { alignment: 'right' as const }
-    }
-  };
-
-  // @ts-expect-error - Table configuration type issue
-  console.log(table([headers, ...tableData], config));
+  // Display header with fixed-width columns
+  console.log('ID       Label                     Created              Branch           Commit  Functions  Avg CC');
+  console.log('-------- ------------------------- -------------------- --------------- ------- ---------- ------');
+  
+  // Display each snapshot
+  for (const snapshot of snapshots) {
+    const id = snapshot.id.substring(0, 8);
+    const label = truncateWithEllipsis(snapshot.label || '-', 25).padEnd(25);
+    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
+    const branch = truncateWithEllipsis(snapshot.gitBranch || '-', 15).padEnd(15);
+    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
+    const functions = snapshot.metadata.totalFunctions.toString().padStart(10);
+    const avgComplexity = snapshot.metadata.avgComplexity.toFixed(1).padStart(6);
+    
+    console.log(`${id} ${label} ${created} ${branch} ${commit} ${functions} ${avgComplexity}`);
+  }
 }
 
 async function displayDetailedHistory(
@@ -398,56 +379,26 @@ function displayCompactFunctionHistory(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
   _functionName: string
 ): void {
-  const tableData = history.map(entry => {
+  // Display header with fixed-width columns
+  console.log('Snapshot Date                 Branch           Commit  Present    CC    LOC  Trend');
+  console.log('-------- -------------------- --------------- ------- ------- ----- ------ ------');
+  
+  // Display each history entry
+  for (const entry of history) {
     const snapshot = entry.snapshot;
     const func = entry.function;
     
-    return [
-      snapshot.id.substring(0, 8),
-      formatDate(snapshot.createdAt),
-      snapshot.gitBranch || '-',
-      snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-',
-      entry.isPresent ? chalk.green('✓') : chalk.red('✗'),
-      func?.metrics?.cyclomaticComplexity?.toString() || '-',
-      func?.metrics?.linesOfCode?.toString() || '-',
-      calculateQualityTrend(func)
-    ];
-  });
-
-  const headers = [
-    'Snapshot',
-    'Date',
-    'Branch',
-    'Commit',
-    'Present',
-    'Complexity',
-    'LOC',
-    'Trend'
-  ];
-
-  const config = {
-    header: {
-      alignment: 'center' as const,
-      content: headers.map(h => chalk.bold(h))
-    },
-    columnDefault: {
-      paddingLeft: 1,
-      paddingRight: 1,
-    },
-    columns: {
-      0: { alignment: 'left' as const },
-      1: { alignment: 'left' as const },
-      2: { alignment: 'left' as const },
-      3: { alignment: 'left' as const },
-      4: { alignment: 'center' as const },
-      5: { alignment: 'right' as const },
-      6: { alignment: 'right' as const },
-      7: { alignment: 'center' as const }
-    }
-  };
-
-  // @ts-expect-error - Table configuration type issue
-  console.log(table([headers, ...tableData], config));
+    const id = snapshot.id.substring(0, 8);
+    const date = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
+    const branch = truncateWithEllipsis(snapshot.gitBranch || '-', 15).padEnd(15);
+    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
+    const present = entry.isPresent ? chalk.green('✓').padEnd(7) : chalk.red('✗').padEnd(7);
+    const cc = (func?.metrics?.cyclomaticComplexity?.toString() || '-').padStart(5);
+    const loc = (func?.metrics?.linesOfCode?.toString() || '-').padStart(6);
+    const trend = calculateQualityTrend(func).padEnd(6);
+    
+    console.log(`${id} ${date} ${branch} ${commit} ${present} ${cc} ${loc}  ${trend}`);
+  }
 }
 
 function displayDetailedFunctionHistory(
