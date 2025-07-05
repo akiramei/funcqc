@@ -185,6 +185,7 @@ export interface SnapshotInfo {
   id: string;
   createdAt: number;
   label?: string;
+  comment?: string;
   gitCommit?: string;
   gitBranch?: string;
   gitTag?: string;
@@ -362,7 +363,7 @@ export interface StorageAdapter {
   close(): Promise<void>;
   
   // Snapshot operations
-  saveSnapshot(functions: FunctionInfo[], label?: string, configHash?: string): Promise<string>;
+  saveSnapshot(functions: FunctionInfo[], label?: string, comment?: string, configHash?: string): Promise<string>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;

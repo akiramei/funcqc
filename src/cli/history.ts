@@ -164,6 +164,7 @@ async function displayDetailedHistory(
 function displaySnapshotInfo(snapshot: SnapshotInfo): void {
   console.log(chalk.yellow(`📸 Snapshot ${snapshot.id}`));
   console.log(`   Label: ${snapshot.label || chalk.gray('(none)')}`);
+  console.log(`   Comment: ${snapshot.comment ? chalk.green(snapshot.comment) : chalk.gray('(none)')}`);
   console.log(`   Created: ${formatDate(snapshot.createdAt)}`);
   
   if (snapshot.gitBranch) {

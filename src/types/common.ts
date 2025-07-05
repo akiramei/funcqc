@@ -35,6 +35,7 @@ export interface SnapshotRow {
   id: string;
   created_at: string;
   label?: string;
+  comment?: string;
   git_commit?: string;
   git_branch?: string;
   git_tag?: string;

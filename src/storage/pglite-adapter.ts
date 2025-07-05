@@ -79,12 +79,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // SNAPSHOT OPERATIONS
   // ========================================
 
-  async saveSnapshot(functions: FunctionInfo[], label?: string, configHash?: string): Promise<string> {
+  async saveSnapshot(functions: FunctionInfo[], label?: string, comment?: string, configHash?: string): Promise<string> {
     const snapshotId = this.generateSnapshotId();
     
     try {
       // Create snapshot record
-      await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label);
+      await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label, comment);
       
       // Save functions in batch
       await this.saveFunctions(snapshotId, functions);
@@ -1530,6 +1530,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         id TEXT PRIMARY KEY,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         label TEXT,
+        comment TEXT,
         git_commit TEXT,
         git_branch TEXT,
         git_tag TEXT,
@@ -1783,18 +1784,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     snapshotId: string,
     functions: FunctionInfo[],
     configHash: string,
-    label?: string
+    label?: string,
+    comment?: string
   ): Promise<void> {
     const metadata = this.calculateSnapshotMetadata(functions);
     // Use current UTC timestamp explicitly
     const nowUTC = new Date().toISOString();
     
     await this.db.query(`
-      INSERT INTO snapshots (id, label, git_commit, git_branch, git_tag, project_root, config_hash, metadata, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
+      INSERT INTO snapshots (id, label, comment, git_commit, git_branch, git_tag, project_root, config_hash, metadata, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)
     `, [
       snapshotId,
       label || null,
+      comment || null,
       await this.getGitCommit(),
       await this.getGitBranch(),
       await this.getGitTag(),
@@ -1935,6 +1938,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       id: row.id,
       createdAt: new Date(row.created_at).getTime(),
       ...(row.label && { label: row.label }),
+      ...(row.comment && { comment: row.comment }),
       ...(row.git_commit && { gitCommit: row.git_commit }),
       ...(row.git_branch && { gitBranch: row.git_branch }),
       ...(row.git_tag && { gitTag: row.git_tag }),

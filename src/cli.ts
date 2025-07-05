@@ -79,7 +79,12 @@ program
   .command('status')
   .description('Show current project status')
   .option('--verbose', 'show detailed information')
-  .action(statusCommand);
+  .action(async (options, cmd) => {
+    // グローバルオプションをマージ
+    const globalOpts = cmd.parent.opts();
+    const mergedOptions = { ...globalOpts, ...options };
+    await statusCommand(mergedOptions);
+  });
 
 program
   .command('history')
@@ -92,7 +97,12 @@ program
   .option('--branch <name>', 'filter by git branch')
   .option('--label <text>', 'filter by snapshot label')
   .option('--id <function-id>', 'track history of specific function by ID')
-  .action(historyCommand);
+  .action(async (options, cmd) => {
+    // グローバルオプションをマージ
+    const globalOpts = cmd.parent.opts();
+    const mergedOptions = { ...globalOpts, ...options };
+    await historyCommand(mergedOptions);
+  });
 
 program
   .command('diff')
@@ -284,7 +294,7 @@ async function main() {
     handleHelpDisplay();
     handleSystemCheckBeforeCommands(options, logger);
     
-    program.parse();
+    await program.parseAsync(process.argv);
     
   } catch (error) {
     console.error(chalk.red('Fatal error during startup:'), error instanceof Error ? error.message : String(error));

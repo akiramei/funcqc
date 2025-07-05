@@ -185,7 +185,7 @@ async function saveResults(
   }
   
   const startTime = Date.now();
-  const snapshotId = await storage.saveSnapshot(allFunctions, options.label);
+  const snapshotId = await storage.saveSnapshot(allFunctions, options.label, options.comment);
   const elapsed = Math.ceil((Date.now() - startTime) / 1000);
   
   if (allFunctions.length > 1000) {
