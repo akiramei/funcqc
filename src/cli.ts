@@ -65,6 +65,12 @@ program
   .command('list')
   .description('List all functions')
   .option('--json', 'output as JSON')
+  .option('--limit <num>', 'limit number of results')
+  .option('--sort <field>', 'sort by field (cc, loc, name, file)')
+  .option('--desc', 'sort in descending order')
+  .option('--cc-ge <num>', 'filter functions with complexity >= N')
+  .option('--file <pattern>', 'filter by file path pattern')
+  .option('--name <pattern>', 'filter by function name pattern')
   .action(listCommand);
 
 program
