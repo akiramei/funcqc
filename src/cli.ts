@@ -52,6 +52,7 @@ program
   .command('scan')
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
+  .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .action(scanCommand);
 
 program

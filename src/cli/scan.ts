@@ -16,6 +16,10 @@ export async function scanCommand(
   
   try {
     const config = await initializeScan();
+    
+    // Check for configuration changes and enforce comment requirement
+    await checkConfigurationChanges(config, options, spinner);
+    
     const scanPaths = determineScanPaths(config);
     const components = await initializeComponents(config, spinner);
     const files = await discoverFiles(scanPaths, config, spinner);
@@ -39,6 +43,50 @@ export async function scanCommand(
 async function initializeScan(): Promise<FuncqcConfig> {
   const configManager = new ConfigManager();
   return await configManager.load();
+}
+
+async function checkConfigurationChanges(
+  config: FuncqcConfig, 
+  options: ScanCommandOptions, 
+  spinner: SpinnerInterface
+): Promise<void> {
+  const configManager = new ConfigManager();
+  const currentConfigHash = configManager.generateScanConfigHash(config);
+  
+  // Initialize storage to check previous config
+  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  await storage.init();
+  
+  try {
+    const lastConfigHash = await storage.getLastConfigHash();
+    
+    if (lastConfigHash && lastConfigHash !== currentConfigHash && lastConfigHash !== 'unknown') {
+      // Configuration has changed
+      if (!options.comment) {
+        spinner.fail('Configuration change detected');
+        console.error(chalk.red('🚨 Scan configuration has changed since last snapshot!'));
+        console.error(chalk.yellow('Previous config hash:'), lastConfigHash);
+        console.error(chalk.yellow('Current config hash: '), currentConfigHash);
+        console.error();
+        console.error(chalk.red('A comment is required to document this change.'));
+        console.error(chalk.blue('Usage: funcqc scan --comment "Reason for configuration change"'));
+        console.error();
+        console.error(chalk.gray('Examples:'));
+        console.error(chalk.gray('  funcqc scan --comment "Added new src/components directory"'));
+        console.error(chalk.gray('  funcqc scan --comment "Moved from src/ to lib/ folder structure"'));
+        console.error(chalk.gray('  funcqc scan --comment "Updated exclude patterns for test files"'));
+        
+        process.exit(1);
+      }
+      
+      // Valid comment provided
+      console.log(chalk.blue('ℹ️  Configuration change detected and documented:'));
+      console.log(chalk.gray(`   "${options.comment}"`));
+      console.log();
+    }
+  } finally {
+    await storage.close();
+  }
 }
 
 function determineScanPaths(config: FuncqcConfig): string[] {
@@ -122,7 +170,12 @@ async function performStreamingAnalysis(
   await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
 }
 
-async function saveResults(allFunctions: FunctionInfo[], storage: CliComponents['storage'], options: ScanCommandOptions, spinner: SpinnerInterface): Promise<void> {
+async function saveResults(
+  allFunctions: FunctionInfo[], 
+  storage: CliComponents['storage'], 
+  options: ScanCommandOptions, 
+  spinner: SpinnerInterface
+): Promise<void> {
   spinner.start('Saving to database...');
   
   // Show estimated time for large datasets
