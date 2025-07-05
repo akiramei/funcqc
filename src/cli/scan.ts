@@ -26,7 +26,7 @@ export async function scanCommand(
       return;
     }
     
-    const allFunctions = await performAnalysis(files, components, options, spinner);
+    const allFunctions = await performAnalysis(files, components, spinner);
     showAnalysisSummary(allFunctions);
     
     await saveResults(allFunctions, components.storage, options, spinner);
@@ -71,17 +71,17 @@ async function discoverFiles(scanPaths: string[], config: FuncqcConfig, spinner:
   return files;
 }
 
-async function performAnalysis(files: string[], components: CliComponents, options: ScanCommandOptions, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
+async function performAnalysis(files: string[], components: CliComponents, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   spinner.start('Analyzing functions...');
   
-  const allFunctions = await performFullAnalysis(files, components, options, spinner);
+  const allFunctions = await performFullAnalysis(files, components, spinner);
   
   spinner.succeed(`Analyzed ${allFunctions.length} functions from ${files.length} files`);
   return allFunctions;
 }
 
 
-async function performFullAnalysis(files: string[], components: CliComponents, options: ScanCommandOptions, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
+async function performFullAnalysis(files: string[], components: CliComponents, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const allFunctions: FunctionInfo[] = [];
   const batchSize = 50;
   const useStreaming = files.length > 1000; // Use streaming for very large projects
@@ -153,8 +153,6 @@ function showCompletionMessage(): void {
   console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
   console.log();
   console.log(chalk.blue('💡 Performance tips:'));
-  console.log(chalk.gray('  • Use `--batch-size 100` for better memory usage with large projects'));
-  console.log(chalk.gray('  • Use `--quick` for faster scans during development'));
   console.log(chalk.gray('  • Set NODE_OPTIONS="--max-old-space-size=4096" for very large projects'));
 }
 
