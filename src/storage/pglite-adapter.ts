@@ -48,6 +48,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.waitReady;
       
+      
       // Use cache to avoid redundant schema initialization  
       if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
         // 同期的にキャッシュに追加して競合を防ぐ
@@ -110,6 +111,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
 
       const result = await this.db.query(sql, params);
+
 
       return result.rows.map(row => this.mapRowToSnapshotInfo(row as SnapshotRow));
     } catch (error) {
@@ -1526,7 +1528,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return `
       CREATE TABLE snapshots (
         id TEXT PRIMARY KEY,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         label TEXT,
         git_commit TEXT,
         git_branch TEXT,
@@ -1547,7 +1549,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         end_line INTEGER NOT NULL,             -- End line in file
         start_column INTEGER NOT NULL DEFAULT 0,
         end_column INTEGER NOT NULL DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         
         -- Semantic identification dimension
         semantic_id TEXT NOT NULL,             -- Semantic hash for role-based identification
@@ -1637,8 +1639,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         source TEXT NOT NULL DEFAULT 'human',  -- 'human' | 'ai' | 'jsdoc'
         validated_for_content_id TEXT,         -- 実装確認済みマーク
         needs_review BOOLEAN DEFAULT FALSE,    -- 実装変更時の確認要求
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         created_by TEXT,                       -- 作成者
         ai_model TEXT,                         -- AI生成時のモデル名
         confidence_score REAL                  -- AI生成時の信頼度
@@ -1652,8 +1654,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         embedding_model TEXT NOT NULL DEFAULT 'text-embedding-ada-002',
         vector_dimension INTEGER NOT NULL DEFAULT 1536,
         embedding REAL[] NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (semantic_id) REFERENCES function_descriptions(semantic_id) ON DELETE CASCADE
       );`;
   }
@@ -1670,8 +1672,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         index_data TEXT,                            -- Serialized index data (clusters, hash tables, etc.)
         build_time_ms INTEGER,                      -- Time taken to build index
         accuracy_metrics TEXT,                      -- JSON with accuracy/performance metrics
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         is_current BOOLEAN DEFAULT TRUE             -- Whether this is the current active index
       );`;
   }
@@ -1691,8 +1693,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         revision_needed BOOLEAN DEFAULT FALSE,
         ai_model TEXT,
         confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
       );`;
   }
@@ -1784,10 +1786,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     label?: string
   ): Promise<void> {
     const metadata = this.calculateSnapshotMetadata(functions);
+    // Use current UTC timestamp explicitly
+    const nowUTC = new Date().toISOString();
     
     await this.db.query(`
-      INSERT INTO snapshots (id, label, git_commit, git_branch, git_tag, project_root, config_hash, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO snapshots (id, label, git_commit, git_branch, git_tag, project_root, config_hash, metadata, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz)
     `, [
       snapshotId,
       label || null,
@@ -1796,7 +1800,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.getGitTag(),
       process.cwd(),
       configHash,
-      JSON.stringify(metadata)
+      JSON.stringify(metadata),
+      nowUTC
     ]);
   }
 
