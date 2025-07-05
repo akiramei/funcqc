@@ -289,12 +289,6 @@ export interface InitCommandOptions extends CommandOptions {
 
 export interface ScanCommandOptions extends CommandOptions {
   label?: string;
-  dryRun?: boolean;
-  incremental?: boolean;
-  force?: boolean;
-  batchSize?: string;
-  quick?: boolean;
-  compareWith?: string;
   comment?: string;
 }
 
