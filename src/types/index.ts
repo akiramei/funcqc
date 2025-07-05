@@ -299,6 +299,12 @@ export interface ScanCommandOptions extends CommandOptions {
 
 export interface ListCommandOptions extends CommandOptions {
   json?: boolean;
+  limit?: string;
+  sort?: string;
+  desc?: boolean;
+  ccGe?: string;
+  file?: string;
+  name?: string;
 }
 
 export interface ShowCommandOptions extends CommandOptions {
