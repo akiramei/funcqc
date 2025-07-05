@@ -106,20 +106,30 @@ function truncateWithEllipsis(str: string, maxLength: number): string {
 
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
-  console.log('ID       Label                     Created              Branch           Commit  Functions  Avg CC');
-  console.log('-------- ------------------------- -------------------- --------------- ------- ---------- ------');
+  console.log('ID       Label                Created              Functions  Avg CC  P95 CC  High Risk');
+  console.log('-------- -------------------- -------------------- ---------- ------- ------- ----------');
   
   // Display each snapshot
-  for (const snapshot of snapshots) {
-    const id = snapshot.id.substring(0, 8);
-    const label = truncateWithEllipsis(snapshot.label || '-', 25).padEnd(25);
-    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
-    const branch = truncateWithEllipsis(snapshot.gitBranch || '-', 15).padEnd(15);
-    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
-    const functions = snapshot.metadata.totalFunctions.toString().padStart(10);
-    const avgComplexity = snapshot.metadata.avgComplexity.toFixed(1).padStart(6);
+  for (let i = 0; i < snapshots.length; i++) {
+    const snapshot = snapshots[i];
+    const prevSnapshot = i < snapshots.length - 1 ? snapshots[i + 1] : null;
     
-    console.log(`${id} ${label} ${created} ${branch} ${commit} ${functions} ${avgComplexity}`);
+    const id = snapshot.id.substring(0, 8);
+    const label = truncateWithEllipsis(snapshot.label || '-', 20).padEnd(20);
+    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
+    
+    // Functions with diff
+    const currentFunctions = snapshot.metadata.totalFunctions;
+    const prevFunctions = prevSnapshot?.metadata.totalFunctions || 0;
+    const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
+    const functionsDisplay = formatFunctionCountWithDiff(currentFunctions, functionDiff);
+    
+    const avgComplexity = snapshot.metadata.avgComplexity.toFixed(1).padStart(7);
+    const p95Complexity = calculateP95Complexity(snapshot.metadata.complexityDistribution).toString().padStart(7);
+    const highRiskCount = calculateHighRiskCount(snapshot.metadata.complexityDistribution);
+    const highRiskDisplay = formatHighRiskCount(highRiskCount);
+    
+    console.log(`${id} ${label} ${created} ${functionsDisplay} ${avgComplexity} ${p95Complexity} ${highRiskDisplay}`);
   }
 }
 
@@ -239,6 +249,64 @@ function displayHistorySummary(snapshots: SnapshotInfo[]): void {
   if (gitBranches.size > 0) {
     console.log(`   Git branches: ${Array.from(gitBranches).join(', ')}`);
   }
+}
+
+export function calculateP95Complexity(complexityDistribution: Record<number, number>): number {
+  if (!complexityDistribution || Object.keys(complexityDistribution).length === 0) {
+    return 0;
+  }
+  
+  // Convert distribution to sorted array of [complexity, count] pairs
+  const entries = Object.entries(complexityDistribution)
+    .map(([complexity, count]) => [parseInt(complexity), count] as [number, number])
+    .sort(([a], [b]) => a - b);
+  
+  // Calculate total count
+  const totalCount = entries.reduce((sum, [, count]) => sum + count, 0);
+  
+  // Find the 95th percentile
+  const p95Index = Math.ceil(totalCount * 0.95);
+  
+  let currentCount = 0;
+  for (const [complexity, count] of entries) {
+    currentCount += count;
+    if (currentCount >= p95Index) {
+      return complexity;
+    }
+  }
+  
+  // Fallback to max complexity
+  return entries.length > 0 ? entries[entries.length - 1][0] : 0;
+}
+
+export function calculateHighRiskCount(complexityDistribution: Record<number, number>): number {
+  if (!complexityDistribution || Object.keys(complexityDistribution).length === 0) {
+    return 0;
+  }
+  
+  return Object.entries(complexityDistribution)
+    .filter(([complexity]) => parseInt(complexity) >= 10)
+    .reduce((sum, [, count]) => sum + count, 0);
+}
+
+export function formatFunctionCountWithDiff(currentCount: number, diff: number): string {
+  if (diff === 0) {
+    return currentCount.toString().padStart(10);
+  }
+  
+  const sign = diff > 0 ? '+' : '';
+  const diffStr = `(${sign}${diff})`;
+  const combined = `${currentCount}${diffStr}`;
+  return combined.padStart(10);
+}
+
+export function formatHighRiskCount(count: number): string {
+  if (count === 0) {
+    return '0'.padStart(10);
+  }
+  
+  const formatted = `${count}(CC≥10)`;
+  return formatted.padStart(10);
 }
 
 function formatDate(timestamp: number): string {
