@@ -78,12 +78,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // SNAPSHOT OPERATIONS
   // ========================================
 
-  async saveSnapshot(functions: FunctionInfo[], label?: string): Promise<string> {
+  async saveSnapshot(functions: FunctionInfo[], label?: string, configHash?: string): Promise<string> {
     const snapshotId = this.generateSnapshotId();
     
     try {
       // Create snapshot record
-      await this.createSnapshotRecord(snapshotId, functions, label);
+      await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label);
       
       // Save functions in batch
       await this.saveFunctions(snapshotId, functions);
@@ -137,6 +137,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return (result as unknown as { changes: number }).changes > 0;
     } catch (error) {
       throw new Error(`Failed to delete snapshot: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get the config hash from the most recent snapshot
+   * Returns null if no snapshots exist
+   */
+  async getLastConfigHash(): Promise<string | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT config_hash FROM snapshots ORDER BY created_at DESC LIMIT 1'
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return (result.rows[0] as { config_hash: string }).config_hash;
+    } catch (error) {
+      throw new Error(`Failed to get last config hash: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -1760,6 +1780,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private async createSnapshotRecord(
     snapshotId: string,
     functions: FunctionInfo[],
+    configHash: string,
     label?: string
   ): Promise<void> {
     const metadata = this.calculateSnapshotMetadata(functions);
@@ -1774,7 +1795,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.getGitBranch(),
       await this.getGitTag(),
       process.cwd(),
-      'generated', // TODO: Implement config hash
+      configHash,
       JSON.stringify(metadata)
     ]);
   }

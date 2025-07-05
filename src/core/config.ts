@@ -1,5 +1,6 @@
 import { cosmiconfigSync } from 'cosmiconfig';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { 
   FuncqcConfig, 
   UserConfig, 
@@ -257,6 +258,29 @@ export class ConfigManager {
     this.explorer.clearCaches();
     this.thresholdManager = new ThresholdConfigManager();
     ConfigManager.lightweightCache = undefined;
+  }
+
+  /**
+   * Generate a hash of the scan-relevant configuration
+   * This includes roots, exclude, include patterns that affect scan scope
+   */
+  generateScanConfigHash(config: FuncqcConfig): string {
+    const scanRelevantConfig = {
+      roots: config.roots.sort(), // Sort for consistent hashing
+      exclude: config.exclude.sort(),
+      include: config.include?.sort() || []
+    };
+    
+    const configString = JSON.stringify(scanRelevantConfig);
+    return crypto.createHash('sha256').update(configString).digest('hex').substring(0, 12);
+  }
+
+  /**
+   * Get current scan configuration hash
+   */
+  async getCurrentScanConfigHash(): Promise<string> {
+    const config = await this.load();
+    return this.generateScanConfigHash(config);
   }
 
   private mergeThresholdsConfig(config: FuncqcConfig, userConfig: UserConfig): void {

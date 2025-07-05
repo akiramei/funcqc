@@ -59,6 +59,7 @@ program
   .option('--batch-size <num>', 'batch size for processing', '100')
   .option('--quick', 'quick scan with 5-second project overview')
   .option('--compare-with <snapshot>', 'compare with previous snapshot (ID, label, "main", "yesterday", "latest")')
+  .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .action(scanCommand);
 
 program

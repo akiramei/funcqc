@@ -295,6 +295,7 @@ export interface ScanCommandOptions extends CommandOptions {
   batchSize?: string;
   quick?: boolean;
   compareWith?: string;
+  comment?: string;
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -367,10 +368,11 @@ export interface StorageAdapter {
   close(): Promise<void>;
   
   // Snapshot operations
-  saveSnapshot(functions: FunctionInfo[], label?: string): Promise<string>;
+  saveSnapshot(functions: FunctionInfo[], label?: string, configHash?: string): Promise<string>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
+  getLastConfigHash?(): Promise<string | null>;
   
   // Function operations
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
