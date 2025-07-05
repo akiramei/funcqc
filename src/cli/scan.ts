@@ -10,14 +10,13 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
 
 export async function scanCommand(
-  paths: string[] = [],
   options: ScanCommandOptions
 ): Promise<void> {
   const spinner = ora();
   
   try {
     const config = await initializeScan();
-    const scanPaths = determineScanPaths(paths, config);
+    const scanPaths = determineScanPaths(config);
     const components = await initializeComponents(config, spinner);
     const files = await discoverFiles(scanPaths, config, spinner);
     
@@ -42,8 +41,8 @@ async function initializeScan(): Promise<FuncqcConfig> {
   return await configManager.load();
 }
 
-function determineScanPaths(paths: string[], config: FuncqcConfig): string[] {
-  return paths.length > 0 ? paths : config.roots;
+function determineScanPaths(config: FuncqcConfig): string[] {
+  return config.roots;
 }
 
 async function initializeComponents(config: FuncqcConfig, spinner: SpinnerInterface): Promise<CliComponents> {
@@ -83,7 +82,7 @@ async function performAnalysis(files: string[], components: CliComponents, spinn
 
 async function performFullAnalysis(files: string[], components: CliComponents, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const allFunctions: FunctionInfo[] = [];
-  const batchSize = 50;
+  const batchSize = 50; // Fixed batch size
   const useStreaming = files.length > 1000; // Use streaming for very large projects
   
   if (useStreaming) {

@@ -51,7 +51,6 @@ program
 program
   .command('scan')
   .description('Scan and analyze functions')
-  .argument('[paths...]', 'paths to scan (optional)')
   .option('--label <text>', 'label for this snapshot')
   .action(scanCommand);
 
