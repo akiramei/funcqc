@@ -53,12 +53,6 @@ program
   .description('Scan and analyze functions')
   .argument('[paths...]', 'paths to scan (optional)')
   .option('--label <text>', 'label for this snapshot')
-  .option('--dry-run', 'analyze only, don\'t save to database')
-  .option('--incremental', 'process changed files only')
-  .option('--force', 'force full rescan of all files')
-  .option('--batch-size <num>', 'batch size for processing', '100')
-  .option('--quick', 'quick scan with 5-second project overview')
-  .option('--compare-with <snapshot>', 'compare with previous snapshot (ID, label, "main", "yesterday", "latest")')
   .action(scanCommand);
 
 program
