@@ -9,7 +9,7 @@ import fs from 'fs';
 interface DescribeBatchInput {
   semanticId: string;
   description: string;
-  source?: 'human' | 'ai' | 'jsdoc';
+  source?: 'human' | 'ai' | 'jsdoc' | null;
   aiModel?: string;
   confidenceScore?: number;
   createdBy?: string;
@@ -40,7 +40,7 @@ export async function describeCommand(
     const context: DescribeContext = { storage, logger, options };
 
     try {
-      if (options.batch && options.input) {
+      if (options.input) {
         await handleBatchDescribe(context);
       } else if (options.listUndocumented || options.needsDescription) {
         await handleListFunctions(context);
@@ -109,11 +109,23 @@ async function processBatchDescription(
 
   const validatedForContentId = await findContentIdBySemanticId(storage, desc.semanticId, logger);
 
+  // Check for existing description and validate source guard for batch operations
+  const existingDescription = await storage.getFunctionDescription(desc.semanticId);
+  const newSource = desc.source || options.source || 'human';
+  
+  if (existingDescription && !options.force) {
+    const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
+    if (sourceGuardWarning) {
+      logger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning} (use --force to override)`);
+      return;
+    }
+  }
+
   const description = createFunctionDescription(
     desc.semanticId,
     desc.description,
     {
-      source: desc.source || options.source || 'human',
+      source: newSource,
       validatedForContentId,
       createdBy: desc.createdBy || options.by,
       aiModel: desc.aiModel || options.model,
@@ -163,8 +175,6 @@ async function handleSingleDescribe(
 
   if (options.text) {
     await saveDescription(context, targetFunction, options.text);
-  } else if (options.interactive) {
-    throw new Error('Interactive mode is not yet implemented. Please use --text option.');
   } else {
     await showExistingDescription(context, targetFunction);
   }
@@ -299,11 +309,24 @@ async function saveDescription(
 ): Promise<void> {
   const { storage, logger, options } = context;
   
+  // Check for existing description and validate source guard
+  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
+  const newSource = options.source || 'human';
+  
+  if (existingDescription && !options.force) {
+    const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
+    if (sourceGuardWarning) {
+      logger.warn(chalk.yellow(`⚠️  ${sourceGuardWarning}`));
+      logger.info(chalk.blue('💡 Use --force to bypass source guard protection'));
+      process.exit(1);
+    }
+  }
+  
   const description = createFunctionDescription(
     targetFunction.semanticId,
     text,
     {
-      source: options.source || 'human',
+      source: newSource,
       validatedForContentId: targetFunction.contentId,
       createdBy: options.by,
       aiModel: options.model,
@@ -364,6 +387,24 @@ function showNoDescription(logger: Logger, func: FunctionInfo): void {
   logger.info('');
   logger.info('Use --text to add a description:');
   logger.info(`  funcqc describe ${func.id} --text "Your description here"`);
+}
+
+function validateSourceGuard(
+  existingSource: 'human' | 'ai' | 'jsdoc' | null,
+  newSource: 'human' | 'ai' | 'jsdoc'
+): string | null {
+  // Allow updates if existing source is null/none (anyone can edit)
+  if (existingSource === null) {
+    return null;
+  }
+  
+  // Allow updates if source is the same
+  if (existingSource === newSource) {
+    return null;
+  }
+  
+  // Warn about cross-source updates
+  return `Overwriting ${existingSource} description with ${newSource} description.`;
 }
 
 function createFunctionDescription(
@@ -456,10 +497,27 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
     })
   );
   
-  console.log(chalk.blue(`${title} (${functions.length} functions):`));
-  console.log('');
-  
-  displayFunctionTable(functionsWithDescriptions, options);
+  if (options.json) {
+    const jsonOutput = {
+      title: title.toLowerCase(),
+      count: functions.length,
+      functions: functionsWithDescriptions.map(func => ({
+        id: func.id,
+        semanticId: func.semanticId,
+        name: func.name,
+        displayName: func.displayName,
+        filePath: func.filePath,
+        startLine: func.startLine,
+        description: func.currentDescription || null,
+        metrics: func.metrics || null
+      }))
+    };
+    console.log(JSON.stringify(jsonOutput, null, 2));
+  } else {
+    console.log(chalk.blue(`${title} (${functions.length} functions):`));
+    console.log('');
+    displayFunctionTable(functionsWithDescriptions, options);
+  }
 }
 
 interface FunctionWithDescription extends FunctionInfo {
