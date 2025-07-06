@@ -182,7 +182,7 @@ program
   .description('Add or manage function descriptions')
   .argument('[function-id]', 'function ID or name pattern')
   .option('--text <description>', 'description text')
-  .option('--source <type>', 'description source (human|ai|jsdoc)', 'human')
+  .option('--source <type>', 'description source (human|ai|jsdoc), must match existing source unless --force is used', 'human')
   .option('--model <name>', 'AI model name (for AI-generated descriptions)')
   .option('--confidence <score>', 'confidence score (0-1, for AI-generated descriptions)')
   .option('--input <file>', 'input JSON file for batch mode')

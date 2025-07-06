@@ -122,7 +122,8 @@ async function processBatchDescription(
   if (existingDescription && !options.force) {
     const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
     if (sourceGuardWarning) {
-      logger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning} (use --force to override)`);
+      logger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning}`);
+      logger.info(`    → Use "source": "${existingDescription.source}" in JSON or --force to override`);
       return;
     }
   }
@@ -326,7 +327,13 @@ async function saveDescription(
     const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
     if (sourceGuardWarning) {
       logger.warn(chalk.yellow(`⚠️  ${sourceGuardWarning}`));
-      logger.info(chalk.blue('💡 Use --force to bypass source guard protection'));
+      logger.info('');
+      logger.info(chalk.blue('To resolve this:'));
+      logger.info(`  1. Use matching source: ${chalk.cyan(`--source ${existingDescription.source}`)}`);
+      logger.info(`  2. Or force overwrite: ${chalk.cyan('--force')}`);
+      logger.info('');
+      logger.info(chalk.gray('Example:'));
+      logger.info(chalk.gray(`  funcqc describe ${targetFunction.id.substring(0, 8)} --text "..." --source ${existingDescription.source}`));
       process.exit(1);
     }
   }
