@@ -532,8 +532,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.query(`
         INSERT INTO function_descriptions (
-          semantic_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score, validated_for_content_id, needs_review
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE)
+          semantic_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score, validated_for_content_id, needs_review, usage_example, side_effects, error_conditions
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, $10, $11, $12)
         ON CONFLICT (semantic_id) 
         DO UPDATE SET 
           description = EXCLUDED.description,
@@ -543,7 +543,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           ai_model = EXCLUDED.ai_model,
           confidence_score = EXCLUDED.confidence_score,
           validated_for_content_id = EXCLUDED.validated_for_content_id,
-          needs_review = FALSE
+          needs_review = FALSE,
+          usage_example = EXCLUDED.usage_example,
+          side_effects = EXCLUDED.side_effects,
+          error_conditions = EXCLUDED.error_conditions
       `, [
         description.semanticId,
         description.description,
@@ -553,7 +556,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         description.createdBy || null,
         description.aiModel || null,
         description.confidenceScore || null,
-        description.validatedForContentId || null
+        description.validatedForContentId || null,
+        description.usageExample || null,
+        description.sideEffects || null,
+        description.errorConditions || null
       ]);
     } catch (error) {
       throw new Error(`Failed to save function description: ${error instanceof Error ? error.message : String(error)}`);
@@ -581,6 +587,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ai_model?: string;
         confidence_score?: number;
         validated_for_content_id?: string;
+        usage_example?: string;
+        side_effects?: string;
+        error_conditions?: string;
       };
       return {
         semanticId: row.semantic_id,
@@ -591,7 +600,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ...(row.created_by && { createdBy: row.created_by }),
         ...(row.ai_model && { aiModel: row.ai_model }),
         ...(row.confidence_score !== null && { confidenceScore: row.confidence_score }),
-        ...(row.validated_for_content_id && { validatedForContentId: row.validated_for_content_id })
+        ...(row.validated_for_content_id && { validatedForContentId: row.validated_for_content_id }),
+        ...(row.usage_example && { usageExample: row.usage_example }),
+        ...(row.side_effects && { sideEffects: row.side_effects }),
+        ...(row.error_conditions && { errorConditions: row.error_conditions })
       };
     } catch (error) {
       throw new Error(`Failed to get function description: ${error instanceof Error ? error.message : String(error)}`);
@@ -1446,6 +1458,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
     }
     
+    // Run migrations for existing tables
+    await this.runMigrations();
+    
     // Create triggers (they can be created multiple times safely)
     try {
       await this.db.exec(this.getTriggersSQL());
@@ -1719,6 +1734,49 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         WHEN (OLD.content_id IS DISTINCT FROM NEW.content_id)
         EXECUTE FUNCTION update_function_description_review();
     `;
+  }
+
+  private async runMigrations(): Promise<void> {
+    try {
+      // Check if function_descriptions table needs new columns
+      const needsStructuredFields = await this.needsStructuredFieldsMigration();
+      if (needsStructuredFields) {
+        await this.addStructuredFieldsToDescriptions();
+      }
+    } catch (error) {
+      // Log migration errors but don't fail initialization
+      console.warn('Migration warning:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async needsStructuredFieldsMigration(): Promise<boolean> {
+    try {
+      const result = await this.db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'function_descriptions' 
+        AND column_name IN ('usage_example', 'side_effects', 'error_conditions');
+      `);
+      // If we don't have all 3 columns, we need migration
+      return result.rows.length < 3;
+    } catch {
+      return false;
+    }
+  }
+
+  private async addStructuredFieldsToDescriptions(): Promise<void> {
+    try {
+      // Add new columns if they don't exist
+      await this.db.exec(`
+        ALTER TABLE function_descriptions 
+        ADD COLUMN IF NOT EXISTS usage_example TEXT,
+        ADD COLUMN IF NOT EXISTS side_effects TEXT,
+        ADD COLUMN IF NOT EXISTS error_conditions TEXT;
+      `);
+      console.log('Successfully added structured fields to function_descriptions table');
+    } catch (error) {
+      throw new Error(`Failed to add structured fields: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private async createIndexes(): Promise<void> {

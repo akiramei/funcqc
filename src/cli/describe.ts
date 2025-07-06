@@ -13,6 +13,10 @@ interface DescribeBatchInput {
   aiModel?: string;
   confidenceScore?: number;
   createdBy?: string;
+  // Structured fields for developer information
+  usageExample?: string;
+  sideEffects?: string;
+  errorConditions?: string;
 }
 
 interface DescribeContext {
