@@ -139,7 +139,7 @@ describe('funcqc describe command E2E Tests', () => {
           {
             cwd: TEST_PROJECT_DIR,
             encoding: 'utf8'
-        }
+          }
         );
       }).toThrow();
     });
