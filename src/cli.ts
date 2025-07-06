@@ -80,8 +80,39 @@ program
   .option('--for-maintainers', 'maintainer-focused display: metrics, warnings, technical info')
   .option('--usage', 'show usage patterns and examples')
   .option('--examples', 'emphasize usage examples')
+  .option('--source', 'show function source code')
+  .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .action(showCommand);
+  .action(showCommand)
+  .addHelpText('after', `
+Examples:
+  # Show basic function information
+  $ funcqc show --id 2f1cfe1d
+  $ funcqc show "functionName"
+  
+  # Display modes for different audiences
+  $ funcqc show --id 2f1cfe1d --for-users        # User-friendly format
+  $ funcqc show --id 2f1cfe1d --for-maintainers  # Technical details
+  
+  # Show source code
+  $ funcqc show --id 2f1cfe1d --source           # Plain source code
+  $ funcqc show --id 2f1cfe1d --source --syntax  # With syntax highlighting
+  
+  # Specific information sections
+  $ funcqc show --id 2f1cfe1d --usage            # Usage patterns
+  $ funcqc show --id 2f1cfe1d --examples         # Usage examples
+  $ funcqc show --id 2f1cfe1d --quality          # Quality metrics
+  
+  # Complete information
+  $ funcqc show --id 2f1cfe1d --full             # All sections
+  
+  # JSON output for programmatic use
+  $ funcqc show --id 2f1cfe1d --json
+
+How to find function IDs:
+  $ funcqc list --cc-ge 10                       # List complex functions
+  $ funcqc search "functionName"                 # Search by name
+`);
 
 program
   .command('health')
@@ -164,7 +195,56 @@ program
   .option('--usage-example <example>', 'add usage example (can include line breaks)')
   .option('--side-effects <effects>', 'document side effects and outputs')
   .option('--error-conditions <conditions>', 'document error conditions and handling')
-  .action(describeCommand);
+  .option('--generate-template', 'generate JSON template for the specified function')
+  .option('--ai-mode', 'enable AI-optimized batch processing')
+  .action(describeCommand)
+  .addHelpText('after', `
+Examples:
+  # Basic description
+  $ funcqc describe myFunction --text "Basic description of the function"
+  
+  # Comprehensive documentation
+  $ funcqc describe func123 \\
+    --text "Main description" \\
+    --usage-example "myFunction(param1, param2)" \\
+    --side-effects "Modifies global state" \\
+    --error-conditions "Throws on invalid input"
+    
+  # AI-generated description
+  $ funcqc describe myFunction \\
+    --text "AI-generated description" \\
+    --source ai --model "gpt-4" --confidence 0.9
+    
+  # Batch processing with JSON file
+  $ funcqc describe --input descriptions.json --ai-mode
+  
+  # Generate template for AI workflow
+  $ funcqc describe --id 2f1cfe1d --generate-template > template.json
+  
+  # List functions needing documentation
+  $ funcqc describe --list-undocumented
+  $ funcqc describe --needs-description
+
+JSON Format for --input (batch mode):
+  [
+    {
+      "semanticId": "function-semantic-id",
+      "description": "Function description",
+      "source": "human|ai|jsdoc",
+      "usageExample": "example(param1, param2)",
+      "sideEffects": "Side effects description",
+      "errorConditions": "Error conditions",
+      "aiModel": "model-name",
+      "confidenceScore": 0.95,
+      "createdBy": "author-name"
+    }
+  ]
+
+AI Workflow:
+  1. Generate descriptions.json with structured data
+  2. Use 'funcqc describe --input descriptions.json' for batch processing
+  3. Verify results with 'funcqc show --id <function-id> --for-users'
+`);
 
 program
   .command('search')

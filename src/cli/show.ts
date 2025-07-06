@@ -313,6 +313,11 @@ function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowC
     return;
   }
   
+  if (options.source) {
+    displaySourceSection(func, options);
+    return;
+  }
+  
   // Default behavior (existing logic)
   displayFunctionHeader(func);
   displayUserDescription(func);
@@ -611,6 +616,76 @@ function displayExamplesSection(func: FunctionInfo): void {
   displayFunctionParameters(func);
   displaySideEffects(func);
   displayErrorConditions(func);
+}
+
+function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): void {
+  console.log(chalk.bold(`Source Code: ${func.displayName}()`));
+  console.log(`📍 ${func.filePath}:${func.startLine}-${func.endLine}`);
+  console.log();
+  
+  if (func.sourceCode) {
+    if (options.syntax) {
+      // For syntax highlighting, we'll use a simple approach with chalk
+      displaySyntaxHighlightedCode(func.sourceCode);
+    } else {
+      console.log(chalk.gray('--- Source Code ---'));
+      console.log(func.sourceCode);
+      console.log(chalk.gray('--- End Source ---'));
+    }
+  } else {
+    console.log(chalk.yellow('⚠️  Source code not available'));
+    console.log('Run a new scan to capture source code information.');
+  }
+  
+  console.log();
+  
+  // Show basic function info
+  console.log(chalk.yellow('Function Information:'));
+  console.log(`  Type: ${func.functionType}`);
+  console.log(`  Exported: ${func.isExported ? 'Yes' : 'No'}`);
+  console.log(`  Async: ${func.isAsync ? 'Yes' : 'No'}`);
+  console.log(`  Parameters: ${func.parameters.length}`);
+  
+  if (func.metrics) {
+    console.log();
+    console.log(chalk.yellow('Quick Metrics:'));
+    console.log(`  Lines of Code: ${func.metrics.linesOfCode}`);
+    console.log(`  Complexity: ${func.metrics.cyclomaticComplexity}`);
+    console.log(`  Maintainability: ${func.metrics.maintainabilityIndex?.toFixed(1) || 'N/A'}`);
+  }
+}
+
+function displaySyntaxHighlightedCode(sourceCode: string): void {
+  console.log(chalk.gray('--- Source Code (with basic highlighting) ---'));
+  
+  const lines = sourceCode.split('\n');
+  lines.forEach((line, index) => {
+    const lineNumber = (index + 1).toString().padStart(3, ' ');
+    const highlightedLine = applySyntaxHighlighting(line);
+    console.log(`${chalk.gray(lineNumber)}  ${highlightedLine}`);
+  });
+  
+  console.log(chalk.gray('--- End Source ---'));
+}
+
+function applySyntaxHighlighting(line: string): string {
+  // Simple syntax highlighting with chalk
+  let highlighted = line;
+  
+  // Keywords
+  highlighted = highlighted.replace(/\b(function|const|let|var|if|else|for|while|return|async|await|import|export|interface|type|class)\b/g, 
+    chalk.blue('$1'));
+  
+  // Strings
+  highlighted = highlighted.replace(/(["'`][^"'`]*["'`])/g, chalk.green('$1'));
+  
+  // Comments
+  highlighted = highlighted.replace(/(\/\/.*$|\/\*.*?\*\/)/g, chalk.gray('$1'));
+  
+  // Functions calls (simple pattern)
+  highlighted = highlighted.replace(/\b(\w+)\s*\(/g, chalk.yellow('$1') + '(');
+  
+  return highlighted;
 }
 
 // Helper functions for new sections
