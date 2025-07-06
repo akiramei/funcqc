@@ -463,61 +463,84 @@ function getDetectorInfo(detector: string): { name: string; description: string 
   }
 }
 
+function getAdvancedStructuralReason(metadata: Record<string, unknown>): string | null {
+  const algorithm = metadata['algorithm'] as string;
+  const resultType = metadata['resultType'] as string;
+  
+  if (algorithm === 'source-code-hash') {
+    return 'Identical source code';
+  }
+  
+  if (algorithm === 'merkle-tree') {
+    return 'Identical AST structure (Merkle hash match)';
+  }
+  
+  if (algorithm === 'simhash-lsh') {
+    const hammingDistance = metadata['hammingDistance'] as number;
+    return `Near-duplicate code (Hamming distance: ${hammingDistance})`;
+  }
+  
+  if (algorithm === 'structural-signature') {
+    return 'Similar control flow patterns';
+  }
+  
+  if (resultType) {
+    return `${resultType.replace('-', ' ')} detected`;
+  }
+  
+  return null;
+}
+
+function getHashDuplicateReason(metadata: Record<string, unknown>): string | null {
+  const hashType = metadata['hashType'] as string;
+  
+  switch (hashType) {
+    case 'ast-exact':
+      return 'Exact AST match - identical code structure';
+    case 'semantic-match':
+      return 'Same semantic ID - functionally equivalent';
+    case 'signature-match':
+      return 'Same function signature - identical parameters and return type';
+    case 'name-match':
+      return 'Same function name - potential duplication';
+    default:
+      return null;
+  }
+}
+
+function getAstStructuralReason(metadata: Record<string, unknown>): string {
+  if (metadata['astHashMatch']) {
+    return 'Exact AST structure match';
+  }
+  
+  if (metadata['signatureHashMatch']) {
+    return 'Matching function signatures with similar implementation';
+  }
+  
+  return 'Structural similarity in code patterns';
+}
+
 function getSimilarityReason(result: SimilarityResult): string | null {
   const metadata = result.metadata;
   
-  if (!metadata) return null;
+  if (!metadata) {
+    return null;
+  }
   
-  // Advanced detector reasons
   if (result.detector.startsWith('advanced-structural')) {
-    const algorithm = metadata['algorithm'] as string;
-    const resultType = metadata['resultType'] as string;
-    
-    if (algorithm === 'source-code-hash') {
-      return 'Identical source code';
-    } else if (algorithm === 'merkle-tree') {
-      return 'Identical AST structure (Merkle hash match)';
-    } else if (algorithm === 'simhash-lsh') {
-      const hammingDistance = metadata['hammingDistance'] as number;
-      return `Near-duplicate code (Hamming distance: ${hammingDistance})`;
-    } else if (algorithm === 'structural-signature') {
-      return 'Similar control flow patterns';
-    } else if (resultType) {
-      return `${resultType.replace('-', ' ')} detected`;
-    }
+    return getAdvancedStructuralReason(metadata);
   }
   
-  // Hash-based detector reasons
   if (result.detector === 'hash-duplicate') {
-    const hashType = metadata['hashType'] as string;
-    switch (hashType) {
-      case 'ast-exact':
-        return 'Exact AST match - identical code structure';
-      case 'semantic-match':
-        return 'Same semantic ID - functionally equivalent';
-      case 'signature-match':
-        return 'Same function signature - identical parameters and return type';
-      case 'name-match':
-        return 'Same function name - potential duplication';
-      default:
-        return null;
-    }
+    return getHashDuplicateReason(metadata);
   }
   
-  // ANN detector reasons
   if (result.detector === 'ann-semantic') {
     return 'Semantic similarity based on embeddings';
   }
   
-  // AST detector reasons
   if (result.detector === 'ast-structural') {
-    if (metadata['astHashMatch']) {
-      return 'Exact AST structure match';
-    }
-    if (metadata['signatureHashMatch']) {
-      return 'Matching function signatures with similar implementation';
-    }
-    return 'Structural similarity in code patterns';
+    return getAstStructuralReason(metadata);
   }
   
   return null;

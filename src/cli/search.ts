@@ -286,24 +286,28 @@ function truncate(text: string, maxLength: number): string {
 /**
  * Perform semantic search using local similarity computation
  */
-async function performSemanticSearch(
+function parseSearchOptions(options: SearchCommandOptions): {
+  limit: number;
+  threshold: number;
+  minSimilarity: number;
+} {
+  return {
+    limit: options.limit ? parseInt(options.limit, 10) : 50,
+    threshold: options.threshold ? parseFloat(options.threshold) : 0.3,
+    minSimilarity: options.minSimilarity ? parseFloat(options.minSimilarity) : 0.1
+  };
+}
+
+async function getFunctionsWithDescriptions(
   storage: PGLiteStorageAdapter,
-  keyword: string,
-  options: SearchCommandOptions,
   logger: Logger
 ): Promise<FunctionInfo[]> {
-  const limit = options.limit ? parseInt(options.limit, 10) : 50;
-  const threshold = options.threshold ? parseFloat(options.threshold) : 0.3;
-  const minSimilarity = options.minSimilarity ? parseFloat(options.minSimilarity) : 0.1;
-
-  // Get latest snapshot
   const snapshots = await storage.getSnapshots({ limit: 1 });
   if (snapshots.length === 0) {
     logger.info(chalk.yellow('No snapshots found. Run "funcqc scan" first.'));
     return [];
   }
   
-  // Get all functions with descriptions
   const allFunctions = await storage.getFunctions(snapshots[0].id);
   const functionsWithDescriptions = allFunctions.filter((f: FunctionInfo) => 
     f.description && f.description.trim().length > 0
@@ -314,16 +318,24 @@ async function performSemanticSearch(
     return [];
   }
 
-  // Initialize local similarity service
-  const similarityService = new LocalSimilarityService({
+  return functionsWithDescriptions;
+}
+
+function createSimilarityService(): LocalSimilarityService {
+  return new LocalSimilarityService({
     minDocFreq: 1,
     maxDocFreq: 0.8,
     ngramSize: 2,
     useStemming: true
   });
+}
 
-  // Prepare documents for indexing
-  const documents = functionsWithDescriptions.map((func: FunctionInfo) => ({
+function prepareDocumentsForIndexing(functions: FunctionInfo[]): Array<{
+  id: string;
+  text: string;
+  metadata: { functionInfo: FunctionInfo; name: string; file: string };
+}> {
+  return functions.map((func: FunctionInfo) => ({
     id: func.id,
     text: `${func.name} ${func.description || ''} ${func.jsDoc || ''}`,
     metadata: { 
@@ -332,11 +344,12 @@ async function performSemanticSearch(
       file: func.filePath 
     }
   }));
+}
 
-  // Index documents
-  await similarityService.indexDocuments(documents);
-
-  // Parse AI hints if provided
+function parseOptionsJson(options: SearchCommandOptions, logger: Logger): {
+  aiHints: unknown;
+  similarityWeights: unknown;
+} {
   let aiHints;
   try {
     aiHints = options.aiHints ? JSON.parse(options.aiHints) : undefined;
@@ -344,7 +357,6 @@ async function performSemanticSearch(
     logger.warn('Invalid AI hints JSON format, ignoring');
   }
 
-  // Parse similarity weights if provided
   let similarityWeights;
   try {
     similarityWeights = options.similarityWeights ? JSON.parse(options.similarityWeights) : undefined;
@@ -352,16 +364,18 @@ async function performSemanticSearch(
     logger.warn('Invalid similarity weights JSON format, using defaults');
   }
 
-  // Perform semantic search
-  const results = await similarityService.searchSimilar(keyword, {
-    limit: limit * 2, // Get more results for potential hybrid merging
-    minSimilarity,
-    weights: similarityWeights,
-    aiHints
-  });
+  return { aiHints, similarityWeights };
+}
 
+function outputIntermediateResults(
+  keyword: string,
+  results: unknown,
+  similarityService: LocalSimilarityService,
+  threshold: number,
+  aiHints: unknown,
+  options: SearchCommandOptions
+): void {
   if (options.intermediate) {
-    // Output intermediate results for AI analysis
     const intermediateResults = {
       keyword,
       semanticResults: results,
@@ -372,15 +386,21 @@ async function performSemanticSearch(
     };
     console.log(JSON.stringify(intermediateResults, null, 2));
   }
+}
 
-  // Convert similarity results back to FunctionInfo
-  const matchedFunctions = results
+function convertResultsToFunctions(
+  results: Array<{ similarity: number; id: string; explanation?: string; matchedTerms?: string[] }>,
+  threshold: number,
+  limit: number,
+  functionsWithDescriptions: FunctionInfo[],
+  options: SearchCommandOptions
+): FunctionInfo[] {
+  return results
     .filter(result => result.similarity >= threshold)
     .slice(0, limit)
     .map(result => {
       const func = functionsWithDescriptions.find(f => f.id === result.id);
       if (func && options.showSimilarity) {
-        // Add similarity information to the function
         return {
           ...func,
           _similarity: result.similarity,
@@ -395,8 +415,57 @@ async function performSemanticSearch(
       return func;
     })
     .filter((func): func is FunctionInfo => func !== undefined);
+}
 
-  // If hybrid search, merge with AST similarity results
+async function performSemanticSearch(
+  storage: PGLiteStorageAdapter,
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): Promise<FunctionInfo[]> {
+  const { limit, threshold, minSimilarity } = parseSearchOptions(options);
+  
+  const functionsWithDescriptions = await getFunctionsWithDescriptions(storage, logger);
+  if (functionsWithDescriptions.length === 0) {
+    return [];
+  }
+
+  const similarityService = createSimilarityService();
+  const documents = prepareDocumentsForIndexing(functionsWithDescriptions);
+  await similarityService.indexDocuments(documents);
+
+  const { aiHints, similarityWeights } = parseOptionsJson(options, logger);
+
+  const searchConfig: {
+    limit: number;
+    minSimilarity: number;
+    weights?: { tfidf?: number; ngram?: number; jaccard?: number };
+    aiHints?: { relatedTerms?: string[]; context?: string; weights?: Record<string, number> };
+  } = {
+    limit: limit * 2,
+    minSimilarity
+  };
+
+  if (similarityWeights) {
+    searchConfig.weights = similarityWeights as { tfidf?: number; ngram?: number; jaccard?: number };
+  }
+
+  if (aiHints) {
+    searchConfig.aiHints = aiHints as { relatedTerms?: string[]; context?: string; weights?: Record<string, number> };
+  }
+
+  const results = await similarityService.searchSimilar(keyword, searchConfig);
+
+  outputIntermediateResults(keyword, results, similarityService, threshold, aiHints, options);
+  
+  const matchedFunctions = convertResultsToFunctions(
+    results,
+    threshold,
+    limit,
+    functionsWithDescriptions,
+    options
+  );
+
   if (options.hybrid) {
     return performHybridSearch(storage, matchedFunctions, keyword, options, logger);
   }
