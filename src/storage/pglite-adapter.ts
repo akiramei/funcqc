@@ -1864,63 +1864,76 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Save a batch of functions with transaction management
    */
+  private async insertFunctionRecord(func: FunctionInfo, snapshotId: string): Promise<void> {
+    await this.db.query(`
+      INSERT INTO functions (
+        id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
+        file_path, file_hash, start_line, end_line, start_column, end_column,
+        ast_hash, context_path, function_type, modifiers, nesting_level,
+        is_exported, is_async, is_generator, is_arrow_function,
+        is_method, is_constructor, is_static, access_modifier,
+        js_doc, source_code
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+      )
+    `, [
+      func.id, func.semanticId, func.contentId, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
+      func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
+      func.astHash, JSON.stringify(func.contextPath || []), func.functionType || null, JSON.stringify(func.modifiers || []), func.nestingLevel || 0,
+      func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
+      func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null,
+      func.jsDoc || null, func.sourceCode || null
+    ]);
+  }
+
+  private async insertFunctionParameters(func: FunctionInfo): Promise<void> {
+    for (const param of func.parameters) {
+      await this.db.query(`
+        INSERT INTO function_parameters (
+          function_id, name, type, type_simple, position, is_optional, is_rest, default_value, description
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      `, [
+        func.id, param.name, param.type, param.typeSimple, param.position,
+        param.isOptional, param.isRest, param.defaultValue || null, param.description || null
+      ]);
+    }
+  }
+
+  private async insertFunctionMetrics(func: FunctionInfo): Promise<void> {
+    if (!func.metrics) {
+      return;
+    }
+
+    await this.db.query(`
+      INSERT INTO quality_metrics (
+        function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+        max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
+        try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
+        halstead_volume, halstead_difficulty, maintainability_index
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+      )
+    `, [
+      func.id, func.metrics.linesOfCode, func.metrics.totalLines, func.metrics.cyclomaticComplexity,
+      func.metrics.cognitiveComplexity, func.metrics.maxNestingLevel, func.metrics.parameterCount,
+      func.metrics.returnStatementCount, func.metrics.branchCount, func.metrics.loopCount,
+      func.metrics.tryCatchCount, func.metrics.asyncAwaitCount, func.metrics.callbackCount,
+      func.metrics.commentLines, func.metrics.codeToCommentRatio, func.metrics.halsteadVolume || null,
+      func.metrics.halsteadDifficulty || null, func.metrics.maintainabilityIndex || null
+    ]);
+  }
+
+  private async saveSingleFunction(func: FunctionInfo, snapshotId: string): Promise<void> {
+    await this.insertFunctionRecord(func, snapshotId);
+    await this.insertFunctionParameters(func);
+    await this.insertFunctionMetrics(func);
+  }
+
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     await this.executeInTransaction(async () => {
       for (const func of functions) {
-        // Insert function with enhanced identification fields
-        await this.db.query(`
-          INSERT INTO functions (
-            id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
-            file_path, file_hash, start_line, end_line, start_column, end_column,
-            ast_hash, context_path, function_type, modifiers, nesting_level,
-            is_exported, is_async, is_generator, is_arrow_function,
-            is_method, is_constructor, is_static, access_modifier,
-            js_doc, source_code
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-            $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
-          )
-        `, [
-          func.id, func.semanticId, func.contentId, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
-          func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
-          func.astHash, JSON.stringify(func.contextPath || []), func.functionType || null, JSON.stringify(func.modifiers || []), func.nestingLevel || 0,
-          func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
-          func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null,
-          func.jsDoc || null, func.sourceCode || null
-        ]);
-
-        // Insert parameters
-        for (const param of func.parameters) {
-          await this.db.query(`
-            INSERT INTO function_parameters (
-              function_id, name, type, type_simple, position, is_optional, is_rest, default_value, description
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          `, [
-            func.id, param.name, param.type, param.typeSimple, param.position,
-            param.isOptional, param.isRest, param.defaultValue || null, param.description || null
-          ]);
-        }
-
-        // Insert metrics if available
-        if (func.metrics) {
-          await this.db.query(`
-            INSERT INTO quality_metrics (
-              function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-              max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-              try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-              halstead_volume, halstead_difficulty, maintainability_index
-            ) VALUES (
-              $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
-            )
-          `, [
-            func.id, func.metrics.linesOfCode, func.metrics.totalLines, func.metrics.cyclomaticComplexity,
-            func.metrics.cognitiveComplexity, func.metrics.maxNestingLevel, func.metrics.parameterCount,
-            func.metrics.returnStatementCount, func.metrics.branchCount, func.metrics.loopCount,
-            func.metrics.tryCatchCount, func.metrics.asyncAwaitCount, func.metrics.callbackCount,
-            func.metrics.commentLines, func.metrics.codeToCommentRatio, func.metrics.halsteadVolume || null,
-            func.metrics.halsteadDifficulty || null, func.metrics.maintainabilityIndex || null
-          ]);
-        }
+        await this.saveSingleFunction(func, snapshotId);
       }
     });
   }

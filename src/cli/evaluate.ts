@@ -148,6 +148,111 @@ async function handleSingleEvaluation(
   displayEvaluationResult(evaluation, functionInfo, options.format || 'table');
 }
 
+function readBatchDataFromFile(inputPath: string): EvaluationBatch {
+  try {
+    const fileContent = readFileSync(inputPath, 'utf-8');
+    return JSON.parse(fileContent);
+  } catch (error) {
+    throw new Error(`Failed to read or parse input file: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+function validateBatchDataStructure(batchData: EvaluationBatch): void {
+  if (!batchData.evaluations || !Array.isArray(batchData.evaluations)) {
+    throw new Error('Input file must contain "evaluations" array');
+  }
+}
+
+function validateEvaluationData(evalData: unknown, index: number): string | null {
+  if (!evalData || typeof evalData !== 'object') {
+    return `Evaluation ${index + 1}: Invalid data format`;
+  }
+
+  const data = evalData as { functionId?: unknown; rating?: unknown };
+  
+  if (!data.functionId || !data.rating) {
+    return `Evaluation ${index + 1}: Missing required fields (functionId, rating)`;
+  }
+
+  if (![1, 2, 3].includes(data.rating as number)) {
+    return `Evaluation ${index + 1}: Invalid rating ${data.rating} (must be 1, 2, or 3)`;
+  }
+
+  return null;
+}
+
+async function findFunctionInfo(storage: PGLiteStorageAdapter, functionId: string): Promise<FunctionInfo | null> {
+  const functions = await storage.queryFunctions({ 
+    filters: [{ field: 'id', operator: '=', value: functionId }] 
+  });
+  
+  return functions.length > 0 ? functions[0] as FunctionInfo : null;
+}
+
+function createNamingEvaluation(
+  evalData: unknown,
+  functionInfo: FunctionInfo,
+  batchData: EvaluationBatch,
+  options: EvaluateOptions
+): NamingEvaluation {
+  const data = evalData as {
+    functionId: string;
+    rating: 1 | 2 | 3;
+    issues?: string;
+    suggestions?: string;
+  };
+
+  return {
+    functionId: data.functionId,
+    semanticId: functionInfo.semanticId,
+    functionName: functionInfo.name,
+    descriptionHash: generateDescriptionHash(functionInfo),
+    rating: data.rating,
+    evaluatedAt: Date.now(),
+    evaluatedBy: batchData.metadata?.evaluatedBy || options.evaluatedBy as 'human' | 'ai' | 'auto' || 'human',
+    revisionNeeded: false,
+    ...(data.issues && { issues: data.issues }),
+    ...(data.suggestions && { suggestions: data.suggestions }),
+    ...((batchData.metadata?.aiModel || options.aiModel) && { aiModel: batchData.metadata?.aiModel || options.aiModel }),
+    ...(batchData.metadata?.confidence && { confidence: batchData.metadata.confidence }),
+    ...(options.confidence && { confidence: parseFloat(options.confidence) })
+  };
+}
+
+function displayProcessingErrors(errors: string[]): void {
+  if (errors.length > 0) {
+    console.warn(chalk.yellow('⚠ Some evaluations could not be processed:'));
+    errors.forEach(error => console.warn(chalk.yellow(`  ${error}`)));
+    console.log();
+  }
+}
+
+async function processEvaluationItem(
+  evalData: unknown,
+  index: number,
+  storage: PGLiteStorageAdapter,
+  batchData: EvaluationBatch,
+  options: EvaluateOptions
+): Promise<{ evaluation?: NamingEvaluation; error?: string }> {
+  try {
+    const validationError = validateEvaluationData(evalData, index);
+    if (validationError) {
+      return { error: validationError };
+    }
+
+    const data = evalData as { functionId: string };
+    const functionInfo = await findFunctionInfo(storage, data.functionId);
+    if (!functionInfo) {
+      return { error: `Evaluation ${index + 1}: Function "${data.functionId}" not found` };
+    }
+
+    const evaluation = createNamingEvaluation(evalData, functionInfo, batchData, options);
+    return { evaluation };
+  } catch (error) {
+    return { error: `Evaluation ${index + 1}: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
 async function handleBatchEvaluation(
   options: EvaluateOptions,
   storage: PGLiteStorageAdapter,
@@ -155,94 +260,35 @@ async function handleBatchEvaluation(
 ): Promise<void> {
   spinner.start(`Loading batch evaluation data from ${options.input}...`);
 
-  // Read and parse input file
   const inputPath = resolve(options.input!);
-  let batchData: EvaluationBatch;
-  
-  try {
-    const fileContent = readFileSync(inputPath, 'utf-8');
-    batchData = JSON.parse(fileContent);
-  } catch (error) {
-    throw new Error(`Failed to read or parse input file: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  // Validate batch data structure
-  if (!batchData.evaluations || !Array.isArray(batchData.evaluations)) {
-    throw new Error('Input file must contain "evaluations" array');
-  }
+  const batchData = readBatchDataFromFile(inputPath);
+  validateBatchDataStructure(batchData);
 
   spinner.text = `Processing ${batchData.evaluations.length} evaluations...`;
 
-  // Convert batch data to NamingEvaluation objects
   const evaluations: NamingEvaluation[] = [];
   const errors: string[] = [];
 
   for (const [index, evalData] of batchData.evaluations.entries()) {
-    try {
-      // Validate required fields
-      if (!evalData.functionId || !evalData.rating) {
-        errors.push(`Evaluation ${index + 1}: Missing required fields (functionId, rating)`);
-        continue;
-      }
-
-      if (![1, 2, 3].includes(evalData.rating)) {
-        errors.push(`Evaluation ${index + 1}: Invalid rating ${evalData.rating} (must be 1, 2, or 3)`);
-        continue;
-      }
-
-      // Get function information
-      const functions = await storage.queryFunctions({ 
-        filters: [{ field: 'id', operator: '=', value: evalData.functionId }] 
-      });
-
-      if (functions.length === 0) {
-        errors.push(`Evaluation ${index + 1}: Function "${evalData.functionId}" not found`);
-        continue;
-      }
-
-      const functionInfo = functions[0] as FunctionInfo;
-
-      // Create evaluation
-      const evaluation: NamingEvaluation = {
-        functionId: evalData.functionId,
-        semanticId: functionInfo.semanticId,
-        functionName: functionInfo.name,
-        descriptionHash: generateDescriptionHash(functionInfo),
-        rating: evalData.rating,
-        evaluatedAt: Date.now(),
-        evaluatedBy: batchData.metadata?.evaluatedBy || options.evaluatedBy as 'human' | 'ai' | 'auto' || 'human',
-        revisionNeeded: false,
-        ...(evalData.issues && { issues: evalData.issues }),
-        ...(evalData.suggestions && { suggestions: evalData.suggestions }),
-        ...((batchData.metadata?.aiModel || options.aiModel) && { aiModel: batchData.metadata?.aiModel || options.aiModel }),
-        ...(batchData.metadata?.confidence && { confidence: batchData.metadata.confidence }),
-        ...(options.confidence && { confidence: parseFloat(options.confidence) })
-      };
-
-      evaluations.push(evaluation);
-    } catch (error) {
-      errors.push(`Evaluation ${index + 1}: ${error instanceof Error ? error.message : String(error)}`);
+    const result = await processEvaluationItem(evalData, index, storage, batchData, options);
+    
+    if (result.evaluation) {
+      evaluations.push(result.evaluation);
+    } else if (result.error) {
+      errors.push(result.error);
     }
   }
 
-  // Display errors if any
-  if (errors.length > 0) {
-    console.warn(chalk.yellow('⚠ Some evaluations could not be processed:'));
-    errors.forEach(error => console.warn(chalk.yellow(`  ${error}`)));
-    console.log();
-  }
+  displayProcessingErrors(errors);
 
   if (evaluations.length === 0) {
     throw new Error('No valid evaluations to process. Fix validation errors in input file');
   }
 
-  // Save evaluations in batch
   spinner.text = `Saving ${evaluations.length} evaluations...`;
   await storage.batchSaveEvaluations(evaluations);
 
   spinner.succeed(`Batch evaluation completed: ${evaluations.length} evaluations saved`);
-
-  // Display summary
   displayBatchSummary(evaluations, batchData.evaluations.length, errors.length, options.format || 'table');
 }
 

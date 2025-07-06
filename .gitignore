@@ -57,6 +57,8 @@ temp/
 tmp/
 *.tmp
 *.temp
+functions_data.txt
+high_complexity_functions.json
 
 # PGLite database files (prevent filesystem pollution)
 :memory:/
