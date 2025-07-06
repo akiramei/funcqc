@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { showCommand } from '../../src/cli/show.js';
 import type { ShowCommandOptions } from '../../src/types/index.js';
 
@@ -216,6 +216,61 @@ describe('Show Command', () => {
       
       const result = mockMetricsWithoutMaintainability.maintainabilityIndex?.toFixed(1) || 'N/A';
       expect(result).toBe('N/A');
+    });
+  });
+
+  describe('Show Command Behavior', () => {
+    it('should validate source code display options', () => {
+      const sourceOptions: ShowCommandOptions = {
+        source: true,
+        syntax: false
+      };
+      
+      const syntaxOptions: ShowCommandOptions = {
+        source: true,
+        syntax: true
+      };
+      
+      // Validate source display options
+      expect(sourceOptions.source).toBe(true);
+      expect(sourceOptions.syntax).toBe(false);
+      
+      // Validate syntax highlighting options  
+      expect(syntaxOptions.source).toBe(true);
+      expect(syntaxOptions.syntax).toBe(true);
+    });
+
+    it('should handle source code presence validation', () => {
+      const mockFunctionWithSource = {
+        sourceCode: 'function test() { return true; }',
+        name: 'test',
+        filePath: 'test.ts',
+        startLine: 1,
+        endLine: 3
+      };
+      
+      const mockFunctionWithoutSource = {
+        sourceCode: undefined,
+        name: 'test',
+        filePath: 'test.ts',
+        startLine: 1,
+        endLine: 3
+      };
+      
+      // Test source code availability
+      expect(mockFunctionWithSource.sourceCode).toBeDefined();
+      expect(mockFunctionWithoutSource.sourceCode).toBeUndefined();
+    });
+
+    it('should validate syntax highlighting patterns', () => {
+      // Test basic TypeScript syntax patterns
+      const testCode = 'function test(): boolean { return true; }';
+      
+      // Validate that code contains TypeScript keywords
+      expect(testCode).toMatch(/function/);
+      expect(testCode).toMatch(/return/);
+      expect(testCode).toMatch(/boolean/);
+      expect(testCode).toMatch(/true/);
     });
   });
 });

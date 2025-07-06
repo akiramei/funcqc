@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { describeCommand } from '../../src/cli/describe.js';
 import type { DescribeCommandOptions } from '../../src/types/index.js';
 
