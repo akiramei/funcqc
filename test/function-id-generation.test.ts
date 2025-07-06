@@ -19,6 +19,10 @@ describe('Function ID Generation System', () => {
     const dbPath = path.join(tempDir, 'test.db');
     storage = new PGLiteStorageAdapter(dbPath);
     await storage.init();
+    
+    // Ensure database is fully initialized
+    const snapshots = await storage.getSnapshots({ limit: 1 });
+    expect(snapshots).toBeDefined();
   });
 
   afterEach(async () => {
@@ -131,14 +135,31 @@ describe('Function ID Generation System', () => {
     // Analyze the file
     const functions = await analyzer.analyzeFile(testFile);
     
+    // Verify functions were analyzed correctly
+    expect(functions).toBeDefined();
+    expect(functions.length).toBeGreaterThan(0);
+    console.log(`Analyzed ${functions.length} functions`);
+    
     // Save all functions to storage to test for duplicate key errors
-    const snapshotId = await storage.saveSnapshot(functions, 'large-test');
+    let snapshotId: string | undefined;
+    try {
+      snapshotId = await storage.saveSnapshot(functions, 'large-test');
+      console.log('Snapshot saved with ID:', snapshotId);
+    } catch (error) {
+      console.error('Failed to save snapshot:', error);
+      console.error('Error type:', error?.constructor?.name);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+      console.error('Functions count:', functions.length);
+      throw error;
+    }
     
     expect(snapshotId).toBeDefined();
+    expect(typeof snapshotId).toBe('string');
+    expect(snapshotId.length).toBeGreaterThan(0);
     expect(functions.length).toBe(20);
     
     // Retrieve functions from storage
-    const storedFunctions = await storage.getFunctions(snapshotId);
+    const storedFunctions = await storage.getFunctions(snapshotId!);
     expect(storedFunctions.length).toBe(20);
     
     // Verify all IDs are unique
