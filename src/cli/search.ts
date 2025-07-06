@@ -346,22 +346,34 @@ function prepareDocumentsForIndexing(functions: FunctionInfo[]): Array<{
   }));
 }
 
+interface AIHints {
+  relatedTerms?: string[];
+  context?: string;
+  weights?: Record<string, number>;
+}
+
+interface SimilarityWeights {
+  tfidf?: number;
+  ngram?: number;
+  jaccard?: number;
+}
+
 function parseOptionsJson(options: SearchCommandOptions, logger: Logger): {
-  aiHints: unknown;
-  similarityWeights: unknown;
+  aiHints: AIHints | undefined;
+  similarityWeights: SimilarityWeights | undefined;
 } {
-  let aiHints;
+  let aiHints: AIHints | undefined;
   try {
     aiHints = options.aiHints ? JSON.parse(options.aiHints) : undefined;
-  } catch {
-    logger.warn('Invalid AI hints JSON format, ignoring');
+  } catch (error) {
+    logger.warn(`Invalid AI hints JSON format, ignoring: ${error instanceof Error ? error.message : String(error)}`);
   }
 
-  let similarityWeights;
+  let similarityWeights: SimilarityWeights | undefined;
   try {
     similarityWeights = options.similarityWeights ? JSON.parse(options.similarityWeights) : undefined;
-  } catch {
-    logger.warn('Invalid similarity weights JSON format, using defaults');
+  } catch (error) {
+    logger.warn(`Invalid similarity weights JSON format, using defaults: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   return { aiHints, similarityWeights };
@@ -439,19 +451,19 @@ async function performSemanticSearch(
   const searchConfig: {
     limit: number;
     minSimilarity: number;
-    weights?: { tfidf?: number; ngram?: number; jaccard?: number };
-    aiHints?: { relatedTerms?: string[]; context?: string; weights?: Record<string, number> };
+    weights?: SimilarityWeights;
+    aiHints?: AIHints;
   } = {
     limit: limit * 2,
     minSimilarity
   };
 
   if (similarityWeights) {
-    searchConfig.weights = similarityWeights as { tfidf?: number; ngram?: number; jaccard?: number };
+    searchConfig.weights = similarityWeights;
   }
 
   if (aiHints) {
-    searchConfig.aiHints = aiHints as { relatedTerms?: string[]; context?: string; weights?: Record<string, number> };
+    searchConfig.aiHints = aiHints;
   }
 
   const results = await similarityService.searchSimilar(keyword, searchConfig);
