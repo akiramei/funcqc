@@ -322,18 +322,22 @@ export interface ShowCommandOptions extends CommandOptions {
   examples?: boolean;
 }
 
-export interface StatusCommandOptions extends CommandOptions {
+export interface HealthCommandOptions extends CommandOptions {
+  trend?: boolean;
+  risks?: boolean;
+  showConfig?: boolean;
   verbose?: boolean;
+  json?: boolean;
+  period?: string;
 }
 
-export interface TrendCommandOptions extends CommandOptions {
-  weekly?: boolean;
-  monthly?: boolean;
-  daily?: boolean;
-  period?: string;
+export interface ExplainCommandOptions extends CommandOptions {
   metric?: string;
-  summary?: boolean;
-  json?: boolean;
+  concept?: string;
+  threshold?: boolean;
+  all?: boolean;
+  examples?: boolean;
+  format?: 'table' | 'detailed';
 }
 
 // Additional type definitions for CLI components
