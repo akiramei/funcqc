@@ -179,9 +179,7 @@ async function displayThresholdExplanation(): Promise<void> {
     console.log(`  Parameter Count: ${config.metrics.parameterCountThreshold}`);
     console.log(`  Max Nesting Level: ${config.metrics.maxNestingLevelThreshold}`);
     console.log();
-  } catch (error) {
-    // Log error for debugging purposes
-    console.debug('Failed to load configuration:', error);
+  } catch {
     console.log(chalk.yellow('Current Project Thresholds:'));
     console.log('  (Unable to load project configuration)');
     console.log();
