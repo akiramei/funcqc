@@ -316,6 +316,10 @@ export interface ShowCommandOptions extends CommandOptions {
   quality?: boolean;
   technical?: boolean;
   full?: boolean;
+  forUsers?: boolean;
+  forMaintainers?: boolean;
+  usage?: boolean;
+  examples?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {
