@@ -44,7 +44,9 @@ export async function describeCommand(
     const context: DescribeContext = { storage, logger, options };
 
     try {
-      if (options.input) {
+      if (options.generateTemplate) {
+        await handleGenerateTemplate(context, functionIdOrPattern);
+      } else if (options.input) {
         await handleBatchDescribe(context);
       } else if (options.listUndocumented || options.needsDescription) {
         await handleListFunctions(context);
@@ -611,4 +613,63 @@ function displayFunctionTable(
     console.log(chalk.blue('💡 Use --show-id to see complete function IDs'));
   }
   console.log(chalk.blue('Usage: funcqc describe <ID> --text "description" to add descriptions'));
+}
+
+async function handleGenerateTemplate(context: DescribeContext, functionIdOrPattern: string): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  if (!functionIdOrPattern) {
+    throw new Error('Function ID or name pattern is required for template generation');
+  }
+  
+  const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
+  
+  if (!targetFunction) {
+    return;
+  }
+  
+  // Generate template based on function information
+  const template: DescribeBatchInput = {
+    semanticId: targetFunction.semanticId,
+    description: `[TODO] Describe the purpose and behavior of ${targetFunction.name}`,
+    source: 'ai',
+    aiModel: 'claude-3-sonnet',
+    confidenceScore: 0.0,
+    createdBy: 'ai-assistant',
+    usageExample: `[TODO] Add usage example for ${targetFunction.name}(${targetFunction.parameters.map(p => p.name).join(', ')})`,
+    sideEffects: '[TODO] Document any side effects or state modifications',
+    errorConditions: '[TODO] Document error conditions and exception handling'
+  };
+  
+  // Add function context for AI to understand
+  const contextInfo = {
+    // Function metadata for AI analysis
+    _functionInfo: {
+      name: targetFunction.name,
+      filePath: targetFunction.filePath,
+      startLine: targetFunction.startLine,
+      endLine: targetFunction.endLine,
+      signature: targetFunction.signature,
+      parameters: targetFunction.parameters,
+      isAsync: targetFunction.isAsync,
+      isExported: targetFunction.isExported,
+      functionType: targetFunction.functionType,
+      sourceCode: targetFunction.sourceCode,
+      metrics: targetFunction.metrics
+    },
+    // Template for batch processing
+    template: [template]
+  };
+  
+  if (options.aiMode) {
+    // AI-optimized output with context
+    console.log(JSON.stringify(contextInfo, null, 2));
+    logger.info(chalk.blue('💡 AI Mode: Complete context provided for analysis'));
+    logger.info(chalk.blue('💡 Extract the "template" array for batch processing'));
+  } else {
+    // Human-friendly template output
+    console.log(JSON.stringify([template], null, 2));
+    logger.info(chalk.blue('💡 Template generated successfully'));
+    logger.info(chalk.blue('💡 Edit the template and use: funcqc describe --input template.json'));
+  }
 }

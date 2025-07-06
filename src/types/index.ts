@@ -320,6 +320,8 @@ export interface ShowCommandOptions extends CommandOptions {
   forMaintainers?: boolean;
   usage?: boolean;
   examples?: boolean;
+  source?: boolean;
+  syntax?: boolean;
 }
 
 export interface HealthCommandOptions extends CommandOptions {
@@ -713,6 +715,9 @@ export interface DescribeCommandOptions extends CommandOptions {
   usageExample?: string;
   sideEffects?: string;
   errorConditions?: string;
+  // AI batch features
+  generateTemplate?: boolean;
+  aiMode?: boolean;
 }
 
 export interface SearchCommandOptions extends CommandOptions {
