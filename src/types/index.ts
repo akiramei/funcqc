@@ -666,7 +666,7 @@ export interface ProjectRiskAssessment {
 export interface FunctionDescription {
   semanticId: string;
   description: string;
-  source: 'human' | 'ai' | 'jsdoc';
+  source: 'human' | 'ai' | 'jsdoc' | null;
   createdAt: number;
   updatedAt: number;
   createdBy?: string;
@@ -680,13 +680,13 @@ export interface DescribeCommandOptions extends CommandOptions {
   source?: 'human' | 'ai' | 'jsdoc';
   model?: string;
   confidence?: string;
-  batch?: boolean;
   input?: string;
-  interactive?: boolean;
   by?: string;
   listUndocumented?: boolean;
   needsDescription?: boolean;
   showId?: boolean;
+  force?: boolean;
+  json?: boolean;
 }
 
 export interface SearchCommandOptions extends CommandOptions {

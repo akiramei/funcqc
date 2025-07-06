@@ -152,13 +152,13 @@ program
   .option('--source <type>', 'description source (human|ai|jsdoc)', 'human')
   .option('--model <name>', 'AI model name (for AI-generated descriptions)')
   .option('--confidence <score>', 'confidence score (0-1, for AI-generated descriptions)')
-  .option('--batch', 'batch mode using JSON input file')
   .option('--input <file>', 'input JSON file for batch mode')
-  .option('--interactive', 'interactive mode (opens editor)')
   .option('--by <author>', 'author/creator name')
   .option('--list-undocumented', 'list functions without descriptions')
   .option('--needs-description', 'list functions needing description updates')
   .option('--show-id', 'show complete function IDs')
+  .option('--force', 'bypass source guard protection')
+  .option('--json', 'output as JSON')
   .action(describeCommand);
 
 program
