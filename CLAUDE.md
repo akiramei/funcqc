@@ -279,6 +279,7 @@ npm run dev -- list --name "*test*"                    # テスト関連関数
 | **品質確認** | `status` | `list --cc-ge 10` | `trend --weekly` |
 | **問題調査** | `list --cc-ge 10` | `similar --threshold 0.8` | `show "problemFunc"` |
 | **コードレビュー** | `list --cc-ge 5 --limit 10` | `list --name "*exported*"` | `similar --threshold 0.8` |
+| **関数文書化** | `describe --list-undocumented` | `describe --needs-description` | `describe "funcId" --text "説明"` |
 
 ### 🚀 効率的調査フロー
 
@@ -421,6 +422,72 @@ npm run --silent dev -- list --file "src/cli/*.ts" --cc-ge 5 --json | jq -r '.fu
 # 同一ファイル内の関数一覧
 npm run dev -- list --file "src/cli/list.ts"
 ```
+
+## 📝 関数説明管理機能
+
+funcqcには関数の説明を管理する包括的な機能が搭載されています。
+
+### 🔍 説明状況の確認
+
+```bash
+# 説明がない関数を発見
+npm run dev -- describe --list-undocumented
+
+# 説明更新が必要な関数を発見（内容変更検知含む）
+npm run dev -- describe --needs-description
+
+# 完全な関数IDと共に表示
+npm run dev -- describe --list-undocumented --show-id
+```
+
+### ✏️ 関数説明の追加・管理
+
+```bash
+# 個別の説明追加
+npm run dev -- describe "function-id" --text "関数の説明"
+
+# 説明の確認
+npm run dev -- describe "function-id"
+
+# 説明のソース指定（人間・AI・JSDoc）
+npm run dev -- describe "function-id" --text "説明" --source human
+npm run dev -- describe "function-id" --text "説明" --source ai --model "gpt-4"
+```
+
+### 🚀 効率的な文書化ワークフロー
+
+```bash
+# Step 1: 文書化が必要な関数を特定
+npm run dev -- describe --list-undocumented --show-id
+
+# Step 2: 優先度の高い関数から文書化
+npm run dev -- describe "function-id" --text "説明文"
+
+# Step 3: 定期的な更新チェック
+npm run dev -- describe --needs-description
+```
+
+### 🔄 自動変更検知システム
+
+funcqcは関数の内容が変更された際に、説明の更新が必要かどうかを自動的に検知します：
+
+- **content_id**ベースの整合性チェック
+- **PostgreSQLトリガー**による自動フラグ設定
+- **semantic_id**による関数の持続的追跡
+
+### 📊 出力フォーマット
+
+```
+ID       Name                            Description
+-------- ------------------------------- -----------------------------------------
+3d2e3fa4 analyze                         Analyzes function naming quality and...
+56c03f63 parseToAST                      
+a1b2c3d4 validateUser                    Validates user input data and retur...
+```
+
+- **ID**: 8文字の短縮関数ID（`--show-id`で完全ID表示）
+- **Name**: 関数名（31文字で切り捨て）
+- **Description**: 説明文（40文字で切り捨て + `...`）
 
 ## 🚀 次世代品質管理の実現
 
