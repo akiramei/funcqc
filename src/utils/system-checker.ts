@@ -149,24 +149,53 @@ export class SystemChecker {
   }
 
   reportSystemCheck(): boolean {
-    this.logger.info('🔍 Checking system requirements...');
+    // Only show "checking" message in verbose mode
+    if ((this.logger as unknown as { verbose: boolean }).verbose) {
+      this.logger.info('🔍 Checking system requirements...');
+    }
     
     const result = this.checkSystem();
     
+    // Collect errors and warnings
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    
     result.requirements.forEach(req => {
-      if (req.passed) {
-        this.logger.info(`✅ ${req.name}: OK`);
-      } else if (req.required) {
-        this.logger.error(`❌ ${req.name}: ${req.errorMessage}`);
-      } else {
-        this.logger.warn(`⚠️  ${req.name}: ${req.errorMessage}`);
+      if (!req.passed) {
+        if (req.required) {
+          errors.push(`❌ ${req.name}: ${req.errorMessage}`);
+        } else {
+          warnings.push(`⚠️  ${req.name}: ${req.errorMessage}`);
+        }
       }
     });
-
-    if (result.passed) {
-      this.logger.info('✅ System check passed!');
+    
+    // In verbose mode, show all details
+    if ((this.logger as unknown as { verbose: boolean }).verbose) {
+      result.requirements.forEach(req => {
+        if (req.passed) {
+          this.logger.info(`✅ ${req.name}: OK`);
+        } else if (req.required) {
+          this.logger.error(`❌ ${req.name}: ${req.errorMessage}`);
+        } else {
+          this.logger.warn(`⚠️  ${req.name}: ${req.errorMessage}`);
+        }
+      });
+      
+      if (result.passed) {
+        this.logger.info('✅ System check passed!');
+      } else {
+        this.logger.error('❌ System check failed. Please resolve the required issues above.');
+      }
     } else {
-      this.logger.error('❌ System check failed. Please resolve the required issues above.');
+      // In non-verbose mode, only show errors and warnings
+      errors.forEach(error => this.logger.error(error.replace('❌ ', '')));
+      warnings.forEach(warning => this.logger.warn(warning.replace('⚠️  ', '')));
+      
+      // Only show failure message if there were errors
+      if (!result.passed) {
+        this.logger.error('System check failed. Please resolve the required issues above.');
+      }
     }
 
     return result.passed;

@@ -217,8 +217,11 @@ program.on('command:*', () => {
 
 // Setup error handling and system checks
 function setupErrorHandling() {
-  const options = program.opts();
-  const logger = new Logger(options['verbose'], options['quiet']);
+  // Check for verbose/quiet flags in process.argv
+  const hasVerbose = process.argv.includes('--verbose') || process.argv.includes('-v');
+  const hasQuiet = process.argv.includes('--quiet') || process.argv.includes('-q');
+  
+  const logger = new Logger(hasVerbose, hasQuiet);
   const errorHandler = createErrorHandler(logger);
   
   // Setup global error handlers
@@ -232,29 +235,6 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   
   const systemChecker = new SystemChecker(logger);
   return systemChecker.reportSystemCheck();
-}
-
-function handleSystemCheckFlag(options: OptionValues, logger: Logger): void {
-  if (!options['checkSystem']) return;
-  
-  performSystemCheck(logger, false);
-  process.exit(0);
-}
-
-function handleWorkingDirectoryChange(options: OptionValues, errorHandler: ErrorHandler): void {
-  if (!options['cwd']) return;
-  
-  try {
-    process.chdir(options['cwd']);
-  } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.FILE_NOT_ACCESSIBLE,
-      `Cannot change to directory: ${options['cwd']}`,
-      { directory: options['cwd'] },
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
-  }
 }
 
 function handleHelpDisplay(): void {
@@ -271,31 +251,53 @@ function isReadOnlyCommand(): boolean {
   return READ_ONLY_COMMANDS.includes(command as typeof READ_ONLY_COMMANDS[number]);
 }
 
-function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
-  if (options['noCheck']) return;
-  
-  // Skip system checks for read-only commands unless explicitly requested
-  if (isReadOnlyCommand() && !options['checkSystem']) {
-    return;
-  }
-  
-  const systemOk = performSystemCheck(logger, false);
-  if (!systemOk) {
-    logger.error('System requirements not met. Use --no-check to bypass.');
-    process.exit(1);
-  }
-}
-
 // Main execution
 async function main() {
   try {
     const { logger, errorHandler } = setupErrorHandling();
-    const options = program.opts();
     
-    handleSystemCheckFlag(options, logger);
-    handleWorkingDirectoryChange(options, errorHandler);
+    // Manually check for options we need before parsing
+    const hasCheckSystem = process.argv.includes('--check-system');
+    const hasNoCheck = process.argv.includes('--no-check');
+    const hasCwd = process.argv.includes('--cwd');
+    const cwdIndex = process.argv.indexOf('--cwd');
+    const cwd = hasCwd && cwdIndex !== -1 ? process.argv[cwdIndex + 1] : undefined;
+    
+    // Handle --check-system flag
+    if (hasCheckSystem) {
+      performSystemCheck(logger, false);
+      process.exit(0);
+    }
+    
+    // Handle --cwd flag
+    if (cwd) {
+      try {
+        process.chdir(cwd);
+      } catch (error) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.FILE_NOT_ACCESSIBLE,
+          `Cannot change to directory: ${cwd}`,
+          { directory: cwd },
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+    
+    // Handle help display
     handleHelpDisplay();
-    handleSystemCheckBeforeCommands(options, logger);
+    
+    // Handle system check before commands
+    if (!hasNoCheck) {
+      // Skip system checks for read-only commands unless explicitly requested
+      if (!isReadOnlyCommand() || hasCheckSystem) {
+        const systemOk = performSystemCheck(logger, false);
+        if (!systemOk) {
+          logger.error('System requirements not met. Use --no-check to bypass.');
+          process.exit(1);
+        }
+      }
+    }
     
     await program.parseAsync(process.argv);
     
