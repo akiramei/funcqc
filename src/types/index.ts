@@ -683,6 +683,10 @@ export interface FunctionDescription {
   aiModel?: string;
   confidenceScore?: number;
   validatedForContentId?: string;
+  // Structured fields for developer information
+  usageExample?: string;
+  sideEffects?: string;
+  errorConditions?: string;
 }
 
 export interface DescribeCommandOptions extends CommandOptions {
@@ -697,6 +701,10 @@ export interface DescribeCommandOptions extends CommandOptions {
   showId?: boolean;
   force?: boolean;
   json?: boolean;
+  // Structured information options
+  usageExample?: string;
+  sideEffects?: string;
+  errorConditions?: string;
 }
 
 export interface SearchCommandOptions extends CommandOptions {

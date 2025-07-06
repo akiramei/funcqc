@@ -13,6 +13,10 @@ interface DescribeBatchInput {
   aiModel?: string;
   confidenceScore?: number;
   createdBy?: string;
+  // Structured fields for developer information
+  usageExample?: string;
+  sideEffects?: string;
+  errorConditions?: string;
 }
 
 interface DescribeContext {
@@ -129,7 +133,10 @@ async function processBatchDescription(
       validatedForContentId,
       createdBy: desc.createdBy || options.by,
       aiModel: desc.aiModel || options.model,
-      confidenceScore: desc.confidenceScore ?? (options.confidence ? parseFloat(options.confidence) : undefined)
+      confidenceScore: desc.confidenceScore ?? (options.confidence ? parseFloat(options.confidence) : undefined),
+      usageExample: desc.usageExample || options.usageExample,
+      sideEffects: desc.sideEffects || options.sideEffects,
+      errorConditions: desc.errorConditions || options.errorConditions
     }
   );
 
@@ -173,7 +180,7 @@ async function handleSingleDescribe(
     return;
   }
 
-  if (options.text) {
+  if (options.text || options.usageExample || options.sideEffects || options.errorConditions) {
     await saveDescription(context, targetFunction, options.text);
   } else {
     await showExistingDescription(context, targetFunction);
@@ -305,7 +312,7 @@ function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern:
 async function saveDescription(
   context: DescribeContext,
   targetFunction: FunctionInfo,
-  text: string
+  text: string | undefined
 ): Promise<void> {
   const { storage, logger, options } = context;
   
@@ -322,15 +329,21 @@ async function saveDescription(
     }
   }
   
+  // If we're updating structured fields but not the main description, keep the existing description
+  const descriptionText = text || existingDescription?.description || '';
+  
   const description = createFunctionDescription(
     targetFunction.semanticId,
-    text,
+    descriptionText,
     {
       source: newSource,
       validatedForContentId: targetFunction.contentId,
       createdBy: options.by,
       aiModel: options.model,
-      confidenceScore: options.confidence ? parseFloat(options.confidence) : undefined
+      confidenceScore: options.confidence ? parseFloat(options.confidence) : undefined,
+      usageExample: options.usageExample,
+      sideEffects: options.sideEffects,
+      errorConditions: options.errorConditions
     }
   );
 
@@ -339,7 +352,18 @@ async function saveDescription(
   logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
   logger.info(`  Function ID: ${targetFunction.id}`);
   logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
-  logger.info(`  Description: ${text}`);
+  if (text) {
+    logger.info(`  Description: ${text}`);
+  }
+  if (options.usageExample) {
+    logger.info(`  Usage Example: ${options.usageExample.substring(0, 80)}${options.usageExample.length > 80 ? '...' : ''}`);
+  }
+  if (options.sideEffects) {
+    logger.info(`  Side Effects: ${options.sideEffects.substring(0, 80)}${options.sideEffects.length > 80 ? '...' : ''}`);
+  }
+  if (options.errorConditions) {
+    logger.info(`  Error Conditions: ${options.errorConditions.substring(0, 80)}${options.errorConditions.length > 80 ? '...' : ''}`);
+  }
   logger.info(`  Source: ${description.source}`);
 }
 
@@ -349,7 +373,7 @@ async function showExistingDescription(
 ): Promise<void> {
   const { storage, logger } = context;
   
-  const existingDescription = await storage.getFunctionDescription(targetFunction.id);
+  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
   
   if (existingDescription) {
     displayDescription(logger, targetFunction, existingDescription);
@@ -376,6 +400,28 @@ function displayDescription(
   }
   if (description.confidenceScore !== undefined) {
     logger.info(`  Confidence: ${description.confidenceScore}`);
+  }
+  
+  // Display structured fields if present
+  if (description.usageExample) {
+    logger.info('');
+    logger.info(chalk.green('  Usage Example:'));
+    const lines = description.usageExample.split('\n');
+    lines.forEach(line => logger.info(`    ${line}`));
+  }
+  
+  if (description.sideEffects) {
+    logger.info('');
+    logger.info(chalk.yellow('  Side Effects:'));
+    const lines = description.sideEffects.split('\n');
+    lines.forEach(line => logger.info(`    ${line}`));
+  }
+  
+  if (description.errorConditions) {
+    logger.info('');
+    logger.info(chalk.red('  Error Conditions:'));
+    const lines = description.errorConditions.split('\n');
+    lines.forEach(line => logger.info(`    ${line}`));
   }
 }
 
@@ -416,6 +462,9 @@ function createFunctionDescription(
     createdBy?: string | undefined;
     aiModel?: string | undefined;
     confidenceScore?: number | undefined;
+    usageExample?: string | undefined;
+    sideEffects?: string | undefined;
+    errorConditions?: string | undefined;
   }
 ): FunctionDescription {
   const now = Date.now();
@@ -431,7 +480,10 @@ function createFunctionDescription(
     ...(options.aiModel && { aiModel: options.aiModel }),
     ...(options.confidenceScore !== undefined && !isNaN(options.confidenceScore) && { 
       confidenceScore: options.confidenceScore 
-    })
+    }),
+    ...(options.usageExample && { usageExample: options.usageExample }),
+    ...(options.sideEffects && { sideEffects: options.sideEffects }),
+    ...(options.errorConditions && { errorConditions: options.errorConditions })
   };
 }
 

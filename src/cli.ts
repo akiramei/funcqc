@@ -163,6 +163,9 @@ program
   .option('--show-id', 'show complete function IDs')
   .option('--force', 'bypass source guard protection')
   .option('--json', 'output as JSON')
+  .option('--usage-example <example>', 'add usage example (can include line breaks)')
+  .option('--side-effects <effects>', 'document side effects and outputs')
+  .option('--error-conditions <conditions>', 'document error conditions and handling')
   .action(describeCommand);
 
 program
