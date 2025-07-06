@@ -459,7 +459,7 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
   console.log(chalk.blue(`${title} (${functions.length} functions):`));
   console.log('');
   
-  displayFunctionTable(functionsWithDescriptions, options, logger);
+  displayFunctionTable(functionsWithDescriptions, options);
 }
 
 interface FunctionWithDescription extends FunctionInfo {
@@ -468,8 +468,7 @@ interface FunctionWithDescription extends FunctionInfo {
 
 function displayFunctionTable(
   functions: FunctionWithDescription[],
-  options: DescribeCommandOptions,
-  logger: Logger
+  options: DescribeCommandOptions
 ): void {
   // Table header
   const idHeader = options.showId ? 'ID'.padEnd(16) : 'ID'.padEnd(8);
