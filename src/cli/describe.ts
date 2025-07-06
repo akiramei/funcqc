@@ -456,8 +456,8 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
     })
   );
   
-  logger.info(chalk.blue(`${title} (${functions.length} functions):`));
-  logger.info('');
+  console.log(chalk.blue(`${title} (${functions.length} functions):`));
+  console.log('');
   
   displayFunctionTable(functionsWithDescriptions, options, logger);
 }
@@ -476,8 +476,8 @@ function displayFunctionTable(
   const nameHeader = 'Name'.padEnd(31);
   const descHeader = 'Description';
   
-  logger.info(`${idHeader} ${nameHeader} ${descHeader}`);
-  logger.info(`${'-'.repeat(idHeader.length)} ${'-'.repeat(31)} ${'-'.repeat(40)}`);
+  console.log(`${idHeader} ${nameHeader} ${descHeader}`);
+  console.log(`${'-'.repeat(idHeader.length)} ${'-'.repeat(31)} ${'-'.repeat(40)}`);
   
   // Table rows
   functions.forEach(func => {
@@ -494,12 +494,12 @@ function displayFunctionTable(
         : func.currentDescription;
     }
     
-    logger.info(`${idCol} ${nameCol} ${descCol}`);
+    console.log(`${idCol} ${nameCol} ${descCol}`);
   });
   
-  logger.info('');
+  console.log('');
   if (!options.showId) {
-    logger.info(chalk.blue('💡 Use --show-id to see complete function IDs'));
+    console.log(chalk.blue('💡 Use --show-id to see complete function IDs'));
   }
-  logger.info(chalk.blue('Usage: funcqc describe <ID> --text "description" to add descriptions'));
+  console.log(chalk.blue('Usage: funcqc describe <ID> --text "description" to add descriptions'));
 }
