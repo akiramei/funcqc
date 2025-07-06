@@ -6,10 +6,10 @@ import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
 import { listCommand } from './cli/list';
 import { showCommand } from './cli/show';
-import { statusCommand } from './cli/status';
+import { healthCommand } from './cli/health';
+import { explainCommand } from './cli/explain';
 import { historyCommand } from './cli/history';
 import { diffCommand } from './cli/diff';
-import { trendCommand } from './cli/trend';
 import { similarCommand } from './cli/similar';
 import { describeCommand } from './cli/describe';
 import { searchCommand } from './cli/search';
@@ -84,14 +84,19 @@ program
   .action(showCommand);
 
 program
-  .command('status')
-  .description('Show current project status')
+  .command('health')
+  .description('Show project health and risk assessment')
+  .option('--trend', 'show trend analysis')
+  .option('--risks', 'show detailed risk assessment')
+  .option('--show-config', 'show configuration details')
   .option('--verbose', 'show detailed information')
+  .option('--json', 'output as JSON')
+  .option('--period <days>', 'period for trend analysis (default: 7)')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
     const mergedOptions = { ...globalOpts, ...options };
-    await statusCommand(mergedOptions);
+    await healthCommand(mergedOptions);
   });
 
 program
@@ -125,17 +130,6 @@ program
   .option('--json', 'output as JSON')
   .action(diffCommand);
 
-program
-  .command('trend')
-  .description('Show quality trends over time')
-  .option('--weekly', 'show weekly trends (default)')
-  .option('--monthly', 'show monthly trends')
-  .option('--daily', 'show daily trends')
-  .option('--period <days>', 'custom period in days', '30')
-  .option('--metric <name>', 'focus on specific metric')
-  .option('--summary', 'show summary only')
-  .option('--json', 'output as JSON')
-  .action(trendCommand);
 
 program
   .command('similar')
@@ -218,6 +212,37 @@ program.addCommand(createVectorizeCommand());
 // Add evaluate command (v1.6 enhancement)
 program.addCommand(createEvaluateCommand());
 
+// Add explain command
+program
+  .command('explain')
+  .description('Explain quality metrics and concepts')
+  .argument('[metric-or-concept]', 'specific metric or concept to explain')
+  .option('--metric <name>', 'explain specific metric')
+  .option('--concept <name>', 'explain concept (complexity, maintainability, quality, testing, refactoring)')
+  .option('--threshold', 'explain threshold system')
+  .option('--all', 'list all available metrics and concepts')
+  .option('--examples', 'include code examples in explanations')
+  .option('--format <type>', 'output format (table|detailed)', 'detailed')
+  .action(explainCommand)
+  .addHelpText('after', `
+Examples:
+  $ funcqc explain cyclomaticComplexity              # Explain specific metric
+  $ funcqc explain --concept complexity              # Explain concept
+  $ funcqc explain --threshold                       # Explain threshold system
+  $ funcqc explain --all                             # List all metrics
+  $ funcqc explain maintainability --examples        # Include examples
+
+Available Metrics:
+  Complexity: cyclomaticComplexity, cognitiveComplexity, maxNestingLevel
+  Size: linesOfCode, totalLines, parameterCount
+  Structure: branchCount, loopCount, returnStatementCount, tryCatchCount
+  Advanced: halsteadVolume, halsteadDifficulty, maintainabilityIndex
+  Documentation: commentLines, codeToCommentRatio
+  Patterns: asyncAwaitCount, callbackCount
+
+Available Concepts:
+  complexity, maintainability, quality, testing, refactoring
+`);
 
 // Handle unknown commands
 program.on('command:*', () => {
@@ -246,7 +271,7 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   return systemChecker.reportSystemCheck();
 }
 
-const READ_ONLY_COMMANDS = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'] as const;
+const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain'] as const;
 
 function isReadOnlyCommand(): boolean {
   const command = process.argv[2];
