@@ -72,6 +72,10 @@ program
   .description('Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')
   .option('--json', 'output as JSON')
+  .option('--details', 'show parameter and return type details')
+  .option('--quality', 'show quality metrics')
+  .option('--technical', 'show technical information (hashes, etc.)')
+  .option('--full', 'show all information sections')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
   .action(showCommand);
 

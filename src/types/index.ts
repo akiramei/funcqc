@@ -306,6 +306,10 @@ export interface ListCommandOptions extends CommandOptions {
 export interface ShowCommandOptions extends CommandOptions {
   id?: string;
   json?: boolean;
+  details?: boolean;
+  quality?: boolean;
+  technical?: boolean;
+  full?: boolean;
 }
 
 export interface StatusCommandOptions extends CommandOptions {
