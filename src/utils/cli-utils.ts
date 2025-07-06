@@ -19,6 +19,10 @@ export enum LogLevel {
 export class Logger {
   constructor(private verbose: boolean = false, private quiet: boolean = false) {}
 
+  get isVerbose(): boolean {
+    return this.verbose;
+  }
+
   error(message: string, details?: LogDetails): void {
     if (this.quiet) return;
     console.error(chalk.red('❌ Error:'), message);

@@ -149,24 +149,47 @@ export class SystemChecker {
   }
 
   reportSystemCheck(): boolean {
-    this.logger.info('🔍 Checking system requirements...');
+    // Only show "checking" message in verbose mode
+    if (this.logger.isVerbose) {
+      this.logger.info('🔍 Checking system requirements...');
+    }
     
     const result = this.checkSystem();
     
-    result.requirements.forEach(req => {
-      if (req.passed) {
-        this.logger.info(`✅ ${req.name}: OK`);
-      } else if (req.required) {
-        this.logger.error(`❌ ${req.name}: ${req.errorMessage}`);
+    // Show results based on verbosity level
+    if (this.logger.isVerbose) {
+      // Verbose mode: show all details
+      result.requirements.forEach(req => {
+        if (req.passed) {
+          this.logger.info(`✅ ${req.name}: OK`);
+        } else if (req.required) {
+          this.logger.error(`❌ ${req.name}: ${req.errorMessage}`);
+        } else {
+          this.logger.warn(`⚠️  ${req.name}: ${req.errorMessage}`);
+        }
+      });
+      
+      if (result.passed) {
+        this.logger.info('✅ System check passed!');
       } else {
-        this.logger.warn(`⚠️  ${req.name}: ${req.errorMessage}`);
+        this.logger.error('❌ System check failed. Please resolve the required issues above.');
       }
-    });
-
-    if (result.passed) {
-      this.logger.info('✅ System check passed!');
     } else {
-      this.logger.error('❌ System check failed. Please resolve the required issues above.');
+      // Non-verbose mode: only show failures
+      result.requirements.forEach(req => {
+        if (!req.passed) {
+          if (req.required) {
+            this.logger.error(`${req.name}: ${req.errorMessage}`);
+          } else {
+            this.logger.warn(`${req.name}: ${req.errorMessage}`);
+          }
+        }
+      });
+      
+      // Only show failure message if there were required failures
+      if (!result.passed) {
+        this.logger.error('System check failed. Please resolve the required issues above.');
+      }
     }
 
     return result.passed;

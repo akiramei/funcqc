@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command, OptionValues } from 'commander';
+import { Command } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
@@ -17,7 +17,7 @@ import { createVectorizeCommand } from './cli/vectorize';
 import { createEvaluateCommand } from './cli/evaluate';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
-import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
+import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
 
 const program = new Command();
 
@@ -217,6 +217,7 @@ program.on('command:*', () => {
 
 // Setup error handling and system checks
 function setupErrorHandling() {
+  // Get options from Commander.js after parsing
   const options = program.opts();
   const logger = new Logger(options['verbose'], options['quiet']);
   const errorHandler = createErrorHandler(logger);
@@ -234,36 +235,6 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   return systemChecker.reportSystemCheck();
 }
 
-function handleSystemCheckFlag(options: OptionValues, logger: Logger): void {
-  if (!options['checkSystem']) return;
-  
-  performSystemCheck(logger, false);
-  process.exit(0);
-}
-
-function handleWorkingDirectoryChange(options: OptionValues, errorHandler: ErrorHandler): void {
-  if (!options['cwd']) return;
-  
-  try {
-    process.chdir(options['cwd']);
-  } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.FILE_NOT_ACCESSIBLE,
-      `Cannot change to directory: ${options['cwd']}`,
-      { directory: options['cwd'] },
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
-  }
-}
-
-function handleHelpDisplay(): void {
-  if (process.argv.slice(2).length) return;
-  
-  program.outputHelp();
-  process.exit(0);
-}
-
 const READ_ONLY_COMMANDS = ['list', 'status', 'show', 'history', 'diff', 'trend', 'search', 'similar'] as const;
 
 function isReadOnlyCommand(): boolean {
@@ -271,31 +242,59 @@ function isReadOnlyCommand(): boolean {
   return READ_ONLY_COMMANDS.includes(command as typeof READ_ONLY_COMMANDS[number]);
 }
 
-function handleSystemCheckBeforeCommands(options: OptionValues, logger: Logger): void {
-  if (options['noCheck']) return;
+// Pre-action hook for all commands
+program.hook('preAction', () => {
+  const { logger, errorHandler } = setupErrorHandling();
   
-  // Skip system checks for read-only commands unless explicitly requested
-  if (isReadOnlyCommand() && !options['checkSystem']) {
-    return;
+  const options = program.opts();
+  
+  // Handle --check-system flag
+  if (options['checkSystem']) {
+    performSystemCheck(logger, false);
+    process.exit(0);
   }
   
-  const systemOk = performSystemCheck(logger, false);
-  if (!systemOk) {
-    logger.error('System requirements not met. Use --no-check to bypass.');
-    process.exit(1);
+  // Handle --cwd flag
+  if (options['cwd']) {
+    try {
+      process.chdir(options['cwd']);
+    } catch (error) {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.FILE_NOT_ACCESSIBLE,
+        `Cannot change to directory: ${options['cwd']}`,
+        { directory: options['cwd'] },
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
+  
+  // Handle system check before commands
+  if (!options['noCheck']) {
+    // Skip system checks for read-only commands unless explicitly requested
+    if (!isReadOnlyCommand() || options['checkSystem']) {
+      const systemOk = performSystemCheck(logger, false);
+      if (!systemOk) {
+        logger.error('System requirements not met. Use --no-check to bypass.');
+        process.exit(1);
+      }
+    }
+  }
+});
+
+// Handle help display for no arguments
+function handleHelpDisplay(): void {
+  if (process.argv.slice(2).length) return;
+  
+  program.outputHelp();
+  process.exit(0);
 }
 
 // Main execution
 async function main() {
   try {
-    const { logger, errorHandler } = setupErrorHandling();
-    const options = program.opts();
-    
-    handleSystemCheckFlag(options, logger);
-    handleWorkingDirectoryChange(options, errorHandler);
+    // Handle help display for no arguments
     handleHelpDisplay();
-    handleSystemCheckBeforeCommands(options, logger);
     
     await program.parseAsync(process.argv);
     
