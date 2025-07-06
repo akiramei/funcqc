@@ -147,7 +147,7 @@ program
 program
   .command('describe')
   .description('Add or manage function descriptions')
-  .argument('<function-id>', 'function ID or name pattern')
+  .argument('[function-id]', 'function ID or name pattern')
   .option('--text <description>', 'description text')
   .option('--source <type>', 'description source (human|ai|jsdoc)', 'human')
   .option('--model <name>', 'AI model name (for AI-generated descriptions)')
@@ -156,6 +156,9 @@ program
   .option('--input <file>', 'input JSON file for batch mode')
   .option('--interactive', 'interactive mode (opens editor)')
   .option('--by <author>', 'author/creator name')
+  .option('--list-undocumented', 'list functions without descriptions')
+  .option('--needs-description', 'list functions needing description updates')
+  .option('--show-id', 'show complete function IDs')
   .action(describeCommand);
 
 program

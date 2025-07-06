@@ -684,6 +684,9 @@ export interface DescribeCommandOptions extends CommandOptions {
   input?: string;
   interactive?: boolean;
   by?: string;
+  listUndocumented?: boolean;
+  needsDescription?: boolean;
+  showId?: boolean;
 }
 
 export interface SearchCommandOptions extends CommandOptions {

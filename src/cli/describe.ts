@@ -42,6 +42,8 @@ export async function describeCommand(
     try {
       if (options.batch && options.input) {
         await handleBatchDescribe(context);
+      } else if (options.listUndocumented || options.needsDescription) {
+        await handleListFunctions(context);
       } else {
         await handleSingleDescribe(context, functionIdOrPattern);
       }
@@ -409,4 +411,94 @@ function getRiskIcon(func: FunctionInfo): string {
   );
   
   return isHighRisk ? chalk.red('⚠️') : chalk.green('✅');
+}
+
+async function handleListFunctions(context: DescribeContext): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  // Get the latest snapshot ID
+  const snapshots = await storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    logger.warn('No snapshots found. Please run `funcqc scan` first.');
+    return;
+  }
+  const latestSnapshotId = snapshots[0].id;
+  
+  let functions: FunctionInfo[];
+  let title: string;
+  
+  if (options.listUndocumented) {
+    functions = await storage.getFunctionsWithoutDescriptions(latestSnapshotId);
+    title = 'Functions without descriptions';
+    logger.debug(`Found ${functions.length} functions without descriptions`);
+  } else if (options.needsDescription) {
+    functions = await storage.getFunctionsNeedingDescriptions(latestSnapshotId);
+    title = 'Functions needing description updates';
+    logger.debug(`Found ${functions.length} functions needing description updates`);
+  } else {
+    logger.warn('No list option specified');
+    return;
+  }
+  
+  if (functions.length === 0) {
+    logger.info(chalk.green(`✓ No functions found for: ${title.toLowerCase()}`));
+    return;
+  }
+  
+  // Get descriptions for functions that have them
+  const functionsWithDescriptions = await Promise.all(
+    functions.map(async (func) => {
+      const description = await storage.getFunctionDescription(func.semanticId);
+      return {
+        ...func,
+        currentDescription: description?.description || undefined
+      };
+    })
+  );
+  
+  console.log(chalk.blue(`${title} (${functions.length} functions):`));
+  console.log('');
+  
+  displayFunctionTable(functionsWithDescriptions, options);
+}
+
+interface FunctionWithDescription extends FunctionInfo {
+  currentDescription: string | undefined;
+}
+
+function displayFunctionTable(
+  functions: FunctionWithDescription[],
+  options: DescribeCommandOptions
+): void {
+  // Table header
+  const idHeader = options.showId ? 'ID'.padEnd(16) : 'ID'.padEnd(8);
+  const nameHeader = 'Name'.padEnd(31);
+  const descHeader = 'Description';
+  
+  console.log(`${idHeader} ${nameHeader} ${descHeader}`);
+  console.log(`${'-'.repeat(idHeader.length)} ${'-'.repeat(31)} ${'-'.repeat(40)}`);
+  
+  // Table rows
+  functions.forEach(func => {
+    const id = options.showId ? func.id : func.id.substring(0, 8);
+    const idCol = id.padEnd(idHeader.length);
+    const nameCol = func.displayName.length > 31 
+      ? func.displayName.substring(0, 28) + '...' 
+      : func.displayName.padEnd(31);
+    
+    let descCol = '';
+    if (func.currentDescription) {
+      descCol = func.currentDescription.length > 40
+        ? func.currentDescription.substring(0, 37) + '...'
+        : func.currentDescription;
+    }
+    
+    console.log(`${idCol} ${nameCol} ${descCol}`);
+  });
+  
+  console.log('');
+  if (!options.showId) {
+    console.log(chalk.blue('💡 Use --show-id to see complete function IDs'));
+  }
+  console.log(chalk.blue('Usage: funcqc describe <ID> --text "description" to add descriptions'));
 }

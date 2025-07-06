@@ -2,41 +2,50 @@
 
 ## 🎯 概要
 
-funcqcの`--needs-description`機能を使用した体系的な関数文書化により、コードベースの理解と保守性を大幅に向上させます。
+funcqcの`describe`コマンドを使用した体系的な関数文書化により、コードベースの理解と保守性を大幅に向上させます。新しい一覧表示機能により、効率的な文書化ワークフローが実現されました。
 
 ## 📋 基本ワークフロー
 
 ### Step 1: 文書化が必要な関数の特定
 
 ```bash
-# 基本コマンド
-npm run dev -- list --needs-description --show-id
+# 説明がない関数を発見
+npm run dev -- describe --list-undocumented --show-id
 
-# エクスポート関数優先
-npm run dev -- list --needs-description --exported --show-id
+# 説明更新が必要な関数を発見（内容変更検知含む）
+npm run dev -- describe --needs-description --show-id
 
-# 複雑な関数優先
-npm run dev -- list --needs-description --complexity ">5" --show-id
+# 短縮IDでの表示（簡潔な一覧）
+npm run dev -- describe --list-undocumented
 ```
 
 ### Step 2: 情報の読み取り
 
-テーブル形式の出力から以下を確認：
-- **ID**: 説明登録に使用（例: `c88edcfc`）
-- **File**: ソースファイルパス
-- **Location**: 開始行-終了行
+新しいテーブル形式の出力から以下を確認：
 
-### Step 3: 関数内容の確認
-
-```bash
-# Readツールで関数を読む
-Read src/cli/search.ts:129
-
-# または、showコマンドで詳細確認
-npm run dev -- show --id "c88edcfc"
+```
+ID       Name                            Description
+-------- ------------------------------- -----------------------------------------
+3d2e3fa4 analyze                         Analyzes function naming quality and...
+56c03f63 parseToAST                      
+a1b2c3d4 validateUser                    Validates user input data and retur...
 ```
 
-### Step 4: 英語説明の登録
+- **ID**: 8文字の短縮ID（説明登録に使用）
+- **Name**: 関数名（表示用）
+- **Description**: 現在の説明（40文字で切り捨て）
+
+### Step 3: 関数詳細の確認
+
+```bash
+# showコマンドで詳細確認（推奨）
+npm run dev -- describe "3d2e3fa4"
+
+# または個別IDで詳細表示
+npm run dev -- show --id "3d2e3fa4"
+```
+
+### Step 4: 説明の登録
 
 ```bash
 npm run dev -- describe "c88edcfc" --text "Clear, concise English description of what the function does"

@@ -11,6 +11,7 @@ funcqc は TypeScript プロジェクトの関数を自動分析し、品質指�
 - ✅ **ゼロ設定で開始**: `funcqc init` で即座に利用開始
 - 📊 **包括的な品質指標**: 複雑度、行数、ネストレベルなど
 - 🔍 **関数の変更履歴追跡**: Git連携による品質変化の可視化
+- 📝 **関数説明管理**: 自動変更検知付きの包括的文書化システム
 - 🤖 **AI支援分析**: 意味的類似性検出とリファクタリング提案
 - 🔗 **外部ツール連携**: mizchi/similarity等の高性能ツール活用
 - 🚀 **CI/CD統合**: GitHub Actions での自動品質チェック
@@ -42,6 +43,7 @@ funcqc list --sort complexity:desc --limit 10
 | `funcqc init` | プロジェクト初期化 |
 | `funcqc scan` | 関数分析・データ保存 |
 | `funcqc list` | 関数一覧・検索 |
+| `funcqc describe` | 関数説明管理 |
 | `funcqc history` | スナップショット履歴 |
 | `funcqc diff` | 変更差分表示 |
 | `funcqc similar` | 類似関数検出 |
