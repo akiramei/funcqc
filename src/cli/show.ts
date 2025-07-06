@@ -141,6 +141,15 @@ async function selectFunction(candidates: FunctionInfo[]): Promise<FunctionInfo 
 }
 
 function outputJSON(func: FunctionInfo): void {
+  // Extract usage examples from description or JSDoc
+  const usageExamples = extractUsageExamples(func);
+  
+  // Extract side effects information
+  const sideEffects = extractSideEffects(func);
+  
+  // Extract error conditions
+  const errorConditions = extractErrorConditions(func);
+  
   const output = {
     id: func.id,
     name: func.name,
@@ -172,14 +181,139 @@ function outputJSON(func: FunctionInfo): void {
       ast: func.astHash,
       file: func.fileHash
     },
-    documentation: func.jsDoc,
+    documentation: {
+      description: func.description,
+      jsDoc: func.jsDoc,
+      source: func.descriptionSource,
+      updatedAt: func.descriptionUpdatedAt,
+      aiModel: func.descriptionAiModel
+    },
+    structuredData: {
+      usageExamples,
+      sideEffects,
+      errorConditions,
+      userFriendlyAttributes: buildUserFriendlyAttributes(func)
+    },
     sourceCode: func.sourceCode
   };
   
   console.log(JSON.stringify(output, null, 2));
 }
 
+// Helper functions for JSON output extraction
+
+function extractUsageExamples(func: FunctionInfo): string[] {
+  const examples: string[] = [];
+  
+  if (func.description && func.description.toLowerCase().includes('example')) {
+    const lines = func.description.split('\n');
+    const exampleStart = lines.findIndex(line => line.toLowerCase().includes('example'));
+    if (exampleStart >= 0) {
+      examples.push(...lines.slice(exampleStart));
+    }
+  }
+  
+  if (func.jsDoc && func.jsDoc.toLowerCase().includes('@example')) {
+    const jsDocLines = func.jsDoc.split('\n');
+    const exampleStart = jsDocLines.findIndex(line => line.toLowerCase().includes('@example'));
+    if (exampleStart >= 0) {
+      const exampleLines = jsDocLines.slice(exampleStart + 1)
+        .filter(line => line.trim() && !line.trim().startsWith('@'))
+        .map(line => line.replace(/^\s*\*?\s?/, ''));
+      examples.push(...exampleLines);
+    }
+  }
+  
+  return examples;
+}
+
+function extractSideEffects(func: FunctionInfo): string[] {
+  const effects: string[] = [];
+  
+  if (func.description) {
+    const lines = func.description.split('\n');
+    const effectLines = lines.filter(line => 
+      line.toLowerCase().includes('side effect') ||
+      line.toLowerCase().includes('modifies') ||
+      line.toLowerCase().includes('mutates') ||
+      line.toLowerCase().includes('writes to') ||
+      line.toLowerCase().includes('updates')
+    );
+    effects.push(...effectLines.map(line => line.trim()));
+  }
+  
+  if (func.isAsync || (func.metrics && func.metrics.asyncAwaitCount > 0)) {
+    effects.push('This is an async function - may have asynchronous side effects');
+  }
+  
+  return effects;
+}
+
+function extractErrorConditions(func: FunctionInfo): string[] {
+  const conditions: string[] = [];
+  
+  if (func.description) {
+    const lines = func.description.split('\n');
+    const errorLines = lines.filter(line => 
+      line.toLowerCase().includes('error') ||
+      line.toLowerCase().includes('throw') ||
+      line.toLowerCase().includes('exception') ||
+      line.toLowerCase().includes('fail')
+    );
+    conditions.push(...errorLines.map(line => line.trim()));
+  }
+  
+  if (func.jsDoc && func.jsDoc.toLowerCase().includes('@throws')) {
+    const jsDocLines = func.jsDoc.split('\n');
+    const throwsLines = jsDocLines.filter(line => line.toLowerCase().includes('@throws'));
+    conditions.push(...throwsLines.map(line => 
+      line.replace(/^\s*\*?\s?@throws\s?/, '').trim()
+    ));
+  }
+  
+  if (func.metrics && func.metrics.tryCatchCount > 0) {
+    conditions.push('Function includes try/catch error handling');
+  }
+  
+  return conditions;
+}
+
+function buildUserFriendlyAttributes(func: FunctionInfo): string[] {
+  const attributes: string[] = [];
+  if (func.isExported) attributes.push('Exported');
+  if (func.isAsync) attributes.push('Async');
+  if (func.isGenerator) attributes.push('Generator');
+  if (func.isMethod) attributes.push('Method');
+  if (func.isConstructor) attributes.push('Constructor');
+  if (func.isStatic) attributes.push('Static');
+  if (func.accessModifier) attributes.push(func.accessModifier);
+  return attributes;
+}
+
 function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): void {
+  // Handle audience-specific display modes
+  if (options.forUsers) {
+    displayForUsers(func, options);
+    return;
+  }
+  
+  if (options.forMaintainers) {
+    displayForMaintainers(func, config, options);
+    return;
+  }
+  
+  // Handle specialized sections
+  if (options.usage) {
+    displayUsageSection(func);
+    return;
+  }
+  
+  if (options.examples) {
+    displayExamplesSection(func);
+    return;
+  }
+  
+  // Default behavior (existing logic)
   displayFunctionHeader(func);
   displayUserDescription(func);
   
@@ -398,4 +532,251 @@ function formatMetricValue(value: number, type: string, config: FuncqcConfig): s
   } else {
     return chalk.green(value.toString());
   }
+}
+
+// New display functions for audience-specific modes
+
+function displayForUsers(func: FunctionInfo, _options: ShowCommandOptions): void {
+  // User-focused header (simplified)
+  console.log(chalk.bold(`${func.displayName}()`));
+  console.log(`📍 ${func.filePath}:${func.startLine}`);
+  console.log();
+  
+  // Always show description for users
+  displayUserDescription(func);
+  
+  // Show JSDoc if no user description
+  if (!func.description && func.jsDoc) {
+    displayJSDocSection(func);
+  }
+  
+  // Always show parameters for users
+  displayFunctionParameters(func);
+  displayFunctionReturnType(func);
+  
+  // Show usage examples if available
+  displayUsageExamples(func);
+  
+  // Show side effects if available  
+  displaySideEffects(func);
+  
+  // Show error conditions if available
+  displayErrorConditions(func);
+  
+  // Show function attributes in user-friendly way
+  displayUserFriendlyAttributes(func);
+}
+
+function displayForMaintainers(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): void {
+  // Maintainer header with technical details
+  console.log(chalk.bold(`Function: ${func.displayName}()`));
+  console.log(`ID: ${func.id}`);
+  console.log(`Location: ${func.filePath}:${func.startLine}-${func.endLine}`);
+  console.log();
+  
+  // Quality metrics and warnings (primary focus)
+  displayFunctionMetrics(func, config);
+  displayQualityWarnings(func, config);
+  
+  // Technical information
+  displayFunctionTechnicalInfo(func);
+  
+  // Historical/change tracking (if available)
+  displayChangeTracking(func);
+  
+  // Basic info only if requested
+  if (options.details) {
+    displayFunctionParameters(func);
+    displayFunctionReturnType(func);
+    displayFunctionContext(func);
+  }
+}
+
+function displayUsageSection(func: FunctionInfo): void {
+  console.log(chalk.bold(`Usage Information for ${func.displayName}()`));
+  console.log();
+  
+  displayUserDescription(func);
+  displayFunctionParameters(func);
+  displayFunctionReturnType(func);
+  displayUsageExamples(func);
+  displayUserFriendlyAttributes(func);
+}
+
+function displayExamplesSection(func: FunctionInfo): void {
+  console.log(chalk.bold(`Examples for ${func.displayName}()`));
+  console.log();
+  
+  displayUsageExamples(func);
+  displayFunctionParameters(func);
+  displaySideEffects(func);
+  displayErrorConditions(func);
+}
+
+// Helper functions for new sections
+
+function displayUsageExamples(func: FunctionInfo): void {
+  if (func.description && func.description.toLowerCase().includes('example')) {
+    // Extract examples from description
+    const lines = func.description.split('\n');
+    const exampleStart = lines.findIndex(line => line.toLowerCase().includes('example'));
+    if (exampleStart >= 0) {
+      console.log(chalk.bold('Usage Examples:'));
+      lines.slice(exampleStart).forEach(line => {
+        console.log(`  ${line}`);
+      });
+      console.log();
+    }
+  } else if (func.jsDoc && func.jsDoc.toLowerCase().includes('@example')) {
+    // Extract examples from JSDoc
+    const jsDocLines = func.jsDoc.split('\n');
+    const exampleStart = jsDocLines.findIndex(line => line.toLowerCase().includes('@example'));
+    if (exampleStart >= 0) {
+      console.log(chalk.bold('Usage Examples:'));
+      jsDocLines.slice(exampleStart + 1).forEach(line => {
+        if (line.trim() && !line.trim().startsWith('@')) {
+          console.log(`  ${line.replace(/^\s*\*?\s?/, '')}`);
+        }
+      });
+      console.log();
+    }
+  }
+}
+
+function displaySideEffects(func: FunctionInfo): void {
+  let hasEffects = false;
+  
+  if (func.description && (func.description.toLowerCase().includes('side effect') || 
+                          func.description.toLowerCase().includes('modifies') ||
+                          func.description.toLowerCase().includes('mutates'))) {
+    console.log(chalk.bold('Side Effects:'));
+    // Try to extract relevant lines from description
+    const lines = func.description.split('\n');
+    const effectLines = lines.filter(line => 
+      line.toLowerCase().includes('side effect') ||
+      line.toLowerCase().includes('modifies') ||
+      line.toLowerCase().includes('mutates') ||
+      line.toLowerCase().includes('writes to') ||
+      line.toLowerCase().includes('updates')
+    );
+    
+    if (effectLines.length > 0) {
+      effectLines.forEach(line => {
+        console.log(`  ${line.trim()}`);
+      });
+      hasEffects = true;
+    }
+  }
+  
+  if (!hasEffects && (func.isAsync || (func.metrics && func.metrics.asyncAwaitCount > 0))) {
+    console.log(chalk.bold('Side Effects:'));
+    console.log(`  ${chalk.yellow('⚠️  This is an async function - may have asynchronous side effects')}`);
+    hasEffects = true;
+  }
+  
+  if (hasEffects) {
+    console.log();
+  }
+}
+
+function displayErrorConditions(func: FunctionInfo): void {
+  let hasErrorInfo = false;
+  
+  if (func.description && (func.description.toLowerCase().includes('error') || 
+                          func.description.toLowerCase().includes('throw') ||
+                          func.description.toLowerCase().includes('exception'))) {
+    console.log(chalk.bold('Error Conditions:'));
+    // Try to extract error-related lines from description
+    const lines = func.description.split('\n');
+    const errorLines = lines.filter(line => 
+      line.toLowerCase().includes('error') ||
+      line.toLowerCase().includes('throw') ||
+      line.toLowerCase().includes('exception') ||
+      line.toLowerCase().includes('fail')
+    );
+    
+    if (errorLines.length > 0) {
+      errorLines.forEach(line => {
+        console.log(`  ${line.trim()}`);
+      });
+      hasErrorInfo = true;
+    }
+  }
+  
+  if (!hasErrorInfo && func.metrics && func.metrics.tryCatchCount > 0) {
+    console.log(chalk.bold('Error Handling:'));
+    console.log(`  ${chalk.blue('✓ Function includes try/catch error handling')}`);
+    hasErrorInfo = true;
+  }
+  
+  if (!hasErrorInfo && func.jsDoc && func.jsDoc.toLowerCase().includes('@throws')) {
+    console.log(chalk.bold('Error Conditions:'));
+    const jsDocLines = func.jsDoc.split('\n');
+    const throwsLines = jsDocLines.filter(line => line.toLowerCase().includes('@throws'));
+    throwsLines.forEach(line => {
+      console.log(`  ${line.replace(/^\s*\*?\s?@throws\s?/, '').trim()}`);
+    });
+    hasErrorInfo = true;
+  }
+  
+  if (hasErrorInfo) {
+    console.log();
+  }
+}
+
+function displayUserFriendlyAttributes(func: FunctionInfo): void {
+  const attributes = [];
+  if (func.isExported) attributes.push('📤 Exported');
+  if (func.isAsync) attributes.push('⏱️  Async');
+  if (func.isGenerator) attributes.push('🔄 Generator');
+  if (func.isMethod) attributes.push('🔧 Method');
+  
+  if (attributes.length > 0) {
+    console.log(chalk.bold('Function Type:'));
+    console.log(`  ${attributes.join(', ')}`);
+    console.log();
+  }
+}
+
+function displayQualityWarnings(func: FunctionInfo, config: FuncqcConfig): void {
+  if (!func.metrics) return;
+  
+  const warnings = [];
+  
+  if (func.metrics.cyclomaticComplexity > config.metrics.complexityThreshold) {
+    warnings.push(`🚨 High complexity (${func.metrics.cyclomaticComplexity} > ${config.metrics.complexityThreshold})`);
+  }
+  
+  if (func.metrics.linesOfCode > config.metrics.linesOfCodeThreshold) {
+    warnings.push(`🚨 Large function (${func.metrics.linesOfCode} lines > ${config.metrics.linesOfCodeThreshold})`);
+  }
+  
+  if (func.metrics.parameterCount > config.metrics.parameterCountThreshold) {
+    warnings.push(`🚨 Too many parameters (${func.metrics.parameterCount} > ${config.metrics.parameterCountThreshold})`);
+  }
+  
+  if (func.metrics.maxNestingLevel > config.metrics.maxNestingLevelThreshold) {
+    warnings.push(`🚨 Deep nesting (${func.metrics.maxNestingLevel} > ${config.metrics.maxNestingLevelThreshold})`);
+  }
+  
+  if (warnings.length > 0) {
+    console.log(chalk.bold('Quality Warnings:'));
+    warnings.forEach(warning => {
+      console.log(`  ${chalk.red(warning)}`);
+    });
+    console.log();
+  } else {
+    console.log(chalk.bold('Quality Status:'));
+    console.log(`  ${chalk.green('✅ All quality thresholds met')}`);
+    console.log();
+  }
+}
+
+function displayChangeTracking(func: FunctionInfo): void {
+  // Placeholder for future change tracking functionality
+  // This would show historical data, recent changes, etc.
+  console.log(chalk.bold('Change Tracking:'));
+  console.log(`  Last analyzed: ${new Date().toISOString().split('T')[0]}`);
+  console.log(`  Content ID: ${func.contentId || 'unknown'}`);
+  console.log();
 }

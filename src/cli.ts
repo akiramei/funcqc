@@ -76,6 +76,10 @@ program
   .option('--quality', 'show quality metrics')
   .option('--technical', 'show technical information (hashes, etc.)')
   .option('--full', 'show all information sections')
+  .option('--for-users', 'user-focused display: description, parameters, usage (no metrics)')
+  .option('--for-maintainers', 'maintainer-focused display: metrics, warnings, technical info')
+  .option('--usage', 'show usage patterns and examples')
+  .option('--examples', 'emphasize usage examples')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
   .action(showCommand);
 
