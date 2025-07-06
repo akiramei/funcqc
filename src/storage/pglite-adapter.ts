@@ -716,7 +716,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
           q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
           q.maintainability_index,
-          d.description
+          d.description, d.source, d.created_at, d.updated_at, d.ai_model
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
@@ -1961,7 +1961,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     };
   }
 
-  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string }, parameters: ParameterRow[]): FunctionInfo {
+  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string; source?: string; created_at?: string; updated_at?: string; ai_model?: string }, parameters: ParameterRow[]): FunctionInfo {
     const functionInfo = this.createBaseFunctionInfo(row, parameters);
     this.addOptionalProperties(functionInfo, row);
     this.addMetricsIfAvailable(functionInfo, row);
@@ -2016,11 +2016,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }));
   }
 
-  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow & { description?: string }): void {
+  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow & { description?: string; source?: string; created_at?: string; updated_at?: string; ai_model?: string }): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
     if (row.js_doc) functionInfo.jsDoc = row.js_doc;
     if (row.source_code) functionInfo.sourceCode = row.source_code;
-    if (row.description) functionInfo.description = row.description;
+    if (row.description) {
+      functionInfo.description = row.description;
+      // Add description metadata as proper properties on the functionInfo object
+      if (row.source) functionInfo.descriptionSource = row.source;
+      if (row.created_at) functionInfo.descriptionCreatedAt = row.created_at;
+      if (row.updated_at) functionInfo.descriptionUpdatedAt = row.updated_at;
+      if (row.ai_model) functionInfo.descriptionAiModel = row.ai_model;
+    }
   }
 
   private addMetricsIfAvailable(functionInfo: FunctionInfo, row: Partial<MetricsRow>): void {
