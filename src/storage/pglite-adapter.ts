@@ -2022,11 +2022,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (row.source_code) functionInfo.sourceCode = row.source_code;
     if (row.description) {
       functionInfo.description = row.description;
-      // Add description metadata as additional properties on the functionInfo object
-      (functionInfo as any).descriptionSource = row.source;
-      (functionInfo as any).descriptionCreatedAt = row.created_at;
-      (functionInfo as any).descriptionUpdatedAt = row.updated_at;
-      (functionInfo as any).descriptionAiModel = row.ai_model;
+      // Add description metadata as proper properties on the functionInfo object
+      if (row.source) functionInfo.descriptionSource = row.source;
+      if (row.created_at) functionInfo.descriptionCreatedAt = row.created_at;
+      if (row.updated_at) functionInfo.descriptionUpdatedAt = row.updated_at;
+      if (row.ai_model) functionInfo.descriptionAiModel = row.ai_model;
     }
   }
 

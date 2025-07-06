@@ -122,6 +122,12 @@ export interface FunctionInfo {
   jsDoc?: string;                // JSDocコメント
   description?: string;          // ユーザー説明（function_descriptionsテーブルから）
   
+  // 説明メタデータ
+  descriptionSource?: string;    // 説明のソース（human/ai/jsdoc）
+  descriptionCreatedAt?: string; // 説明作成日時
+  descriptionUpdatedAt?: string; // 説明更新日時
+  descriptionAiModel?: string;   // AIモデル名（source=aiの場合）
+  
   
   // Relations
   parameters: ParameterInfo[];

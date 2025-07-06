@@ -222,14 +222,14 @@ function displayUserDescription(func: FunctionInfo): void {
   console.log(chalk.bold('Description:'));
   console.log(`  ${func.description.replace(/\n/g, '\n  ')}`);
   
-  // Show source attribution using the correct property names
-  const source = (func as any).descriptionSource || 'unknown';
-  const timestamp = (func as any).descriptionUpdatedAt 
-    ? new Date((func as any).descriptionUpdatedAt).toISOString().split('T')[0] 
+  // Show source attribution using the proper property names
+  const source = func.descriptionSource || 'unknown';
+  const timestamp = func.descriptionUpdatedAt 
+    ? new Date(func.descriptionUpdatedAt).toISOString().split('T')[0] 
     : 'unknown';
   
-  if (source === 'ai' && (func as any).descriptionAiModel) {
-    console.log(`  [Source: ${source} (${(func as any).descriptionAiModel}) | Updated: ${timestamp}]`);
+  if (source === 'ai' && func.descriptionAiModel) {
+    console.log(`  [Source: ${source} (${func.descriptionAiModel}) | Updated: ${timestamp}]`);
   } else {
     console.log(`  [Source: ${source} | Updated: ${timestamp}]`);
   }
@@ -358,8 +358,6 @@ function displayFunctionContext(func: FunctionInfo): void {
   console.log();
 }
 
-// This function is now replaced by displayUserDescription and displayJSDocSection
-// Remove this old function as it's no longer used
 
 function displayFunctionTechnicalInfo(func: FunctionInfo): void {
   console.log(chalk.bold('Technical Information:'));
