@@ -527,6 +527,47 @@ interface CognitiveResourceAllocation {
 ### 自動的なGemini活用
 Claudeが調査時に必要と判断した場合、Geminiへの相談も選択肢として検討する。
 
+## 🚨 JSON出力使用時の必須事項: --silent オプション
+
+### 問題: npmの標準出力がJSON出力に混在
+
+**エラー例**:
+```bash
+# ❌ 失敗するパターン
+npm run dev -- list --json | jq '.functions'
+# エラー: parse error: Invalid numeric literal at line 2, column 2
+```
+
+原因: npmが以下の行を出力するため
+```
+> funcqc@0.1.0 dev
+> tsx src/cli.ts list --json
+```
+
+### ✅ 解決方法: --silent オプションを必ず使用
+
+```bash
+# ✅ 正しいパターン
+npm run --silent dev -- list --json | jq '.functions'
+
+# ✅ 具体例
+npm run --silent dev -- list --cc-ge 10 --json | jq -r '.functions[] | "\(.metrics.cyclomaticComplexity)\t\(.name)"' | sort -nr
+```
+
+### 代替方法
+
+1. **直接tsx実行**
+```bash
+npx tsx src/cli.ts list --json | jq '...'
+```
+
+2. **エラー出力リダイレクト**（非推奨）
+```bash
+npm run dev -- list --json 2>/dev/null | tail -n +4 | jq '...'
+```
+
+**重要**: JSON出力を使う際は必ず`npm run --silent`を使用すること。これによりデバッグ効率が大幅に向上し、調査の中断を防げる。
+
 ## 🚨 重要な知見: 問題解決における早期相談の重要性
 
 ### 問題: 確信のない試行錯誤による時間浪費
