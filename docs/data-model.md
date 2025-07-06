@@ -229,6 +229,10 @@ CREATE TABLE function_descriptions (
   created_by TEXT,                       -- 作成者
   ai_model TEXT,                         -- AI生成時のモデル名
   confidence_score REAL,                 -- AI生成時の信頼度
+  -- 構造化説明フィールド（v0.1.0追加）
+  usage_example TEXT,                    -- 使用例（コードサンプル等）
+  side_effects TEXT,                     -- 副作用と出力の説明
+  error_conditions TEXT,                 -- エラー条件とハンドリング
   UNIQUE(semantic_id)
 );
 
@@ -347,6 +351,31 @@ WHERE d.needs_review = TRUE
 AND f.snapshot_id = (SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1);
 ```
 
+### 5. 構造化説明の検索
+
+```sql
+-- 使用例が記録されている関数
+SELECT f.name, f.file_path, d.description, d.usage_example
+FROM function_descriptions d
+JOIN functions f ON d.semantic_id = f.semantic_id
+WHERE d.usage_example IS NOT NULL
+AND f.snapshot_id = (SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1);
+
+-- 特定の副作用を持つ関数の検索
+SELECT f.name, f.file_path, d.side_effects
+FROM function_descriptions d
+JOIN functions f ON d.semantic_id = f.semantic_id
+WHERE d.side_effects LIKE '%console%'
+AND f.snapshot_id = (SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1);
+
+-- エラー処理が文書化された関数
+SELECT f.name, f.file_path, d.error_conditions
+FROM function_descriptions d
+JOIN functions f ON d.semantic_id = f.semantic_id
+WHERE d.error_conditions IS NOT NULL
+AND f.snapshot_id = (SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1);
+```
+
 ## データ整合性と制約
 
 ### 整合性チェッククエリ
@@ -403,6 +432,21 @@ CREATE INDEX idx_functions_semantic_id ON functions(semantic_id);
 CREATE INDEX idx_functions_content_id ON functions(content_id);
 ```
 
+### 構造化説明システムのマイグレーション (v0.1.0)
+
+```sql
+-- 構造化説明フィールドの追加（後方互換性を保持）
+ALTER TABLE function_descriptions 
+ADD COLUMN IF NOT EXISTS usage_example TEXT,
+ADD COLUMN IF NOT EXISTS side_effects TEXT,
+ADD COLUMN IF NOT EXISTS error_conditions TEXT;
+
+-- 自動実行される安全なマイグレーション
+-- - 既存データは変更されない
+-- - 新フィールドはNULLABLEで追加
+-- - アプリケーション側で自動検出・実行
+```
+
 ## パフォーマンス最適化
 
 ### バッチ処理でのメモリ効率化
@@ -445,6 +489,18 @@ async function updateChangedFunctions(
 ```
 
 ## 将来拡張への考慮
+
+### 構造化説明の拡張 (v0.2.0 以降)
+
+```sql
+-- 追加の構造化フィールド（将来実装）
+ALTER TABLE function_descriptions 
+ADD COLUMN IF NOT EXISTS performance_notes TEXT,     -- パフォーマンス特性
+ADD COLUMN IF NOT EXISTS security_considerations TEXT, -- セキュリティ考慮事項
+ADD COLUMN IF NOT EXISTS dependencies TEXT,          -- 依存関係の説明
+ADD COLUMN IF NOT EXISTS testing_notes TEXT,         -- テスト方法・注意点
+ADD COLUMN IF NOT EXISTS changelog TEXT;             -- 変更履歴
+```
 
 ### AI解析データ
 
