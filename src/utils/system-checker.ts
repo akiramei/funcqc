@@ -150,28 +150,15 @@ export class SystemChecker {
 
   reportSystemCheck(): boolean {
     // Only show "checking" message in verbose mode
-    if ((this.logger as unknown as { verbose: boolean }).verbose) {
+    if (this.logger.isVerbose) {
       this.logger.info('🔍 Checking system requirements...');
     }
     
     const result = this.checkSystem();
     
-    // Collect errors and warnings
-    const errors: string[] = [];
-    const warnings: string[] = [];
-    
-    result.requirements.forEach(req => {
-      if (!req.passed) {
-        if (req.required) {
-          errors.push(`❌ ${req.name}: ${req.errorMessage}`);
-        } else {
-          warnings.push(`⚠️  ${req.name}: ${req.errorMessage}`);
-        }
-      }
-    });
-    
-    // In verbose mode, show all details
-    if ((this.logger as unknown as { verbose: boolean }).verbose) {
+    // Show results based on verbosity level
+    if (this.logger.isVerbose) {
+      // Verbose mode: show all details
       result.requirements.forEach(req => {
         if (req.passed) {
           this.logger.info(`✅ ${req.name}: OK`);
@@ -188,11 +175,18 @@ export class SystemChecker {
         this.logger.error('❌ System check failed. Please resolve the required issues above.');
       }
     } else {
-      // In non-verbose mode, only show errors and warnings
-      errors.forEach(error => this.logger.error(error.replace('❌ ', '')));
-      warnings.forEach(warning => this.logger.warn(warning.replace('⚠️  ', '')));
+      // Non-verbose mode: only show failures
+      result.requirements.forEach(req => {
+        if (!req.passed) {
+          if (req.required) {
+            this.logger.error(`${req.name}: ${req.errorMessage}`);
+          } else {
+            this.logger.warn(`${req.name}: ${req.errorMessage}`);
+          }
+        }
+      });
       
-      // Only show failure message if there were errors
+      // Only show failure message if there were required failures
       if (!result.passed) {
         this.logger.error('System check failed. Please resolve the required issues above.');
       }
