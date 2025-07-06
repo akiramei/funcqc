@@ -36,7 +36,7 @@ export async function explainCommand(
           // Search for similar metrics
           const searchResults = searchMetrics(target);
           if (searchResults.length > 0) {
-            displaySearchResults(target, searchResults);
+            displaySearchResults(target, searchResults, options);
           } else {
             console.error(chalk.red(`Unknown metric or concept: "${target}"`));
             console.log(chalk.yellow('Use "funcqc explain --all" to see available metrics'));
@@ -179,7 +179,9 @@ async function displayThresholdExplanation(): Promise<void> {
     console.log(`  Parameter Count: ${config.metrics.parameterCountThreshold}`);
     console.log(`  Max Nesting Level: ${config.metrics.maxNestingLevelThreshold}`);
     console.log();
-  } catch {
+  } catch (error) {
+    // Log error for debugging purposes
+    console.debug('Failed to load configuration:', error);
     console.log(chalk.yellow('Current Project Thresholds:'));
     console.log('  (Unable to load project configuration)');
     console.log();
@@ -270,13 +272,13 @@ function displayGeneralHelp(): void {
   console.log(chalk.gray('For complete list: funcqc explain --all'));
 }
 
-function displaySearchResults(searchTerm: string, results: MetricExplanation[]): void {
+function displaySearchResults(searchTerm: string, results: MetricExplanation[], options: ExplainCommandOptions = {}): void {
   console.log(chalk.yellow(`Search results for "${searchTerm}":`));
   console.log();
 
   if (results.length === 1) {
     console.log('Found exact match:');
-    displayMetricExplanation(results[0].name, {});
+    displayMetricExplanation(results[0].name, options);
   } else {
     console.log(`Found ${results.length} similar metrics:`);
     console.log();

@@ -29,7 +29,7 @@ describe('Health Command', () => {
       const options: HealthCommandOptions = {
         trend: false,
         risks: false,
-        config: false,
+        showConfig: false,
         verbose: false,
         json: false,
         period: '7'
@@ -39,7 +39,7 @@ describe('Health Command', () => {
       expect(options).toBeDefined();
       expect(typeof options.trend).toBe('boolean');
       expect(typeof options.risks).toBe('boolean');
-      expect(typeof options.config).toBe('boolean');
+      expect(typeof options.showConfig).toBe('boolean');
       expect(typeof options.verbose).toBe('boolean');
       expect(typeof options.json).toBe('boolean');
     });
@@ -49,7 +49,7 @@ describe('Health Command', () => {
       
       expect(minimalOptions.trend).toBeUndefined();
       expect(minimalOptions.risks).toBeUndefined();
-      expect(minimalOptions.config).toBeUndefined();
+      expect(minimalOptions.showConfig).toBeUndefined();
       expect(minimalOptions.verbose).toBeUndefined();
       expect(minimalOptions.json).toBeUndefined();
       expect(minimalOptions.period).toBeUndefined();
@@ -79,10 +79,10 @@ describe('Health Command', () => {
   describe('Output Format Validation', () => {
     it('should handle different output modes', () => {
       const modes = [
-        { trend: true, risks: false, config: false },
-        { trend: false, risks: true, config: false },
-        { trend: false, risks: false, config: true },
-        { trend: false, risks: false, config: false }, // default health overview
+        { trend: true, risks: false, showConfig: false },
+        { trend: false, risks: true, showConfig: false },
+        { trend: false, risks: false, showConfig: true },
+        { trend: false, risks: false, showConfig: false }, // default health overview
       ];
 
       modes.forEach(mode => {
@@ -90,7 +90,7 @@ describe('Health Command', () => {
         expect(options).toBeDefined();
         
         // Only one mode should be active at a time
-        const activeModesCount = [options.trend, options.risks, options.config]
+        const activeModesCount = [options.trend, options.risks, options.showConfig]
           .filter(Boolean).length;
         expect(activeModesCount).toBeLessThanOrEqual(1);
       });

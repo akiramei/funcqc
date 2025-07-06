@@ -95,7 +95,7 @@ async function displayHealthOverview(
   await displayQualityOverview(functions, config, options.verbose || false);
 
   // Risk Distribution
-  await displayRiskDistribution(functions, config);
+  await displayRiskDistribution(functions, config, options.verbose || false);
 
   // Git Status (if enabled)
   if (config.git.enabled) {
@@ -142,7 +142,7 @@ async function displayQualityOverview(
   console.log();
 }
 
-async function displayRiskDistribution(functions: FunctionInfo[], config: FuncqcConfig): Promise<void> {
+async function displayRiskDistribution(functions: FunctionInfo[], config: FuncqcConfig, verbose: boolean = false): Promise<void> {
   console.log(chalk.yellow('Risk Distribution:'));
   
   const functionsWithMetrics = functions.filter(f => f.metrics);
@@ -165,8 +165,11 @@ async function displayRiskDistribution(functions: FunctionInfo[], config: Funcqc
     console.log(`  Medium Risk: ${riskDistribution.medium} functions (${((riskDistribution.medium / total) * 100).toFixed(1)}%)`);
     console.log(`  Low Risk: ${riskDistribution.low} functions (${((riskDistribution.low / total) * 100).toFixed(1)}%)`);
     console.log();
-  } catch {
+  } catch (error) {
     console.log('  Risk assessment failed');
+    if (verbose) {
+      console.log(`  Error: ${error instanceof Error ? error.message : String(error)}`);
+    }
     console.log();
   }
 }
