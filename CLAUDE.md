@@ -118,7 +118,7 @@ The quality calculator computes comprehensive metrics:
 npm run dev scan
 
 # Step 2: 品質確認（High Risk関数のチェック）
-npm run dev -- list --threshold-violations
+npm run dev -- list --cc-ge 10
 
 # Step 3: High Risk関数が1件以上の場合は修正して Step 1 に戻る
 # Step 4: High Risk関数が0件になるまで繰り返し
@@ -130,17 +130,17 @@ funcqcの高機能を活用した包括的品質管理:
 
 ```bash
 # Phase 1: 基本品質確認
-npm run dev status                          # プロジェクト全体状況 (A-Fグレード)
-npm run dev -- list --threshold-violations  # High Risk関数の確認
+npm run dev status                        # プロジェクト全体状況 (A-Fグレード)
+npm run dev -- list --cc-ge 10           # High Risk関数の確認
 
 # Phase 2: 詳細分析
-npm run dev -- list --complexity ">10" --limit 10  # 複雑な関数TOP10
-npm run dev -- similar --threshold 0.8             # 重複コード検出
-npm run dev -- trend --weekly                      # 品質トレンド分析
+npm run dev -- list --cc-ge 10 --limit 10 --sort cc --desc  # 複雑な関数TOP10
+npm run dev -- similar --threshold 0.8   # 重複コード検出
+npm run dev -- trend --weekly            # 品質トレンド分析
 
 # Phase 3: 改善計画
-npm run dev -- show "functionName"                 # 問題関数の詳細分析
-npm run dev -- search "keyword"                    # 関連関数の発見
+npm run dev -- show "functionName"       # 問題関数の詳細分析
+npm run dev -- search "keyword"          # 関連関数の発見
 ```
 
 ### High Risk 判定基準
@@ -164,10 +164,10 @@ package.jsonに以下のスクリプトを追加して短縮化:
 {
   "scripts": {
     "quality:scan": "npm run dev scan",
-    "quality:check": "npm run dev -- list --threshold-violations",
+    "quality:check": "npm run dev -- list --cc-ge 10",
     "quality:status": "npm run dev status",
     "quality:trends": "npm run dev -- trend --weekly",
-    "quality:complex": "npm run dev -- list --complexity '>10' --limit 10"
+    "quality:complex": "npm run dev -- list --cc-ge 10 --limit 10 --sort cc --desc"
   }
 }
 ```
@@ -262,11 +262,11 @@ npm run dev -- describe "func-name" --text "explanation" # 関数説明追加
 ```bash
 # 🎯 リファクタリング機会の発見
 npm run dev -- similar --threshold 0.8 --min-lines 10  # 重複コード特定
-npm run dev -- list --lines ">50" --complexity ">10"   # 大きく複雑な関数
+npm run dev -- list --cc-ge 10                         # 複雑な関数の特定
 
-# 📉 保守性向上のための文書化
-npm run dev -- list --no-description --exported        # 文書化が必要なエクスポート関数
-npm run dev -- list --needs-description               # 更新されたが説明が古い関数
+# 📉 ファイル別分析
+npm run dev -- list --file "*.ts" --cc-ge 5            # 特定ファイルの複雑関数
+npm run dev -- list --name "*test*"                    # テスト関連関数
 ```
 
 ## 📄 funcqc クイックリファレンス
@@ -276,9 +276,9 @@ npm run dev -- list --needs-description               # 更新されたが説明
 | 目的 | 第1選択 | 第2選択 | 詳細確認 |
 |------|---------|---------|----- ----|
 | **関数発見** | `search "keyword"` | `list --name "*pattern*"` | `show "funcName"` |
-| **品質確認** | `status` | `list --threshold-violations` | `trend --weekly` |
-| **問題調査** | `list --complexity ">10"` | `similar --threshold 0.8` | `show "problemFunc"` |
-| **コードレビュー** | `list --exported --complexity ">5"` | `list --no-description` | `diff branch1 branch2` |
+| **品質確認** | `status` | `list --cc-ge 10` | `trend --weekly` |
+| **問題調査** | `list --cc-ge 10` | `similar --threshold 0.8` | `show "problemFunc"` |
+| **コードレビュー** | `list --cc-ge 5 --limit 10` | `list --name "*exported*"` | `similar --threshold 0.8` |
 
 ### 🚀 効率的調査フロー
 
@@ -289,7 +289,7 @@ npm run dev -- list --needs-description               # 更新されたが説明
 npm run dev status
 
 # Step 2: 問題特定 (課題発見)
-npm run dev -- list --threshold-violations
+npm run dev -- list --cc-ge 10
 
 # Step 3: 詳細分析 (深掘り)
 npm run dev -- show "関数名"
@@ -301,35 +301,35 @@ npm run dev -- search "キーワード"
 ### 📊 よく使うコマンド組み合わせ
 
 ```bash
-# 複雑なエクスポート関数TOP10
-npm run dev -- list --complexity ">5" --exported --sort complexity:desc --limit 10
+# 複雑な関数TOP10
+npm run dev -- list --cc-ge 5 --sort cc --desc --limit 10
 
-# 大きく複雑な関数
-npm run dev -- list --complexity ">10" --lines ">40"
+# 非常に複雑な関数
+npm run dev -- list --cc-ge 15
 
-# 非同期の問題関数
-npm run dev -- list --async --threshold-violations
+# 特定ファイルの複雑関数
+npm run dev -- list --cc-ge 10 --file "src/cli/*.ts"
 
-# 文書化が必要なエクスポート関数
-npm run dev -- list --exported --no-description --complexity ">5"
+# 関数名パターンで検索
+npm run dev -- list --name "*handle*" --cc-ge 5
 ```
 
 ### ⚠️ コマンド実行時の注意点
 
 **正しい書き方**:
 ```bash
-✅ npm run dev -- list --threshold-violations
+✅ npm run dev -- list --cc-ge 10
 ✅ npm run dev -- show "functionName"      # 関数名で検索
 ✅ npm run dev -- show --id "13b46d5e"     # ID指定（重要: --idオプション必須）
-✅ npm run dev -- list --complexity ">10"
+✅ npm run dev -- list --cc-ge 10 --json    # JSON出力
 ```
 
 **間違いやすい書き方**:
 ```bash
-❌ npm run dev list --threshold-violations    # --がない
-❌ npm run dev show functionName             # 引用符なし
-❌ npm run dev show "13b46d5e"              # IDを名前として検索（エラーになる）
-❌ npm run dev list --complexity >10         # 特殊文字未エスケープ
+❌ npm run dev list --cc-ge 10             # --がない
+❌ npm run dev show functionName           # 引用符なし
+❌ npm run dev show "13b46d5e"            # IDを名前として検索（エラーになる）
+❌ npm run dev -- list --complexity ">10" # 存在しないオプション
 ```
 
 **🚨 showコマンドの正しい使い方**:
@@ -357,34 +357,33 @@ npm run dev -- show "13b46d5e"             # IDを名前として扱ってしま
 
 **利用可能なフォーマット**:
 - **table** (デフォルト): テーブル形式、レスポンシブ
-- **friendly**: 縦型詳細表示、メトリクス詳細あり、ID確実表示
-- **json**: 構造化データ、パイプライン処理可能
+- **json**: 構造化データ、パイプライン処理可能（jqで加工可能）
 
 **使い分け**:
 ```bash
 # 通常の一覧表示
 npm run dev -- list                         # テーブル形式
 
-# 詳細分析・ID表示確実
-npm run dev -- list --format friendly       # friendly形式
+# データ処理・自動化（重要：--silent使用）
+npm run --silent dev -- list --json | jq '.functions[]'  # JSON形式
 
-# データ処理・自動化
-npm run dev -- list --format json | jq     # JSON形式
+# IDと名前のみ抽出
+npm run --silent dev -- list --json | jq -r '.functions[] | "\(.id) \(.name)"'
 ```
 
 **⚠️ テーブルレンダリング失敗時の対処**:
 ```bash
 # テーブルが崩れてIDが見えない場合
-npm run dev -- list --needs-description --show-id --format friendly
+npm run dev -- list --cc-ge 10 --json | jq -r '.functions[] | "\(.id) \(.name)"'
 ```
 
 **IDが必要な場合の確実な表示方法**:
 ```bash
-# 文書化が必要な関数をID付きで表示
-npm run dev -- list --needs-description --show-id --format friendly
+# 複雑な関数をID付きで表示
+npm run --silent dev -- list --cc-ge 5 --json | jq -r '.functions[] | "\(.id) \(.name) (CC:\(.metrics.cyclomaticComplexity))"'
 
-# 複雑な関数TOP10をID付きで表示
-npm run dev -- list --complexity ">5" --show-id --format friendly --limit 10
+# 特定ファイルの関数をID付きで表示
+npm run --silent dev -- list --file "src/cli/*.ts" --json | jq -r '.functions[] | "\(.id) \(.name)"'
 ```
 
 ### 📚 詳細ガイド
@@ -398,29 +397,29 @@ AI統合ガイド: [ai-integration-guide.md](./docs/ai-integration-guide.md)
 
 **基本文書化フロー**:
 ```bash
-# Step 1: 文書化が必要な関数をID付きで表示
-npm run dev -- list --needs-description --show-id --format friendly
+# Step 1: 複雑な関数をID付きで表示
+npm run --silent dev -- list --cc-ge 10 --json | jq -r '.functions[] | "\(.id) \(.name)"'
 
-# Step 2: 関数の内容を確認
+# Step 2: 関数の詳細を確認
+npm run dev -- show --id "functionId"
+
+# Step 3: コードを直接確認
 Read src/path/to/file.ts:lineNumber
 
-# Step 3: 英語で説明を登録
-npm run dev -- describe "functionId" --text "Clear English description"
-
-# Step 4: 登録確認
-npm run dev -- show --id "functionId"
+# Step 4: リファクタリング実施
+# 関数を小さな関数に分割
 ```
 
 **効率化のコツ**:
 ```bash
-# エクスポート関数優先
-npm run dev -- list --needs-description --exported --show-id --format friendly
-
 # 複雑な関数優先
-npm run dev -- list --needs-description --complexity ">5" --show-id --format friendly
+npm run --silent dev -- list --cc-ge 10 --json | jq -r '.functions[] | "\(.id) \(.name) (CC:\(.metrics.cyclomaticComplexity))"'
 
-# 同一ファイル内でまとめて処理
-npm run dev -- list --needs-description --file "src/cli/list.ts" --show-id --format friendly
+# 特定ファイルの複雑関数
+npm run --silent dev -- list --file "src/cli/*.ts" --cc-ge 5 --json | jq -r '.functions[]'
+
+# 同一ファイル内の関数一覧
+npm run dev -- list --file "src/cli/list.ts"
 ```
 
 ## 🚀 次世代品質管理の実現
