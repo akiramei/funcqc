@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command, OptionValues } from 'commander';
+import { Command } from 'commander';
 import chalk from 'chalk';
 import { initCommand } from './cli/init';
 import { scanCommand } from './cli/scan';
@@ -17,7 +17,7 @@ import { createVectorizeCommand } from './cli/vectorize';
 import { createEvaluateCommand } from './cli/evaluate';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
-import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode, ErrorHandler } from './utils/error-handler';
+import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
 
 const program = new Command();
 
