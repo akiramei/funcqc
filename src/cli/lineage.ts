@@ -142,7 +142,7 @@ async function applyAdvancedFilters(
       // Check each source function
       for (const fromId of lineage.fromIds) {
         const func = await storage.getFunction(fromId);
-        if (func && func.name.toLowerCase().includes(pattern)) {
+        if (func?.name.toLowerCase().includes(pattern)) {
           matchFound = true;
           break;
         }
@@ -167,7 +167,7 @@ async function applyAdvancedFilters(
       // Check each target function
       for (const toId of lineage.toIds) {
         const func = await storage.getFunction(toId);
-        if (func && func.name.toLowerCase().includes(pattern)) {
+        if (func?.name.toLowerCase().includes(pattern)) {
           matchFound = true;
           break;
         }
@@ -199,7 +199,11 @@ function applyFilters(lineages: Lineage[], options: LineageCommandOptions): Line
   // Filter by confidence threshold
   if (options.confidence) {
     const threshold = parseFloat(options.confidence);
-    if (!isNaN(threshold)) {
+    if (isNaN(threshold)) {
+      console.warn(`Invalid confidence threshold: ${options.confidence}, must be a number between 0 and 1`);
+    } else if (threshold < 0 || threshold > 1) {
+      console.warn(`Confidence threshold ${threshold} is out of range, must be between 0 and 1`);
+    } else {
       filtered = filtered.filter(l => (l.confidence ?? 0) >= threshold);
     }
   }
@@ -377,18 +381,17 @@ async function reviewSingleLineage(
     return;
   }
 
-  let newStatus: LineageStatus;
   if (options.approve && options.reject) {
     logger.error('Cannot both approve and reject a lineage');
     return;
-  } else if (options.approve) {
-    newStatus = 'approved';
-  } else if (options.reject) {
-    newStatus = 'rejected';
-  } else {
+  }
+  
+  if (!options.approve && !options.reject) {
     logger.error('Must specify either --approve or --reject');
     return;
   }
+  
+  const newStatus: LineageStatus = options.approve ? 'approved' : 'rejected';
 
   const updatedLineage: Lineage = {
     ...lineage,
@@ -415,18 +418,17 @@ async function reviewAllDraftLineages(
     return;
   }
 
-  let newStatus: LineageStatus;
   if (options.approve && options.reject) {
     logger.error('Cannot both approve and reject lineages');
     return;
-  } else if (options.approve) {
-    newStatus = 'approved';
-  } else if (options.reject) {
-    newStatus = 'rejected';
-  } else {
+  }
+  
+  if (!options.approve && !options.reject) {
     logger.error('Must specify either --approve or --reject when using --all');
     return;
   }
+  
+  const newStatus: LineageStatus = options.approve ? 'approved' : 'rejected';
 
   let processedCount = 0;
   for (const lineage of drafts) {
