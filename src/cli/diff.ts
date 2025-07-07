@@ -400,11 +400,14 @@ function validateLineageOptions(options: DiffCommandOptions, logger: Logger): Va
     return { isValid: false, threshold: 0, detectors: [] };
   }
 
-  // Validate detectors
+  // Validate detectors using SimilarityManager
   const lineageDetectors = options.lineageDetectors ? options.lineageDetectors.split(',') : [];
-  const validDetectors = ['advanced-structural', 'ann-semantic', 'hash-duplicate', 'ast-structural'];
   
   if (lineageDetectors.length > 0) {
+    // Create temporary SimilarityManager to get available detectors
+    const tempSimilarityManager = new SimilarityManager();
+    const validDetectors = tempSimilarityManager.getAvailableDetectors();
+    
     const invalidDetectors = lineageDetectors.filter(d => !validDetectors.includes(d));
     if (invalidDetectors.length > 0) {
       logger.error(`Invalid detectors specified: ${invalidDetectors.join(', ')}`);
