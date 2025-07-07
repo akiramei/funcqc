@@ -145,7 +145,7 @@ async function resolveGitCommitReference(storage: PGLiteStorageAdapter, identifi
     const snapshotId = await createSnapshotForGitCommit(storage, git, identifier, commitHash);
     return snapshotId;
     
-  } catch (error) {
+  } catch {
     // Not a valid git reference, return null to continue with other resolution methods
     return null;
   }
