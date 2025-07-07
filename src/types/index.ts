@@ -55,6 +55,27 @@ export interface FuncqcConfig {
     approximationLevel?: 'fast' | 'balanced' | 'accurate';
     cacheSize?: number;
   };
+  
+  changeDetection?: {
+    // Thresholds for determining change significance
+    locChangeThreshold?: number;       // Default: 0.5 (50% change)
+    complexityChangeThreshold?: number; // Default: 5 (CC points)
+    depthChangeThreshold?: number;      // Default: 2 levels
+    parameterChangeThreshold?: number;  // Default: 2 parameters
+    
+    // Weights for calculating composite score
+    locWeight?: number;                 // Default: 0.3
+    complexityWeight?: number;          // Default: 0.4
+    depthWeight?: number;               // Default: 0.2
+    parameterWeight?: number;           // Default: 0.1
+    
+    // Minimum score to suggest lineage tracking
+    minScoreForLineage?: number;        // Default: 50
+    
+    // Enable/disable specific detectors
+    enableRefactoringPatterns?: boolean; // Default: true
+    enableFunctionSplitDetection?: boolean; // Default: true
+  };
 }
 
 export interface SimilarityDetectorConfig {
