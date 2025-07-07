@@ -6,8 +6,10 @@ describe('Lineage Storage Operations', () => {
   let storage: PGLiteStorageAdapter;
 
   beforeEach(async () => {
-    // Use temporary file-based database for testing to avoid Windows filesystem issues
-    const testDbPath = `/tmp/funcqc-test-lineage-${Date.now()}.db`;
+    // Use OS-agnostic temporary path for cross-platform compatibility
+    const os = require('os');
+    const path = require('path');
+    const testDbPath = path.join(os.tmpdir(), `funcqc-test-lineage-${Date.now()}.db`);
     storage = new PGLiteStorageAdapter(testDbPath);
     await storage.init();
   });

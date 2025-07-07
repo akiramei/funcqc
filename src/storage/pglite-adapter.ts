@@ -1424,7 +1424,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async deleteLineage(id: string): Promise<boolean> {
     try {
       const result = await this.db.query('DELETE FROM lineage WHERE id = $1', [id]);
-      return (result as any).affectedRows > 0;
+      // Type-safe handling of PGLite query result
+      const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
+      return affectedRows > 0;
     } catch (error) {
       throw new Error(`Failed to delete lineage: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1466,15 +1468,47 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         WHERE status = 'draft' AND created_at < $1
       `, [cutoffDate.toISOString()]);
 
-      return (result as any).affectedRows || 0;
+      // Type-safe handling of PGLite query result
+      const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
+      return affectedRows;
     } catch (error) {
       throw new Error(`Failed to prune draft lineages: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private mapRowToLineage(row: any): Lineage {
+  private mapRowToLineage(row: unknown): Lineage {
+    // Type guard for database row structure
+    const isValidLineageRow = (obj: unknown): obj is {
+      id: string;
+      from_ids: string | string[];
+      to_ids: string | string[];
+      kind: string;
+      status: string;
+      confidence?: number;
+      note?: string;
+      git_commit: string;
+      created_at: string;
+      updated_at?: string;
+    } => {
+      return (
+        typeof obj === 'object' &&
+        obj !== null &&
+        'id' in obj &&
+        'from_ids' in obj &&
+        'to_ids' in obj &&
+        'kind' in obj &&
+        'status' in obj &&
+        'git_commit' in obj &&
+        'created_at' in obj
+      );
+    };
+
+    if (!isValidLineageRow(row)) {
+      throw new Error('Invalid lineage row structure');
+    }
+
     // Parse PostgreSQL arrays: {value1,value2} -> [value1, value2]
-    const parsePostgresArray = (pgArray: any): string[] => {
+    const parsePostgresArray = (pgArray: string | string[]): string[] => {
       if (!pgArray) return [];
       
       // If it's already an array, return it

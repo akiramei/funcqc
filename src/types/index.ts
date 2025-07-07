@@ -228,6 +228,9 @@ export interface LineageQuery {
   toDate?: Date;
   limit?: number;
   offset?: number;
+  // Enhanced date filtering precision
+  dateFilterMode?: 'inclusive' | 'exclusive';
+  timeZone?: string; // For proper timezone handling
 }
 
 // Snapshot and versioning types
