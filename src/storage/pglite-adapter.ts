@@ -1066,7 +1066,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `, [idsArray]);
 
       // Get parameters for all functions in a single batch
-      const parameterMap = await this.getFunctionParametersBatch(result.rows.map((row) => (row as any).id));
+      const parameterMap = await this.getFunctionParametersBatch(result.rows.map((row) => (row as FunctionRow).id));
 
       const functionMap = new Map<string, FunctionInfo>();
       

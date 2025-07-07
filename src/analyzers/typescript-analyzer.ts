@@ -507,8 +507,12 @@ export class TypeScriptAnalyzer {
     return `${accessibility} ${className}(${params})`;
   }
 
-  private extractFunctionParameters(func: FunctionDeclaration): ParameterInfo[] {
-    return func.getParameters().map((param, index) => {
+  /**
+   * Extract parameters from any function-like node
+   * Unified method to handle all function types consistently
+   */
+  private extractParameters(node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration): ParameterInfo[] {
+    return node.getParameters().map((param, index) => {
       const paramInfo: ParameterInfo = {
         name: param.getName(),
         type: param.getTypeNode()?.getText() || 'any',
@@ -525,46 +529,18 @@ export class TypeScriptAnalyzer {
 
       return paramInfo;
     });
+  }
+
+  private extractFunctionParameters(func: FunctionDeclaration): ParameterInfo[] {
+    return this.extractParameters(func);
   }
 
   private extractMethodParameters(method: MethodDeclaration): ParameterInfo[] {
-    return method.getParameters().map((param, index) => {
-      const paramInfo: ParameterInfo = {
-        name: param.getName(),
-        type: param.getTypeNode()?.getText() || 'any',
-        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
-        position: index,
-        isOptional: param.hasQuestionToken(),
-        isRest: param.isRestParameter()
-      };
-
-      const defaultValue = param.getInitializer()?.getText();
-      if (defaultValue) {
-        paramInfo.defaultValue = defaultValue;
-      }
-
-      return paramInfo;
-    });
+    return this.extractParameters(method);
   }
 
   private extractArrowFunctionParameters(func: ArrowFunction | FunctionExpression): ParameterInfo[] {
-    return func.getParameters().map((param, index) => {
-      const paramInfo: ParameterInfo = {
-        name: param.getName(),
-        type: param.getTypeNode()?.getText() || 'any',
-        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
-        position: index,
-        isOptional: param.hasQuestionToken(),
-        isRest: param.isRestParameter()
-      };
-
-      const defaultValue = param.getInitializer()?.getText();
-      if (defaultValue) {
-        paramInfo.defaultValue = defaultValue;
-      }
-
-      return paramInfo;
-    });
+    return this.extractParameters(func);
   }
 
   private extractFunctionReturnType(func: FunctionDeclaration): ReturnTypeInfo | undefined {
@@ -625,23 +601,7 @@ export class TypeScriptAnalyzer {
   }
 
   private extractConstructorParameters(ctor: ConstructorDeclaration): ParameterInfo[] {
-    return ctor.getParameters().map((param, index) => {
-      const paramInfo: ParameterInfo = {
-        name: param.getName(),
-        type: param.getTypeNode()?.getText() || 'any',
-        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
-        position: index,
-        isOptional: param.hasQuestionToken(),
-        isRest: param.isRestParameter()
-      };
-
-      const defaultValue = param.getInitializer()?.getText();
-      if (defaultValue) {
-        paramInfo.defaultValue = defaultValue;
-      }
-
-      return paramInfo;
-    });
+    return this.extractParameters(ctor);
   }
 
   private simplifyType(typeText: string): string {
