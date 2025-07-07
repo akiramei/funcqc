@@ -363,6 +363,25 @@ function displayLineageDetails(
 // REVIEW FUNCTIONS
 // ========================================
 
+function validateReviewOptions(options: LineageReviewOptions): LineageStatus {
+  if (options.approve && options.reject) {
+    throw new Error('Cannot both approve and reject lineage(s)');
+  }
+  
+  if (!options.approve && !options.reject) {
+    throw new Error('Must specify either --approve or --reject');
+  }
+  
+  return options.approve ? 'approved' : 'rejected';
+}
+
+function buildReviewNote(existingNote: string | undefined, reviewNote: string | undefined, prefix: string): string | undefined {
+  if (!reviewNote) return existingNote;
+  
+  const formattedReviewNote = `${prefix}: ${reviewNote}`;
+  return existingNote ? `${existingNote}\n\n${formattedReviewNote}` : formattedReviewNote;
+}
+
 async function reviewSingleLineage(
   storage: PGLiteStorageAdapter,
   lineageId: string,
@@ -381,28 +400,23 @@ async function reviewSingleLineage(
     return;
   }
 
-  if (options.approve && options.reject) {
-    logger.error('Cannot both approve and reject a lineage');
-    return;
-  }
-  
-  if (!options.approve && !options.reject) {
-    logger.error('Must specify either --approve or --reject');
-    return;
-  }
-  
-  const newStatus: LineageStatus = options.approve ? 'approved' : 'rejected';
+  try {
+    const newStatus = validateReviewOptions(options);
+    const updatedNote = buildReviewNote(lineage.note, options.note, 'Review');
 
-  const updatedLineage: Lineage = {
-    ...lineage,
-    status: newStatus,
-    ...(options.note ? { note: lineage.note ? `${lineage.note}\n\nReview: ${options.note}` : `Review: ${options.note}` } : {})
-  };
+    const updatedLineage: Lineage = {
+      ...lineage,
+      status: newStatus,
+      ...(updatedNote ? { note: updatedNote } : {})
+    };
 
-  await storage.updateLineage(updatedLineage);
-  
-  const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
-  logger.success(`Lineage ${lineageId} has been ${statusColor(newStatus)}`);
+    await storage.updateLineage(updatedLineage);
+    
+    const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
+    logger.success(`Lineage ${lineageId} has been ${statusColor(newStatus)}`);
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
+  }
 }
 
 async function reviewAllDraftLineages(
@@ -418,32 +432,28 @@ async function reviewAllDraftLineages(
     return;
   }
 
-  if (options.approve && options.reject) {
-    logger.error('Cannot both approve and reject lineages');
-    return;
-  }
-  
-  if (!options.approve && !options.reject) {
-    logger.error('Must specify either --approve or --reject when using --all');
-    return;
-  }
-  
-  const newStatus: LineageStatus = options.approve ? 'approved' : 'rejected';
+  try {
+    const newStatus = validateReviewOptions(options);
 
-  let processedCount = 0;
-  for (const lineage of drafts) {
-    const updatedLineage: Lineage = {
-      ...lineage,
-      status: newStatus,
-      ...(options.note ? { note: lineage.note ? `${lineage.note}\n\nBulk review: ${options.note}` : `Bulk review: ${options.note}` } : {})
-    };
+    let processedCount = 0;
+    for (const lineage of drafts) {
+      const updatedNote = buildReviewNote(lineage.note, options.note, 'Bulk review');
 
-    await storage.updateLineage(updatedLineage);
-    processedCount++;
+      const updatedLineage: Lineage = {
+        ...lineage,
+        status: newStatus,
+        ...(updatedNote ? { note: updatedNote } : {})
+      };
+
+      await storage.updateLineage(updatedLineage);
+      processedCount++;
+    }
+
+    const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
+    logger.success(`${processedCount} lineages have been ${statusColor(newStatus)}`);
+  } catch (error) {
+    logger.error(error instanceof Error ? error.message : String(error));
   }
-
-  const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
-  logger.success(`${processedCount} lineages have been ${statusColor(newStatus)}`);
 }
 
 // ========================================
