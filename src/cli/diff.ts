@@ -2,7 +2,10 @@ import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo } from '../types';
+import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind } from '../types';
+import { SimilarityManager } from '../similarity/similarity-manager';
+import { v4 as uuidv4 } from 'uuid';
+import simpleGit from 'simple-git';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -11,6 +14,10 @@ export interface DiffCommandOptions extends CommandOptions {
   metric?: string;
   threshold?: number;
   json?: boolean;
+  lineage?: boolean;
+  lineageThreshold?: string;
+  lineageDetectors?: string;
+  lineageAutoSave?: boolean;
 }
 
 export async function diffCommand(
@@ -40,13 +47,37 @@ export async function diffCommand(
     logger.info('Calculating differences...');
     const diff = await storage.diffSnapshots(fromId, toId);
 
-    // Output results
-    if (options.json) {
-      console.log(JSON.stringify(diff, null, 2));
-    } else if (options.summary) {
-      displaySummary(diff);
+    // Handle lineage detection if requested
+    if (options.lineage && diff.removed.length > 0) {
+      const lineageCandidates = await detectLineageCandidates(
+        diff,
+        storage,
+        options,
+        logger
+      );
+
+      if (lineageCandidates.length > 0) {
+        if (options.json) {
+          console.log(JSON.stringify({ diff, lineageCandidates }, null, 2));
+        } else {
+          displayLineageCandidates(lineageCandidates, options, logger);
+          
+          if (options.lineageAutoSave) {
+            await saveLineageCandidates(lineageCandidates, storage, logger);
+          }
+        }
+      } else {
+        logger.info('No lineage candidates found for removed functions.');
+      }
     } else {
-      displayFullDiff(diff, options);
+      // Output regular diff results
+      if (options.json) {
+        console.log(JSON.stringify(diff, null, 2));
+      } else if (options.summary) {
+        displaySummary(diff);
+      } else {
+        displayFullDiff(diff, options);
+      }
     }
 
     await storage.close();
@@ -307,4 +338,203 @@ function formatDate(timestamp: number): string {
   
   // More than 7 days ago - show date
   return date.toLocaleDateString();
+}
+
+// ========================================
+// LINEAGE DETECTION FUNCTIONS
+// ========================================
+
+async function detectLineageCandidates(
+  diff: SnapshotDiff,
+  storage: PGLiteStorageAdapter,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  const candidates: LineageCandidate[] = [];
+  
+  if (diff.removed.length === 0) {
+    return candidates;
+  }
+
+  logger.info('Detecting lineage candidates for removed functions...');
+  
+  // Get similarity threshold
+  const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
+  
+  // Initialize similarity manager
+  const similarityManager = new SimilarityManager(undefined, storage);
+  
+  // Prepare all functions for similarity comparison
+  const allFunctions = [...diff.added, ...diff.modified.map(m => m.after), ...diff.unchanged];
+  
+  // Process each removed function
+  for (const removedFunc of diff.removed) {
+    if (options.verbose) {
+      logger.info(`Analyzing lineage for: ${removedFunc.name}`);
+    }
+    
+    // Find similar functions
+    const similarResults = await similarityManager.detectSimilarities(
+      [removedFunc, ...allFunctions],
+      { 
+        threshold,
+        minLines: 1,
+        crossFile: true
+      },
+      options.lineageDetectors ? options.lineageDetectors.split(',') : []
+    );
+    
+    // Extract candidates from similarity results
+    for (const result of similarResults) {
+      const involvedFunctions = result.functions.filter(f => 
+        f.functionId !== removedFunc.id
+      );
+      
+      if (involvedFunctions.length > 0) {
+        const candidateKind = determineLineageKind(removedFunc, involvedFunctions);
+        
+        candidates.push({
+          fromFunction: removedFunc,
+          toFunctions: involvedFunctions.map(f => f.originalFunction!).filter(f => f !== undefined),
+          kind: candidateKind,
+          confidence: result.similarity,
+          reason: `${result.detector} detected ${(result.similarity * 100).toFixed(1)}% similarity`
+        });
+      }
+    }
+  }
+  
+  // Deduplicate and sort by confidence
+  const deduplicatedCandidates = deduplicateCandidates(candidates);
+  return deduplicatedCandidates.sort((a, b) => b.confidence - a.confidence);
+}
+
+function determineLineageKind(
+  fromFunction: FunctionInfo,
+  toFunctions: { functionName: string; originalFunction?: FunctionInfo }[]
+): LineageKind {
+  if (toFunctions.length === 1) {
+    const toFunc = toFunctions[0];
+    
+    // Check for rename
+    if (fromFunction.signature !== toFunc.originalFunction?.signature) {
+      return 'signature-change';
+    }
+    
+    if (fromFunction.name !== toFunc.functionName) {
+      return 'rename';
+    }
+    
+    // Default to rename for single function mapping
+    return 'rename';
+  } else {
+    // Multiple functions indicate a split
+    return 'split';
+  }
+}
+
+function deduplicateCandidates(candidates: LineageCandidate[]): LineageCandidate[] {
+  const seen = new Map<string, LineageCandidate>();
+  
+  for (const candidate of candidates) {
+    const key = `${candidate.fromFunction.id}-${candidate.toFunctions.map(f => f.id).sort().join('-')}`;
+    const existing = seen.get(key);
+    
+    if (!existing || candidate.confidence > existing.confidence) {
+      seen.set(key, candidate);
+    }
+  }
+  
+  return Array.from(seen.values());
+}
+
+function displayLineageCandidates(
+  candidates: LineageCandidate[],
+  options: DiffCommandOptions,
+  logger: Logger
+): void {
+  console.log(chalk.cyan.bold('\n🔗 Function Lineage Candidates\n'));
+  
+  if (candidates.length === 0) {
+    logger.info('No lineage candidates found.');
+    return;
+  }
+  
+  candidates.forEach((candidate, index) => {
+    console.log(chalk.yellow(`Candidate ${index + 1}:`));
+    console.log(`  ${chalk.red('From:')} ${candidate.fromFunction.name} (${candidate.fromFunction.filePath}:${candidate.fromFunction.startLine})`);
+    
+    const kindIcon = getLineageKindIcon(candidate.kind);
+    console.log(`  ${chalk.blue('Type:')} ${kindIcon} ${candidate.kind}`);
+    console.log(`  ${chalk.green('Confidence:')} ${(candidate.confidence * 100).toFixed(1)}%`);
+    console.log(`  ${chalk.gray('Reason:')} ${candidate.reason}`);
+    
+    console.log(`  ${chalk.cyan('To:')}`);
+    candidate.toFunctions.forEach((toFunc, i) => {
+      console.log(`    ${i + 1}. ${toFunc.name} (${toFunc.filePath}:${toFunc.startLine})`);
+    });
+    
+    console.log();
+  });
+  
+  if (!options.lineageAutoSave) {
+    console.log(chalk.gray('Use --lineage-auto-save to automatically save these candidates as draft lineages.'));
+  }
+}
+
+function getLineageKindIcon(kind: LineageKind): string {
+  switch (kind) {
+    case 'rename':
+      return '✏️';
+    case 'signature-change':
+      return '🔄';
+    case 'inline':
+      return '📥';
+    case 'split':
+      return '✂️';
+    default:
+      return '❓';
+  }
+}
+
+async function saveLineageCandidates(
+  candidates: LineageCandidate[],
+  storage: PGLiteStorageAdapter,
+  logger: Logger
+): Promise<void> {
+  const git = simpleGit();
+  let gitCommit = 'unknown';
+  
+  try {
+    const log = await git.log({ n: 1 });
+    gitCommit = log.latest?.hash || 'unknown';
+  } catch (error) {
+    logger.warn('Could not get git commit hash');
+  }
+  
+  logger.info('Saving lineage candidates as draft...');
+  
+  let savedCount = 0;
+  for (const candidate of candidates) {
+    const lineage: Lineage = {
+      id: uuidv4(),
+      fromIds: [candidate.fromFunction.id],
+      toIds: candidate.toFunctions.map(f => f.id),
+      kind: candidate.kind,
+      status: 'draft',
+      confidence: candidate.confidence,
+      note: `Auto-detected: ${candidate.reason}`,
+      gitCommit,
+      createdAt: new Date()
+    };
+    
+    try {
+      await storage.saveLineage(lineage);
+      savedCount++;
+    } catch (error) {
+      logger.error(`Failed to save lineage for ${candidate.fromFunction.name}:`, error);
+    }
+  }
+  
+  logger.success(`Saved ${savedCount} lineage candidates as draft.`);
 }
