@@ -13,6 +13,7 @@ import { diffCommand } from './cli/diff';
 import { similarCommand } from './cli/similar';
 import { describeCommand } from './cli/describe';
 import { searchCommand } from './cli/search';
+import { lineageListCommand, lineageShowCommand, lineageReviewCommand } from './cli/lineage';
 import { createVectorizeCommand } from './cli/vectorize';
 import { createEvaluateCommand } from './cli/evaluate';
 import { Logger } from './utils/cli-utils';
@@ -317,6 +318,59 @@ program.addCommand(createVectorizeCommand());
 
 // Add evaluate command (v1.6 enhancement)
 program.addCommand(createEvaluateCommand());
+
+// Add lineage commands
+program
+  .command('lineage')
+  .description('Manage function lineage tracking')
+  .addCommand(
+    new Command('list')
+      .description('List function lineages')
+      .option('--status <status>', 'filter by status (draft|approved|rejected)')
+      .option('--kind <kind>', 'filter by lineage kind (rename|signature-change|inline|split)')
+      .option('--limit <num>', 'limit number of results', '50')
+      .option('--sort <field>', 'sort by field (confidence|kind|status|created)', 'created')
+      .option('--desc', 'sort in descending order')
+      .option('--json', 'output as JSON')
+      .option('--from-function <pattern>', 'filter by source function name pattern')
+      .option('--to-function <pattern>', 'filter by target function name pattern')
+      .option('--confidence <threshold>', 'filter by minimum confidence (0-1)')
+      .action(lineageListCommand)
+      .addHelpText('after', `
+Examples:
+  $ funcqc lineage list                           # List all lineages
+  $ funcqc lineage list --status draft           # List only draft lineages
+  $ funcqc lineage list --kind rename            # List only rename lineages
+  $ funcqc lineage list --confidence 0.8         # High confidence lineages only
+  $ funcqc lineage list --sort confidence --desc # Sort by confidence descending
+`)
+  )
+  .addCommand(
+    new Command('show')
+      .description('Show detailed lineage information')
+      .argument('<lineage-id>', 'lineage ID to display')
+      .action(lineageShowCommand)
+      .addHelpText('after', `
+Examples:
+  $ funcqc lineage show abc12345                 # Show lineage details
+`)
+  )
+  .addCommand(
+    new Command('review')
+      .description('Review and approve/reject draft lineages')
+      .argument('[lineage-id]', 'lineage ID to review (required unless --all)')
+      .option('--approve', 'approve the lineage')
+      .option('--reject', 'reject the lineage')
+      .option('--note <text>', 'add review note')
+      .option('--all', 'review all draft lineages')
+      .action(lineageReviewCommand)
+      .addHelpText('after', `
+Examples:
+  $ funcqc lineage review abc12345 --approve     # Approve specific lineage
+  $ funcqc lineage review abc12345 --reject --note "Incorrect mapping"
+  $ funcqc lineage review --all --approve        # Approve all draft lineages
+`)
+  );
 
 // Add explain command
 program

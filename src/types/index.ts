@@ -201,7 +201,7 @@ export interface Lineage {
 }
 
 export type LineageKind = 'rename' | 'signature-change' | 'inline' | 'split';
-export type LineageStatus = 'draft' | 'final';
+export type LineageStatus = 'draft' | 'approved' | 'rejected';
 
 export interface LineageCandidate {
   fromFunction: FunctionInfo;
