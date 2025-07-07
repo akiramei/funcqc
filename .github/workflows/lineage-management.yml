@@ -67,9 +67,20 @@ jobs:
         APPROVED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "approved")) | length' || echo "0")
         REJECTED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "rejected")) | length' || echo "0")
 
-        # Basic validation: check for empty from_ids or to_ids arrays
+        # Enhanced validation: check for various invalid conditions
+        # 1. Empty from_ids or to_ids arrays
+        # 2. Null or non-array from_ids/to_ids
+        # 3. Invalid lineage structure
         # Future enhancement: validate that function IDs actually exist in database
-        INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select((.from_ids | length) == 0 or (.to_ids | length) == 0)) | length' || echo "0")
+        INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
+          .lineages | map(select(
+            (.from_ids | length) == 0 or 
+            (.to_ids | length) == 0 or
+            (.from_ids | type) != "array" or
+            (.to_ids | type) != "array" or
+            .kind == null or
+            .confidence == null
+          )) | length' || echo "0")
 
         {
           echo "total_lineages=$TOTAL_LINEAGES"
@@ -95,8 +106,30 @@ jobs:
 
     - name: Generate health report
       if: github.event.inputs.action == 'health-check'
+      id: health_check
       run: |
         set -euo pipefail
+        
+        # Perform validation for health check
+        echo "Validating lineage data for health report..."
+        LINEAGES_OUTPUT=$(npm run --silent dev -- lineage list --json 2>/dev/null || echo '{"lineages": []}')
+        TOTAL_LINEAGES=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | length' || echo "0")
+        DRAFT_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "draft")) | length' || echo "0")
+        APPROVED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "approved")) | length' || echo "0")
+        REJECTED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "rejected")) | length' || echo "0")
+        
+        # Enhanced validation for health check
+        INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
+          .lineages | map(select(
+            (.from_ids | length) == 0 or 
+            (.to_ids | length) == 0 or
+            (.from_ids | type) != "array" or
+            (.to_ids | type) != "array" or
+            .kind == null or
+            .confidence == null
+          )) | length' || echo "0")
+        
+        # Generate health report
         echo "# 🏥 Lineage System Health Report" > health-report.md
         echo "" >> health-report.md
         echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> health-report.md
@@ -106,17 +139,16 @@ jobs:
         echo "" >> health-report.md
         echo "| Metric | Count |" >> health-report.md
         echo "|--------|-------|" >> health-report.md
-        echo "| Total Lineages | ${{ steps.validate.outputs.total_lineages || 'N/A' }} |" >> health-report.md
-        echo "| Draft Status | ${{ steps.validate.outputs.draft_count || 'N/A' }} |" >> health-report.md
-        echo "| Approved Status | ${{ steps.validate.outputs.approved_count || 'N/A' }} |" >> health-report.md
-        echo "| Rejected Status | ${{ steps.validate.outputs.rejected_count || 'N/A' }} |" >> health-report.md
-        echo "| Invalid References | ${{ steps.validate.outputs.invalid_refs || 'N/A' }} |" >> health-report.md
+        echo "| Total Lineages | $TOTAL_LINEAGES |" >> health-report.md
+        echo "| Draft Status | $DRAFT_COUNT |" >> health-report.md
+        echo "| Approved Status | $APPROVED_COUNT |" >> health-report.md
+        echo "| Rejected Status | $REJECTED_COUNT |" >> health-report.md
+        echo "| Invalid References | $INVALID_REFS |" >> health-report.md
         echo "" >> health-report.md
 
         echo "## 🔧 System Status" >> health-report.md
         echo "" >> health-report.md
 
-        INVALID_REFS="${{ steps.validate.outputs.invalid_refs || '0' }}"
         if [[ "$INVALID_REFS" =~ ^[0-9]+$ ]] && [[ "$INVALID_REFS" -eq 0 ]]; then
           echo "✅ **All lineage references are valid**" >> health-report.md
         else
@@ -126,13 +158,10 @@ jobs:
 
         echo "## 📈 Recommendations" >> health-report.md
         echo "" >> health-report.md
-
-        DRAFT_COUNT="${{ steps.validate.outputs.draft_count || '0' }}"
         if [[ "$DRAFT_COUNT" =~ ^[0-9]+$ ]] && [[ "$DRAFT_COUNT" -gt 50 ]]; then
           echo "⚠️ High number of draft lineages detected. Consider reviewing and approving." >> health-report.md
         fi
 
-        TOTAL_LINEAGES="${{ steps.validate.outputs.total_lineages || '0' }}"
         if [[ "$TOTAL_LINEAGES" =~ ^[0-9]+$ ]] && [[ "$TOTAL_LINEAGES" -eq 0 ]]; then
           echo "ℹ️ No lineages detected. This is normal for new projects." >> health-report.md
         fi
