@@ -5,7 +5,11 @@ import { Logger } from '../utils/cli-utils';
 import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind, SimilarityResult, SimilarFunction } from '../types';
 import { SimilarityManager } from '../similarity/similarity-manager';
 import { v4 as uuidv4 } from 'uuid';
-import simpleGit from 'simple-git';
+import simpleGit, { SimpleGit } from 'simple-git';
+import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
+import { QualityCalculator } from '../metrics/quality-calculator';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -113,7 +117,165 @@ async function resolveSnapshotId(storage: PGLiteStorageAdapter, identifier: stri
     return target ? target.id : null;
   }
 
+  // Try git commit reference - NEW FUNCTIONALITY
+  const gitCommitId = await resolveGitCommitReference(storage, identifier);
+  if (gitCommitId) return gitCommitId;
+
   return null;
+}
+
+async function resolveGitCommitReference(storage: PGLiteStorageAdapter, identifier: string): Promise<string | null> {
+  try {
+    const git = simpleGit();
+    
+    // Check if identifier looks like a git reference
+    const isGitReference = await isValidGitReference(git, identifier);
+    if (!isGitReference) return null;
+    
+    // Get actual commit hash
+    const commitHash = await git.revparse([identifier]);
+    
+    // Check if we already have a snapshot for this commit
+    const existingSnapshot = await findSnapshotByGitCommit(storage, commitHash);
+    if (existingSnapshot) {
+      return existingSnapshot.id;
+    }
+    
+    // Create snapshot for this commit
+    const snapshotId = await createSnapshotForGitCommit(storage, git, identifier, commitHash);
+    return snapshotId;
+    
+  } catch {
+    // Not a valid git reference, return null to continue with other resolution methods
+    return null;
+  }
+}
+
+async function isValidGitReference(git: SimpleGit, identifier: string): Promise<boolean> {
+  try {
+    // Check for commit hash pattern (7-40 hex chars)
+    if (/^[0-9a-f]{7,40}$/i.test(identifier)) {
+      return true;
+    }
+    
+    // Check for git references (HEAD~N, branch names, tag names)
+    if (identifier.startsWith('HEAD~') || identifier.startsWith('HEAD^')) {
+      return true;
+    }
+    
+    // Check if it's a valid branch/tag name
+    const branches = await git.branchLocal();
+    if (branches.all.includes(identifier)) {
+      return true;
+    }
+    
+    const tags = await git.tags();
+    if (tags.all.includes(identifier)) {
+      return true;
+    }
+    
+    // Try to resolve as git reference
+    await git.revparse([identifier]);
+    return true;
+    
+  } catch {
+    return false;
+  }
+}
+
+async function findSnapshotByGitCommit(storage: PGLiteStorageAdapter, commitHash: string): Promise<{ id: string } | null> {
+  const snapshots = await storage.getSnapshots();
+  return snapshots.find(s => s.gitCommit === commitHash) || null;
+}
+
+async function createSnapshotForGitCommit(
+  storage: PGLiteStorageAdapter, 
+  git: SimpleGit, 
+  identifier: string, 
+  commitHash: string
+): Promise<string> {
+  const tempDir = path.join(process.cwd(), '.funcqc-temp', `snapshot-${uuidv4()}`);
+  
+  try {
+    // Create worktree for the specific commit
+    await fs.promises.mkdir(tempDir, { recursive: true });
+    await git.raw(['worktree', 'add', tempDir, commitHash]);
+    
+    // Get commit info for labeling
+    const commitInfo = await git.show([commitHash, '--no-patch', '--format=%s']);
+    const commitMessage = commitInfo.split('\n')[0] || 'Unknown commit';
+    
+    // Create label for the snapshot
+    const label = `${identifier}@${commitHash.substring(0, 8)}`;
+    const description = `Auto-created snapshot for ${identifier}: ${commitMessage}`;
+    
+    // Analyze functions in the worktree
+    const analyzer = new TypeScriptAnalyzer();
+    const calculator = new QualityCalculator();
+    
+    // Find TypeScript files in the worktree
+    const tsFiles = await findTypeScriptFiles(tempDir);
+    
+    // Analyze all files and collect functions
+    const allFunctions: FunctionInfo[] = [];
+    for (const filePath of tsFiles) {
+      const functions = await analyzer.analyzeFile(filePath);
+      allFunctions.push(...functions);
+    }
+    
+    // Add metrics to functions
+    const functionsWithMetrics = await Promise.all(
+      allFunctions.map(async (func: FunctionInfo) => ({
+        ...func,
+        metrics: await calculator.calculate(func)
+      }))
+    );
+    
+    // Create snapshot using existing saveSnapshot method
+    const snapshotId = await storage.saveSnapshot(
+      functionsWithMetrics,
+      label,
+      description
+    );
+    
+    return snapshotId;
+    
+  } finally {
+    // Clean up worktree
+    try {
+      await git.raw(['worktree', 'remove', tempDir, '--force']);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+async function findTypeScriptFiles(dir: string): Promise<string[]> {
+  const files: string[] = [];
+  
+  async function walk(currentDir: string): Promise<void> {
+    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(currentDir, entry.name);
+      
+      if (entry.isDirectory()) {
+        // Skip common non-source directories
+        if (['node_modules', '.git', 'dist', 'build', 'coverage'].includes(entry.name)) {
+          continue;
+        }
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        // Include TypeScript files
+        if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
+          files.push(fullPath);
+        }
+      }
+    }
+  }
+  
+  await walk(dir);
+  return files;
 }
 
 function displaySummary(diff: SnapshotDiff): void {
