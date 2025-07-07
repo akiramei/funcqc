@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind } from '../types';
+import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind, SimilarityResult, SimilarFunction } from '../types';
 import { SimilarityManager } from '../similarity/similarity-manager';
 import { v4 as uuidv4 } from 'uuid';
 import simpleGit from 'simple-git';
@@ -350,86 +350,122 @@ async function detectLineageCandidates(
   options: DiffCommandOptions,
   logger: Logger
 ): Promise<LineageCandidate[]> {
-  const candidates: LineageCandidate[] = [];
-  
   if (diff.removed.length === 0) {
-    return candidates;
+    return [];
   }
 
   logger.info('Detecting lineage candidates for removed functions...');
   
-  // Get similarity threshold
-  const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
-  
-  if (isNaN(threshold) || threshold < 0 || threshold > 1) {
-    logger.error('Lineage threshold must be a number between 0 and 1');
-    return candidates;
+  const validationResult = validateLineageOptions(options, logger);
+  if (!validationResult.isValid) {
+    return [];
   }
-  
-  // Initialize similarity manager
+
   const similarityManager = new SimilarityManager(undefined, storage);
-  
-  // Prepare all functions for similarity comparison
   const allFunctions = [...diff.added, ...diff.modified.map(m => m.after), ...diff.unchanged];
-  
-  // Process each removed function
+  const candidates: LineageCandidate[] = [];
+
   for (const removedFunc of diff.removed) {
     if (options.verbose) {
       logger.info(`Analyzing lineage for: ${removedFunc.name}`);
     }
-    
-    // Validate detectors if specified
-    const lineageDetectors = options.lineageDetectors ? options.lineageDetectors.split(',') : [];
-    const validDetectors = ['advanced-structural', 'ann-semantic', 'hash-duplicate', 'ast-structural'];
-    
-    if (lineageDetectors.length > 0) {
-      const invalidDetectors = lineageDetectors.filter(d => !validDetectors.includes(d));
-      if (invalidDetectors.length > 0) {
-        logger.error(`Invalid detectors specified: ${invalidDetectors.join(', ')}`);
-        logger.error(`Available detectors: ${validDetectors.join(', ')}`);
-        return candidates;
-      }
-    }
-    
-    // Find similar functions
-    const similarResults = await similarityManager.detectSimilarities(
-      [removedFunc, ...allFunctions],
-      { 
-        threshold,
-        minLines: 1,
-        crossFile: true
-      },
-      lineageDetectors
+
+    const functionCandidates = await processSingleFunction(
+      removedFunc,
+      allFunctions,
+      similarityManager,
+      validationResult.threshold,
+      validationResult.detectors
     );
-    
-    // Extract candidates from similarity results
-    for (const result of similarResults) {
-      const involvedFunctions = result.functions.filter(f => 
-        f.functionId !== removedFunc.id
-      );
-      
-      if (involvedFunctions.length > 0) {
-        const candidateKind = determineLineageKind(removedFunc, involvedFunctions);
-        
-        candidates.push({
-          fromFunction: removedFunc,
-          toFunctions: involvedFunctions.map(f => f.originalFunction!),
-          kind: candidateKind,
-          confidence: result.similarity,
-          reason: `${result.detector} detected ${(result.similarity * 100).toFixed(1)}% similarity`
-        });
-      }
-    }
+
+    candidates.push(...functionCandidates);
   }
-  
-  // Deduplicate and sort by confidence
+
   const deduplicatedCandidates = deduplicateCandidates(candidates);
   return deduplicatedCandidates.sort((a, b) => b.confidence - a.confidence);
 }
 
+interface ValidationResult {
+  isValid: boolean;
+  threshold: number;
+  detectors: string[];
+}
+
+function validateLineageOptions(options: DiffCommandOptions, logger: Logger): ValidationResult {
+  // Validate threshold
+  const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
+  
+  if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+    logger.error('Lineage threshold must be a number between 0 and 1');
+    return { isValid: false, threshold: 0, detectors: [] };
+  }
+
+  // Validate detectors
+  const lineageDetectors = options.lineageDetectors ? options.lineageDetectors.split(',') : [];
+  const validDetectors = ['advanced-structural', 'ann-semantic', 'hash-duplicate', 'ast-structural'];
+  
+  if (lineageDetectors.length > 0) {
+    const invalidDetectors = lineageDetectors.filter(d => !validDetectors.includes(d));
+    if (invalidDetectors.length > 0) {
+      logger.error(`Invalid detectors specified: ${invalidDetectors.join(', ')}`);
+      logger.error(`Available detectors: ${validDetectors.join(', ')}`);
+      return { isValid: false, threshold: 0, detectors: [] };
+    }
+  }
+
+  return { isValid: true, threshold, detectors: lineageDetectors };
+}
+
+async function processSingleFunction(
+  removedFunc: FunctionInfo,
+  allFunctions: FunctionInfo[],
+  similarityManager: SimilarityManager,
+  threshold: number,
+  detectors: string[]
+): Promise<LineageCandidate[]> {
+  const similarResults = await similarityManager.detectSimilarities(
+    [removedFunc, ...allFunctions],
+    { 
+      threshold,
+      minLines: 1,
+      crossFile: true
+    },
+    detectors
+  );
+
+  return extractCandidatesFromResults(removedFunc, similarResults);
+}
+
+function extractCandidatesFromResults(
+  removedFunc: FunctionInfo,
+  similarResults: SimilarityResult[]
+): LineageCandidate[] {
+  const candidates: LineageCandidate[] = [];
+
+  for (const result of similarResults) {
+    const involvedFunctions = result.functions.filter((f: SimilarFunction) => 
+      f.functionId !== removedFunc.id
+    );
+    
+    if (involvedFunctions.length > 0) {
+      const candidateKind = determineLineageKind(removedFunc, involvedFunctions);
+      
+      candidates.push({
+        fromFunction: removedFunc,
+        toFunctions: involvedFunctions.map((f: SimilarFunction) => f.originalFunction!),
+        kind: candidateKind,
+        confidence: result.similarity,
+        reason: `${result.detector} detected ${(result.similarity * 100).toFixed(1)}% similarity`
+      });
+    }
+  }
+
+  return candidates;
+}
+
 function determineLineageKind(
   fromFunction: FunctionInfo,
-  toFunctions: { functionName: string; originalFunction?: FunctionInfo }[]
+  toFunctions: SimilarFunction[]
 ): LineageKind {
   if (toFunctions.length === 1) {
     const toFunc = toFunctions[0];
