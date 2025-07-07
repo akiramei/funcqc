@@ -14,128 +14,150 @@ jobs:
   lineage-detection:
     runs-on: ubuntu-latest
     if: github.event.pull_request.draft == false
-    
+
     steps:
     - name: Checkout PR branch
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
         ref: ${{ github.event.pull_request.head.sha }}
-    
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 20
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
     - name: Build project
       run: npm run build
-      
+
     - name: Configure funcqc for CI
       run: |
         mkdir -p .funcqc
         echo "Using temporary database for CI analysis"
-        
+
     - name: Analyze base branch (target)
       run: |
         git checkout ${{ github.event.pull_request.base.sha }}
         echo "Analyzing base branch at commit ${{ github.event.pull_request.base.sha }}"
         npm run dev scan --label "base-${{ github.event.pull_request.base.sha }}" || echo "Base scan completed with warnings"
-        
+
     - name: Analyze PR branch (head)
       run: |
         git checkout ${{ github.event.pull_request.head.sha }}
         echo "Analyzing PR branch at commit ${{ github.event.pull_request.head.sha }}"
         npm run dev scan --label "pr-${{ github.event.pull_request.head.sha }}" || echo "PR scan completed with warnings"
-        
+
     - name: Generate lineage analysis
       id: lineage
       run: |
+        set -euo pipefail
         echo "Generating lineage analysis between base and PR commits"
-        
-        # Run lineage detection
-        LINEAGE_OUTPUT=$(npm run --silent dev -- diff base-${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.head.sha }} --lineage --json 2>/dev/null || echo '{"lineages": [], "summary": {"total": 0}}')
-        
+
+        # Run lineage detection with proper error handling
+        if ! LINEAGE_OUTPUT=$(npm run --silent dev -- diff base-${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.head.sha }} --lineage --json 2>/dev/null); then
+          echo "Failed to generate lineage analysis - using empty result"
+          LINEAGE_OUTPUT='{"lineages": [], "summary": {"total": 0}}'
+        fi
+
         # Save output for comment generation
         echo "$LINEAGE_OUTPUT" > lineage-analysis.json
-        
-        # Extract key metrics
-        TOTAL_LINEAGES=$(echo "$LINEAGE_OUTPUT" | jq -r '.summary.total // 0')
-        RENAME_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "rename")) | length')
-        SIGNATURE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "signature-change")) | length')
-        SPLIT_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "split")) | length')
-        INLINE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "inline")) | length')
-        
-        echo "total_lineages=$TOTAL_LINEAGES" >> $GITHUB_OUTPUT
-        echo "rename_count=$RENAME_COUNT" >> $GITHUB_OUTPUT
-        echo "signature_count=$SIGNATURE_COUNT" >> $GITHUB_OUTPUT
-        echo "split_count=$SPLIT_COUNT" >> $GITHUB_OUTPUT
-        echo "inline_count=$INLINE_COUNT" >> $GITHUB_OUTPUT
-        
+
+        # Extract key metrics with safe defaults
+        TOTAL_LINEAGES=$(echo "$LINEAGE_OUTPUT" | jq -r '.summary.total // 0' || echo "0")
+        RENAME_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "rename")) | length' || echo "0")
+        SIGNATURE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "signature-change")) | length' || echo "0")
+        SPLIT_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "split")) | length' || echo "0")
+        INLINE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "inline")) | length' || echo "0")
+
+        {
+          echo "total_lineages=$TOTAL_LINEAGES"
+          echo "rename_count=$RENAME_COUNT"
+          echo "signature_count=$SIGNATURE_COUNT"
+          echo "split_count=$SPLIT_COUNT"
+          echo "inline_count=$INLINE_COUNT"
+        } >> "$GITHUB_OUTPUT"
+
         echo "Analysis complete: $TOTAL_LINEAGES lineages detected"
-        
+
     - name: Generate detailed lineage report
+      env:
+        PR_TITLE: ${{ github.event.pull_request.title }}
       run: |
-        echo "# 🔄 Function Lineage Analysis Report" > lineage-report.md
-        echo "" >> lineage-report.md
-        echo "**PR:** #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}" >> lineage-report.md
-        echo "**Base:** \`${{ github.event.pull_request.base.sha }}\`" >> lineage-report.md
-        echo "**Head:** \`${{ github.event.pull_request.head.sha }}\`" >> lineage-report.md
-        echo "" >> lineage-report.md
-        
-        # Summary section
-        echo "## 📊 Summary" >> lineage-report.md
-        echo "" >> lineage-report.md
-        echo "| Change Type | Count |" >> lineage-report.md
-        echo "|-------------|-------|" >> lineage-report.md
-        echo "| 🏷️ Rename | ${{ steps.lineage.outputs.rename_count }} |" >> lineage-report.md
-        echo "| ✏️ Signature Change | ${{ steps.lineage.outputs.signature_count }} |" >> lineage-report.md
-        echo "| 🔄 Split | ${{ steps.lineage.outputs.split_count }} |" >> lineage-report.md
-        echo "| 📎 Inline | ${{ steps.lineage.outputs.inline_count }} |" >> lineage-report.md
-        echo "| **Total** | **${{ steps.lineage.outputs.total_lineages }}** |" >> lineage-report.md
-        echo "" >> lineage-report.md
-        
+        set -euo pipefail
+
+        # Get lineage count with safe default
+        TOTAL_LINEAGES="${{ steps.lineage.outputs.total_lineages }}"
+        if [[ ! "$TOTAL_LINEAGES" =~ ^[0-9]+$ ]]; then
+          TOTAL_LINEAGES="0"
+        fi
+
+        {
+          echo "# 🔄 Function Lineage Analysis Report"
+          echo ""
+          echo "**PR:** #${{ github.event.pull_request.number }} - $PR_TITLE"
+          echo "**Base:** \`${{ github.event.pull_request.base.sha }}\`"
+          echo "**Head:** \`${{ github.event.pull_request.head.sha }}\`"
+          echo ""
+          echo "## 📊 Summary"
+          echo ""
+          echo "| Change Type | Count |"
+          echo "|-------------|-------|"
+          echo "| 🏷️ Rename | ${{ steps.lineage.outputs.rename_count }} |"
+          echo "| ✏️ Signature Change | ${{ steps.lineage.outputs.signature_count }} |"
+          echo "| 🔄 Split | ${{ steps.lineage.outputs.split_count }} |"
+          echo "| 📎 Inline | ${{ steps.lineage.outputs.inline_count }} |"
+          echo "| **Total** | **${{ steps.lineage.outputs.total_lineages }}** |"
+          echo ""
+        } > lineage-report.md
+
         # Detailed lineages if any exist
-        if [ "${{ steps.lineage.outputs.total_lineages }}" -gt "0" ]; then
-          echo "## 🔍 Detected Changes" >> lineage-report.md
-          echo "" >> lineage-report.md
-          
+        if [[ "$TOTAL_LINEAGES" -gt 0 ]]; then
+          {
+            echo "## 🔍 Detected Changes"
+            echo ""
+          } >> lineage-report.md
+
           # Parse and format lineage details
           jq -r '.lineages[] | "### \(.kind | ascii_upcase): \(.from_functions[0].name // "unknown") → \(.to_functions[0].name // "unknown")\n\n- **Confidence:** \(.confidence * 100 | floor)%\n- **From:** \(.from_functions[0].file_path // "unknown"):\(.from_functions[0].start_line // "?")\n- **To:** \(.to_functions[0].file_path // "unknown"):\(.to_functions[0].start_line // "?")\n\(.note // "" | if . != "" then "\n- **Note:** \(.)" else "" end)\n"' lineage-analysis.json >> lineage-report.md
         else
-          echo "✅ No function lineage changes detected in this PR." >> lineage-report.md
-          echo "" >> lineage-report.md
-          echo "This indicates that either:" >> lineage-report.md
-          echo "- No function definitions were modified" >> lineage-report.md
-          echo "- Changes were too minor to trigger lineage detection" >> lineage-report.md
-          echo "- All changes were additions/deletions rather than modifications" >> lineage-report.md
+          {
+            echo "✅ No function lineage changes detected in this PR."
+            echo ""
+            echo "This indicates that either:"
+            echo "- No function definitions were modified"
+            echo "- Changes were too minor to trigger lineage detection"
+            echo "- All changes were additions/deletions rather than modifications"
+          } >> lineage-report.md
         fi
-        
-        echo "" >> lineage-report.md
-        echo "---" >> lineage-report.md
-        echo "*Generated by funcqc lineage analysis*" >> lineage-report.md
-        
+
+        {
+          echo ""
+          echo "---"
+          echo "*Generated by funcqc lineage analysis*"
+        } >> lineage-report.md
+
     - name: Comment on PR
       uses: actions/github-script@v7
       with:
         script: |
           const fs = require('fs');
           const report = fs.readFileSync('lineage-report.md', 'utf8');
-          
+
           // Check if there's already a lineage comment
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,
             issue_number: context.issue.number,
           });
-          
-          const existingComment = comments.find(comment => 
+
+          const existingComment = comments.find(comment =>
             comment.body.includes('🔄 Function Lineage Analysis Report')
           );
-          
+
           if (existingComment) {
             // Update existing comment
             await github.rest.issues.updateComment({
@@ -155,7 +177,7 @@ jobs:
             });
             console.log('Created new lineage analysis comment');
           }
-          
+
     - name: Upload lineage artifacts
       uses: actions/upload-artifact@v4
       if: always()
@@ -165,11 +187,12 @@ jobs:
           lineage-analysis.json
           lineage-report.md
         retention-days: 30
-        
+
     - name: Set job status
       run: |
-        if [ "${{ steps.lineage.outputs.total_lineages }}" -gt "0" ]; then
-          echo "✅ Lineage analysis completed: ${{ steps.lineage.outputs.total_lineages }} changes detected"
+        TOTAL_LINEAGES="${{ steps.lineage.outputs.total_lineages }}"
+        if [[ "$TOTAL_LINEAGES" =~ ^[0-9]+$ ]] && [[ "$TOTAL_LINEAGES" -gt 0 ]]; then
+          echo "✅ Lineage analysis completed: $TOTAL_LINEAGES changes detected"
         else
           echo "✅ Lineage analysis completed: No changes detected"
         fi

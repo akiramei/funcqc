@@ -101,7 +101,7 @@ permissions:
 
 No additional secrets or environment variables are required. The workflows use:
 
-- Node.js 20 for consistency
+- Node.js 18+ (workflows use 20 for consistency)
 - Temporary databases for analysis
 - Built-in GitHub tokens for API access
 
@@ -132,7 +132,7 @@ schedule:
 Consider adding lineage analysis as a required check:
 
 1. Go to Repository Settings → Branches
-2. Add a branch protection rule for `main`
+2. Add a branch protection rule to the `main` branch
 3. Require status checks: `lineage-detection`
 
 ## Usage Examples
@@ -141,7 +141,7 @@ Consider adding lineage analysis as a required check:
 
 Trigger manual lineage operations:
 
-1. Go to Actions tab in your repository
+1. Go to the Actions tab in your repository
 2. Select "Lineage Management" workflow
 3. Click "Run workflow"
 4. Choose action and parameters
@@ -203,7 +203,7 @@ funcqc diff main local-test --lineage
 
 ### Resource Usage
 
-- **Analysis Time:** Typically 2-5 minutes depending on changes
+- **Analysis Time:** Typically 2–5 minutes depending on changes
 - **Storage:** Minimal - only metadata and analysis results
 - **API Calls:** Conservative rate limiting for PR comments
 

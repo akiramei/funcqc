@@ -3,7 +3,7 @@
 # Test Lineage Detection Script
 # This script helps developers test lineage detection locally before creating PRs
 
-set -e
+set -euo pipefail
 
 # Colors for output
 RED='\033[0;31m'
@@ -146,9 +146,12 @@ HEAD_LABEL="test-head-$TIMESTAMP"
 cleanup_snapshots() {
     if [ "$CLEANUP" = true ]; then
         print_status "Cleaning up temporary snapshots..."
-        npm run --silent dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" | while read -r snapshot_id _; do
-            npm run --silent dev -- history --delete "$snapshot_id" 2>/dev/null || true
-        done
+        # Check if snapshots exist before attempting cleanup
+        if npm run --silent dev -- history | grep -q -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)"; then
+            npm run --silent dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" | while read -r snapshot_id _; do
+                npm run --silent dev -- history --delete "$snapshot_id" 2>/dev/null || true
+            done
+        fi
         print_success "Cleanup completed"
     else
         print_warning "Skipping cleanup. Manual cleanup required:"

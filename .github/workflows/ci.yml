@@ -12,32 +12,32 @@ jobs:
     strategy:
       matrix:
         node-version: [18, 20]
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
     - name: Run TypeScript check
       run: npm run typecheck
-      
+
     - name: Run linting
       run: npm run lint
-      
+
     - name: Run tests
       run: npm run test:ci
-      
+
     - name: Build project
       run: npm run build
-      
+
     - name: Test CLI functionality
       run: |
         node bin/funcqc.js --version
@@ -52,24 +52,24 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Initialize CodeQL
       uses: github/codeql-action/init@v3
       with:
         languages: javascript
-        
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 20
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
     - name: Build project
       run: npm run build
-      
+
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
 
@@ -77,34 +77,35 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: test
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
         node-version: 20
         cache: 'npm'
-        
+
     - name: Install dependencies
       run: npm ci
-      
+
     - name: Build project
       run: npm run build
-      
+
     - name: Validate lineage system
       run: |
+        set -euo pipefail
         echo "Running lineage system validation on main branch"
-        
+
         # Initialize funcqc for validation
         mkdir -p .funcqc
-        
+
         # Run basic lineage commands to ensure system works
         npm run --silent dev -- lineage list --help
-        
+
         # Validate that lineage table exists and is accessible
         npm run --silent dev -- lineage list --limit 5 || echo "No lineages found (normal for new installations)"
-        
+
         echo "✅ Lineage system validation completed"

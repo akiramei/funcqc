@@ -45,7 +45,7 @@
     "lint:fix": "eslint src --fix",
     "format": "prettier --write src/**/*.ts",
     "format:check": "prettier --check src/**/*.ts",
-    "test:lineage": "./scripts/test-lineage.sh",
+    "test:lineage": "bash ./scripts/test-lineage.sh",
     "prepare": "husky install",
     "prepublishOnly": "npm run build && npm run test",
     "release": "semantic-release"
