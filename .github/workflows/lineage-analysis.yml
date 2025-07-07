@@ -190,9 +190,11 @@ jobs:
 
     - name: Set job status
       run: |
+        set -euo pipefail
         TOTAL_LINEAGES="${{ steps.lineage.outputs.total_lineages }}"
         if [[ "$TOTAL_LINEAGES" =~ ^[0-9]+$ ]] && [[ "$TOTAL_LINEAGES" -gt 0 ]]; then
           echo "✅ Lineage analysis completed: $TOTAL_LINEAGES changes detected"
         else
           echo "✅ Lineage analysis completed: No changes detected"
         fi
+

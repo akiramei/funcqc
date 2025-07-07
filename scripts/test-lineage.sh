@@ -5,6 +5,28 @@
 
 set -euo pipefail
 
+# Store current branch for restoration on exit
+CURRENT_BRANCH=""
+CLEANUP_ON_EXIT=false
+
+# Cleanup function for trap
+cleanup_on_exit() {
+    if [ "$CLEANUP_ON_EXIT" = true ]; then
+        echo "Script interrupted. Performing cleanup..."
+        
+        # Restore original branch
+        if [ -n "$CURRENT_BRANCH" ] && [ "$CURRENT_BRANCH" != "$(git branch --show-current 2>/dev/null || echo '')" ]; then
+            git checkout "$CURRENT_BRANCH" > /dev/null 2>&1 || true
+        fi
+        
+        # Clean up snapshots if needed
+        cleanup_snapshots 2>/dev/null || true
+    fi
+}
+
+# Set up trap for proper cleanup on script exit
+trap cleanup_on_exit EXIT INT TERM
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -147,8 +169,9 @@ cleanup_snapshots() {
     if [ "$CLEANUP" = true ]; then
         print_status "Cleaning up temporary snapshots..."
         # Check if snapshots exist before attempting cleanup
-        if npm run --silent dev -- history | grep -q -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)"; then
-            npm run --silent dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" | while read -r snapshot_id _; do
+        local snapshots_to_delete
+        if snapshots_to_delete=$(npm run --silent dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" 2>/dev/null); then
+            echo "$snapshots_to_delete" | while read -r snapshot_id _; do
                 npm run --silent dev -- history --delete "$snapshot_id" 2>/dev/null || true
             done
         fi
@@ -170,6 +193,7 @@ fi
 
 # Save current branch
 CURRENT_BRANCH=$(git branch --show-current)
+CLEANUP_ON_EXIT=true
 
 # Analyze base branch
 git checkout "$BASE_BRANCH" > /dev/null 2>&1

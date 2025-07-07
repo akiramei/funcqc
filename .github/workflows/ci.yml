@@ -109,3 +109,4 @@ jobs:
         npm run --silent dev -- lineage list --limit 5 || echo "No lineages found (normal for new installations)"
 
         echo "✅ Lineage system validation completed"
+

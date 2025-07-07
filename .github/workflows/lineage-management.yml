@@ -67,9 +67,9 @@ jobs:
         APPROVED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "approved")) | length' || echo "0")
         REJECTED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "rejected")) | length' || echo "0")
 
-        # TODO: Implement actual function reference validation
-        # For now, set to 0 - future enhancement would check if function IDs exist
-        INVALID_REFS=0
+        # Basic validation: check for empty from_ids or to_ids arrays
+        # Future enhancement: validate that function IDs actually exist in database
+        INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select((.from_ids | length) == 0 or (.to_ids | length) == 0)) | length' || echo "0")
 
         {
           echo "total_lineages=$TOTAL_LINEAGES"
@@ -85,6 +85,7 @@ jobs:
       if: github.event.inputs.action == 'cleanup-drafts' || github.event_name == 'schedule'
       id: cleanup
       run: |
+        set -euo pipefail
         DAYS_OLD="${{ github.event.inputs.days_old || '30' }}"
         echo "Cleaning up draft lineages older than $DAYS_OLD days..."
 
@@ -95,6 +96,7 @@ jobs:
     - name: Generate health report
       if: github.event.inputs.action == 'health-check'
       run: |
+        set -euo pipefail
         echo "# 🏥 Lineage System Health Report" > health-report.md
         echo "" >> health-report.md
         echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> health-report.md
@@ -142,6 +144,7 @@ jobs:
     - name: Export comprehensive report
       if: github.event.inputs.action == 'export-report'
       run: |
+        set -euo pipefail
         echo "Generating comprehensive lineage report..."
 
         # Export all lineages in various formats
@@ -206,6 +209,7 @@ jobs:
 
     - name: Summary
       run: |
+        set -euo pipefail
         echo "## Lineage Management Summary" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "**Action:** ${{ github.event.inputs.action || 'scheduled-cleanup' }}" >> $GITHUB_STEP_SUMMARY
