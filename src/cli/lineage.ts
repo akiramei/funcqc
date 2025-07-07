@@ -152,7 +152,11 @@ function buildLineageQuery(options: LineageCommandOptions): LineageQuery {
   }
 
   if (options.limit) {
-    query.limit = Math.max(1, parseInt(options.limit.toString(), 10));
+    const limitValue = parseInt(options.limit.toString(), 10);
+    if (isNaN(limitValue) || limitValue < 1) {
+      throw new Error('Limit must be a positive integer');
+    }
+    query.limit = limitValue;
   }
 
   return query;
