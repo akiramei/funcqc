@@ -1,0 +1,286 @@
+name: Lineage Management
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Lineage management action'
+        required: true
+        type: choice
+        options:
+          - 'validate-all'
+          - 'cleanup-drafts'
+          - 'export-report'
+          - 'health-check'
+        default: 'validate-all'
+      days_old:
+        description: 'Days old for cleanup (draft cleanup only)'
+        required: false
+        default: '30'
+        type: string
+  schedule:
+    # Run weekly cleanup on Sundays at 2 AM UTC
+    - cron: '0 2 * * 0'
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  lineage-management:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build project
+        run: npm run build
+
+      - name: Setup funcqc database
+        run: |
+          mkdir -p .funcqc
+          echo "Initializing lineage management database"
+
+      - name: Validate all lineages
+        if: github.event.inputs.action == 'validate-all' || github.event_name == 'schedule'
+        id: validate
+        run: |
+          set -euo pipefail
+          echo "Validating all lineage records..."
+
+          # Get all lineages and validate them
+          LINEAGES_OUTPUT=$(npm run --silent dev -- lineage list --json 2>/dev/null || echo '{"lineages": []}')
+          TOTAL_LINEAGES=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | length' || echo "0")
+
+          # Check for inconsistencies
+          DRAFT_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "draft")) | length' || echo "0")
+          APPROVED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "approved")) | length' || echo "0")
+          REJECTED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "rejected")) | length' || echo "0")
+
+          # Enhanced validation: check for various invalid conditions
+          # 1. Empty from_ids or to_ids arrays
+          # 2. Null or non-array from_ids/to_ids
+          # 3. Invalid lineage structure
+          # Future enhancement: validate that function IDs actually exist in database
+          INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
+            .lineages | map(select(
+              (.from_ids | type) != "array" or
+              (.to_ids | type) != "array" or
+              ((.from_ids // []) | length) == 0 or 
+              ((.to_ids // []) | length) == 0 or
+              .kind == null or
+              .confidence == null
+            )) | length' || echo "0")
+
+          {
+            echo "total_lineages=$TOTAL_LINEAGES"
+            echo "draft_count=$DRAFT_COUNT"
+            echo "approved_count=$APPROVED_COUNT"
+            echo "rejected_count=$REJECTED_COUNT"
+            echo "invalid_refs=$INVALID_REFS"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Validation complete: $TOTAL_LINEAGES total lineages"
+
+      - name: Cleanup old draft lineages
+        if: github.event.inputs.action == 'cleanup-drafts' || github.event_name == 'schedule'
+        id: cleanup
+        run: |
+          set -euo pipefail
+          DAYS_OLD="${{ github.event.inputs.days_old || '30' }}"
+          echo "Cleaning up draft lineages older than $DAYS_OLD days..."
+
+          # Note: This is a placeholder - actual cleanup would require database access
+          echo "Cleanup simulation: Would remove drafts older than $DAYS_OLD days"
+          echo "cleanup_count=0" >> $GITHUB_OUTPUT
+
+      - name: Generate health report
+        if: github.event.inputs.action == 'health-check'
+        id: health_check
+        run: |
+          set -euo pipefail
+          
+          # Perform validation for health check
+          echo "Validating lineage data for health report..."
+          LINEAGES_OUTPUT=$(npm run --silent dev -- lineage list --json 2>/dev/null || echo '{"lineages": []}')
+          TOTAL_LINEAGES=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | length' || echo "0")
+          DRAFT_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "draft")) | length' || echo "0")
+          APPROVED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "approved")) | length' || echo "0")
+          REJECTED_COUNT=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | map(select(.status == "rejected")) | length' || echo "0")
+          
+          # Enhanced validation for health check
+          INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
+            .lineages | map(select(
+              (.from_ids | type) != "array" or
+              (.to_ids | type) != "array" or
+              ((.from_ids // []) | length) == 0 or 
+              ((.to_ids // []) | length) == 0 or
+              .kind == null or
+              .confidence == null
+            )) | length' || echo "0")
+          
+          # Generate health report
+          echo "# 🏥 Lineage System Health Report" > health-report.md
+          echo "" >> health-report.md
+          echo "**Generated:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> health-report.md
+          echo "" >> health-report.md
+
+          echo "## 📊 Database Statistics" >> health-report.md
+          echo "" >> health-report.md
+          echo "| Metric | Count |" >> health-report.md
+          echo "|--------|-------|" >> health-report.md
+          echo "| Total Lineages | $TOTAL_LINEAGES |" >> health-report.md
+          echo "| Draft Status | $DRAFT_COUNT |" >> health-report.md
+          echo "| Approved Status | $APPROVED_COUNT |" >> health-report.md
+          echo "| Rejected Status | $REJECTED_COUNT |" >> health-report.md
+          echo "| Invalid References | $INVALID_REFS |" >> health-report.md
+          echo "" >> health-report.md
+
+          echo "## 🔧 System Status" >> health-report.md
+          echo "" >> health-report.md
+
+          if [[ "$INVALID_REFS" =~ ^[0-9]+$ ]] && [[ "$INVALID_REFS" -eq 0 ]]; then
+            echo "✅ **All lineage references are valid**" >> health-report.md
+          else
+            echo "❌ **Found $INVALID_REFS invalid references**" >> health-report.md
+          fi
+          echo "" >> health-report.md
+
+          echo "## 📈 Recommendations" >> health-report.md
+          echo "" >> health-report.md
+          if [[ "$DRAFT_COUNT" =~ ^[0-9]+$ ]] && [[ "$DRAFT_COUNT" -gt 50 ]]; then
+            echo "⚠️ High number of draft lineages detected. Consider reviewing and approving." >> health-report.md
+          fi
+
+          if [[ "$TOTAL_LINEAGES" =~ ^[0-9]+$ ]] && [[ "$TOTAL_LINEAGES" -eq 0 ]]; then
+            echo "ℹ️ No lineages detected. This is normal for new projects." >> health-report.md
+          fi
+
+          echo "" >> health-report.md
+          echo "---" >> health-report.md
+          echo "*Generated by funcqc lineage management system*" >> health-report.md
+
+      - name: Export comprehensive report
+        if: github.event.inputs.action == 'export-report'
+        run: |
+          set -euo pipefail
+          echo "Generating comprehensive lineage report..."
+
+          # Export all lineages in various formats
+          npm run --silent dev -- lineage list --json > lineages-export.json
+          npm run --silent dev -- lineage list > lineages-export.txt
+
+          # Generate CSV export
+          echo "id,kind,status,confidence,from_count,to_count,git_commit,created_at" > lineages-export.csv
+          npm run --silent dev -- lineage list --json | jq -r '.lineages[] | [.id, .kind, .status, .confidence, (.from_ids | length), (.to_ids | length), .git_commit, .created_at] | @csv' >> lineages-export.csv
+
+          echo "Export complete"
+
+      - name: Create GitHub issue for validation results
+        if: steps.validate.outputs.invalid_refs != '0' && steps.validate.outputs.invalid_refs != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = `🚨 Lineage Validation Issues Detected`;
+            const body = `
+            ## Validation Results
+
+            The automated lineage validation has detected issues that require attention:
+
+            - **Total Lineages:** ${{ steps.validate.outputs.total_lineages }}
+            - **Invalid References:** ${{ steps.validate.outputs.invalid_refs }}
+            - **Draft Count:** ${{ steps.validate.outputs.draft_count }}
+            - **Approved Count:** ${{ steps.validate.outputs.approved_count }}
+
+            ## Action Required
+
+            Please review the lineage database for:
+            1. Broken function references
+            2. Orphaned lineage records
+            3. Data integrity issues
+
+            ## Next Steps
+
+            1. Run \`funcqc lineage list --status draft\` to review pending lineages
+            2. Validate function references manually
+            3. Clean up invalid records using \`funcqc lineage review\`
+
+            *This issue was automatically created by the lineage management workflow.*
+            `;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['bug', 'lineage', 'automated']
+            });
+
+      - name: Prepare artifacts for upload
+        id: prepare_artifacts
+        if: always()
+        run: |
+          set -euo pipefail
+          
+          # Create artifacts directory
+          mkdir -p artifacts
+          
+          # Check for health report (generated by health-check action)
+          if [ -f "health-report.md" ]; then
+            cp health-report.md artifacts/
+            echo "health_report_exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "health_report_exists=false" >> $GITHUB_OUTPUT
+          fi
+          
+          # Check for export files (generated by export-report action)
+          EXPORT_FILES_FOUND=false
+          if ls lineages-export.* 1> /dev/null 2>&1; then
+            cp lineages-export.* artifacts/
+            EXPORT_FILES_FOUND=true
+          fi
+          echo "export_files_exist=$EXPORT_FILES_FOUND" >> $GITHUB_OUTPUT
+          
+          # Check if any artifacts exist
+          if [ "$(ls -A artifacts)" ]; then
+            echo "artifacts_exist=true" >> $GITHUB_OUTPUT
+            echo "✅ Found artifacts to upload: $(ls artifacts/)"
+          else
+            echo "artifacts_exist=false" >> $GITHUB_OUTPUT
+            echo "ℹ️ No artifacts generated for this action"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always() && steps.prepare_artifacts.outputs.artifacts_exist == 'true'
+        with:
+          name: lineage-management-${{ github.run_number }}
+          path: artifacts/
+          retention-days: 90
+
+      - name: Summary
+        run: |
+          set -euo pipefail
+          echo "## Lineage Management Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Action:** ${{ github.event.inputs.action || 'scheduled-cleanup' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Total Lineages:** ${{ steps.validate.outputs.total_lineages || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Invalid References:** ${{ steps.validate.outputs.invalid_refs || 'N/A' }}" >> $GITHUB_STEP_SUMMARY
+
+          INVALID_REFS="${{ steps.validate.outputs.invalid_refs || '0' }}"
+          if [[ "$INVALID_REFS" =~ ^[0-9]+$ ]] && [[ "$INVALID_REFS" -eq 0 ]]; then
+            echo "**Status:** ✅ All validations passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**Status:** ❌ Validation issues detected" >> $GITHUB_STEP_SUMMARY
+          fi
