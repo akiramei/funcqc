@@ -75,10 +75,10 @@ jobs:
           # Future enhancement: validate that function IDs actually exist in database
           INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
             .lineages | map(select(
+              (.from_ids | type) != "array" or
+              (.to_ids | type) != "array" or
               ((.from_ids // []) | length) == 0 or 
               ((.to_ids // []) | length) == 0 or
-              ((.from_ids // []) | type) != "array" or
-              ((.to_ids // []) | type) != "array" or
               .kind == null or
               .confidence == null
             )) | length' || echo "0")
@@ -122,10 +122,10 @@ jobs:
           # Enhanced validation for health check
           INVALID_REFS=$(echo "$LINEAGES_OUTPUT" | jq -r '
             .lineages | map(select(
+              (.from_ids | type) != "array" or
+              (.to_ids | type) != "array" or
               ((.from_ids // []) | length) == 0 or 
               ((.to_ids // []) | length) == 0 or
-              ((.from_ids // []) | type) != "array" or
-              ((.to_ids // []) | type) != "array" or
               .kind == null or
               .confidence == null
             )) | length' || echo "0")
