@@ -6,8 +6,9 @@ describe('Lineage Storage Operations', () => {
   let storage: PGLiteStorageAdapter;
 
   beforeEach(async () => {
-    // Use in-memory database for testing
-    storage = new PGLiteStorageAdapter(':memory:');
+    // Use temporary file-based database for testing to avoid Windows filesystem issues
+    const testDbPath = `/tmp/funcqc-test-lineage-${Date.now()}.db`;
+    storage = new PGLiteStorageAdapter(testDbPath);
     await storage.init();
   });
 
