@@ -1306,8 +1306,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async saveLineage(lineage: Lineage): Promise<void> {
     try {
       // Convert arrays to PostgreSQL array literals
-      const fromIdsLiteral = `{${lineage.fromIds.map(id => `"${id}"`).join(',')}}`;
-      const toIdsLiteral = `{${lineage.toIds.map(id => `"${id}"`).join(',')}}`;
+      const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
+      const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
 
       await this.db.query(`
         INSERT INTO lineage (
@@ -1418,6 +1418,43 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.db.query(sql, params);
     } catch (error) {
       throw new Error(`Failed to update lineage status: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private formatPostgresArrayLiteral(ids: string[]): string {
+    return `{${ids.map(id => `"${id}"`).join(',')}}`;
+  }
+
+  async updateLineage(lineage: Lineage): Promise<void> {
+    try {
+      // Convert arrays to PostgreSQL array literals
+      const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
+      const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
+
+      await this.db.query(`
+        UPDATE lineage SET 
+          from_ids = $1, 
+          to_ids = $2, 
+          kind = $3, 
+          status = $4, 
+          confidence = $5, 
+          note = $6, 
+          git_commit = $7, 
+          updated_at = $8 
+        WHERE id = $9
+      `, [
+        fromIdsLiteral,
+        toIdsLiteral,
+        lineage.kind,
+        lineage.status,
+        lineage.confidence,
+        lineage.note,
+        lineage.gitCommit,
+        new Date().toISOString(),
+        lineage.id
+      ]);
+    } catch (error) {
+      throw new Error(`Failed to update lineage: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
