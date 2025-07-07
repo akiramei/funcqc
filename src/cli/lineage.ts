@@ -29,7 +29,12 @@ export async function lineageListCommand(options: LineageCommandOptions): Promis
 
     // Get lineages with filters
     const lineages = await storage.getLineages();
-    const filtered = applyFilters(lineages, options, logger);
+    
+    // Apply advanced filters that require function lookups
+    const filteredWithFunctions = await applyAdvancedFilters(lineages, options, storage, logger);
+    
+    // Apply basic filters
+    const filtered = applyFilters(filteredWithFunctions, options);
     const sorted = applySorting(filtered, options);
     const limited = applyLimit(sorted, options);
 
@@ -117,7 +122,68 @@ export async function lineageReviewCommand(
 // FILTERING AND SORTING FUNCTIONS
 // ========================================
 
-function applyFilters(lineages: Lineage[], options: LineageCommandOptions, logger?: Logger): Lineage[] {
+async function applyAdvancedFilters(
+  lineages: Lineage[], 
+  options: LineageCommandOptions, 
+  storage: PGLiteStorageAdapter,
+  logger: Logger
+): Promise<Lineage[]> {
+  let filtered = lineages;
+  
+  // Filter by source function name pattern
+  if (options.fromFunction) {
+    logger.info(`Filtering by source function pattern: ${options.fromFunction}`);
+    const pattern = options.fromFunction.toLowerCase();
+    
+    const filteredLineages: Lineage[] = [];
+    for (const lineage of filtered) {
+      let matchFound = false;
+      
+      // Check each source function
+      for (const fromId of lineage.fromIds) {
+        const func = await storage.getFunction(fromId);
+        if (func && func.name.toLowerCase().includes(pattern)) {
+          matchFound = true;
+          break;
+        }
+      }
+      
+      if (matchFound) {
+        filteredLineages.push(lineage);
+      }
+    }
+    filtered = filteredLineages;
+  }
+  
+  // Filter by target function name pattern
+  if (options.toFunction) {
+    logger.info(`Filtering by target function pattern: ${options.toFunction}`);
+    const pattern = options.toFunction.toLowerCase();
+    
+    const filteredLineages: Lineage[] = [];
+    for (const lineage of filtered) {
+      let matchFound = false;
+      
+      // Check each target function
+      for (const toId of lineage.toIds) {
+        const func = await storage.getFunction(toId);
+        if (func && func.name.toLowerCase().includes(pattern)) {
+          matchFound = true;
+          break;
+        }
+      }
+      
+      if (matchFound) {
+        filteredLineages.push(lineage);
+      }
+    }
+    filtered = filteredLineages;
+  }
+  
+  return filtered;
+}
+
+function applyFilters(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
   let filtered = lineages;
 
   // Filter by status
@@ -138,22 +204,7 @@ function applyFilters(lineages: Lineage[], options: LineageCommandOptions, logge
     }
   }
 
-  // Filter by function names (requires function lookup - simplified for now)
-  if (options.fromFunction) {
-    // This would require joining with functions table in a real implementation
-    // For now, we'll implement this as a future enhancement
-    if (logger) {
-      logger.warn('Function name filtering (--from-function) not yet implemented - showing all results');
-    }
-  }
-
-  if (options.toFunction) {
-    // This would require joining with functions table in a real implementation
-    // For now, we'll implement this as a future enhancement
-    if (logger) {
-      logger.warn('Function name filtering (--to-function) not yet implemented - showing all results');
-    }
-  }
+  // Function name filtering is handled in applyAdvancedFilters
 
   return filtered;
 }

@@ -437,6 +437,7 @@ export interface StorageAdapter {
   getLastConfigHash?(): Promise<string | null>;
   
   // Function operations
+  getFunction(functionId: string): Promise<FunctionInfo | null>;
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
