@@ -508,7 +508,7 @@ async function saveLineageCandidates(
   try {
     const log = await git.log({ n: 1 });
     gitCommit = log.latest?.hash || 'unknown';
-  } catch (error) {
+  } catch {
     logger.warn('Could not get git commit hash');
   }
   
