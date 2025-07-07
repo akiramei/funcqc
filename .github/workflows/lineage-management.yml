@@ -183,7 +183,7 @@ jobs:
 
           # Generate CSV export
           echo "id,kind,status,confidence,from_count,to_count,git_commit,created_at" > lineages-export.csv
-          npm run --silent dev -- lineage list --json | jq -r '.lineages[] | [.id, .kind, .status, .confidence, (.from_ids | length), (.to_ids | length), .git_commit, .created_at] | @csv' >> lineages-export.csv || echo "CSV export failed"
+          npm run --silent dev -- lineage list --json | jq -r '.lineages[] | [.id, .kind, .status, .confidence, (.from_ids | length), (.to_ids | length), .git_commit, .created_at] | @csv' >> lineages-export.csv
 
           echo "Export complete"
 
