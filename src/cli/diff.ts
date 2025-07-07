@@ -361,6 +361,11 @@ async function detectLineageCandidates(
   // Get similarity threshold
   const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
   
+  if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+    logger.error('Lineage threshold must be a number between 0 and 1');
+    return candidates;
+  }
+  
   // Initialize similarity manager
   const similarityManager = new SimilarityManager(undefined, storage);
   
@@ -373,6 +378,19 @@ async function detectLineageCandidates(
       logger.info(`Analyzing lineage for: ${removedFunc.name}`);
     }
     
+    // Validate detectors if specified
+    const lineageDetectors = options.lineageDetectors ? options.lineageDetectors.split(',') : [];
+    const validDetectors = ['advanced-structural', 'ann-semantic', 'hash-duplicate', 'ast-structural'];
+    
+    if (lineageDetectors.length > 0) {
+      const invalidDetectors = lineageDetectors.filter(d => !validDetectors.includes(d));
+      if (invalidDetectors.length > 0) {
+        logger.error(`Invalid detectors specified: ${invalidDetectors.join(', ')}`);
+        logger.error(`Available detectors: ${validDetectors.join(', ')}`);
+        return candidates;
+      }
+    }
+    
     // Find similar functions
     const similarResults = await similarityManager.detectSimilarities(
       [removedFunc, ...allFunctions],
@@ -381,7 +399,7 @@ async function detectLineageCandidates(
         minLines: 1,
         crossFile: true
       },
-      options.lineageDetectors ? options.lineageDetectors.split(',') : []
+      lineageDetectors
     );
     
     // Extract candidates from similarity results
@@ -395,7 +413,7 @@ async function detectLineageCandidates(
         
         candidates.push({
           fromFunction: removedFunc,
-          toFunctions: involvedFunctions.map(f => f.originalFunction!).filter(f => f !== undefined),
+          toFunctions: involvedFunctions.map(f => f.originalFunction!),
           kind: candidateKind,
           confidence: result.similarity,
           reason: `${result.detector} detected ${(result.similarity * 100).toFixed(1)}% similarity`
