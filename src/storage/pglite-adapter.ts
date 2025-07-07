@@ -1401,12 +1401,32 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           AND (f.id = $1 OR f.id LIKE $1 || '%')
       `, [functionId, ...snapshotIds]);
       
+      // Get all function IDs for batch parameter loading
+      const functionIds = functionsResult.rows.map(row => (row as FunctionRow).id);
+      
+      // Batch load all parameters to avoid N+1 queries
+      const parametersMap = new Map<string, ParameterRow[]>();
+      if (functionIds.length > 0) {
+        const parametersResult = await this.db.query(
+          `SELECT * FROM function_parameters WHERE function_id = ANY($1) ORDER BY position`,
+          [functionIds]
+        );
+        
+        for (const paramRow of parametersResult.rows) {
+          const param = paramRow as ParameterRow;
+          if (!parametersMap.has(param.function_id)) {
+            parametersMap.set(param.function_id, []);
+          }
+          parametersMap.get(param.function_id)!.push(param);
+        }
+      }
+      
       // Create a map for quick lookup
       const functionMap = new Map<string, FunctionInfo>();
       for (const row of functionsResult.rows) {
         const functionRow = row as FunctionRow & Partial<MetricsRow>;
-        // Get parameters for this function
-        const parameters = await this.getFunctionParameters(functionRow.id);
+        // Get parameters from preloaded map
+        const parameters = parametersMap.get(functionRow.id) || [];
         const func = this.mapRowToFunctionInfo(functionRow, parameters);
         // Use snapshot_id from the row to map functions
         functionMap.set(functionRow.snapshot_id, func);

@@ -9,6 +9,58 @@ import path from 'path';
 describe('PGLiteStorageAdapter - Function History', () => {
   let storage: PGLiteStorageAdapter;
   let tempDir: string;
+  
+  // Helper function to create test function data
+  const createTestFunction = (overrides: Partial<FunctionInfo> = {}): FunctionInfo => ({
+    id: 'test-function-id',
+    semanticId: 'semantic-id',
+    contentId: 'content-id',
+    name: 'testFunction',
+    displayName: 'testFunction',
+    signature: 'function testFunction(): void',
+    signatureHash: 'sig-hash',
+    filePath: '/test/file.ts',
+    fileHash: 'file-hash',
+    startLine: 10,
+    endLine: 20,
+    startColumn: 0,
+    endColumn: 0,
+    astHash: 'ast-hash',
+    isExported: true,
+    isAsync: false,
+    isGenerator: false,
+    isArrowFunction: false,
+    isMethod: false,
+    isConstructor: false,
+    isStatic: false,
+    parameters: [],
+    metrics: {
+      linesOfCode: 10,
+      totalLines: 11,
+      cyclomaticComplexity: 5,
+      cognitiveComplexity: 3,
+      maxNestingLevel: 2,
+      parameterCount: 0,
+      returnStatementCount: 1,
+      branchCount: 2,
+      loopCount: 0,
+      tryCatchCount: 0,
+      asyncAwaitCount: 0,
+      callbackCount: 0,
+      commentLines: 1,
+      codeToCommentRatio: 0.1
+    },
+    ...overrides
+  });
+  
+  // Helper function to check if method exists (backward compatibility)
+  const skipIfMethodNotAvailable = (storage: PGLiteStorageAdapter, methodName: string): boolean => {
+    if (typeof (storage as any)[methodName] !== 'function') {
+      console.log(`${methodName} method not available, skipping test`);
+      return true;
+    }
+    return false;
+  };
 
   beforeEach(async () => {
     // Create temporary directory for test database
@@ -35,11 +87,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
     it('should return empty array when no snapshots exist', async () => {
       expect(storage).toBeDefined();
       
-      // Skip test if method doesn't exist (older CI environment)
-      if (typeof storage.getFunctionHistory !== 'function') {
-        console.log('getFunctionHistory method not available, skipping test');
-        return;
-      }
+      if (skipIfMethodNotAvailable(storage, 'getFunctionHistory')) return;
       
       const history = await storage.getFunctionHistory('non-existent-id');
       expect(history).toBeDefined();
@@ -48,46 +96,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
 
     it('should return function history across multiple snapshots', async () => {
       // Create test function
-      const testFunction: FunctionInfo = {
-        id: 'test-function-id',
-        semanticId: 'semantic-id',
-        contentId: 'content-id',
-        name: 'testFunction',
-        displayName: 'testFunction',
-        signature: 'function testFunction(): void',
-        signatureHash: 'sig-hash',
-        filePath: '/test/file.ts',
-        fileHash: 'file-hash',
-        startLine: 10,
-        endLine: 20,
-        startColumn: 0,
-        endColumn: 0,
-        astHash: 'ast-hash',
-        isExported: true,
-        isAsync: false,
-        isGenerator: false,
-        isArrowFunction: false,
-        isMethod: false,
-        isConstructor: false,
-        isStatic: false,
-        parameters: [],
-        metrics: {
-          linesOfCode: 10,
-          totalLines: 11,
-          cyclomaticComplexity: 5,
-          cognitiveComplexity: 3,
-          maxNestingLevel: 2,
-          parameterCount: 0,
-          returnStatementCount: 1,
-          branchCount: 2,
-          loopCount: 0,
-          tryCatchCount: 0,
-          asyncAwaitCount: 0,
-          callbackCount: 0,
-          commentLines: 1,
-          codeToCommentRatio: 0.1
-        }
-      };
+      const testFunction = createTestFunction();
 
       // Create test snapshots
       const snapshot1Id = await storage.saveSnapshot([testFunction], 'Test snapshot 1', 'First snapshot', 'hash1');
@@ -97,11 +106,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
       // Get function history
       expect(storage).toBeDefined();
       
-      // Skip test if method doesn't exist (older CI environment)
-      if (typeof storage.getFunctionHistory !== 'function') {
-        console.log('getFunctionHistory method not available, skipping test');
-        return;
-      }
+      if (skipIfMethodNotAvailable(storage, 'getFunctionHistory')) return;
       
       const history = await storage.getFunctionHistory('test-function-id');
       expect(history).toBeDefined();
@@ -115,46 +120,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
 
     it('should include absent functions when includeAbsent is true', async () => {
       // Create test function
-      const testFunction: FunctionInfo = {
-        id: 'test-function-id',
-        semanticId: 'semantic-id',
-        contentId: 'content-id',
-        name: 'testFunction',
-        displayName: 'testFunction',
-        signature: 'function testFunction(): void',
-        signatureHash: 'sig-hash',
-        filePath: '/test/file.ts',
-        fileHash: 'file-hash',
-        startLine: 10,
-        endLine: 20,
-        startColumn: 0,
-        endColumn: 0,
-        astHash: 'ast-hash',
-        isExported: true,
-        isAsync: false,
-        isGenerator: false,
-        isArrowFunction: false,
-        isMethod: false,
-        isConstructor: false,
-        isStatic: false,
-        parameters: [],
-        metrics: {
-          linesOfCode: 10,
-          totalLines: 11,
-          cyclomaticComplexity: 5,
-          cognitiveComplexity: 3,
-          maxNestingLevel: 2,
-          parameterCount: 0,
-          returnStatementCount: 1,
-          branchCount: 2,
-          loopCount: 0,
-          tryCatchCount: 0,
-          asyncAwaitCount: 0,
-          callbackCount: 0,
-          commentLines: 1,
-          codeToCommentRatio: 0.1
-        }
-      };
+      const testFunction = createTestFunction();
 
       // Create test snapshots - first with function, second without
       const snapshot1Id = await storage.saveSnapshot([testFunction], 'Test snapshot 1', 'First snapshot', 'hash1');
@@ -164,11 +130,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
       // Get function history with includeAbsent
       expect(storage).toBeDefined();
       
-      // Skip test if method doesn't exist (older CI environment)
-      if (typeof storage.getFunctionHistory !== 'function') {
-        console.log('getFunctionHistory method not available, skipping test');
-        return;
-      }
+      if (skipIfMethodNotAvailable(storage, 'getFunctionHistory')) return;
       
       const history = await storage.getFunctionHistory('test-function-id', { includeAbsent: true });
       expect(history).toBeDefined();
@@ -194,11 +156,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
       // Get function history with limit
       expect(storage).toBeDefined();
       
-      // Skip test if method doesn't exist (older CI environment)
-      if (typeof storage.getFunctionHistory !== 'function') {
-        console.log('getFunctionHistory method not available, skipping test');
-        return;
-      }
+      if (skipIfMethodNotAvailable(storage, 'getFunctionHistory')) return;
       
       const history = await storage.getFunctionHistory('test-function-id', { 
         includeAbsent: true,
@@ -211,46 +169,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
 
     it('should handle partial function IDs', async () => {
       // Create test function with specific ID
-      const testFunction: FunctionInfo = {
-        id: 'abcdefghijklmnop',
-        semanticId: 'semantic-id',
-        contentId: 'content-id',
-        name: 'testFunction',
-        displayName: 'testFunction',
-        signature: 'function testFunction(): void',
-        signatureHash: 'sig-hash',
-        filePath: '/test/file.ts',
-        fileHash: 'file-hash',
-        startLine: 10,
-        endLine: 20,
-        startColumn: 0,
-        endColumn: 0,
-        astHash: 'ast-hash',
-        isExported: true,
-        isAsync: false,
-        isGenerator: false,
-        isArrowFunction: false,
-        isMethod: false,
-        isConstructor: false,
-        isStatic: false,
-        parameters: [],
-        metrics: {
-          linesOfCode: 10,
-          totalLines: 11,
-          cyclomaticComplexity: 5,
-          cognitiveComplexity: 3,
-          maxNestingLevel: 2,
-          parameterCount: 0,
-          returnStatementCount: 1,
-          branchCount: 2,
-          loopCount: 0,
-          tryCatchCount: 0,
-          asyncAwaitCount: 0,
-          callbackCount: 0,
-          commentLines: 1,
-          codeToCommentRatio: 0.1
-        }
-      };
+      const testFunction = createTestFunction({ id: 'abcdefghijklmnop' });
 
       const snapshotId = await storage.saveSnapshot([testFunction], 'Test snapshot', 'Test snapshot', 'hash');
 
@@ -258,11 +177,7 @@ describe('PGLiteStorageAdapter - Function History', () => {
       // Search with partial ID
       expect(storage).toBeDefined();
       
-      // Skip test if method doesn't exist (older CI environment)
-      if (typeof storage.getFunctionHistory !== 'function') {
-        console.log('getFunctionHistory method not available, skipping test');
-        return;
-      }
+      if (skipIfMethodNotAvailable(storage, 'getFunctionHistory')) return;
       
       const history = await storage.getFunctionHistory('abcdef');
       expect(history).toBeDefined();

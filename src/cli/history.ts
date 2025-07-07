@@ -454,7 +454,7 @@ function displayFunctionHistoryResults(
   if (options.verbose) {
     displayDetailedFunctionHistory(history, functionName);
   } else {
-    displayCompactFunctionHistory(history, functionName);
+    displayCompactFunctionHistory(history, functionName, options);
   }
 
   displayFunctionHistorySummary(history, functionName);
@@ -462,7 +462,8 @@ function displayFunctionHistoryResults(
 
 function displayCompactFunctionHistory(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  _functionName: string
+  _functionName: string,
+  options: HistoryCommandOptions
 ): void {
   // Display header - cleaner format without snapshot ID
   console.log('Commit   Date        Branch              CC   LOC');
@@ -474,7 +475,7 @@ function displayCompactFunctionHistory(
     const func = entry.function;
     
     // Only show entries where function exists (unless --all is used)
-    if (!entry.isPresent && !entry.function) {
+    if (!entry.isPresent && !options.all) {
       continue;
     }
     
