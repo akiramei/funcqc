@@ -194,7 +194,7 @@ async function createSnapshotForGitCommit(
   identifier: string, 
   commitHash: string
 ): Promise<string> {
-  const tempDir = path.join(process.cwd(), '.funcqc-temp', `snapshot-${Date.now()}`);
+  const tempDir = path.join(process.cwd(), '.funcqc-temp', `snapshot-${uuidv4()}`);
   
   try {
     // Create worktree for the specific commit
