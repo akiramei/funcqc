@@ -20,7 +20,11 @@ import {
   ParameterInfo,
   QualityMetrics,
   FunctionDescription,
-  NamingEvaluation
+  NamingEvaluation,
+  Lineage,
+  LineageKind,
+  LineageStatus,
+  LineageQuery
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 
@@ -1295,6 +1299,213 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // MAINTENANCE OPERATIONS (FUTURE)
   // ========================================
 
+  // ========================================
+  // LINEAGE OPERATIONS
+  // ========================================
+
+  async saveLineage(lineage: Lineage): Promise<void> {
+    try {
+      // Convert arrays to PostgreSQL array literals
+      const fromIdsLiteral = `{${lineage.fromIds.map(id => `"${id}"`).join(',')}}`;
+      const toIdsLiteral = `{${lineage.toIds.map(id => `"${id}"`).join(',')}}`;
+
+      await this.db.query(`
+        INSERT INTO lineage (
+          id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+        )
+      `, [
+        lineage.id,
+        fromIdsLiteral,
+        toIdsLiteral,
+        lineage.kind,
+        lineage.status,
+        lineage.confidence || null,
+        lineage.note || null,
+        lineage.gitCommit,
+        lineage.createdAt.toISOString(),
+        lineage.updatedAt?.toISOString() || null
+      ]);
+    } catch (error) {
+      throw new Error(`Failed to save lineage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getLineage(id: string): Promise<Lineage | null> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM lineage WHERE id = $1
+      `, [id]);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0];
+      return this.mapRowToLineage(row);
+    } catch (error) {
+      throw new Error(`Failed to get lineage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getLineages(query?: LineageQuery): Promise<Lineage[]> {
+    try {
+      let sql = 'SELECT * FROM lineage WHERE 1=1';
+      const params: unknown[] = [];
+      let paramIndex = 1;
+
+      if (query?.status) {
+        sql += ` AND status = $${paramIndex++}`;
+        params.push(query.status);
+      }
+
+      if (query?.kind) {
+        sql += ` AND kind = $${paramIndex++}`;
+        params.push(query.kind);
+      }
+
+      if (query?.minConfidence !== undefined) {
+        sql += ` AND confidence >= $${paramIndex++}`;
+        params.push(query.minConfidence);
+      }
+
+      if (query?.gitCommit) {
+        sql += ` AND git_commit = $${paramIndex++}`;
+        params.push(query.gitCommit);
+      }
+
+      if (query?.fromDate) {
+        sql += ` AND created_at >= $${paramIndex++}`;
+        params.push(query.fromDate.toISOString());
+      }
+
+      if (query?.toDate) {
+        sql += ` AND created_at <= $${paramIndex++}`;
+        params.push(query.toDate.toISOString());
+      }
+
+      sql += ' ORDER BY created_at DESC';
+
+      if (query?.limit) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(query.limit);
+      }
+
+      if (query?.offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(query.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+      return result.rows.map(row => this.mapRowToLineage(row));
+    } catch (error) {
+      throw new Error(`Failed to get lineages: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void> {
+    try {
+      const updateNote = note !== undefined;
+      const sql = updateNote
+        ? 'UPDATE lineage SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
+        : 'UPDATE lineage SET status = $1, updated_at = $2 WHERE id = $3';
+      
+      const params = updateNote
+        ? [status, note, new Date().toISOString(), id]
+        : [status, new Date().toISOString(), id];
+
+      await this.db.query(sql, params);
+    } catch (error) {
+      throw new Error(`Failed to update lineage status: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async deleteLineage(id: string): Promise<boolean> {
+    try {
+      const result = await this.db.query('DELETE FROM lineage WHERE id = $1', [id]);
+      return (result as any).affectedRows > 0;
+    } catch (error) {
+      throw new Error(`Failed to delete lineage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getLineagesByCommit(gitCommit: string): Promise<Lineage[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM lineage WHERE git_commit = $1 ORDER BY created_at DESC
+      `, [gitCommit]);
+
+      return result.rows.map(row => this.mapRowToLineage(row));
+    } catch (error) {
+      throw new Error(`Failed to get lineages by commit: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getFunctionLineageHistory(functionId: string): Promise<Lineage[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM lineage 
+        WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
+        ORDER BY created_at DESC
+      `, [functionId]);
+
+      return result.rows.map(row => this.mapRowToLineage(row));
+    } catch (error) {
+      throw new Error(`Failed to get function lineage history: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async pruneDraftLineages(olderThanDays: number): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+
+      const result = await this.db.query(`
+        DELETE FROM lineage 
+        WHERE status = 'draft' AND created_at < $1
+      `, [cutoffDate.toISOString()]);
+
+      return (result as any).affectedRows || 0;
+    } catch (error) {
+      throw new Error(`Failed to prune draft lineages: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  private mapRowToLineage(row: any): Lineage {
+    // Parse PostgreSQL arrays: {value1,value2} -> [value1, value2]
+    const parsePostgresArray = (pgArray: any): string[] => {
+      if (!pgArray) return [];
+      
+      // If it's already an array, return it
+      if (Array.isArray(pgArray)) return pgArray;
+      
+      // If it's a string, parse it
+      if (typeof pgArray === 'string') {
+        if (pgArray === '{}') return [];
+        // Remove outer braces and split by comma, handling quoted values
+        const inner = pgArray.slice(1, -1);
+        if (!inner) return [];
+        return inner.split(',').map(item => item.replace(/^"(.*)"$/, '$1'));
+      }
+      
+      return [];
+    };
+
+    return {
+      id: row.id,
+      fromIds: parsePostgresArray(row.from_ids),
+      toIds: parsePostgresArray(row.to_ids),
+      kind: row.kind as LineageKind,
+      status: row.status as LineageStatus,
+      confidence: row.confidence,
+      note: row.note,
+      gitCommit: row.git_commit,
+      createdAt: new Date(row.created_at),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined
+    } as Lineage;
+  }
+
   async cleanup(): Promise<number> {
     throw new Error('cleanup not implemented yet');
   }
@@ -1521,7 +1732,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     // Check if all core tables exist in one query to optimize startup
     const existingTables = await this.getExistingTables();
-    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'ann_index_metadata'];
+    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'lineage', 'ann_index_metadata'];
     
     // Only create tables that don't exist
     for (const tableName of requiredTables) {
@@ -1547,6 +1758,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             break;
           case 'naming_evaluations':
             await this.db.exec(this.getNamingEvaluationsTableSQL());
+            break;
+          case 'lineage':
+            await this.db.exec(this.getLineageTableSQL());
             break;
           case 'ann_index_metadata':
             await this.db.exec(this.getANNIndexTableSQL());
@@ -1809,6 +2023,22 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+      );`;
+  }
+
+  private getLineageTableSQL(): string {
+    return `
+      CREATE TABLE lineage (
+        id TEXT PRIMARY KEY,
+        from_ids TEXT[] NOT NULL,
+        to_ids TEXT[] NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('rename', 'signature-change', 'inline', 'split')),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'final')),
+        confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
+        note TEXT,
+        git_commit TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ
       );`;
   }
 

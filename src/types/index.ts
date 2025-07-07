@@ -186,6 +186,50 @@ export interface DependencyInfo {
   usageCount: number;
 }
 
+// Function lineage tracking types
+export interface Lineage {
+  id: string;                          // UUID for lineage record
+  fromIds: string[];                   // Source function IDs (1 or more for merge scenarios)
+  toIds: string[];                     // Target function IDs (1 or more for split scenarios)
+  kind: LineageKind;                   // Type of transformation
+  status: LineageStatus;               // Draft or final status
+  confidence?: number;                 // Confidence score (0-1)
+  note?: string;                       // Optional human or AI-generated note
+  gitCommit: string;                   // Git commit where change occurred
+  createdAt: Date;                     // When lineage was detected/created
+  updatedAt?: Date;                    // When lineage was last updated
+}
+
+export type LineageKind = 'rename' | 'signature-change' | 'inline' | 'split';
+export type LineageStatus = 'draft' | 'final';
+
+export interface LineageCandidate {
+  fromFunction: FunctionInfo;
+  toFunctions: FunctionInfo[];
+  kind: LineageKind;
+  confidence: number;
+  reason: string;                      // Explanation of why this is a candidate
+}
+
+export interface LineageReview {
+  id: string;
+  lineageId: string;
+  action: 'accept' | 'reject' | 'edit';
+  note?: string;
+  reviewedAt: Date;
+}
+
+export interface LineageQuery {
+  status?: LineageStatus;
+  kind?: LineageKind;
+  minConfidence?: number;
+  gitCommit?: string;
+  fromDate?: Date;
+  toDate?: Date;
+  limit?: number;
+  offset?: number;
+}
+
 // Snapshot and versioning types
 export interface SnapshotInfo {
   id: string;
@@ -426,6 +470,16 @@ export interface StorageAdapter {
   
   // Analysis operations
   diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff>;
+  
+  // Lineage operations
+  saveLineage(lineage: Lineage): Promise<void>;
+  getLineage(id: string): Promise<Lineage | null>;
+  getLineages(query?: LineageQuery): Promise<Lineage[]>;
+  updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void>;
+  deleteLineage(id: string): Promise<boolean>;
+  getLineagesByCommit(gitCommit: string): Promise<Lineage[]>;
+  getFunctionLineageHistory(functionId: string): Promise<Lineage[]>;
+  pruneDraftLineages(olderThanDays: number): Promise<number>;
   
   // Maintenance operations
   cleanup(retentionDays: number): Promise<number>;
