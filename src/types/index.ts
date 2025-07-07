@@ -438,6 +438,7 @@ export interface StorageAdapter {
   
   // Function operations
   getFunction(functionId: string): Promise<FunctionInfo | null>;
+  getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>>;
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
@@ -479,6 +480,7 @@ export interface StorageAdapter {
   saveLineage(lineage: Lineage): Promise<void>;
   getLineage(id: string): Promise<Lineage | null>;
   getLineages(query?: LineageQuery): Promise<Lineage[]>;
+  getLineagesWithFunctionFilter(fromFunctionPattern?: string, toFunctionPattern?: string, query?: LineageQuery): Promise<Lineage[]>;
   updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void>;
   deleteLineage(id: string): Promise<boolean>;
   getLineagesByCommit(gitCommit: string): Promise<Lineage[]>;
