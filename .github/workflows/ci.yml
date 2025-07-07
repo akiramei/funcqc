@@ -102,9 +102,9 @@ jobs:
         mkdir -p .funcqc
         
         # Run basic lineage commands to ensure system works
-        npm run dev -- lineage list --help
+        npm run --silent dev -- lineage list --help
         
         # Validate that lineage table exists and is accessible
-        npm run dev -- lineage list --limit 5 || echo "No lineages found (normal for new installations)"
+        npm run --silent dev -- lineage list --limit 5 || echo "No lineages found (normal for new installations)"
         
         echo "✅ Lineage system validation completed"

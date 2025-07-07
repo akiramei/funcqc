@@ -57,7 +57,7 @@ jobs:
         echo "Generating lineage analysis between base and PR commits"
         
         # Run lineage detection
-        LINEAGE_OUTPUT=$(npm run dev -- diff base-${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.head.sha }} --lineage --json 2>/dev/null || echo '{"lineages": [], "summary": {"total": 0}}')
+        LINEAGE_OUTPUT=$(npm run --silent dev -- diff base-${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.head.sha }} --lineage --json 2>/dev/null || echo '{"lineages": [], "summary": {"total": 0}}')
         
         # Save output for comment generation
         echo "$LINEAGE_OUTPUT" > lineage-analysis.json

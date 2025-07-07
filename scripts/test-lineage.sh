@@ -146,14 +146,14 @@ HEAD_LABEL="test-head-$TIMESTAMP"
 cleanup_snapshots() {
     if [ "$CLEANUP" = true ]; then
         print_status "Cleaning up temporary snapshots..."
-        npm run dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" | while read -r snapshot_id _; do
-            npm run dev -- history --delete "$snapshot_id" 2>/dev/null || true
+        npm run --silent dev -- history | grep -E "(test-base-$TIMESTAMP|test-head-$TIMESTAMP)" | while read -r snapshot_id _; do
+            npm run --silent dev -- history --delete "$snapshot_id" 2>/dev/null || true
         done
         print_success "Cleanup completed"
     else
         print_warning "Skipping cleanup. Manual cleanup required:"
-        echo "  npm run dev -- history --delete $BASE_LABEL"
-        echo "  npm run dev -- history --delete $HEAD_LABEL"
+        echo "  npm run --silent dev -- history --delete $BASE_LABEL"
+        echo "  npm run --silent dev -- history --delete $HEAD_LABEL"
     fi
 }
 
@@ -162,7 +162,7 @@ trap cleanup_snapshots EXIT
 
 print_status "Step 1: Analyzing base branch ($BASE_BRANCH)"
 if [ "$VERBOSE" = true ]; then
-    echo "Running: git checkout $BASE_BRANCH && npm run dev scan --label $BASE_LABEL"
+    echo "Running: git checkout $BASE_BRANCH && npm run --silent dev scan --label $BASE_LABEL"
 fi
 
 # Save current branch
@@ -170,7 +170,7 @@ CURRENT_BRANCH=$(git branch --show-current)
 
 # Analyze base branch
 git checkout "$BASE_BRANCH" > /dev/null 2>&1
-if npm run dev scan --label "$BASE_LABEL" > /dev/null 2>&1; then
+if npm run --silent dev scan --label "$BASE_LABEL" > /dev/null 2>&1; then
     print_success "Base analysis completed"
 else
     print_warning "Base analysis completed with warnings"
@@ -178,12 +178,12 @@ fi
 
 print_status "Step 2: Analyzing head branch ($HEAD_BRANCH)"
 if [ "$VERBOSE" = true ]; then
-    echo "Running: git checkout $HEAD_BRANCH && npm run dev scan --label $HEAD_LABEL"
+    echo "Running: git checkout $HEAD_BRANCH && npm run --silent dev scan --label $HEAD_LABEL"
 fi
 
 # Analyze head branch
 git checkout "$HEAD_BRANCH" > /dev/null 2>&1
-if npm run dev scan --label "$HEAD_LABEL" > /dev/null 2>&1; then
+if npm run --silent dev scan --label "$HEAD_LABEL" > /dev/null 2>&1; then
     print_success "Head analysis completed"
 else
     print_warning "Head analysis completed with warnings"
@@ -196,11 +196,11 @@ fi
 
 print_status "Step 3: Generating lineage analysis"
 if [ "$VERBOSE" = true ]; then
-    echo "Running: npm run dev -- diff $BASE_LABEL $HEAD_LABEL --lineage"
+    echo "Running: npm run --silent dev -- diff $BASE_LABEL $HEAD_LABEL --lineage"
 fi
 
 # Generate lineage analysis
-LINEAGE_OUTPUT=$(npm run dev -- diff "$BASE_LABEL" "$HEAD_LABEL" --lineage --json 2>/dev/null || echo '{"lineages": [], "summary": {"total": 0}}')
+LINEAGE_OUTPUT=$(npm run --silent dev -- diff "$BASE_LABEL" "$HEAD_LABEL" --lineage --json 2>/dev/null || echo '{"lineages": [], "summary": {"total": 0}}')
 
 # Parse results
 TOTAL_LINEAGES=$(echo "$LINEAGE_OUTPUT" | jq -r '.summary.total // 0' 2>/dev/null || echo "0")

@@ -58,7 +58,7 @@ jobs:
         echo "Validating all lineage records..."
         
         # Get all lineages and validate them
-        LINEAGES_OUTPUT=$(npm run dev -- lineage list --json 2>/dev/null || echo '{"lineages": []}')
+        LINEAGES_OUTPUT=$(npm run --silent dev -- lineage list --json 2>/dev/null || echo '{"lineages": []}')
         TOTAL_LINEAGES=$(echo "$LINEAGES_OUTPUT" | jq -r '.lineages | length')
         
         # Check for inconsistencies
@@ -137,12 +137,12 @@ jobs:
         echo "Generating comprehensive lineage report..."
         
         # Export all lineages in various formats
-        npm run dev -- lineage list --json > lineages-export.json
-        npm run dev -- lineage list > lineages-export.txt
+        npm run --silent dev -- lineage list --json > lineages-export.json
+        npm run --silent dev -- lineage list > lineages-export.txt
         
         # Generate CSV export
         echo "id,kind,status,confidence,from_count,to_count,git_commit,created_at" > lineages-export.csv
-        npm run dev -- lineage list --json | jq -r '.lineages[] | [.id, .kind, .status, .confidence, (.from_ids | length), (.to_ids | length), .git_commit, .created_at] | @csv' >> lineages-export.csv || echo "CSV export failed"
+        npm run --silent dev -- lineage list --json | jq -r '.lineages[] | [.id, .kind, .status, .confidence, (.from_ids | length), (.to_ids | length), .git_commit, .created_at] | @csv' >> lineages-export.csv || echo "CSV export failed"
         
         echo "Export complete"
         
