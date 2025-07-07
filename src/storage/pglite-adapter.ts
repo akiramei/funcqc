@@ -1306,8 +1306,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async saveLineage(lineage: Lineage): Promise<void> {
     try {
       // Convert arrays to PostgreSQL array literals
-      const fromIdsLiteral = `{${lineage.fromIds.map(id => `"${id}"`).join(',')}}`;
-      const toIdsLiteral = `{${lineage.toIds.map(id => `"${id}"`).join(',')}}`;
+      const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
+      const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
 
       await this.db.query(`
         INSERT INTO lineage (
@@ -1421,11 +1421,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  private formatPostgresArrayLiteral(ids: string[]): string {
+    return `{${ids.map(id => `"${id}"`).join(',')}}`;
+  }
+
   async updateLineage(lineage: Lineage): Promise<void> {
     try {
       // Convert arrays to PostgreSQL array literals
-      const fromIdsLiteral = `{${lineage.fromIds.map(id => `"${id}"`).join(',')}}`;
-      const toIdsLiteral = `{${lineage.toIds.map(id => `"${id}"`).join(',')}}`;
+      const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
+      const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
 
       await this.db.query(`
         UPDATE lineage SET 

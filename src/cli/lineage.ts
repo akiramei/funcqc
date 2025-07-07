@@ -29,7 +29,7 @@ export async function lineageListCommand(options: LineageCommandOptions): Promis
 
     // Get lineages with filters
     const lineages = await storage.getLineages();
-    const filtered = applyFilters(lineages, options);
+    const filtered = applyFilters(lineages, options, logger);
     const sorted = applySorting(filtered, options);
     const limited = applyLimit(sorted, options);
 
@@ -117,7 +117,7 @@ export async function lineageReviewCommand(
 // FILTERING AND SORTING FUNCTIONS
 // ========================================
 
-function applyFilters(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
+function applyFilters(lineages: Lineage[], options: LineageCommandOptions, logger?: Logger): Lineage[] {
   let filtered = lineages;
 
   // Filter by status
@@ -142,13 +142,17 @@ function applyFilters(lineages: Lineage[], options: LineageCommandOptions): Line
   if (options.fromFunction) {
     // This would require joining with functions table in a real implementation
     // For now, we'll implement this as a future enhancement
-    // logger.warn('Function name filtering not yet implemented - showing all results');
+    if (logger) {
+      logger.warn('Function name filtering (--from-function) not yet implemented - showing all results');
+    }
   }
 
   if (options.toFunction) {
     // This would require joining with functions table in a real implementation
     // For now, we'll implement this as a future enhancement
-    // logger.warn('Function name filtering not yet implemented - showing all results');
+    if (logger) {
+      logger.warn('Function name filtering (--to-function) not yet implemented - showing all results');
+    }
   }
 
   return filtered;
@@ -174,7 +178,6 @@ function applySorting(lineages: Lineage[], options: LineageCommandOptions): Line
       case 'status':
         comparison = a.status.localeCompare(b.status);
         break;
-      case 'created':
       default:
         comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         break;
@@ -184,9 +187,9 @@ function applySorting(lineages: Lineage[], options: LineageCommandOptions): Line
   });
 }
 
-function applyLimit(lineages: Lineage[], _options: LineageCommandOptions): Lineage[] {
-  if (_options.limit && _options.limit > 0) {
-    return lineages.slice(0, _options.limit);
+function applyLimit(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
+  if (options.limit && options.limit > 0) {
+    return lineages.slice(0, options.limit);
   }
   return lineages;
 }
@@ -339,7 +342,7 @@ async function reviewSingleLineage(
   const updatedLineage: Lineage = {
     ...lineage,
     status: newStatus,
-    ...(options.note ? { note: `${lineage.note || ''}\n\nReview: ${options.note}` } : {})
+    ...(options.note ? { note: lineage.note ? `${lineage.note}\n\nReview: ${options.note}` : `Review: ${options.note}` } : {})
   };
 
   await storage.updateLineage(updatedLineage);
@@ -379,7 +382,7 @@ async function reviewAllDraftLineages(
     const updatedLineage: Lineage = {
       ...lineage,
       status: newStatus,
-      ...(options.note ? { note: `${lineage.note || ''}\n\nBulk review: ${options.note}` } : {})
+      ...(options.note ? { note: lineage.note ? `${lineage.note}\n\nBulk review: ${options.note}` : `Bulk review: ${options.note}` } : {})
     };
 
     await storage.updateLineage(updatedLineage);
