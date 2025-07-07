@@ -1357,6 +1357,83 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
   
   // ========================================
+  // FUNCTION HISTORY OPERATIONS
+  // ========================================
+  
+  /**
+   * Get function history across all snapshots efficiently
+   * This avoids N+1 queries by fetching all data in a single query
+   */
+  async getFunctionHistory(functionId: string, options?: {
+    limit?: number;
+    includeAbsent?: boolean;
+  }): Promise<Array<{
+    snapshot: SnapshotInfo;
+    function: FunctionInfo | null;
+    isPresent: boolean;
+  }>> {
+    const limit = options?.limit || 100;
+    const includeAbsent = options?.includeAbsent ?? false;
+    
+    try {
+      // Get all snapshots ordered by creation time
+      const snapshots = await this.getSnapshots({ limit });
+      
+      if (snapshots.length === 0) {
+        return [];
+      }
+      
+      // Build query to get function data across all snapshots in one go
+      const snapshotIds = snapshots.map(s => s.id);
+      const placeholders = snapshotIds.map((_, i) => `$${i + 2}`).join(',');
+      
+      const functionsResult = await this.db.query(`
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        WHERE f.snapshot_id IN (${placeholders})
+          AND (f.id = $1 OR f.id LIKE $1 || '%')
+      `, [functionId, ...snapshotIds]);
+      
+      // Create a map for quick lookup
+      const functionMap = new Map<string, FunctionInfo>();
+      for (const row of functionsResult.rows) {
+        const functionRow = row as FunctionRow & Partial<MetricsRow>;
+        // Get parameters for this function
+        const parameters = await this.getFunctionParameters(functionRow.id);
+        const func = this.mapRowToFunctionInfo(functionRow, parameters);
+        // Use snapshot_id from the row to map functions
+        functionMap.set(functionRow.snapshot_id, func);
+      }
+      
+      // Build history array
+      const history = snapshots.map(snapshot => {
+        const func = functionMap.get(snapshot.id) || null;
+        return {
+          snapshot,
+          function: func,
+          isPresent: !!func
+        };
+      });
+      
+      // Filter out absent functions if requested
+      if (!includeAbsent) {
+        return history.filter(h => h.isPresent);
+      }
+      
+      return history;
+    } catch (error) {
+      throw new Error(`Failed to get function history: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // ========================================
   // BULK OPERATIONS
   // ========================================
   

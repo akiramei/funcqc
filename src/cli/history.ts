@@ -14,6 +14,8 @@ export interface HistoryCommandOptions extends CommandOptions {
   branch?: string;
   label?: string;
   id?: string;
+  all?: boolean;
+  json?: boolean;
 }
 
 export async function historyCommand(options: HistoryCommandOptions): Promise<void> {
@@ -341,66 +343,79 @@ async function displayFunctionHistory(
   functionId: string, 
   options: HistoryCommandOptions, 
   storage: PGLiteStorageAdapter, 
-  logger: Logger
+  _logger: Logger
 ): Promise<void> {
-  const snapshots = await getSnapshots(storage, logger);
-  if (snapshots.length === 0) return;
+  const limit = options.limit ? parseInt(options.limit) : 20;
+  const includeAbsent = options.all || false;
   
-  const functionHistory = await buildFunctionHistory(snapshots, functionId, storage, logger);
-  const filteredHistory = applyFiltersToHistory(functionHistory, options);
+  // Use the new efficient method
+  const history = await storage.getFunctionHistory(functionId, {
+    limit: limit * 2, // Get more to allow for filtering
+    includeAbsent
+  });
   
-  if (filteredHistory.length === 0) {
+  if (history.length === 0) {
     console.log(chalk.yellow(`No history found for function ID '${functionId}'.`));
     return;
   }
   
-  displayFunctionHistoryResults(filteredHistory, functionId, options);
-}
-
-async function getSnapshots(storage: PGLiteStorageAdapter, logger: Logger): Promise<SnapshotInfo[]> {
-  const snapshots = await storage.getSnapshots({ limit: 100 });
-  if (snapshots.length === 0) {
-    logger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
-  }
-  return snapshots;
-}
-
-async function buildFunctionHistory(
-  snapshots: SnapshotInfo[], 
-  functionId: string, 
-  storage: PGLiteStorageAdapter, 
-  logger: Logger
-): Promise<Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>> {
-  const functionHistory = [];
+  // Apply additional filters
+  const filteredHistory = applyFiltersToHistory(history, options);
   
-  for (const snapshot of snapshots) {
-    try {
-      const functions = await storage.getFunctions(snapshot.id);
-      const func = functions.find(f => f.id === functionId || f.id.startsWith(functionId));
-      
-      functionHistory.push({
-        snapshot,
-        function: func || null,
-        isPresent: !!func
-      });
-    } catch (error) {
-      logger.debug(`Failed to get functions for snapshot ${snapshot.id}`, error);
-      functionHistory.push({
-        snapshot,
-        function: null,
-        isPresent: false
-      });
+  if (filteredHistory.length === 0) {
+    console.log(chalk.yellow(`No history found for function ID '${functionId}' with the specified filters.`));
+    return;
+  }
+  
+  // Limit results
+  const limitedHistory = filteredHistory.slice(0, limit);
+  
+  if (options.json) {
+    displayFunctionHistoryJSON(limitedHistory, functionId);
+  } else {
+    displayFunctionHistoryResults(limitedHistory, functionId, options);
+  }
+}
+
+// Helper function to display JSON output for function history
+function displayFunctionHistoryJSON(
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
+  functionId: string
+): void {
+  const firstFunction = history.find(h => h.function)?.function;
+  const functionName = firstFunction ? firstFunction.displayName : 'Unknown Function';
+  
+  const output = {
+    functionId,
+    functionName,
+    snapshots: history.map(h => ({
+      commitId: h.snapshot.gitCommit || 'unknown',
+      timestamp: new Date(h.snapshot.createdAt).toISOString(),
+      branch: h.snapshot.gitBranch || 'unknown',
+      complexity: h.function?.metrics?.cyclomaticComplexity || null,
+      linesOfCode: h.function?.metrics?.linesOfCode || null,
+      exists: h.isPresent
+    })),
+    summary: {
+      totalSnapshots: history.length,
+      appearances: history.filter(h => h.isPresent).length,
+      firstSeen: history.find(h => h.isPresent)?.snapshot.createdAt 
+        ? new Date(history.find(h => h.isPresent)!.snapshot.createdAt).toISOString() 
+        : null,
+      lastSeen: history.filter(h => h.isPresent).length > 0
+        ? new Date(history.filter(h => h.isPresent)[0].snapshot.createdAt).toISOString()
+        : null
     }
-  }
+  };
   
-  return functionHistory;
+  console.log(JSON.stringify(output, null, 2));
 }
 
+// Updated filter function to work with new data structure
 function applyFiltersToHistory(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>, 
   options: HistoryCommandOptions
 ): Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }> {
-  const limit = options.limit ? parseInt(options.limit) : 20;
   const since = options.since ? new Date(options.since) : undefined;
   const until = options.until ? new Date(options.until) : undefined;
   
@@ -421,8 +436,9 @@ function applyFiltersToHistory(
     );
   }
   
-  return filtered.slice(0, limit);
+  return filtered;
 }
+
 
 function displayFunctionHistoryResults(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>, 
@@ -448,25 +464,27 @@ function displayCompactFunctionHistory(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
   _functionName: string
 ): void {
-  // Display header with fixed-width columns
-  console.log('Snapshot Date                 Branch           Commit  Present    CC    LOC  Trend');
-  console.log('-------- -------------------- --------------- ------- ------- ----- ------ ------');
+  // Display header - cleaner format without snapshot ID
+  console.log('Commit   Date        Branch              CC   LOC');
+  console.log('-------- ----------- ----------------- ---- -----');
   
   // Display each history entry
   for (const entry of history) {
     const snapshot = entry.snapshot;
     const func = entry.function;
     
-    const id = snapshot.id.substring(0, 8);
-    const date = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
-    const branch = truncateWithEllipsis(snapshot.gitBranch || '-', 15).padEnd(15);
-    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : '-').padEnd(7);
-    const present = entry.isPresent ? chalk.green('✓').padEnd(7) : chalk.red('✗').padEnd(7);
-    const cc = (func?.metrics?.cyclomaticComplexity?.toString() || '-').padStart(5);
-    const loc = (func?.metrics?.linesOfCode?.toString() || '-').padStart(6);
-    const trend = calculateQualityTrend(func).padEnd(6);
+    // Only show entries where function exists (unless --all is used)
+    if (!entry.isPresent && !entry.function) {
+      continue;
+    }
     
-    console.log(`${id} ${date} ${branch} ${commit} ${present} ${cc} ${loc}  ${trend}`);
+    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : 'unknown').padEnd(8);
+    const date = formatDate(snapshot.createdAt).padEnd(11);
+    const branch = truncateWithEllipsis(snapshot.gitBranch || 'unknown', 17).padEnd(17);
+    const cc = (func?.metrics?.cyclomaticComplexity?.toString() || '-').padStart(4);
+    const loc = (func?.metrics?.linesOfCode?.toString() || '-').padStart(5);
+    
+    console.log(`${commit} ${date} ${branch} ${cc} ${loc}`);
   }
 }
 
@@ -558,29 +576,6 @@ function displayFunctionHistorySummary(
   }
 }
 
-function calculateQualityTrend(func: FunctionInfo | null): string {
-  if (!func?.metrics) return '-';
-  
-  const metrics = func.metrics;
-  let score = 0;
-  
-  // Simple quality scoring (lower complexity = better)
-  if (metrics.cyclomaticComplexity <= 5) score += 2;
-  else if (metrics.cyclomaticComplexity <= 10) score += 1;
-  else score -= 1;
-  
-  if (metrics.linesOfCode <= 20) score += 1;
-  else if (metrics.linesOfCode <= 50) score += 0;
-  else score -= 1;
-  
-  if (metrics.parameterCount <= 3) score += 1;
-  else if (metrics.parameterCount <= 5) score += 0;
-  else score -= 1;
-  
-  if (score >= 3) return chalk.green('⬆'); // ⬆ = up arrow
-  if (score >= 1) return chalk.yellow('➡'); // ➡ = right arrow
-  return chalk.red('⬇'); // ⬇ = down arrow
-}
 
 function formatChange(change: number): string {
   if (change > 0) return chalk.red(`+${change}`);

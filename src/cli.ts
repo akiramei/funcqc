@@ -141,6 +141,8 @@ program
   .option('--branch <name>', 'filter by git branch')
   .option('--label <text>', 'filter by snapshot label')
   .option('--id <function-id>', 'track history of specific function by ID')
+  .option('--all', 'show all snapshots including where function is absent (with --id)')
+  .option('--json', 'output as JSON')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
