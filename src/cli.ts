@@ -161,7 +161,31 @@ program
   .option('--metric <name>', 'filter by specific metric changes')
   .option('--threshold <num>', 'minimum change threshold for numeric values')
   .option('--json', 'output as JSON')
-  .action(diffCommand);
+  .option('--lineage', 'detect lineage for removed functions')
+  .option('--lineage-threshold <value>', 'similarity threshold for lineage detection (0-1)', '0.7')
+  .option('--lineage-detectors <list>', 'comma-separated list of similarity detectors')
+  .option('--lineage-auto-save', 'automatically save detected lineage as draft')
+  .action(diffCommand)
+  .addHelpText('after', `
+Examples:
+  # Basic diff
+  $ funcqc diff HEAD~1 HEAD
+  
+  # Show summary only
+  $ funcqc diff abc123 def456 --summary
+  
+  # Filter by function name
+  $ funcqc diff v1.0 v2.0 --function "handle*"
+  
+  # Detect lineage for removed functions
+  $ funcqc diff HEAD~1 HEAD --lineage
+  
+  # Lineage with custom threshold and auto-save
+  $ funcqc diff main feature --lineage --lineage-threshold 0.8 --lineage-auto-save
+  
+  # Use specific detectors for lineage
+  $ funcqc diff v1 v2 --lineage --lineage-detectors "advanced-structural,hash-duplicate"
+`);
 
 
 program

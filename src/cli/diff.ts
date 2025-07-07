@@ -2,7 +2,10 @@ import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo } from '../types';
+import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind, SimilarityResult, SimilarFunction } from '../types';
+import { SimilarityManager } from '../similarity/similarity-manager';
+import { v4 as uuidv4 } from 'uuid';
+import simpleGit from 'simple-git';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -11,6 +14,10 @@ export interface DiffCommandOptions extends CommandOptions {
   metric?: string;
   threshold?: number;
   json?: boolean;
+  lineage?: boolean;
+  lineageThreshold?: string;
+  lineageDetectors?: string;
+  lineageAutoSave?: boolean;
 }
 
 export async function diffCommand(
@@ -40,13 +47,37 @@ export async function diffCommand(
     logger.info('Calculating differences...');
     const diff = await storage.diffSnapshots(fromId, toId);
 
-    // Output results
-    if (options.json) {
-      console.log(JSON.stringify(diff, null, 2));
-    } else if (options.summary) {
-      displaySummary(diff);
+    // Handle lineage detection if requested
+    if (options.lineage && diff.removed.length > 0) {
+      const lineageCandidates = await detectLineageCandidates(
+        diff,
+        storage,
+        options,
+        logger
+      );
+
+      if (lineageCandidates.length > 0) {
+        if (options.json) {
+          console.log(JSON.stringify({ diff, lineageCandidates }, null, 2));
+        } else {
+          displayLineageCandidates(lineageCandidates, options, logger);
+          
+          if (options.lineageAutoSave) {
+            await saveLineageCandidates(lineageCandidates, storage, logger);
+          }
+        }
+      } else {
+        logger.info('No lineage candidates found for removed functions.');
+      }
     } else {
-      displayFullDiff(diff, options);
+      // Output regular diff results
+      if (options.json) {
+        console.log(JSON.stringify(diff, null, 2));
+      } else if (options.summary) {
+        displaySummary(diff);
+      } else {
+        displayFullDiff(diff, options);
+      }
     }
 
     await storage.close();
@@ -307,4 +338,260 @@ function formatDate(timestamp: number): string {
   
   // More than 7 days ago - show date
   return date.toLocaleDateString();
+}
+
+// ========================================
+// LINEAGE DETECTION FUNCTIONS
+// ========================================
+
+async function detectLineageCandidates(
+  diff: SnapshotDiff,
+  storage: PGLiteStorageAdapter,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  if (diff.removed.length === 0) {
+    return [];
+  }
+
+  logger.info('Detecting lineage candidates for removed functions...');
+  
+  const validationResult = validateLineageOptions(options, logger);
+  if (!validationResult.isValid) {
+    return [];
+  }
+
+  const similarityManager = new SimilarityManager(undefined, storage);
+  const allFunctions = [...diff.added, ...diff.modified.map(m => m.after), ...diff.unchanged];
+  const candidates: LineageCandidate[] = [];
+
+  for (const removedFunc of diff.removed) {
+    if (options.verbose) {
+      logger.info(`Analyzing lineage for: ${removedFunc.name}`);
+    }
+
+    const functionCandidates = await processSingleFunction(
+      removedFunc,
+      allFunctions,
+      similarityManager,
+      validationResult.threshold,
+      validationResult.detectors
+    );
+
+    candidates.push(...functionCandidates);
+  }
+
+  const deduplicatedCandidates = deduplicateCandidates(candidates);
+  return deduplicatedCandidates.sort((a, b) => b.confidence - a.confidence);
+}
+
+interface ValidationResult {
+  isValid: boolean;
+  threshold: number;
+  detectors: string[];
+}
+
+function validateLineageOptions(options: DiffCommandOptions, logger: Logger): ValidationResult {
+  // Validate threshold
+  const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
+  
+  if (isNaN(threshold) || threshold < 0 || threshold > 1) {
+    logger.error('Lineage threshold must be a number between 0 and 1');
+    return { isValid: false, threshold: 0, detectors: [] };
+  }
+
+  // Validate detectors using SimilarityManager
+  const lineageDetectors = options.lineageDetectors ? options.lineageDetectors.split(',') : [];
+  
+  if (lineageDetectors.length > 0) {
+    // Create temporary SimilarityManager to get available detectors
+    const tempSimilarityManager = new SimilarityManager();
+    const validDetectors = tempSimilarityManager.getAvailableDetectors();
+    
+    const invalidDetectors = lineageDetectors.filter(d => !validDetectors.includes(d));
+    if (invalidDetectors.length > 0) {
+      logger.error(`Invalid detectors specified: ${invalidDetectors.join(', ')}`);
+      logger.error(`Available detectors: ${validDetectors.join(', ')}`);
+      return { isValid: false, threshold: 0, detectors: [] };
+    }
+  }
+
+  return { isValid: true, threshold, detectors: lineageDetectors };
+}
+
+async function processSingleFunction(
+  removedFunc: FunctionInfo,
+  allFunctions: FunctionInfo[],
+  similarityManager: SimilarityManager,
+  threshold: number,
+  detectors: string[]
+): Promise<LineageCandidate[]> {
+  const similarResults = await similarityManager.detectSimilarities(
+    [removedFunc, ...allFunctions],
+    { 
+      threshold,
+      minLines: 1,
+      crossFile: true
+    },
+    detectors
+  );
+
+  return extractCandidatesFromResults(removedFunc, similarResults);
+}
+
+function extractCandidatesFromResults(
+  removedFunc: FunctionInfo,
+  similarResults: SimilarityResult[]
+): LineageCandidate[] {
+  const candidates: LineageCandidate[] = [];
+
+  for (const result of similarResults) {
+    const involvedFunctions = result.functions.filter((f: SimilarFunction) => 
+      f.functionId !== removedFunc.id
+    );
+    
+    if (involvedFunctions.length > 0) {
+      const candidateKind = determineLineageKind(removedFunc, involvedFunctions);
+      
+      candidates.push({
+        fromFunction: removedFunc,
+        toFunctions: involvedFunctions.map((f: SimilarFunction) => f.originalFunction!),
+        kind: candidateKind,
+        confidence: result.similarity,
+        reason: `${result.detector} detected ${(result.similarity * 100).toFixed(1)}% similarity`
+      });
+    }
+  }
+
+  return candidates;
+}
+
+function determineLineageKind(
+  fromFunction: FunctionInfo,
+  toFunctions: SimilarFunction[]
+): LineageKind {
+  if (toFunctions.length === 1) {
+    const toFunc = toFunctions[0];
+    
+    // Check for rename
+    if (fromFunction.signature !== toFunc.originalFunction?.signature) {
+      return 'signature-change';
+    }
+    
+    if (fromFunction.name !== toFunc.functionName) {
+      return 'rename';
+    }
+    
+    // Default to rename for single function mapping
+    return 'rename';
+  } else {
+    // Multiple functions indicate a split
+    return 'split';
+  }
+}
+
+function deduplicateCandidates(candidates: LineageCandidate[]): LineageCandidate[] {
+  const seen = new Map<string, LineageCandidate>();
+  
+  for (const candidate of candidates) {
+    const key = `${candidate.fromFunction.id}-${candidate.toFunctions.map(f => f.id).sort().join('-')}`;
+    const existing = seen.get(key);
+    
+    if (!existing || candidate.confidence > existing.confidence) {
+      seen.set(key, candidate);
+    }
+  }
+  
+  return Array.from(seen.values());
+}
+
+function displayLineageCandidates(
+  candidates: LineageCandidate[],
+  options: DiffCommandOptions,
+  logger: Logger
+): void {
+  console.log(chalk.cyan.bold('\n🔗 Function Lineage Candidates\n'));
+  
+  if (candidates.length === 0) {
+    logger.info('No lineage candidates found.');
+    return;
+  }
+  
+  candidates.forEach((candidate, index) => {
+    console.log(chalk.yellow(`Candidate ${index + 1}:`));
+    console.log(`  ${chalk.red('From:')} ${candidate.fromFunction.name} (${candidate.fromFunction.filePath}:${candidate.fromFunction.startLine})`);
+    
+    const kindIcon = getLineageKindIcon(candidate.kind);
+    console.log(`  ${chalk.blue('Type:')} ${kindIcon} ${candidate.kind}`);
+    console.log(`  ${chalk.green('Confidence:')} ${(candidate.confidence * 100).toFixed(1)}%`);
+    console.log(`  ${chalk.gray('Reason:')} ${candidate.reason}`);
+    
+    console.log(`  ${chalk.cyan('To:')}`);
+    candidate.toFunctions.forEach((toFunc, i) => {
+      console.log(`    ${i + 1}. ${toFunc.name} (${toFunc.filePath}:${toFunc.startLine})`);
+    });
+    
+    console.log();
+  });
+  
+  if (!options.lineageAutoSave) {
+    console.log(chalk.gray('Use --lineage-auto-save to automatically save these candidates as draft lineages.'));
+  }
+}
+
+function getLineageKindIcon(kind: LineageKind): string {
+  switch (kind) {
+    case 'rename':
+      return '✏️';
+    case 'signature-change':
+      return '🔄';
+    case 'inline':
+      return '📥';
+    case 'split':
+      return '✂️';
+    default:
+      return '❓';
+  }
+}
+
+async function saveLineageCandidates(
+  candidates: LineageCandidate[],
+  storage: PGLiteStorageAdapter,
+  logger: Logger
+): Promise<void> {
+  const git = simpleGit();
+  let gitCommit = 'unknown';
+  
+  try {
+    const log = await git.log({ n: 1 });
+    gitCommit = log.latest?.hash || 'unknown';
+  } catch {
+    logger.warn('Could not get git commit hash');
+  }
+  
+  logger.info('Saving lineage candidates as draft...');
+  
+  let savedCount = 0;
+  for (const candidate of candidates) {
+    const lineage: Lineage = {
+      id: uuidv4(),
+      fromIds: [candidate.fromFunction.id],
+      toIds: candidate.toFunctions.map(f => f.id),
+      kind: candidate.kind,
+      status: 'draft',
+      confidence: candidate.confidence,
+      note: `Auto-detected: ${candidate.reason}`,
+      gitCommit,
+      createdAt: new Date()
+    };
+    
+    try {
+      await storage.saveLineage(lineage);
+      savedCount++;
+    } catch (error) {
+      logger.error(`Failed to save lineage for ${candidate.fromFunction.name}:`, error);
+    }
+  }
+  
+  logger.success(`Saved ${savedCount} lineage candidates as draft.`);
 }
