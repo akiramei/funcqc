@@ -61,7 +61,7 @@ describe('Lineage Storage Operations', () => {
         fromIds: ['func-id-big'],
         toIds: ['func-id-small-1', 'func-id-small-2'],
         kind: 'split' as LineageKind,
-        status: 'final' as LineageStatus,
+        status: 'approved' as LineageStatus,
         confidence: 0.80,
         gitCommit: 'def456ghi789',
         createdAt: new Date()
@@ -94,10 +94,10 @@ describe('Lineage Storage Operations', () => {
       };
 
       await storage.saveLineage(lineage);
-      await storage.updateLineageStatus('test-status-update', 'final', 'Confirmed by review');
+      await storage.updateLineageStatus('test-status-update', 'approved', 'Confirmed by review');
 
       const updated = await storage.getLineage('test-status-update');
-      expect(updated!.status).toBe('final');
+      expect(updated!.status).toBe('approved');
       expect(updated!.note).toBe('Confirmed by review');
       expect(updated!.updatedAt).toBeDefined();
     });
@@ -122,7 +122,7 @@ describe('Lineage Storage Operations', () => {
           fromIds: ['func-3'],
           toIds: ['func-4'],
           kind: 'signature-change',
-          status: 'final',
+          status: 'approved',
           confidence: 0.85,
           gitCommit: 'commit-2',
           createdAt: new Date('2024-01-02T00:00:00Z')
@@ -149,9 +149,9 @@ describe('Lineage Storage Operations', () => {
       expect(draftLineages).toHaveLength(2);
       expect(draftLineages.every(l => l.status === 'draft')).toBe(true);
 
-      const finalLineages = await storage.getLineages({ status: 'final' });
-      expect(finalLineages).toHaveLength(1);
-      expect(finalLineages[0].status).toBe('final');
+      const approvedLineages = await storage.getLineages({ status: 'approved' });
+      expect(approvedLineages).toHaveLength(1);
+      expect(approvedLineages[0].status).toBe('approved');
     });
 
     it('should query lineages by kind', async () => {
@@ -215,7 +215,7 @@ describe('Lineage Storage Operations', () => {
           fromIds: ['func-a'],
           toIds: ['func-b'],
           kind: 'rename',
-          status: 'final',
+          status: 'approved',
           gitCommit: 'target-commit',
           createdAt: new Date()
         },
@@ -249,7 +249,7 @@ describe('Lineage Storage Operations', () => {
           fromIds: [functionId],
           toIds: ['func-renamed'],
           kind: 'rename',
-          status: 'final',
+          status: 'approved',
           gitCommit: 'commit-a',
           createdAt: new Date('2024-01-01')
         },
@@ -258,7 +258,7 @@ describe('Lineage Storage Operations', () => {
           fromIds: ['func-other'],
           toIds: [functionId],
           kind: 'signature-change',
-          status: 'final',
+          status: 'approved',
           gitCommit: 'commit-b',
           createdAt: new Date('2024-01-02')
         }
@@ -306,7 +306,7 @@ describe('Lineage Storage Operations', () => {
           fromIds: ['func-old-final'],
           toIds: ['func-final'],
           kind: 'rename',
-          status: 'final',
+          status: 'approved',
           gitCommit: 'old-final-commit',
           createdAt: oldDate
         }

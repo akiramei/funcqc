@@ -3,7 +3,7 @@ import { table } from 'table';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, Lineage, LineageKind, LineageStatus, FunctionInfo } from '../types';
+import { CommandOptions, Lineage, LineageKind, LineageStatus, LineageQuery, FunctionInfo } from '../types';
 
 export interface LineageCommandOptions extends CommandOptions {
   status?: string;
@@ -27,14 +27,25 @@ export async function lineageListCommand(options: LineageCommandOptions): Promis
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
-    // Get lineages with filters
-    const lineages = await storage.getLineages();
+    // Optimize by using database-level filtering when possible
+    let lineages: Lineage[];
     
-    // Apply advanced filters that require function lookups
-    const filteredWithFunctions = await applyAdvancedFilters(lineages, options, storage, logger);
+    if (options.fromFunction || options.toFunction) {
+      // Use optimized database query for function name filtering
+      const query = buildLineageQuery(options);
+      lineages = await storage.getLineagesWithFunctionFilter(
+        options.fromFunction, 
+        options.toFunction, 
+        query
+      );
+    } else {
+      // Use standard query for non-function filters
+      const query = buildLineageQuery(options);
+      lineages = await storage.getLineages(query);
+    }
     
-    // Apply basic filters
-    const filtered = applyFilters(filteredWithFunctions, options);
+    // Apply remaining filters that couldn't be handled at database level
+    const filtered = applyRemainingFilters(lineages, options);
     const sorted = applySorting(filtered, options);
     const limited = applyLimit(sorted, options);
 
@@ -122,96 +133,100 @@ export async function lineageReviewCommand(
 // FILTERING AND SORTING FUNCTIONS
 // ========================================
 
-async function applyAdvancedFilters(
+function buildLineageQuery(options: LineageCommandOptions): LineageQuery {
+  const query: LineageQuery = {};
+
+  if (options.status) {
+    query.status = options.status as LineageStatus;
+  }
+
+  if (options.kind) {
+    query.kind = options.kind as LineageKind;
+  }
+
+  if (options.confidence) {
+    const threshold = parseFloat(options.confidence);
+    if (!isNaN(threshold) && threshold >= 0 && threshold <= 1) {
+      query.minConfidence = threshold;
+    }
+  }
+
+  if (options.limit) {
+    const limitValue = parseInt(options.limit.toString(), 10);
+    if (isNaN(limitValue) || limitValue < 1) {
+      throw new Error('Limit must be a positive integer');
+    }
+    query.limit = limitValue;
+  }
+
+  return query;
+}
+
+function applyRemainingFilters(lineages: Lineage[], _options: LineageCommandOptions): Lineage[] {
+  // Only apply filters that couldn't be handled at database level
+  // Most filters are now handled in buildLineageQuery
+  return lineages;
+}
+
+// Legacy function - now replaced by database-level filtering
+// Kept for backward compatibility if needed
+export async function applyAdvancedFiltersBatch(
   lineages: Lineage[], 
   options: LineageCommandOptions, 
   storage: PGLiteStorageAdapter,
   logger: Logger
 ): Promise<Lineage[]> {
+  // If no function filtering needed, return as-is
+  if (!options.fromFunction && !options.toFunction) {
+    return lineages;
+  }
+
+  // Collect all unique function IDs that need to be checked
+  const allFunctionIds = new Set<string>();
+  lineages.forEach(lineage => {
+    if (options.fromFunction) {
+      lineage.fromIds.forEach(id => allFunctionIds.add(id));
+    }
+    if (options.toFunction) {
+      lineage.toIds.forEach(id => allFunctionIds.add(id));
+    }
+  });
+
+  // Batch fetch all functions at once
+  const functionMap = await storage.getFunctionsBatch(Array.from(allFunctionIds));
+  
+  // Apply filtering using cached function data
   let filtered = lineages;
   
-  // Filter by source function name pattern
   if (options.fromFunction) {
     logger.info(`Filtering by source function pattern: ${options.fromFunction}`);
     const pattern = options.fromFunction.toLowerCase();
     
-    const filteredLineages: Lineage[] = [];
-    for (const lineage of filtered) {
-      let matchFound = false;
-      
-      // Check each source function
-      for (const fromId of lineage.fromIds) {
-        const func = await storage.getFunction(fromId);
-        if (func?.name.toLowerCase().includes(pattern)) {
-          matchFound = true;
-          break;
-        }
-      }
-      
-      if (matchFound) {
-        filteredLineages.push(lineage);
-      }
-    }
-    filtered = filteredLineages;
+    filtered = filtered.filter(lineage => {
+      return lineage.fromIds.some(fromId => {
+        const func = functionMap.get(fromId);
+        return func?.name.toLowerCase().includes(pattern);
+      });
+    });
   }
   
-  // Filter by target function name pattern
   if (options.toFunction) {
     logger.info(`Filtering by target function pattern: ${options.toFunction}`);
     const pattern = options.toFunction.toLowerCase();
     
-    const filteredLineages: Lineage[] = [];
-    for (const lineage of filtered) {
-      let matchFound = false;
-      
-      // Check each target function
-      for (const toId of lineage.toIds) {
-        const func = await storage.getFunction(toId);
-        if (func?.name.toLowerCase().includes(pattern)) {
-          matchFound = true;
-          break;
-        }
-      }
-      
-      if (matchFound) {
-        filteredLineages.push(lineage);
-      }
-    }
-    filtered = filteredLineages;
+    filtered = filtered.filter(lineage => {
+      return lineage.toIds.some(toId => {
+        const func = functionMap.get(toId);
+        return func?.name.toLowerCase().includes(pattern);
+      });
+    });
   }
   
   return filtered;
 }
 
-function applyFilters(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
-  let filtered = lineages;
-
-  // Filter by status
-  if (options.status) {
-    filtered = filtered.filter(l => l.status === options.status);
-  }
-
-  // Filter by kind
-  if (options.kind) {
-    filtered = filtered.filter(l => l.kind === options.kind);
-  }
-
-  // Filter by confidence threshold
-  if (options.confidence) {
-    const threshold = parseFloat(options.confidence);
-    if (isNaN(threshold)) {
-      console.warn(`Invalid confidence threshold: ${options.confidence}, must be a number between 0 and 1`);
-    } else if (threshold < 0 || threshold > 1) {
-      console.warn(`Confidence threshold ${threshold} is out of range, must be between 0 and 1`);
-    } else {
-      filtered = filtered.filter(l => (l.confidence ?? 0) >= threshold);
-    }
-  }
-
-  // Function name filtering is handled in applyAdvancedFilters
-
-  return filtered;
-}
+// Legacy function - most filtering now handled at database level
+// Removed as all filtering is now handled at database level via buildLineageQuery
 
 function applySorting(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
   if (!options.sort) {

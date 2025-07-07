@@ -1041,6 +1041,51 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>> {
+    if (functionIds.length === 0) {
+      return new Map();
+    }
+
+    try {
+      // Use PostgreSQL array for efficient batch query
+      const idsArray = this.formatPostgresArrayLiteral(functionIds);
+      
+      const result = await this.db.query(`
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        WHERE f.id = ANY($1::text[]) OR f.semantic_id = ANY($1::text[])
+      `, [idsArray]);
+
+      // Get parameters for all functions in a single batch
+      const parameterMap = await this.getFunctionParametersBatch(result.rows.map((row) => (row as any).id));
+
+      const functionMap = new Map<string, FunctionInfo>();
+      
+      for (const row of result.rows) {
+        const functionRow = row as FunctionRow & Partial<MetricsRow>;
+        const parameters = parameterMap.get(functionRow.id) || [];
+        const functionInfo = this.mapRowToFunctionInfo(functionRow, parameters);
+        
+        // Store by both id and semantic_id for flexible lookup
+        functionMap.set(functionRow.id, functionInfo);
+        functionMap.set(functionRow.semantic_id, functionInfo);
+      }
+
+      return functionMap;
+    } catch (error) {
+      throw new Error(`Failed to get functions batch: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   async getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }> {
     try {
       const result = await this.db.query(`
@@ -1401,6 +1446,94 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return result.rows.map(row => this.mapRowToLineage(row));
     } catch (error) {
       throw new Error(`Failed to get lineages: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async getLineagesWithFunctionFilter(
+    fromFunctionPattern?: string,
+    toFunctionPattern?: string,
+    query?: LineageQuery
+  ): Promise<Lineage[]> {
+    try {
+      let sql = `
+        SELECT DISTINCT l.* FROM lineage l
+      `;
+      const params: unknown[] = [];
+      let paramIndex = 1;
+
+      // Add joins if function name filtering is needed
+      if (fromFunctionPattern) {
+        sql += `
+          JOIN functions f_from ON f_from.id = ANY(string_to_array(trim(both '{}' from l.from_ids), ','))
+        `;
+      }
+
+      if (toFunctionPattern) {
+        sql += `
+          JOIN functions f_to ON f_to.id = ANY(string_to_array(trim(both '{}' from l.to_ids), ','))
+        `;
+      }
+
+      sql += ' WHERE 1=1';
+
+      // Add function name filters
+      if (fromFunctionPattern) {
+        sql += ` AND LOWER(f_from.name) LIKE $${paramIndex++}`;
+        params.push(`%${fromFunctionPattern.toLowerCase()}%`);
+      }
+
+      if (toFunctionPattern) {
+        sql += ` AND LOWER(f_to.name) LIKE $${paramIndex++}`;
+        params.push(`%${toFunctionPattern.toLowerCase()}%`);
+      }
+
+      // Add standard lineage filters
+      if (query?.status) {
+        sql += ` AND l.status = $${paramIndex++}`;
+        params.push(query.status);
+      }
+
+      if (query?.kind) {
+        sql += ` AND l.kind = $${paramIndex++}`;
+        params.push(query.kind);
+      }
+
+      if (query?.minConfidence !== undefined) {
+        sql += ` AND l.confidence >= $${paramIndex++}`;
+        params.push(query.minConfidence);
+      }
+
+      if (query?.gitCommit) {
+        sql += ` AND l.git_commit = $${paramIndex++}`;
+        params.push(query.gitCommit);
+      }
+
+      if (query?.fromDate) {
+        sql += ` AND l.created_at >= $${paramIndex++}`;
+        params.push(query.fromDate.toISOString());
+      }
+
+      if (query?.toDate) {
+        sql += ` AND l.created_at <= $${paramIndex++}`;
+        params.push(query.toDate.toISOString());
+      }
+
+      sql += ' ORDER BY l.created_at DESC';
+
+      if (query?.limit) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(query.limit);
+      }
+
+      if (query?.offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(query.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+      return result.rows.map(row => this.mapRowToLineage(row));
+    } catch (error) {
+      throw new Error(`Failed to get lineages with function filter: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -2104,7 +2237,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         from_ids TEXT[] NOT NULL,
         to_ids TEXT[] NOT NULL,
         kind TEXT NOT NULL CHECK (kind IN ('rename', 'signature-change', 'inline', 'split')),
-        status TEXT NOT NULL CHECK (status IN ('draft', 'final')),
+        status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'rejected')),
         confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
         note TEXT,
         git_commit TEXT NOT NULL,
@@ -2225,6 +2358,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_by ON naming_evaluations(evaluated_by);
       CREATE INDEX IF NOT EXISTS idx_naming_evaluations_revision_needed ON naming_evaluations(revision_needed) WHERE revision_needed = TRUE;
       CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_at ON naming_evaluations(evaluated_at);
+
+      -- Lineage table indexes for performance optimization
+      CREATE INDEX IF NOT EXISTS idx_lineage_status ON lineage(status);
+      CREATE INDEX IF NOT EXISTS idx_lineage_kind ON lineage(kind);
+      CREATE INDEX IF NOT EXISTS idx_lineage_confidence ON lineage(confidence);
+      CREATE INDEX IF NOT EXISTS idx_lineage_git_commit ON lineage(git_commit);
+      CREATE INDEX IF NOT EXISTS idx_lineage_created_at ON lineage(created_at);
+      CREATE INDEX IF NOT EXISTS idx_lineage_updated_at ON lineage(updated_at);
+      
+      -- GIN indexes for array operations on from_ids and to_ids
+      CREATE INDEX IF NOT EXISTS idx_lineage_from_ids_gin ON lineage USING GIN(from_ids);
+      CREATE INDEX IF NOT EXISTS idx_lineage_to_ids_gin ON lineage USING GIN(to_ids);
+      
+      -- Composite indexes for common query patterns
+      CREATE INDEX IF NOT EXISTS idx_lineage_status_kind ON lineage(status, kind);
+      CREATE INDEX IF NOT EXISTS idx_lineage_status_created_at ON lineage(status, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_lineage_kind_created_at ON lineage(kind, created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_lineage_confidence_created_at ON lineage(confidence DESC, created_at DESC);
     `);
     } catch (error) {
       // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
@@ -2400,6 +2551,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       [functionId]
     );
     return result.rows as ParameterRow[];
+  }
+
+  private async getFunctionParametersBatch(functionIds: string[]): Promise<Map<string, ParameterRow[]>> {
+    if (functionIds.length === 0) {
+      return new Map();
+    }
+
+    const idsArray = this.formatPostgresArrayLiteral(functionIds);
+    const result = await this.db.query(
+      'SELECT * FROM function_parameters WHERE function_id = ANY($1::text[]) ORDER BY function_id, position',
+      [idsArray]
+    );
+
+    const parameterMap = new Map<string, ParameterRow[]>();
+    
+    for (const row of result.rows as ParameterRow[]) {
+      const functionId = row.function_id;
+      if (!parameterMap.has(functionId)) {
+        parameterMap.set(functionId, []);
+      }
+      parameterMap.get(functionId)!.push(row);
+    }
+
+    return parameterMap;
   }
 
   private mapRowToSnapshotInfo(row: SnapshotRow): SnapshotInfo {
