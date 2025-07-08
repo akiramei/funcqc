@@ -370,19 +370,26 @@ async function getCustomThresholds(options: RefactorInteractiveOptions): Promise
   complexityThreshold: number;
   sizeThreshold: number;
 }> {
+  // Parse default values with NaN protection
+  const defaultComplexity = parseInt(options.complexityThreshold || '5');
+  const safeDefaultComplexity = Number.isNaN(defaultComplexity) ? 5 : defaultComplexity;
+  
+  const defaultSize = parseInt(options.sizeThreshold || '20');
+  const safeDefaultSize = Number.isNaN(defaultSize) ? 20 : defaultSize;
+  
   const complexityInput = await prompts.number({
     message: 'Complexity threshold:',
-    default: parseInt(options.complexityThreshold || '5')
+    default: safeDefaultComplexity
   });
   
   const sizeInput = await prompts.number({
     message: 'Size threshold (lines):',
-    default: parseInt(options.sizeThreshold || '20')
+    default: safeDefaultSize
   });
   
   return {
-    complexityThreshold: complexityInput ?? parseInt(options.complexityThreshold || '5'),
-    sizeThreshold: sizeInput ?? parseInt(options.sizeThreshold || '20')
+    complexityThreshold: (complexityInput != null && !Number.isNaN(complexityInput)) ? complexityInput : safeDefaultComplexity,
+    sizeThreshold: (sizeInput != null && !Number.isNaN(sizeInput)) ? sizeInput : safeDefaultSize
   };
 }
 
