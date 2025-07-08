@@ -710,7 +710,7 @@ async function validateSourceIntegrity(func: FunctionInfo): Promise<boolean> {
     
     // Compare with stored hash
     return currentHash === func.fileHash;
-  } catch (error) {
+  } catch {
     // If we can't calculate hash, assume file is modified
     return false;
   }

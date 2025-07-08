@@ -316,7 +316,7 @@ function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern:
  * Validate source guard and show resolution instructions
  */
 function handleSourceGuardValidation(
-  existingDescription: any,
+  existingDescription: FunctionDescription | null,
   newSource: 'human' | 'ai' | 'jsdoc',
   targetFunction: FunctionInfo,
   logger: Logger,

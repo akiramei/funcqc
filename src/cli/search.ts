@@ -3,7 +3,7 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from '../core/config';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { SearchCommandOptions, FunctionInfo } from '../types';
+import { SearchCommandOptions, FunctionInfo, FuncqcConfig } from '../types';
 import { LocalSimilarityService } from '../services/local-similarity-service';
 import { SimilarityManager } from '../similarity/similarity-manager';
 import path from 'path';
@@ -11,7 +11,7 @@ import path from 'path';
 /**
  * Initialize storage with configuration
  */
-async function initializeStorage(config: any): Promise<PGLiteStorageAdapter> {
+async function initializeStorage(config: FuncqcConfig): Promise<PGLiteStorageAdapter> {
   const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
   await storage.init();
   return storage;
@@ -39,19 +39,14 @@ async function performSearch(
  * Handle empty search results with helpful suggestions
  */
 async function handleEmptyResults(
+  storage: PGLiteStorageAdapter,
   keyword: string,
   options: SearchCommandOptions,
   logger: Logger
 ): Promise<void> {
   logger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
   
-  // Check if function descriptions exist
-  const configManager = new ConfigManager();
-  const statsConfig = await configManager.load();
-  const statsStorage = new PGLiteStorageAdapter(statsConfig.storage.path || '.funcqc/funcqc.db');
-  await statsStorage.init();
-  const stats = await statsStorage.getEmbeddingStats();
-  await statsStorage.close();
+  const stats = await storage.getEmbeddingStats();
   
   if (stats.total === 0) {
     logger.info(chalk.gray(`💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`));
@@ -97,7 +92,7 @@ export async function searchCommand(
       const functions = await performSearch(storage, keyword, options, logger);
 
       if (functions.length === 0) {
-        await handleEmptyResults(keyword, options, logger);
+        await handleEmptyResults(storage, keyword, options, logger);
         return;
       }
 
