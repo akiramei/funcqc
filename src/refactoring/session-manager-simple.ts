@@ -3,6 +3,7 @@ import {
   SessionFunction, 
   RefactoringPattern
 } from '../types/index.js';
+import * as crypto from 'crypto';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter.js';
 
 export interface SessionConfig {
@@ -58,8 +59,8 @@ export class SessionManager {
         );
       }
 
-      // Create new session
-      const sessionId = Math.random().toString(36).substring(2) + Date.now().toString(36);
+      // Create new session with cryptographically secure random ID
+      const sessionId = crypto.randomBytes(16).toString('hex') + Date.now().toString(36);
       const now = new Date();
       
       await db.query(`
