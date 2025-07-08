@@ -16,6 +16,7 @@ import { searchCommand } from './cli/search';
 import { lineageListCommand, lineageShowCommand, lineageReviewCommand } from './cli/lineage';
 import { createVectorizeCommand } from './cli/vectorize';
 import { createEvaluateCommand } from './cli/evaluate';
+import { refactorAnalyzeCommand } from './cli/refactor/analyze.js';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
@@ -414,6 +415,40 @@ Available Metrics:
 Available Concepts:
   complexity, maintainability, quality, testing, refactoring
 `);
+
+// Add refactor command
+program
+  .command('refactor')
+  .description('Refactoring workflow and analysis tools')
+  .addCommand(
+    new Command('analyze')
+      .description('Analyze project for refactoring opportunities')
+      .option('--complexity-threshold <num>', 'complexity threshold for analysis', '15')
+      .option('--size-threshold <num>', 'size threshold for analysis', '50')
+      .option('--since <ref>', 'analyze changes since git reference')
+      .option('--compare-with <ref>', 'compare with specific git reference')
+      .option('--output <file>', 'save report to file')
+      .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
+      .option('--patterns <list>', 'comma-separated list of patterns to detect')
+      .action(refactorAnalyzeCommand)
+      .addHelpText('after', `
+Examples:
+  $ funcqc refactor analyze                           # Basic project analysis
+  $ funcqc refactor analyze --complexity-threshold 10 # Focus on complex functions
+  $ funcqc refactor analyze --since HEAD~10          # Analyze recent changes
+  $ funcqc refactor analyze --output refactor.md     # Save detailed report
+  $ funcqc refactor analyze --format json            # JSON output
+  $ funcqc refactor analyze --patterns extract-method,split-function
+  
+Supported Patterns:
+  extract-method     - Functions with extractable logic blocks
+  split-function     - Functions handling multiple responsibilities  
+  reduce-parameters  - Functions with too many parameters
+  extract-class      - Related functions that should be grouped
+  inline-function    - Trivial functions adding complexity
+  rename-function    - Functions with unclear names
+`)
+  );
 
 // Handle unknown commands
 program.on('command:*', () => {

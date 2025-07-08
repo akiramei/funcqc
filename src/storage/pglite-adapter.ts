@@ -1936,7 +1936,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     // Check if all core tables exist in one query to optimize startup
     const existingTables = await this.getExistingTables();
-    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'lineage', 'ann_index_metadata'];
+    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'lineage', 'ann_index_metadata', 'refactoring_sessions', 'session_functions', 'refactoring_opportunities'];
     
     // Only create tables that don't exist
     for (const tableName of requiredTables) {
@@ -1968,6 +1968,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             break;
           case 'ann_index_metadata':
             await this.db.exec(this.getANNIndexTableSQL());
+            break;
+          case 'refactoring_sessions':
+            await this.db.exec(this.getRefactoringSessionsTableSQL());
+            break;
+          case 'session_functions':
+            await this.db.exec(this.getSessionFunctionsTableSQL());
+            break;
+          case 'refactoring_opportunities':
+            await this.db.exec(this.getRefactoringOpportunitiesTableSQL());
             break;
         }
       }
@@ -2246,6 +2255,56 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );`;
   }
 
+  private getRefactoringSessionsTableSQL(): string {
+    return `
+      CREATE TABLE refactoring_sessions (
+        id TEXT PRIMARY KEY,
+        description TEXT NOT NULL,
+        start_time INTEGER NOT NULL,
+        end_time INTEGER,
+        git_branch TEXT,
+        initial_commit TEXT,
+        final_commit TEXT,
+        status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active',
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );`;
+  }
+
+  private getSessionFunctionsTableSQL(): string {
+    return `
+      CREATE TABLE session_functions (
+        session_id TEXT NOT NULL,
+        function_id TEXT NOT NULL,
+        tracked_at INTEGER NOT NULL,
+        role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')) DEFAULT 'source',
+        metadata JSONB DEFAULT '{}',
+        PRIMARY KEY (session_id, function_id),
+        FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
+        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+      );`;
+  }
+
+  private getRefactoringOpportunitiesTableSQL(): string {
+    return `
+      CREATE TABLE refactoring_opportunities (
+        id TEXT PRIMARY KEY,
+        pattern TEXT NOT NULL CHECK (pattern IN ('extract-method', 'split-function', 'reduce-parameters', 'extract-class', 'inline-function', 'rename-function')),
+        function_id TEXT NOT NULL,
+        severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium',
+        impact_score INTEGER NOT NULL CHECK (impact_score >= 0 AND impact_score <= 100),
+        detected_at INTEGER NOT NULL,
+        resolved_at INTEGER,
+        session_id TEXT,
+        metadata JSONB DEFAULT '{}',
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE SET NULL
+      );`;
+  }
+
   private getTriggersSQL(): string {
     return `
       -- 自動トリガー: 内容変更検出
@@ -2376,6 +2435,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       CREATE INDEX IF NOT EXISTS idx_lineage_status_created_at ON lineage(status, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_lineage_kind_created_at ON lineage(kind, created_at DESC);
       CREATE INDEX IF NOT EXISTS idx_lineage_confidence_created_at ON lineage(confidence DESC, created_at DESC);
+      
+      -- Refactoring session indexes
+      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_status ON refactoring_sessions(status);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_git_branch ON refactoring_sessions(git_branch);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_created_at ON refactoring_sessions(created_at);
+      
+      -- Session functions indexes
+      CREATE INDEX IF NOT EXISTS idx_session_functions_session_id ON session_functions(session_id);
+      CREATE INDEX IF NOT EXISTS idx_session_functions_function_id ON session_functions(function_id);
+      CREATE INDEX IF NOT EXISTS idx_session_functions_role ON session_functions(role);
+      CREATE INDEX IF NOT EXISTS idx_session_functions_tracked_at ON session_functions(tracked_at);
+      
+      -- Refactoring opportunities indexes
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_pattern ON refactoring_opportunities(pattern);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_function_id ON refactoring_opportunities(function_id);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_severity ON refactoring_opportunities(severity);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_impact_score ON refactoring_opportunities(impact_score);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_detected_at ON refactoring_opportunities(detected_at);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_session_id ON refactoring_opportunities(session_id);
+      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_unresolved ON refactoring_opportunities(pattern, severity) WHERE resolved_at IS NULL;
     `);
     } catch (error) {
       // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
