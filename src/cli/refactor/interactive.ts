@@ -400,9 +400,17 @@ function getDefaultThresholds(options: RefactorInteractiveOptions): {
   complexityThreshold: number;
   sizeThreshold: number;
 } {
+  // Parse complexity threshold with NaN protection
+  const complexityValue = parseInt(options.complexityThreshold || '5');
+  const complexityThreshold = Number.isNaN(complexityValue) ? 5 : complexityValue;
+  
+  // Parse size threshold with NaN protection
+  const sizeValue = parseInt(options.sizeThreshold || '20');
+  const sizeThreshold = Number.isNaN(sizeValue) ? 20 : sizeValue;
+  
   return {
-    complexityThreshold: parseInt(options.complexityThreshold || '5'),
-    sizeThreshold: parseInt(options.sizeThreshold || '20')
+    complexityThreshold,
+    sizeThreshold
   };
 }
 
