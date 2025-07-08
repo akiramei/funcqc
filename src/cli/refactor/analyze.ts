@@ -17,14 +17,8 @@ const REFACTORING_EFFORT_MAP = {
   [RefactoringPattern.RenameFunction]: 1
 } as const;
 
-// Type for opportunity info to improve readability
-type OpportunityInfo = Array<{
-  pattern: RefactoringPattern;
-  severity: string;
-  impactScore: number;
-  functionId: string;
-  metadata: Record<string, unknown>;
-}>;
+// Use existing RefactoringOpportunity type from the types module
+type OpportunityInfo = RefactoringOpportunity[];
 
 /**
  * Phase 3: funcqc refactor analyze - Comprehensive project analysis for refactoring opportunities
@@ -141,15 +135,25 @@ async function saveReportToFile(
 function generateMarkdownReport(report: RefactoringReport, format: string): string {
   const lines: string[] = [];
   
+  generateReportHeader(lines);
+  generateProjectSummarySection(lines, report.projectSummary);
+  generateOpportunitiesSection(lines, report.opportunities, format);
+  generateHotSpotsSection(lines, report.hotSpots, format);
+  generateRecommendationsSection(lines, report.recommendations);
+  
+  return lines.join('\n');
+}
+
+function generateReportHeader(lines: string[]): void {
   lines.push('# Refactoring Analysis Report');
   lines.push('');
   lines.push(`Generated: ${new Date().toISOString()}`);
   lines.push('');
-  
-  // Project Summary
+}
+
+function generateProjectSummarySection(lines: string[], summary: ProjectRefactoringSummary): void {
   lines.push('## 📊 Project Summary');
   lines.push('');
-  const summary = report.projectSummary;
   lines.push(`- **Total Functions**: ${summary.totalFunctions}`);
   lines.push(`- **Analyzed Functions**: ${summary.analyzedFunctions}`);
   lines.push(`- **Opportunities Found**: ${summary.opportunitiesFound}`);
@@ -162,75 +166,76 @@ function generateMarkdownReport(report: RefactoringReport, format: string): stri
     summary.priorityAreas.forEach(area => lines.push(`- ${area}`));
     lines.push('');
   }
+}
+
+function generateOpportunitiesSection(lines: string[], opportunities: RefactoringOpportunity[], format: string): void {
+  if (opportunities.length === 0) return;
   
-  // Opportunities
-  if (report.opportunities.length > 0) {
-    lines.push('## 🎯 Refactoring Opportunities');
+  lines.push('## 🎯 Refactoring Opportunities');
+  lines.push('');
+  
+  const opportunitiesByPattern = groupOpportunitiesByPattern(opportunities);
+  
+  for (const [pattern, patternOpportunities] of Object.entries(opportunitiesByPattern)) {
+    lines.push(`### ${formatPatternName(pattern)}`);
     lines.push('');
     
-    const opportunitiesByPattern = groupOpportunitiesByPattern(report.opportunities);
-    
-    for (const [pattern, opportunities] of Object.entries(opportunitiesByPattern)) {
-      lines.push(`### ${formatPatternName(pattern)}`);
+    patternOpportunities.forEach(opp => {
+      lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impactScore})`);
+      lines.push(`  - Function: \`${opp.functionId}\``);
+      if (format === 'detailed' && opp.metadata) {
+        Object.entries(opp.metadata).forEach(([key, value]) => {
+          lines.push(`  - ${key}: ${value}`);
+        });
+      }
       lines.push('');
-      
-      opportunities.forEach(opp => {
-        lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impactScore})`);
-        lines.push(`  - Function: \`${opp.functionId}\``);
-        if (format === 'detailed' && opp.metadata) {
-          Object.entries(opp.metadata).forEach(([key, value]) => {
-            lines.push(`  - ${key}: ${value}`);
+    });
+  }
+}
+
+function generateHotSpotsSection(lines: string[], hotSpots: QualityHotSpot[], format: string): void {
+  if (hotSpots.length === 0) return;
+  
+  lines.push('## 🔥 Quality Hot Spots');
+  lines.push('');
+  
+  hotSpots.slice(0, 10).forEach((hotSpot, index) => {
+    lines.push(`### ${index + 1}. ${hotSpot.functionName}`);
+    lines.push('');
+    lines.push(`- **File**: ${hotSpot.filePath}`);
+    lines.push(`- **Complexity**: ${hotSpot.complexity}`);
+    lines.push(`- **Risk Score**: ${hotSpot.riskScore}`);
+    lines.push('');
+    
+    if (hotSpot.issues.length > 0) {
+      lines.push('**Issues**:');
+      hotSpot.issues.forEach(issue => {
+        lines.push(`- ${getSeverityIcon(issue.severity)} ${issue.description}`);
+        if (format === 'detailed') {
+          issue.suggestedActions.forEach(action => {
+            lines.push(`  - 💡 ${action}`);
           });
         }
-        lines.push('');
       });
+      lines.push('');
     }
-  }
+  });
+}
+
+function generateRecommendationsSection(lines: string[], recommendations: RefactoringRecommendation[]): void {
+  if (recommendations.length === 0) return;
   
-  // Quality Hot Spots
-  if (report.hotSpots.length > 0) {
-    lines.push('## 🔥 Quality Hot Spots');
+  lines.push('## 💡 Recommendations');
+  lines.push('');
+  
+  recommendations.forEach((rec, index) => {
+    lines.push(`### ${index + 1}. ${formatPatternName(rec.pattern)} (${rec.priority.toUpperCase()} Priority)`);
     lines.push('');
-    
-    report.hotSpots.slice(0, 10).forEach((hotSpot, index) => {
-      lines.push(`### ${index + 1}. ${hotSpot.functionName}`);
-      lines.push('');
-      lines.push(`- **File**: ${hotSpot.filePath}`);
-      lines.push(`- **Complexity**: ${hotSpot.complexity}`);
-      lines.push(`- **Risk Score**: ${hotSpot.riskScore}`);
-      lines.push('');
-      
-      if (hotSpot.issues.length > 0) {
-        lines.push('**Issues**:');
-        hotSpot.issues.forEach(issue => {
-          lines.push(`- ${getSeverityIcon(issue.severity)} ${issue.description}`);
-          if (format === 'detailed') {
-            issue.suggestedActions.forEach(action => {
-              lines.push(`  - 💡 ${action}`);
-            });
-          }
-        });
-        lines.push('');
-      }
-    });
-  }
-  
-  // Recommendations
-  if (report.recommendations.length > 0) {
-    lines.push('## 💡 Recommendations');
+    lines.push(`**Reasoning**: ${rec.reasoning}`);
+    lines.push(`**Estimated Effort**: ${rec.estimatedEffort} hours`);
+    lines.push(`**Expected Benefit**: ${rec.expectedBenefit}`);
     lines.push('');
-    
-    report.recommendations.forEach((rec, index) => {
-      lines.push(`### ${index + 1}. ${formatPatternName(rec.pattern)} (${rec.priority.toUpperCase()} Priority)`);
-      lines.push('');
-      lines.push(`**Reasoning**: ${rec.reasoning}`);
-      lines.push(`**Estimated Effort**: ${rec.estimatedEffort} hours`);
-      lines.push(`**Expected Benefit**: ${rec.expectedBenefit}`);
-      lines.push('');
-    });
-  }
-  
-  return lines.join('\n');
+  });
 }
 
 function displayAnalysisReport(
