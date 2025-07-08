@@ -2,10 +2,29 @@ import chalk from 'chalk';
 import { ConfigManager } from '../../core/config.js';
 import { PGLiteStorageAdapter } from '../../storage/pglite-adapter.js';
 import { Logger } from '../../utils/cli-utils.js';
-import { RefactorAnalyzeOptions, RefactoringReport, RefactoringPattern } from '../../types/index.js';
+import { RefactorAnalyzeOptions, RefactoringReport, RefactoringPattern, RefactoringOpportunity, QualityHotSpot, RefactoringRecommendation, ProjectRefactoringSummary } from '../../types/index.js';
 import { RefactoringAnalyzer } from '../../refactoring/refactoring-analyzer.js';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Constants for refactoring effort estimation
+const REFACTORING_EFFORT_MAP = {
+  [RefactoringPattern.ExtractMethod]: 2,
+  [RefactoringPattern.SplitFunction]: 4,
+  [RefactoringPattern.ReduceParameters]: 3,
+  [RefactoringPattern.ExtractClass]: 8,
+  [RefactoringPattern.InlineFunction]: 1,
+  [RefactoringPattern.RenameFunction]: 1
+} as const;
+
+// Type for opportunity info to improve readability
+type OpportunityInfo = Array<{
+  pattern: RefactoringPattern;
+  severity: string;
+  impactScore: number;
+  functionId: string;
+  metadata: Record<string, unknown>;
+}>;
 
 /**
  * Phase 3: funcqc refactor analyze - Comprehensive project analysis for refactoring opportunities
@@ -67,7 +86,7 @@ export async function refactorAnalyzeCommand(options: RefactorAnalyzeOptions): P
     if (options.format === 'json') {
       console.log(JSON.stringify(report, null, 2));
     } else {
-      displayAnalysisReport(report, options.format || 'summary', logger, options.output);
+      displayAnalysisReport(report, options.format || 'summary', options.output);
     }
 
     await storage.close();
@@ -96,17 +115,8 @@ function parsePatterns(patternsString?: string): RefactoringPattern[] | undefine
     .filter(Boolean);
 }
 
-function calculateTotalEffort(opportunities: Array<{ pattern: RefactoringPattern; severity: string; impactScore: number; functionId: string; metadata: Record<string, unknown> }>): number {
-  const effortMap = {
-    [RefactoringPattern.ExtractMethod]: 2,
-    [RefactoringPattern.SplitFunction]: 4,
-    [RefactoringPattern.ReduceParameters]: 3,
-    [RefactoringPattern.ExtractClass]: 8,
-    [RefactoringPattern.InlineFunction]: 1,
-    [RefactoringPattern.RenameFunction]: 1
-  };
-  
-  return opportunities.reduce((total, opp) => total + (effortMap[opp.pattern] || 2), 0);
+function calculateTotalEffort(opportunities: OpportunityInfo): number {
+  return opportunities.reduce((total, opp) => total + (REFACTORING_EFFORT_MAP[opp.pattern] || 2), 0);
 }
 
 async function saveReportToFile(
@@ -226,15 +236,22 @@ function generateMarkdownReport(report: RefactoringReport, format: string): stri
 function displayAnalysisReport(
   report: RefactoringReport, 
   format: string, 
-  _logger: Logger,
   outputPath?: string
 ): void {
-  const summary = report.projectSummary;
-  
-  // Header
+  displayReportHeader();
+  displayProjectSummary(report.projectSummary);
+  displayTopOpportunities(report.opportunities, format);
+  displayQualityHotSpots(report.hotSpots, format);
+  displayRecommendations(report.recommendations);
+  displayNextSteps(report.projectSummary, outputPath);
+  console.log(); // Extra line for spacing
+}
+
+function displayReportHeader(): void {
   console.log(chalk.cyan.bold('\n🔍 Refactoring Analysis Report\n'));
-  
-  // Project Summary
+}
+
+function displayProjectSummary(summary: ProjectRefactoringSummary): void {
   console.log(chalk.blue.bold('📊 Project Summary'));
   console.log(`   Total Functions: ${chalk.yellow(summary.totalFunctions)}`);
   console.log(`   Analyzed: ${chalk.yellow(summary.analyzedFunctions)}`);
@@ -248,56 +265,60 @@ function displayAnalysisReport(
       console.log(`   • ${chalk.gray(area)}`);
     });
   }
+}
+
+function displayTopOpportunities(opportunities: RefactoringOpportunity[], format: string): void {
+  if (opportunities.length === 0) return;
   
-  // Top Opportunities
-  if (report.opportunities.length > 0) {
-    console.log(`\n${chalk.blue.bold('🚨 Top Opportunities:')}`);
+  console.log(`\n${chalk.blue.bold('🚨 Top Opportunities:')}`);
+  
+  const topOpportunities = opportunities
+    .sort((a, b) => b.impactScore - a.impactScore)
+    .slice(0, format === 'summary' ? 5 : 10);
+  
+  topOpportunities.forEach((opp, index) => {
+    const severityDisplay = getSeverityDisplay(opp.severity);
+    const patternDisplay = formatPatternName(opp.pattern);
+    console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impactScore)})`);
     
-    const topOpportunities = report.opportunities
-      .sort((a, b) => b.impactScore - a.impactScore)
-      .slice(0, format === 'summary' ? 5 : 10);
-    
-    topOpportunities.forEach((opp, index) => {
-      const severityDisplay = getSeverityDisplay(opp.severity);
-      const patternDisplay = formatPatternName(opp.pattern);
-      console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impactScore)})`);
-      
-      if (format !== 'summary') {
-        console.log(`      Function: ${chalk.gray(opp.functionId)}`);
-        if (opp.metadata && Object.keys(opp.metadata).length > 0) {
-          const firstKey = Object.keys(opp.metadata)[0];
-          console.log(`      ${firstKey}: ${chalk.gray(String(opp.metadata[firstKey]))}`);
-        }
+    if (format !== 'summary') {
+      console.log(`      Function: ${chalk.gray(opp.functionId)}`);
+      if (opp.metadata && Object.keys(opp.metadata).length > 0) {
+        const firstKey = Object.keys(opp.metadata)[0];
+        console.log(`      ${firstKey}: ${chalk.gray(String(opp.metadata[firstKey]))}`);
       }
-    });
-  }
+    }
+  });
+}
+
+function displayQualityHotSpots(hotSpots: QualityHotSpot[], format: string): void {
+  if (hotSpots.length === 0) return;
   
-  // Quality Hot Spots
-  if (report.hotSpots.length > 0) {
-    console.log(`\n${chalk.blue.bold('🔥 Quality Hot Spots:')}`);
-    
-    const topHotSpots = report.hotSpots.slice(0, format === 'summary' ? 3 : 5);
-    topHotSpots.forEach((hotSpot, index) => {
-      console.log(`   ${index + 1}. ${chalk.yellow(hotSpot.functionName)} (Risk: ${chalk.red(hotSpot.riskScore)})`);
-      console.log(`      ${chalk.gray(hotSpot.filePath)}`);
-      console.log(`      Complexity: ${chalk.yellow(hotSpot.complexity)}, Issues: ${chalk.red(hotSpot.issues.length)}`);
-    });
-  }
+  console.log(`\n${chalk.blue.bold('🔥 Quality Hot Spots:')}`);
   
-  // Recommendations
-  if (report.recommendations.length > 0) {
-    console.log(`\n${chalk.blue.bold('💡 Top Recommendations:')}`);
-    
-    const topRecommendations = report.recommendations.slice(0, 3);
-    topRecommendations.forEach((rec, index) => {
-      const priorityDisplay = getPriorityDisplay(rec.priority);
-      console.log(`   ${index + 1}. ${priorityDisplay} ${formatPatternName(rec.pattern)}`);
-      console.log(`      ${chalk.gray(rec.reasoning)}`);
-      console.log(`      Effort: ${chalk.yellow(rec.estimatedEffort)}h, Benefit: ${chalk.green(rec.expectedBenefit)}`);
-    });
-  }
+  const topHotSpots = hotSpots.slice(0, format === 'summary' ? 3 : 5);
+  topHotSpots.forEach((hotSpot, index) => {
+    console.log(`   ${index + 1}. ${chalk.yellow(hotSpot.functionName)} (Risk: ${chalk.red(hotSpot.riskScore)})`);
+    console.log(`      ${chalk.gray(hotSpot.filePath)}`);
+    console.log(`      Complexity: ${chalk.yellow(hotSpot.complexity)}, Issues: ${chalk.red(hotSpot.issues.length)}`);
+  });
+}
+
+function displayRecommendations(recommendations: RefactoringRecommendation[]): void {
+  if (recommendations.length === 0) return;
   
-  // Summary
+  console.log(`\n${chalk.blue.bold('💡 Top Recommendations:')}`);
+  
+  const topRecommendations = recommendations.slice(0, 3);
+  topRecommendations.forEach((rec, index) => {
+    const priorityDisplay = getPriorityDisplay(rec.priority);
+    console.log(`   ${index + 1}. ${priorityDisplay} ${formatPatternName(rec.pattern)}`);
+    console.log(`      ${chalk.gray(rec.reasoning)}`);
+    console.log(`      Effort: ${chalk.yellow(rec.estimatedEffort)}h, Benefit: ${chalk.green(rec.expectedBenefit)}`);
+  });
+}
+
+function displayNextSteps(summary: ProjectRefactoringSummary, outputPath?: string): void {
   if (summary.opportunitiesFound === 0) {
     console.log(`\n${chalk.green('✅ No major refactoring opportunities found. Code quality looks good!')}`);
   } else {
@@ -310,16 +331,14 @@ function displayAnalysisReport(
       console.log(`   • Full report saved to: ${chalk.yellow(outputPath)}`);
     }
   }
-  
-  console.log(); // Extra line for spacing
 }
 
 // ========================================
 // HELPER FUNCTIONS
 // ========================================
 
-function groupOpportunitiesByPattern(opportunities: Array<{ pattern: RefactoringPattern; severity: string; impactScore: number; functionId: string; metadata: Record<string, unknown> }>): Record<string, typeof opportunities> {
-  const groups: Record<string, typeof opportunities> = {};
+function groupOpportunitiesByPattern(opportunities: OpportunityInfo): Record<string, OpportunityInfo> {
+  const groups: Record<string, OpportunityInfo> = {};
   
   for (const opp of opportunities) {
     const pattern = opp.pattern;
