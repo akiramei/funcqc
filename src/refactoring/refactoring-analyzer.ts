@@ -166,13 +166,17 @@ export class RefactoringAnalyzer {
     return {
       id: uuidv4(),
       pattern,
-      functionId: func.id,
+      function_id: func.id,
       severity: detection.severity,
-      impactScore: detection.impactScore,
-      detectedAt: Date.now(),
+      impact_score: detection.impactScore,
+      description: detection.description || 'Refactoring opportunity detected',
+      suggested_actions: detection.suggestedActions || [],
       metadata: detection.metadata,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      created_at: new Date(),
+      updated_at: new Date(),
+      // Computed properties for compatibility
+      functionId: func.id,
+      impactScore: detection.impactScore
     };
   }
 
@@ -617,6 +621,8 @@ export interface PatternDetection {
   isCandidate: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
   impactScore: number;
+  description?: string;
+  suggestedActions?: string[];
   metadata: Record<string, unknown>;
 }
 
