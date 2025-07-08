@@ -1,7 +1,8 @@
 import { 
   RefactoringSession, 
   SessionFunction, 
-  RefactoringPattern
+  RefactoringPattern,
+  RefactoringOpportunity
 } from '../types/index.js';
 import * as crypto from 'crypto';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter.js';
@@ -329,5 +330,53 @@ export class SessionManager {
         WHERE id = $3
       `, [sessionId, new Date(), opportunityId]);
     }
+  }
+
+  /**
+   * List all sessions
+   */
+  async listSessions(): Promise<RefactoringSession[]> {
+    const db = this.storage.getDb();
+    
+    const result = await db.query(`
+      SELECT * FROM refactoring_sessions 
+      ORDER BY created_at DESC
+    `);
+    
+    return result.rows.map((row: Record<string, unknown>) => {
+      let metadata = row['metadata'];
+      if (typeof metadata === 'string') {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (error) {
+          console.warn(`Invalid JSON in session metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          metadata = {};
+        }
+      }
+      return {
+        ...row,
+        metadata
+      };
+    }) as RefactoringSession[];
+  }
+
+  /**
+   * Get opportunities for a session
+   */
+  async getSessionOpportunities(sessionId: string): Promise<RefactoringOpportunity[]> {
+    const db = this.storage.getDb();
+    
+    const result = await db.query(`
+      SELECT * FROM refactoring_opportunities 
+      WHERE session_id = $1
+      ORDER BY impact_score DESC
+    `, [sessionId]);
+    
+    return result.rows.map((row: Record<string, unknown>) => ({
+      ...row,
+      metadata: typeof row['metadata'] === 'string' 
+        ? JSON.parse(row['metadata']) 
+        : row['metadata']
+    })) as RefactoringOpportunity[];
   }
 }

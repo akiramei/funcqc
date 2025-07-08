@@ -934,13 +934,6 @@ export interface RefactorAnalyzeOptions extends CommandOptions {
 
 
 
-export interface RefactorInteractiveOptions extends CommandOptions {
-  pattern?: RefactoringPattern;
-  function?: string;
-  aiAssistance?: boolean;
-  model?: string;
-  workflow?: string; // path to custom workflow file
-}
 
 // Phase 3 Week 2: Detection and Tracking Options
 export interface RefactorDetectOptions extends CommandOptions {
@@ -966,5 +959,34 @@ export interface RefactorTrackOptions extends CommandOptions {
   interactive?: boolean;
   summary?: string;
   reason?: string;
+}
+
+// Phase 3 Week 3: Interactive and Polish Options
+export interface RefactorInteractiveOptions extends CommandOptions {
+  session?: string;
+  pattern?: string;
+  complexityThreshold?: string;
+  sizeThreshold?: string;
+  limit?: string;
+}
+
+export interface RefactorStatusOptions extends CommandOptions {
+  session?: string;
+  allSessions?: boolean;
+  complexityThreshold?: string;
+  sizeThreshold?: string;
+  json?: boolean;
+  detailed?: boolean;
+}
+
+export interface RefactorPlanOptions extends CommandOptions {
+  session?: string;
+  pattern?: string;
+  complexityThreshold?: string;
+  sizeThreshold?: string;
+  output?: string;
+  format?: string;
+  timeline?: string;
+  effort?: string;
 }
 
