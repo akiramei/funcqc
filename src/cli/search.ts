@@ -3,10 +3,78 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from '../core/config';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { SearchCommandOptions, FunctionInfo } from '../types';
+import { SearchCommandOptions, FunctionInfo, FuncqcConfig } from '../types';
 import { LocalSimilarityService } from '../services/local-similarity-service';
 import { SimilarityManager } from '../similarity/similarity-manager';
 import path from 'path';
+
+/**
+ * Initialize storage with configuration
+ */
+async function initializeStorage(config: FuncqcConfig): Promise<PGLiteStorageAdapter> {
+  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+  await storage.init();
+  return storage;
+}
+
+/**
+ * Perform search based on options
+ */
+async function performSearch(
+  storage: PGLiteStorageAdapter,
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): Promise<FunctionInfo[]> {
+  if (options.semantic || options.hybrid) {
+    return await performSemanticSearch(storage, keyword, options, logger);
+  } else {
+    return await storage.searchFunctionsByDescription(keyword, {
+      limit: options.limit ? parseInt(options.limit, 10) : 50
+    });
+  }
+}
+
+/**
+ * Handle empty search results with helpful suggestions
+ */
+async function handleEmptyResults(
+  storage: PGLiteStorageAdapter,
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): Promise<void> {
+  logger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
+  
+  const stats = await storage.getEmbeddingStats();
+  
+  if (stats.total === 0) {
+    logger.info(chalk.gray(`💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`));
+  } else {
+    const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
+    logger.info(chalk.gray(`💡 No results for ${searchType} search. Try different keywords or: ${chalk.cyan('funcqc list --name "*pattern*"')}`));
+    if (options.semantic || options.hybrid) {
+      logger.info(chalk.gray(`💡 Local semantic search uses TF-IDF and n-gram matching. Try broader terms or reduce --threshold.`));
+    }
+  }
+}
+
+/**
+ * Handle search results output
+ */
+function handleSearchResults(
+  functions: FunctionInfo[],
+  keyword: string,
+  options: SearchCommandOptions,
+  logger: Logger
+): void {
+  if (options.json) {
+    console.log(JSON.stringify(functions, null, 2));
+    return;
+  }
+
+  displaySearchResults(functions, keyword, logger, options);
+}
 
 export async function searchCommand(
   keyword: string,
@@ -16,58 +84,19 @@ export async function searchCommand(
   const errorHandler = createErrorHandler(logger);
 
   try {
-    // Load configuration
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
-    // Initialize storage
-    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-    await storage.init();
+    const storage = await initializeStorage(config);
 
     try {
-      let functions: FunctionInfo[];
-      
-      // Determine search strategy based on options
-      if (options.semantic || options.hybrid) {
-        functions = await performSemanticSearch(storage, keyword, options, logger);
-      } else {
-        // Perform keyword search
-        functions = await storage.searchFunctionsByDescription(keyword, {
-          limit: options.limit ? parseInt(options.limit, 10) : 50
-        });
-      }
+      const functions = await performSearch(storage, keyword, options, logger);
 
       if (functions.length === 0) {
-        logger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
-        
-        // Check if function descriptions exist
-        const configManager = new ConfigManager();
-        const statsConfig = await configManager.load();
-        const statsStorage = new PGLiteStorageAdapter(statsConfig.storage.path || '.funcqc/funcqc.db');
-        await statsStorage.init();
-        const stats = await statsStorage.getEmbeddingStats();
-        await statsStorage.close();
-        
-        if (stats.total === 0) {
-          logger.info(chalk.gray(`💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`));
-        } else {
-          const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
-          logger.info(chalk.gray(`💡 No results for ${searchType} search. Try different keywords or: ${chalk.cyan('funcqc list --name "*pattern*"')}`));
-          if (options.semantic || options.hybrid) {
-            logger.info(chalk.gray(`💡 Local semantic search uses TF-IDF and n-gram matching. Try broader terms or reduce --threshold.`));
-          }
-        }
-        
+        await handleEmptyResults(storage, keyword, options, logger);
         return;
       }
 
-      if (options.json) {
-        console.log(JSON.stringify(functions, null, 2));
-        return;
-      }
-
-      // Display results in formatted output
-      displaySearchResults(functions, keyword, logger, options);
+      handleSearchResults(functions, keyword, options, logger);
 
     } finally {
       await storage.close();

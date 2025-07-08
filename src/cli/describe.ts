@@ -312,18 +312,17 @@ function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern:
   logger.info(`  funcqc describe ${functions[0].id} --text "Your description"`);
 }
 
-async function saveDescription(
-  context: DescribeContext,
+/**
+ * Validate source guard and show resolution instructions
+ */
+function handleSourceGuardValidation(
+  existingDescription: FunctionDescription | null,
+  newSource: 'human' | 'ai' | 'jsdoc',
   targetFunction: FunctionInfo,
-  text: string | undefined
-): Promise<void> {
-  const { storage, logger, options } = context;
-  
-  // Check for existing description and validate source guard
-  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
-  const newSource = options.source || 'human';
-  
-  if (existingDescription && !options.force) {
+  logger: Logger,
+  force: boolean
+): void {
+  if (existingDescription && !force) {
     const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
     if (sourceGuardWarning) {
       logger.warn(chalk.yellow(`⚠️  ${sourceGuardWarning}`));
@@ -337,11 +336,19 @@ async function saveDescription(
       process.exit(1);
     }
   }
+}
+
+/**
+ * Create function description object from options
+ */
+function buildFunctionDescription(
+  targetFunction: FunctionInfo,
+  descriptionText: string,
+  options: DescribeCommandOptions
+): FunctionDescription {
+  const newSource = options.source || 'human';
   
-  // If we're updating structured fields but not the main description, keep the existing description
-  const descriptionText = text || existingDescription?.description || '';
-  
-  const description = createFunctionDescription(
+  return createFunctionDescription(
     targetFunction.semanticId,
     descriptionText,
     {
@@ -355,25 +362,60 @@ async function saveDescription(
       errorConditions: options.errorConditions
     }
   );
+}
 
-  await storage.saveFunctionDescription(description);
-  
+/**
+ * Display save confirmation with description details
+ */
+function displaySaveConfirmation(
+  targetFunction: FunctionInfo,
+  description: FunctionDescription,
+  text: string | undefined,
+  options: DescribeCommandOptions,
+  logger: Logger
+): void {
   logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
   logger.info(`  Function ID: ${targetFunction.id}`);
   logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
+  
   if (text) {
     logger.info(`  Description: ${text}`);
   }
+  
+  const truncateText = (text: string): string => 
+    text.length > 80 ? `${text.substring(0, 80)}...` : text;
+  
   if (options.usageExample) {
-    logger.info(`  Usage Example: ${options.usageExample.substring(0, 80)}${options.usageExample.length > 80 ? '...' : ''}`);
+    logger.info(`  Usage Example: ${truncateText(options.usageExample)}`);
   }
   if (options.sideEffects) {
-    logger.info(`  Side Effects: ${options.sideEffects.substring(0, 80)}${options.sideEffects.length > 80 ? '...' : ''}`);
+    logger.info(`  Side Effects: ${truncateText(options.sideEffects)}`);
   }
   if (options.errorConditions) {
-    logger.info(`  Error Conditions: ${options.errorConditions.substring(0, 80)}${options.errorConditions.length > 80 ? '...' : ''}`);
+    logger.info(`  Error Conditions: ${truncateText(options.errorConditions)}`);
   }
+  
   logger.info(`  Source: ${description.source}`);
+}
+
+async function saveDescription(
+  context: DescribeContext,
+  targetFunction: FunctionInfo,
+  text: string | undefined
+): Promise<void> {
+  const { storage, logger, options } = context;
+  
+  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
+  const newSource = options.source || 'human';
+  
+  handleSourceGuardValidation(existingDescription, newSource, targetFunction, logger, options.force || false);
+  
+  const descriptionText = text || existingDescription?.description || '';
+  const description = buildFunctionDescription(targetFunction, descriptionText, options);
+
+  await storage.saveFunctionDescription(description);
+  
+  displaySaveConfirmation(targetFunction, description, text, options, logger);
 }
 
 async function showExistingDescription(

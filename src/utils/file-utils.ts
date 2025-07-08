@@ -364,7 +364,7 @@ function parseExactCondition(condition: string) {
 export async function calculateFileHash(filePath: string): Promise<string> {
   try {
     const content = await fs.readFile(filePath);
-    return crypto.createHash('md5').update(content).digest('hex');
+    return crypto.createHash('sha256').update(content).digest('hex');
   } catch (error) {
     throw new Error(`Failed to calculate hash for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
   }
