@@ -1,5 +1,4 @@
 import { FunctionChange, FunctionInfo, QualityMetrics } from '../../types/index.js';
-import { Logger } from '../../utils/logger.js';
 
 export interface ChangeSignificance {
   score: number;          // 0-100 significance score
@@ -20,6 +19,13 @@ export interface ChangeDetectorConfig {
   complexityWeight: number;          // Default: 0.4
   depthWeight: number;               // Default: 0.2
   parameterWeight: number;           // Default: 0.1
+  
+  // Minimum score to suggest lineage tracking
+  minScoreForLineage?: number;        // Default: 50
+  
+  // Enable/disable specific detectors
+  enableRefactoringPatterns?: boolean; // Default: true
+  enableFunctionSplitDetection?: boolean; // Default: true
 }
 
 export const DEFAULT_CHANGE_DETECTOR_CONFIG: ChangeDetectorConfig = {
@@ -31,12 +37,14 @@ export const DEFAULT_CHANGE_DETECTOR_CONFIG: ChangeDetectorConfig = {
   complexityWeight: 0.4,
   depthWeight: 0.2,
   parameterWeight: 0.1,
+  minScoreForLineage: 50,
+  enableRefactoringPatterns: true,
+  enableFunctionSplitDetection: true,
 };
 
 export class ChangeSignificanceDetector {
   constructor(
-    private readonly config: ChangeDetectorConfig = DEFAULT_CHANGE_DETECTOR_CONFIG,
-    private readonly logger?: Logger
+    private readonly config: ChangeDetectorConfig = DEFAULT_CHANGE_DETECTOR_CONFIG
   ) {}
 
   /**
@@ -178,8 +186,8 @@ export class ChangeSignificanceDetector {
     before: QualityMetrics,
     after: QualityMetrics
   ): { significant: boolean; score: number; reason: string } {
-    const depthBefore = before.maxNestingDepth;
-    const depthAfter = after.maxNestingDepth;
+    const depthBefore = before.maxNestingLevel;
+    const depthAfter = after.maxNestingLevel;
     
     const absoluteChange = Math.abs(depthAfter - depthBefore);
     const significant = absoluteChange >= this.config.depthChangeThreshold;

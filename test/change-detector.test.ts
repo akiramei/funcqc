@@ -31,12 +31,15 @@ describe('ChangeSignificanceDetector', () => {
       parameterCount: paramCount,
       branchCount: 0,
       loopCount: 0,
-      returnCount: 1,
-      maxNestingDepth: 0,
-      localVariableCount: 0,
+      returnStatementCount: 1,
+      maxNestingLevel: 0,
+      tryCatchCount: 0,
+      asyncAwaitCount: 0,
+      callbackCount: 0,
+      commentLines: 0,
+      codeToCommentRatio: 0,
       halsteadVolume: 50,
       halsteadDifficulty: 5,
-      halsteadEffort: 250,
       maintainabilityIndex: 80,
       ...metrics
     } as QualityMetrics
@@ -79,8 +82,8 @@ describe('ChangeSignificanceDetector', () => {
       const detector = new ChangeSignificanceDetector();
       
       const change: FunctionChange = {
-        before: createMockFunction('test', { maxNestingDepth: 1 }),
-        after: createMockFunction('test', { maxNestingDepth: 4 }),
+        before: createMockFunction('test', { maxNestingLevel: 1 }),
+        after: createMockFunction('test', { maxNestingLevel: 4 }),
         changes: []
       };
       

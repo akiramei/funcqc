@@ -606,7 +606,7 @@ async function processModifiedFunctions(
     changeDetectorConfig.minScoreForLineage = options.changeDetectionMinScore;
   }
   
-  const changeDetector = new ChangeSignificanceDetector(changeDetectorConfig, logger);
+  const changeDetector = new ChangeSignificanceDetector(changeDetectorConfig);
   const candidates: LineageCandidate[] = [];
   
   // Process significant modifications
