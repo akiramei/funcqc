@@ -817,3 +817,142 @@ export interface SearchCommandOptions extends CommandOptions {
   intermediate?: boolean;          // Output intermediate results for AI analysis
 }
 
+// ========================================
+// PHASE 3: REFACTORING WORKFLOW TYPES
+// ========================================
+
+// Refactoring session management
+export interface RefactoringSession {
+  id: string;
+  description: string;
+  startTime: number;
+  endTime?: number;
+  gitBranch?: string;
+  initialCommit?: string;
+  finalCommit?: string;
+  status: 'active' | 'completed' | 'cancelled';
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SessionFunction {
+  sessionId: string;
+  functionId: string;
+  trackedAt: number;
+  role: 'source' | 'target' | 'intermediate';
+  metadata: Record<string, unknown>;
+}
+
+// Refactoring opportunity detection
+export interface RefactoringOpportunity {
+  id: string;
+  pattern: RefactoringPattern;
+  functionId: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  impactScore: number; // 0-100
+  detectedAt: number;
+  resolvedAt?: number;
+  sessionId?: string;
+  metadata: Record<string, unknown>;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export enum RefactoringPattern {
+  ExtractMethod = 'extract-method',
+  SplitFunction = 'split-function',
+  ReduceParameters = 'reduce-parameters',
+  ExtractClass = 'extract-class',
+  InlineFunction = 'inline-function',
+  RenameFunction = 'rename-function'
+}
+
+// Analysis and planning types
+export interface RefactoringReport {
+  projectSummary: ProjectRefactoringSummary;
+  opportunities: RefactoringOpportunity[];
+  hotSpots: QualityHotSpot[];
+  trends: RefactoringTrend[];
+  recommendations: RefactoringRecommendation[];
+}
+
+export interface ProjectRefactoringSummary {
+  totalFunctions: number;
+  analyzedFunctions: number;
+  opportunitiesFound: number;
+  estimatedEffort: number; // hours
+  riskLevel: 'low' | 'medium' | 'high';
+  priorityAreas: string[];
+}
+
+export interface QualityHotSpot {
+  functionId: string;
+  functionName: string;
+  filePath: string;
+  issues: QualityIssue[];
+  complexity: number;
+  changeFrequency: number;
+  riskScore: number;
+}
+
+export interface QualityIssue {
+  type: 'complexity' | 'size' | 'coupling' | 'duplication';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  description: string;
+  suggestedActions: string[];
+}
+
+export interface RefactoringTrend {
+  timeRange: string;
+  complexityChange: number;
+  qualityScore: number;
+  refactoringActivity: number;
+}
+
+export interface RefactoringRecommendation {
+  priority: 'high' | 'medium' | 'low';
+  pattern: RefactoringPattern;
+  targets: string[]; // function IDs
+  reasoning: string;
+  estimatedEffort: number;
+  expectedBenefit: string;
+}
+
+// CLI command options for refactoring
+export interface RefactorAnalyzeOptions extends CommandOptions {
+  complexityThreshold?: number;
+  sizeThreshold?: number;
+  since?: string;
+  compareWith?: string;
+  output?: string;
+  format?: 'summary' | 'detailed' | 'json';
+  patterns?: string;
+}
+
+export interface RefactorDetectOptions extends CommandOptions {
+  patterns?: string; // comma-separated list
+  file?: string;
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  minImpact?: number;
+}
+
+export interface RefactorTrackOptions extends CommandOptions {
+  start?: boolean;
+  complete?: boolean;
+  description?: string;
+  functions?: string; // comma-separated list
+  session?: string;
+  autoLineage?: boolean;
+  history?: boolean;
+  format?: 'timeline' | 'summary' | 'detailed';
+}
+
+export interface RefactorInteractiveOptions extends CommandOptions {
+  pattern?: RefactoringPattern;
+  function?: string;
+  aiAssistance?: boolean;
+  model?: string;
+  workflow?: string; // path to custom workflow file
+}
+
