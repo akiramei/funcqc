@@ -166,6 +166,8 @@ program
   .option('--lineage-threshold <value>', 'similarity threshold for lineage detection (0-1)', '0.7')
   .option('--lineage-detectors <list>', 'comma-separated list of similarity detectors')
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
+  .option('--no-change-detection', 'disable smart change detection for modified functions')
+  .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
   .action(diffCommand)
   .addHelpText('after', `
 Examples:
@@ -186,6 +188,15 @@ Examples:
   
   # Use specific detectors for lineage
   $ funcqc diff v1 v2 --lineage --lineage-detectors "advanced-structural,hash-duplicate"
+  
+  # Smart change detection (enabled by default)
+  $ funcqc diff HEAD~1 HEAD --lineage
+  
+  # Adjust change detection sensitivity
+  $ funcqc diff main feature --lineage --change-detection-min-score 70
+  
+  # Disable smart change detection
+  $ funcqc diff v1 v2 --lineage --no-change-detection
 `);
 
 

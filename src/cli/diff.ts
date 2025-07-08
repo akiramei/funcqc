@@ -10,6 +10,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import * as fs from 'fs';
 import * as path from 'path';
+import { ChangeSignificanceDetector, ChangeDetectorConfig, DEFAULT_CHANGE_DETECTOR_CONFIG } from './diff/changeDetector';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -22,6 +23,8 @@ export interface DiffCommandOptions extends CommandOptions {
   lineageThreshold?: string;
   lineageDetectors?: string;
   lineageAutoSave?: boolean;
+  disableChangeDetection?: boolean;  // Disable smart change detection
+  changeDetectionMinScore?: number;  // Override minimum score for lineage suggestion
 }
 
 export async function diffCommand(
@@ -512,24 +515,57 @@ async function detectLineageCandidates(
   options: DiffCommandOptions,
   logger: Logger
 ): Promise<LineageCandidate[]> {
-  if (diff.removed.length === 0) {
-    return [];
-  }
-
-  logger.info('Detecting lineage candidates for removed functions...');
-  
+  const candidates: LineageCandidate[] = [];
   const validationResult = validateLineageOptions(options, logger);
+  
   if (!validationResult.isValid) {
     return [];
   }
 
   const similarityManager = new SimilarityManager(undefined, storage);
   const allFunctions = [...diff.added, ...diff.modified.map(m => m.after), ...diff.unchanged];
-  const candidates: LineageCandidate[] = [];
+  
+  // 1. Process removed functions (existing logic)
+  const removedCandidates = await processRemovedFunctions(
+    diff.removed, 
+    allFunctions, 
+    similarityManager, 
+    validationResult, 
+    options, 
+    logger
+  );
+  candidates.push(...removedCandidates);
+  
+  // 2. Process significantly modified functions (new Phase 2 logic)
+  const modifiedCandidates = await processModifiedFunctions(
+    diff, 
+    options, 
+    logger
+  );
+  candidates.push(...modifiedCandidates);
 
-  for (const removedFunc of diff.removed) {
+  const deduplicatedCandidates = deduplicateCandidates(candidates);
+  return deduplicatedCandidates.sort((a, b) => b.confidence - a.confidence);
+}
+
+async function processRemovedFunctions(
+  removedFunctions: FunctionInfo[],
+  allFunctions: FunctionInfo[],
+  similarityManager: SimilarityManager,
+  validationResult: ValidationResult,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  if (removedFunctions.length === 0) {
+    return [];
+  }
+
+  logger.info('Detecting lineage candidates for removed functions...');
+  const candidates: LineageCandidate[] = [];
+  
+  for (const removedFunc of removedFunctions) {
     if (options.verbose) {
-      logger.info(`Analyzing lineage for: ${removedFunc.name}`);
+      logger.info(`Analyzing lineage for removed: ${removedFunc.name}`);
     }
 
     const functionCandidates = await processSingleFunction(
@@ -542,9 +578,132 @@ async function detectLineageCandidates(
 
     candidates.push(...functionCandidates);
   }
+  
+  return candidates;
+}
 
-  const deduplicatedCandidates = deduplicateCandidates(candidates);
-  return deduplicatedCandidates.sort((a, b) => b.confidence - a.confidence);
+async function processModifiedFunctions(
+  diff: SnapshotDiff,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  if (diff.modified.length === 0 || options.disableChangeDetection) {
+    return [];
+  }
+
+  logger.info('Analyzing significantly modified functions...');
+  
+  // Load change detection config
+  const configManager = new ConfigManager();
+  const config = await configManager.load();
+  const changeDetectorConfig: ChangeDetectorConfig = {
+    ...DEFAULT_CHANGE_DETECTOR_CONFIG,
+    ...config.changeDetection
+  };
+  
+  // Override min score if provided
+  if (options.changeDetectionMinScore !== undefined) {
+    changeDetectorConfig.minScoreForLineage = options.changeDetectionMinScore;
+  }
+  
+  const changeDetector = new ChangeSignificanceDetector(changeDetectorConfig);
+  const candidates: LineageCandidate[] = [];
+  
+  // Process significant modifications
+  const modificationCandidates = await processSignificantModifications(
+    diff.modified, 
+    changeDetector, 
+    changeDetectorConfig, 
+    options, 
+    logger
+  );
+  candidates.push(...modificationCandidates);
+  
+  // Process function splits
+  const splitCandidates = await processFunctionSplits(
+    diff.removed, 
+    diff.added, 
+    changeDetector, 
+    changeDetectorConfig, 
+    options, 
+    logger
+  );
+  candidates.push(...splitCandidates);
+  
+  return candidates;
+}
+
+async function processSignificantModifications(
+  modifiedFunctions: FunctionChange[],
+  changeDetector: ChangeSignificanceDetector,
+  config: ChangeDetectorConfig,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  const minScore = config.minScoreForLineage ?? 50;
+  const significantChanges = changeDetector.filterSignificantChanges(modifiedFunctions, minScore);
+  
+  if (significantChanges.length === 0) {
+    return [];
+  }
+
+  logger.info(`Found ${significantChanges.length} significantly modified functions`);
+  const candidates: LineageCandidate[] = [];
+  
+  for (const { change, significance } of significantChanges) {
+    if (options.verbose) {
+      logger.info(`Analyzing lineage for modified: ${change.before.name} (score: ${significance.score})`);
+      logger.info(`  Reasons: ${significance.reasons.join('; ')}`);
+    }
+    
+    const candidate: LineageCandidate = {
+      fromFunction: change.before,
+      toFunctions: [change.after],
+      kind: 'signature-change',
+      confidence: significance.score / 100,
+      reason: `Significant modification detected: ${significance.reasons.join('; ')}`
+    };
+    
+    candidates.push(candidate);
+  }
+  
+  return candidates;
+}
+
+async function processFunctionSplits(
+  removedFunctions: FunctionInfo[],
+  addedFunctions: FunctionInfo[],
+  changeDetector: ChangeSignificanceDetector,
+  config: ChangeDetectorConfig,
+  options: DiffCommandOptions,
+  logger: Logger
+): Promise<LineageCandidate[]> {
+  if (config.enableFunctionSplitDetection === false || 
+      removedFunctions.length === 0 || 
+      addedFunctions.length < 2) {
+    return [];
+  }
+
+  const splits = changeDetector.detectFunctionSplits(removedFunctions, addedFunctions);
+  const candidates: LineageCandidate[] = [];
+  
+  for (const split of splits) {
+    if (options.verbose) {
+      logger.info(`Detected potential function split: ${split.original.name} → ${split.candidates.map(c => c.name).join(', ')}`);
+    }
+    
+    const candidate: LineageCandidate = {
+      fromFunction: split.original,
+      toFunctions: split.candidates,
+      kind: 'split',
+      confidence: split.confidence,
+      reason: `Function likely split into ${split.candidates.length} functions`
+    };
+    
+    candidates.push(candidate);
+  }
+  
+  return candidates;
 }
 
 interface ValidationResult {
