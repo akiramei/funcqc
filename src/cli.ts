@@ -19,6 +19,9 @@ import { createEvaluateCommand } from './cli/evaluate';
 import { refactorAnalyzeCommand } from './cli/refactor/analyze.js';
 import { refactorDetectCommand } from './cli/refactor/detect.js';
 import { refactorTrackCommand } from './cli/refactor/track.js';
+import { refactorInteractiveCommand } from './cli/refactor/interactive.js';
+import { refactorStatusCommand } from './cli/refactor/status.js';
+import { refactorPlanCommand } from './cli/refactor/plan.js';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
@@ -459,6 +462,15 @@ refactorCommand.addCommand(refactorDetectCommand);
 
 // Add track subcommand
 refactorCommand.addCommand(refactorTrackCommand);
+
+// Add interactive subcommand (Phase 3 Week 3)
+refactorCommand.addCommand(refactorInteractiveCommand);
+
+// Add status subcommand (Phase 3 Week 3)
+refactorCommand.addCommand(refactorStatusCommand);
+
+// Add plan subcommand (Phase 3 Week 3)
+refactorCommand.addCommand(refactorPlanCommand);
 
 // Handle unknown commands
 program.on('command:*', () => {
