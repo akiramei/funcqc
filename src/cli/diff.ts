@@ -99,10 +99,16 @@ async function resolveSnapshotId(storage: PGLiteStorageAdapter, identifier: stri
   const exact = await storage.getSnapshot(identifier);
   if (exact) return identifier;
 
-  // Try partial ID match
+  // Try partial ID match with collision detection
   const snapshots = await storage.getSnapshots();
-  const partial = snapshots.find(s => s.id.startsWith(identifier));
-  if (partial) return partial.id;
+  const partialMatches = snapshots.filter(s => s.id.startsWith(identifier));
+  
+  if (partialMatches.length === 1) {
+    return partialMatches[0].id;
+  } else if (partialMatches.length > 1) {
+    const matchList = partialMatches.map(s => s.id.substring(0, 8)).join(', ');
+    throw new Error(`Ambiguous snapshot ID '${identifier}' matches ${partialMatches.length} snapshots: ${matchList}. Please provide more characters.`);
+  }
 
   // Try label match
   const labeled = snapshots.find(s => s.label === identifier);

@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
 import { 
@@ -2464,7 +2465,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private generateSnapshotId(): string {
-    return `snap_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return uuidv4();
   }
 
   private async createSnapshotRecord(
