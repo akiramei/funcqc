@@ -705,12 +705,21 @@ async function validateSourceIntegrity(func: FunctionInfo): Promise<boolean> {
       return false;
     }
     
+    // Explicitly check if fileHash is null or undefined (no hash set)
+    if (func.fileHash === null || func.fileHash === undefined) {
+      // No hash available for comparison, cannot validate integrity
+      return false;
+    }
+    
     // Calculate current file hash
     const currentHash = await calculateFileHash(func.filePath);
     
     // Compare with stored hash
     return currentHash === func.fileHash;
-  } catch {
+  } catch (error) {
+    // Log debug information for troubleshooting
+    console.debug(`Failed to validate source integrity for ${func.filePath}:`, 
+      error instanceof Error ? error.message : String(error));
     // If we can't calculate hash, assume file is modified
     return false;
   }
