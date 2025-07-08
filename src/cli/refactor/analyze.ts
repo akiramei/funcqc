@@ -20,7 +20,11 @@ export async function refactorAnalyzeCommand(options: RefactorAnalyzeOptions): P
     const configManager = new ConfigManager();
     const config = await configManager.load();
     
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
+    if (!config.storage.path) {
+        throw new Error('Storage path is not configured. Please run "funcqc init" to initialize configuration.');
+    }
+    
+    const storage = new PGLiteStorageAdapter(config.storage.path);
     await storage.init();
 
     const analyzer = new RefactoringAnalyzer(storage);
