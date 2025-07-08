@@ -17,6 +17,8 @@ import { lineageListCommand, lineageShowCommand, lineageReviewCommand } from './
 import { createVectorizeCommand } from './cli/vectorize';
 import { createEvaluateCommand } from './cli/evaluate';
 import { refactorAnalyzeCommand } from './cli/refactor/analyze.js';
+import { refactorDetectCommand } from './cli/refactor/detect.js';
+import { refactorTrackCommand } from './cli/refactor/track.js';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
@@ -417,21 +419,23 @@ Available Concepts:
 `);
 
 // Add refactor command
-program
+const refactorCommand = program
   .command('refactor')
-  .description('Refactoring workflow and analysis tools')
-  .addCommand(
-    new Command('analyze')
-      .description('Analyze project for refactoring opportunities')
-      .option('--complexity-threshold <num>', 'complexity threshold for analysis', '15')
-      .option('--size-threshold <num>', 'size threshold for analysis', '50')
-      .option('--since <ref>', 'analyze changes since git reference')
-      .option('--compare-with <ref>', 'compare with specific git reference')
-      .option('--output <file>', 'save report to file')
-      .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
-      .option('--patterns <list>', 'comma-separated list of patterns to detect')
-      .action(refactorAnalyzeCommand)
-      .addHelpText('after', `
+  .description('Refactoring workflow and analysis tools');
+
+// Add analyze subcommand
+refactorCommand.addCommand(
+  new Command('analyze')
+    .description('Analyze project for refactoring opportunities')
+    .option('--complexity-threshold <num>', 'complexity threshold for analysis', '15')
+    .option('--size-threshold <num>', 'size threshold for analysis', '50')
+    .option('--since <ref>', 'analyze changes since git reference')
+    .option('--compare-with <ref>', 'compare with specific git reference')
+    .option('--output <file>', 'save report to file')
+    .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
+    .option('--patterns <list>', 'comma-separated list of patterns to detect')
+    .action(refactorAnalyzeCommand)
+    .addHelpText('after', `
 Examples:
   $ funcqc refactor analyze                           # Basic project analysis
   $ funcqc refactor analyze --complexity-threshold 10 # Focus on complex functions
@@ -448,7 +452,13 @@ Supported Patterns:
   inline-function    - Trivial functions adding complexity
   rename-function    - Functions with unclear names
 `)
-  );
+);
+
+// Add detect subcommand
+refactorCommand.addCommand(refactorDetectCommand);
+
+// Add track subcommand
+refactorCommand.addCommand(refactorTrackCommand);
 
 // Handle unknown commands
 program.on('command:*', () => {

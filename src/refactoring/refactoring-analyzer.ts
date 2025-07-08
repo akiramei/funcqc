@@ -83,16 +83,16 @@ export class RefactoringAnalyzer {
       }
     }
 
-    return opportunities.sort((a, b) => b.impactScore - a.impactScore);
+    return opportunities.sort((a, b) => b.impact_score - a.impact_score);
   }
 
   /**
    * Assesses the impact of implementing a specific refactoring opportunity
    */
   async assessImpact(opportunity: RefactoringOpportunity): Promise<ImpactAssessment> {
-    const func = await this.storage.getFunction(opportunity.functionId);
+    const func = await this.storage.getFunction(opportunity.function_id);
     if (!func) {
-      throw new Error(`Function not found: ${opportunity.functionId}`);
+      throw new Error(`Function not found: ${opportunity.function_id}`);
     }
 
     const riskAnalysis = this.assessRefactoringRisk(func, opportunity.pattern);
@@ -166,13 +166,14 @@ export class RefactoringAnalyzer {
     return {
       id: uuidv4(),
       pattern,
-      functionId: func.id,
+      function_id: func.id,
       severity: detection.severity,
-      impactScore: detection.impactScore,
-      detectedAt: Date.now(),
+      impact_score: detection.impactScore,
+      description: detection.description || 'Refactoring opportunity detected',
+      suggested_actions: detection.suggestedActions || [],
       metadata: detection.metadata,
-      createdAt: new Date(),
-      updatedAt: new Date()
+      created_at: new Date(),
+      updated_at: new Date()
     };
   }
 
@@ -344,14 +345,14 @@ export class RefactoringAnalyzer {
     const recommendations: RefactoringRecommendation[] = [];
     
     // High-impact opportunities become high-priority recommendations
-    const highImpactOpportunities = opportunities.filter(o => o.impactScore >= 70);
+    const highImpactOpportunities = opportunities.filter(o => o.impact_score >= 70);
     
     for (const opportunity of highImpactOpportunities) {
       recommendations.push({
         priority: 'high',
         pattern: opportunity.pattern,
-        targets: [opportunity.functionId],
-        reasoning: `High impact score (${opportunity.impactScore}) with ${opportunity.severity} severity`,
+        targets: [opportunity.function_id],
+        reasoning: `High impact score (${opportunity.impact_score}) with ${opportunity.severity} severity`,
         estimatedEffort: this.estimateEffortForPattern(opportunity.pattern),
         expectedBenefit: this.describeBenefitForPattern(opportunity.pattern)
       });
@@ -395,7 +396,7 @@ export class RefactoringAnalyzer {
       if (severityDiff !== 0) return severityDiff;
       
       // Secondary sort: impact score
-      return b.impactScore - a.impactScore;
+      return b.impact_score - a.impact_score;
     });
   }
 
@@ -617,6 +618,8 @@ export interface PatternDetection {
   isCandidate: boolean;
   severity: 'low' | 'medium' | 'high' | 'critical';
   impactScore: number;
+  description?: string;
+  suggestedActions?: string[];
   metadata: Record<string, unknown>;
 }
 

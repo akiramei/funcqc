@@ -52,6 +52,7 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "0.1.5",
+    "@inquirer/prompts": "^7.6.0",
     "@types/minimatch": "^5.1.2",
     "chalk": "^5.3.0",
     "commander": "^11.1.0",

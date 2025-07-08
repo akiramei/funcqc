@@ -824,39 +824,41 @@ export interface SearchCommandOptions extends CommandOptions {
 // Refactoring session management
 export interface RefactoringSession {
   id: string;
+  name: string;
   description: string;
-  startTime: number;
-  endTime?: number;
-  gitBranch?: string;
-  initialCommit?: string;
-  finalCommit?: string;
   status: 'active' | 'completed' | 'cancelled';
+  target_branch: string;
+  start_time: number;
+  end_time?: number;
   metadata: Record<string, unknown>;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export interface SessionFunction {
-  sessionId: string;
-  functionId: string;
-  trackedAt: number;
-  role: 'source' | 'target' | 'intermediate';
+  session_id: string;
+  function_id: string;
+  role: 'primary' | 'related';
+  status: 'pending' | 'in_progress' | 'completed' | 'skipped';
   metadata: Record<string, unknown>;
+  created_at: Date;
+  updated_at?: Date;
 }
 
 // Refactoring opportunity detection
 export interface RefactoringOpportunity {
   id: string;
   pattern: RefactoringPattern;
-  functionId: string;
+  function_id: string;
   severity: 'low' | 'medium' | 'high' | 'critical';
-  impactScore: number; // 0-100
-  detectedAt: number;
-  resolvedAt?: number;
-  sessionId?: string;
+  impact_score: number; // 0-100
+  description: string;
+  suggested_actions: string[];
+  session_id?: string;
+  resolved_at?: Date;
   metadata: Record<string, unknown>;
-  createdAt: Date;
-  updatedAt: Date;
+  created_at: Date;
+  updated_at: Date;
 }
 
 export enum RefactoringPattern {
@@ -930,23 +932,7 @@ export interface RefactorAnalyzeOptions extends CommandOptions {
   patterns?: string;
 }
 
-export interface RefactorDetectOptions extends CommandOptions {
-  patterns?: string; // comma-separated list
-  file?: string;
-  severity?: 'low' | 'medium' | 'high' | 'critical';
-  minImpact?: number;
-}
 
-export interface RefactorTrackOptions extends CommandOptions {
-  start?: boolean;
-  complete?: boolean;
-  description?: string;
-  functions?: string; // comma-separated list
-  session?: string;
-  autoLineage?: boolean;
-  history?: boolean;
-  format?: 'timeline' | 'summary' | 'detailed';
-}
 
 export interface RefactorInteractiveOptions extends CommandOptions {
   pattern?: RefactoringPattern;
@@ -954,5 +940,31 @@ export interface RefactorInteractiveOptions extends CommandOptions {
   aiAssistance?: boolean;
   model?: string;
   workflow?: string; // path to custom workflow file
+}
+
+// Phase 3 Week 2: Detection and Tracking Options
+export interface RefactorDetectOptions extends CommandOptions {
+  pattern?: string;
+  file?: string;
+  complexityThreshold: string;
+  sizeThreshold: string;
+  session?: string;
+  createSession?: boolean;
+  interactive?: boolean;
+  limit: string;
+  json?: boolean;
+}
+
+export interface RefactorTrackOptions extends CommandOptions {
+  all?: boolean;
+  json?: boolean;
+  name?: string;
+  description?: string;
+  branch?: string;
+  status?: string;
+  notes?: string;
+  interactive?: boolean;
+  summary?: string;
+  reason?: string;
 }
 

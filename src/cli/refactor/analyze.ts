@@ -4,6 +4,7 @@ import { PGLiteStorageAdapter } from '../../storage/pglite-adapter.js';
 import { Logger } from '../../utils/cli-utils.js';
 import { RefactorAnalyzeOptions, RefactoringReport, RefactoringPattern, RefactoringOpportunity, QualityHotSpot, RefactoringRecommendation, ProjectRefactoringSummary } from '../../types/index.js';
 import { RefactoringAnalyzer } from '../../refactoring/refactoring-analyzer.js';
+import { getSeverityDisplaySimple, getRiskLevelDisplay, getPriorityDisplay, getSeverityIcon, formatPatternName } from '../../utils/refactoring-utils.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -181,8 +182,8 @@ function generateOpportunitiesSection(lines: string[], opportunities: Refactorin
     lines.push('');
     
     patternOpportunities.forEach(opp => {
-      lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impactScore})`);
-      lines.push(`  - Function: \`${opp.functionId}\``);
+      lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impact_score})`);
+      lines.push(`  - Function: \`${opp.function_id}\``);
       if (format === 'detailed' && opp.metadata) {
         Object.entries(opp.metadata).forEach(([key, value]) => {
           lines.push(`  - ${key}: ${value}`);
@@ -278,16 +279,16 @@ function displayTopOpportunities(opportunities: RefactoringOpportunity[], format
   console.log(`\n${chalk.blue.bold('🚨 Top Opportunities:')}`);
   
   const topOpportunities = opportunities
-    .sort((a, b) => b.impactScore - a.impactScore)
+    .sort((a, b) => b.impact_score - a.impact_score)
     .slice(0, format === 'summary' ? 5 : 10);
   
   topOpportunities.forEach((opp, index) => {
-    const severityDisplay = getSeverityDisplay(opp.severity);
+    const severityDisplay = getSeverityDisplaySimple(opp.severity);
     const patternDisplay = formatPatternName(opp.pattern);
-    console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impactScore)})`);
+    console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impact_score)})`);
     
     if (format !== 'summary') {
-      console.log(`      Function: ${chalk.gray(opp.functionId)}`);
+      console.log(`      Function: ${chalk.gray(opp.function_id)}`);
       if (opp.metadata && Object.keys(opp.metadata).length > 0) {
         const firstKey = Object.keys(opp.metadata)[0];
         console.log(`      ${firstKey}: ${chalk.gray(String(opp.metadata[firstKey]))}`);
@@ -356,59 +357,5 @@ function groupOpportunitiesByPattern(opportunities: OpportunityInfo): Record<str
   return groups;
 }
 
-function formatPatternName(pattern: string): string {
-  const nameMap: Record<string, string> = {
-    [RefactoringPattern.ExtractMethod]: 'Extract Method',
-    [RefactoringPattern.SplitFunction]: 'Split Function',
-    [RefactoringPattern.ReduceParameters]: 'Reduce Parameters',
-    [RefactoringPattern.ExtractClass]: 'Extract Class',
-    [RefactoringPattern.InlineFunction]: 'Inline Function',
-    [RefactoringPattern.RenameFunction]: 'Rename Function'
-  };
-  
-  return nameMap[pattern] || pattern;
-}
 
-function getSeverityIcon(severity: string): string {
-  const iconMap: Record<string, string> = {
-    critical: '🔴',
-    high: '🟠',
-    medium: '🟡',
-    low: '🟢'
-  };
-  
-  return iconMap[severity] || '⚪';
-}
 
-function getSeverityDisplay(severity: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
-    critical: chalk.red.bold,
-    high: chalk.red,
-    medium: chalk.yellow,
-    low: chalk.green
-  };
-  
-  const colorFn = colorMap[severity] || chalk.gray;
-  return colorFn(severity.toUpperCase());
-}
-
-function getRiskLevelDisplay(riskLevel: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
-    high: chalk.red.bold,
-    medium: chalk.yellow,
-    low: chalk.green
-  };
-  
-  const colorFn = colorMap[riskLevel] || chalk.gray;
-  return colorFn(riskLevel.toUpperCase());
-}
-
-function getPriorityDisplay(priority: string): string {
-  const iconMap: Record<string, string> = {
-    high: '🔥',
-    medium: '⚠️',
-    low: '💡'
-  };
-  
-  return iconMap[priority] || '📌';
-}

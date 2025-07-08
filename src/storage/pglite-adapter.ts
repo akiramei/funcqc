@@ -3198,4 +3198,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return fallback;
     }
   }
+
+  /**
+   * Get direct access to the database connection for advanced operations
+   */
+  getDb(): any {
+    return this.db;
+  }
 }
