@@ -106,6 +106,14 @@ function truncateWithEllipsis(str: string, maxLength: number): string {
   return str.substring(0, maxLength - 3) + '...';
 }
 
+/**
+ * Display a shortened version of snapshot ID for table display
+ * Uses 8 characters for consistency with function IDs
+ */
+function formatSnapshotIdForDisplay(id: string): string {
+  return id.substring(0, 8);
+}
+
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log('ID       Label                Created              Functions  Avg CC  P95 CC  High Risk');
@@ -116,7 +124,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const snapshot = snapshots[i];
     const prevSnapshot = i < snapshots.length - 1 ? snapshots[i + 1] : null;
     
-    const id = snapshot.id.substring(0, 8);
+    const id = formatSnapshotIdForDisplay(snapshot.id);
     const label = truncateWithEllipsis(snapshot.label || '-', 20).padEnd(20);
     const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
     

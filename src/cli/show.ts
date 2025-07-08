@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { calculateFileHash, fileExists } from '../utils/file-utils';
 
 export async function showCommand(
   namePattern: string = '',
@@ -14,7 +15,7 @@ export async function showCommand(
     if (options.json) {
       outputJSON(func);
     } else {
-      outputFriendly(func, config, options);
+      await outputFriendly(func, config, options);
     }
     
   } catch (error) {
@@ -290,7 +291,7 @@ function buildUserFriendlyAttributes(func: FunctionInfo): string[] {
   return attributes;
 }
 
-function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): void {
+async function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): Promise<void> {
   // Handle audience-specific display modes
   if (options.forUsers) {
     displayForUsers(func, options);
@@ -314,7 +315,7 @@ function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowC
   }
   
   if (options.source) {
-    displaySourceSection(func, options);
+    await displaySourceSection(func, options);
     return;
   }
   
@@ -618,12 +619,15 @@ function displayExamplesSection(func: FunctionInfo): void {
   displayErrorConditions(func);
 }
 
-function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): void {
+async function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): Promise<void> {
   console.log(chalk.bold(`Source Code: ${func.displayName}()`));
   console.log(`📍 ${func.filePath}:${func.startLine}-${func.endLine}`);
   console.log();
   
-  if (func.sourceCode) {
+  // Check if file exists and hash matches
+  const canShowSource = await validateSourceIntegrity(func);
+  
+  if (canShowSource && func.sourceCode) {
     if (options.syntax) {
       // For syntax highlighting, we'll use a simple approach with chalk
       displaySyntaxHighlightedCode(func.sourceCode);
@@ -632,9 +636,12 @@ function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): 
       console.log(func.sourceCode);
       console.log(chalk.gray('--- End Source ---'));
     }
+  } else if (!canShowSource) {
+    console.log(chalk.yellow('⚠️  File has been modified since last scan'));
+    console.log('   Run a new scan to update the snapshot and view current source code.');
   } else {
     console.log(chalk.yellow('⚠️  Source code not available'));
-    console.log('Run a new scan to capture source code information.');
+    console.log('   Run a new scan to capture source code information.');
   }
   
   console.log();
@@ -690,6 +697,34 @@ function applySyntaxHighlighting(line: string): string {
 
 // Helper functions for new sections
 
+async function validateSourceIntegrity(func: FunctionInfo): Promise<boolean> {
+  try {
+    // Check if file exists
+    const exists = await fileExists(func.filePath);
+    if (!exists) {
+      return false;
+    }
+    
+    // Explicitly check if fileHash is null or undefined (no hash set)
+    if (func.fileHash === null || func.fileHash === undefined) {
+      // No hash available for comparison, cannot validate integrity
+      return false;
+    }
+    
+    // Calculate current file hash
+    const currentHash = await calculateFileHash(func.filePath);
+    
+    // Compare with stored hash
+    return currentHash === func.fileHash;
+  } catch (error) {
+    // Log debug information for troubleshooting
+    console.debug(`Failed to validate source integrity for ${func.filePath}:`, 
+      error instanceof Error ? error.message : String(error));
+    // If we can't calculate hash, assume file is modified
+    return false;
+  }
+}
+
 function displayUsageExamples(func: FunctionInfo): void {
   if (func.description && func.description.toLowerCase().includes('example')) {
     // Extract examples from description
@@ -718,78 +753,118 @@ function displayUsageExamples(func: FunctionInfo): void {
   }
 }
 
-function displaySideEffects(func: FunctionInfo): void {
-  let hasEffects = false;
+/**
+ * Common patterns for detecting side effects in descriptions
+ */
+const SIDE_EFFECT_KEYWORDS = [
+  'side effect',
+  'modifies',
+  'mutates',
+  'writes to',
+  'updates'
+];
+
+/**
+ * Filter lines from description that contain specific keywords
+ */
+function filterDescriptionLines(description: string, keywords: string[]): string[] {
+  const lines = description.split('\n');
+  return lines.filter(line => 
+    keywords.some(keyword => line.toLowerCase().includes(keyword))
+  );
+}
+
+/**
+ * Display sections based on description content
+ */
+function displayDescriptionSection(
+  func: FunctionInfo,
+  title: string,
+  keywords: string[],
+  fallbackCheck?: () => boolean,
+  fallbackMessage?: string
+): boolean {
+  let hasContent = false;
   
-  if (func.description && (func.description.toLowerCase().includes('side effect') || 
-                          func.description.toLowerCase().includes('modifies') ||
-                          func.description.toLowerCase().includes('mutates'))) {
-    console.log(chalk.bold('Side Effects:'));
-    // Try to extract relevant lines from description
-    const lines = func.description.split('\n');
-    const effectLines = lines.filter(line => 
-      line.toLowerCase().includes('side effect') ||
-      line.toLowerCase().includes('modifies') ||
-      line.toLowerCase().includes('mutates') ||
-      line.toLowerCase().includes('writes to') ||
-      line.toLowerCase().includes('updates')
-    );
+  if (func.description && keywords.some(keyword => func.description!.toLowerCase().includes(keyword))) {
+    console.log(chalk.bold(`${title}:`));
+    const matchingLines = filterDescriptionLines(func.description, keywords);
     
-    if (effectLines.length > 0) {
-      effectLines.forEach(line => {
+    if (matchingLines.length > 0) {
+      matchingLines.forEach(line => {
         console.log(`  ${line.trim()}`);
       });
-      hasEffects = true;
+      hasContent = true;
     }
   }
   
-  if (!hasEffects && (func.isAsync || (func.metrics && func.metrics.asyncAwaitCount > 0))) {
-    console.log(chalk.bold('Side Effects:'));
-    console.log(`  ${chalk.yellow('⚠️  This is an async function - may have asynchronous side effects')}`);
-    hasEffects = true;
+  if (!hasContent && fallbackCheck && fallbackCheck()) {
+    console.log(chalk.bold(`${title}:`));
+    if (fallbackMessage) {
+      console.log(`  ${fallbackMessage}`);
+    }
+    hasContent = true;
   }
   
-  if (hasEffects) {
+  if (hasContent) {
     console.log();
   }
+  
+  return hasContent;
+}
+
+function displaySideEffects(func: FunctionInfo): void {
+  displayDescriptionSection(
+    func,
+    'Side Effects',
+    SIDE_EFFECT_KEYWORDS,
+    () => func.isAsync || (func.metrics?.asyncAwaitCount ?? 0) > 0,
+    chalk.yellow('⚠️  This is an async function - may have asynchronous side effects')
+  );
+}
+
+/**
+ * Common patterns for detecting error conditions in descriptions
+ */
+const ERROR_KEYWORDS = [
+  'error',
+  'throw',
+  'exception',
+  'fail'
+];
+
+/**
+ * Extract JSDoc @throws information
+ */
+function extractJsDocThrows(jsDoc: string): string[] {
+  const jsDocLines = jsDoc.split('\n');
+  const throwsLines = jsDocLines.filter(line => line.toLowerCase().includes('@throws'));
+  return throwsLines.map(line => line.replace(/^\s*\*?\s?@throws\s?/, '').trim());
 }
 
 function displayErrorConditions(func: FunctionInfo): void {
   let hasErrorInfo = false;
   
-  if (func.description && (func.description.toLowerCase().includes('error') || 
-                          func.description.toLowerCase().includes('throw') ||
-                          func.description.toLowerCase().includes('exception'))) {
-    console.log(chalk.bold('Error Conditions:'));
-    // Try to extract error-related lines from description
-    const lines = func.description.split('\n');
-    const errorLines = lines.filter(line => 
-      line.toLowerCase().includes('error') ||
-      line.toLowerCase().includes('throw') ||
-      line.toLowerCase().includes('exception') ||
-      line.toLowerCase().includes('fail')
-    );
-    
-    if (errorLines.length > 0) {
-      errorLines.forEach(line => {
-        console.log(`  ${line.trim()}`);
-      });
-      hasErrorInfo = true;
-    }
-  }
+  // Check description for error keywords
+  hasErrorInfo = displayDescriptionSection(
+    func,
+    'Error Conditions',
+    ERROR_KEYWORDS
+  );
   
-  if (!hasErrorInfo && func.metrics && func.metrics.tryCatchCount > 0) {
+  // Check for try/catch error handling
+  if (!hasErrorInfo && func.metrics?.tryCatchCount && func.metrics.tryCatchCount > 0) {
     console.log(chalk.bold('Error Handling:'));
     console.log(`  ${chalk.blue('✓ Function includes try/catch error handling')}`);
     hasErrorInfo = true;
   }
   
-  if (!hasErrorInfo && func.jsDoc && func.jsDoc.toLowerCase().includes('@throws')) {
+  // Check JSDoc for @throws
+  if (!hasErrorInfo && func.jsDoc?.toLowerCase().includes('@throws')) {
     console.log(chalk.bold('Error Conditions:'));
-    const jsDocLines = func.jsDoc.split('\n');
-    const throwsLines = jsDocLines.filter(line => line.toLowerCase().includes('@throws'));
-    throwsLines.forEach(line => {
-      console.log(`  ${line.replace(/^\s*\*?\s?@throws\s?/, '').trim()}`);
+    const throwsInfo = extractJsDocThrows(func.jsDoc);
+    throwsInfo.forEach(info => {
+      console.log(`  ${info}`);
     });
     hasErrorInfo = true;
   }

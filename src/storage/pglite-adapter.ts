@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
+import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
 import { 
@@ -377,8 +378,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private calculateSnapshotDifferences(fromFunctions: FunctionInfo[], toFunctions: FunctionInfo[]) {
-    const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.signature, f]));
-    const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.signature, f]));
+    const fromMap = new Map(fromFunctions.map((f: FunctionInfo) => [f.semanticId, f]));
+    const toMap = new Map(toFunctions.map((f: FunctionInfo) => [f.semanticId, f]));
 
     const added: FunctionInfo[] = [];
     const removed: FunctionInfo[] = [];
@@ -399,7 +400,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     unchanged: FunctionInfo[]
   ) {
     for (const toFunc of toFunctions) {
-      const fromFunc = fromMap.get(toFunc.signature);
+      const fromFunc = fromMap.get(toFunc.semanticId);
       
       if (!fromFunc) {
         added.push(toFunc);
@@ -417,7 +418,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private findRemovedFunctions(fromFunctions: FunctionInfo[], toMap: Map<string, FunctionInfo>, removed: FunctionInfo[]) {
     for (const fromFunc of fromFunctions) {
-      if (!toMap.has(fromFunc.signature)) {
+      if (!toMap.has(fromFunc.semanticId)) {
         removed.push(fromFunc);
       }
     }
@@ -2464,7 +2465,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private generateSnapshotId(): string {
-    return `snap_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return uuidv4();
   }
 
   private async createSnapshotRecord(
