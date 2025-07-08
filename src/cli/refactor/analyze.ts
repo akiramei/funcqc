@@ -181,8 +181,8 @@ function generateOpportunitiesSection(lines: string[], opportunities: Refactorin
     lines.push('');
     
     patternOpportunities.forEach(opp => {
-      lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impactScore})`);
-      lines.push(`  - Function: \`${opp.functionId}\``);
+      lines.push(`- **${getSeverityIcon(opp.severity)} [${opp.severity.toUpperCase()}]** (Score: ${opp.impact_score})`);
+      lines.push(`  - Function: \`${opp.function_id}\``);
       if (format === 'detailed' && opp.metadata) {
         Object.entries(opp.metadata).forEach(([key, value]) => {
           lines.push(`  - ${key}: ${value}`);
@@ -278,16 +278,16 @@ function displayTopOpportunities(opportunities: RefactoringOpportunity[], format
   console.log(`\n${chalk.blue.bold('🚨 Top Opportunities:')}`);
   
   const topOpportunities = opportunities
-    .sort((a, b) => b.impactScore - a.impactScore)
+    .sort((a, b) => b.impact_score - a.impact_score)
     .slice(0, format === 'summary' ? 5 : 10);
   
   topOpportunities.forEach((opp, index) => {
     const severityDisplay = getSeverityDisplay(opp.severity);
     const patternDisplay = formatPatternName(opp.pattern);
-    console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impactScore)})`);
+    console.log(`   ${index + 1}. ${severityDisplay} ${patternDisplay} (Score: ${chalk.yellow(opp.impact_score)})`);
     
     if (format !== 'summary') {
-      console.log(`      Function: ${chalk.gray(opp.functionId)}`);
+      console.log(`      Function: ${chalk.gray(opp.function_id)}`);
       if (opp.metadata && Object.keys(opp.metadata).length > 0) {
         const firstKey = Object.keys(opp.metadata)[0];
         console.log(`      ${firstKey}: ${chalk.gray(String(opp.metadata[firstKey]))}`);

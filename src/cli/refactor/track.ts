@@ -4,8 +4,8 @@ import ora from 'ora';
 import { ConfigManager } from '../../core/config.js';
 import { PGLiteStorageAdapter } from '../../storage/pglite-adapter.js';
 import { Logger } from '../../utils/cli-utils.js';
-import { RefactoringSession, RefactoringPattern } from '../../types/index.js';
-import { SessionManager } from '../../refactoring/session-manager-simple.js';
+import { RefactoringSession, RefactoringPattern, SessionFunction } from '../../types/index.js';
+import { SessionManager, SessionSummary } from '../../refactoring/session-manager-simple.js';
 import * as prompts from '@inquirer/prompts';
 
 /**
@@ -422,7 +422,7 @@ async function runInteractiveUpdate(sessionManager: SessionManager, sessionId: s
         default: ''
       });
       
-      await sessionManager.updateFunctionStatus(sessionId, func.function_id, action as any, notes || undefined);
+      await sessionManager.updateFunctionStatus(sessionId, func.function_id, action as 'pending' | 'in_progress' | 'completed' | 'skipped', notes || undefined);
       console.log(chalk.green('✓ Updated'));
     }
   }
@@ -466,8 +466,8 @@ function displaySessionList(sessions: RefactoringSession[], showAll: boolean): v
  */
 function displaySessionDetails(
   session: RefactoringSession,
-  summary: any,
-  functions: any[]
+  summary: SessionSummary,
+  functions: Array<SessionFunction & { functionName?: string }>
 ): void {
   console.log(chalk.cyan.bold('\n📊 Refactoring Session Details\n'));
   
@@ -559,8 +559,8 @@ function generateProgressBar(percentage: number): string {
   return '[' + chalk.green('█').repeat(filled) + chalk.gray('░').repeat(empty) + ']';
 }
 
-function groupFunctionsByStatus(functions: any[]): Record<string, any[]> {
-  const groups: Record<string, any[]> = {
+function groupFunctionsByStatus(functions: Array<SessionFunction & { functionName?: string }>): Record<string, Array<SessionFunction & { functionName?: string }>> {
+  const groups: Record<string, Array<SessionFunction & { functionName?: string }>> = {
     completed: [],
     in_progress: [],
     pending: [],

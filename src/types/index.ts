@@ -859,9 +859,6 @@ export interface RefactoringOpportunity {
   metadata: Record<string, unknown>;
   created_at: Date;
   updated_at: Date;
-  // Computed properties for compatibility
-  functionId: string;
-  impactScore: number;
 }
 
 export enum RefactoringPattern {
@@ -935,23 +932,7 @@ export interface RefactorAnalyzeOptions extends CommandOptions {
   patterns?: string;
 }
 
-export interface RefactorDetectOptions extends CommandOptions {
-  patterns?: string; // comma-separated list
-  file?: string;
-  severity?: 'low' | 'medium' | 'high' | 'critical';
-  minImpact?: number;
-}
 
-export interface RefactorTrackOptions extends CommandOptions {
-  start?: boolean;
-  complete?: boolean;
-  description?: string;
-  functions?: string; // comma-separated list
-  session?: string;
-  autoLineage?: boolean;
-  history?: boolean;
-  format?: 'timeline' | 'summary' | 'detailed';
-}
 
 export interface RefactorInteractiveOptions extends CommandOptions {
   pattern?: RefactoringPattern;

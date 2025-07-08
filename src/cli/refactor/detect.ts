@@ -134,8 +134,8 @@ export const refactorDetectCommand = new Command('detect')
               id: opp.id,
               pattern: opp.pattern,
               severity: opp.severity,
-              impactScore: opp.impact_score,
-              functionId: opp.function_id,
+              impact_score: opp.impact_score,
+              function_id: opp.function_id,
               description: opp.description,
               metadata: opp.metadata
             }))
