@@ -125,10 +125,23 @@ async function generateRefactoringPlan(
     complexityThreshold?: number;
     sizeThreshold?: number;
     patterns?: RefactoringPattern[];
-  } = {
-    complexityThreshold: parseInt(options.complexityThreshold || '5'),
-    sizeThreshold: parseInt(options.sizeThreshold || '20')
-  };
+  } = {};
+  
+  // Parse complexity threshold with validation
+  const complexityValue = parseInt(options.complexityThreshold || '5');
+  if (!isNaN(complexityValue) && complexityValue > 0) {
+    analysisOptions.complexityThreshold = complexityValue;
+  } else {
+    analysisOptions.complexityThreshold = 5; // default fallback
+  }
+  
+  // Parse size threshold with validation
+  const sizeValue = parseInt(options.sizeThreshold || '20');
+  if (!isNaN(sizeValue) && sizeValue > 0) {
+    analysisOptions.sizeThreshold = sizeValue;
+  } else {
+    analysisOptions.sizeThreshold = 20; // default fallback
+  }
   
   if (options.pattern) {
     const pattern = parsePattern(options.pattern);
@@ -155,8 +168,13 @@ async function generateRefactoringPlan(
     opportunities = report.opportunities;
   }
   
-  const timeline = parseInt(options.timeline || '4');
-  const effortPerWeek = parseInt(options.effort || '8');
+  // Parse timeline with validation
+  const timelineValue = parseInt(options.timeline || '4');
+  const timeline = !isNaN(timelineValue) && timelineValue > 0 ? timelineValue : 4;
+  
+  // Parse effort per week with validation
+  const effortValue = parseInt(options.effort || '8');
+  const effortPerWeek = !isNaN(effortValue) && effortValue > 0 ? effortValue : 8;
   
   const metadata: RefactoringPlan['metadata'] = {
     generated: new Date().toISOString(),

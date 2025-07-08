@@ -431,9 +431,11 @@ async function reviewOpportunities(
   const selectedOpportunities: RefactoringOpportunity[] = [];
   
   // Review each opportunity
-  for (const [index, opp] of limitedOpportunities.entries()) {
+  let currentIndex = 0;
+  while (currentIndex < limitedOpportunities.length) {
+    const opp = limitedOpportunities[currentIndex];
     console.log(chalk.blue.bold(`\n─────────────────────────────────────────────────────────────`));
-    console.log(chalk.blue.bold(`[${index + 1}/${limitedOpportunities.length}] ${formatPatternName(opp.pattern)}`));
+    console.log(chalk.blue.bold(`[${currentIndex + 1}/${limitedOpportunities.length}] ${formatPatternName(opp.pattern)}`));
     console.log(chalk.blue.bold(`─────────────────────────────────────────────────────────────`));
     
     console.log(`${getSeverityIcon(opp.severity)} Severity: ${getSeverityDisplay(opp.severity)}`);
@@ -461,12 +463,14 @@ async function reviewOpportunities(
     if (action === 'select') {
       selectedOpportunities.push(opp);
       console.log(chalk.green('✅ Selected for refactoring\n'));
+      currentIndex++;
     } else if (action === 'skip') {
       console.log(chalk.gray('⏭️  Skipped\n'));
+      currentIndex++;
     } else if (action === 'details') {
       await showOpportunityDetails(opp);
-      // Re-ask for the same opportunity
-      limitedOpportunities.splice(index + 1, 0, opp);
+      // Stay on the same opportunity (don't increment index)
+      console.log(chalk.gray('📍 Returning to opportunity selection...\n'));
     } else if (action === 'stop') {
       console.log(chalk.yellow('🛑 Stopping review\n'));
       break;

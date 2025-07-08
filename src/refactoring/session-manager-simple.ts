@@ -343,12 +343,21 @@ export class SessionManager {
       ORDER BY created_at DESC
     `);
     
-    return result.rows.map((row: Record<string, unknown>) => ({
-      ...row,
-      metadata: typeof row['metadata'] === 'string' 
-        ? JSON.parse(row['metadata']) 
-        : row['metadata']
-    })) as RefactoringSession[];
+    return result.rows.map((row: Record<string, unknown>) => {
+      let metadata = row['metadata'];
+      if (typeof metadata === 'string') {
+        try {
+          metadata = JSON.parse(metadata);
+        } catch (error) {
+          console.warn(`Invalid JSON in session metadata: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          metadata = {};
+        }
+      }
+      return {
+        ...row,
+        metadata
+      };
+    }) as RefactoringSession[];
   }
 
   /**
