@@ -4,8 +4,9 @@ import ora from 'ora';
 import { ConfigManager } from '../../core/config.js';
 import { PGLiteStorageAdapter } from '../../storage/pglite-adapter.js';
 import { Logger } from '../../utils/cli-utils.js';
-import { RefactoringSession, RefactoringPattern, SessionFunction } from '../../types/index.js';
+import { RefactoringSession, SessionFunction } from '../../types/index.js';
 import { SessionManager, SessionSummary } from '../../refactoring/session-manager-simple.js';
+import { formatPatternName } from '../../utils/refactoring-utils.js';
 import * as prompts from '@inquirer/prompts';
 
 /**
@@ -538,18 +539,6 @@ function getStatusDisplay(status: string): string {
   return statusMap[status] || status;
 }
 
-function formatPatternName(pattern: string): string {
-  const nameMap: Record<string, string> = {
-    [RefactoringPattern.ExtractMethod]: 'Extract Method',
-    [RefactoringPattern.SplitFunction]: 'Split Function',
-    [RefactoringPattern.ReduceParameters]: 'Reduce Parameters',
-    [RefactoringPattern.ExtractClass]: 'Extract Class',
-    [RefactoringPattern.InlineFunction]: 'Inline Function',
-    [RefactoringPattern.RenameFunction]: 'Rename Function'
-  };
-  
-  return nameMap[pattern] || pattern;
-}
 
 function generateProgressBar(percentage: number): string {
   const width = 20;

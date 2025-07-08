@@ -7,6 +7,7 @@ import { Logger } from '../../utils/cli-utils.js';
 import { RefactorDetectOptions, RefactoringPattern, RefactoringOpportunity } from '../../types/index.js';
 import { RefactoringAnalyzer } from '../../refactoring/refactoring-analyzer.js';
 import { SessionManager } from '../../refactoring/session-manager-simple.js';
+import { parsePattern, formatPatternName, getSeverityDisplay, groupOpportunitiesByPattern } from '../../utils/refactoring-utils.js';
 import * as prompts from '@inquirer/prompts';
 
 /**
@@ -307,55 +308,3 @@ function displayDetectionResults(
   }
 }
 
-// Helper functions
-function parsePattern(pattern: string): RefactoringPattern | undefined {
-  const patternMap: Record<string, RefactoringPattern> = {
-    'extract-method': RefactoringPattern.ExtractMethod,
-    'split-function': RefactoringPattern.SplitFunction,
-    'reduce-parameters': RefactoringPattern.ReduceParameters,
-    'extract-class': RefactoringPattern.ExtractClass,
-    'inline-function': RefactoringPattern.InlineFunction,
-    'rename-function': RefactoringPattern.RenameFunction
-  };
-  
-  return patternMap[pattern];
-}
-
-function formatPatternName(pattern: string): string {
-  const nameMap: Record<string, string> = {
-    [RefactoringPattern.ExtractMethod]: 'Extract Method',
-    [RefactoringPattern.SplitFunction]: 'Split Function',
-    [RefactoringPattern.ReduceParameters]: 'Reduce Parameters',
-    [RefactoringPattern.ExtractClass]: 'Extract Class',
-    [RefactoringPattern.InlineFunction]: 'Inline Function',
-    [RefactoringPattern.RenameFunction]: 'Rename Function'
-  };
-  
-  return nameMap[pattern] || pattern;
-}
-
-function getSeverityDisplay(severity: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
-    critical: chalk.red,
-    high: chalk.redBright,
-    medium: chalk.yellow,
-    low: chalk.green
-  };
-  
-  const color = colorMap[severity] || chalk.gray;
-  return color(`[${severity.toUpperCase()}]`);
-}
-
-function groupOpportunitiesByPattern(opportunities: RefactoringOpportunity[]): Record<string, RefactoringOpportunity[]> {
-  const groups: Record<string, RefactoringOpportunity[]> = {};
-  
-  for (const opp of opportunities) {
-    const pattern = opp.pattern;
-    if (!groups[pattern]) {
-      groups[pattern] = [];
-    }
-    groups[pattern].push(opp);
-  }
-  
-  return groups;
-}
