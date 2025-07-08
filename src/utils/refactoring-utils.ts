@@ -1,6 +1,11 @@
 import chalk from 'chalk';
 import { RefactoringPattern, RefactoringOpportunity } from '../types/index.js';
 
+// Type definitions for better type safety
+type SeverityLevel = 'low' | 'medium' | 'high' | 'critical';
+type PriorityLevel = 'low' | 'medium' | 'high';
+type RiskLevel = 'low' | 'medium' | 'high';
+
 /**
  * Parse pattern string to RefactoringPattern enum
  */
@@ -20,8 +25,8 @@ export function parsePattern(pattern: string): RefactoringPattern | undefined {
 /**
  * Format pattern enum to human-readable name
  */
-export function formatPatternName(pattern: string): string {
-  const nameMap: Record<string, string> = {
+export function formatPatternName(pattern: RefactoringPattern | string): string {
+  const nameMap: Record<RefactoringPattern, string> = {
     [RefactoringPattern.ExtractMethod]: 'Extract Method',
     [RefactoringPattern.SplitFunction]: 'Split Function',
     [RefactoringPattern.ReduceParameters]: 'Reduce Parameters',
@@ -30,36 +35,32 @@ export function formatPatternName(pattern: string): string {
     [RefactoringPattern.RenameFunction]: 'Rename Function'
   };
   
-  return nameMap[pattern] || pattern;
+  return nameMap[pattern as RefactoringPattern] || pattern;
 }
+
+/**
+ * Shared severity color mapping
+ */
+const SEVERITY_COLOR_MAP = {
+  critical: { withBrackets: chalk.red, simple: chalk.red.bold },
+  high: { withBrackets: chalk.redBright, simple: chalk.red },
+  medium: { withBrackets: chalk.yellow, simple: chalk.yellow },
+  low: { withBrackets: chalk.green, simple: chalk.green }
+} as const;
 
 /**
  * Get colored severity display with brackets (used in detect.ts)
  */
-export function getSeverityDisplay(severity: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
-    critical: chalk.red,
-    high: chalk.redBright,
-    medium: chalk.yellow,
-    low: chalk.green
-  };
-  
-  const color = colorMap[severity] || chalk.gray;
-  return color(`[${severity.toUpperCase()}]`);
+export function getSeverityDisplay(severity: SeverityLevel | string): string {
+  const colorFn = SEVERITY_COLOR_MAP[severity as SeverityLevel]?.withBrackets || chalk.gray;
+  return colorFn(`[${severity.toUpperCase()}]`);
 }
 
 /**
  * Get colored severity display without brackets (used in analyze.ts)
  */
-export function getSeverityDisplaySimple(severity: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
-    critical: chalk.red.bold,
-    high: chalk.red,
-    medium: chalk.yellow,
-    low: chalk.green
-  };
-  
-  const colorFn = colorMap[severity] || chalk.gray;
+export function getSeverityDisplaySimple(severity: SeverityLevel | string): string {
+  const colorFn = SEVERITY_COLOR_MAP[severity as SeverityLevel]?.simple || chalk.gray;
   return colorFn(severity.toUpperCase());
 }
 
@@ -83,40 +84,40 @@ export function groupOpportunitiesByPattern(opportunities: RefactoringOpportunit
 /**
  * Get risk level display with colors
  */
-export function getRiskLevelDisplay(riskLevel: string): string {
-  const colorMap: Record<string, (text: string) => string> = {
+export function getRiskLevelDisplay(riskLevel: RiskLevel | string): string {
+  const colorMap: Record<RiskLevel, (text: string) => string> = {
     high: chalk.red.bold,
     medium: chalk.yellow,
     low: chalk.green
   };
   
-  const colorFn = colorMap[riskLevel] || chalk.gray;
+  const colorFn = colorMap[riskLevel as RiskLevel] || chalk.gray;
   return colorFn(riskLevel.toUpperCase());
 }
 
 /**
  * Get priority display with icons
  */
-export function getPriorityDisplay(priority: string): string {
-  const iconMap: Record<string, string> = {
+export function getPriorityDisplay(priority: PriorityLevel | string): string {
+  const iconMap: Record<PriorityLevel, string> = {
     high: '🔥',
     medium: '⚠️',
     low: '💡'
   };
   
-  return iconMap[priority] || '📌';
+  return iconMap[priority as PriorityLevel] || '📌';
 }
 
 /**
  * Get severity icon
  */
-export function getSeverityIcon(severity: string): string {
-  const iconMap: Record<string, string> = {
+export function getSeverityIcon(severity: SeverityLevel | string): string {
+  const iconMap: Record<SeverityLevel, string> = {
     critical: '🔴',
     high: '🟠',
     medium: '🟡',
     low: '🟢'
   };
   
-  return iconMap[severity] || '⚪';
+  return iconMap[severity as SeverityLevel] || '⚪';
 }
