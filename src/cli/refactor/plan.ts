@@ -114,34 +114,29 @@ interface RefactoringPhase {
 }
 
 /**
- * Generate comprehensive refactoring plan
+ * Parse and validate integer option with fallback
  */
-async function generateRefactoringPlan(
-  analyzer: RefactoringAnalyzer,
-  sessionManager: SessionManager,
-  options: RefactorPlanOptions
-): Promise<RefactoringPlan> {
+function parseIntegerOption(value: string | undefined, defaultValue: number): number {
+  const parsed = parseInt(value || defaultValue.toString());
+  return !isNaN(parsed) && parsed > 0 ? parsed : defaultValue;
+}
+
+/**
+ * Build analysis options from command options
+ */
+function buildAnalysisOptions(options: RefactorPlanOptions): {
+  complexityThreshold?: number;
+  sizeThreshold?: number;
+  patterns?: RefactoringPattern[];
+} {
   const analysisOptions: {
     complexityThreshold?: number;
     sizeThreshold?: number;
     patterns?: RefactoringPattern[];
   } = {};
   
-  // Parse complexity threshold with validation
-  const complexityValue = parseInt(options.complexityThreshold || '5');
-  if (!isNaN(complexityValue) && complexityValue > 0) {
-    analysisOptions.complexityThreshold = complexityValue;
-  } else {
-    analysisOptions.complexityThreshold = 5; // default fallback
-  }
-  
-  // Parse size threshold with validation
-  const sizeValue = parseInt(options.sizeThreshold || '20');
-  if (!isNaN(sizeValue) && sizeValue > 0) {
-    analysisOptions.sizeThreshold = sizeValue;
-  } else {
-    analysisOptions.sizeThreshold = 20; // default fallback
-  }
+  analysisOptions.complexityThreshold = parseIntegerOption(options.complexityThreshold, 5);
+  analysisOptions.sizeThreshold = parseIntegerOption(options.sizeThreshold, 20);
   
   if (options.pattern) {
     const pattern = parsePattern(options.pattern);
@@ -150,10 +145,25 @@ async function generateRefactoringPlan(
     }
   }
   
+  return analysisOptions;
+}
+
+/**
+ * Get refactoring opportunities from session or fresh analysis
+ */
+async function getRefactoringOpportunities(
+  analyzer: RefactoringAnalyzer,
+  sessionManager: SessionManager,
+  options: RefactorPlanOptions,
+  analysisOptions: {
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    patterns?: RefactoringPattern[];
+  }
+): Promise<{ opportunities: RefactoringOpportunity[]; sessionId?: string }> {
   let opportunities: RefactoringOpportunity[] = [];
   let sessionId: string | undefined;
   
-  // Get opportunities from session or fresh analysis
   if (options.session) {
     const sessions = await sessionManager.listSessions();
     const session = sessions.find((s: { id: string }) => s.id === options.session);
@@ -168,13 +178,22 @@ async function generateRefactoringPlan(
     opportunities = report.opportunities;
   }
   
-  // Parse timeline with validation
-  const timelineValue = parseInt(options.timeline || '4');
-  const timeline = !isNaN(timelineValue) && timelineValue > 0 ? timelineValue : 4;
-  
-  // Parse effort per week with validation
-  const effortValue = parseInt(options.effort || '8');
-  const effortPerWeek = !isNaN(effortValue) && effortValue > 0 ? effortValue : 8;
+  const result: { opportunities: RefactoringOpportunity[]; sessionId?: string } = { opportunities };
+  if (sessionId) {
+    result.sessionId = sessionId;
+  }
+  return result;
+}
+
+/**
+ * Build metadata for refactoring plan
+ */
+function buildPlanMetadata(
+  options: RefactorPlanOptions,
+  sessionId?: string
+): RefactoringPlan['metadata'] {
+  const timeline = parseIntegerOption(options.timeline, 4);
+  const effortPerWeek = parseIntegerOption(options.effort, 8);
   
   const metadata: RefactoringPlan['metadata'] = {
     generated: new Date().toISOString(),
@@ -191,10 +210,31 @@ async function generateRefactoringPlan(
     metadata.pattern = options.pattern;
   }
   
+  return metadata;
+}
+
+/**
+ * Generate comprehensive refactoring plan
+ */
+async function generateRefactoringPlan(
+  analyzer: RefactoringAnalyzer,
+  sessionManager: SessionManager,
+  options: RefactorPlanOptions
+): Promise<RefactoringPlan> {
+  const analysisOptions = buildAnalysisOptions(options);
+  const { opportunities, sessionId } = await getRefactoringOpportunities(
+    analyzer,
+    sessionManager,
+    options,
+    analysisOptions
+  );
+  
+  const metadata = buildPlanMetadata(options, sessionId);
+  
   return {
     metadata,
     summary: generateSummary(opportunities),
-    phases: generatePhases(opportunities, timeline, effortPerWeek),
+    phases: generatePhases(opportunities, metadata.timeline, metadata.effortPerWeek),
     recommendations: generateRecommendations(opportunities),
     risks: generateRisks(opportunities),
     successMetrics: generateSuccessMetrics(opportunities)
