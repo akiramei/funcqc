@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { calculateFileHash, fileExists } from '../utils/file-utils';
 
 export async function showCommand(
   namePattern: string = '',
@@ -14,7 +15,7 @@ export async function showCommand(
     if (options.json) {
       outputJSON(func);
     } else {
-      outputFriendly(func, config, options);
+      await outputFriendly(func, config, options);
     }
     
   } catch (error) {
@@ -290,7 +291,7 @@ function buildUserFriendlyAttributes(func: FunctionInfo): string[] {
   return attributes;
 }
 
-function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): void {
+async function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowCommandOptions): Promise<void> {
   // Handle audience-specific display modes
   if (options.forUsers) {
     displayForUsers(func, options);
@@ -314,7 +315,7 @@ function outputFriendly(func: FunctionInfo, config: FuncqcConfig, options: ShowC
   }
   
   if (options.source) {
-    displaySourceSection(func, options);
+    await displaySourceSection(func, options);
     return;
   }
   
@@ -618,12 +619,15 @@ function displayExamplesSection(func: FunctionInfo): void {
   displayErrorConditions(func);
 }
 
-function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): void {
+async function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): Promise<void> {
   console.log(chalk.bold(`Source Code: ${func.displayName}()`));
   console.log(`📍 ${func.filePath}:${func.startLine}-${func.endLine}`);
   console.log();
   
-  if (func.sourceCode) {
+  // Check if file exists and hash matches
+  const canShowSource = await validateSourceIntegrity(func);
+  
+  if (canShowSource && func.sourceCode) {
     if (options.syntax) {
       // For syntax highlighting, we'll use a simple approach with chalk
       displaySyntaxHighlightedCode(func.sourceCode);
@@ -632,9 +636,12 @@ function displaySourceSection(func: FunctionInfo, options: ShowCommandOptions): 
       console.log(func.sourceCode);
       console.log(chalk.gray('--- End Source ---'));
     }
+  } else if (!canShowSource) {
+    console.log(chalk.yellow('⚠️  File has been modified since last scan'));
+    console.log('   Run a new scan to update the snapshot and view current source code.');
   } else {
     console.log(chalk.yellow('⚠️  Source code not available'));
-    console.log('Run a new scan to capture source code information.');
+    console.log('   Run a new scan to capture source code information.');
   }
   
   console.log();
@@ -689,6 +696,25 @@ function applySyntaxHighlighting(line: string): string {
 }
 
 // Helper functions for new sections
+
+async function validateSourceIntegrity(func: FunctionInfo): Promise<boolean> {
+  try {
+    // Check if file exists
+    const exists = await fileExists(func.filePath);
+    if (!exists) {
+      return false;
+    }
+    
+    // Calculate current file hash
+    const currentHash = await calculateFileHash(func.filePath);
+    
+    // Compare with stored hash
+    return currentHash === func.fileHash;
+  } catch (error) {
+    // If we can't calculate hash, assume file is modified
+    return false;
+  }
+}
 
 function displayUsageExamples(func: FunctionInfo): void {
   if (func.description && func.description.toLowerCase().includes('example')) {
