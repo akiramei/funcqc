@@ -175,7 +175,7 @@ export class ParallelFileProcessor {
   /**
    * Determine if parallel processing is beneficial
    */
-  static shouldUseParallelProcessing(fileCount: number): boolean {
+  static shouldUseParallelProcessing(_fileCount: number): boolean {
     // Temporarily disable parallel processing until worker compilation is resolved
     return false;
     // return fileCount >= 20 && os.cpus().length > 1;
