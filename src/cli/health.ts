@@ -2,10 +2,11 @@ import chalk from 'chalk';
 import simpleGit, { SimpleGit } from 'simple-git';
 import { HealthCommandOptions, FunctionInfo, FuncqcConfig, SnapshotInfo } from '../types';
 import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { QualityScorer } from '../utils/quality-scorer';
 import { riskAssessor } from '../core/risk-assessor';
 import { Logger } from '../utils/cli-utils';
+import { ErrorCode, createErrorHandler } from '../utils/error-handler';
 
 interface TrendData {
   period: string;
@@ -26,6 +27,7 @@ interface TrendAnalysis {
 
 export async function healthCommand(options: HealthCommandOptions): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
+  const errorHandler = createErrorHandler(logger);
   
   try {
     const configManager = new ConfigManager();
@@ -54,8 +56,23 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
     await storage.close();
     
   } catch (error) {
-    logger.error('Failed to generate health report', error);
-    process.exit(1);
+    if (error instanceof DatabaseError) {
+      const funcqcError = errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to generate health report: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
 }
 

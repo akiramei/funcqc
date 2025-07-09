@@ -1,13 +1,18 @@
 import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { calculateFileHash, fileExists } from '../utils/file-utils';
+import { ErrorCode, createErrorHandler } from '../utils/error-handler';
+import { Logger } from '../utils/cli-utils';
 
 export async function showCommand(
   namePattern: string = '',
   options: ShowCommandOptions
 ): Promise<void> {
+  const logger = new Logger();
+  const errorHandler = createErrorHandler(logger);
+  
   try {
     const { storage, config } = await initializeShowCommand();
     const func = await findTargetFunction(storage, options.id, namePattern);
@@ -19,8 +24,23 @@ export async function showCommand(
     }
     
   } catch (error) {
-    console.error(chalk.red('Failed to show function:'), error instanceof Error ? error.message : String(error));
-    process.exit(1);
+    if (error instanceof DatabaseError) {
+      const funcqcError = errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to show function: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
 }
 

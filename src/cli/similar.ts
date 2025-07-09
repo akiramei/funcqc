@@ -3,10 +3,10 @@ import ora from 'ora';
 import chalk from 'chalk';
 import fs from 'fs';
 import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { SimilarityManager } from '../similarity/similarity-manager';
 import { FunctionInfo, SimilarityResult, ConsensusStrategy } from '../types';
-import { createErrorHandler } from '../utils/error-handler';
+import { createErrorHandler, ErrorCode } from '../utils/error-handler';
 import { Logger } from '../utils/cli-utils';
 
 interface SimilarCommandOptions {
@@ -59,7 +59,23 @@ export async function similarCommand(options: SimilarCommandOptions, cmd: Comman
 
   } catch (error) {
     spinner.fail();
-    context.errorHandler.handleError(error as Error);
+    if (error instanceof DatabaseError) {
+      const funcqcError = context.errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      context.errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = context.errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to analyze similar functions: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      context.errorHandler.handleError(funcqcError);
+    }
   }
 }
 

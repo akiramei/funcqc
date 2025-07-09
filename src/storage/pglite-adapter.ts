@@ -1,6 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
+import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
@@ -28,6 +29,21 @@ import {
   LineageQuery
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
+import { ErrorCode } from '../utils/error-handler';
+
+/**
+ * Custom error class for database operations with ErrorCode
+ */
+export class DatabaseError extends Error {
+  constructor(
+    public readonly code: ErrorCode,
+    message: string,
+    public readonly originalError?: Error
+  ) {
+    super(message);
+    this.name = 'DatabaseError';
+  }
+}
 
 /**
  * Clean PGLite storage adapter implementation
@@ -51,8 +67,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async init(): Promise<void> {
     try {
+      // Check if database path exists (only check for directory-based databases)
+      if (this.dbPath !== ':memory:' && !this.dbPath.includes(':')) {
+        const dbDir = path.dirname(this.dbPath);
+        if (!fs.existsSync(dbDir)) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            'Database directory not found. funcqc needs to be initialized first.',
+            new Error(`Database directory does not exist: ${dbDir}`)
+          );
+        }
+      }
+
       await this.db.waitReady;
-      
       
       // Use cache to avoid redundant schema initialization  
       if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
@@ -68,7 +95,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }
       }
     } catch (error) {
-      throw new Error(`Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`);
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
+      
+      // Check if it's a database not found error
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        throw new DatabaseError(
+          ErrorCode.DATABASE_NOT_INITIALIZED,
+          'Database not found. funcqc needs to be initialized first.',
+          error
+        );
+      }
+      
+      throw new DatabaseError(
+        ErrorCode.DATABASE_CONNECTION_FAILED,
+        `Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
     }
   }
 

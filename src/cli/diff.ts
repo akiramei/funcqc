@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
 import { CommandOptions, SnapshotDiff, FunctionChange, ChangeDetail, FunctionInfo, Lineage, LineageCandidate, LineageKind, SimilarityResult, SimilarFunction } from '../types';
 import { SimilarityManager } from '../similarity/similarity-manager';
@@ -11,6 +11,7 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ChangeSignificanceDetector, ChangeDetectorConfig, DEFAULT_CHANGE_DETECTOR_CONFIG } from './diff/changeDetector';
+import { ErrorCode, createErrorHandler } from '../utils/error-handler';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -33,6 +34,7 @@ export async function diffCommand(
   options: DiffCommandOptions
 ): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
+  const errorHandler = createErrorHandler(logger);
   
   try {
     const configManager = new ConfigManager();
@@ -103,8 +105,23 @@ export async function diffCommand(
 
     await storage.close();
   } catch (error) {
-    logger.error('Failed to calculate diff', error);
-    process.exit(1);
+    if (error instanceof DatabaseError) {
+      const funcqcError = errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to calculate diff: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
 }
 

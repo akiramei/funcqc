@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { ConfigManager } from '../core/config';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
@@ -103,14 +103,23 @@ export async function searchCommand(
     }
 
   } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.UNKNOWN_ERROR,
-      'Failed to execute search command',
-      { keyword, options },
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
-    process.exit(1);
+    if (error instanceof DatabaseError) {
+      const funcqcError = errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to execute search command: ${error instanceof Error ? error.message : String(error)}`,
+        { keyword, options },
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
 }
 

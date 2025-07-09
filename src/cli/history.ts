@@ -1,9 +1,10 @@
 import chalk from 'chalk';
 import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
+import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
 import { formatDuration } from '../utils/file-utils';
 import { CommandOptions, FunctionInfo, SnapshotInfo, SnapshotMetadata } from '../types';
+import { ErrorCode, createErrorHandler } from '../utils/error-handler';
 
 export interface HistoryCommandOptions extends CommandOptions {
   verbose?: boolean;
@@ -20,6 +21,7 @@ export interface HistoryCommandOptions extends CommandOptions {
 
 export async function historyCommand(options: HistoryCommandOptions): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
+  const errorHandler = createErrorHandler(logger);
   
   try {
     const configManager = new ConfigManager();
@@ -38,8 +40,23 @@ export async function historyCommand(options: HistoryCommandOptions): Promise<vo
 
     await storage.close();
   } catch (error) {
-    logger.error('Failed to retrieve history', error);
-    process.exit(1);
+    if (error instanceof DatabaseError) {
+      const funcqcError = errorHandler.createError(
+        error.code,
+        error.message,
+        {},
+        error.originalError
+      );
+      errorHandler.handleError(funcqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to retrieve history: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   }
 }
 

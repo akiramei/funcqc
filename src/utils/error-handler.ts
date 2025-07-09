@@ -13,6 +13,7 @@ export enum ErrorCode {
   
   // Database errors
   DATABASE_CONNECTION_FAILED = 'DATABASE_CONNECTION_FAILED',
+  DATABASE_NOT_INITIALIZED = 'DATABASE_NOT_INITIALIZED',
   DATABASE_CORRUPTION = 'DATABASE_CORRUPTION',
   MIGRATION_FAILED = 'MIGRATION_FAILED',
   
@@ -103,6 +104,16 @@ export class ErrorHandler {
             'Check file permissions',
             'Run with appropriate user privileges',
             'Ensure funcqc database directory is writable'
+          ]
+        };
+
+      case ErrorCode.DATABASE_NOT_INITIALIZED:
+        return {
+          recoverable: true,
+          recoveryActions: [
+            'Run: funcqc init',
+            'Run: funcqc scan',
+            'Then try your command again'
           ]
         };
 
