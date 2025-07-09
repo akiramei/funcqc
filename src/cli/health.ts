@@ -671,8 +671,8 @@ async function displayAIOptimizedHealth(
         risk_factors: item.riskFactors,
         risk_score: Math.round(item.riskScore),
         fix_priority: index + 1,
-        estimated_effort: estimateEffort(complexity),
-        suggested_actions: generateSuggestedActions(f),
+        estimated_effort: estimateEffort(complexity, config),
+        suggested_actions: generateSuggestedActions(f, config),
         metrics: {
           cyclomatic_complexity: complexity,
           lines_of_code: lines,
@@ -681,8 +681,8 @@ async function displayAIOptimizedHealth(
         }
       };
     }),
-    improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions),
-    next_actions: generateNextActions(sortedHighRiskFunctions)
+    improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions, config),
+    next_actions: generateNextActions(sortedHighRiskFunctions, config)
   };
 
   console.log(JSON.stringify(report, null, 2));
@@ -715,34 +715,35 @@ function calculateRiskScore(
   return { riskScore, riskFactors };
 }
 
-function generateSuggestedActions(f: FunctionInfo): string[] {
+function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string[] {
   const complexity = f.metrics?.cyclomaticComplexity || 1;
   const lines = f.metrics?.linesOfCode || 0;
   const parameterCount = f.metrics?.parameterCount || 0;
   
   const suggestedActions: string[] = [];
   
-  if (complexity > 15) {
+  if (complexity > config.metrics.complexityThreshold) {
     suggestedActions.push('extract_methods', 'reduce_branching');
   }
-  if (lines > 150) {
+  if (lines > config.metrics.linesOfCodeThreshold * 3) {
     suggestedActions.push('split_function', 'extract_helpers');
   }
-  if (parameterCount > 5) {
+  if (parameterCount > config.metrics.parameterCountThreshold) {
     suggestedActions.push('parameterize_object', 'extract_config');
   }
   
   return suggestedActions;
 }
 
-function estimateEffort(complexity: number): string {
-  if (complexity > 20) return '60-120min';
-  if (complexity > 15) return '30-60min';
+function estimateEffort(complexity: number, config: FuncqcConfig): string {
+  if (complexity > config.metrics.complexityThreshold * 2) return '60-120min';
+  if (complexity > config.metrics.complexityThreshold * 1.5) return '30-60min';
   return '15-30min';
 }
 
 function generateImprovementRoadmap(
-  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  config: FuncqcConfig
 ): Array<{
   step: number;
   function_id: string;
@@ -754,20 +755,23 @@ function generateImprovementRoadmap(
   return sortedHighRiskFunctions.slice(0, 5).map((item, index) => {
     const f = item.function;
     const complexity = f.metrics?.cyclomaticComplexity || 1;
+    const highThreshold = config.metrics.complexityThreshold * 2;
+    const mediumThreshold = config.metrics.complexityThreshold * 1.5;
     
     return {
       step: index + 1,
       function_id: f.id,
-      action: complexity > 15 ? 'split_complex_function' : 'refactor_simplify',
-      estimated_time: complexity > 20 ? '90min' : '45min',
-      impact: complexity > 20 ? 'high' : complexity > 15 ? 'medium' : 'low',
-      difficulty: complexity > 20 ? 'hard' : complexity > 15 ? 'medium' : 'easy'
+      action: complexity > mediumThreshold ? 'split_complex_function' : 'refactor_simplify',
+      estimated_time: complexity > highThreshold ? '90min' : '45min',
+      impact: complexity > highThreshold ? 'high' : complexity > mediumThreshold ? 'medium' : 'low',
+      difficulty: complexity > highThreshold ? 'hard' : complexity > mediumThreshold ? 'medium' : 'easy'
     };
   });
 }
 
 function generateNextActions(
-  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  config: FuncqcConfig
 ): Array<{
   action_type: 'refactor' | 'split' | 'extract' | 'simplify';
   function_id: string;
@@ -784,7 +788,7 @@ function generateNextActions(
     let description: string;
     let specificSteps: string[];
     
-    if (complexity > 15 && lines > 100) {
+    if (complexity > config.metrics.complexityThreshold * 1.5 && lines > config.metrics.linesOfCodeThreshold * 2.5) {
       actionType = 'split';
       description = 'Split large, complex function into smaller, focused functions';
       specificSteps = [
@@ -793,7 +797,7 @@ function generateNextActions(
         'Reduce main function to coordinating calls',
         'Verify tests still pass'
       ];
-    } else if (complexity > 15) {
+    } else if (complexity > config.metrics.complexityThreshold * 1.5) {
       actionType = 'simplify';
       description = 'Reduce cyclomatic complexity through refactoring';
       specificSteps = [
