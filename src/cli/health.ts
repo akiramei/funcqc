@@ -591,7 +591,7 @@ interface AIOptimizedHealthReport {
 
 async function displayAIOptimizedHealth(
   storage: PGLiteStorageAdapter,
-  _config: FuncqcConfig,
+  config: FuncqcConfig,
   _options: HealthCommandOptions
 ): Promise<void> {
   const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
@@ -632,32 +632,15 @@ async function displayAIOptimizedHealth(
     const maintainability = f.metrics?.maintainabilityIndex || 100;
     const lines = f.metrics?.linesOfCode || 0;
     
-    return complexity > 10 || maintainability < 50 || lines > 100;
+    return complexity > config.metrics.complexityThreshold || 
+           maintainability < 50 || 
+           lines > config.metrics.linesOfCodeThreshold;
   });
 
   // Sort by risk score (complexity + size + maintainability issues)
   const sortedHighRiskFunctions = highRiskFunctions
     .map(f => {
-      const complexity = f.metrics?.cyclomaticComplexity || 1;
-      const maintainability = f.metrics?.maintainabilityIndex || 100;
-      const lines = f.metrics?.linesOfCode || 0;
-      
-      let riskScore = 0;
-      const riskFactors: string[] = [];
-      
-      if (complexity > 10) {
-        riskScore += (complexity - 10) * 10;
-        riskFactors.push(`complexity:${complexity}`);
-      }
-      if (maintainability < 50) {
-        riskScore += (50 - maintainability) * 2;
-        riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
-      }
-      if (lines > 100) {
-        riskScore += (lines - 100) * 0.5;
-        riskFactors.push(`size:${lines}`);
-      }
-      
+      const { riskScore, riskFactors } = calculateRiskScore(f, config);
       return {
         function: f,
         riskScore,
@@ -680,17 +663,6 @@ async function displayAIOptimizedHealth(
       const complexity = f.metrics?.cyclomaticComplexity || 1;
       const lines = f.metrics?.linesOfCode || 0;
       
-      const suggestedActions: string[] = [];
-      if (complexity > 15) {
-        suggestedActions.push('extract_methods', 'reduce_branching');
-      }
-      if (lines > 150) {
-        suggestedActions.push('split_function', 'extract_helpers');
-      }
-      if ((f.metrics?.parameterCount || 0) > 5) {
-        suggestedActions.push('parameterize_object', 'extract_config');
-      }
-      
       return {
         id: f.id,
         name: f.name,
@@ -699,8 +671,8 @@ async function displayAIOptimizedHealth(
         risk_factors: item.riskFactors,
         risk_score: Math.round(item.riskScore),
         fix_priority: index + 1,
-        estimated_effort: complexity > 20 ? '60-120min' : complexity > 15 ? '30-60min' : '15-30min',
-        suggested_actions: suggestedActions,
+        estimated_effort: estimateEffort(complexity),
+        suggested_actions: generateSuggestedActions(f),
         metrics: {
           cyclomatic_complexity: complexity,
           lines_of_code: lines,
@@ -709,66 +681,144 @@ async function displayAIOptimizedHealth(
         }
       };
     }),
-    improvement_roadmap: sortedHighRiskFunctions.slice(0, 5).map((item, index) => {
-      const f = item.function;
-      const complexity = f.metrics?.cyclomaticComplexity || 1;
-      
-      return {
-        step: index + 1,
-        function_id: f.id,
-        action: complexity > 15 ? 'split_complex_function' : 'refactor_simplify',
-        estimated_time: complexity > 20 ? '90min' : '45min',
-        impact: complexity > 20 ? 'high' : complexity > 15 ? 'medium' : 'low',
-        difficulty: complexity > 20 ? 'hard' : complexity > 15 ? 'medium' : 'easy'
-      };
-    }),
-    next_actions: sortedHighRiskFunctions.slice(0, 3).map(item => {
-      const f = item.function;
-      const complexity = f.metrics?.cyclomaticComplexity || 1;
-      const lines = f.metrics?.linesOfCode || 0;
-      
-      let actionType: 'refactor' | 'split' | 'extract' | 'simplify';
-      let description: string;
-      let specificSteps: string[];
-      
-      if (complexity > 15 && lines > 100) {
-        actionType = 'split';
-        description = 'Split large, complex function into smaller, focused functions';
-        specificSteps = [
-          'Identify logical sections within the function',
-          'Extract each section into a separate function',
-          'Reduce main function to coordinating calls',
-          'Verify tests still pass'
-        ];
-      } else if (complexity > 15) {
-        actionType = 'simplify';
-        description = 'Reduce cyclomatic complexity through refactoring';
-        specificSteps = [
-          'Replace nested if-else with early returns',
-          'Extract complex conditions into named functions',
-          'Use strategy pattern for multiple similar branches',
-          'Simplify boolean expressions'
-        ];
-      } else {
-        actionType = 'refactor';
-        description = 'General refactoring to improve maintainability';
-        specificSteps = [
-          'Extract magic numbers into constants',
-          'Improve variable naming',
-          'Add appropriate comments',
-          'Reduce parameter count if needed'
-        ];
-      }
-      
-      return {
-        action_type: actionType,
-        function_id: f.id,
-        description,
-        code_location: `${f.filePath}:${f.startLine}-${f.endLine}`,
-        specific_steps: specificSteps
-      };
-    })
+    improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions),
+    next_actions: generateNextActions(sortedHighRiskFunctions)
   };
 
   console.log(JSON.stringify(report, null, 2));
+}
+
+function calculateRiskScore(
+  f: FunctionInfo,
+  config: FuncqcConfig
+): { riskScore: number; riskFactors: string[] } {
+  const complexity = f.metrics?.cyclomaticComplexity || 1;
+  const maintainability = f.metrics?.maintainabilityIndex || 100;
+  const lines = f.metrics?.linesOfCode || 0;
+  
+  let riskScore = 0;
+  const riskFactors: string[] = [];
+  
+  if (complexity > config.metrics.complexityThreshold) {
+    riskScore += (complexity - config.metrics.complexityThreshold) * 10;
+    riskFactors.push(`complexity:${complexity}`);
+  }
+  if (maintainability < 50) {
+    riskScore += (50 - maintainability) * 2;
+    riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
+  }
+  if (lines > config.metrics.linesOfCodeThreshold) {
+    riskScore += (lines - config.metrics.linesOfCodeThreshold) * 0.5;
+    riskFactors.push(`size:${lines}`);
+  }
+  
+  return { riskScore, riskFactors };
+}
+
+function generateSuggestedActions(f: FunctionInfo): string[] {
+  const complexity = f.metrics?.cyclomaticComplexity || 1;
+  const lines = f.metrics?.linesOfCode || 0;
+  const parameterCount = f.metrics?.parameterCount || 0;
+  
+  const suggestedActions: string[] = [];
+  
+  if (complexity > 15) {
+    suggestedActions.push('extract_methods', 'reduce_branching');
+  }
+  if (lines > 150) {
+    suggestedActions.push('split_function', 'extract_helpers');
+  }
+  if (parameterCount > 5) {
+    suggestedActions.push('parameterize_object', 'extract_config');
+  }
+  
+  return suggestedActions;
+}
+
+function estimateEffort(complexity: number): string {
+  if (complexity > 20) return '60-120min';
+  if (complexity > 15) return '30-60min';
+  return '15-30min';
+}
+
+function generateImprovementRoadmap(
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>
+): Array<{
+  step: number;
+  function_id: string;
+  action: string;
+  estimated_time: string;
+  impact: 'high' | 'medium' | 'low';
+  difficulty: 'easy' | 'medium' | 'hard';
+}> {
+  return sortedHighRiskFunctions.slice(0, 5).map((item, index) => {
+    const f = item.function;
+    const complexity = f.metrics?.cyclomaticComplexity || 1;
+    
+    return {
+      step: index + 1,
+      function_id: f.id,
+      action: complexity > 15 ? 'split_complex_function' : 'refactor_simplify',
+      estimated_time: complexity > 20 ? '90min' : '45min',
+      impact: complexity > 20 ? 'high' : complexity > 15 ? 'medium' : 'low',
+      difficulty: complexity > 20 ? 'hard' : complexity > 15 ? 'medium' : 'easy'
+    };
+  });
+}
+
+function generateNextActions(
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>
+): Array<{
+  action_type: 'refactor' | 'split' | 'extract' | 'simplify';
+  function_id: string;
+  description: string;
+  code_location: string;
+  specific_steps: string[];
+}> {
+  return sortedHighRiskFunctions.slice(0, 3).map(item => {
+    const f = item.function;
+    const complexity = f.metrics?.cyclomaticComplexity || 1;
+    const lines = f.metrics?.linesOfCode || 0;
+    
+    let actionType: 'refactor' | 'split' | 'extract' | 'simplify';
+    let description: string;
+    let specificSteps: string[];
+    
+    if (complexity > 15 && lines > 100) {
+      actionType = 'split';
+      description = 'Split large, complex function into smaller, focused functions';
+      specificSteps = [
+        'Identify logical sections within the function',
+        'Extract each section into a separate function',
+        'Reduce main function to coordinating calls',
+        'Verify tests still pass'
+      ];
+    } else if (complexity > 15) {
+      actionType = 'simplify';
+      description = 'Reduce cyclomatic complexity through refactoring';
+      specificSteps = [
+        'Replace nested if-else with early returns',
+        'Extract complex conditions into named functions',
+        'Use strategy pattern for multiple similar branches',
+        'Simplify boolean expressions'
+      ];
+    } else {
+      actionType = 'refactor';
+      description = 'General refactoring to improve maintainability';
+      specificSteps = [
+        'Extract magic numbers into constants',
+        'Improve variable naming',
+        'Add appropriate comments',
+        'Reduce parameter count if needed'
+      ];
+    }
+    
+    return {
+      action_type: actionType,
+      function_id: f.id,
+      description,
+      code_location: `${f.filePath}:${f.startLine}-${f.endLine}`,
+      specific_steps: specificSteps
+    };
+  });
 }
