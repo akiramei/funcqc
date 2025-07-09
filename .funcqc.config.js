@@ -13,7 +13,7 @@ module.exports = {
   ],
   "storage": {
     "type": "pglite",
-    "path": "/mnt/c/Users/akira/source/repos/funcqc/.startup-benchmark-db"
+    "path": ".startup-benchmark-db"
   },
   "metrics": {
     "complexityThreshold": 10,

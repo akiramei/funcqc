@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { Command } from 'commander';
+import { Command, OptionValues } from 'commander';
 import chalk from 'chalk';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
@@ -33,7 +33,7 @@ program
   .option('--db <path>', 'database path', '.funcqc/funcqc.db')
   .option('--show', 'show current configuration')
   .option('--reset', 'reset configuration to defaults')
-  .action(async (options: any) => {
+  .action(async (options: OptionValues) => {
     const { initCommand } = await import('./cli/init');
     return initCommand(options);
   });
@@ -43,7 +43,7 @@ program
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
-  .action(async (options: any) => {
+  .action(async (options: OptionValues) => {
     const { scanCommand } = await import('./cli/scan');
     return scanCommand(options);
   });
@@ -58,7 +58,7 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
-  .action(async (options: any) => {
+  .action(async (options: OptionValues) => {
     const { listCommand } = await import('./cli/list');
     return listCommand(options);
   });
@@ -79,7 +79,7 @@ program
   .option('--source', 'show function source code')
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .action(async (namePattern: string | undefined, options: any) => {
+  .action(async (namePattern: string | undefined, options: OptionValues) => {
     const { showCommand } = await import('./cli/show');
     return showCommand(namePattern, options);
   })
@@ -168,7 +168,7 @@ program
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
-  .action(async (from: string, to: string, options: any) => {
+  .action(async (from: string, to: string, options: OptionValues) => {
     const { diffCommand } = await import('./cli/diff');
     return diffCommand(from, to, options);
   })
@@ -216,7 +216,7 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
-  .action(async (options: any, cmd: any) => {
+  .action(async (options: OptionValues, cmd: Command) => {
     const { similarCommand } = await import('./cli/similar');
     await similarCommand(options, cmd);
   });
@@ -241,7 +241,7 @@ program
   .option('--error-conditions <conditions>', 'document error conditions and handling')
   .option('--generate-template', 'generate JSON template for the specified function')
   .option('--ai-mode', 'enable AI-optimized batch processing')
-  .action(async (functionId: string | undefined, options: any) => {
+  .action(async (functionId: string | undefined, options: OptionValues) => {
     const { describeCommand } = await import('./cli/describe');
     await describeCommand(functionId || '', options);
   })
@@ -310,7 +310,7 @@ program
   .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
   .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
   .option('--intermediate', 'output intermediate results for AI analysis')
-  .action(async (keyword: string, options: any) => {
+  .action(async (keyword: string, options: OptionValues) => {
     const { searchCommand } = await import('./cli/search');
     await searchCommand(keyword, options);
   })
@@ -374,7 +374,7 @@ program
       .option('--from-function <pattern>', 'filter by source function name pattern')
       .option('--to-function <pattern>', 'filter by target function name pattern')
       .option('--confidence <threshold>', 'filter by minimum confidence (0-1)')
-      .action(async (options: any) => {
+      .action(async (options: OptionValues) => {
         const { lineageListCommand } = await import('./cli/lineage');
         await lineageListCommand(options);
       })
@@ -391,7 +391,7 @@ Examples:
     new Command('show')
       .description('Show detailed lineage information')
       .argument('<lineage-id>', 'lineage ID to display')
-      .action(async (lineageId: string, options: any) => {
+      .action(async (lineageId: string, options: OptionValues) => {
         const { lineageShowCommand } = await import('./cli/lineage');
         await lineageShowCommand(lineageId, options);
       })
@@ -408,7 +408,7 @@ Examples:
       .option('--reject', 'reject the lineage')
       .option('--note <text>', 'add review note')
       .option('--all', 'review all draft lineages')
-      .action(async (lineageId: string | undefined, options: any) => {
+      .action(async (lineageId: string | undefined, options: OptionValues) => {
         const { lineageReviewCommand } = await import('./cli/lineage');
         await lineageReviewCommand(lineageId || '', options);
       })
@@ -431,7 +431,7 @@ program
   .option('--all', 'list all available metrics and concepts')
   .option('--examples', 'include code examples in explanations')
   .option('--format <type>', 'output format (table|detailed)', 'detailed')
-  .action(async (metricOrConcept: string | undefined, options: any) => {
+  .action(async (metricOrConcept: string | undefined, options: OptionValues) => {
     const { explainCommand } = await import('./cli/explain');
     return explainCommand(metricOrConcept, options);
   })
@@ -471,7 +471,7 @@ refactorCommand.addCommand(
     .option('--output <file>', 'save report to file')
     .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
     .option('--patterns <list>', 'comma-separated list of patterns to detect')
-    .action(async (options: any) => {
+    .action(async (options: OptionValues) => {
       const { refactorAnalyzeCommand } = await import('./cli/refactor/analyze.js');
       await refactorAnalyzeCommand(options);
     })

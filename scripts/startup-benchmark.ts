@@ -137,7 +137,9 @@ class StartupBenchmark {
       
       times.push(duration);
       
-      // Memory usage approximation (not precise but gives relative comparison)
+      // Note: This measures parent process memory, not actual CLI process memory
+      // Real CLI memory usage would require process monitoring or child_process.spawn
+      // with memory tracking. Current measurement provides relative comparison only.
       const memoryUsage = process.memoryUsage();
       memories.push(memoryUsage.heapUsed / 1024 / 1024); // MB
     }
