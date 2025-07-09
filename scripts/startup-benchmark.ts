@@ -83,6 +83,22 @@ class StartupBenchmark {
   }
 
   private async prepareTestEnvironment(): Promise<void> {
+    // Verify test fixtures directory exists
+    const fixturesPath = path.join(process.cwd(), 'test/fixtures');
+    if (!fs.existsSync(fixturesPath)) {
+      throw new Error('Test fixtures directory not found. Please ensure test/fixtures exists with sample TypeScript files.');
+    }
+
+    // Verify npm scripts exist
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf-8'));
+      if (!packageJson.scripts?.dev) {
+        throw new Error('npm run dev script not found in package.json');
+      }
+    } catch (error) {
+      throw new Error('Failed to read package.json or verify scripts: ' + (error instanceof Error ? error.message : error));
+    }
+
     // Clean up any existing test database
     if (fs.existsSync(this.testDbPath)) {
       fs.rmSync(this.testDbPath, { recursive: true });
@@ -101,7 +117,7 @@ class StartupBenchmark {
         env: { ...process.env, FUNCQC_DB_PATH: this.testDbPath }
       });
     } catch (error) {
-      console.warn('Failed to create test database, some commands may fail');
+      console.warn('Failed to create test database, some commands may fail:', error instanceof Error ? error.message : error);
     }
   }
 
@@ -132,12 +148,19 @@ class StartupBenchmark {
           stdio: 'pipe',
           cwd: process.cwd(),
           env: { ...process.env, FUNCQC_DB_PATH: this.testDbPath },
-          timeout: 30000 // 30 second timeout
+          timeout: 10000 // 10 second timeout - more appropriate for startup benchmarking
         });
         
         lastExitCode = 0;
       } catch (error: any) {
         lastExitCode = error.status || 1;
+        
+        // Log timeout errors specifically
+        if (error.code === 'ETIMEDOUT') {
+          console.warn(chalk.yellow(`  ⚠ Command timed out after 10s: ${command}`));
+        } else if (process.env.DEBUG) {
+          console.debug(`  Command failed: ${command}`, error.message);
+        }
       }
       
       const endTime = performance.now();
@@ -202,19 +225,17 @@ function displayResults(results: StartupBenchmarkResult[]): void {
   // Performance summary
   console.log(chalk.blue('\n🎯 Performance Summary\n'));
   
-  // Separate lightweight and heavy commands
-  const lightweightCmds = results.filter(r => 
-    !r.command.includes('vectorize') && 
-    !r.command.includes('evaluate') && 
-    !r.command.includes('refactor') && 
-    !r.command.includes('lineage')
-  );
-  const heavyCmds = results.filter(r => 
-    r.command.includes('vectorize') || 
-    r.command.includes('evaluate') || 
-    r.command.includes('refactor') || 
-    r.command.includes('lineage')
-  );
+  // Define heavy commands that use dynamic imports
+  const HEAVY_COMMANDS = ['vectorize', 'evaluate', 'refactor', 'lineage'];
+  
+  // Separate commands by type
+  const commandCategories = {
+    lightweight: results.filter(r => !HEAVY_COMMANDS.some(cmd => r.command.includes(cmd))),
+    heavy: results.filter(r => HEAVY_COMMANDS.some(cmd => r.command.includes(cmd)))
+  };
+  
+  const lightweightCmds = commandCategories.lightweight;
+  const heavyCmds = commandCategories.heavy;
   
   const avgStartupTime = results.reduce((acc, r) => acc + r.avgStartupTime, 0) / results.length;
   const avgLightweight = lightweightCmds.reduce((acc, r) => acc + r.avgStartupTime, 0) / lightweightCmds.length;
@@ -278,19 +299,25 @@ async function main() {
     displayResults(results);
     
     // Save results to file
-    const resultsPath = path.join(process.cwd(), 'startup-benchmark-results.json');
-    fs.writeFileSync(resultsPath, JSON.stringify({
-      timestamp: new Date().toISOString(),
-      iterations,
-      results,
-      environment: {
-        node: process.version,
-        platform: process.platform,
-        arch: process.arch
-      }
-    }, null, 2));
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const resultsPath = path.join(process.cwd(), `startup-benchmark-results-${timestamp}.json`);
     
-    console.log(chalk.gray(`\nResults saved to: ${resultsPath}`));
+    try {
+      fs.writeFileSync(resultsPath, JSON.stringify({
+        timestamp: new Date().toISOString(),
+        iterations,
+        results,
+        environment: {
+          node: process.version,
+          platform: process.platform,
+          arch: process.arch
+        }
+      }, null, 2));
+      
+      console.log(chalk.gray(`\nResults saved to: ${resultsPath}`));
+    } catch (error) {
+      console.warn(chalk.yellow('\n⚠ Warning: Failed to save results to file'), error instanceof Error ? error.message : error);
+    }
     
   } catch (error) {
     console.error(chalk.red('Benchmark failed:'), error);
