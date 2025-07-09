@@ -60,18 +60,18 @@ jobs:
         # Run lineage detection with proper error handling
         if ! LINEAGE_OUTPUT=$(npm run --silent dev -- diff base-${{ github.event.pull_request.base.sha }} pr-${{ github.event.pull_request.head.sha }} --lineage --json 2>/dev/null); then
           echo "Failed to generate lineage analysis - using empty result"
-          LINEAGE_OUTPUT='{"lineages": [], "summary": {"total": 0}}'
+          LINEAGE_OUTPUT='{"diff": {"added": [], "removed": [], "modified": []}, "lineageCandidates": []}'
         fi
 
         # Save output for comment generation
         echo "$LINEAGE_OUTPUT" > lineage-analysis.json
 
         # Extract key metrics with safe defaults
-        TOTAL_LINEAGES=$(echo "$LINEAGE_OUTPUT" | jq -r '.summary.total // 0' || echo "0")
-        RENAME_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "rename")) | length' || echo "0")
-        SIGNATURE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "signature-change")) | length' || echo "0")
-        SPLIT_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "split")) | length' || echo "0")
-        INLINE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineages | map(select(.kind == "inline")) | length' || echo "0")
+        TOTAL_LINEAGES=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineageCandidates | length' || echo "0")
+        RENAME_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineageCandidates | map(select(.kind == "rename")) | length' || echo "0")
+        SIGNATURE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineageCandidates | map(select(.kind == "signature-change")) | length' || echo "0")
+        SPLIT_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineageCandidates | map(select(.kind == "split")) | length' || echo "0")
+        INLINE_COUNT=$(echo "$LINEAGE_OUTPUT" | jq -r '.lineageCandidates | map(select(.kind == "inline")) | length' || echo "0")
 
         {
           echo "total_lineages=$TOTAL_LINEAGES"
@@ -122,7 +122,15 @@ jobs:
           } >> lineage-report.md
 
           # Parse and format lineage details
-          jq -r '.lineages[] | "### \(.kind | ascii_upcase): \(.from_functions[0].name // "unknown") → \(.to_functions[0].name // "unknown")\n\n- **Confidence:** \(.confidence * 100 | floor)%\n- **From:** \(.from_functions[0].file_path // "unknown"):\(.from_functions[0].start_line // "?")\n- **To:** \(.to_functions[0].file_path // "unknown"):\(.to_functions[0].start_line // "?")\n\(.note // "" | if . != "" then "\n- **Note:** \(.)" else "" end)\n"' lineage-analysis.json >> lineage-report.md
+          jq -r '.lineageCandidates[] |
+            (.toFunctions | first // {}) as $firstTo |
+            ( (.confidence // 0) * 100 | floor ) as $pct |
+            "### \(.kind | ascii_upcase): \(.fromFunction.name // \"unknown\") → \($firstTo.name // \"unknown\")\n\n" +
+            "- **Confidence:** \($pct)%\n" +
+            "- **From:** \(.fromFunction.filePath // \"unknown\"):\(.fromFunction.startLine // \"?\")\n" +
+            "- **To:** \($firstTo.filePath // \"unknown\"):\($firstTo.startLine // \"?\")\n" +
+            ( .reason // \"\" | if . != \"\" then \"\\n- **Note:** \(.)\" else \"\" end ) + \"\n"
+          ' lineage-analysis.json >> lineage-report.md
         else
           {
             echo "✅ No function lineage changes detected in this PR."
