@@ -42,7 +42,9 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
     await storage.init();
 
     // Handle different modes
-    if (options.trend) {
+    if (options.aiOptimized) {
+      await displayAIOptimizedHealth(storage, config, options);
+    } else if (options.trend) {
       await displayTrendAnalysis(storage, options, logger);
     } else if (options.risks) {
       await displayDetailedRiskAssessment(storage, config, options);
@@ -543,4 +545,230 @@ function getTrendDisplay(trend: 'improving' | 'stable' | 'degrading'): string {
     case 'degrading': return chalk.red('Degrading');
     default: return chalk.yellow('Stable');
   }
+}
+
+interface AIOptimizedHealthReport {
+  summary: {
+    total_functions: number;
+    high_risk_functions: number;
+    overall_grade: string;
+    overall_score: number;
+    last_analyzed: string;
+  };
+  high_risk_functions: Array<{
+    id: string;
+    name: string;
+    display_name: string;
+    location: string;
+    risk_factors: string[];
+    risk_score: number;
+    fix_priority: number;
+    estimated_effort: string;
+    suggested_actions: string[];
+    metrics: {
+      cyclomatic_complexity: number;
+      lines_of_code: number;
+      maintainability_index: number | null;
+      parameter_count: number;
+    };
+  }>;
+  improvement_roadmap: Array<{
+    step: number;
+    function_id: string;
+    action: string;
+    estimated_time: string;
+    impact: 'high' | 'medium' | 'low';
+    difficulty: 'easy' | 'medium' | 'hard';
+  }>;
+  next_actions: Array<{
+    action_type: 'refactor' | 'split' | 'extract' | 'simplify';
+    function_id: string;
+    description: string;
+    code_location: string;
+    specific_steps: string[];
+  }>;
+}
+
+async function displayAIOptimizedHealth(
+  storage: PGLiteStorageAdapter,
+  _config: FuncqcConfig,
+  _options: HealthCommandOptions
+): Promise<void> {
+  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  
+  if (snapshots.length === 0) {
+    console.log(JSON.stringify({
+      error: 'No data found',
+      suggestion: 'Run "funcqc scan" to analyze your project'
+    }, null, 2));
+    return;
+  }
+
+  const latest = snapshots[0];
+  const functions = await storage.getFunctions(latest.id);
+  
+  if (functions.length === 0) {
+    console.log(JSON.stringify({
+      error: 'No functions found in latest snapshot'
+    }, null, 2));
+    return;
+  }
+
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  
+  if (functionsWithMetrics.length === 0) {
+    console.log(JSON.stringify({
+      error: 'No functions with metrics found'
+    }, null, 2));
+    return;
+  }
+
+  const scorer = new QualityScorer();
+  const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
+  
+  // Get high risk functions with detailed information
+  const highRiskFunctions = functionsWithMetrics.filter(f => {
+    const complexity = f.metrics?.cyclomaticComplexity || 1;
+    const maintainability = f.metrics?.maintainabilityIndex || 100;
+    const lines = f.metrics?.linesOfCode || 0;
+    
+    return complexity > 10 || maintainability < 50 || lines > 100;
+  });
+
+  // Sort by risk score (complexity + size + maintainability issues)
+  const sortedHighRiskFunctions = highRiskFunctions
+    .map(f => {
+      const complexity = f.metrics?.cyclomaticComplexity || 1;
+      const maintainability = f.metrics?.maintainabilityIndex || 100;
+      const lines = f.metrics?.linesOfCode || 0;
+      
+      let riskScore = 0;
+      const riskFactors: string[] = [];
+      
+      if (complexity > 10) {
+        riskScore += (complexity - 10) * 10;
+        riskFactors.push(`complexity:${complexity}`);
+      }
+      if (maintainability < 50) {
+        riskScore += (50 - maintainability) * 2;
+        riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
+      }
+      if (lines > 100) {
+        riskScore += (lines - 100) * 0.5;
+        riskFactors.push(`size:${lines}`);
+      }
+      
+      return {
+        function: f,
+        riskScore,
+        riskFactors
+      };
+    })
+    .sort((a, b) => b.riskScore - a.riskScore);
+
+  // Generate AI-optimized report
+  const report: AIOptimizedHealthReport = {
+    summary: {
+      total_functions: functionsWithMetrics.length,
+      high_risk_functions: highRiskFunctions.length,
+      overall_grade: projectScore.overallGrade,
+      overall_score: projectScore.score,
+      last_analyzed: new Date(latest.createdAt).toISOString()
+    },
+    high_risk_functions: sortedHighRiskFunctions.map((item, index) => {
+      const f = item.function;
+      const complexity = f.metrics?.cyclomaticComplexity || 1;
+      const lines = f.metrics?.linesOfCode || 0;
+      
+      const suggestedActions: string[] = [];
+      if (complexity > 15) {
+        suggestedActions.push('extract_methods', 'reduce_branching');
+      }
+      if (lines > 150) {
+        suggestedActions.push('split_function', 'extract_helpers');
+      }
+      if ((f.metrics?.parameterCount || 0) > 5) {
+        suggestedActions.push('parameterize_object', 'extract_config');
+      }
+      
+      return {
+        id: f.id,
+        name: f.name,
+        display_name: f.displayName,
+        location: `${f.filePath}:${f.startLine}`,
+        risk_factors: item.riskFactors,
+        risk_score: Math.round(item.riskScore),
+        fix_priority: index + 1,
+        estimated_effort: complexity > 20 ? '60-120min' : complexity > 15 ? '30-60min' : '15-30min',
+        suggested_actions: suggestedActions,
+        metrics: {
+          cyclomatic_complexity: complexity,
+          lines_of_code: lines,
+          maintainability_index: f.metrics?.maintainabilityIndex || null,
+          parameter_count: f.metrics?.parameterCount || 0
+        }
+      };
+    }),
+    improvement_roadmap: sortedHighRiskFunctions.slice(0, 5).map((item, index) => {
+      const f = item.function;
+      const complexity = f.metrics?.cyclomaticComplexity || 1;
+      
+      return {
+        step: index + 1,
+        function_id: f.id,
+        action: complexity > 15 ? 'split_complex_function' : 'refactor_simplify',
+        estimated_time: complexity > 20 ? '90min' : '45min',
+        impact: complexity > 20 ? 'high' : complexity > 15 ? 'medium' : 'low',
+        difficulty: complexity > 20 ? 'hard' : complexity > 15 ? 'medium' : 'easy'
+      };
+    }),
+    next_actions: sortedHighRiskFunctions.slice(0, 3).map(item => {
+      const f = item.function;
+      const complexity = f.metrics?.cyclomaticComplexity || 1;
+      const lines = f.metrics?.linesOfCode || 0;
+      
+      let actionType: 'refactor' | 'split' | 'extract' | 'simplify';
+      let description: string;
+      let specificSteps: string[];
+      
+      if (complexity > 15 && lines > 100) {
+        actionType = 'split';
+        description = 'Split large, complex function into smaller, focused functions';
+        specificSteps = [
+          'Identify logical sections within the function',
+          'Extract each section into a separate function',
+          'Reduce main function to coordinating calls',
+          'Verify tests still pass'
+        ];
+      } else if (complexity > 15) {
+        actionType = 'simplify';
+        description = 'Reduce cyclomatic complexity through refactoring';
+        specificSteps = [
+          'Replace nested if-else with early returns',
+          'Extract complex conditions into named functions',
+          'Use strategy pattern for multiple similar branches',
+          'Simplify boolean expressions'
+        ];
+      } else {
+        actionType = 'refactor';
+        description = 'General refactoring to improve maintainability';
+        specificSteps = [
+          'Extract magic numbers into constants',
+          'Improve variable naming',
+          'Add appropriate comments',
+          'Reduce parameter count if needed'
+        ];
+      }
+      
+      return {
+        action_type: actionType,
+        function_id: f.id,
+        description,
+        code_location: `${f.filePath}:${f.startLine}-${f.endLine}`,
+        specific_steps: specificSteps
+      };
+    })
+  };
+
+  console.log(JSON.stringify(report, null, 2));
 }

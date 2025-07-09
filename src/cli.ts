@@ -122,6 +122,7 @@ program
   .option('--verbose', 'show detailed information')
   .option('--json', 'output as JSON')
   .option('--period <days>', 'period for trend analysis (default: 7)')
+  .option('--ai-optimized', 'output AI-optimized structured data for efficient processing')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
