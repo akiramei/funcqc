@@ -53,6 +53,7 @@ export class ConfigManager {
   
   // Static cache for lightweight config
   private static lightweightCache: { storage: { path: string } } | undefined;
+  
 
   async load(): Promise<FuncqcConfig> {
     if (this.config) {

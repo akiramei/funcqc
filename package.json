@@ -53,7 +53,8 @@
     "profile:memory": "node --heap-prof src/cli.ts",
     "profile:clinic": "clinic doctor -- node src/cli.ts",
     "profile:flame": "0x -o src/cli.ts",
-    "benchmark": "tsx scripts/benchmark.ts"
+    "benchmark": "tsx scripts/benchmark.ts",
+    "benchmark:startup": "tsx scripts/startup-benchmark.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.1.5",

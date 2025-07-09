@@ -3,7 +3,7 @@
 
 module.exports = {
   "roots": [
-    "src"
+    "test/fixtures"
   ],
   "exclude": [
     "**/*.test.ts",
@@ -13,7 +13,7 @@ module.exports = {
   ],
   "storage": {
     "type": "pglite",
-    "path": ".funcqc/funcqc.db"
+    "path": ".startup-benchmark-db"
   },
   "metrics": {
     "complexityThreshold": 10,
