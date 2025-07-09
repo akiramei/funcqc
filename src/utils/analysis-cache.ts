@@ -217,7 +217,7 @@ export class AnalysisCache {
     try {
       const filePath = path.join(this.persistentCachePath, `${cacheKey}.json`);
       await fs.promises.writeFile(filePath, JSON.stringify(entry));
-    } catch (error) {
+    } catch {
       // Silent fail - persistent cache is optional
     }
   }
@@ -247,7 +247,7 @@ export class AnalysisCache {
           fs.unlinkSync(filePath);
         }
       }
-    } catch (error) {
+    } catch {
       // Silent fail
     }
   }

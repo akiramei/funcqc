@@ -5,9 +5,9 @@
 import { FunctionInfo } from '../types';
 
 export interface BulkInsertData {
-  functions: any[][];
-  parameters: any[][];
-  metrics: any[][];
+  functions: unknown[][];
+  parameters: unknown[][];
+  metrics: unknown[][];
 }
 
 /**
@@ -17,9 +17,9 @@ export function prepareBulkInsertData(
   functions: FunctionInfo[],
   snapshotId: string
 ): BulkInsertData {
-  const functionsData: any[][] = [];
-  const parametersData: any[][] = [];
-  const metricsData: any[][] = [];
+  const functionsData: unknown[][] = [];
+  const parametersData: unknown[][] = [];
+  const metricsData: unknown[][] = [];
 
   for (const func of functions) {
     // Prepare function row

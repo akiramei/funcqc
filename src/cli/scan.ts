@@ -175,7 +175,7 @@ async function performBatchAnalysis(
 async function performParallelAnalysis(
   files: string[], 
   spinner: SpinnerInterface
-): Promise<{ functions: FunctionInfo[], stats: any }> {
+): Promise<{ functions: FunctionInfo[], stats: unknown }> {
   const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
   
   let completedFiles = 0;
