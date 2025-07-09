@@ -399,6 +399,7 @@ export interface HealthCommandOptions extends CommandOptions {
   verbose?: boolean;
   json?: boolean;
   period?: string;
+  aiOptimized?: boolean;
 }
 
 export interface ExplainCommandOptions extends CommandOptions {
