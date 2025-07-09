@@ -8,15 +8,16 @@ vi.mock('fs', () => ({
   existsSync: vi.fn(),
 }));
 
-// Mock PGLite to avoid filesystem operations in tests
+// Mock PGLite to avoid filesystem operations in this specific test
+// This test focuses on path validation logic, not database operations
 vi.mock('@electric-sql/pglite', () => ({
   PGlite: vi.fn().mockImplementation((path: string) => {
     // Don't create actual filesystem structures for any path in tests
     // This prevents creation of :memory:, C:, D:, etc. directories
     return {
-      query: vi.fn(),
-      close: vi.fn(),
-      exec: vi.fn(),
+      query: vi.fn().mockResolvedValue({ rows: [] }),
+      close: vi.fn().mockResolvedValue(undefined),
+      exec: vi.fn().mockResolvedValue(undefined),
       path: path, // Store path but don't use it for filesystem operations
     };
   }),

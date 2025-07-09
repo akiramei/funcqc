@@ -17,6 +17,8 @@ export default defineConfig({
     // より長いタイムアウト
     testTimeout: 30000,
     hookTimeout: 30000,
-    teardownTimeout: 10000
+    teardownTimeout: 10000,
+    // CI環境用のセットアップファイル（ファイルシステム汚染防止）
+    setupFiles: ['test/setup-ci.ts']
   }
 });
