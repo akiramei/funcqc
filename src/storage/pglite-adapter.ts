@@ -3424,6 +3424,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Get direct access to the database connection for advanced operations
    * Returns PGlite instance for direct database access
+   * @deprecated Use specific query methods instead of direct database access
    */
   getDb(): PGlite {
     return this.db;

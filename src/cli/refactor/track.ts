@@ -51,11 +51,10 @@ function createTrackListCommand(): Command {
         let sessions: RefactoringSession[];
         if (options.all) {
           const db = storage.getDb();
-          sessions = await db
-            .selectFrom('refactoring_sessions')
-            .selectAll()
-            .orderBy('created_at', 'desc')
-            .execute() as RefactoringSession[];
+          const result = await db.query(
+            'SELECT * FROM refactoring_sessions ORDER BY created_at DESC'
+          );
+          sessions = result.rows as RefactoringSession[];
         } else {
           sessions = await sessionManager.getActiveSessions();
         }

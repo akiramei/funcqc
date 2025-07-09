@@ -8,7 +8,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
-import { ParallelFileProcessor } from '../utils/parallel-processor';
+import { ParallelFileProcessor, ParallelProcessingResult } from '../utils/parallel-processor';
 
 export async function scanCommand(
   options: ScanCommandOptions
@@ -175,7 +175,7 @@ async function performBatchAnalysis(
 async function performParallelAnalysis(
   files: string[], 
   spinner: SpinnerInterface
-): Promise<{ functions: FunctionInfo[], stats: unknown }> {
+): Promise<ParallelProcessingResult> {
   const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
   
   let completedFiles = 0;
