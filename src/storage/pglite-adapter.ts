@@ -3344,8 +3344,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   /**
    * Get direct access to the database connection for advanced operations
+   * Returns any to support both PGlite and Kysely query builder interfaces
    */
-  getDb(): PGlite {
+  getDb(): any {
     return this.db;
   }
 }

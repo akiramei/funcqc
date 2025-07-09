@@ -311,7 +311,7 @@ export class SessionManager {
       ORDER BY sf.created_at ASC
     `, [sessionId]);
 
-    return result.rows;
+    return result.rows as Array<SessionFunction & { functionName?: string }>;
   }
 
   /**
@@ -343,7 +343,7 @@ export class SessionManager {
       ORDER BY created_at DESC
     `);
     
-    return result.rows.map((row: Record<string, unknown>) => {
+    return (result.rows as Record<string, unknown>[]).map((row: Record<string, unknown>) => {
       let metadata = row['metadata'];
       if (typeof metadata === 'string') {
         try {
@@ -372,7 +372,7 @@ export class SessionManager {
       ORDER BY impact_score DESC
     `, [sessionId]);
     
-    return result.rows.map((row: Record<string, unknown>) => ({
+    return (result.rows as Record<string, unknown>[]).map((row: Record<string, unknown>) => ({
       ...row,
       metadata: typeof row['metadata'] === 'string' 
         ? JSON.parse(row['metadata']) 
