@@ -766,6 +766,8 @@ function calculateRiskScore(
   }
   
   // Branch count (new - testing complexity indicator)
+  // Use either 5 or half the complexity threshold, whichever is higher
+  // This ensures reasonable branch limits even with low complexity thresholds
   const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
   if (branches > branchThreshold) {
     riskScore += (branches - branchThreshold) * 8;
@@ -773,42 +775,54 @@ function calculateRiskScore(
   }
   
   // Halstead volume (new - mental effort required)
-  const halsteadVolumeThreshold = 1000; // Reasonable threshold for TypeScript
+  // Use configured threshold or reasonable default for TypeScript
+  const halsteadVolumeThreshold = (typeof config.thresholds?.halsteadVolume?.warning === 'number') 
+    ? config.thresholds.halsteadVolume.warning : 1000;
   if (halsteadVolume > halsteadVolumeThreshold) {
     riskScore += (halsteadVolume - halsteadVolumeThreshold) * 0.05;
     riskFactors.push(`high_halstead_volume:${Math.round(halsteadVolume)}`);
   }
   
   // Halstead difficulty (new - program difficulty)
-  const halsteadDifficultyThreshold = 20; // Reasonable threshold for TypeScript
+  // Use configured threshold or reasonable default for TypeScript
+  const halsteadDifficultyThreshold = (typeof config.thresholds?.halsteadDifficulty?.warning === 'number') 
+    ? config.thresholds.halsteadDifficulty.warning : 20;
   if (halsteadDifficulty > halsteadDifficultyThreshold) {
     riskScore += (halsteadDifficulty - halsteadDifficultyThreshold) * 3;
     riskFactors.push(`high_halstead_difficulty:${Math.round(halsteadDifficulty)}`);
   }
   
   // Return statement count (new - control flow complexity)
-  const returnThreshold = 3; // More than 3 returns suggests complex control flow
+  // Use configured threshold or reasonable default
+  const returnThreshold = (typeof config.thresholds?.returnStatements?.warning === 'number') 
+    ? config.thresholds.returnStatements.warning : 3;
   if (returnStatements > returnThreshold) {
     riskScore += (returnStatements - returnThreshold) * 6;
     riskFactors.push(`multiple_returns:${returnStatements}`);
   }
   
   // Async/await count (new - async complexity)
-  const asyncThreshold = 3; // More than 3 awaits suggests complex async flow
+  // Use configured threshold or reasonable default
+  const asyncThreshold = (typeof config.thresholds?.asyncAwait?.warning === 'number') 
+    ? config.thresholds.asyncAwait.warning : 3;
   if (asyncAwaitCount > asyncThreshold) {
     riskScore += (asyncAwaitCount - asyncThreshold) * 4;
     riskFactors.push(`heavy_async:${asyncAwaitCount}`);
   }
   
   // Try-catch count (new - error handling complexity)
-  const tryCatchThreshold = 2; // More than 2 try-catch suggests complex error handling
+  // Use configured threshold or reasonable default
+  const tryCatchThreshold = (typeof config.thresholds?.tryCatch?.warning === 'number') 
+    ? config.thresholds.tryCatch.warning : 2;
   if (tryCatchCount > tryCatchThreshold) {
     riskScore += (tryCatchCount - tryCatchThreshold) * 5;
     riskFactors.push(`complex_error_handling:${tryCatchCount}`);
   }
   
   // Loop count (new - iteration complexity)
-  const loopThreshold = 3; // More than 3 loops suggests complex iteration
+  // Use configured threshold or reasonable default
+  const loopThreshold = (typeof config.thresholds?.loops?.warning === 'number') 
+    ? config.thresholds.loops.warning : 3;
   if (loopCount > loopThreshold) {
     riskScore += (loopCount - loopThreshold) * 7;
     riskFactors.push(`excessive_loops:${loopCount}`);
@@ -828,55 +842,106 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
   const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
   const returnStatements = f.metrics?.returnStatementCount || 0;
   
-  const suggestedActions: string[] = [];
+  const suggestedActionsSet = new Set<string>();
   
   // Existing complexity-based actions
   if (complexity > config.metrics.complexityThreshold) {
-    suggestedActions.push('extract_methods', 'reduce_branching');
+    suggestedActionsSet.add('extract_methods');
+    suggestedActionsSet.add('reduce_branching');
   }
   
   // Cognitive complexity-based actions (new)
   if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
-    suggestedActions.push('simplify_logic', 'reduce_cognitive_load');
+    suggestedActionsSet.add('simplify_logic');
+    suggestedActionsSet.add('reduce_cognitive_load');
   }
   
   // Size-based actions (existing)
   if (lines > config.metrics.linesOfCodeThreshold * 3) {
-    suggestedActions.push('split_function', 'extract_helpers');
+    suggestedActionsSet.add('split_function');
+    suggestedActionsSet.add('extract_helpers');
   }
   
   // Parameter-based actions (existing)
   if (parameterCount > config.metrics.parameterCountThreshold) {
-    suggestedActions.push('parameterize_object', 'extract_config');
+    suggestedActionsSet.add('parameterize_object');
+    suggestedActionsSet.add('extract_config');
   }
   
   // Nesting-based actions (new)
   if (nesting > config.metrics.maxNestingLevelThreshold) {
-    suggestedActions.push('flatten_structure', 'use_early_returns');
+    suggestedActionsSet.add('flatten_structure');
+    suggestedActionsSet.add('use_early_returns');
   }
   
   // Branch-based actions (new)
+  // Use either 5 or half the complexity threshold, whichever is higher
   const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
   if (branches > branchThreshold) {
-    suggestedActions.push('consolidate_branches', 'extract_switch_logic');
+    suggestedActionsSet.add('consolidate_branches');
+    suggestedActionsSet.add('extract_switch_logic');
   }
   
+  // Get additional metrics for new actions
+  const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
+  const tryCatchCount = f.metrics?.tryCatchCount || 0;
+  const loopCount = f.metrics?.loopCount || 0;
+  
   // Halstead volume-based actions (new)
-  if (halsteadVolume > 1000) {
-    suggestedActions.push('reduce_vocabulary', 'extract_constants');
+  // Use configured threshold or reasonable default
+  const halsteadVolumeThreshold = (typeof config.thresholds?.halsteadVolume?.warning === 'number') 
+    ? config.thresholds.halsteadVolume.warning : 1000;
+  if (halsteadVolume > halsteadVolumeThreshold) {
+    suggestedActionsSet.add('reduce_vocabulary');
+    suggestedActionsSet.add('extract_constants');
   }
   
   // Halstead difficulty-based actions (new)
-  if (halsteadDifficulty > 20) {
-    suggestedActions.push('simplify_expressions', 'improve_readability');
+  // Use configured threshold or reasonable default
+  const halsteadDifficultyThreshold = (typeof config.thresholds?.halsteadDifficulty?.warning === 'number') 
+    ? config.thresholds.halsteadDifficulty.warning : 20;
+  if (halsteadDifficulty > halsteadDifficultyThreshold) {
+    suggestedActionsSet.add('simplify_expressions');
+    suggestedActionsSet.add('improve_readability');
   }
   
   // Return statement-based actions (new)
-  if (returnStatements > 3) {
-    suggestedActions.push('unify_returns', 'extract_result_builder');
+  // Use configured threshold or reasonable default
+  const returnThreshold = (typeof config.thresholds?.returnStatements?.warning === 'number') 
+    ? config.thresholds.returnStatements.warning : 3;
+  if (returnStatements > returnThreshold) {
+    suggestedActionsSet.add('unify_returns');
+    suggestedActionsSet.add('extract_result_builder');
   }
   
-  return suggestedActions;
+  // Async/await-based actions (new)
+  // Use configured threshold or reasonable default
+  const asyncThreshold = (typeof config.thresholds?.asyncAwait?.warning === 'number') 
+    ? config.thresholds.asyncAwait.warning : 3;
+  if (asyncAwaitCount > asyncThreshold) {
+    suggestedActionsSet.add('extract_async_helpers');
+    suggestedActionsSet.add('simplify_async_flow');
+  }
+  
+  // Try-catch-based actions (new)
+  // Use configured threshold or reasonable default
+  const tryCatchThreshold = (typeof config.thresholds?.tryCatch?.warning === 'number') 
+    ? config.thresholds.tryCatch.warning : 2;
+  if (tryCatchCount > tryCatchThreshold) {
+    suggestedActionsSet.add('consolidate_error_handling');
+    suggestedActionsSet.add('extract_error_handlers');
+  }
+  
+  // Loop-based actions (new)
+  // Use configured threshold or reasonable default
+  const loopThreshold = (typeof config.thresholds?.loops?.warning === 'number') 
+    ? config.thresholds.loops.warning : 3;
+  if (loopCount > loopThreshold) {
+    suggestedActionsSet.add('extract_loop_logic');
+    suggestedActionsSet.add('use_functional_style');
+  }
+  
+  return Array.from(suggestedActionsSet);
 }
 
 function estimateEffort(complexity: number, config: FuncqcConfig): string {
