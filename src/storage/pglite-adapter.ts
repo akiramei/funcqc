@@ -54,21 +54,50 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private git: SimpleGit;
   private transactionDepth: number = 0;
   private dbPath: string;
+  private originalDbPath: string;
   
   // Static cache to avoid redundant schema checks across instances
   private static schemaCache = new Map<string, boolean>();
 
   constructor(dbPath: string) {
+    // Store original path for directory check logic
+    this.originalDbPath = dbPath;
     // パスを正規化してキャッシュの一貫性を保証
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
   }
 
+  /**
+   * Determines if we should check for database directory existence
+   * Handles Windows drive letters (C:) and special database paths
+   */
+  private shouldCheckDatabaseDirectory(originalPath: string): boolean {
+    // Skip check for special database paths
+    if (originalPath === ':memory:') {
+      return false;
+    }
+    
+    // Skip check for special PostgreSQL-style connection strings
+    if (originalPath.startsWith('postgres://') || originalPath.startsWith('postgresql://')) {
+      return false;
+    }
+    
+    // For Windows: Check if it's a valid file path (not just a drive letter)
+    // Valid examples: C:\path\to\db, /path/to/db, ./relative/path
+    // Invalid examples: C:, D:, etc.
+    const isWindowsDriveOnly = /^[A-Za-z]:$/.test(originalPath);
+    if (isWindowsDriveOnly) {
+      return false;
+    }
+    
+    return true;
+  }
+
   async init(): Promise<void> {
     try {
       // Check if database path exists (only check for directory-based databases)
-      if (this.dbPath !== ':memory:' && !this.dbPath.includes(':')) {
+      if (this.shouldCheckDatabaseDirectory(this.originalDbPath)) {
         const dbDir = path.dirname(this.dbPath);
         if (!fs.existsSync(dbDir)) {
           throw new DatabaseError(
