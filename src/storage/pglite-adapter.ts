@@ -30,6 +30,12 @@ import {
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 import { ErrorCode } from '../utils/error-handler';
+import { 
+  prepareBulkInsertData, 
+  generateBulkInsertSQL, 
+  splitIntoBatches, 
+  calculateOptimalBatchSize 
+} from './bulk-insert-utils';
 
 /**
  * Custom error class for database operations with ErrorCode
@@ -2761,9 +2767,82 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    // Use bulk insert for better performance when batch size is large enough
+    if (functions.length >= 50) {
+      await this.saveFunctionsBulk(snapshotId, functions);
+    } else {
+      // Fall back to individual inserts for small batches
+      await this.executeInTransaction(async () => {
+        for (const func of functions) {
+          await this.saveSingleFunction(func, snapshotId);
+        }
+      });
+    }
+  }
+
+  /**
+   * Bulk insert functions for optimal performance
+   */
+  private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     await this.executeInTransaction(async () => {
-      for (const func of functions) {
-        await this.saveSingleFunction(func, snapshotId);
+      const bulkData = prepareBulkInsertData(functions, snapshotId);
+      
+      // Bulk insert functions
+      if (bulkData.functions.length > 0) {
+        const functionColumns = [
+          'id', 'semantic_id', 'content_id', 'snapshot_id', 'name', 'display_name',
+          'signature', 'signature_hash', 'file_path', 'file_hash', 'start_line',
+          'end_line', 'start_column', 'end_column', 'ast_hash', 'context_path',
+          'function_type', 'modifiers', 'nesting_level', 'is_exported', 'is_async',
+          'is_generator', 'is_arrow_function', 'is_method', 'is_constructor',
+          'is_static', 'access_modifier', 'js_doc', 'source_code'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(functionColumns.length);
+        const functionBatches = splitIntoBatches(bulkData.functions, optimalBatchSize);
+        
+        for (const batch of functionBatches) {
+          const sql = generateBulkInsertSQL('functions', functionColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
+      }
+      
+      // Bulk insert parameters
+      if (bulkData.parameters.length > 0) {
+        const paramColumns = [
+          'function_id', 'name', 'type', 'type_simple', 'position',
+          'is_optional', 'is_rest', 'default_value', 'description'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(paramColumns.length);
+        const paramBatches = splitIntoBatches(bulkData.parameters, optimalBatchSize);
+        
+        for (const batch of paramBatches) {
+          const sql = generateBulkInsertSQL('function_parameters', paramColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
+      }
+      
+      // Bulk insert metrics
+      if (bulkData.metrics.length > 0) {
+        const metricsColumns = [
+          'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+          'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+          'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+          'async_await_count', 'callback_count', 'comment_lines', 'code_to_comment_ratio',
+          'halstead_volume', 'halstead_difficulty', 'maintainability_index'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(metricsColumns.length);
+        const metricsBatches = splitIntoBatches(bulkData.metrics, optimalBatchSize);
+        
+        for (const batch of metricsBatches) {
+          const sql = generateBulkInsertSQL('quality_metrics', metricsColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
       }
     });
   }

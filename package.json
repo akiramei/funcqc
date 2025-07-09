@@ -48,7 +48,12 @@
     "test:lineage": "bash ./scripts/test-lineage.sh",
     "prepare": "husky install",
     "prepublishOnly": "npm run build && npm run test",
-    "release": "semantic-release"
+    "release": "semantic-release",
+    "profile": "node --cpu-prof src/cli.ts",
+    "profile:memory": "node --heap-prof src/cli.ts",
+    "profile:clinic": "clinic doctor -- node src/cli.ts",
+    "profile:flame": "0x -o src/cli.ts",
+    "benchmark": "tsx scripts/benchmark.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "0.1.5",
@@ -75,6 +80,8 @@
     "@typescript-eslint/eslint-plugin": "^8.35.0",
     "@typescript-eslint/parser": "^8.35.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "0x": "^6.0.0",
+    "clinic": "^13.0.0",
     "eslint": "^8.54.0",
     "eslint-config-prettier": "^9.0.0",
     "eslint-plugin-prettier": "^5.0.1",

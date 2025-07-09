@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
+import { AnalysisCache } from '../utils/analysis-cache';
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
@@ -12,8 +13,9 @@ import { BatchProcessor } from '../utils/batch-processor';
 export class TypeScriptAnalyzer {
   private project: Project;
   private readonly maxSourceFilesInMemory: number;
+  private cache: AnalysisCache;
 
-  constructor(maxSourceFilesInMemory: number = 50) {
+  constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
@@ -28,6 +30,20 @@ export class TypeScriptAnalyzer {
         jsx: 4 // Preserve
       }
     });
+    
+    // Initialize cache if enabled
+    if (enableCache) {
+      this.cache = new AnalysisCache({
+        maxMemoryEntries: Math.max(500, maxSourceFilesInMemory * 10),
+        maxMemorySize: 50, // 50MB cache
+        persistentCachePath: path.join(process.cwd(), '.funcqc-cache')
+      });
+    } else {
+      this.cache = new AnalysisCache({
+        maxMemoryEntries: 0,
+        maxMemorySize: 0
+      });
+    }
   }
 
   /**
@@ -37,6 +53,12 @@ export class TypeScriptAnalyzer {
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`File does not exist: ${filePath}`);
+      }
+
+      // Check cache first
+      const cachedResult = await this.cache.get(filePath);
+      if (cachedResult) {
+        return cachedResult;
       }
 
       const sourceFile = this.project.addSourceFileAtPath(filePath);
@@ -78,6 +100,9 @@ export class TypeScriptAnalyzer {
         this.project.removeSourceFile(sourceFile);
         this.manageMemory();
       }
+
+      // Cache the results
+      await this.cache.set(filePath, functions);
 
       return functions;
 
@@ -832,6 +857,9 @@ export class TypeScriptAnalyzer {
     sourceFiles.forEach(file => {
       this.project.removeSourceFile(file);
     });
+    
+    // Cleanup cache
+    this.cache.cleanup();
   }
   
   /**
@@ -842,6 +870,13 @@ export class TypeScriptAnalyzer {
       sourceFilesInMemory: this.project.getSourceFiles().length,
       maxSourceFiles: this.maxSourceFilesInMemory
     };
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats() {
+    return this.cache.getStats();
   }
 
   /**
