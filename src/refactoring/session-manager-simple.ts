@@ -128,10 +128,10 @@ export class SessionManager {
 
   /**
    * Get session by ID
+   * Optimized to use database index for single-record retrieval
    */
   async getSession(sessionId: string): Promise<RefactoringSession | null> {
-    const allSessions = await this.storage.getAllRefactoringSessions();
-    return allSessions.find(session => session.id === sessionId) || null;
+    return await this.storage.getRefactoringSessionById(sessionId);
   }
 
   /**

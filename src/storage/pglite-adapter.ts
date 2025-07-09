@@ -3450,6 +3450,38 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Get refactoring session by ID
+   * Optimized single-record retrieval using database index
+   */
+  async getRefactoringSessionById(id: string): Promise<RefactoringSession | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM refactoring_sessions WHERE id = $1',
+        [id]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToRefactoringSession(result.rows[0] as {
+        id: string;
+        name: string;
+        description: string;
+        status: 'active' | 'completed' | 'cancelled';
+        target_branch: string;
+        start_time: string;
+        end_time?: string;
+        metadata: string;
+        created_at: string;
+        updated_at: string;
+      });
+    } catch (error) {
+      throw new Error(`Failed to get refactoring session by ID: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
    * Map database row to RefactoringSession type
    * Ensures type safety when converting database results
    */
