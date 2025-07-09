@@ -224,8 +224,8 @@ export class AnalysisCache {
     try {
       const filePath = path.join(this.persistentCachePath, `${cacheKey}.json`);
       await fs.promises.writeFile(filePath, JSON.stringify(entry));
-    } catch {
-      // Silent fail - persistent cache is optional
+    } catch (error) {
+      console.warn(`Failed to save to persistent cache: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 

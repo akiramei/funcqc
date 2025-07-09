@@ -18,6 +18,7 @@ export interface WorkerOutput {
   error?: string;
   stats: {
     filesProcessed: number;
+    failedFiles: number;
     functionsFound: number;
     processingTime: number;
   };
@@ -30,6 +31,7 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
     const analyzer = new TypeScriptAnalyzer(input.maxSourceFilesInMemory);
     const qualityCalculator = new QualityCalculator();
     const allFunctions: FunctionInfo[] = [];
+    let failedFiles = 0;
 
     for (const filePath of input.filePaths) {
       try {
@@ -42,6 +44,7 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
         
         allFunctions.push(...fileFunctions);
       } catch (error) {
+        failedFiles++;
         // Log error but continue processing other files
         console.warn(`Worker: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -57,6 +60,7 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
       functions: allFunctions,
       stats: {
         filesProcessed: input.filePaths.length,
+        failedFiles,
         functionsFound: allFunctions.length,
         processingTime
       }
@@ -68,6 +72,7 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
       error: error instanceof Error ? error.message : String(error),
       stats: {
         filesProcessed: 0,
+        failedFiles: 0,
         functionsFound: 0,
         processingTime: Date.now() - startTime
       }
@@ -82,15 +87,7 @@ if (parentPort && workerData) {
       parentPort!.postMessage(result);
     })
     .catch(error => {
-      parentPort!.postMessage({
-        success: false,
-        functions: [],
-        error: error instanceof Error ? error.message : String(error),
-        stats: {
-          filesProcessed: 0,
-          functionsFound: 0,
-          processingTime: 0
-        }
-      } as WorkerOutput);
+      // processFiles already handles errors, this should not happen
+      console.error('Unexpected worker error:', error);
     });
 }

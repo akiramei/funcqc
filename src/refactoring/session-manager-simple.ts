@@ -97,9 +97,26 @@ export class SessionManager {
    * Get active sessions
    */
   async getActiveSessions(): Promise<RefactoringSession[]> {
-    return await this.storage.getAllRefactoringSessions().then(sessions => 
-      sessions.filter(session => session.status === 'active')
-    );
+    // More efficient database-level filtering instead of memory filtering
+    const db = this.storage.getDb();
+    const result = await db.query(`
+      SELECT * FROM refactoring_sessions 
+      WHERE status = 'active' 
+      ORDER BY created_at DESC
+    `);
+    
+    return result.rows.map(row => this.mapRowToRefactoringSession(row as {
+      id: string;
+      name: string;
+      description: string;
+      status: 'active' | 'completed' | 'cancelled';
+      target_branch: string;
+      start_time: string;
+      end_time?: string;
+      metadata: string;
+      created_at: string;
+      updated_at: string;
+    }));
   }
 
   /**
@@ -115,6 +132,53 @@ export class SessionManager {
   async getSession(sessionId: string): Promise<RefactoringSession | null> {
     const allSessions = await this.storage.getAllRefactoringSessions();
     return allSessions.find(session => session.id === sessionId) || null;
+  }
+
+  /**
+   * Map database row to RefactoringSession type
+   * Ensures type safety when converting database results
+   */
+  private mapRowToRefactoringSession(row: {
+    id: string;
+    name: string;
+    description: string;
+    status: 'active' | 'completed' | 'cancelled';
+    target_branch: string;
+    start_time: string;
+    end_time?: string;
+    metadata: string;
+    created_at: string;
+    updated_at: string;
+  }): RefactoringSession {
+    const session: RefactoringSession = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      status: row.status,
+      target_branch: row.target_branch,
+      start_time: new Date(row.start_time).getTime(),
+      metadata: this.safeJsonParse(row.metadata, {}),
+      created_at: new Date(row.created_at),
+      updated_at: new Date(row.updated_at)
+    };
+    
+    if (row.end_time) {
+      session.end_time = new Date(row.end_time).getTime();
+    }
+    
+    return session;
+  }
+
+  /**
+   * Safely parse JSON with fallback value
+   */
+  private safeJsonParse<T>(jsonString: string, fallback: T): T {
+    try {
+      return JSON.parse(jsonString);
+    } catch (error) {
+      console.warn(`Failed to parse JSON: ${jsonString}`, error);
+      return fallback;
+    }
   }
 
   /**

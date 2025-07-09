@@ -135,19 +135,19 @@ export function splitIntoBatches<T>(data: T[], batchSize: number): T[][] {
   return batches;
 }
 
+const POSTGRES_MAX_PARAMETERS = 65535;
+const SAFETY_BUFFER_RATIO = 0.9;
+const MAX_BATCH_SIZE = 1000;
+
 /**
  * Calculate optimal batch size based on number of columns and PostgreSQL limits
  */
 export function calculateOptimalBatchSize(columnCount: number): number {
-  // PostgreSQL has a limit of 65535 parameters per query
-  const maxParameters = 65535;
-  
-  // Leave some buffer for safety
-  const safeMaxParameters = Math.floor(maxParameters * 0.9);
+  const safeMaxParameters = Math.floor(POSTGRES_MAX_PARAMETERS * SAFETY_BUFFER_RATIO);
   
   // Calculate how many rows we can insert at once
   const maxRows = Math.floor(safeMaxParameters / columnCount);
   
   // Cap at a reasonable batch size to avoid memory issues
-  return Math.min(maxRows, 1000);
+  return Math.min(maxRows, MAX_BATCH_SIZE);
 }
