@@ -400,6 +400,7 @@ export interface HealthCommandOptions extends CommandOptions {
   json?: boolean;
   period?: string;
   aiOptimized?: boolean;
+  humanReadable?: boolean;
 }
 
 export interface ExplainCommandOptions extends CommandOptions {
