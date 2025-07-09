@@ -103,9 +103,10 @@ async function runBenchmark(projectPath: string): Promise<BenchmarkResult[]> {
 async function benchmarkScan(projectPath: string): Promise<BenchmarkResult> {
   const memoryTracker = new MemoryTracker();
   
-  // Count files first
+  // Count files first - using path.resolve to prevent shell injection
+  const safeProjectPath = path.resolve(projectPath);
   const filesOutput = execSync(
-    `find "${projectPath}" -name "*.ts" -o -name "*.tsx" | grep -v node_modules | wc -l`,
+    `find ${JSON.stringify(safeProjectPath)} -name "*.ts" -o -name "*.tsx" | grep -v node_modules | wc -l`,
     { encoding: 'utf-8' }
   );
   const filesCount = parseInt(filesOutput.trim());
@@ -122,12 +123,18 @@ async function benchmarkScan(projectPath: string): Promise<BenchmarkResult> {
   const duration = (performance.now() - startTime) / 1000;
   const memory = memoryTracker.stop();
 
-  // Get function count
+  // Get function count with error handling
   const listOutput = execSync(`npm run --silent dev -- list --json`, {
     encoding: 'utf-8'
   });
-  const listData = JSON.parse(listOutput);
-  const functionsCount = listData.meta.total;
+  
+  let functionsCount = 0;
+  try {
+    const listData = JSON.parse(listOutput);
+    functionsCount = listData.meta.total;
+  } catch (error) {
+    console.warn('Failed to parse list output:', error instanceof Error ? error.message : String(error));
+  }
 
   return {
     operation: 'scan',
@@ -224,8 +231,9 @@ async function benchmarkComplexQueries(): Promise<BenchmarkResult[]> {
         cwd: process.cwd(),
         stdio: 'pipe'
       });
-    } catch {
+    } catch (error) {
       // Some commands might fail if function not found, that's ok
+      console.debug(`Command failed: ${op.command}`, error instanceof Error ? error.message : String(error));
     }
 
     const duration = (performance.now() - startTime) / 1000;

@@ -123,7 +123,14 @@ export class ParallelFileProcessor {
         workerData: workerInput
       });
 
+      // Add timeout to prevent hanging workers
+      const timeout = setTimeout(() => {
+        worker.terminate();
+        reject(new Error(`Worker ${workerIndex} timed out after 5 minutes`));
+      }, 5 * 60 * 1000); // 5 minutes
+
       worker.on('message', (result: WorkerOutput) => {
+        clearTimeout(timeout);
         worker.terminate();
         
         // Update progress if callback provided
@@ -135,11 +142,13 @@ export class ParallelFileProcessor {
       });
 
       worker.on('error', (error) => {
+        clearTimeout(timeout);
         worker.terminate();
         reject(error);
       });
 
       worker.on('exit', (code) => {
+        clearTimeout(timeout);
         if (code !== 0) {
           reject(new Error(`Worker ${workerIndex} stopped with exit code ${code}`));
         }
