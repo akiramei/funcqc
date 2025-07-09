@@ -626,15 +626,33 @@ async function displayAIOptimizedHealth(
   const scorer = new QualityScorer();
   const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
   
-  // Get high risk functions with detailed information
+  // Get high risk functions with detailed information (expanded criteria)
   const highRiskFunctions = functionsWithMetrics.filter(f => {
     const complexity = f.metrics?.cyclomaticComplexity || 1;
+    const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
     const maintainability = f.metrics?.maintainabilityIndex || 100;
     const lines = f.metrics?.linesOfCode || 0;
+    const nesting = f.metrics?.maxNestingLevel || 0;
+    const branches = f.metrics?.branchCount || 0;
+    const halsteadVolume = f.metrics?.halsteadVolume || 0;
+    const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
+    const returnStatements = f.metrics?.returnStatementCount || 0;
+    const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
+    const tryCatchCount = f.metrics?.tryCatchCount || 0;
+    const loopCount = f.metrics?.loopCount || 0;
     
     return complexity > config.metrics.complexityThreshold || 
+           cognitiveComplexity > config.metrics.cognitiveComplexityThreshold ||
            maintainability < 50 || 
-           lines > config.metrics.linesOfCodeThreshold;
+           lines > config.metrics.linesOfCodeThreshold ||
+           nesting > config.metrics.maxNestingLevelThreshold ||
+           branches > Math.max(5, config.metrics.complexityThreshold / 2) ||
+           halsteadVolume > 1000 ||
+           halsteadDifficulty > 20 ||
+           returnStatements > 3 ||
+           asyncAwaitCount > 3 ||
+           tryCatchCount > 2 ||
+           loopCount > 3;
   });
 
   // Sort by risk score (complexity + size + maintainability issues)
@@ -675,9 +693,18 @@ async function displayAIOptimizedHealth(
         suggested_actions: generateSuggestedActions(f, config),
         metrics: {
           cyclomatic_complexity: complexity,
+          cognitive_complexity: f.metrics?.cognitiveComplexity || 0,
           lines_of_code: lines,
           maintainability_index: f.metrics?.maintainabilityIndex || null,
-          parameter_count: f.metrics?.parameterCount || 0
+          parameter_count: f.metrics?.parameterCount || 0,
+          max_nesting_level: f.metrics?.maxNestingLevel || 0,
+          branch_count: f.metrics?.branchCount || 0,
+          halstead_volume: f.metrics?.halsteadVolume || 0,
+          halstead_difficulty: f.metrics?.halsteadDifficulty || 0,
+          return_statement_count: f.metrics?.returnStatementCount || 0,
+          async_await_count: f.metrics?.asyncAwaitCount || 0,
+          try_catch_count: f.metrics?.tryCatchCount || 0,
+          loop_count: f.metrics?.loopCount || 0
         }
       };
     }),
@@ -693,23 +720,98 @@ function calculateRiskScore(
   config: FuncqcConfig
 ): { riskScore: number; riskFactors: string[] } {
   const complexity = f.metrics?.cyclomaticComplexity || 1;
+  const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
   const maintainability = f.metrics?.maintainabilityIndex || 100;
   const lines = f.metrics?.linesOfCode || 0;
+  const nesting = f.metrics?.maxNestingLevel || 0;
+  const branches = f.metrics?.branchCount || 0;
+  const halsteadVolume = f.metrics?.halsteadVolume || 0;
+  const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
+  const returnStatements = f.metrics?.returnStatementCount || 0;
+  const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
+  const tryCatchCount = f.metrics?.tryCatchCount || 0;
+  const loopCount = f.metrics?.loopCount || 0;
   
   let riskScore = 0;
   const riskFactors: string[] = [];
   
+  // Cyclomatic complexity (existing)
   if (complexity > config.metrics.complexityThreshold) {
     riskScore += (complexity - config.metrics.complexityThreshold) * 10;
     riskFactors.push(`complexity:${complexity}`);
   }
+  
+  // Cognitive complexity (new - more accurate for human understanding)
+  if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
+    riskScore += (cognitiveComplexity - config.metrics.cognitiveComplexityThreshold) * 12;
+    riskFactors.push(`cognitive_complexity:${cognitiveComplexity}`);
+  }
+  
+  // Maintainability index (existing)
   if (maintainability < 50) {
     riskScore += (50 - maintainability) * 2;
     riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
   }
+  
+  // Lines of code (existing)
   if (lines > config.metrics.linesOfCodeThreshold) {
     riskScore += (lines - config.metrics.linesOfCodeThreshold) * 0.5;
     riskFactors.push(`size:${lines}`);
+  }
+  
+  // Max nesting level (new - readability indicator)
+  if (nesting > config.metrics.maxNestingLevelThreshold) {
+    riskScore += (nesting - config.metrics.maxNestingLevelThreshold) * 15;
+    riskFactors.push(`deep_nesting:${nesting}`);
+  }
+  
+  // Branch count (new - testing complexity indicator)
+  const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
+  if (branches > branchThreshold) {
+    riskScore += (branches - branchThreshold) * 8;
+    riskFactors.push(`excessive_branching:${branches}`);
+  }
+  
+  // Halstead volume (new - mental effort required)
+  const halsteadVolumeThreshold = 1000; // Reasonable threshold for TypeScript
+  if (halsteadVolume > halsteadVolumeThreshold) {
+    riskScore += (halsteadVolume - halsteadVolumeThreshold) * 0.05;
+    riskFactors.push(`high_halstead_volume:${Math.round(halsteadVolume)}`);
+  }
+  
+  // Halstead difficulty (new - program difficulty)
+  const halsteadDifficultyThreshold = 20; // Reasonable threshold for TypeScript
+  if (halsteadDifficulty > halsteadDifficultyThreshold) {
+    riskScore += (halsteadDifficulty - halsteadDifficultyThreshold) * 3;
+    riskFactors.push(`high_halstead_difficulty:${Math.round(halsteadDifficulty)}`);
+  }
+  
+  // Return statement count (new - control flow complexity)
+  const returnThreshold = 3; // More than 3 returns suggests complex control flow
+  if (returnStatements > returnThreshold) {
+    riskScore += (returnStatements - returnThreshold) * 6;
+    riskFactors.push(`multiple_returns:${returnStatements}`);
+  }
+  
+  // Async/await count (new - async complexity)
+  const asyncThreshold = 3; // More than 3 awaits suggests complex async flow
+  if (asyncAwaitCount > asyncThreshold) {
+    riskScore += (asyncAwaitCount - asyncThreshold) * 4;
+    riskFactors.push(`heavy_async:${asyncAwaitCount}`);
+  }
+  
+  // Try-catch count (new - error handling complexity)
+  const tryCatchThreshold = 2; // More than 2 try-catch suggests complex error handling
+  if (tryCatchCount > tryCatchThreshold) {
+    riskScore += (tryCatchCount - tryCatchThreshold) * 5;
+    riskFactors.push(`complex_error_handling:${tryCatchCount}`);
+  }
+  
+  // Loop count (new - iteration complexity)
+  const loopThreshold = 3; // More than 3 loops suggests complex iteration
+  if (loopCount > loopThreshold) {
+    riskScore += (loopCount - loopThreshold) * 7;
+    riskFactors.push(`excessive_loops:${loopCount}`);
   }
   
   return { riskScore, riskFactors };
@@ -717,19 +819,61 @@ function calculateRiskScore(
 
 function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string[] {
   const complexity = f.metrics?.cyclomaticComplexity || 1;
+  const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
   const lines = f.metrics?.linesOfCode || 0;
   const parameterCount = f.metrics?.parameterCount || 0;
+  const nesting = f.metrics?.maxNestingLevel || 0;
+  const branches = f.metrics?.branchCount || 0;
+  const halsteadVolume = f.metrics?.halsteadVolume || 0;
+  const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
+  const returnStatements = f.metrics?.returnStatementCount || 0;
   
   const suggestedActions: string[] = [];
   
+  // Existing complexity-based actions
   if (complexity > config.metrics.complexityThreshold) {
     suggestedActions.push('extract_methods', 'reduce_branching');
   }
+  
+  // Cognitive complexity-based actions (new)
+  if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
+    suggestedActions.push('simplify_logic', 'reduce_cognitive_load');
+  }
+  
+  // Size-based actions (existing)
   if (lines > config.metrics.linesOfCodeThreshold * 3) {
     suggestedActions.push('split_function', 'extract_helpers');
   }
+  
+  // Parameter-based actions (existing)
   if (parameterCount > config.metrics.parameterCountThreshold) {
     suggestedActions.push('parameterize_object', 'extract_config');
+  }
+  
+  // Nesting-based actions (new)
+  if (nesting > config.metrics.maxNestingLevelThreshold) {
+    suggestedActions.push('flatten_structure', 'use_early_returns');
+  }
+  
+  // Branch-based actions (new)
+  const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
+  if (branches > branchThreshold) {
+    suggestedActions.push('consolidate_branches', 'extract_switch_logic');
+  }
+  
+  // Halstead volume-based actions (new)
+  if (halsteadVolume > 1000) {
+    suggestedActions.push('reduce_vocabulary', 'extract_constants');
+  }
+  
+  // Halstead difficulty-based actions (new)
+  if (halsteadDifficulty > 20) {
+    suggestedActions.push('simplify_expressions', 'improve_readability');
+  }
+  
+  // Return statement-based actions (new)
+  if (returnStatements > 3) {
+    suggestedActions.push('unify_returns', 'extract_result_builder');
   }
   
   return suggestedActions;
@@ -782,13 +926,56 @@ function generateNextActions(
   return sortedHighRiskFunctions.slice(0, 3).map(item => {
     const f = item.function;
     const complexity = f.metrics?.cyclomaticComplexity || 1;
+    const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
     const lines = f.metrics?.linesOfCode || 0;
+    const nesting = f.metrics?.maxNestingLevel || 0;
+    const branches = f.metrics?.branchCount || 0;
+    const halsteadVolume = f.metrics?.halsteadVolume || 0;
+    const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
+    const returnStatements = f.metrics?.returnStatementCount || 0;
     
     let actionType: 'refactor' | 'split' | 'extract' | 'simplify';
     let description: string;
     let specificSteps: string[];
     
-    if (complexity > config.metrics.complexityThreshold * 1.5 && lines > config.metrics.linesOfCodeThreshold * 2.5) {
+    // Prioritize based on most critical risk factors
+    if (halsteadDifficulty > 20) {
+      actionType = 'simplify';
+      description = 'Reduce Halstead difficulty to improve code understandability';
+      specificSteps = [
+        'Replace complex expressions with meaningful variable names',
+        'Extract magic numbers and strings into constants',
+        'Simplify operator usage and reduce expression complexity',
+        'Use descriptive method names instead of inline logic'
+      ];
+    } else if (returnStatements > 3) {
+      actionType = 'refactor';
+      description = 'Consolidate multiple return statements';
+      specificSteps = [
+        'Identify the common return pattern',
+        'Extract result building logic into a helper function',
+        'Use a single return statement at the end of the function',
+        'Consider using a result object pattern'
+      ];
+    } else if (nesting > config.metrics.maxNestingLevelThreshold) {
+      actionType = 'simplify';
+      description = 'Reduce deep nesting to improve readability';
+      specificSteps = [
+        'Replace nested conditions with early returns',
+        'Extract nested logic into separate functions',
+        'Use guard clauses to reduce nesting',
+        'Consider using switch statements or strategy pattern'
+      ];
+    } else if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
+      actionType = 'simplify';
+      description = 'Reduce cognitive load for easier understanding';
+      specificSteps = [
+        'Break down complex logical expressions',
+        'Extract meaningful variable names for conditions',
+        'Simplify control flow structures',
+        'Use helper functions for repeated patterns'
+      ];
+    } else if (complexity > config.metrics.complexityThreshold * 1.5 && lines > config.metrics.linesOfCodeThreshold * 2.5) {
       actionType = 'split';
       description = 'Split large, complex function into smaller, focused functions';
       specificSteps = [
@@ -796,6 +983,24 @@ function generateNextActions(
         'Extract each section into a separate function',
         'Reduce main function to coordinating calls',
         'Verify tests still pass'
+      ];
+    } else if (halsteadVolume > 1000) {
+      actionType = 'extract';
+      description = 'Reduce Halstead volume to decrease mental effort required';
+      specificSteps = [
+        'Extract repeated code patterns into functions',
+        'Create constants for magic numbers and strings',
+        'Reduce vocabulary size by standardizing naming',
+        'Split function into smaller, focused functions'
+      ];
+    } else if (branches > Math.max(5, config.metrics.complexityThreshold / 2)) {
+      actionType = 'extract';
+      description = 'Consolidate excessive branching logic';
+      specificSteps = [
+        'Group related conditions together',
+        'Extract switch/case logic into separate functions',
+        'Use lookup tables for simple mappings',
+        'Consider strategy or state pattern for complex branching'
       ];
     } else if (complexity > config.metrics.complexityThreshold * 1.5) {
       actionType = 'simplify';
