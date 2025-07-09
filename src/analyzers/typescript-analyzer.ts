@@ -59,7 +59,11 @@ export class TypeScriptAnalyzer {
       try {
         const cachedResult = await this.cache.get(filePath);
         if (cachedResult) {
-          return cachedResult;
+          // Generate new physical IDs for cached functions to ensure uniqueness
+          return cachedResult.map(func => ({
+            ...func,
+            id: this.generatePhysicalId()
+          }));
         }
       } catch (error) {
         console.warn(`Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
