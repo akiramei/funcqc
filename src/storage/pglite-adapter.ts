@@ -26,10 +26,17 @@ import {
   Lineage,
   LineageKind,
   LineageStatus,
-  LineageQuery
+  LineageQuery,
+  RefactoringSession
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 import { ErrorCode } from '../utils/error-handler';
+import { 
+  prepareBulkInsertData, 
+  generateBulkInsertSQL, 
+  splitIntoBatches, 
+  calculateOptimalBatchSize 
+} from './bulk-insert-utils';
 
 /**
  * Custom error class for database operations with ErrorCode
@@ -2761,9 +2768,82 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    // Use bulk insert for better performance when batch size is large enough
+    if (functions.length >= 50) {
+      await this.saveFunctionsBulk(snapshotId, functions);
+    } else {
+      // Fall back to individual inserts for small batches
+      await this.executeInTransaction(async () => {
+        for (const func of functions) {
+          await this.saveSingleFunction(func, snapshotId);
+        }
+      });
+    }
+  }
+
+  /**
+   * Bulk insert functions for optimal performance
+   */
+  private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     await this.executeInTransaction(async () => {
-      for (const func of functions) {
-        await this.saveSingleFunction(func, snapshotId);
+      const bulkData = prepareBulkInsertData(functions, snapshotId);
+      
+      // Bulk insert functions
+      if (bulkData.functions.length > 0) {
+        const functionColumns = [
+          'id', 'semantic_id', 'content_id', 'snapshot_id', 'name', 'display_name',
+          'signature', 'signature_hash', 'file_path', 'file_hash', 'start_line',
+          'end_line', 'start_column', 'end_column', 'ast_hash', 'context_path',
+          'function_type', 'modifiers', 'nesting_level', 'is_exported', 'is_async',
+          'is_generator', 'is_arrow_function', 'is_method', 'is_constructor',
+          'is_static', 'access_modifier', 'js_doc', 'source_code'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(functionColumns.length);
+        const functionBatches = splitIntoBatches(bulkData.functions, optimalBatchSize);
+        
+        for (const batch of functionBatches) {
+          const sql = generateBulkInsertSQL('functions', functionColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
+      }
+      
+      // Bulk insert parameters
+      if (bulkData.parameters.length > 0) {
+        const paramColumns = [
+          'function_id', 'name', 'type', 'type_simple', 'position',
+          'is_optional', 'is_rest', 'default_value', 'description'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(paramColumns.length);
+        const paramBatches = splitIntoBatches(bulkData.parameters, optimalBatchSize);
+        
+        for (const batch of paramBatches) {
+          const sql = generateBulkInsertSQL('function_parameters', paramColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
+      }
+      
+      // Bulk insert metrics
+      if (bulkData.metrics.length > 0) {
+        const metricsColumns = [
+          'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+          'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+          'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+          'async_await_count', 'callback_count', 'comment_lines', 'code_to_comment_ratio',
+          'halstead_volume', 'halstead_difficulty', 'maintainability_index'
+        ];
+        
+        const optimalBatchSize = calculateOptimalBatchSize(metricsColumns.length);
+        const metricsBatches = splitIntoBatches(bulkData.metrics, optimalBatchSize);
+        
+        for (const batch of metricsBatches) {
+          const sql = generateBulkInsertSQL('quality_metrics', metricsColumns, batch.length);
+          const flatParams = batch.flat();
+          await this.db.query(sql, flatParams);
+        }
       }
     });
   }
@@ -3343,10 +3423,105 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
-   * Get direct access to the database connection for advanced operations
-   * Returns any to support both PGlite and Kysely query builder interfaces
+   * Get all refactoring sessions ordered by creation date
+   * Type-safe method to retrieve all RefactoringSession records
    */
-  getDb(): any {
+  async getAllRefactoringSessions(): Promise<RefactoringSession[]> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM refactoring_sessions ORDER BY created_at DESC'
+      );
+      
+      return result.rows.map(row => this.mapRowToRefactoringSession(row as {
+        id: string;
+        name: string;
+        description: string;
+        status: 'active' | 'completed' | 'cancelled';
+        target_branch: string;
+        start_time: string;
+        end_time?: string;
+        metadata: string;
+        created_at: string;
+        updated_at: string;
+      }));
+    } catch (error) {
+      throw new Error(`Failed to get refactoring sessions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get refactoring session by ID
+   * Optimized single-record retrieval using database index
+   */
+  async getRefactoringSessionById(id: string): Promise<RefactoringSession | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM refactoring_sessions WHERE id = $1',
+        [id]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToRefactoringSession(result.rows[0] as {
+        id: string;
+        name: string;
+        description: string;
+        status: 'active' | 'completed' | 'cancelled';
+        target_branch: string;
+        start_time: string;
+        end_time?: string;
+        metadata: string;
+        created_at: string;
+        updated_at: string;
+      });
+    } catch (error) {
+      throw new Error(`Failed to get refactoring session by ID: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Map database row to RefactoringSession type
+   * Ensures type safety when converting database results
+   */
+  private mapRowToRefactoringSession(row: {
+    id: string;
+    name: string;
+    description: string;
+    status: 'active' | 'completed' | 'cancelled';
+    target_branch: string;
+    start_time: string;
+    end_time?: string;
+    metadata: string;
+    created_at: string;
+    updated_at: string;
+  }): RefactoringSession {
+    const session: RefactoringSession = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      status: row.status,
+      target_branch: row.target_branch,
+      start_time: new Date(row.start_time).getTime(),
+      metadata: this.safeJsonParse(row.metadata, {}),
+      created_at: new Date(row.created_at),
+      updated_at: new Date(row.updated_at)
+    };
+    
+    if (row.end_time) {
+      session.end_time = new Date(row.end_time).getTime();
+    }
+    
+    return session;
+  }
+
+  /**
+   * Get direct access to the database connection for advanced operations
+   * Returns PGlite instance for direct database access
+   * @deprecated Use specific query methods instead of direct database access
+   */
+  getDb(): PGlite {
     return this.db;
   }
 }

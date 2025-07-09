@@ -8,6 +8,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
+import { ParallelFileProcessor, ParallelProcessingResult } from '../utils/parallel-processor';
 
 export async function scanCommand(
   options: ScanCommandOptions
@@ -130,13 +131,25 @@ async function performAnalysis(files: string[], components: CliComponents, spinn
 
 async function performFullAnalysis(files: string[], components: CliComponents, spinner: SpinnerInterface): Promise<FunctionInfo[]> {
   const allFunctions: FunctionInfo[] = [];
-  const batchSize = 50; // Fixed batch size
-  const useStreaming = files.length > 1000; // Use streaming for very large projects
   
-  if (useStreaming) {
+  // Determine processing strategy based on project size and system capabilities
+  const useParallel = ParallelFileProcessor.shouldUseParallelProcessing(files.length);
+  const useStreaming = files.length > 1000 && !useParallel; // Use streaming for very large projects when parallel isn't suitable
+  
+  if (useParallel) {
+    spinner.text = `Using parallel processing for ${files.length} files...`;
+    const result = await performParallelAnalysis(files, spinner);
+    allFunctions.push(...result.functions);
+    
+    // Show parallel processing stats
+    if (result.stats.workersUsed > 1) {
+      spinner.text = `Parallel analysis completed: ${result.stats.workersUsed} workers, ${result.stats.avgFunctionsPerFile.toFixed(1)} functions/file`;
+    }
+  } else if (useStreaming) {
     spinner.text = `Using streaming mode for ${files.length} files...`;
     await performStreamingAnalysis(files, components, allFunctions, spinner);
   } else {
+    const batchSize = 50; // Fixed batch size for smaller projects
     await performBatchAnalysis(files, components, allFunctions, batchSize, spinner);
   }
   
@@ -156,6 +169,61 @@ async function performBatchAnalysis(
     allFunctions.push(...batchFunctions);
     
     spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
+  }
+}
+
+async function performParallelAnalysis(
+  files: string[], 
+  spinner: SpinnerInterface
+): Promise<ParallelProcessingResult> {
+  const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
+  
+  let completedFiles = 0;
+  try {
+    const result = await processor.processFiles(files, {
+      onProgress: (completed) => {
+        completedFiles = completed;
+        spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
+      }
+    });
+    return result;
+  } catch (error) {
+    spinner.text = `Parallel processing failed, falling back to sequential analysis...`;
+    console.warn(`Parallel processing error: ${error instanceof Error ? error.message : String(error)}`);
+    
+    // Fallback to sequential processing
+    const analyzer = new TypeScriptAnalyzer();
+    const qualityCalculator = new QualityCalculator();
+    const allFunctions: FunctionInfo[] = [];
+    const startTime = Date.now();
+    
+    for (let i = 0; i < files.length; i++) {
+      const filePath = files[i];
+      try {
+        const functions = await analyzer.analyzeFile(filePath);
+        for (const func of functions) {
+          func.metrics = await qualityCalculator.calculate(func);
+        }
+        allFunctions.push(...functions);
+      } catch (fileError) {
+        console.warn(`Failed to analyze ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
+      }
+      
+      spinner.text = `Sequential analysis: ${i + 1}/${files.length} files processed...`;
+    }
+    
+    await analyzer.cleanup();
+    
+    return {
+      functions: allFunctions,
+      stats: {
+        totalFiles: files.length,
+        totalFunctions: allFunctions.length,
+        avgFunctionsPerFile: files.length > 0 ? allFunctions.length / files.length : 0,
+        totalProcessingTime: Date.now() - startTime,
+        workersUsed: 0 // Sequential processing uses 0 workers
+      }
+    };
   }
 }
 

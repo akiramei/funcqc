@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
+import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
@@ -12,8 +13,9 @@ import { BatchProcessor } from '../utils/batch-processor';
 export class TypeScriptAnalyzer {
   private project: Project;
   private readonly maxSourceFilesInMemory: number;
+  private cache: AnalysisCache;
 
-  constructor(maxSourceFilesInMemory: number = 50) {
+  constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
@@ -28,6 +30,20 @@ export class TypeScriptAnalyzer {
         jsx: 4 // Preserve
       }
     });
+    
+    // Initialize cache if enabled
+    if (enableCache) {
+      this.cache = new AnalysisCache({
+        maxMemoryEntries: Math.max(500, maxSourceFilesInMemory * 10),
+        maxMemorySize: 50, // 50MB cache
+        persistentCachePath: path.join(process.cwd(), '.funcqc-cache')
+      });
+    } else {
+      this.cache = new AnalysisCache({
+        maxMemoryEntries: 0,
+        maxMemorySize: 0
+      });
+    }
   }
 
   /**
@@ -37,6 +53,16 @@ export class TypeScriptAnalyzer {
     try {
       if (!fs.existsSync(filePath)) {
         throw new Error(`File does not exist: ${filePath}`);
+      }
+
+      // Check cache first
+      try {
+        const cachedResult = await this.cache.get(filePath);
+        if (cachedResult) {
+          return cachedResult;
+        }
+      } catch (error) {
+        console.warn(`Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       const sourceFile = this.project.addSourceFileAtPath(filePath);
@@ -77,6 +103,13 @@ export class TypeScriptAnalyzer {
         // Prevent memory leaks by removing the file
         this.project.removeSourceFile(sourceFile);
         this.manageMemory();
+      }
+
+      // Cache the results
+      try {
+        await this.cache.set(filePath, functions);
+      } catch (error) {
+        console.warn(`Cache storage failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       return functions;
@@ -827,11 +860,14 @@ export class TypeScriptAnalyzer {
   /**
    * Clean up all source files from memory
    */
-  cleanup(): void {
+  async cleanup(): Promise<void> {
     const sourceFiles = this.project.getSourceFiles();
     sourceFiles.forEach(file => {
       this.project.removeSourceFile(file);
     });
+    
+    // Cleanup cache
+    await this.cache.cleanup();
   }
   
   /**
@@ -842,6 +878,13 @@ export class TypeScriptAnalyzer {
       sourceFilesInMemory: this.project.getSourceFiles().length,
       maxSourceFiles: this.maxSourceFilesInMemory
     };
+  }
+
+  /**
+   * Get cache statistics
+   */
+  getCacheStats(): CacheStats {
+    return this.cache.getStats();
   }
 
   /**

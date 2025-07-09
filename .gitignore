@@ -39,6 +39,7 @@ logs/
 *.funcqc.db
 funcqc-*.json
 funcqc-*.sql
+.funcqc-cache/
 
 # function-indexer generated files
 .function-indexer/
