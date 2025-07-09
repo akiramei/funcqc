@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import simpleGit, { SimpleGit } from 'simple-git';
-import { HealthCommandOptions, FunctionInfo, FuncqcConfig, SnapshotInfo } from '../types';
+import { HealthCommandOptions, FunctionInfo, FuncqcConfig, SnapshotInfo, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { QualityScorer } from '../utils/quality-scorer';
@@ -831,115 +831,171 @@ function calculateRiskScore(
   return { riskScore, riskFactors };
 }
 
+interface MetricActionRule {
+  condition: (value: number, threshold: number) => boolean;
+  actions: string[];
+}
+
+interface MetricThresholdRule {
+  name: string;
+  getValue: (metrics: QualityMetrics) => number;
+  getThreshold: (config: FuncqcConfig) => number;
+  rule: MetricActionRule;
+}
+
 function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string[] {
-  const complexity = f.metrics?.cyclomaticComplexity || 1;
-  const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
-  const lines = f.metrics?.linesOfCode || 0;
-  const parameterCount = f.metrics?.parameterCount || 0;
-  const nesting = f.metrics?.maxNestingLevel || 0;
-  const branches = f.metrics?.branchCount || 0;
-  const halsteadVolume = f.metrics?.halsteadVolume || 0;
-  const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
-  const returnStatements = f.metrics?.returnStatementCount || 0;
-  
+  const metrics = f.metrics || {
+    linesOfCode: 0,
+    totalLines: 0,
+    cyclomaticComplexity: 0,
+    cognitiveComplexity: 0,
+    maxNestingLevel: 0,
+    parameterCount: 0,
+    returnStatementCount: 0,
+    branchCount: 0,
+    loopCount: 0,
+    tryCatchCount: 0,
+    asyncAwaitCount: 0,
+    callbackCount: 0,
+    commentLines: 0,
+    codeToCommentRatio: 0,
+    halsteadVolume: 0,
+    halsteadDifficulty: 0,
+    maintainabilityIndex: 0
+  };
   const suggestedActionsSet = new Set<string>();
   
-  // Existing complexity-based actions
-  if (complexity > config.metrics.complexityThreshold) {
-    suggestedActionsSet.add('extract_methods');
-    suggestedActionsSet.add('reduce_branching');
-  }
+  // Helper function to get configurable threshold with fallback
+  const getConfigurableThreshold = (
+    thresholdPath: string,
+    defaultValue: number
+  ): number => {
+    const thresholdConfig = config.thresholds?.[thresholdPath as keyof typeof config.thresholds];
+    return (typeof thresholdConfig?.warning === 'number') 
+      ? thresholdConfig.warning : defaultValue;
+  };
   
-  // Cognitive complexity-based actions (new)
-  if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
-    suggestedActionsSet.add('simplify_logic');
-    suggestedActionsSet.add('reduce_cognitive_load');
-  }
+  // Define metric-to-action mapping rules
+  const metricRules: MetricThresholdRule[] = [
+    {
+      name: 'complexity',
+      getValue: (m) => m.cyclomaticComplexity || 1,
+      getThreshold: (c) => c.metrics.complexityThreshold,
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['extract_methods', 'reduce_branching']
+      }
+    },
+    {
+      name: 'cognitive_complexity',
+      getValue: (m) => m.cognitiveComplexity || 0,
+      getThreshold: (c) => c.metrics.cognitiveComplexityThreshold,
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['simplify_logic', 'reduce_cognitive_load']
+      }
+    },
+    {
+      name: 'lines_of_code',
+      getValue: (m) => m.linesOfCode || 0,
+      getThreshold: (c) => c.metrics.linesOfCodeThreshold * 3,
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['split_function', 'extract_helpers']
+      }
+    },
+    {
+      name: 'parameter_count',
+      getValue: (m) => m.parameterCount || 0,
+      getThreshold: (c) => c.metrics.parameterCountThreshold,
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['parameterize_object', 'extract_config']
+      }
+    },
+    {
+      name: 'nesting_level',
+      getValue: (m) => m.maxNestingLevel || 0,
+      getThreshold: (c) => c.metrics.maxNestingLevelThreshold,
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['flatten_structure', 'use_early_returns']
+      }
+    },
+    {
+      name: 'branch_count',
+      getValue: (m) => m.branchCount || 0,
+      getThreshold: (c) => Math.max(5, c.metrics.complexityThreshold / 2),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['consolidate_branches', 'extract_switch_logic']
+      }
+    },
+    {
+      name: 'halstead_volume',
+      getValue: (m) => m.halsteadVolume || 0,
+      getThreshold: () => getConfigurableThreshold('halsteadVolume', 1000),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['reduce_vocabulary', 'extract_constants']
+      }
+    },
+    {
+      name: 'halstead_difficulty',
+      getValue: (m) => m.halsteadDifficulty || 0,
+      getThreshold: () => getConfigurableThreshold('halsteadDifficulty', 20),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['simplify_expressions', 'improve_readability']
+      }
+    },
+    {
+      name: 'return_statements',
+      getValue: (m) => m.returnStatementCount || 0,
+      getThreshold: () => getConfigurableThreshold('returnStatements', 3),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['unify_returns', 'extract_result_builder']
+      }
+    },
+    {
+      name: 'async_await_count',
+      getValue: (m) => m.asyncAwaitCount || 0,
+      getThreshold: () => getConfigurableThreshold('asyncAwait', 3),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['extract_async_helpers', 'simplify_async_flow']
+      }
+    },
+    {
+      name: 'try_catch_count',
+      getValue: (m) => m.tryCatchCount || 0,
+      getThreshold: () => getConfigurableThreshold('tryCatch', 2),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['consolidate_error_handling', 'extract_error_handlers']
+      }
+    },
+    {
+      name: 'loop_count',
+      getValue: (m) => m.loopCount || 0,
+      getThreshold: () => getConfigurableThreshold('loops', 3),
+      rule: {
+        condition: (val, threshold) => val > threshold,
+        actions: ['extract_loop_logic', 'use_functional_style']
+      }
+    }
+  ];
   
-  // Size-based actions (existing)
-  if (lines > config.metrics.linesOfCodeThreshold * 3) {
-    suggestedActionsSet.add('split_function');
-    suggestedActionsSet.add('extract_helpers');
-  }
-  
-  // Parameter-based actions (existing)
-  if (parameterCount > config.metrics.parameterCountThreshold) {
-    suggestedActionsSet.add('parameterize_object');
-    suggestedActionsSet.add('extract_config');
-  }
-  
-  // Nesting-based actions (new)
-  if (nesting > config.metrics.maxNestingLevelThreshold) {
-    suggestedActionsSet.add('flatten_structure');
-    suggestedActionsSet.add('use_early_returns');
-  }
-  
-  // Branch-based actions (new)
-  // Use either 5 or half the complexity threshold, whichever is higher
-  const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
-  if (branches > branchThreshold) {
-    suggestedActionsSet.add('consolidate_branches');
-    suggestedActionsSet.add('extract_switch_logic');
-  }
-  
-  // Get additional metrics for new actions
-  const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
-  const tryCatchCount = f.metrics?.tryCatchCount || 0;
-  const loopCount = f.metrics?.loopCount || 0;
-  
-  // Halstead volume-based actions (new)
-  // Use configured threshold or reasonable default
-  const halsteadVolumeThreshold = (typeof config.thresholds?.halsteadVolume?.warning === 'number') 
-    ? config.thresholds.halsteadVolume.warning : 1000;
-  if (halsteadVolume > halsteadVolumeThreshold) {
-    suggestedActionsSet.add('reduce_vocabulary');
-    suggestedActionsSet.add('extract_constants');
-  }
-  
-  // Halstead difficulty-based actions (new)
-  // Use configured threshold or reasonable default
-  const halsteadDifficultyThreshold = (typeof config.thresholds?.halsteadDifficulty?.warning === 'number') 
-    ? config.thresholds.halsteadDifficulty.warning : 20;
-  if (halsteadDifficulty > halsteadDifficultyThreshold) {
-    suggestedActionsSet.add('simplify_expressions');
-    suggestedActionsSet.add('improve_readability');
-  }
-  
-  // Return statement-based actions (new)
-  // Use configured threshold or reasonable default
-  const returnThreshold = (typeof config.thresholds?.returnStatements?.warning === 'number') 
-    ? config.thresholds.returnStatements.warning : 3;
-  if (returnStatements > returnThreshold) {
-    suggestedActionsSet.add('unify_returns');
-    suggestedActionsSet.add('extract_result_builder');
-  }
-  
-  // Async/await-based actions (new)
-  // Use configured threshold or reasonable default
-  const asyncThreshold = (typeof config.thresholds?.asyncAwait?.warning === 'number') 
-    ? config.thresholds.asyncAwait.warning : 3;
-  if (asyncAwaitCount > asyncThreshold) {
-    suggestedActionsSet.add('extract_async_helpers');
-    suggestedActionsSet.add('simplify_async_flow');
-  }
-  
-  // Try-catch-based actions (new)
-  // Use configured threshold or reasonable default
-  const tryCatchThreshold = (typeof config.thresholds?.tryCatch?.warning === 'number') 
-    ? config.thresholds.tryCatch.warning : 2;
-  if (tryCatchCount > tryCatchThreshold) {
-    suggestedActionsSet.add('consolidate_error_handling');
-    suggestedActionsSet.add('extract_error_handlers');
-  }
-  
-  // Loop-based actions (new)
-  // Use configured threshold or reasonable default
-  const loopThreshold = (typeof config.thresholds?.loops?.warning === 'number') 
-    ? config.thresholds.loops.warning : 3;
-  if (loopCount > loopThreshold) {
-    suggestedActionsSet.add('extract_loop_logic');
-    suggestedActionsSet.add('use_functional_style');
-  }
+  // Apply all metric rules
+  metricRules.forEach(({ getValue, getThreshold, rule }) => {
+    const value = getValue(metrics);
+    const threshold = getThreshold(config);
+    
+    if (rule.condition(value, threshold)) {
+      rule.actions.forEach(action => suggestedActionsSet.add(action));
+    }
+  });
   
   return Array.from(suggestedActionsSet);
 }
