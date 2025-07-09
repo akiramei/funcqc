@@ -122,7 +122,15 @@ jobs:
           } >> lineage-report.md
 
           # Parse and format lineage details
-          jq -r '.lineageCandidates[] | (.toFunctions | first // {}) as $firstTo | "### \(.kind | ascii_upcase): \(.fromFunction.name // "unknown") → \($firstTo.name // "unknown")\n\n- **Confidence:** \(.confidence * 100 | floor)%\n- **From:** \(.fromFunction.filePath // "unknown"):\(.fromFunction.startLine // "?")\n- **To:** \($firstTo.filePath // "unknown"):\($firstTo.startLine // "?")\n\(.reason // "" | if . != "" then "\n- **Note:** \(.)" else "" end)\n"' lineage-analysis.json >> lineage-report.md
+          jq -r '.lineageCandidates[] |
+            (.toFunctions | first // {}) as $firstTo |
+            ( (.confidence // 0) * 100 | floor ) as $pct |
+            "### \(.kind | ascii_upcase): \(.fromFunction.name // \"unknown\") → \($firstTo.name // \"unknown\")\n\n" +
+            "- **Confidence:** \($pct)%\n" +
+            "- **From:** \(.fromFunction.filePath // \"unknown\"):\(.fromFunction.startLine // \"?\")\n" +
+            "- **To:** \($firstTo.filePath // \"unknown\"):\($firstTo.startLine // \"?\")\n" +
+            ( .reason // \"\" | if . != \"\" then \"\\n- **Note:** \(.)\" else \"\" end ) + \"\n"
+          ' lineage-analysis.json >> lineage-report.md
         else
           {
             echo "✅ No function lineage changes detected in this PR."
