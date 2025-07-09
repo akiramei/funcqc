@@ -50,6 +50,19 @@ export class SystemChecker {
     return existsSync('tsconfig.json') || existsSync('jsconfig.json');
   }
 
+  private checkFileSystemAccess(): boolean {
+    try {
+      // Try to write and read a temporary file
+      const tempFile = '.funcqc-temp-check';
+      writeFileSync(tempFile, 'test');
+      const readable = existsSync(tempFile);
+      unlinkSync(tempFile);
+      return readable;
+    } catch {
+      return false;
+    }
+  }
+
   private checkMemoryAvailable(): boolean {
     try {
       const memUsage = process.memoryUsage();
@@ -146,6 +159,25 @@ export class SystemChecker {
       passed: requiredPassed,
       requirements: results as { name: string; passed: boolean; required: boolean; errorMessage?: string }[]
     };
+  }
+
+  /**
+   * Lightweight system check for read-only commands
+   * Only checks essential requirements like Node.js version and filesystem access
+   */
+  basicSystemCheck(): boolean {
+    // Only check Node.js version for read-only commands
+    const nodeVersionOk = this.checkNodeVersion();
+    const fileSystemOk = this.checkFileSystemAccess();
+    
+    if (!nodeVersionOk || !fileSystemOk) {
+      if (this.logger.isVerbose) {
+        this.logger.error('Basic system check failed');
+      }
+      return false;
+    }
+    
+    return true;
   }
 
   reportSystemCheck(): boolean {

@@ -2,26 +2,6 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { initCommand } from './cli/init';
-import { scanCommand } from './cli/scan';
-import { listCommand } from './cli/list';
-import { showCommand } from './cli/show';
-import { healthCommand } from './cli/health';
-import { explainCommand } from './cli/explain';
-import { historyCommand } from './cli/history';
-import { diffCommand } from './cli/diff';
-import { similarCommand } from './cli/similar';
-import { describeCommand } from './cli/describe';
-import { searchCommand } from './cli/search';
-import { lineageListCommand, lineageShowCommand, lineageReviewCommand } from './cli/lineage';
-import { createVectorizeCommand } from './cli/vectorize';
-import { createEvaluateCommand } from './cli/evaluate';
-import { refactorAnalyzeCommand } from './cli/refactor/analyze.js';
-import { refactorDetectCommand } from './cli/refactor/detect.js';
-import { refactorTrackCommand } from './cli/refactor/track.js';
-import { refactorInteractiveCommand } from './cli/refactor/interactive.js';
-import { refactorStatusCommand } from './cli/refactor/status.js';
-import { refactorPlanCommand } from './cli/refactor/plan.js';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
@@ -53,14 +33,20 @@ program
   .option('--db <path>', 'database path', '.funcqc/funcqc.db')
   .option('--show', 'show current configuration')
   .option('--reset', 'reset configuration to defaults')
-  .action(initCommand);
+  .action(async (options: any) => {
+    const { initCommand } = await import('./cli/init');
+    return initCommand(options);
+  });
 
 program
   .command('scan')
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
-  .action(scanCommand);
+  .action(async (options: any) => {
+    const { scanCommand } = await import('./cli/scan');
+    return scanCommand(options);
+  });
 
 program
   .command('list')
@@ -72,7 +58,10 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
-  .action(listCommand);
+  .action(async (options: any) => {
+    const { listCommand } = await import('./cli/list');
+    return listCommand(options);
+  });
 
 program
   .command('show')
@@ -90,7 +79,10 @@ program
   .option('--source', 'show function source code')
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .action(showCommand)
+  .action(async (namePattern: string | undefined, options: any) => {
+    const { showCommand } = await import('./cli/show');
+    return showCommand(namePattern, options);
+  })
   .addHelpText('after', `
 Examples:
   # Show basic function information
@@ -134,6 +126,7 @@ program
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
     const mergedOptions = { ...globalOpts, ...options };
+    const { healthCommand } = await import('./cli/health');
     await healthCommand(mergedOptions);
   });
 
@@ -154,6 +147,7 @@ program
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
     const mergedOptions = { ...globalOpts, ...options };
+    const { historyCommand } = await import('./cli/history');
     await historyCommand(mergedOptions);
   });
 
@@ -174,7 +168,10 @@ program
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
-  .action(diffCommand)
+  .action(async (from: string, to: string, options: any) => {
+    const { diffCommand } = await import('./cli/diff');
+    return diffCommand(from, to, options);
+  })
   .addHelpText('after', `
 Examples:
   # Basic diff
@@ -219,7 +216,10 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
-  .action(similarCommand);
+  .action(async (options: any, cmd: any) => {
+    const { similarCommand } = await import('./cli/similar');
+    await similarCommand(options, cmd);
+  });
 
 program
   .command('describe')
@@ -241,7 +241,10 @@ program
   .option('--error-conditions <conditions>', 'document error conditions and handling')
   .option('--generate-template', 'generate JSON template for the specified function')
   .option('--ai-mode', 'enable AI-optimized batch processing')
-  .action(describeCommand)
+  .action(async (functionId: string | undefined, options: any) => {
+    const { describeCommand } = await import('./cli/describe');
+    await describeCommand(functionId || '', options);
+  })
   .addHelpText('after', `
 Examples:
   # Basic description
@@ -307,7 +310,10 @@ program
   .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
   .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
   .option('--intermediate', 'output intermediate results for AI analysis')
-  .action(searchCommand)
+  .action(async (keyword: string, options: any) => {
+    const { searchCommand } = await import('./cli/search');
+    await searchCommand(keyword, options);
+  })
   .addHelpText('after', `
 Examples:
   $ funcqc search "authentication"                        # Basic keyword search
@@ -330,11 +336,27 @@ Hybrid Search:
   Optimal for comprehensive code exploration
 `);
 
-// Add vectorize command
-program.addCommand(createVectorizeCommand());
+// Add vectorize command - loaded dynamically
+program.addCommand(
+  new Command('vectorize')
+    .description('Vectorize functions for semantic search')
+    .action(async () => {
+      const { createVectorizeCommand } = await import('./cli/vectorize');
+      const vectorizeCommand = createVectorizeCommand();
+      await vectorizeCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
-// Add evaluate command (v1.6 enhancement)
-program.addCommand(createEvaluateCommand());
+// Add evaluate command (v1.6 enhancement) - loaded dynamically
+program.addCommand(
+  new Command('evaluate')
+    .description('Evaluate function naming quality')
+    .action(async () => {
+      const { createEvaluateCommand } = await import('./cli/evaluate');
+      const evaluateCommand = createEvaluateCommand();
+      await evaluateCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
 // Add lineage commands
 program
@@ -352,7 +374,10 @@ program
       .option('--from-function <pattern>', 'filter by source function name pattern')
       .option('--to-function <pattern>', 'filter by target function name pattern')
       .option('--confidence <threshold>', 'filter by minimum confidence (0-1)')
-      .action(lineageListCommand)
+      .action(async (options: any) => {
+        const { lineageListCommand } = await import('./cli/lineage');
+        await lineageListCommand(options);
+      })
       .addHelpText('after', `
 Examples:
   $ funcqc lineage list                           # List all lineages
@@ -366,7 +391,10 @@ Examples:
     new Command('show')
       .description('Show detailed lineage information')
       .argument('<lineage-id>', 'lineage ID to display')
-      .action(lineageShowCommand)
+      .action(async (lineageId: string, options: any) => {
+        const { lineageShowCommand } = await import('./cli/lineage');
+        await lineageShowCommand(lineageId, options);
+      })
       .addHelpText('after', `
 Examples:
   $ funcqc lineage show abc12345                 # Show lineage details
@@ -380,7 +408,10 @@ Examples:
       .option('--reject', 'reject the lineage')
       .option('--note <text>', 'add review note')
       .option('--all', 'review all draft lineages')
-      .action(lineageReviewCommand)
+      .action(async (lineageId: string | undefined, options: any) => {
+        const { lineageReviewCommand } = await import('./cli/lineage');
+        await lineageReviewCommand(lineageId || '', options);
+      })
       .addHelpText('after', `
 Examples:
   $ funcqc lineage review abc12345 --approve     # Approve specific lineage
@@ -400,7 +431,10 @@ program
   .option('--all', 'list all available metrics and concepts')
   .option('--examples', 'include code examples in explanations')
   .option('--format <type>', 'output format (table|detailed)', 'detailed')
-  .action(explainCommand)
+  .action(async (metricOrConcept: string | undefined, options: any) => {
+    const { explainCommand } = await import('./cli/explain');
+    return explainCommand(metricOrConcept, options);
+  })
   .addHelpText('after', `
 Examples:
   $ funcqc explain cyclomaticComplexity              # Explain specific metric
@@ -437,7 +471,10 @@ refactorCommand.addCommand(
     .option('--output <file>', 'save report to file')
     .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
     .option('--patterns <list>', 'comma-separated list of patterns to detect')
-    .action(refactorAnalyzeCommand)
+    .action(async (options: any) => {
+      const { refactorAnalyzeCommand } = await import('./cli/refactor/analyze.js');
+      await refactorAnalyzeCommand(options);
+    })
     .addHelpText('after', `
 Examples:
   $ funcqc refactor analyze                           # Basic project analysis
@@ -457,20 +494,55 @@ Supported Patterns:
 `)
 );
 
-// Add detect subcommand
-refactorCommand.addCommand(refactorDetectCommand);
+// Add detect subcommand - loaded dynamically
+refactorCommand.addCommand(
+  new Command('detect')
+    .description('Detect refactoring opportunities')
+    .action(async () => {
+      const { refactorDetectCommand } = await import('./cli/refactor/detect.js');
+      await refactorDetectCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
-// Add track subcommand
-refactorCommand.addCommand(refactorTrackCommand);
+// Add track subcommand - loaded dynamically
+refactorCommand.addCommand(
+  new Command('track')
+    .description('Track refactoring progress')
+    .action(async () => {
+      const { refactorTrackCommand } = await import('./cli/refactor/track.js');
+      await refactorTrackCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
-// Add interactive subcommand (Phase 3 Week 3)
-refactorCommand.addCommand(refactorInteractiveCommand);
+// Add interactive subcommand (Phase 3 Week 3) - loaded dynamically
+refactorCommand.addCommand(
+  new Command('interactive')
+    .description('Interactive refactoring session')
+    .action(async () => {
+      const { refactorInteractiveCommand } = await import('./cli/refactor/interactive.js');
+      await refactorInteractiveCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
-// Add status subcommand (Phase 3 Week 3)
-refactorCommand.addCommand(refactorStatusCommand);
+// Add status subcommand (Phase 3 Week 3) - loaded dynamically
+refactorCommand.addCommand(
+  new Command('status')
+    .description('Show refactoring status')
+    .action(async () => {
+      const { refactorStatusCommand } = await import('./cli/refactor/status.js');
+      await refactorStatusCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
-// Add plan subcommand (Phase 3 Week 3)
-refactorCommand.addCommand(refactorPlanCommand);
+// Add plan subcommand (Phase 3 Week 3) - loaded dynamically
+refactorCommand.addCommand(
+  new Command('plan')
+    .description('Create refactoring plan')
+    .action(async () => {
+      const { refactorPlanCommand } = await import('./cli/refactor/plan.js');
+      await refactorPlanCommand.parseAsync(process.argv.slice(2));
+    })
+);
 
 // Handle unknown commands
 program.on('command:*', () => {
@@ -497,6 +569,15 @@ function performSystemCheck(logger: Logger, skipCheck: boolean = false): boolean
   
   const systemChecker = new SystemChecker(logger);
   return systemChecker.reportSystemCheck();
+}
+
+function performLightweightSystemCheck(logger: Logger, skipCheck: boolean = false): boolean {
+  if (skipCheck) return true;
+  
+  // Lightweight check for read-only commands
+  // Only check basic Node.js version and file system access
+  const systemChecker = new SystemChecker(logger);
+  return systemChecker.basicSystemCheck();
 }
 
 const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain'] as const;
@@ -535,13 +616,15 @@ program.hook('preAction', () => {
   
   // Handle system check before commands
   if (!options['noCheck']) {
-    // Skip system checks for read-only commands unless explicitly requested
-    if (!isReadOnlyCommand() || options['checkSystem']) {
-      const systemOk = performSystemCheck(logger, false);
-      if (!systemOk) {
-        logger.error('System requirements not met. Use --no-check to bypass.');
-        process.exit(1);
-      }
+    // Use lightweight system check for read-only commands
+    const isReadOnly = isReadOnlyCommand();
+    const systemOk = isReadOnly && !options['checkSystem'] 
+      ? performLightweightSystemCheck(logger, false)
+      : performSystemCheck(logger, false);
+      
+    if (!systemOk) {
+      logger.error('System requirements not met. Use --no-check to bypass.');
+      process.exit(1);
     }
   }
 });
