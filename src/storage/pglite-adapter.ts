@@ -237,11 +237,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const snapshotId = this.generateSnapshotId();
     
     try {
-      // Create snapshot record
-      await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label, comment);
-      
-      // Save functions in batch
-      await this.saveFunctions(snapshotId, functions);
+      // Execute entire snapshot creation in a single transaction
+      await this.executeInTransaction(async () => {
+        // Create snapshot record
+        await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label, comment);
+        
+        // Save functions in batch
+        await this.saveFunctions(snapshotId, functions);
+      });
       
       return snapshotId;
     } catch (error) {
@@ -2773,11 +2776,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.saveFunctionsBulk(snapshotId, functions);
     } else {
       // Fall back to individual inserts for small batches
-      await this.executeInTransaction(async () => {
+      const executeIndividualInserts = async () => {
         for (const func of functions) {
           await this.saveSingleFunction(func, snapshotId);
         }
-      });
+      };
+
+      // Execute within transaction only if not already in one
+      if (this.transactionDepth > 0) {
+        // Already in transaction, execute directly
+        await executeIndividualInserts();
+      } else {
+        // Not in transaction, create new one
+        await this.executeInTransaction(executeIndividualInserts);
+      }
     }
   }
 
@@ -2785,7 +2797,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Bulk insert functions for optimal performance
    */
   private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
-    await this.executeInTransaction(async () => {
+    const executeBulkInsert = async () => {
       const bulkData = prepareBulkInsertData(functions, snapshotId);
       
       // Bulk insert functions
@@ -2845,7 +2857,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           await this.db.query(sql, flatParams);
         }
       }
-    });
+    };
+
+    // Execute within transaction only if not already in one
+    if (this.transactionDepth > 0) {
+      // Already in transaction, execute directly
+      await executeBulkInsert();
+    } else {
+      // Not in transaction, create new one
+      await this.executeInTransaction(executeBulkInsert);
+    }
   }
 
   private async getFunctionParameters(functionId: string): Promise<ParameterRow[]> {
