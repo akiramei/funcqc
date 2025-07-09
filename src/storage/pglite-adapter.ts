@@ -102,7 +102,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
 
     // Prevent paths with leading/trailing whitespace
-    if (/^\s+|\s+$/.test(dbPath)) {
+    if (dbPath.trim() !== dbPath) {
       throw new DatabaseError(
         ErrorCode.DATABASE_NOT_INITIALIZED,
         `Invalid database path: '${dbPath}'. Path cannot have leading or trailing whitespace`
