@@ -122,7 +122,7 @@ jobs:
           } >> lineage-report.md
 
           # Parse and format lineage details
-          jq -r '.lineageCandidates[] | "### \(.kind | ascii_upcase): \(.fromFunction.name // "unknown") → \(.toFunctions[0]?.name // "unknown")\n\n- **Confidence:** \(.confidence * 100 | floor)%\n- **From:** \(.fromFunction.filePath // "unknown"):\(.fromFunction.startLine // "?")\n- **To:** \(.toFunctions[0]?.filePath // "unknown"):\(.toFunctions[0]?.startLine // "?")\n\(.reason // "" | if . != "" then "\n- **Note:** \(.)" else "" end)\n"' lineage-analysis.json >> lineage-report.md
+          jq -r '.lineageCandidates[] | (.toFunctions | first // {}) as $firstTo | "### \(.kind | ascii_upcase): \(.fromFunction.name // "unknown") → \($firstTo.name // "unknown")\n\n- **Confidence:** \(.confidence * 100 | floor)%\n- **From:** \(.fromFunction.filePath // "unknown"):\(.fromFunction.startLine // "?")\n- **To:** \($firstTo.filePath // "unknown"):\($firstTo.startLine // "?")\n\(.reason // "" | if . != "" then "\n- **Note:** \(.)" else "" end)\n"' lineage-analysis.json >> lineage-report.md
         else
           {
             echo "✅ No function lineage changes detected in this PR."
