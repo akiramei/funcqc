@@ -62,6 +62,13 @@ high_complexity_functions.json
 
 # PGLite database files (prevent filesystem pollution)
 :memory:/
+:memory:
+
+# Prevent filesystem pollution from Windows-style paths in tests
+C:/
+D:/
+C:\\*
+D:\\*
 
 # Lock files (keep yarn.lock if using yarn)
 # package-lock.json  # Commented out - needed for GitHub Actions

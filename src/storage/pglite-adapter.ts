@@ -60,12 +60,81 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private static schemaCache = new Map<string, boolean>();
 
   constructor(dbPath: string) {
+    // Validate input path
+    this.validateDbPath(dbPath);
+    
     // Store original path for directory check logic
     this.originalDbPath = dbPath;
     // パスを正規化してキャッシュの一貫性を保証
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
+  }
+
+  /**
+   * Validates the database path to prevent filesystem pollution
+   */
+  private validateDbPath(dbPath: string): void {
+    if (!dbPath || typeof dbPath !== 'string') {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        'Database path must be a non-empty string'
+      );
+    }
+
+    // Allow special database paths
+    if (dbPath === ':memory:') {
+      return;
+    }
+
+    // Allow PostgreSQL connection strings
+    if (dbPath.startsWith('postgres://') || dbPath.startsWith('postgresql://')) {
+      return;
+    }
+
+    // Prevent Windows drive letters only (which would create invalid directories)
+    const isWindowsDriveOnly = /^[A-Za-z]:$/.test(dbPath);
+    if (isWindowsDriveOnly) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${dbPath}'. Drive letters alone are not valid database paths. Use a full path like 'C:\\path\\to\\database.db'`
+      );
+    }
+
+    // Prevent paths with leading/trailing whitespace
+    if (/^\s+|\s+$/.test(dbPath)) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${dbPath}'. Path cannot have leading or trailing whitespace`
+      );
+    }
+
+    // Prevent paths that would create problematic directories
+    // Note: We check for invalid Windows filename characters, but exclude colon in drive paths and connection strings
+    const invalidCharsPattern = /[<>"|?*]/;
+    const suspiciousColonPattern = /[^A-Za-z]:[^\\\/]/; // Colon not part of drive letter or connection string
+    
+    if (invalidCharsPattern.test(dbPath)) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${dbPath}'. Path contains invalid characters: < > " | ? *`
+      );
+    }
+
+    if (suspiciousColonPattern.test(dbPath) && !dbPath.includes('://')) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${dbPath}'. Suspicious colon placement detected`
+      );
+    }
+
+    // Ensure path has a reasonable length
+    if (dbPath.length > 260) { // Windows MAX_PATH limit
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Database path too long: ${dbPath.length} characters. Maximum allowed: 260`
+      );
+    }
   }
 
   /**
@@ -3276,7 +3345,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Get direct access to the database connection for advanced operations
    */
-  getDb(): any {
+  getDb(): PGlite {
     return this.db;
   }
 }
