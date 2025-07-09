@@ -46,6 +46,7 @@ class StartupBenchmark {
     
     try {
       const commands = [
+        // Lightweight commands
         'help',
         'list',
         'list --cc-ge 10',
@@ -54,7 +55,14 @@ class StartupBenchmark {
         'health',
         'history --help',
         'diff --help',
-        'explain --help'
+        'explain --help',
+        // Heavier commands to measure dynamic import overhead
+        'vectorize --help',
+        'evaluate --help',
+        'refactor analyze --help',
+        'refactor detect --help',
+        'refactor track --help',
+        'lineage review --help'
       ];
 
       const results: StartupBenchmarkResult[] = [];
@@ -194,11 +202,33 @@ function displayResults(results: StartupBenchmarkResult[]): void {
   // Performance summary
   console.log(chalk.blue('\n🎯 Performance Summary\n'));
   
+  // Separate lightweight and heavy commands
+  const lightweightCmds = results.filter(r => 
+    !r.command.includes('vectorize') && 
+    !r.command.includes('evaluate') && 
+    !r.command.includes('refactor') && 
+    !r.command.includes('lineage')
+  );
+  const heavyCmds = results.filter(r => 
+    r.command.includes('vectorize') || 
+    r.command.includes('evaluate') || 
+    r.command.includes('refactor') || 
+    r.command.includes('lineage')
+  );
+  
   const avgStartupTime = results.reduce((acc, r) => acc + r.avgStartupTime, 0) / results.length;
+  const avgLightweight = lightweightCmds.reduce((acc, r) => acc + r.avgStartupTime, 0) / lightweightCmds.length;
+  const avgHeavy = heavyCmds.length > 0 ? heavyCmds.reduce((acc, r) => acc + r.avgStartupTime, 0) / heavyCmds.length : 0;
+  
   const fastestCommand = results.reduce((min, r) => r.avgStartupTime < min.avgStartupTime ? r : min);
   const slowestCommand = results.reduce((max, r) => r.avgStartupTime > max.avgStartupTime ? r : max);
   
-  console.log(`Average startup time: ${avgStartupTime.toFixed(0)}ms`);
+  console.log(`Overall average: ${avgStartupTime.toFixed(0)}ms`);
+  console.log(`Lightweight commands average: ${avgLightweight.toFixed(0)}ms`);
+  if (heavyCmds.length > 0) {
+    console.log(`Heavy commands average: ${avgHeavy.toFixed(0)}ms`);
+    console.log(`Dynamic import overhead: ${(avgHeavy - avgLightweight).toFixed(0)}ms`);
+  }
   console.log(`Fastest command: ${fastestCommand.command} (${fastestCommand.avgStartupTime.toFixed(0)}ms)`);
   console.log(`Slowest command: ${slowestCommand.command} (${slowestCommand.avgStartupTime.toFixed(0)}ms)`);
   
