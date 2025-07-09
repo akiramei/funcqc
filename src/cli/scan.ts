@@ -179,14 +179,52 @@ async function performParallelAnalysis(
   const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
   
   let completedFiles = 0;
-  const result = await processor.processFiles(files, {
-    onProgress: (completed) => {
-      completedFiles += completed;
-      spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
+  try {
+    const result = await processor.processFiles(files, {
+      onProgress: (completed) => {
+        completedFiles = completed;
+        spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
+      }
+    });
+    return result;
+  } catch (error) {
+    spinner.text = `Parallel processing failed, falling back to sequential analysis...`;
+    console.warn(`Parallel processing error: ${error instanceof Error ? error.message : String(error)}`);
+    
+    // Fallback to sequential processing
+    const analyzer = new TypeScriptAnalyzer();
+    const qualityCalculator = new QualityCalculator();
+    const allFunctions: FunctionInfo[] = [];
+    const startTime = Date.now();
+    
+    for (let i = 0; i < files.length; i++) {
+      const filePath = files[i];
+      try {
+        const functions = await analyzer.analyzeFile(filePath);
+        for (const func of functions) {
+          func.metrics = await qualityCalculator.calculate(func);
+        }
+        allFunctions.push(...functions);
+      } catch (fileError) {
+        console.warn(`Failed to analyze ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`);
+      }
+      
+      spinner.text = `Sequential analysis: ${i + 1}/${files.length} files processed...`;
     }
-  });
-
-  return result;
+    
+    await analyzer.cleanup();
+    
+    return {
+      functions: allFunctions,
+      stats: {
+        totalFiles: files.length,
+        totalFunctions: allFunctions.length,
+        avgFunctionsPerFile: files.length > 0 ? allFunctions.length / files.length : 0,
+        totalProcessingTime: Date.now() - startTime,
+        workersUsed: 0 // Sequential processing uses 0 workers
+      }
+    };
+  }
 }
 
 async function performStreamingAnalysis(

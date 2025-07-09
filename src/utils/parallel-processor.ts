@@ -99,7 +99,7 @@ export class ParallelFileProcessor {
         totalFunctions: allFunctions.length,
         totalProcessingTime: totalProcessingTimeMs,
         workersUsed: workerCount,
-        avgFunctionsPerFile: allFunctions.length / filePaths.length
+        avgFunctionsPerFile: filePaths.length > 0 ? allFunctions.length / filePaths.length : 0
       }
     };
   }

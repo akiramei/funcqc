@@ -4,7 +4,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
-import { AnalysisCache } from '../utils/analysis-cache';
+import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
@@ -56,9 +56,13 @@ export class TypeScriptAnalyzer {
       }
 
       // Check cache first
-      const cachedResult = await this.cache.get(filePath);
-      if (cachedResult) {
-        return cachedResult;
+      try {
+        const cachedResult = await this.cache.get(filePath);
+        if (cachedResult) {
+          return cachedResult;
+        }
+      } catch (error) {
+        console.warn(`Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       }
 
       const sourceFile = this.project.addSourceFileAtPath(filePath);
@@ -102,7 +106,11 @@ export class TypeScriptAnalyzer {
       }
 
       // Cache the results
-      await this.cache.set(filePath, functions);
+      try {
+        await this.cache.set(filePath, functions);
+      } catch (error) {
+        console.warn(`Cache storage failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+      }
 
       return functions;
 
@@ -852,14 +860,14 @@ export class TypeScriptAnalyzer {
   /**
    * Clean up all source files from memory
    */
-  cleanup(): void {
+  async cleanup(): Promise<void> {
     const sourceFiles = this.project.getSourceFiles();
     sourceFiles.forEach(file => {
       this.project.removeSourceFile(file);
     });
     
     // Cleanup cache
-    this.cache.cleanup();
+    await this.cache.cleanup();
   }
   
   /**
@@ -875,7 +883,7 @@ export class TypeScriptAnalyzer {
   /**
    * Get cache statistics
    */
-  getCacheStats() {
+  getCacheStats(): CacheStats {
     return this.cache.getStats();
   }
 

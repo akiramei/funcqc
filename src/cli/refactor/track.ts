@@ -48,16 +48,9 @@ function createTrackListCommand(): Command {
         
         const sessionManager = new SessionManager(storage);
         
-        let sessions: RefactoringSession[];
-        if (options.all) {
-          const db = storage.getDb();
-          const result = await db.query(
-            'SELECT * FROM refactoring_sessions ORDER BY created_at DESC'
-          );
-          sessions = result.rows as RefactoringSession[];
-        } else {
-          sessions = await sessionManager.getActiveSessions();
-        }
+        const sessions = options.all 
+          ? await sessionManager.getAllSessions()
+          : await sessionManager.getActiveSessions();
         
         spinner.succeed();
         

@@ -51,7 +51,10 @@ export class AnalysisCache {
     this.persistentCachePath = options.persistentCachePath || 
       path.join(process.cwd(), '.funcqc-cache');
     
-    this.initializePersistentCache();
+    // Initialize persistent cache asynchronously
+    this.initializePersistentCache().catch(error => {
+      console.warn(`Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   /**
@@ -85,7 +88,7 @@ export class AnalysisCache {
    */
   async set(filePath: string, functions: FunctionInfo[]): Promise<void> {
     const cacheKey = this.generateCacheKey(filePath);
-    const fileStats = fs.statSync(filePath);
+    const fileStats = await fs.promises.stat(filePath);
     
     const entry: CacheEntry = {
       fileHash: await this.calculateFileHash(filePath),
@@ -106,9 +109,9 @@ export class AnalysisCache {
   /**
    * Clear all caches
    */
-  clear(): void {
+  async clear(): Promise<void> {
     this.memoryCache.clear();
-    this.clearPersistentCache();
+    await this.clearPersistentCache();
   }
 
   /**
@@ -148,10 +151,10 @@ export class AnalysisCache {
   /**
    * Cleanup expired entries
    */
-  cleanup(): void {
+  async cleanup(): Promise<void> {
     // LRUCache handles TTL automatically, but we can prune explicitly
     this.memoryCache.purgeStale();
-    this.cleanupPersistentCache();
+    await this.cleanupPersistentCache();
   }
 
   private generateCacheKey(filePath: string): string {
@@ -173,7 +176,7 @@ export class AnalysisCache {
 
   private async isValidCacheEntry(filePath: string, entry: CacheEntry): Promise<boolean> {
     try {
-      const fileStats = fs.statSync(filePath);
+      const fileStats = await fs.promises.stat(filePath);
       
       // Check if file was modified
       if (fileStats.mtimeMs > entry.lastModified) {
@@ -189,10 +192,12 @@ export class AnalysisCache {
     }
   }
 
-  private initializePersistentCache(): void {
+  private async initializePersistentCache(): Promise<void> {
     try {
-      if (!fs.existsSync(this.persistentCachePath)) {
-        fs.mkdirSync(this.persistentCachePath, { recursive: true });
+      try {
+        await fs.promises.access(this.persistentCachePath);
+      } catch {
+        await fs.promises.mkdir(this.persistentCachePath, { recursive: true });
       }
     } catch (error) {
       console.warn(`Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`);
@@ -202,7 +207,9 @@ export class AnalysisCache {
   private async loadFromPersistentCache(cacheKey: string): Promise<CacheEntry | null> {
     try {
       const filePath = path.join(this.persistentCachePath, `${cacheKey}.json`);
-      if (!fs.existsSync(filePath)) {
+      try {
+        await fs.promises.access(filePath);
+      } catch {
         return null;
       }
 
@@ -222,29 +229,32 @@ export class AnalysisCache {
     }
   }
 
-  private clearPersistentCache(): void {
+  private async clearPersistentCache(): Promise<void> {
     try {
-      if (fs.existsSync(this.persistentCachePath)) {
-        fs.rmSync(this.persistentCachePath, { recursive: true });
-        this.initializePersistentCache();
+      try {
+        await fs.promises.access(this.persistentCachePath);
+        await fs.promises.rm(this.persistentCachePath, { recursive: true });
+        await this.initializePersistentCache();
+      } catch {
+        // Directory doesn't exist, nothing to clear
       }
     } catch (error) {
       console.warn(`Failed to clear persistent cache: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  private cleanupPersistentCache(): void {
+  private async cleanupPersistentCache(): Promise<void> {
     try {
-      const files = fs.readdirSync(this.persistentCachePath);
+      const files = await fs.promises.readdir(this.persistentCachePath);
       const now = Date.now();
       const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days
 
       for (const file of files) {
         const filePath = path.join(this.persistentCachePath, file);
-        const stats = fs.statSync(filePath);
+        const stats = await fs.promises.stat(filePath);
         
         if (now - stats.mtimeMs > maxAge) {
-          fs.unlinkSync(filePath);
+          await fs.promises.unlink(filePath);
         }
       }
     } catch {

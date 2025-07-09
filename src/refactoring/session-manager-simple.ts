@@ -97,29 +97,24 @@ export class SessionManager {
    * Get active sessions
    */
   async getActiveSessions(): Promise<RefactoringSession[]> {
-    const db = this.storage.getDb();
-    
-    const result = await db.query(`
-      SELECT * FROM refactoring_sessions 
-      WHERE status = 'active' 
-      ORDER BY created_at DESC
-    `);
+    return await this.storage.getAllRefactoringSessions().then(sessions => 
+      sessions.filter(session => session.status === 'active')
+    );
+  }
 
-    return result.rows as RefactoringSession[];
+  /**
+   * Get all refactoring sessions (active, completed, and cancelled)
+   */
+  async getAllSessions(): Promise<RefactoringSession[]> {
+    return await this.storage.getAllRefactoringSessions();
   }
 
   /**
    * Get session by ID
    */
   async getSession(sessionId: string): Promise<RefactoringSession | null> {
-    const db = this.storage.getDb();
-    
-    const result = await db.query(`
-      SELECT * FROM refactoring_sessions 
-      WHERE id = $1
-    `, [sessionId]);
-
-    return result.rows[0] as RefactoringSession || null;
+    const allSessions = await this.storage.getAllRefactoringSessions();
+    return allSessions.find(session => session.id === sessionId) || null;
   }
 
   /**

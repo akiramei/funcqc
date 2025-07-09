@@ -26,7 +26,8 @@ import {
   Lineage,
   LineageKind,
   LineageStatus,
-  LineageQuery
+  LineageQuery,
+  RefactoringSession
 } from '../types';
 import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
 import { ErrorCode } from '../utils/error-handler';
@@ -3419,6 +3420,68 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       console.warn(`Failed to parse JSON: ${jsonString}`, error);
       return fallback;
     }
+  }
+
+  /**
+   * Get all refactoring sessions ordered by creation date
+   * Type-safe method to retrieve all RefactoringSession records
+   */
+  async getAllRefactoringSessions(): Promise<RefactoringSession[]> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM refactoring_sessions ORDER BY created_at DESC'
+      );
+      
+      return result.rows.map(row => this.mapRowToRefactoringSession(row as {
+        id: string;
+        name: string;
+        description: string;
+        status: 'active' | 'completed' | 'cancelled';
+        target_branch: string;
+        start_time: string;
+        end_time?: string;
+        metadata: string;
+        created_at: string;
+        updated_at: string;
+      }));
+    } catch (error) {
+      throw new Error(`Failed to get refactoring sessions: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Map database row to RefactoringSession type
+   * Ensures type safety when converting database results
+   */
+  private mapRowToRefactoringSession(row: {
+    id: string;
+    name: string;
+    description: string;
+    status: 'active' | 'completed' | 'cancelled';
+    target_branch: string;
+    start_time: string;
+    end_time?: string;
+    metadata: string;
+    created_at: string;
+    updated_at: string;
+  }): RefactoringSession {
+    const session: RefactoringSession = {
+      id: row.id,
+      name: row.name,
+      description: row.description,
+      status: row.status,
+      target_branch: row.target_branch,
+      start_time: new Date(row.start_time).getTime(),
+      metadata: this.safeJsonParse(row.metadata, {}),
+      created_at: new Date(row.created_at),
+      updated_at: new Date(row.updated_at)
+    };
+    
+    if (row.end_time) {
+      session.end_time = new Date(row.end_time).getTime();
+    }
+    
+    return session;
   }
 
   /**

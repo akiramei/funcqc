@@ -48,7 +48,7 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
     }
 
     // Clean up analyzer resources
-    analyzer.cleanup();
+    await analyzer.cleanup();
 
     const processingTime = Date.now() - startTime;
 
