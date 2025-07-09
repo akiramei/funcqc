@@ -18,7 +18,7 @@ export default defineConfig({
     testTimeout: 30000,
     hookTimeout: 30000,
     teardownTimeout: 10000,
-    // CI環境用のセットアップファイル（ファイルシステム汚染防止）
-    setupFiles: ['test/setup-ci.ts']
+    // CI環境では個別テストファイルでモックを管理
+    // setupFiles: ['test/setup-ci.ts'] // 削除：グローバルモックは使用しない
   }
 });

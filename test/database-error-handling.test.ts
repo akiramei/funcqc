@@ -14,6 +14,7 @@ vi.mock('@electric-sql/pglite', () => ({
   PGlite: vi.fn().mockImplementation((path: string) => {
     // Don't create actual filesystem structures for any path in tests
     // This prevents creation of :memory:, C:, D:, etc. directories
+    console.log(`PGLite mock intercepted: ${path}`);
     return {
       query: vi.fn().mockResolvedValue({ rows: [] }),
       close: vi.fn().mockResolvedValue(undefined),
