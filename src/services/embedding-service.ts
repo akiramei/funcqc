@@ -125,7 +125,7 @@ export class EmbeddingService {
     const embeddingVectors: EmbeddingVector[] = embeddings.map(result => ({
       id: result.functionId,
       semanticId: result.semanticId,
-      vector: result.embedding,
+      vector: new Float32Array(result.embedding),
       metadata: {
         model: result.model,
         timestamp: result.timestamp
@@ -133,7 +133,7 @@ export class EmbeddingService {
     }));
 
     // Build the index
-    await this.annIndex.buildIndex(embeddingVectors);
+    this.annIndex.buildIndex(embeddingVectors);
 
     // Store embeddings for quick lookup during search
     this.indexedEmbeddings.clear();
@@ -154,7 +154,7 @@ export class EmbeddingService {
     const newVectors: EmbeddingVector[] = newEmbeddings.map(result => ({
       id: result.functionId,
       semanticId: result.semanticId,
-      vector: result.embedding,
+      vector: new Float32Array(result.embedding),
       metadata: {
         model: result.model,
         timestamp: result.timestamp
@@ -168,7 +168,7 @@ export class EmbeddingService {
 
     // Rebuild index with all embeddings (for now - future: incremental updates)
     const allVectors = Array.from(this.indexedEmbeddings.values());
-    await this.annIndex.buildIndex(allVectors);
+    this.annIndex.buildIndex(allVectors);
   }
 
   /**
@@ -188,7 +188,7 @@ export class EmbeddingService {
         // TODO: Pass approximation level per search instead of modifying shared state
         // This requires updating ANN index interface to accept approximationLevel parameter
         // For now, we'll document this limitation
-        const searchResults = await this.annIndex.searchApproximate(
+        const searchResults = this.annIndex.searchApproximate(
           queryEmbedding, 
           options.limit || 20
         );
@@ -286,7 +286,7 @@ export class EmbeddingService {
     // Rebuild index with existing embeddings
     if (this.indexedEmbeddings.size > 0) {
       const allVectors = Array.from(this.indexedEmbeddings.values());
-      await this.annIndex?.buildIndex(allVectors);
+      this.annIndex?.buildIndex(allVectors);
     }
   }
 

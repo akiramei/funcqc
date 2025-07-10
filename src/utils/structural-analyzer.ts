@@ -74,6 +74,15 @@ export interface StructuralAnalysisConfig {
   maxIterations: number;
   /** Damping factor for PageRank */
   dampingFactor: number;
+  /** Graph mode for analysis */
+  graphMode: 'directed' | 'undirected';
+  /** Anomaly detection thresholds */
+  thresholds: {
+    betweenness: number;
+    fanOut: number;
+    callDepth: number;
+    clustering: number;
+  };
 }
 
 /**
@@ -98,6 +107,13 @@ export class StructuralAnalyzer {
       pageRankTolerance: 0.0001,
       maxIterations: 100,
       dampingFactor: 0.85,
+      graphMode: 'directed',
+      thresholds: {
+        betweenness: 0.1,
+        fanOut: 10,
+        callDepth: 5,
+        clustering: 0.1
+      },
       ...config
     };
   }
@@ -180,47 +196,47 @@ export class StructuralAnalyzer {
     const anomalies: StructuralAnomaly[] = [];
     
     // Check for high centrality (potential bottlenecks)
-    if (metrics.betweenness > 0.1) {
+    if (metrics.betweenness > this.config.thresholds.betweenness) {
       anomalies.push({
         metric: 'betweenness',
         value: metrics.betweenness,
-        expectedRange: [0, 0.1],
-        severity: metrics.betweenness > 0.2 ? 'critical' : 'warning',
+        expectedRange: [0, this.config.thresholds.betweenness],
+        severity: metrics.betweenness > this.config.thresholds.betweenness * 2 ? 'critical' : 'warning',
         description: 'Function has unusually high betweenness centrality',
         suggestion: 'Consider splitting this function to reduce coupling'
       });
     }
 
     // Check for high fan-out (too many dependencies)
-    if (metrics.fanOut > 10) {
+    if (metrics.fanOut > this.config.thresholds.fanOut) {
       anomalies.push({
         metric: 'fanOut',
         value: metrics.fanOut,
-        expectedRange: [0, 10],
-        severity: metrics.fanOut > 20 ? 'critical' : 'warning',
+        expectedRange: [0, this.config.thresholds.fanOut],
+        severity: metrics.fanOut > this.config.thresholds.fanOut * 2 ? 'critical' : 'warning',
         description: 'Function calls too many other functions',
         suggestion: 'Extract common functionality or use dependency injection'
       });
     }
 
     // Check for deep call chains
-    if (metrics.callDepth > 5) {
+    if (metrics.callDepth > this.config.thresholds.callDepth) {
       anomalies.push({
         metric: 'callDepth',
         value: metrics.callDepth,
-        expectedRange: [0, 5],
-        severity: metrics.callDepth > 8 ? 'critical' : 'warning',
+        expectedRange: [0, this.config.thresholds.callDepth],
+        severity: metrics.callDepth > this.config.thresholds.callDepth * 1.6 ? 'critical' : 'warning',
         description: 'Function is deeply nested in call chain',
         suggestion: 'Flatten call hierarchy or use more direct approaches'
       });
     }
 
     // Check for low clustering (potential isolation)
-    if (metrics.clustering < 0.1 && metrics.fanOut > 3) {
+    if (metrics.clustering < this.config.thresholds.clustering && metrics.fanOut > 3) {
       anomalies.push({
         metric: 'clustering',
         value: metrics.clustering,
-        expectedRange: [0.1, 1.0],
+        expectedRange: [this.config.thresholds.clustering, 1.0],
         severity: 'warning',
         description: 'Function has low clustering coefficient',
         suggestion: 'Consider grouping related functionality together'
@@ -368,8 +384,9 @@ export class StructuralAnalyzer {
       }
     }
 
-    // Normalize and update nodes (directed graph normalization)
-    const normalization = nodeIds.length > 2 ? 1 / ((nodeIds.length - 1) * (nodeIds.length - 2)) : 0;
+    // Normalize based on graph mode
+    const factor = this.config.graphMode === 'directed' ? 1 : 2;
+    const normalization = nodeIds.length > 2 ? factor / ((nodeIds.length - 1) * (nodeIds.length - 2)) : 0;
     for (const [nodeId, score] of betweenness) {
       const node = this.nodes.get(nodeId);
       if (node) {
@@ -385,7 +402,7 @@ export class StructuralAnalyzer {
     const nodeIds = Array.from(this.nodes.keys());
     
     for (const source of nodeIds) {
-      const distances = this.dijkstra(source);
+      const distances = this.bfsShortestPaths(source);
       let totalDistance = 0;
       let reachableNodes = 0;
       
@@ -398,9 +415,13 @@ export class StructuralAnalyzer {
       
       const node = this.nodes.get(source);
       if (node && reachableNodes > 0) {
-        // Standard closeness centrality: (n-1) / Σ dist(u,v)
-        // For disconnected graphs, use reachableNodes instead of (n-1)
-        node.closeness = reachableNodes / totalDistance;
+        // Two-stage normalization for closeness centrality (NetworkX wf_improved)
+        // Stage 1: Reachability normalization
+        const reachabilityFactor = reachableNodes / (nodeIds.length - 1);
+        // Stage 2: Distance normalization
+        const distanceFactor = reachableNodes / totalDistance;
+        // Combined closeness centrality
+        node.closeness = reachabilityFactor * distanceFactor;
       }
     }
   }
@@ -476,44 +497,31 @@ export class StructuralAnalyzer {
   }
 
   /**
-   * Dijkstra's algorithm for shortest paths
+   * BFS for shortest paths in unweighted graph
+   * O(V+E) complexity instead of O(V²) Dijkstra
    */
-  private dijkstra(source: string): Map<string, number> {
+  private bfsShortestPaths(source: string): Map<string, number> {
     const distances = new Map<string, number>();
-    const visited = new Set<string>();
-    const queue = new Set<string>();
     
-    // Initialize distances
+    // Initialize all distances to infinity
     for (const nodeId of this.nodes.keys()) {
-      distances.set(nodeId, nodeId === source ? 0 : Infinity);
-      queue.add(nodeId);
+      distances.set(nodeId, Infinity);
     }
     
-    while (queue.size > 0) {
-      // Find unvisited node with minimum distance
-      let minNode = '';
-      let minDistance = Infinity;
-      for (const nodeId of queue) {
-        const distance = distances.get(nodeId)!;
-        if (distance < minDistance) {
-          minDistance = distance;
-          minNode = nodeId;
-        }
-      }
+    // BFS using array-based queue for O(1) dequeue
+    const queue: string[] = [source];
+    distances.set(source, 0);
+    let head = 0; // Index for O(1) dequeue
+    
+    while (head < queue.length) {
+      const current = queue[head++];
+      const currentDistance = distances.get(current)!;
       
-      if (minDistance === Infinity) break;
-      
-      queue.delete(minNode);
-      visited.add(minNode);
-      
-      // Update distances to neighbors
-      const neighbors = this.adjacencyList.get(minNode) || new Set();
+      const neighbors = this.adjacencyList.get(current) || new Set();
       for (const neighbor of neighbors) {
-        if (!visited.has(neighbor)) {
-          const newDistance = distances.get(minNode)! + 1; // Unweighted graph
-          if (newDistance < distances.get(neighbor)!) {
-            distances.set(neighbor, newDistance);
-          }
+        if (distances.get(neighbor) === Infinity) {
+          distances.set(neighbor, currentDistance + 1);
+          queue.push(neighbor);
         }
       }
     }
@@ -523,6 +531,7 @@ export class StructuralAnalyzer {
 
   /**
    * Calculate clustering coefficient for a node
+   * Supports both directed and undirected graph modes
    */
   private calculateClustering(nodeId: string): number {
     const neighbors = this.adjacencyList.get(nodeId) || new Set();
@@ -538,8 +547,17 @@ export class StructuralAnalyzer {
         const neighbor1 = neighborsArray[i];
         const neighbor2 = neighborsArray[j];
         
-        if (this.adjacencyList.get(neighbor1)?.has(neighbor2)) {
-          triangles++;
+        if (this.config.graphMode === 'directed') {
+          // Directed graph: count bidirectional connections
+          if (this.adjacencyList.get(neighbor1)?.has(neighbor2) ||
+              this.adjacencyList.get(neighbor2)?.has(neighbor1)) {
+            triangles++;
+          }
+        } else {
+          // Undirected graph: count any connection
+          if (this.adjacencyList.get(neighbor1)?.has(neighbor2)) {
+            triangles++;
+          }
         }
       }
     }
@@ -584,7 +602,7 @@ export class StructuralAnalyzer {
     let pathCount = 0;
     
     for (const source of nodeIds) {
-      const distances = this.dijkstra(source);
+      const distances = this.bfsShortestPaths(source);
       for (const [target, distance] of distances) {
         if (source !== target && distance !== Infinity) {
           totalPathLength += distance;

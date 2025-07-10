@@ -21,8 +21,8 @@ export interface StreamingStatsConfig {
 export interface StatsSummary {
   count: number;
   mean: number;
-  variance: number;
-  standardDeviation: number;
+  variance: number; // Sample variance (unbiased estimator)
+  standardDeviation: number; // Sample standard deviation
   min: number;
   max: number;
   isReliable: boolean; // true if count >= minSamples
@@ -32,11 +32,12 @@ export interface StatsSummary {
  * Anomaly detection result
  */
 export interface AnomalyResult {
-  value: number;
-  zScore: number;
   isAnomaly: boolean;
   severity: 'normal' | 'warning' | 'critical';
+  zScore: number;
+  threshold: number;
   confidence: number; // 0-1, based on sample size
+  isReliable: boolean; // true if enough samples for reliable detection
 }
 
 /**
@@ -62,7 +63,7 @@ export class StreamingStats {
   private m2 = 0; // Sum of squares of deviations from mean
   private minValue = Number.POSITIVE_INFINITY;
   private maxValue = Number.NEGATIVE_INFINITY;
-  private config: StreamingStatsConfig;
+  private readonly config: StreamingStatsConfig;
 
   constructor(config: Partial<StreamingStatsConfig> = {}) {
     this.config = {
@@ -112,7 +113,8 @@ export class StreamingStats {
   }
 
   /**
-   * Get the current sample variance
+   * Get the current sample variance (unbiased estimator using n-1)
+   * For population variance, use: variance * (n-1)/n
    */
   get currentVariance(): number {
     if (!this.config.trackVariance || this.count < 2) {
@@ -122,7 +124,8 @@ export class StreamingStats {
   }
 
   /**
-   * Get the current standard deviation
+   * Get the current sample standard deviation
+   * Based on sample variance (n-1 denominator)
    */
   get currentStandardDeviation(): number {
     return Math.sqrt(this.currentVariance);
@@ -151,7 +154,7 @@ export class StreamingStats {
   zScore(value: number): number {
     if (this.count === 0) return 0;
     if (!this.config.trackVariance) {
-      throw new Error('Z-score calculation requires variance tracking');
+      throw new Error('Z-score calculation requires variance tracking to be enabled');
     }
     
     const stdDev = this.currentStandardDeviation;
@@ -167,6 +170,18 @@ export class StreamingStats {
    * @returns Anomaly detection result
    */
   detectAnomaly(value: number): AnomalyResult {
+    // If variance tracking is disabled, cannot perform anomaly detection
+    if (!this.config.trackVariance) {
+      return {
+        isAnomaly: false,
+        severity: 'normal',
+        zScore: 0,
+        threshold: this.config.anomalyThreshold,
+        confidence: 0,
+        isReliable: false
+      };
+    }
+    
     const zScore = this.zScore(value);
     const absZScore = Math.abs(zScore);
     
@@ -187,11 +202,12 @@ export class StreamingStats {
     }
 
     return {
-      value,
-      zScore,
       isAnomaly,
       severity,
-      confidence
+      zScore,
+      threshold: this.config.anomalyThreshold,
+      confidence,
+      isReliable: this.isReliable
     };
   }
 
@@ -241,6 +257,12 @@ export class StreamingStats {
    */
   merge(other: StreamingStats): void {
     if (other.count === 0) return;
+    
+    // Ensure configuration compatibility
+    if (this.config.trackVariance !== other.config.trackVariance) {
+      throw new Error('Cannot merge StreamingStats with different trackVariance settings');
+    }
+    
     if (this.count === 0) {
       this.count = other.count;
       this.mean = other.mean;
