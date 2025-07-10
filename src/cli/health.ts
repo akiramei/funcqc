@@ -254,7 +254,12 @@ async function displayDetailedRiskAssessment(
     console.log(`  High Risk: ${summary.highRiskFunctions}`);
     console.log(`  Medium Risk: ${summary.mediumRiskFunctions}`);
     console.log(`  Low Risk: ${summary.lowRiskFunctions}`);
-    console.log(`  Average Risk Score: ${summary.averageRiskScore.toFixed(1)}`);
+    
+    // Enhanced risk score display with interpretation
+    const avgScore = summary.averageRiskScore;
+    const scoreInterpretation = getScoreInterpretation(avgScore);
+    const scoreColor = getScoreColor(avgScore);
+    console.log(`  Average Risk Score: ${scoreColor(avgScore.toFixed(1))} ${scoreInterpretation}`);
     console.log();
 
     console.log(chalk.yellow('Threshold Violations:'));
@@ -1044,4 +1049,26 @@ function generateNextActions(
       specific_steps: specificSteps,
     };
   });
+}
+
+/**
+ * Get color function based on risk score level
+ */
+function getScoreColor(score: number): (text: string) => string {
+  if (score <= 20) return chalk.green;      // Excellent: 0-20
+  if (score <= 50) return chalk.yellow;     // Good: 21-50
+  if (score <= 100) return chalk.cyan;      // Fair: 51-100
+  if (score <= 200) return chalk.magenta;   // Poor: 101-200
+  return chalk.red;                         // Critical: 200+
+}
+
+/**
+ * Get interpretation text for risk score
+ */
+function getScoreInterpretation(score: number): string {
+  if (score <= 20) return '(Excellent - Low technical debt)';
+  if (score <= 50) return '(Good - Manageable complexity)';
+  if (score <= 100) return '(Fair - Some refactoring needed)';
+  if (score <= 200) return '(Poor - Significant technical debt)';
+  return '(Critical - Urgent refactoring required)';
 }
