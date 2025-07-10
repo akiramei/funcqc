@@ -623,12 +623,14 @@ async function detectLineageCandidates(
   }
 
   const similarityManager = new SimilarityManager(undefined, storage);
-  const allFunctions = [...diff.added, ...diff.modified.map(m => m.after), ...diff.unchanged];
+  // Only consider functions that actually changed between snapshots
+  // This prevents false lineage matches with unrelated similar functions that existed in both snapshots
+  const changedFunctions = [...diff.added, ...diff.modified.map(m => m.after)];
 
   // 1. Process removed functions (existing logic)
   const removedCandidates = await processRemovedFunctions(
     diff.removed,
-    allFunctions,
+    changedFunctions,
     similarityManager,
     validationResult,
     options,
@@ -646,7 +648,7 @@ async function detectLineageCandidates(
 
 async function processRemovedFunctions(
   removedFunctions: FunctionInfo[],
-  allFunctions: FunctionInfo[],
+  changedFunctions: FunctionInfo[],
   similarityManager: SimilarityManager,
   validationResult: ValidationResult,
   options: DiffCommandOptions,
@@ -666,7 +668,7 @@ async function processRemovedFunctions(
 
     const functionCandidates = await processSingleFunction(
       removedFunc,
-      allFunctions,
+      changedFunctions,
       similarityManager,
       validationResult.threshold,
       validationResult.detectors
@@ -844,13 +846,13 @@ function validateLineageOptions(options: DiffCommandOptions, logger: Logger): Va
 
 async function processSingleFunction(
   removedFunc: FunctionInfo,
-  allFunctions: FunctionInfo[],
+  candidateFunctions: FunctionInfo[],
   similarityManager: SimilarityManager,
   threshold: number,
   detectors: string[]
 ): Promise<LineageCandidate[]> {
   const similarResults = await similarityManager.detectSimilarities(
-    [removedFunc, ...allFunctions],
+    [removedFunc, ...candidateFunctions],
     {
       threshold,
       minLines: 1,
