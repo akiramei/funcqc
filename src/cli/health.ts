@@ -12,7 +12,7 @@ import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { QualityScorer } from '../utils/quality-scorer';
 import { riskAssessor } from '../core/risk-assessor';
 import { Logger } from '../utils/cli-utils';
-import { ErrorCode, createErrorHandler } from '../utils/error-handler';
+import { ErrorCode, createErrorHandler, ErrorHandler } from '../utils/error-handler';
 
 interface TrendData {
   period: string;
@@ -59,7 +59,7 @@ async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger
   return { storage, config };
 }
 
-async function executeHealthCommand(storage: any, config: any, options: HealthCommandOptions, logger: Logger) {
+async function executeHealthCommand(storage: PGLiteStorageAdapter, config: FuncqcConfig, options: HealthCommandOptions, logger: Logger) {
   if (options.trend) {
     await displayTrendAnalysis(storage, options, logger);
   } else if (options.risks) {
@@ -73,14 +73,14 @@ async function executeHealthCommand(storage: any, config: any, options: HealthCo
   }
 }
 
-async function handleJsonOutput(storage: any, config: any, options: HealthCommandOptions, logger: Logger) {
+async function handleJsonOutput(storage: PGLiteStorageAdapter, config: FuncqcConfig, options: HealthCommandOptions, logger: Logger) {
   if (options.aiOptimized) {
     logger.warn('Warning: --ai-optimized option is deprecated. Use --json instead.');
   }
   await displayAIOptimizedHealth(storage, config, options);
 }
 
-function handleHealthError(error: unknown, errorHandler: any): void {
+function handleHealthError(error: unknown, errorHandler: ErrorHandler): void {
   if (error instanceof DatabaseError) {
     const funcqcError = errorHandler.createError(
       error.code,
@@ -655,7 +655,7 @@ interface AIOptimizedHealthReport {
 
 async function validateHealthData(
   storage: PGLiteStorageAdapter
-): Promise<{ latest: any; functionsWithMetrics: FunctionInfo[] } | null> {
+): Promise<{ latest: SnapshotInfo; functionsWithMetrics: FunctionInfo[] } | null> {
   const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
   
   if (snapshots.length === 0) {
@@ -723,8 +723,8 @@ async function assessHighRiskFunctions(
 function generateHealthReport(
   functionsWithMetrics: FunctionInfo[],
   sortedHighRiskFunctions: { function: FunctionInfo; riskScore: number; riskFactors: string[] }[],
-  projectScore: any,
-  latest: any,
+  projectScore: ReturnType<QualityScorer['calculateProjectScore']>,
+  latest: SnapshotInfo,
   config: FuncqcConfig
 ): AIOptimizedHealthReport {
   return {

@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { Logger } from '../utils/cli-utils';
 import { ConfigManager } from '../core/config';
 import { PresetManager } from '../config/preset-manager';
-import { ConfigCommandOptions, PresetApplyOptions, ProjectPreset } from '../types';
+import { ConfigCommandOptions, PresetApplyOptions, ProjectPreset, PresetApplyResult, ConfigurationChange } from '../types';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
 
 export async function configCommand(action: string, options: ConfigCommandOptions): Promise<void> {
@@ -128,7 +128,7 @@ async function handleShowPreset(
   displayPresetDetails(preset);
 }
 
-function displayPresetDetails(preset: any): void {
+function displayPresetDetails(preset: ProjectPreset): void {
   displayPresetHeader(preset);
   displayPresetBasicInfo(preset);
   displayPresetContext(preset);
@@ -137,13 +137,13 @@ function displayPresetDetails(preset: any): void {
   displayMetadata(preset);
 }
 
-function displayPresetHeader(preset: any): void {
+function displayPresetHeader(preset: ProjectPreset): void {
   console.log(chalk.blue(`Configuration Preset: ${preset.name}`));
   console.log('-'.repeat(50));
   console.log();
 }
 
-function displayPresetBasicInfo(preset: any): void {
+function displayPresetBasicInfo(preset: ProjectPreset): void {
   console.log(chalk.yellow('Description:'));
   console.log(`  ${preset.description}`);
   console.log();
@@ -153,7 +153,7 @@ function displayPresetBasicInfo(preset: any): void {
   console.log();
 }
 
-function displayPresetContext(preset: any): void {
+function displayPresetContext(preset: ProjectPreset): void {
   if (!preset.context || Object.keys(preset.context).length === 0) {
     return;
   }
@@ -167,7 +167,7 @@ function displayPresetContext(preset: any): void {
   console.log();
 }
 
-function displayQualityThresholds(preset: any): void {
+function displayQualityThresholds(preset: ProjectPreset): void {
   if (!preset.config.metrics) {
     return;
   }
@@ -182,7 +182,7 @@ function displayQualityThresholds(preset: any): void {
   console.log();
 }
 
-function displayRecommendations(preset: any): void {
+function displayRecommendations(preset: ProjectPreset): void {
   if (!preset.recommendations || preset.recommendations.length === 0) {
     return;
   }
@@ -209,7 +209,7 @@ function getRecommendationIcon(type: string): string {
   }
 }
 
-function displayMetadata(preset: any): void {
+function displayMetadata(preset: ProjectPreset): void {
   console.log(chalk.yellow('Metadata:'));
   console.log(`  Version: ${preset.metadata.version}`);
   console.log(`  Tags: ${preset.metadata.tags.join(', ')}`);
@@ -252,7 +252,7 @@ function buildApplyOptions(options: ConfigCommandOptions): Partial<PresetApplyOp
   };
 }
 
-function displayApplyFailure(result: any): void {
+function displayApplyFailure(result: PresetApplyResult): void {
   console.log(chalk.red('Failed to apply preset'));
 
   if (!result.validationResults) {
@@ -270,7 +270,7 @@ function displayApplyFailure(result: any): void {
   }
 }
 
-function displayApplySuccess(result: any, isDryRun?: boolean): void {
+function displayApplySuccess(result: PresetApplyResult, isDryRun?: boolean): void {
   const actionWord = isDryRun ? 'Would apply' : 'Applied';
   console.log(chalk.green(`${actionWord} preset: ${result.applied.name}`));
 
@@ -282,7 +282,7 @@ function displayApplySuccess(result: any, isDryRun?: boolean): void {
   displayWarnings(result.warnings);
 }
 
-function displayConfigurationChanges(changes: any[]): void {
+function displayConfigurationChanges(changes: ConfigurationChange[]): void {
   if (changes.length === 0) {
     return;
   }

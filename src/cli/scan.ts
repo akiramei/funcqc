@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { globby } from 'globby';
 import {
   ScanCommandOptions,
@@ -520,9 +521,13 @@ async function runRealtimeGateMode(
 ): Promise<void> {
   spinner.start('Initializing real-time quality gate...');
 
+  let storage: PGLiteStorageAdapter | null = null;
+  
   try {
-    const { qualityGate } = await initializeQualityGate(config, spinner);
-    const analysisResult = await performRealTimeAnalysis(config, qualityGate);
+    const initResult = await initializeQualityGate(config, spinner);
+    storage = initResult.storage;
+    
+    const analysisResult = await performRealTimeAnalysis(config, initResult.qualityGate);
     
     if (analysisResult.files.length === 0) {
       console.log(chalk.yellow('No TypeScript files found to analyze.'));
@@ -535,6 +540,10 @@ async function runRealtimeGateMode(
       `Real-time quality gate failed: ${error instanceof Error ? error.message : String(error)}`
     );
     throw error;
+  } finally {
+    if (storage) {
+      await storage.close();
+    }
   }
 }
 
@@ -606,7 +615,7 @@ async function performRealTimeAnalysis(config: FuncqcConfig, qualityGate: RealTi
 }
 
 async function analyzeFile(file: string, qualityGate: RealTimeQualityGate) {
-  const fileContent = await import('fs/promises').then(fs => fs.readFile(file, 'utf-8'));
+  const fileContent = await fs.readFile(file, 'utf-8');
   const assessment = await qualityGate.evaluateCode(fileContent, { filename: file });
 
   let totalViolations = 0;
