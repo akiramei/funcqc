@@ -368,7 +368,7 @@ export interface ScanCommandOptions extends CommandOptions {
 }
 
 export interface ListCommandOptions extends CommandOptions {
-  json?: boolean;
+  json?: boolean;            // JSON output for jq/script processing
   limit?: string;
   sort?: string;
   desc?: boolean;
@@ -379,7 +379,7 @@ export interface ListCommandOptions extends CommandOptions {
 
 export interface ShowCommandOptions extends CommandOptions {
   id?: string;
-  json?: boolean;
+  json?: boolean;            // JSON output for jq/script processing
   details?: boolean;
   quality?: boolean;
   technical?: boolean;
@@ -397,7 +397,7 @@ export interface HealthCommandOptions extends CommandOptions {
   risks?: boolean;
   showConfig?: boolean;
   verbose?: boolean;
-  json?: boolean;
+  json?: boolean;            // JSON output for jq/script processing
   period?: string;
   aiOptimized?: boolean;
   humanReadable?: boolean;
@@ -817,7 +817,7 @@ export interface ConfigCommandOptions extends CommandOptions {
   dryRun?: boolean;          // Show changes without applying
   interactive?: boolean;     // Interactive mode
   output?: string;           // Output file path
-  json?: boolean;            // JSON output format
+  json?: boolean;            // JSON output for jq/script processing
 }
 
 // Statistical analysis types

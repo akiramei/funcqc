@@ -838,7 +838,7 @@ interface MetricActionRule {
 }
 
 interface MetricThresholdRule {
-  name: string;
+  name: keyof QualityMetrics;
   getValue: (metrics: QualityMetrics) => number;
   getThreshold: (config: FuncqcConfig) => number;
   rule: MetricActionRule;
@@ -879,7 +879,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
   // Define metric-to-action mapping rules
   const metricRules: MetricThresholdRule[] = [
     {
-      name: 'complexity',
+      name: 'cyclomaticComplexity',
       getValue: (m) => m.cyclomaticComplexity || 1,
       getThreshold: (c) => c.metrics.complexityThreshold,
       rule: {
@@ -888,7 +888,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'cognitive_complexity',
+      name: 'cognitiveComplexity',
       getValue: (m) => m.cognitiveComplexity || 0,
       getThreshold: (c) => c.metrics.cognitiveComplexityThreshold,
       rule: {
@@ -897,7 +897,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'lines_of_code',
+      name: 'linesOfCode',
       getValue: (m) => m.linesOfCode || 0,
       getThreshold: (c) => c.metrics.linesOfCodeThreshold * 3,
       rule: {
@@ -906,7 +906,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'parameter_count',
+      name: 'parameterCount',
       getValue: (m) => m.parameterCount || 0,
       getThreshold: (c) => c.metrics.parameterCountThreshold,
       rule: {
@@ -915,7 +915,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'nesting_level',
+      name: 'maxNestingLevel',
       getValue: (m) => m.maxNestingLevel || 0,
       getThreshold: (c) => c.metrics.maxNestingLevelThreshold,
       rule: {
@@ -924,7 +924,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'branch_count',
+      name: 'branchCount',
       getValue: (m) => m.branchCount || 0,
       getThreshold: (c) => Math.max(5, c.metrics.complexityThreshold / 2),
       rule: {
@@ -933,7 +933,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'halstead_volume',
+      name: 'halsteadVolume',
       getValue: (m) => m.halsteadVolume || 0,
       getThreshold: () => getConfigurableThreshold('halsteadVolume', 1000),
       rule: {
@@ -942,7 +942,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'halstead_difficulty',
+      name: 'halsteadDifficulty',
       getValue: (m) => m.halsteadDifficulty || 0,
       getThreshold: () => getConfigurableThreshold('halsteadDifficulty', 20),
       rule: {
@@ -951,7 +951,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'return_statements',
+      name: 'returnStatementCount',
       getValue: (m) => m.returnStatementCount || 0,
       getThreshold: () => getConfigurableThreshold('returnStatements', 3),
       rule: {
@@ -960,7 +960,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'async_await_count',
+      name: 'asyncAwaitCount',
       getValue: (m) => m.asyncAwaitCount || 0,
       getThreshold: () => getConfigurableThreshold('asyncAwait', 3),
       rule: {
@@ -969,7 +969,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'try_catch_count',
+      name: 'tryCatchCount',
       getValue: (m) => m.tryCatchCount || 0,
       getThreshold: () => getConfigurableThreshold('tryCatch', 2),
       rule: {
@@ -978,7 +978,7 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
       }
     },
     {
-      name: 'loop_count',
+      name: 'loopCount',
       getValue: (m) => m.loopCount || 0,
       getThreshold: () => getConfigurableThreshold('loops', 3),
       rule: {
