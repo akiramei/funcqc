@@ -108,6 +108,12 @@ export class StructuralAnalyzer {
   buildGraph(functions: FunctionInfo[]): void {
     this.reset();
     
+    // Create name-to-function mapping for O(1) lookup
+    const nameToFunctionMap = new Map<string, FunctionInfo>();
+    for (const func of functions) {
+      nameToFunctionMap.set(func.name, func);
+    }
+    
     // Create nodes for all functions
     for (const func of functions) {
       this.nodes.set(func.id, {
@@ -124,12 +130,12 @@ export class StructuralAnalyzer {
       this.reverseAdjacencyList.set(func.id, new Set());
     }
 
-    // Create edges from dependencies
+    // Create edges from dependencies (O(n) instead of O(n²))
     for (const func of functions) {
       if (func.dependencies) {
         for (const dep of func.dependencies) {
-          // Check if target is among our functions (by name)
-          const targetFunc = functions.find(f => f.name === dep.targetName);
+          // O(1) lookup instead of O(n) find
+          const targetFunc = nameToFunctionMap.get(dep.targetName);
           if (targetFunc) {
             this.addEdge(func.id, targetFunc.id, 1, dep.dependencyType as GraphEdge['type']);
           }
@@ -362,8 +368,8 @@ export class StructuralAnalyzer {
       }
     }
 
-    // Normalize and update nodes
-    const normalization = nodeIds.length > 2 ? 2 / ((nodeIds.length - 1) * (nodeIds.length - 2)) : 0;
+    // Normalize and update nodes (directed graph normalization)
+    const normalization = nodeIds.length > 2 ? 1 / ((nodeIds.length - 1) * (nodeIds.length - 2)) : 0;
     for (const [nodeId, score] of betweenness) {
       const node = this.nodes.get(nodeId);
       if (node) {
@@ -392,9 +398,9 @@ export class StructuralAnalyzer {
       
       const node = this.nodes.get(source);
       if (node && reachableNodes > 0) {
+        // Standard closeness centrality: (n-1) / Σ dist(u,v)
+        // For disconnected graphs, use reachableNodes instead of (n-1)
         node.closeness = reachableNodes / totalDistance;
-        // Normalize by the fraction of reachable nodes
-        node.closeness *= reachableNodes / (nodeIds.length - 1);
       }
     }
   }
@@ -420,6 +426,15 @@ export class StructuralAnalyzer {
     for (let iteration = 0; iteration < this.config.maxIterations; iteration++) {
       let maxDiff = 0;
       
+      // Calculate dangling node mass (nodes with no outgoing edges)
+      let danglingMass = 0;
+      for (const nodeId of nodeIds) {
+        const outDegree = this.adjacencyList.get(nodeId)?.size || 0;
+        if (outDegree === 0) {
+          danglingMass += pageRank.get(nodeId)!;
+        }
+      }
+      
       for (const nodeId of nodeIds) {
         let sum = 0;
         const incomingNodes = this.reverseAdjacencyList.get(nodeId) || new Set();
@@ -431,7 +446,9 @@ export class StructuralAnalyzer {
           }
         }
         
-        const newScore = (1 - this.config.dampingFactor) / n + this.config.dampingFactor * sum;
+        // Include dangling mass redistribution
+        const danglingContribution = danglingMass / n;
+        const newScore = (1 - this.config.dampingFactor) / n + this.config.dampingFactor * (sum + danglingContribution);
         newPageRank.set(nodeId, newScore);
         
         const diff = Math.abs(newScore - pageRank.get(nodeId)!);
