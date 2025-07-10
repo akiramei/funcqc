@@ -792,99 +792,180 @@ async function displayAIOptimizedHealth(
   }
 }
 
+interface MetricEvaluation {
+  score: number;
+  factor?: string;
+}
+
+function evaluateComplexityRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const complexity = metrics?.cyclomaticComplexity || 1;
+  if (complexity > config.metrics.complexityThreshold) {
+    return {
+      score: (complexity - config.metrics.complexityThreshold) * 10,
+      factor: `complexity:${complexity}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateCognitiveComplexityRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const cognitiveComplexity = metrics?.cognitiveComplexity || 0;
+  if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
+    return {
+      score: (cognitiveComplexity - config.metrics.cognitiveComplexityThreshold) * 12,
+      factor: `cognitive_complexity:${cognitiveComplexity}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateMaintainabilityRisk(metrics: any): MetricEvaluation {
+  const maintainability = metrics?.maintainabilityIndex || 100;
+  if (maintainability < 50) {
+    return {
+      score: (50 - maintainability) * 2,
+      factor: `maintainability:${maintainability.toFixed(1)}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateSizeRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const lines = metrics?.linesOfCode || 0;
+  if (lines > config.metrics.linesOfCodeThreshold) {
+    return {
+      score: (lines - config.metrics.linesOfCodeThreshold) * 0.5,
+      factor: `size:${lines}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateNestingRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const nesting = metrics?.maxNestingLevel || 0;
+  if (nesting > config.metrics.maxNestingLevelThreshold) {
+    return {
+      score: (nesting - config.metrics.maxNestingLevelThreshold) * 15,
+      factor: `deep_nesting:${nesting}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateBranchingRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const branches = metrics?.branchCount || 0;
+  const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
+  if (branches > branchThreshold) {
+    return {
+      score: (branches - branchThreshold) * 8,
+      factor: `excessive_branching:${branches}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateHalsteadVolumeRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const halsteadVolume = metrics?.halsteadVolume || 0;
+  const threshold = typeof config.thresholds?.halsteadVolume?.warning === 'number' 
+    ? config.thresholds.halsteadVolume.warning : 1000;
+  if (halsteadVolume > threshold) {
+    return {
+      score: (halsteadVolume - threshold) * 0.05,
+      factor: `high_halstead_volume:${Math.round(halsteadVolume)}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateHalsteadDifficultyRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const halsteadDifficulty = metrics?.halsteadDifficulty || 0;
+  const threshold = typeof config.thresholds?.halsteadDifficulty?.warning === 'number' 
+    ? config.thresholds.halsteadDifficulty.warning : 20;
+  if (halsteadDifficulty > threshold) {
+    return {
+      score: (halsteadDifficulty - threshold) * 3,
+      factor: `high_halstead_difficulty:${Math.round(halsteadDifficulty)}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateReturnStatementsRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const returnStatements = metrics?.returnStatementCount || 0;
+  const threshold = typeof config.thresholds?.returnStatements?.warning === 'number' 
+    ? config.thresholds.returnStatements.warning : 3;
+  if (returnStatements > threshold) {
+    return {
+      score: (returnStatements - threshold) * 6,
+      factor: `multiple_returns:${returnStatements}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateAsyncAwaitRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const asyncAwaitCount = metrics?.asyncAwaitCount || 0;
+  const threshold = typeof config.thresholds?.asyncAwait?.warning === 'number' 
+    ? config.thresholds.asyncAwait.warning : 3;
+  if (asyncAwaitCount > threshold) {
+    return {
+      score: (asyncAwaitCount - threshold) * 4,
+      factor: `heavy_async:${asyncAwaitCount}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateTryCatchRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const tryCatchCount = metrics?.tryCatchCount || 0;
+  const threshold = typeof config.thresholds?.tryCatch?.warning === 'number' 
+    ? config.thresholds.tryCatch.warning : 2;
+  if (tryCatchCount > threshold) {
+    return {
+      score: (tryCatchCount - threshold) * 5,
+      factor: `complex_error_handling:${tryCatchCount}`
+    };
+  }
+  return { score: 0 };
+}
+
+function evaluateLoopRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+  const loopCount = metrics?.loopCount || 0;
+  const threshold = typeof config.thresholds?.loops?.warning === 'number' 
+    ? config.thresholds.loops.warning : 3;
+  if (loopCount > threshold) {
+    return {
+      score: (loopCount - threshold) * 7,
+      factor: `excessive_loops:${loopCount}`
+    };
+  }
+  return { score: 0 };
+}
+
 function calculateRiskScore(
   f: FunctionInfo,
   config: FuncqcConfig
 ): { riskScore: number; riskFactors: string[] } {
-  const complexity = f.metrics?.cyclomaticComplexity || 1;
-  const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
-  const maintainability = f.metrics?.maintainabilityIndex || 100;
-  const lines = f.metrics?.linesOfCode || 0;
-  const nesting = f.metrics?.maxNestingLevel || 0;
-  const branches = f.metrics?.branchCount || 0;
-  const halsteadVolume = f.metrics?.halsteadVolume || 0;
-  const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
-  const returnStatements = f.metrics?.returnStatementCount || 0;
-  const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
-  const tryCatchCount = f.metrics?.tryCatchCount || 0;
-  const loopCount = f.metrics?.loopCount || 0;
+  const metrics = f.metrics;
+  const evaluations = [
+    evaluateComplexityRisk(metrics, config),
+    evaluateCognitiveComplexityRisk(metrics, config),
+    evaluateMaintainabilityRisk(metrics),
+    evaluateSizeRisk(metrics, config),
+    evaluateNestingRisk(metrics, config),
+    evaluateBranchingRisk(metrics, config),
+    evaluateHalsteadVolumeRisk(metrics, config),
+    evaluateHalsteadDifficultyRisk(metrics, config),
+    evaluateReturnStatementsRisk(metrics, config),
+    evaluateAsyncAwaitRisk(metrics, config),
+    evaluateTryCatchRisk(metrics, config),
+    evaluateLoopRisk(metrics, config)
+  ];
 
-  let riskScore = 0;
-  const riskFactors: string[] = [];
-
-  // Cyclomatic complexity
-  if (complexity > config.metrics.complexityThreshold) {
-    riskScore += (complexity - config.metrics.complexityThreshold) * 10;
-    riskFactors.push(`complexity:${complexity}`);
-  }
-
-  // Cognitive complexity
-  if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
-    riskScore += (cognitiveComplexity - config.metrics.cognitiveComplexityThreshold) * 12;
-    riskFactors.push(`cognitive_complexity:${cognitiveComplexity}`);
-  }
-
-  // Maintainability index
-  if (maintainability < 50) {
-    riskScore += (50 - maintainability) * 2;
-    riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
-  }
-
-  // Lines of code
-  if (lines > config.metrics.linesOfCodeThreshold) {
-    riskScore += (lines - config.metrics.linesOfCodeThreshold) * 0.5;
-    riskFactors.push(`size:${lines}`);
-  }
-
-  // Max nesting level
-  if (nesting > config.metrics.maxNestingLevelThreshold) {
-    riskScore += (nesting - config.metrics.maxNestingLevelThreshold) * 15;
-    riskFactors.push(`deep_nesting:${nesting}`);
-  }
-
-  // Branch count
-  const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
-  if (branches > branchThreshold) {
-    riskScore += (branches - branchThreshold) * 8;
-    riskFactors.push(`excessive_branching:${branches}`);
-  }
-
-  // Additional metric evaluations with configurable thresholds
-  const halsteadVolumeThreshold = typeof config.thresholds?.halsteadVolume?.warning === 'number' ? config.thresholds.halsteadVolume.warning : 1000;
-  if (halsteadVolume > halsteadVolumeThreshold) {
-    riskScore += (halsteadVolume - halsteadVolumeThreshold) * 0.05;
-    riskFactors.push(`high_halstead_volume:${Math.round(halsteadVolume)}`);
-  }
-
-  const halsteadDifficultyThreshold = typeof config.thresholds?.halsteadDifficulty?.warning === 'number' ? config.thresholds.halsteadDifficulty.warning : 20;
-  if (halsteadDifficulty > halsteadDifficultyThreshold) {
-    riskScore += (halsteadDifficulty - halsteadDifficultyThreshold) * 3;
-    riskFactors.push(`high_halstead_difficulty:${Math.round(halsteadDifficulty)}`);
-  }
-
-  const returnThreshold = typeof config.thresholds?.returnStatements?.warning === 'number' ? config.thresholds.returnStatements.warning : 3;
-  if (returnStatements > returnThreshold) {
-    riskScore += (returnStatements - returnThreshold) * 6;
-    riskFactors.push(`multiple_returns:${returnStatements}`);
-  }
-
-  const asyncThreshold = typeof config.thresholds?.asyncAwait?.warning === 'number' ? config.thresholds.asyncAwait.warning : 3;
-  if (asyncAwaitCount > asyncThreshold) {
-    riskScore += (asyncAwaitCount - asyncThreshold) * 4;
-    riskFactors.push(`heavy_async:${asyncAwaitCount}`);
-  }
-
-  const tryCatchThreshold = typeof config.thresholds?.tryCatch?.warning === 'number' ? config.thresholds.tryCatch.warning : 2;
-  if (tryCatchCount > tryCatchThreshold) {
-    riskScore += (tryCatchCount - tryCatchThreshold) * 5;
-    riskFactors.push(`complex_error_handling:${tryCatchCount}`);
-  }
-
-  const loopThreshold = typeof config.thresholds?.loops?.warning === 'number' ? config.thresholds.loops.warning : 3;
-  if (loopCount > loopThreshold) {
-    riskScore += (loopCount - loopThreshold) * 7;
-    riskFactors.push(`excessive_loops:${loopCount}`);
-  }
+  const riskScore = evaluations.reduce((total, evaluation) => total + evaluation.score, 0);
+  const riskFactors = evaluations
+    .filter(evaluation => evaluation.factor)
+    .map(evaluation => evaluation.factor!);
 
   return { riskScore, riskFactors };
 }
