@@ -3,7 +3,14 @@ import { table } from 'table';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
-import { CommandOptions, Lineage, LineageKind, LineageStatus, LineageQuery, FunctionInfo } from '../types';
+import {
+  CommandOptions,
+  Lineage,
+  LineageKind,
+  LineageStatus,
+  LineageQuery,
+  FunctionInfo,
+} from '../types';
 
 export interface LineageCommandOptions extends CommandOptions {
   status?: string;
@@ -19,23 +26,23 @@ export interface LineageCommandOptions extends CommandOptions {
 
 export async function lineageListCommand(options: LineageCommandOptions): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
-  
+
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
     // Optimize by using database-level filtering when possible
     let lineages: Lineage[];
-    
+
     if (options.fromFunction || options.toFunction) {
       // Use optimized database query for function name filtering
       const query = buildLineageQuery(options);
       lineages = await storage.getLineagesWithFunctionFilter(
-        options.fromFunction, 
-        options.toFunction, 
+        options.fromFunction,
+        options.toFunction,
         query
       );
     } else {
@@ -43,7 +50,7 @@ export async function lineageListCommand(options: LineageCommandOptions): Promis
       const query = buildLineageQuery(options);
       lineages = await storage.getLineages(query);
     }
-    
+
     // Apply remaining filters that couldn't be handled at database level
     const filtered = applyRemainingFilters(lineages, options);
     const sorted = applySorting(filtered, options);
@@ -62,30 +69,29 @@ export async function lineageListCommand(options: LineageCommandOptions): Promis
   }
 }
 
-export async function lineageShowCommand(lineageId: string, options: CommandOptions): Promise<void> {
+export async function lineageShowCommand(
+  lineageId: string,
+  options: CommandOptions
+): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
-  
+
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
     const lineage = await storage.getLineage(lineageId);
-    
+
     if (!lineage) {
       logger.error(`Lineage not found: ${lineageId}`);
       process.exit(1);
     }
 
     // Get related function information
-    const fromFunctions = await Promise.all(
-      lineage.fromIds.map(id => storage.getFunction(id))
-    );
-    const toFunctions = await Promise.all(
-      lineage.toIds.map(id => storage.getFunction(id))
-    );
+    const fromFunctions = await Promise.all(lineage.fromIds.map(id => storage.getFunction(id)));
+    const toFunctions = await Promise.all(lineage.toIds.map(id => storage.getFunction(id)));
 
     displayLineageDetails(lineage, fromFunctions, toFunctions, logger);
 
@@ -104,15 +110,15 @@ export interface LineageReviewOptions extends CommandOptions {
 }
 
 export async function lineageReviewCommand(
-  lineageId: string, 
+  lineageId: string,
   options: LineageReviewOptions
 ): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
-  
+
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
@@ -171,8 +177,8 @@ function applyRemainingFilters(lineages: Lineage[], _options: LineageCommandOpti
 // Legacy function - now replaced by database-level filtering
 // Kept for backward compatibility if needed
 export async function applyAdvancedFiltersBatch(
-  lineages: Lineage[], 
-  options: LineageCommandOptions, 
+  lineages: Lineage[],
+  options: LineageCommandOptions,
   storage: PGLiteStorageAdapter,
   logger: Logger
 ): Promise<Lineage[]> {
@@ -194,14 +200,14 @@ export async function applyAdvancedFiltersBatch(
 
   // Batch fetch all functions at once
   const functionMap = await storage.getFunctionsBatch(Array.from(allFunctionIds));
-  
+
   // Apply filtering using cached function data
   let filtered = lineages;
-  
+
   if (options.fromFunction) {
     logger.info(`Filtering by source function pattern: ${options.fromFunction}`);
     const pattern = options.fromFunction.toLowerCase();
-    
+
     filtered = filtered.filter(lineage => {
       return lineage.fromIds.some(fromId => {
         const func = functionMap.get(fromId);
@@ -209,11 +215,11 @@ export async function applyAdvancedFiltersBatch(
       });
     });
   }
-  
+
   if (options.toFunction) {
     logger.info(`Filtering by target function pattern: ${options.toFunction}`);
     const pattern = options.toFunction.toLowerCase();
-    
+
     filtered = filtered.filter(lineage => {
       return lineage.toIds.some(toId => {
         const func = functionMap.get(toId);
@@ -221,7 +227,7 @@ export async function applyAdvancedFiltersBatch(
       });
     });
   }
-  
+
   return filtered;
 }
 
@@ -230,14 +236,16 @@ export async function applyAdvancedFiltersBatch(
 
 function applySorting(lineages: Lineage[], options: LineageCommandOptions): Lineage[] {
   if (!options.sort) {
-    return lineages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return lineages.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
   }
 
   const desc = options.desc || false;
-  
+
   return lineages.sort((a, b) => {
     let comparison = 0;
-    
+
     switch (options.sort) {
       case 'confidence':
         comparison = (a.confidence ?? 0) - (b.confidence ?? 0);
@@ -252,7 +260,7 @@ function applySorting(lineages: Lineage[], options: LineageCommandOptions): Line
         comparison = new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         break;
     }
-    
+
     return desc ? -comparison : comparison;
   });
 }
@@ -268,7 +276,11 @@ function applyLimit(lineages: Lineage[], options: LineageCommandOptions): Lineag
 // DISPLAY FUNCTIONS
 // ========================================
 
-function displayLineageList(lineages: Lineage[], _options: LineageCommandOptions, logger: Logger): void {
+function displayLineageList(
+  lineages: Lineage[],
+  _options: LineageCommandOptions,
+  logger: Logger
+): void {
   if (lineages.length === 0) {
     logger.info('No lineages found.');
     return;
@@ -285,11 +297,11 @@ function displayLineageList(lineages: Lineage[], _options: LineageCommandOptions
     `${((lineage.confidence ?? 0) * 100).toFixed(1)}%`,
     `${lineage.fromIds.length} → ${lineage.toIds.length}`,
     formatDate(lineage.createdAt),
-    truncateText(lineage.note || '', 30)
+    truncateText(lineage.note || '', 30),
   ]);
 
   const tableData = [headers, ...rows];
-  
+
   const tableConfig = {
     border: {
       topBody: '─',
@@ -306,7 +318,7 @@ function displayLineageList(lineages: Lineage[], _options: LineageCommandOptions
       joinBody: '─',
       joinLeft: '├',
       joinRight: '┤',
-      joinJoin: '┼'
+      joinJoin: '┼',
     },
     columns: {
       0: { width: 10 },
@@ -315,17 +327,20 @@ function displayLineageList(lineages: Lineage[], _options: LineageCommandOptions
       3: { width: 12 },
       4: { width: 10 },
       5: { width: 12 },
-      6: { width: 32 }
-    }
+      6: { width: 32 },
+    },
   };
 
   console.log(table(tableData, tableConfig));
-  
+
   // Show summary statistics
-  const statusCounts = lineages.reduce((acc, l) => {
-    acc[l.status] = (acc[l.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+  const statusCounts = lineages.reduce(
+    (acc, l) => {
+      acc[l.status] = (acc[l.status] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   console.log(chalk.gray('Status summary:'));
   Object.entries(statusCounts).forEach(([status, count]) => {
@@ -334,23 +349,23 @@ function displayLineageList(lineages: Lineage[], _options: LineageCommandOptions
 }
 
 function displayLineageDetails(
-  lineage: Lineage, 
-  fromFunctions: (FunctionInfo | null)[], 
-  toFunctions: (FunctionInfo | null)[], 
+  lineage: Lineage,
+  fromFunctions: (FunctionInfo | null)[],
+  toFunctions: (FunctionInfo | null)[],
   _logger: Logger
 ): void {
   console.log(chalk.cyan.bold('\n🔗 Lineage Details\n'));
-  
+
   console.log(`${chalk.bold('ID:')} ${lineage.id}`);
   console.log(`${chalk.bold('Kind:')} ${getLineageKindIcon(lineage.kind)} ${lineage.kind}`);
   console.log(`${chalk.bold('Status:')} ${getStatusIcon(lineage.status)} ${lineage.status}`);
   console.log(`${chalk.bold('Confidence:')} ${((lineage.confidence ?? 0) * 100).toFixed(1)}%`);
   console.log(`${chalk.bold('Created:')} ${formatDate(lineage.createdAt)}`);
-  
+
   if (lineage.gitCommit && lineage.gitCommit !== 'unknown') {
     console.log(`${chalk.bold('Git Commit:')} ${lineage.gitCommit.substring(0, 8)}`);
   }
-  
+
   if (lineage.note) {
     console.log(`${chalk.bold('Note:')} ${lineage.note}`);
   }
@@ -382,17 +397,21 @@ function validateReviewOptions(options: LineageReviewOptions): LineageStatus {
   if (options.approve && options.reject) {
     throw new Error('Cannot both approve and reject lineage(s)');
   }
-  
+
   if (!options.approve && !options.reject) {
     throw new Error('Must specify either --approve or --reject');
   }
-  
+
   return options.approve ? 'approved' : 'rejected';
 }
 
-function buildReviewNote(existingNote: string | undefined, reviewNote: string | undefined, prefix: string): string | undefined {
+function buildReviewNote(
+  existingNote: string | undefined,
+  reviewNote: string | undefined,
+  prefix: string
+): string | undefined {
   if (!reviewNote) return existingNote;
-  
+
   const formattedReviewNote = `${prefix}: ${reviewNote}`;
   return existingNote ? `${existingNote}\n\n${formattedReviewNote}` : formattedReviewNote;
 }
@@ -404,7 +423,7 @@ async function reviewSingleLineage(
   logger: Logger
 ): Promise<void> {
   const lineage = await storage.getLineage(lineageId);
-  
+
   if (!lineage) {
     logger.error(`Lineage not found: ${lineageId}`);
     return;
@@ -422,11 +441,11 @@ async function reviewSingleLineage(
     const updatedLineage: Lineage = {
       ...lineage,
       status: newStatus,
-      ...(updatedNote ? { note: updatedNote } : {})
+      ...(updatedNote ? { note: updatedNote } : {}),
     };
 
     await storage.updateLineage(updatedLineage);
-    
+
     const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
     logger.success(`Lineage ${lineageId} has been ${statusColor(newStatus)}`);
   } catch (error) {
@@ -457,7 +476,7 @@ async function reviewAllDraftLineages(
       const updatedLineage: Lineage = {
         ...lineage,
         status: newStatus,
-        ...(updatedNote ? { note: updatedNote } : {})
+        ...(updatedNote ? { note: updatedNote } : {}),
       };
 
       await storage.updateLineage(updatedLineage);
@@ -507,25 +526,25 @@ function formatDate(date: Date | string): string {
   const d = new Date(date);
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
-  
+
   // Less than 1 hour ago
   if (diffMs < 60 * 60 * 1000) {
     const minutes = Math.floor(diffMs / (60 * 1000));
     return minutes <= 1 ? 'just now' : `${minutes}m ago`;
   }
-  
+
   // Less than 24 hours ago
   if (diffMs < 24 * 60 * 60 * 1000) {
     const hours = Math.floor(diffMs / (60 * 60 * 1000));
     return `${hours}h ago`;
   }
-  
+
   // Less than 7 days ago
   if (diffMs < 7 * 24 * 60 * 60 * 1000) {
     const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
     return `${days}d ago`;
   }
-  
+
   // More than 7 days ago - show date
   return d.toLocaleDateString();
 }

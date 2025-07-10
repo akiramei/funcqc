@@ -31,8 +31,8 @@ export class RiskAssessor {
     }
 
     // Filter functions with complete metrics
-    const functionsWithMetrics = functions.filter((f): f is FunctionInfo & { metrics: QualityMetrics } => 
-      f.metrics !== undefined
+    const functionsWithMetrics = functions.filter(
+      (f): f is FunctionInfo & { metrics: QualityMetrics } => f.metrics !== undefined
     );
     if (functionsWithMetrics.length === 0) {
       throw new Error('No functions found with complete metrics');
@@ -48,7 +48,7 @@ export class RiskAssessor {
 
     // Assess each function
     const functionAssessments: FunctionRiskAssessment[] = [];
-    
+
     for (const func of functionsWithMetrics) {
       const violations = thresholdEvaluator.evaluateFunctionThresholds(
         func.metrics,
@@ -66,11 +66,7 @@ export class RiskAssessor {
         );
       }
 
-      let assessment = thresholdEvaluator.assessFunctionRisk(
-        func.id,
-        violations,
-        assessmentConfig
-      );
+      let assessment = thresholdEvaluator.assessFunctionRisk(func.id, violations, assessmentConfig);
 
       // Override risk level if custom conditions are met
       if (customRiskMet && assessment.riskLevel !== 'high') {
@@ -106,18 +102,14 @@ export class RiskAssessor {
     }
 
     const configuredThresholds = thresholdEvaluator.mergeWithDefaults(thresholds);
-    
+
     const violations = thresholdEvaluator.evaluateFunctionThresholds(
       functionInfo.metrics,
       configuredThresholds,
       projectStatistics
     );
 
-    return thresholdEvaluator.assessFunctionRisk(
-      functionInfo.id,
-      violations,
-      assessmentConfig
-    );
+    return thresholdEvaluator.assessFunctionRisk(functionInfo.id, violations, assessmentConfig);
   }
 
   /**
@@ -133,7 +125,7 @@ export class RiskAssessor {
     }
 
     const configuredThresholds = thresholdEvaluator.mergeWithDefaults(thresholds);
-    
+
     return thresholdEvaluator.evaluateFunctionThresholds(
       functionInfo.metrics,
       configuredThresholds,
@@ -156,7 +148,10 @@ export class RiskAssessor {
 
     // Adjust thresholds based on experience level
     if (projectContext.experienceLevel) {
-      baseThresholds = this.adjustForExperienceLevel(baseThresholds, projectContext.experienceLevel);
+      baseThresholds = this.adjustForExperienceLevel(
+        baseThresholds,
+        projectContext.experienceLevel
+      );
     }
 
     // Adjust thresholds based on project type
@@ -180,9 +175,9 @@ export class RiskAssessor {
     experienceLevel: 'junior' | 'mid' | 'senior'
   ): QualityThresholds {
     const adjustmentFactors = {
-      junior: 0.8,   // Stricter thresholds for junior teams
-      mid: 1.0,      // Standard thresholds
-      senior: 1.2,   // More relaxed for experienced teams
+      junior: 0.8, // Stricter thresholds for junior teams
+      mid: 1.0, // Standard thresholds
+      senior: 1.2, // More relaxed for experienced teams
     };
 
     const factor = adjustmentFactors[experienceLevel];
@@ -197,9 +192,9 @@ export class RiskAssessor {
     projectType: 'prototype' | 'production' | 'legacy'
   ): QualityThresholds {
     const adjustmentFactors = {
-      prototype: 1.3,  // More relaxed for prototypes
+      prototype: 1.3, // More relaxed for prototypes
       production: 0.9, // Stricter for production code
-      legacy: 1.1,     // Slightly relaxed for legacy maintenance
+      legacy: 1.1, // Slightly relaxed for legacy maintenance
     };
 
     const factor = adjustmentFactors[projectType];
@@ -214,9 +209,9 @@ export class RiskAssessor {
     codebaseSize: 'small' | 'medium' | 'large'
   ): QualityThresholds {
     const adjustmentFactors = {
-      small: 0.9,   // Stricter for small codebases (easier to maintain quality)
-      medium: 1.0,  // Standard
-      large: 1.1,   // Slightly relaxed for large codebases
+      small: 0.9, // Stricter for small codebases (easier to maintain quality)
+      medium: 1.0, // Standard
+      large: 1.1, // Slightly relaxed for large codebases
     };
 
     const factor = adjustmentFactors[codebaseSize];
@@ -233,7 +228,7 @@ export class RiskAssessor {
       const threshold = scaled[key as keyof QualityThresholds];
       if (threshold) {
         const scaledThreshold = { ...threshold };
-        
+
         // Scale only numeric thresholds, preserve statistical ones
         ['warning', 'error', 'critical'].forEach(level => {
           const value = scaledThreshold[level as keyof typeof scaledThreshold];
@@ -242,7 +237,7 @@ export class RiskAssessor {
           }
           // Statistical thresholds remain unchanged
         });
-        
+
         scaled[key as keyof QualityThresholds] = scaledThreshold;
       }
     });
@@ -267,27 +262,32 @@ export class RiskAssessor {
     mostCommonViolation: string | null;
   } {
     const { riskDistribution, worstFunctions, topViolations } = assessment;
-    
+
     const totalViolations = topViolations.length;
     const criticalViolations = topViolations.filter(v => v.level === 'critical').length;
     const errorViolations = topViolations.filter(v => v.level === 'error').length;
     const warningViolations = topViolations.filter(v => v.level === 'warning').length;
 
-    const averageRiskScore = worstFunctions.length > 0
-      ? worstFunctions.reduce((sum, f) => sum + f.riskScore, 0) / worstFunctions.length
-      : 0;
+    const averageRiskScore =
+      worstFunctions.length > 0
+        ? worstFunctions.reduce((sum, f) => sum + f.riskScore, 0) / worstFunctions.length
+        : 0;
 
     const worstFunctionId = worstFunctions.length > 0 ? worstFunctions[0].functionId : null;
 
     // Find most common violation type
-    const violationCounts = topViolations.reduce((counts, violation) => {
-      counts[violation.metric] = (counts[violation.metric] || 0) + 1;
-      return counts;
-    }, {} as Record<string, number>);
+    const violationCounts = topViolations.reduce(
+      (counts, violation) => {
+        counts[violation.metric] = (counts[violation.metric] || 0) + 1;
+        return counts;
+      },
+      {} as Record<string, number>
+    );
 
-    const mostCommonViolation = Object.keys(violationCounts).length > 0
-      ? Object.entries(violationCounts).sort(([, a], [, b]) => b - a)[0][0]
-      : null;
+    const mostCommonViolation =
+      Object.keys(violationCounts).length > 0
+        ? Object.entries(violationCounts).sort(([, a], [, b]) => b - a)[0][0]
+        : null;
 
     return {
       totalFunctions: assessment.totalFunctions,

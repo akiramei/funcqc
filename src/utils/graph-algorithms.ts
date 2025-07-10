@@ -14,13 +14,13 @@ export function findConnectedComponents<T>(
 ): number[] {
   const connected = new Set<number>();
   const queue = [startIndex];
-  
+
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (connected.has(current)) continue;
-    
+
     connected.add(current);
-    
+
     // Find all items connected to current item
     const relatedIndices = getConnections(current, items);
     relatedIndices.forEach(index => {
@@ -29,7 +29,7 @@ export function findConnectedComponents<T>(
       }
     });
   }
-  
+
   return Array.from(connected);
 }
 
@@ -41,7 +41,7 @@ export function buildItemToGroupsMapping<T>(
   getItemsFromGroup: (group: T) => string[]
 ): Map<string, number[]> {
   const itemToGroups = new Map<string, number[]>();
-  
+
   items.forEach((item, index) => {
     const itemIds = getItemsFromGroup(item);
     itemIds.forEach(itemId => {
@@ -51,6 +51,6 @@ export function buildItemToGroupsMapping<T>(
       itemToGroups.get(itemId)!.push(index);
     });
   });
-  
+
   return itemToGroups;
 }

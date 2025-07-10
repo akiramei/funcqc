@@ -42,13 +42,13 @@ export interface AnomalyResult {
 
 /**
  * High-performance streaming statistics using Welford's online algorithm
- * 
+ *
  * Features:
  * - O(1) time complexity for all operations
  * - Numerically stable variance calculation
  * - Real-time anomaly detection
  * - Memory efficient (constant space)
- * 
+ *
  * Usage:
  * ```typescript
  * const stats = new StreamingStats();
@@ -70,13 +70,13 @@ export class StreamingStats {
       minSamples: 10,
       anomalyThreshold: 2.0,
       trackVariance: true,
-      ...config
+      ...config,
     };
   }
 
   /**
    * Add a new value to the streaming statistics
-   * 
+   *
    * @param value The new value to incorporate
    * @returns This instance for chaining
    */
@@ -86,7 +86,7 @@ export class StreamingStats {
     }
 
     this.count++;
-    
+
     // Update min/max
     this.minValue = Math.min(this.minValue, value);
     this.maxValue = Math.max(this.maxValue, value);
@@ -147,7 +147,7 @@ export class StreamingStats {
 
   /**
    * Calculate Z-score for a given value
-   * 
+   *
    * @param value The value to calculate Z-score for
    * @returns Z-score (standard deviations from mean)
    */
@@ -156,16 +156,16 @@ export class StreamingStats {
     if (!this.config.trackVariance) {
       throw new Error('Z-score calculation requires variance tracking to be enabled');
     }
-    
+
     const stdDev = this.currentStandardDeviation;
     if (stdDev === 0) return 0;
-    
+
     return (value - this.mean) / stdDev;
   }
 
   /**
    * Detect if a value is anomalous based on Z-score
-   * 
+   *
    * @param value The value to test for anomaly
    * @returns Anomaly detection result
    */
@@ -178,20 +178,20 @@ export class StreamingStats {
         zScore: 0,
         threshold: this.config.anomalyThreshold,
         confidence: 0,
-        isReliable: false
+        isReliable: false,
       };
     }
-    
+
     const zScore = this.zScore(value);
     const absZScore = Math.abs(zScore);
-    
+
     // Calculate confidence based on sample size
     const confidence = Math.min(this.count / this.config.minSamples, 1.0);
-    
+
     // Determine severity
     let severity: AnomalyResult['severity'] = 'normal';
     let isAnomaly = false;
-    
+
     if (absZScore > this.config.anomalyThreshold) {
       isAnomaly = true;
       if (absZScore > this.config.anomalyThreshold * 1.5) {
@@ -207,7 +207,7 @@ export class StreamingStats {
       zScore,
       threshold: this.config.anomalyThreshold,
       confidence,
-      isReliable: this.isReliable
+      isReliable: this.isReliable,
     };
   }
 
@@ -222,7 +222,7 @@ export class StreamingStats {
       standardDeviation: this.currentStandardDeviation,
       min: this.count === 0 ? 0 : this.minValue,
       max: this.count === 0 ? 0 : this.maxValue,
-      isReliable: this.isReliable
+      isReliable: this.isReliable,
     };
   }
 
@@ -252,17 +252,17 @@ export class StreamingStats {
 
   /**
    * Merge another StreamingStats instance into this one
-   * 
+   *
    * @param other The other StreamingStats instance to merge
    */
   merge(other: StreamingStats): void {
     if (other.count === 0) return;
-    
+
     // Ensure configuration compatibility
     if (this.config.trackVariance !== other.config.trackVariance) {
       throw new Error('Cannot merge StreamingStats with different trackVariance settings');
     }
-    
+
     if (this.count === 0) {
       this.count = other.count;
       this.mean = other.mean;
@@ -276,12 +276,12 @@ export class StreamingStats {
     const newCount = this.count + other.count;
     const delta = other.mean - this.mean;
     const newMean = (this.count * this.mean + other.count * other.mean) / newCount;
-    
+
     if (this.config.trackVariance) {
-      const newM2 = this.m2 + other.m2 + delta * delta * this.count * other.count / newCount;
+      const newM2 = this.m2 + other.m2 + (delta * delta * this.count * other.count) / newCount;
       this.m2 = newM2;
     }
-    
+
     this.count = newCount;
     this.mean = newMean;
     this.minValue = Math.min(this.minValue, other.minValue);
@@ -298,7 +298,7 @@ export class StreamingStats {
       m2: this.m2,
       minValue: this.minValue === Number.POSITIVE_INFINITY ? null : this.minValue,
       maxValue: this.maxValue === Number.NEGATIVE_INFINITY ? null : this.maxValue,
-      config: this.config
+      config: this.config,
     };
   }
 
@@ -310,8 +310,10 @@ export class StreamingStats {
     stats.count = data['count'] as number;
     stats.mean = data['mean'] as number;
     stats.m2 = data['m2'] as number;
-    stats.minValue = data['minValue'] === null ? Number.POSITIVE_INFINITY : data['minValue'] as number;
-    stats.maxValue = data['maxValue'] === null ? Number.NEGATIVE_INFINITY : data['maxValue'] as number;
+    stats.minValue =
+      data['minValue'] === null ? Number.POSITIVE_INFINITY : (data['minValue'] as number);
+    stats.maxValue =
+      data['maxValue'] === null ? Number.NEGATIVE_INFINITY : (data['maxValue'] as number);
     return stats;
   }
 }
@@ -329,7 +331,7 @@ export class MultiMetricStats {
       minSamples: 10,
       anomalyThreshold: 2.0,
       trackVariance: true,
-      ...config
+      ...config,
     };
   }
 
@@ -355,14 +357,14 @@ export class MultiMetricStats {
    */
   detectAnomalies(values: Record<string, number>): Record<string, AnomalyResult> {
     const results: Record<string, AnomalyResult> = {};
-    
+
     for (const [metricName, value] of Object.entries(values)) {
       const stats = this.stats.get(metricName);
       if (stats) {
         results[metricName] = stats.detectAnomaly(value);
       }
     }
-    
+
     return results;
   }
 
@@ -371,11 +373,11 @@ export class MultiMetricStats {
    */
   getAllSummaries(): Record<string, StatsSummary> {
     const summaries: Record<string, StatsSummary> = {};
-    
+
     for (const [metricName, stats] of this.stats) {
       summaries[metricName] = stats.getSummary();
     }
-    
+
     return summaries;
   }
 

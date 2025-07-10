@@ -36,11 +36,8 @@ export class ThresholdEvaluator {
     const metricMappings = this.createMetricMappings(metrics, thresholds);
 
     for (const mapping of metricMappings) {
-      const violation = this.evaluateSingleMetric(
-        mapping,
-        projectStatistics
-      );
-      
+      const violation = this.evaluateSingleMetric(mapping, projectStatistics);
+
       if (violation) {
         violations.push(violation);
       }
@@ -62,22 +59,102 @@ export class ThresholdEvaluator {
     threshold: MultiLevelThreshold | undefined;
   }> {
     return [
-      { key: 'complexity', metricKey: 'cyclomaticComplexity', value: metrics.cyclomaticComplexity, threshold: thresholds.complexity },
-      { key: 'cognitiveComplexity', metricKey: 'cognitiveComplexity', value: metrics.cognitiveComplexity, threshold: thresholds.cognitiveComplexity },
-      { key: 'lines', metricKey: 'linesOfCode', value: metrics.linesOfCode, threshold: thresholds.lines },
-      { key: 'totalLines', metricKey: 'totalLines', value: metrics.totalLines, threshold: thresholds.totalLines },
-      { key: 'parameters', metricKey: 'parameterCount', value: metrics.parameterCount, threshold: thresholds.parameters },
-      { key: 'nestingLevel', metricKey: 'maxNestingLevel', value: metrics.maxNestingLevel, threshold: thresholds.nestingLevel },
-      { key: 'returnStatements', metricKey: 'returnStatementCount', value: metrics.returnStatementCount, threshold: thresholds.returnStatements },
-      { key: 'branches', metricKey: 'branchCount', value: metrics.branchCount, threshold: thresholds.branches },
-      { key: 'loops', metricKey: 'loopCount', value: metrics.loopCount, threshold: thresholds.loops },
-      { key: 'tryCatch', metricKey: 'tryCatchCount', value: metrics.tryCatchCount, threshold: thresholds.tryCatch },
-      { key: 'asyncAwait', metricKey: 'asyncAwaitCount', value: metrics.asyncAwaitCount, threshold: thresholds.asyncAwait },
-      { key: 'callbacks', metricKey: 'callbackCount', value: metrics.callbackCount, threshold: thresholds.callbacks },
-      { key: 'maintainability', metricKey: 'maintainabilityIndex', value: metrics.maintainabilityIndex, threshold: thresholds.maintainability },
-      { key: 'halsteadVolume', metricKey: 'halsteadVolume', value: metrics.halsteadVolume, threshold: thresholds.halsteadVolume },
-      { key: 'halsteadDifficulty', metricKey: 'halsteadDifficulty', value: metrics.halsteadDifficulty, threshold: thresholds.halsteadDifficulty },
-      { key: 'codeToCommentRatio', metricKey: 'codeToCommentRatio', value: metrics.codeToCommentRatio, threshold: thresholds.codeToCommentRatio },
+      {
+        key: 'complexity',
+        metricKey: 'cyclomaticComplexity',
+        value: metrics.cyclomaticComplexity,
+        threshold: thresholds.complexity,
+      },
+      {
+        key: 'cognitiveComplexity',
+        metricKey: 'cognitiveComplexity',
+        value: metrics.cognitiveComplexity,
+        threshold: thresholds.cognitiveComplexity,
+      },
+      {
+        key: 'lines',
+        metricKey: 'linesOfCode',
+        value: metrics.linesOfCode,
+        threshold: thresholds.lines,
+      },
+      {
+        key: 'totalLines',
+        metricKey: 'totalLines',
+        value: metrics.totalLines,
+        threshold: thresholds.totalLines,
+      },
+      {
+        key: 'parameters',
+        metricKey: 'parameterCount',
+        value: metrics.parameterCount,
+        threshold: thresholds.parameters,
+      },
+      {
+        key: 'nestingLevel',
+        metricKey: 'maxNestingLevel',
+        value: metrics.maxNestingLevel,
+        threshold: thresholds.nestingLevel,
+      },
+      {
+        key: 'returnStatements',
+        metricKey: 'returnStatementCount',
+        value: metrics.returnStatementCount,
+        threshold: thresholds.returnStatements,
+      },
+      {
+        key: 'branches',
+        metricKey: 'branchCount',
+        value: metrics.branchCount,
+        threshold: thresholds.branches,
+      },
+      {
+        key: 'loops',
+        metricKey: 'loopCount',
+        value: metrics.loopCount,
+        threshold: thresholds.loops,
+      },
+      {
+        key: 'tryCatch',
+        metricKey: 'tryCatchCount',
+        value: metrics.tryCatchCount,
+        threshold: thresholds.tryCatch,
+      },
+      {
+        key: 'asyncAwait',
+        metricKey: 'asyncAwaitCount',
+        value: metrics.asyncAwaitCount,
+        threshold: thresholds.asyncAwait,
+      },
+      {
+        key: 'callbacks',
+        metricKey: 'callbackCount',
+        value: metrics.callbackCount,
+        threshold: thresholds.callbacks,
+      },
+      {
+        key: 'maintainability',
+        metricKey: 'maintainabilityIndex',
+        value: metrics.maintainabilityIndex,
+        threshold: thresholds.maintainability,
+      },
+      {
+        key: 'halsteadVolume',
+        metricKey: 'halsteadVolume',
+        value: metrics.halsteadVolume,
+        threshold: thresholds.halsteadVolume,
+      },
+      {
+        key: 'halsteadDifficulty',
+        metricKey: 'halsteadDifficulty',
+        value: metrics.halsteadDifficulty,
+        threshold: thresholds.halsteadDifficulty,
+      },
+      {
+        key: 'codeToCommentRatio',
+        metricKey: 'codeToCommentRatio',
+        value: metrics.codeToCommentRatio,
+        threshold: thresholds.codeToCommentRatio,
+      },
     ];
   }
 
@@ -139,8 +216,12 @@ export class ThresholdEvaluator {
     for (const { level, threshold: thresholdValue } of levels) {
       if (!thresholdValue) continue;
 
-      const evaluation = this.statisticalEvaluator.evaluateThreshold(value, thresholdValue, statistics);
-      
+      const evaluation = this.statisticalEvaluator.evaluateThreshold(
+        value,
+        thresholdValue,
+        statistics
+      );
+
       if (evaluation.exceeded) {
         return this.statisticalEvaluator.createThresholdViolation(
           metric,
@@ -164,7 +245,7 @@ export class ThresholdEvaluator {
     assessmentConfig?: RiskAssessmentConfig
   ): FunctionRiskAssessment {
     const config = this.getDefaultRiskAssessmentConfig(assessmentConfig);
-    
+
     // Count violations by level
     const violationsByLevel: Record<ViolationLevel, number> = {
       warning: 0,
@@ -178,7 +259,7 @@ export class ThresholdEvaluator {
 
     // Calculate risk score
     const riskScore = this.calculateRiskScore(violations, config);
-    
+
     // Determine risk level
     const riskLevel = this.determineRiskLevel(violations, config);
 
@@ -200,22 +281,23 @@ export class ThresholdEvaluator {
     config: RiskAssessmentConfig
   ): number {
     const weights = config.violationWeights ?? { warning: 1, error: 3, critical: 10 };
-    
+
     switch (config.compositeScoringMethod) {
       case 'weighted':
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
-          return score + (weight * violation.excess);
+          return score + weight * violation.excess;
         }, 0);
-      
+
       case 'severity':
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
           // Protect against zero division
-          const severityMultiplier = violation.threshold !== 0 ? violation.excess / violation.threshold : 0;
-          return score + (weight * severityMultiplier);
+          const severityMultiplier =
+            violation.threshold !== 0 ? violation.excess / violation.threshold : 0;
+          return score + weight * severityMultiplier;
         }, 0);
-      
+
       default:
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
@@ -281,14 +363,22 @@ export class ThresholdEvaluator {
 
       const operator = condition.operator ?? '>';
       switch (operator) {
-        case '>': return value > evaluation.threshold;
-        case '>=': return value >= evaluation.threshold;
-        case '<': return value < evaluation.threshold;
-        case '<=': return value <= evaluation.threshold;
-        case '==': return value === evaluation.threshold;
-        case '!=': return value !== evaluation.threshold;
+        case '>':
+          return value > evaluation.threshold;
+        case '>=':
+          return value >= evaluation.threshold;
+        case '<':
+          return value < evaluation.threshold;
+        case '<=':
+          return value <= evaluation.threshold;
+        case '==':
+          return value === evaluation.threshold;
+        case '!=':
+          return value !== evaluation.threshold;
         default:
-          console.warn(`Invalid operator "${operator}" in risk condition for metric "${condition.metric}". Defaulting to false.`);
+          console.warn(
+            `Invalid operator "${operator}" in risk condition for metric "${condition.metric}". Defaulting to false.`
+          );
           return false;
       }
     });
@@ -313,9 +403,7 @@ export class ThresholdEvaluator {
 
     // Find top violations across all functions
     const allViolations = functionAssessments.flatMap(a => a.violations);
-    const topViolations = allViolations
-      .sort((a, b) => b.excess - a.excess)
-      .slice(0, 10);
+    const topViolations = allViolations.sort((a, b) => b.excess - a.excess).slice(0, 10);
 
     // Find worst functions by risk score
     const worstFunctions = functionAssessments
@@ -354,8 +442,12 @@ export class ThresholdEvaluator {
       if (!thresholdValue) continue;
 
       // For inverted metrics, we check if value is LESS than threshold
-      const evaluation = this.statisticalEvaluator.evaluateThreshold(value, thresholdValue, statistics);
-      
+      const evaluation = this.statisticalEvaluator.evaluateThreshold(
+        value,
+        thresholdValue,
+        statistics
+      );
+
       // Simple check: is the value less than or equal to the threshold?
       if (value <= evaluation.threshold) {
         // Create a custom violation with inverted logic
@@ -367,7 +459,7 @@ export class ThresholdEvaluator {
           excess: evaluation.threshold - value, // Inverted excess calculation
           method: evaluation.method,
         };
-        
+
         if (evaluation.statisticalContext) {
           violation.statisticalContext = evaluation.statisticalContext as {
             method: 'mean+sigma' | 'percentile' | 'median+mad';
@@ -376,7 +468,7 @@ export class ThresholdEvaluator {
             baseline: number;
           };
         }
-        
+
         return violation;
       }
     }
@@ -440,21 +532,33 @@ export class ThresholdEvaluator {
    */
   mergeWithDefaults(userThresholds?: QualityThresholds): QualityThresholds {
     const defaults = this.getDefaultQualityThresholds();
-    
+
     if (!userThresholds) {
       return defaults;
     }
 
     const merged: QualityThresholds = { ...defaults };
-    
+
     // Merge each threshold configuration
     const thresholdKeys: (keyof QualityThresholds)[] = [
-      'complexity', 'cognitiveComplexity', 'lines', 'totalLines', 'parameters',
-      'nestingLevel', 'returnStatements', 'branches', 'loops', 'tryCatch',
-      'asyncAwait', 'callbacks', 'maintainability', 'halsteadVolume',
-      'halsteadDifficulty', 'codeToCommentRatio'
+      'complexity',
+      'cognitiveComplexity',
+      'lines',
+      'totalLines',
+      'parameters',
+      'nestingLevel',
+      'returnStatements',
+      'branches',
+      'loops',
+      'tryCatch',
+      'asyncAwait',
+      'callbacks',
+      'maintainability',
+      'halsteadVolume',
+      'halsteadDifficulty',
+      'codeToCommentRatio',
     ];
-    
+
     thresholdKeys.forEach(key => {
       if (userThresholds[key]) {
         merged[key] = {

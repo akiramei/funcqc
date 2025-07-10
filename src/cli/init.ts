@@ -9,19 +9,19 @@ const DEFAULT_CONFIG: FuncqcConfig = {
   exclude: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**', '**/node_modules/**'],
   storage: {
     type: 'pglite',
-    path: '.funcqc/funcqc.db'
+    path: '.funcqc/funcqc.db',
   },
   metrics: {
-    complexityThreshold: 10,           // Cyclomatic Complexity > 10
-    cognitiveComplexityThreshold: 15,  // Cognitive Complexity > 15
-    linesOfCodeThreshold: 40,          // Lines of Code > 40
-    parameterCountThreshold: 4,        // Parameter Count > 4
-    maxNestingLevelThreshold: 3        // Nesting Depth > 3
+    complexityThreshold: 10, // Cyclomatic Complexity > 10
+    cognitiveComplexityThreshold: 15, // Cognitive Complexity > 15
+    linesOfCodeThreshold: 40, // Lines of Code > 40
+    parameterCountThreshold: 4, // Parameter Count > 4
+    maxNestingLevelThreshold: 3, // Nesting Depth > 3
   },
   git: {
     enabled: true,
-    autoLabel: true
-  }
+    autoLabel: true,
+  },
 };
 
 export async function initCommand(options: InitCommandOptions): Promise<void> {
@@ -38,7 +38,10 @@ export async function initCommand(options: InitCommandOptions): Promise<void> {
 
     await createConfig(options);
   } catch (error) {
-    console.error(chalk.red('Failed to initialize funcqc:'), error instanceof Error ? error.message : String(error));
+    console.error(
+      chalk.red('Failed to initialize funcqc:'),
+      error instanceof Error ? error.message : String(error)
+    );
     process.exit(1);
   }
 }
@@ -61,7 +64,7 @@ async function showCurrentConfig(): Promise<void> {
 
 async function resetConfig(): Promise<void> {
   const configPath = path.join(process.cwd(), '.funcqc.config.js');
-  
+
   if (await fileExists(configPath)) {
     await fs.unlink(configPath);
     console.log(chalk.green('Configuration file removed.'));
@@ -130,7 +133,7 @@ module.exports = ${JSON.stringify(config, null, 2)};
 
 async function ensureDataDirectory(dbPath: string): Promise<void> {
   const dataDir = path.dirname(dbPath);
-  
+
   try {
     await fs.mkdir(dataDir, { recursive: true });
   } catch {

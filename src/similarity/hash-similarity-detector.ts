@@ -1,4 +1,10 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
+import {
+  FunctionInfo,
+  SimilarityDetector,
+  SimilarityOptions,
+  SimilarityResult,
+  SimilarFunction,
+} from '../types';
 
 /**
  * Hash-based similarity detector for ultra-fast duplicate detection
@@ -13,13 +19,16 @@ export class HashSimilarityDetector implements SimilarityDetector {
     return true; // Always available
   }
 
-  async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
+  async detect(
+    functions: FunctionInfo[],
+    options: SimilarityOptions = {}
+  ): Promise<SimilarityResult[]> {
     const config = this.parseDetectionOptions(options);
     const validFunctions = this.filterValidFunctions(functions, config);
-    
+
     // Group functions by hash for O(n) performance
     const results = this.detectHashSimilarities(validFunctions, config);
-    
+
     return this.groupSimilarFunctions(results);
   }
 
@@ -27,22 +36,23 @@ export class HashSimilarityDetector implements SimilarityDetector {
     return {
       threshold: options.threshold || 0.95,
       minLines: options.minLines || 3,
-      crossFile: options.crossFile !== false
+      crossFile: options.crossFile !== false,
     };
   }
 
-  private filterValidFunctions(functions: FunctionInfo[], config: { minLines: number }): FunctionInfo[] {
-    return functions.filter(func => 
-      !func.metrics || func.metrics.linesOfCode >= config.minLines
-    );
+  private filterValidFunctions(
+    functions: FunctionInfo[],
+    config: { minLines: number }
+  ): FunctionInfo[] {
+    return functions.filter(func => !func.metrics || func.metrics.linesOfCode >= config.minLines);
   }
 
   private detectHashSimilarities(
-    functions: FunctionInfo[], 
+    functions: FunctionInfo[],
     config: { threshold: number; crossFile: boolean }
   ): SimilarityResult[] {
     const results: SimilarityResult[] = [];
-    
+
     // Group by AST hash for exact matches (similarity = 1.0)
     if (config.threshold <= 1.0) {
       const astHashGroups = this.groupByHash(functions, 'astHash', config.crossFile);
@@ -50,7 +60,9 @@ export class HashSimilarityDetector implements SimilarityDetector {
       if (astHashGroups.size > 0) {
         const largestGroup = Math.max(...Array.from(astHashGroups.values()).map(g => g.length));
         if (largestGroup > 10) {
-          console.warn(`Warning: Unusually large AST hash group found (${largestGroup} functions). This may indicate missing hash values.`);
+          console.warn(
+            `Warning: Unusually large AST hash group found (${largestGroup} functions). This may indicate missing hash values.`
+          );
         }
       }
       results.push(...this.createHashResults(astHashGroups, 1.0, 'ast-exact'));
@@ -78,8 +90,8 @@ export class HashSimilarityDetector implements SimilarityDetector {
   }
 
   private groupByHash(
-    functions: FunctionInfo[], 
-    hashField: keyof FunctionInfo, 
+    functions: FunctionInfo[],
+    hashField: keyof FunctionInfo,
     crossFile: boolean
   ): Map<string, FunctionInfo[]> {
     const groups = new Map<string, FunctionInfo[]>();
@@ -112,7 +124,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
             }
             fileGroups.get(func.filePath)!.push(func);
           }
-          
+
           // Only keep file groups with multiple functions
           let hasValidGroup = false;
           for (const [, fileFunctions] of fileGroups) {
@@ -121,7 +133,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
               hasValidGroup = true;
             }
           }
-          
+
           if (!hasValidGroup && crossFile) {
             filteredGroups.set(hash, groupFunctions);
           }
@@ -132,14 +144,16 @@ export class HashSimilarityDetector implements SimilarityDetector {
     }
 
     if (skippedCount > 0 && hashField === 'astHash') {
-      console.warn(`Warning: ${skippedCount} functions have no AST hash. Run "funcqc scan" to regenerate hashes.`);
+      console.warn(
+        `Warning: ${skippedCount} functions have no AST hash. Run "funcqc scan" to regenerate hashes.`
+      );
     }
-    
+
     return filteredGroups;
   }
 
   private createHashResults(
-    hashGroups: Map<string, FunctionInfo[]>, 
+    hashGroups: Map<string, FunctionInfo[]>,
     similarity: number,
     hashType: string
   ): SimilarityResult[] {
@@ -150,13 +164,15 @@ export class HashSimilarityDetector implements SimilarityDetector {
         // Create pairwise results for all combinations in the group
         for (let i = 0; i < groupFunctions.length; i++) {
           for (let j = i + 1; j < groupFunctions.length; j++) {
-            results.push(this.createSimilarityResult(
-              groupFunctions[i], 
-              groupFunctions[j], 
-              similarity,
-              hashType,
-              hash
-            ));
+            results.push(
+              this.createSimilarityResult(
+                groupFunctions[i],
+                groupFunctions[j],
+                similarity,
+                hashType,
+                hash
+              )
+            );
           }
         }
       }
@@ -166,8 +182,8 @@ export class HashSimilarityDetector implements SimilarityDetector {
   }
 
   private createSimilarityResult(
-    func1: FunctionInfo, 
-    func2: FunctionInfo, 
+    func1: FunctionInfo,
+    func2: FunctionInfo,
     similarity: number,
     hashType: string,
     hash: string
@@ -175,18 +191,17 @@ export class HashSimilarityDetector implements SimilarityDetector {
     return {
       type: 'structural',
       similarity,
-      functions: [
-        this.createSimilarFunction(func1),
-        this.createSimilarFunction(func2)
-      ],
+      functions: [this.createSimilarFunction(func1), this.createSimilarFunction(func2)],
       detector: this.name,
       metadata: {
         hashType,
         hash,
         exactMatch: similarity === 1.0,
-        complexityDiff: Math.abs((func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)),
-        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0))
-      }
+        complexityDiff: Math.abs(
+          (func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)
+        ),
+        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0)),
+      },
     };
   }
 
@@ -197,7 +212,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
       filePath: func.filePath,
       startLine: func.startLine,
       endLine: func.endLine,
-      originalFunction: func
+      originalFunction: func,
     };
   }
 
@@ -221,7 +236,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
       if (groupResults.length >= 1) {
         // Collect all unique functions from the hash group
         const allFunctions = new Map<string, SimilarFunction>();
-        
+
         for (const result of groupResults) {
           for (const func of result.functions) {
             allFunctions.set(func.functionId, func);
@@ -237,8 +252,8 @@ export class HashSimilarityDetector implements SimilarityDetector {
             metadata: {
               ...bestResult.metadata,
               groupSize: allFunctions.size,
-              totalPairs: groupResults.length
-            }
+              totalPairs: groupResults.length,
+            },
           });
         }
       }
@@ -249,7 +264,9 @@ export class HashSimilarityDetector implements SimilarityDetector {
       if (b.similarity !== a.similarity) {
         return b.similarity - a.similarity;
       }
-      return ((b.metadata?.['groupSize'] as number) || 0) - ((a.metadata?.['groupSize'] as number) || 0);
+      return (
+        ((b.metadata?.['groupSize'] as number) || 0) - ((a.metadata?.['groupSize'] as number) || 0)
+      );
     });
   }
 }

@@ -10,13 +10,13 @@ export interface FuncqcConfig {
   roots: string[];
   exclude: string[];
   include?: string[];
-  
+
   storage: {
     type: 'pglite' | 'postgres';
     path?: string;
     url?: string;
   };
-  
+
   metrics: {
     complexityThreshold: number;
     cognitiveComplexityThreshold: number;
@@ -24,30 +24,30 @@ export interface FuncqcConfig {
     parameterCountThreshold: number;
     maxNestingLevelThreshold: number;
   };
-  
+
   // Enhanced configurable thresholds system
   thresholds?: QualityThresholds;
-  
+
   // Enhanced funcqc-specific thresholds (new)
   funcqcThresholds?: Partial<FuncqcThresholds>;
-  
+
   // Risk assessment configuration
   assessment?: RiskAssessmentConfig;
-  
+
   // Project context for statistical evaluation
   projectContext?: ProjectContext;
-  
+
   git: {
     enabled: boolean;
     autoLabel: boolean;
   };
-  
+
   similarity?: {
     detectors: Record<string, SimilarityDetectorConfig>;
     consensus: ConsensusStrategy;
     defaultThreshold?: number;
   };
-  
+
   ann?: {
     algorithm?: 'hierarchical' | 'lsh' | 'hybrid';
     clusterCount?: number;
@@ -55,23 +55,23 @@ export interface FuncqcConfig {
     approximationLevel?: 'fast' | 'balanced' | 'accurate';
     cacheSize?: number;
   };
-  
+
   changeDetection?: {
     // Thresholds for determining change significance
-    locChangeThreshold?: number;       // Default: 0.5 (50% change)
+    locChangeThreshold?: number; // Default: 0.5 (50% change)
     complexityChangeThreshold?: number; // Default: 5 (CC points)
-    depthChangeThreshold?: number;      // Default: 2 levels
-    parameterChangeThreshold?: number;  // Default: 2 parameters
-    
+    depthChangeThreshold?: number; // Default: 2 levels
+    parameterChangeThreshold?: number; // Default: 2 parameters
+
     // Weights for calculating composite score
-    locWeight?: number;                 // Default: 0.3
-    complexityWeight?: number;          // Default: 0.4
-    depthWeight?: number;               // Default: 0.2
-    parameterWeight?: number;           // Default: 0.1
-    
+    locWeight?: number; // Default: 0.3
+    complexityWeight?: number; // Default: 0.4
+    depthWeight?: number; // Default: 0.2
+    parameterWeight?: number; // Default: 0.1
+
     // Minimum score to suggest lineage tracking
-    minScoreForLineage?: number;        // Default: 50
-    
+    minScoreForLineage?: number; // Default: 50
+
     // Enable/disable specific detectors
     enableRefactoringPatterns?: boolean; // Default: true
     enableFunctionSplitDetection?: boolean; // Default: true
@@ -86,11 +86,11 @@ export interface SimilarityDetectorConfig {
 }
 
 export interface SimilarityWeights {
-  astStructure?: number;      // Default: 0.4
-  signature?: number;         // Default: 0.2
-  metrics?: number;          // Default: 0.2
-  parameters?: number;       // Default: 0.1
-  returnType?: number;       // Default: 0.1
+  astStructure?: number; // Default: 0.4
+  signature?: number; // Default: 0.2
+  metrics?: number; // Default: 0.2
+  parameters?: number; // Default: 0.1
+  returnType?: number; // Default: 0.1
 }
 
 export interface ConsensusStrategy {
@@ -102,23 +102,23 @@ export interface ConsensusStrategy {
 // Function analysis types
 export interface FunctionInfo {
   // 物理識別次元
-  id: string;                    // Physical UUID（物理的実体の一意識別）
-  startLine: number;             // ファイル内開始行
-  endLine: number;               // ファイル内終了行
-  startColumn: number;           // ファイル内開始列
-  endColumn: number;             // ファイル内終了列
-  
+  id: string; // Physical UUID（物理的実体の一意識別）
+  startLine: number; // ファイル内開始行
+  endLine: number; // ファイル内終了行
+  startColumn: number; // ファイル内開始列
+  endColumn: number; // ファイル内終了列
+
   // 意味識別次元
-  semanticId: string;            // Semantic hash（役割ベース識別）
-  name: string;                  // 関数名
-  displayName: string;           // 表示用名前（クラス.メソッド等）
-  signature: string;             // 完全なシグネチャ
-  filePath: string;              // プロジェクトルートからの相対パス
-  contextPath?: string[];        // 階層コンテキスト ['Class', 'method']
+  semanticId: string; // Semantic hash（役割ベース識別）
+  name: string; // 関数名
+  displayName: string; // 表示用名前（クラス.メソッド等）
+  signature: string; // 完全なシグネチャ
+  filePath: string; // プロジェクトルートからの相対パス
+  contextPath?: string[]; // 階層コンテキスト ['Class', 'method']
   functionType?: 'function' | 'method' | 'arrow' | 'local';
-  modifiers?: string[];          // ['static', 'private', 'async']
-  nestingLevel?: number;         // ネスト深度
-  
+  modifiers?: string[]; // ['static', 'private', 'async']
+  nestingLevel?: number; // ネスト深度
+
   // 関数属性（意味ベース）
   isExported: boolean;
   isAsync: boolean;
@@ -128,28 +128,27 @@ export interface FunctionInfo {
   isConstructor: boolean;
   isStatic: boolean;
   accessModifier?: 'public' | 'private' | 'protected';
-  
+
   // 内容識別次元
-  contentId: string;             // Content hash（実装内容識別）
-  astHash: string;               // AST構造のハッシュ
-  sourceCode?: string;           // 関数のソースコード
-  signatureHash: string;         // シグネチャのハッシュ
-  
+  contentId: string; // Content hash（実装内容識別）
+  astHash: string; // AST構造のハッシュ
+  sourceCode?: string; // 関数のソースコード
+  signatureHash: string; // シグネチャのハッシュ
+
   // 効率化用フィールド
-  fileHash: string;              // ファイル内容のハッシュ
-  fileContentHash?: string;      // ファイル変更検出高速化用
-  
+  fileHash: string; // ファイル内容のハッシュ
+  fileContentHash?: string; // ファイル変更検出高速化用
+
   // ドキュメント
-  jsDoc?: string;                // JSDocコメント
-  description?: string;          // ユーザー説明（function_descriptionsテーブルから）
-  
+  jsDoc?: string; // JSDocコメント
+  description?: string; // ユーザー説明（function_descriptionsテーブルから）
+
   // 説明メタデータ
-  descriptionSource?: string;    // 説明のソース（human/ai/jsdoc）
+  descriptionSource?: string; // 説明のソース（human/ai/jsdoc）
   descriptionCreatedAt?: string; // 説明作成日時
   descriptionUpdatedAt?: string; // 説明更新日時
-  descriptionAiModel?: string;   // AIモデル名（source=aiの場合）
-  
-  
+  descriptionAiModel?: string; // AIモデル名（source=aiの場合）
+
   // Relations
   parameters: ParameterInfo[];
   returnType?: ReturnTypeInfo;
@@ -209,16 +208,16 @@ export interface DependencyInfo {
 
 // Function lineage tracking types
 export interface Lineage {
-  id: string;                          // UUID for lineage record
-  fromIds: string[];                   // Source function IDs (1 or more for merge scenarios)
-  toIds: string[];                     // Target function IDs (1 or more for split scenarios)
-  kind: LineageKind;                   // Type of transformation
-  status: LineageStatus;               // Draft or final status
-  confidence?: number;                 // Confidence score (0-1)
-  note?: string;                       // Optional human or AI-generated note
-  gitCommit: string;                   // Git commit where change occurred
-  createdAt: Date;                     // When lineage was detected/created
-  updatedAt?: Date;                    // When lineage was last updated
+  id: string; // UUID for lineage record
+  fromIds: string[]; // Source function IDs (1 or more for merge scenarios)
+  toIds: string[]; // Target function IDs (1 or more for split scenarios)
+  kind: LineageKind; // Type of transformation
+  status: LineageStatus; // Draft or final status
+  confidence?: number; // Confidence score (0-1)
+  note?: string; // Optional human or AI-generated note
+  gitCommit: string; // Git commit where change occurred
+  createdAt: Date; // When lineage was detected/created
+  updatedAt?: Date; // When lineage was last updated
 }
 
 export type LineageKind = 'rename' | 'signature-change' | 'inline' | 'split';
@@ -229,7 +228,7 @@ export interface LineageCandidate {
   toFunctions: FunctionInfo[];
   kind: LineageKind;
   confidence: number;
-  reason: string;                      // Explanation of why this is a candidate
+  reason: string; // Explanation of why this is a candidate
 }
 
 export interface LineageReview {
@@ -365,11 +364,11 @@ export interface InitCommandOptions extends CommandOptions {
 export interface ScanCommandOptions extends CommandOptions {
   label?: string;
   comment?: string;
-  realtimeGate?: boolean;        // Enable real-time quality gate with adaptive thresholds
+  realtimeGate?: boolean; // Enable real-time quality gate with adaptive thresholds
 }
 
 export interface ListCommandOptions extends CommandOptions {
-  json?: boolean;            // JSON output for jq/script processing
+  json?: boolean; // JSON output for jq/script processing
   limit?: string;
   sort?: string;
   desc?: boolean;
@@ -380,7 +379,7 @@ export interface ListCommandOptions extends CommandOptions {
 
 export interface ShowCommandOptions extends CommandOptions {
   id?: string;
-  json?: boolean;            // JSON output for jq/script processing
+  json?: boolean; // JSON output for jq/script processing
   details?: boolean;
   quality?: boolean;
   technical?: boolean;
@@ -398,17 +397,17 @@ export interface HealthCommandOptions extends CommandOptions {
   risks?: boolean;
   showConfig?: boolean;
   verbose?: boolean;
-  json?: boolean;            // JSON output for jq/script processing
+  json?: boolean; // JSON output for jq/script processing
   period?: string;
   aiOptimized?: boolean;
   humanReadable?: boolean;
 }
 
 export interface EvaluateCommandOptions extends CommandOptions {
-  stdin?: boolean;           // Read code from stdin
-  aiGenerated?: boolean;     // Code is AI-generated (affects exit codes)
-  strict?: boolean;          // Strict mode for critical violations
-  json?: boolean;            // JSON output for integration
+  stdin?: boolean; // Read code from stdin
+  aiGenerated?: boolean; // Code is AI-generated (affects exit codes)
+  strict?: boolean; // Strict mode for critical violations
+  json?: boolean; // JSON output for integration
 }
 
 export interface ExplainCommandOptions extends CommandOptions {
@@ -459,41 +458,68 @@ export interface SpinnerInterface {
 export interface StorageAdapter {
   init(): Promise<void>;
   close(): Promise<void>;
-  
+
   // Snapshot operations
-  saveSnapshot(functions: FunctionInfo[], label?: string, comment?: string, configHash?: string): Promise<string>;
+  saveSnapshot(
+    functions: FunctionInfo[],
+    label?: string,
+    comment?: string,
+    configHash?: string
+  ): Promise<string>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
   getLastConfigHash?(): Promise<string | null>;
-  
+
   // Function operations
   getFunction(functionId: string): Promise<FunctionInfo | null>;
   getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>>;
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
-  getFunctionsWithoutDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
-  getFunctionsNeedingDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
-  
+  getFunctionsWithoutDescriptions(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]>;
+  getFunctionsNeedingDescriptions(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]>;
+
   // Function description operations
   saveFunctionDescription(description: FunctionDescription): Promise<void>;
   getFunctionDescription(semanticId: string): Promise<FunctionDescription | null>;
   searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
-  
+
   // Embedding operations
   saveEmbedding(semanticId: string, embedding: number[], model?: string): Promise<void>;
   getEmbedding(semanticId: string): Promise<{ embedding: number[]; model: string } | null>;
-  searchByEmbedding(queryEmbedding: number[], threshold?: number, limit?: number): Promise<Array<FunctionInfo & { similarity: number }>>;
-  bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void>;
+  searchByEmbedding(
+    queryEmbedding: number[],
+    threshold?: number,
+    limit?: number
+  ): Promise<Array<FunctionInfo & { similarity: number }>>;
+  bulkSaveEmbeddings(
+    embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>
+  ): Promise<void>;
   getFunctionsWithoutEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]>;
-  getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }>;
-  
+  getEmbeddingStats(): Promise<{
+    total: number;
+    withEmbeddings: number;
+    withoutEmbeddings: number;
+  }>;
+
   // Naming evaluation operations (v1.6 enhancement)
   saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void>;
   getNamingEvaluation(functionId: string): Promise<NamingEvaluation | null>;
-  getFunctionsNeedingEvaluation(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>>;
-  getFunctionsWithEvaluations(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>>;
+  getFunctionsNeedingEvaluation(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>>;
+  getFunctionsWithEvaluations(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>>;
   updateEvaluationRevisionStatus(functionId: string, revisionNeeded: boolean): Promise<void>;
   batchSaveEvaluations(evaluations: NamingEvaluation[]): Promise<void>;
   getEvaluationStatistics(snapshotId: string): Promise<{
@@ -503,21 +529,25 @@ export interface StorageAdapter {
     averageRating: number;
     ratingDistribution: Record<1 | 2 | 3, number>;
   }>;
-  
+
   // Analysis operations
   diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff>;
-  
+
   // Lineage operations
   saveLineage(lineage: Lineage): Promise<void>;
   getLineage(id: string): Promise<Lineage | null>;
   getLineages(query?: LineageQuery): Promise<Lineage[]>;
-  getLineagesWithFunctionFilter(fromFunctionPattern?: string, toFunctionPattern?: string, query?: LineageQuery): Promise<Lineage[]>;
+  getLineagesWithFunctionFilter(
+    fromFunctionPattern?: string,
+    toFunctionPattern?: string,
+    query?: LineageQuery
+  ): Promise<Lineage[]>;
   updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void>;
   deleteLineage(id: string): Promise<boolean>;
   getLineagesByCommit(gitCommit: string): Promise<Lineage[]>;
   getFunctionLineageHistory(functionId: string): Promise<Lineage[]>;
   pruneDraftLineages(olderThanDays: number): Promise<number>;
-  
+
   // Maintenance operations
   cleanup(retentionDays: number): Promise<number>;
   backup(options: BackupOptions): Promise<string>;
@@ -589,26 +619,26 @@ export interface QualityThresholds {
  */
 export interface QualityScorerThresholds {
   complexity: {
-    warning: number;        // Default: 5
-    critical: number;       // Default: 10
+    warning: number; // Default: 5
+    critical: number; // Default: 10
     warningPenalty: number; // Default: 8
-    criticalPenalty: number;// Default: 15
+    criticalPenalty: number; // Default: 15
   };
   size: {
-    warning: number;        // Default: 20
-    critical: number;       // Default: 50
+    warning: number; // Default: 20
+    critical: number; // Default: 50
     warningPenalty: number; // Default: 2
-    criticalPenalty: number;// Default: 5
+    criticalPenalty: number; // Default: 5
   };
   maintainability: {
-    critical: number;       // Default: 50
-    warning: number;        // Default: 70
+    critical: number; // Default: 50
+    warning: number; // Default: 70
   };
   grading: {
-    A: number;             // Default: 90
-    B: number;             // Default: 80
-    C: number;             // Default: 70
-    D: number;             // Default: 60
+    A: number; // Default: 90
+    B: number; // Default: 80
+    C: number; // Default: 70
+    D: number; // Default: 60
   };
 }
 
@@ -616,20 +646,20 @@ export interface QualityScorerThresholds {
  * Similarity detection thresholds with advanced algorithm parameters
  */
 export interface SimilarityThresholds {
-  threshold: number;        // Default: 0.8
-  minLines: number;         // Default: 3
+  threshold: number; // Default: 0.8
+  minLines: number; // Default: 3
   advanced: {
-    kGramSize: number;      // Default: 12 (range: 3-20)
-    winnowingWindow: number;// Default: 6 (range: 3-10)
-    lshBits: number;        // Default: 24 (range: 16-32)
-    maxBucketSize: number;  // Default: 10
+    kGramSize: number; // Default: 12 (range: 3-20)
+    winnowingWindow: number; // Default: 6 (range: 3-10)
+    lshBits: number; // Default: 24 (range: 16-32)
+    maxBucketSize: number; // Default: 10
   };
   weights: {
-    ast: number;           // Default: 0.4
-    signature: number;     // Default: 0.2
-    metrics: number;       // Default: 0.2
-    parameters: number;    // Default: 0.1
-    returnType: number;    // Default: 0.1
+    ast: number; // Default: 0.4
+    signature: number; // Default: 0.2
+    metrics: number; // Default: 0.2
+    parameters: number; // Default: 0.1
+    returnType: number; // Default: 0.1
   };
 }
 
@@ -637,17 +667,17 @@ export interface SimilarityThresholds {
  * Naming quality analysis thresholds
  */
 export interface NamingThresholds {
-  minLength: number;       // Default: 3
-  maxLength: number;       // Default: 50
+  minLength: number; // Default: 3
+  maxLength: number; // Default: 50
   weights: {
-    basicRules: number;    // Default: 0.3
-    semantics: number;     // Default: 0.4
-    consistency: number;   // Default: 0.2
-    redundancy: number;    // Default: 0.1
+    basicRules: number; // Default: 0.3
+    semantics: number; // Default: 0.4
+    consistency: number; // Default: 0.2
+    redundancy: number; // Default: 0.1
   };
   penalties: {
-    tooShort: number;      // Default: 15
-    tooLong: number;       // Default: 10
+    tooShort: number; // Default: 15
+    tooLong: number; // Default: 10
   };
 }
 
@@ -655,14 +685,14 @@ export interface NamingThresholds {
  * Performance and batch processing thresholds
  */
 export interface PerformanceThresholds {
-  batchSize: number;       // Default: 100
-  maxMemoryMB: number;     // Default: 100
+  batchSize: number; // Default: 100
+  maxMemoryMB: number; // Default: 100
   dynamicBatchSizing: {
-    enabled: boolean;      // Default: true
+    enabled: boolean; // Default: true
     thresholds: {
-      large: { items: number; batchSize: number; };    // > 10000 items → 50 batch
-      medium: { items: number; batchSize: number; };   // > 5000 items → 100 batch
-      small: { items: number; batchSize: number; };    // > 1000 items → 200 batch
+      large: { items: number; batchSize: number }; // > 10000 items → 50 batch
+      medium: { items: number; batchSize: number }; // > 5000 items → 100 batch
+      small: { items: number; batchSize: number }; // > 1000 items → 200 batch
     };
   };
 }
@@ -731,13 +761,13 @@ export interface ProjectPreset {
   metadata: PresetMetadata;
 }
 
-export type PresetCategory = 
-  | 'framework'    // React, Vue, Angular, etc.
-  | 'platform'     // Node.js, Browser, Mobile
-  | 'domain'       // Web, API, CLI, Library
-  | 'methodology'  // Microservices, Monolith, etc.
-  | 'team'         // Junior, Senior, Mixed
-  | 'custom';      // User-defined presets
+export type PresetCategory =
+  | 'framework' // React, Vue, Angular, etc.
+  | 'platform' // Node.js, Browser, Mobile
+  | 'domain' // Web, API, CLI, Library
+  | 'methodology' // Microservices, Monolith, etc.
+  | 'team' // Junior, Senior, Mixed
+  | 'custom'; // User-defined presets
 
 export interface PresetRecommendation {
   type: 'warning' | 'info' | 'tip';
@@ -764,11 +794,11 @@ export interface PresetMetadata {
  * Configuration preset manager for dynamic application
  */
 export interface PresetApplyOptions {
-  merge: boolean;           // Merge with existing config vs replace
-  validate: boolean;        // Validate before applying
-  backup: boolean;          // Create backup of current config
-  dryRun: boolean;         // Show what would change without applying
-  interactive: boolean;    // Prompt for confirmation on conflicts
+  merge: boolean; // Merge with existing config vs replace
+  validate: boolean; // Validate before applying
+  backup: boolean; // Create backup of current config
+  dryRun: boolean; // Show what would change without applying
+  interactive: boolean; // Prompt for confirmation on conflicts
 }
 
 export interface PresetApplyResult {
@@ -781,7 +811,7 @@ export interface PresetApplyResult {
 }
 
 export interface ConfigurationChange {
-  path: string;            // JSON path to changed value
+  path: string; // JSON path to changed value
   oldValue: unknown;
   newValue: unknown;
   impact: 'low' | 'medium' | 'high';
@@ -818,14 +848,14 @@ export interface ProjectAnalysisResult {
  * CLI command options for configuration management
  */
 export interface ConfigCommandOptions extends CommandOptions {
-  preset?: string;           // Preset ID to work with
-  replace?: boolean;         // Replace instead of merge
-  noValidate?: boolean;      // Skip validation
-  noBackup?: boolean;        // Skip backup creation
-  dryRun?: boolean;          // Show changes without applying
-  interactive?: boolean;     // Interactive mode
-  output?: string;           // Output file path
-  json?: boolean;            // JSON output for jq/script processing
+  preset?: string; // Preset ID to work with
+  replace?: boolean; // Replace instead of merge
+  noValidate?: boolean; // Skip validation
+  noBackup?: boolean; // Skip backup creation
+  dryRun?: boolean; // Show changes without applying
+  interactive?: boolean; // Interactive mode
+  output?: string; // Output file path
+  json?: boolean; // JSON output for jq/script processing
 }
 
 // Statistical analysis types
@@ -930,16 +960,16 @@ export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
   json?: boolean;
-  semantic?: boolean;              // Enable semantic search using local embeddings
-  threshold?: string;              // Similarity threshold (0-1) for semantic search
-  hybrid?: boolean;                // Use hybrid search (keyword + semantic + AST)
-  hybridWeight?: string;           // Weight for semantic vs keyword (0-1, default 0.5)
-  showSimilarity?: boolean;        // Show similarity scores in results
-  minSimilarity?: string;          // Minimum similarity score to include results
-  aiHints?: string;                // JSON string with AI hints for enhanced search
-  similarityWeights?: string;      // JSON string with similarity algorithm weights
-  contextFunctions?: string;       // Comma-separated list of context function IDs
-  intermediate?: boolean;          // Output intermediate results for AI analysis
+  semantic?: boolean; // Enable semantic search using local embeddings
+  threshold?: string; // Similarity threshold (0-1) for semantic search
+  hybrid?: boolean; // Use hybrid search (keyword + semantic + AST)
+  hybridWeight?: string; // Weight for semantic vs keyword (0-1, default 0.5)
+  showSimilarity?: boolean; // Show similarity scores in results
+  minSimilarity?: string; // Minimum similarity score to include results
+  aiHints?: string; // JSON string with AI hints for enhanced search
+  similarityWeights?: string; // JSON string with similarity algorithm weights
+  contextFunctions?: string; // Comma-separated list of context function IDs
+  intermediate?: boolean; // Output intermediate results for AI analysis
 }
 
 // ========================================
@@ -992,7 +1022,7 @@ export enum RefactoringPattern {
   ReduceParameters = 'reduce-parameters',
   ExtractClass = 'extract-class',
   InlineFunction = 'inline-function',
-  RenameFunction = 'rename-function'
+  RenameFunction = 'rename-function',
 }
 
 // Analysis and planning types
@@ -1057,9 +1087,6 @@ export interface RefactorAnalyzeOptions extends CommandOptions {
   patterns?: string;
 }
 
-
-
-
 // Phase 3 Week 2: Detection and Tracking Options
 export interface RefactorDetectOptions extends CommandOptions {
   pattern?: string;
@@ -1114,4 +1141,3 @@ export interface RefactorPlanOptions extends CommandOptions {
   timeline?: string;
   effort?: string;
 }
-

@@ -1,4 +1,16 @@
-import { Project, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, SyntaxKind, ClassDeclaration, ConstructorDeclaration, Node, ModuleDeclaration } from 'ts-morph';
+import {
+  Project,
+  SourceFile,
+  FunctionDeclaration,
+  MethodDeclaration,
+  ArrowFunction,
+  FunctionExpression,
+  SyntaxKind,
+  ClassDeclaration,
+  ConstructorDeclaration,
+  Node,
+  ModuleDeclaration,
+} from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -27,21 +39,21 @@ export class TypeScriptAnalyzer {
         noResolve: true,
         noLib: true,
         target: 99, // ESNext
-        jsx: 4 // Preserve
-      }
+        jsx: 4, // Preserve
+      },
     });
-    
+
     // Initialize cache if enabled
     if (enableCache) {
       this.cache = new AnalysisCache({
         maxMemoryEntries: Math.max(500, maxSourceFilesInMemory * 10),
         maxMemorySize: 50, // 50MB cache
-        persistentCachePath: path.join(process.cwd(), '.funcqc-cache')
+        persistentCachePath: path.join(process.cwd(), '.funcqc-cache'),
       });
     } else {
       this.cache = new AnalysisCache({
         maxMemoryEntries: 0,
-        maxMemorySize: 0
+        maxMemorySize: 0,
       });
     }
   }
@@ -62,11 +74,13 @@ export class TypeScriptAnalyzer {
           // Generate new physical IDs for cached functions to ensure uniqueness
           return cachedResult.map(func => ({
             ...func,
-            id: this.generatePhysicalId()
+            id: this.generatePhysicalId(),
           }));
         }
       } catch (error) {
-        console.warn(`Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
 
       const sourceFile = this.project.addSourceFileAtPath(filePath);
@@ -79,7 +93,13 @@ export class TypeScriptAnalyzer {
       try {
         // Function declarations
         sourceFile.getFunctions().forEach(func => {
-          const info = this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, fileContent);
+          const info = this.extractFunctionInfo(
+            func,
+            relativePath,
+            fileHash,
+            sourceFile,
+            fileContent
+          );
           if (info) functions.push(info);
         });
 
@@ -87,22 +107,35 @@ export class TypeScriptAnalyzer {
         sourceFile.getClasses().forEach(cls => {
           // Methods
           cls.getMethods().forEach(method => {
-            const info = this.extractMethodInfo(method, relativePath, fileHash, sourceFile, fileContent);
+            const info = this.extractMethodInfo(
+              method,
+              relativePath,
+              fileHash,
+              sourceFile,
+              fileContent
+            );
             if (info) functions.push(info);
           });
-          
+
           // Constructors
           cls.getConstructors().forEach(ctor => {
-            const info = this.extractConstructorInfo(ctor, relativePath, fileHash, sourceFile, fileContent);
+            const info = this.extractConstructorInfo(
+              ctor,
+              relativePath,
+              fileHash,
+              sourceFile,
+              fileContent
+            );
             if (info) functions.push(info);
           });
         });
 
         // Arrow functions and function expressions assigned to variables
-        this.extractVariableFunctions(sourceFile, relativePath, fileHash, fileContent).forEach(info => {
-          functions.push(info);
-        });
-
+        this.extractVariableFunctions(sourceFile, relativePath, fileHash, fileContent).forEach(
+          info => {
+            functions.push(info);
+          }
+        );
       } finally {
         // Prevent memory leaks by removing the file
         this.project.removeSourceFile(sourceFile);
@@ -113,26 +146,29 @@ export class TypeScriptAnalyzer {
       try {
         await this.cache.set(filePath, functions);
       } catch (error) {
-        console.warn(`Cache storage failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Cache storage failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
 
       return functions;
-
     } catch (error) {
-      throw new Error(`Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
-  
+
   /**
    * Analyze multiple files in batches for optimal memory usage
    */
   async analyzeFilesBatch(
-    filePaths: string[], 
+    filePaths: string[],
     onProgress?: (completed: number, total: number) => void
   ): Promise<FunctionInfo[]> {
     const batchSize = Math.min(this.maxSourceFilesInMemory, 20); // Conservative batch size
     const allFunctions: FunctionInfo[] = [];
-    
+
     // Process files in batches to control memory usage
     const results = await BatchProcessor.processWithProgress(
       filePaths,
@@ -141,7 +177,9 @@ export class TypeScriptAnalyzer {
           return await this.analyzeFile(filePath);
         } catch (error) {
           // Log the error with file path for debugging
-          console.warn(`Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+          console.warn(
+            `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
           // Return empty array to continue processing other files
           return [];
         }
@@ -149,15 +187,15 @@ export class TypeScriptAnalyzer {
       onProgress,
       batchSize
     );
-    
+
     // Flatten results
     for (const batch of results) {
       allFunctions.push(...batch);
     }
-    
+
     return allFunctions;
   }
-  
+
   /**
    * Stream analyze files one by one with callback for each file
    * Most memory-efficient approach for very large projects
@@ -169,19 +207,21 @@ export class TypeScriptAnalyzer {
   ): Promise<void> {
     for (let i = 0; i < filePaths.length; i++) {
       const filePath = filePaths[i];
-      
+
       try {
         const functions = await this.analyzeFile(filePath);
         await onFileAnalyzed(filePath, functions);
       } catch (error) {
-        console.warn(`Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        );
         await onFileAnalyzed(filePath, []);
       }
-      
+
       if (onProgress) {
         onProgress(i + 1, filePaths.length);
       }
-      
+
       // Force garbage collection every 100 files
       if (i % 100 === 0 && global.gc) {
         global.gc();
@@ -212,10 +252,16 @@ export class TypeScriptAnalyzer {
     const modifiers = this.extractModifiers(func);
     const functionType = this.determineFunctionType(func);
     const nestingLevel = this.calculateNestingLevel(func);
-    
+
     // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const semanticId = this.generateSemanticId(relativePath, name, signature, contextPath, modifiers);
+    const semanticId = this.generateSemanticId(
+      relativePath,
+      name,
+      signature,
+      contextPath,
+      modifiers
+    );
     const contentId = this.generateContentId(astHash, functionBody);
 
     const functionInfo: FunctionInfo = {
@@ -233,13 +279,13 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
-      
+
       // Enhanced function identification
       contextPath,
       functionType,
       modifiers,
       nestingLevel,
-      
+
       // Existing function attributes
       isExported: func.isExported(),
       isAsync: func.isAsync(),
@@ -249,7 +295,7 @@ export class TypeScriptAnalyzer {
       isConstructor: false,
       isStatic: false,
       sourceCode: func.getFullText().trim(),
-      parameters: this.extractFunctionParameters(func)
+      parameters: this.extractFunctionParameters(func),
     };
 
     if (returnType) {
@@ -291,10 +337,16 @@ export class TypeScriptAnalyzer {
     const modifiers = this.extractModifiers(method);
     const functionType = this.determineFunctionType(method);
     const nestingLevel = this.calculateNestingLevel(method);
-    
+
     // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const semanticId = this.generateSemanticId(relativePath, fullName, signature, contextPath, modifiers);
+    const semanticId = this.generateSemanticId(
+      relativePath,
+      fullName,
+      signature,
+      contextPath,
+      modifiers
+    );
     const contentId = this.generateContentId(astHash, methodBody);
 
     const functionInfo: FunctionInfo = {
@@ -312,13 +364,13 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
-      
+
       // Enhanced function identification
       contextPath,
       functionType,
       modifiers,
       nestingLevel,
-      
+
       // Existing function attributes
       isExported: isClassExported,
       isAsync: method.isAsync(),
@@ -328,7 +380,7 @@ export class TypeScriptAnalyzer {
       isConstructor: false,
       isStatic: method.isStatic(),
       sourceCode: method.getFullText().trim(),
-      parameters: this.extractMethodParameters(method)
+      parameters: this.extractMethodParameters(method),
     };
 
     if (returnType) {
@@ -369,13 +421,19 @@ export class TypeScriptAnalyzer {
     const contextPath = this.extractConstructorContextPath(ctor);
     const modifiers: string[] = [];
     if (isClassExported) modifiers.push('exported');
-    
-    const functionType = 'method';  // Constructors are a type of method
+
+    const functionType = 'method'; // Constructors are a type of method
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
-    
+
     // Generate 3D identification system
     const physicalId = this.generatePhysicalId();
-    const semanticId = this.generateSemanticId(relativePath, fullName, signature, contextPath, modifiers);
+    const semanticId = this.generateSemanticId(
+      relativePath,
+      fullName,
+      signature,
+      contextPath,
+      modifiers
+    );
     const contentId = this.generateContentId(astHash, constructorBody);
 
     const functionInfo: FunctionInfo = {
@@ -393,13 +451,13 @@ export class TypeScriptAnalyzer {
       startColumn: 0,
       endColumn: 0,
       astHash,
-      
+
       // Enhanced function identification
       contextPath,
       functionType,
       modifiers,
       nestingLevel,
-      
+
       // Existing function attributes
       isExported: isClassExported,
       isAsync: false,
@@ -409,7 +467,7 @@ export class TypeScriptAnalyzer {
       isConstructor: true,
       isStatic: false,
       sourceCode: ctor.getFullText().trim(),
-      parameters: this.extractConstructorParameters(ctor)
+      parameters: this.extractConstructorParameters(ctor),
     };
 
     const scope = ctor.getScope();
@@ -456,13 +514,19 @@ export class TypeScriptAnalyzer {
           const modifiers: string[] = [];
           if (functionNode.isAsync()) modifiers.push('async');
           if (stmt.isExported()) modifiers.push('exported');
-          
+
           const functionType = this.determineFunctionType(functionNode as ArrowFunction);
           const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
-          
+
           // Generate 3D identification system
           const physicalId = this.generatePhysicalId();
-          const semanticId = this.generateSemanticId(relativePath, name, signature, contextPath, modifiers);
+          const semanticId = this.generateSemanticId(
+            relativePath,
+            name,
+            signature,
+            contextPath,
+            modifiers
+          );
           const contentId = this.generateContentId(astHash, functionBody);
           const functionInfo: FunctionInfo = {
             id: physicalId,
@@ -479,23 +543,26 @@ export class TypeScriptAnalyzer {
             startColumn: 0,
             endColumn: 0,
             astHash,
-            
+
             // Enhanced function identification
             contextPath,
             functionType,
             modifiers,
             nestingLevel,
-            
+
             // Existing function attributes
             isExported: stmt.isExported(),
             isAsync: functionNode.isAsync(),
-            isGenerator: functionNode.getKind() === SyntaxKind.FunctionExpression ? !!(functionNode as FunctionExpression).getAsteriskToken() : false,
+            isGenerator:
+              functionNode.getKind() === SyntaxKind.FunctionExpression
+                ? !!(functionNode as FunctionExpression).getAsteriskToken()
+                : false,
             isArrowFunction: functionNode.getKind() === SyntaxKind.ArrowFunction,
             isMethod: false,
             isConstructor: false,
             isStatic: false,
             sourceCode: functionNode.getFullText().trim(),
-            parameters: this.extractArrowFunctionParameters(functionNode)
+            parameters: this.extractArrowFunctionParameters(functionNode),
           };
 
           if (returnType) {
@@ -512,35 +579,50 @@ export class TypeScriptAnalyzer {
 
   private getFunctionSignature(func: FunctionDeclaration): string {
     const name = func.getName() || 'anonymous';
-    const params = func.getParameters().map(p => p.getText()).join(', ');
+    const params = func
+      .getParameters()
+      .map(p => p.getText())
+      .join(', ');
     const returnType = func.getReturnTypeNode()?.getText() || 'void';
     const asyncModifier = func.isAsync() ? 'async ' : '';
-    
+
     return `${asyncModifier}${name}(${params}): ${returnType}`;
   }
 
   private getMethodSignature(method: MethodDeclaration, className: string): string {
     const name = method.getName();
-    const params = method.getParameters().map(p => p.getText()).join(', ');
+    const params = method
+      .getParameters()
+      .map(p => p.getText())
+      .join(', ');
     const returnType = method.getReturnTypeNode()?.getText() || 'void';
     const asyncModifier = method.isAsync() ? 'async ' : '';
     const accessibility = method.getScope() || 'public';
-    
+
     return `${accessibility} ${asyncModifier}${className}.${name}(${params}): ${returnType}`;
   }
 
-  private getArrowFunctionSignature(name: string, func: ArrowFunction | FunctionExpression): string {
-    const params = func.getParameters().map(p => p.getText()).join(', ');
+  private getArrowFunctionSignature(
+    name: string,
+    func: ArrowFunction | FunctionExpression
+  ): string {
+    const params = func
+      .getParameters()
+      .map(p => p.getText())
+      .join(', ');
     const returnType = func.getReturnTypeNode()?.getText() || 'unknown';
     const asyncModifier = func.isAsync() ? 'async ' : '';
-    
+
     return `${asyncModifier}${name} = (${params}): ${returnType} => {...}`;
   }
 
   private getConstructorSignature(ctor: ConstructorDeclaration, className: string): string {
-    const params = ctor.getParameters().map(p => p.getText()).join(', ');
+    const params = ctor
+      .getParameters()
+      .map(p => p.getText())
+      .join(', ');
     const accessibility = ctor.getScope() || 'public';
-    
+
     return `${accessibility} ${className}(${params})`;
   }
 
@@ -548,7 +630,14 @@ export class TypeScriptAnalyzer {
    * Extract parameters from any function-like node
    * Unified method to handle all function types consistently
    */
-  private extractParameters(node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration): ParameterInfo[] {
+  private extractParameters(
+    node:
+      | FunctionDeclaration
+      | MethodDeclaration
+      | ArrowFunction
+      | FunctionExpression
+      | ConstructorDeclaration
+  ): ParameterInfo[] {
     return node.getParameters().map((param, index) => {
       const paramInfo: ParameterInfo = {
         name: param.getName(),
@@ -556,7 +645,7 @@ export class TypeScriptAnalyzer {
         typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
         position: index,
         isOptional: param.hasQuestionToken(),
-        isRest: param.isRestParameter()
+        isRest: param.isRestParameter(),
       };
 
       const defaultValue = param.getInitializer()?.getText();
@@ -576,7 +665,9 @@ export class TypeScriptAnalyzer {
     return this.extractParameters(method);
   }
 
-  private extractArrowFunctionParameters(func: ArrowFunction | FunctionExpression): ParameterInfo[] {
+  private extractArrowFunctionParameters(
+    func: ArrowFunction | FunctionExpression
+  ): ParameterInfo[] {
     return this.extractParameters(func);
   }
 
@@ -588,7 +679,7 @@ export class TypeScriptAnalyzer {
     const returnInfo: ReturnTypeInfo = {
       type: typeText,
       typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<')
+      isPromise: typeText.startsWith('Promise<'),
     };
 
     const promiseType = this.extractPromiseType(typeText);
@@ -607,7 +698,7 @@ export class TypeScriptAnalyzer {
     const returnInfo: ReturnTypeInfo = {
       type: typeText,
       typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<')
+      isPromise: typeText.startsWith('Promise<'),
     };
 
     const promiseType = this.extractPromiseType(typeText);
@@ -618,7 +709,9 @@ export class TypeScriptAnalyzer {
     return returnInfo;
   }
 
-  private extractArrowFunctionReturnType(func: ArrowFunction | FunctionExpression): ReturnTypeInfo | undefined {
+  private extractArrowFunctionReturnType(
+    func: ArrowFunction | FunctionExpression
+  ): ReturnTypeInfo | undefined {
     const returnTypeNode = func.getReturnTypeNode();
     if (!returnTypeNode) return undefined;
 
@@ -626,7 +719,7 @@ export class TypeScriptAnalyzer {
     const returnInfo: ReturnTypeInfo = {
       type: typeText,
       typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<')
+      isPromise: typeText.startsWith('Promise<'),
     };
 
     const promiseType = this.extractPromiseType(typeText);
@@ -666,12 +759,8 @@ export class TypeScriptAnalyzer {
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/\/\/.*$/gm, '')
       .trim();
-    
-    return crypto
-      .createHash('sha256')
-      .update(normalized)
-      .digest('hex')
-      .substring(0, 8);
+
+    return crypto.createHash('sha256').update(normalized).digest('hex').substring(0, 8);
   }
 
   private calculateSignatureHash(signature: string): string {
@@ -690,8 +779,8 @@ export class TypeScriptAnalyzer {
    * Excludes position information for stability during refactoring
    */
   private generateSemanticId(
-    filePath: string, 
-    name: string, 
+    filePath: string,
+    name: string,
     signature: string,
     contextPath: string[],
     modifiers: string[]
@@ -701,10 +790,10 @@ export class TypeScriptAnalyzer {
       ...contextPath,
       name || '<anonymous>',
       signature,
-      ...modifiers.sort()
+      ...modifiers.sort(),
       // Position information deliberately excluded for stability
     ];
-    
+
     return crypto.createHash('sha256').update(components.join('|')).digest('hex');
   }
 
@@ -713,22 +802,20 @@ export class TypeScriptAnalyzer {
    * Changes when function body or AST structure changes
    */
   private generateContentId(astHash: string, sourceCode: string): string {
-    const contentComponents = [
-      astHash,
-      sourceCode.trim()
-    ];
-    
+    const contentComponents = [astHash, sourceCode.trim()];
+
     return crypto.createHash('sha256').update(contentComponents.join('|')).digest('hex');
   }
-
 
   /**
    * Extract hierarchical context path for a function
    */
-  private extractContextPath(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): string[] {
+  private extractContextPath(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+  ): string[] {
     const path: string[] = [];
     let current = node.getParent();
-    
+
     while (current) {
       if (current.getKind() === SyntaxKind.ClassDeclaration) {
         const className = (current as ClassDeclaration).getName();
@@ -744,7 +831,7 @@ export class TypeScriptAnalyzer {
       if (!nextParent) break;
       current = nextParent;
     }
-    
+
     return path;
   }
 
@@ -753,72 +840,90 @@ export class TypeScriptAnalyzer {
    */
   private extractModifiers(node: FunctionDeclaration | MethodDeclaration): string[] {
     const modifiers: string[] = [];
-    
+
     if (Node.isFunctionDeclaration(node)) {
       if (node.isAsync()) modifiers.push('async');
       if (node.isExported()) modifiers.push('exported');
       if (node.getAsteriskToken()) modifiers.push('generator');
     }
-    
+
     if (Node.isMethodDeclaration(node)) {
       if (node.isAsync()) modifiers.push('async');
       if (node.isStatic()) modifiers.push('static');
       if (node.getAsteriskToken()) modifiers.push('generator');
-      
-      const accessModifier = node.getModifiers()
-        .find(m => [SyntaxKind.PublicKeyword, SyntaxKind.PrivateKeyword, SyntaxKind.ProtectedKeyword]
-          .includes(m.getKind()));
+
+      const accessModifier = node
+        .getModifiers()
+        .find(m =>
+          [
+            SyntaxKind.PublicKeyword,
+            SyntaxKind.PrivateKeyword,
+            SyntaxKind.ProtectedKeyword,
+          ].includes(m.getKind())
+        );
       if (accessModifier) {
         modifiers.push(accessModifier.getText());
       } else {
         modifiers.push('public'); // Default access modifier
       }
     }
-    
+
     return modifiers;
   }
 
   /**
    * Determine function type based on node type and context
    */
-  private determineFunctionType(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): 'function' | 'method' | 'arrow' | 'local' {
+  private determineFunctionType(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+  ): 'function' | 'method' | 'arrow' | 'local' {
     if (Node.isMethodDeclaration(node)) {
       return 'method';
     }
     if (Node.isArrowFunction(node)) {
       return 'arrow';
     }
-    
+
     // Check if it's a local function (inside another function)
     let parent = node.getParent();
     while (parent && !Node.isSourceFile(parent)) {
-      if (Node.isFunctionDeclaration(parent) || Node.isMethodDeclaration(parent) || Node.isArrowFunction(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent)
+      ) {
         return 'local';
       }
       const nextParent = parent.getParent();
       if (!nextParent) break;
       parent = nextParent;
     }
-    
+
     return 'function';
   }
 
   /**
    * Calculate nesting level for the function
    */
-  private calculateNestingLevel(node: FunctionDeclaration | MethodDeclaration | ArrowFunction): number {
+  private calculateNestingLevel(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+  ): number {
     let level = 0;
     let parent = node.getParent();
-    
+
     while (parent && !Node.isSourceFile(parent)) {
-      if (Node.isFunctionDeclaration(parent) || Node.isMethodDeclaration(parent) || Node.isArrowFunction(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent)
+      ) {
         level++;
       }
       const nextParent = parent.getParent();
       if (!nextParent) break;
       parent = nextParent;
     }
-    
+
     return level;
   }
 
@@ -827,14 +932,14 @@ export class TypeScriptAnalyzer {
    */
   private extractConstructorContextPath(ctor: ConstructorDeclaration): string[] {
     const path: string[] = [];
-    
+
     // For constructors, we know the immediate parent is a class
     const parent = ctor.getParent();
     if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
       const className = (parent as ClassDeclaration).getName();
       if (className) path.push(className);
     }
-    
+
     return path;
   }
 
@@ -846,7 +951,6 @@ export class TypeScriptAnalyzer {
     return 0;
   }
 
-  
   /**
    * Manage memory by cleaning up project if too many source files are loaded
    */
@@ -860,7 +964,7 @@ export class TypeScriptAnalyzer {
       });
     }
   }
-  
+
   /**
    * Clean up all source files from memory
    */
@@ -869,18 +973,18 @@ export class TypeScriptAnalyzer {
     sourceFiles.forEach(file => {
       this.project.removeSourceFile(file);
     });
-    
+
     // Cleanup cache
     await this.cache.cleanup();
   }
-  
+
   /**
    * Get memory usage statistics
    */
   getMemoryStats(): { sourceFilesInMemory: number; maxSourceFiles: number } {
     return {
       sourceFilesInMemory: this.project.getSourceFiles().length,
-      maxSourceFiles: this.maxSourceFilesInMemory
+      maxSourceFiles: this.maxSourceFilesInMemory,
     };
   }
 

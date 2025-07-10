@@ -1,6 +1,6 @@
 /**
  * Approximate Nearest Neighbor (ANN) Index Service
- * 
+ *
  * Implements hierarchical clustering and LSH algorithms for fast approximate
  * vector similarity search, optimized for large codebases without native
  * pgvector support.
@@ -56,7 +56,8 @@ function ensureFloat32Array(vector: Float32Array | number[]): Float32Array {
  */
 function fastHash(data: Float32Array): string {
   let hash = 0x811c9dc5; // FNV offset basis
-  for (let i = 0; i < Math.min(data.length, 32); i++) { // Hash first 32 elements
+  for (let i = 0; i < Math.min(data.length, 32); i++) {
+    // Hash first 32 elements
     const value = Math.floor(data[i] * 1000000); // Scale and floor for stability
     hash ^= value;
     hash = (hash * 0x01000193) >>> 0; // FNV prime, keep as 32-bit
@@ -86,29 +87,30 @@ function calculateCosineSimilarityOptimized(
 ): number {
   let dotProduct = 0;
   const len = vec1.length;
-  
+
   // Unrolled loop for better performance
   let i = 0;
   for (; i < len - 3; i += 4) {
-    dotProduct += vec1[i] * vec2[i] +
-                  vec1[i+1] * vec2[i+1] +
-                  vec1[i+2] * vec2[i+2] +
-                  vec1[i+3] * vec2[i+3];
+    dotProduct +=
+      vec1[i] * vec2[i] +
+      vec1[i + 1] * vec2[i + 1] +
+      vec1[i + 2] * vec2[i + 2] +
+      vec1[i + 3] * vec2[i + 3];
   }
-  
+
   // Handle remaining elements
   for (; i < len; i++) {
     dotProduct += vec1[i] * vec2[i];
   }
-  
+
   // Use pre-computed norms if available
   const n1 = norm1 ?? calculateNorm(vec1);
   const n2 = norm2 ?? calculateNorm(vec2);
-  
+
   if (n1 === 0 || n2 === 0) {
     return 0;
   }
-  
+
   return dotProduct / (n1 * n2);
 }
 
@@ -118,16 +120,15 @@ function calculateCosineSimilarityOptimized(
 function calculateL2DistanceSquared(vec1: Float32Array, vec2: Float32Array): number {
   let sum = 0;
   const len = vec1.length;
-  
+
   // Reverse loop can be faster in some JS engines
   for (let i = len - 1; i >= 0; i--) {
     const diff = vec1[i] - vec2[i];
     sum += diff * diff;
   }
-  
+
   return sum; // Return squared distance for faster comparison
 }
-
 
 /**
  * Quickselect algorithm for efficient top-k selection
@@ -140,9 +141,9 @@ function quickselect<T>(
   compare: (a: T, b: T) => number
 ): void {
   if (left === right) return;
-  
+
   const pivotIndex = partition(arr, left, right, compare);
-  
+
   if (k === pivotIndex) {
     return;
   } else if (k < pivotIndex) {
@@ -160,14 +161,14 @@ function partition<T>(
 ): number {
   const pivot = arr[right];
   let i = left;
-  
+
   for (let j = left; j < right; j++) {
     if (compare(arr[j], pivot) <= 0) {
       [arr[i], arr[j]] = [arr[j], arr[i]];
       i++;
     }
   }
-  
+
   [arr[i], arr[right]] = [arr[right], arr[i]];
   return i;
 }
@@ -175,19 +176,15 @@ function partition<T>(
 /**
  * Get top-k elements using quickselect for O(n) average time complexity
  */
-function topK<T>(
-  arr: T[],
-  k: number,
-  compare: (a: T, b: T) => number
-): T[] {
+function topK<T>(arr: T[], k: number, compare: (a: T, b: T) => number): T[] {
   if (arr.length <= k) {
     // Return without sorting - let caller decide if sorting is needed
     return arr.slice();
   }
-  
+
   const result = arr.slice();
   quickselect(result, k, 0, result.length - 1, compare);
-  
+
   // Only sort the top k elements
   return result.slice(0, k).sort(compare);
 }
@@ -219,7 +216,7 @@ class LRUCache<K, V> {
     if (value === undefined) {
       return;
     }
-    
+
     if (this.cache.has(key)) {
       this.cache.delete(key);
     } else if (this.cache.size >= this.maxSize) {
@@ -272,15 +269,15 @@ export class HierarchicalIndex {
       // Ensure Float32Array and validate non-zero vectors
       const vector = ensureFloat32Array(embedding.vector);
       const norm = calculateNorm(vector);
-      
+
       if (norm === 0) {
         console.warn(`Skipping zero vector with id: ${embedding.id}`);
         continue; // Skip zero vectors
       }
-      
+
       const optimizedEmbedding = {
         ...embedding,
-        vector
+        vector,
       };
       this.vectorMap.set(embedding.id, optimizedEmbedding);
       this.vectorNorms.set(embedding.id, norm);
@@ -318,7 +315,7 @@ export class HierarchicalIndex {
     // Convert query vector to Float32Array for optimal performance
     const queryFloat32 = ensureFloat32Array(queryVector);
     const queryNorm = calculateNorm(queryFloat32);
-    
+
     if (queryNorm === 0) {
       return []; // Skip zero query vectors
     }
@@ -334,24 +331,20 @@ export class HierarchicalIndex {
     const clusterDistances = this.clusters.map((cluster, index) => {
       const clusterNorm = this.clusterNorms.get(cluster.id) || calculateNorm(cluster.centroid);
       const similarity = calculateCosineSimilarityOptimized(
-        queryFloat32, 
-        cluster.centroid, 
-        queryNorm, 
+        queryFloat32,
+        cluster.centroid,
+        queryNorm,
         clusterNorm
       );
       return {
         index,
-        distance: 1 - similarity // Convert similarity to distance
+        distance: 1 - similarity, // Convert similarity to distance
       };
     });
 
     // Use quickselect to find top clusters in O(n) time
     const clustersToSearch = this.getSearchDepth(clusterDistances.length);
-    const topClusters = topK(
-      clusterDistances,
-      clustersToSearch,
-      (a, b) => a.distance - b.distance
-    );
+    const topClusters = topK(clusterDistances, clustersToSearch, (a, b) => a.distance - b.distance);
 
     // Prepare candidates with similarity scores
     interface CandidateWithScore extends SearchResult {
@@ -378,7 +371,7 @@ export class HierarchicalIndex {
             semanticId: vector.semanticId,
             similarity,
             score: -similarity, // Negative for sorting (higher is better)
-            ...(vector.metadata ? { metadata: vector.metadata } : {})
+            ...(vector.metadata ? { metadata: vector.metadata } : {}),
           });
         }
       }
@@ -390,13 +383,13 @@ export class HierarchicalIndex {
       k,
       (a, b) => a.score - b.score // Lower score (higher similarity) first
     );
-    
+
     // Remove score field and return
     const results: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
-    
+
     // Cache the results (undefined check handled in LRUCache.set)
     this.queryCache.set(cacheKey, results);
-    
+
     return results;
   }
 
@@ -406,14 +399,14 @@ export class HierarchicalIndex {
 
     // Use K-means++ initialization for better cluster selection
     const selectedIndices: number[] = [];
-    
+
     // First centroid: random selection
     selectedIndices.push(Math.floor(Math.random() * embeddings.length));
 
     // Subsequent centroids: choose points far from existing centroids
     for (let i = 1; i < clusterCount; i++) {
       const distances: number[] = [];
-      
+
       for (let j = 0; j < embeddings.length; j++) {
         if (selectedIndices.includes(j)) {
           distances.push(0);
@@ -459,14 +452,16 @@ export class HierarchicalIndex {
     // Create initial clusters
     for (let i = 0; i < selectedIndices.length; i++) {
       const selectedIndex = selectedIndices[i];
-      const sourceVector = this.vectorMap.get(embeddings[selectedIndex].id)?.vector || embeddings[selectedIndex].vector;
+      const sourceVector =
+        this.vectorMap.get(embeddings[selectedIndex].id)?.vector ||
+        embeddings[selectedIndex].vector;
       clusters.push({
         id: `cluster-${i}`,
         centroid: new Float32Array(sourceVector),
         memberIds: [],
-        memberCount: 0
+        memberCount: 0,
       });
-      
+
       // Cache cluster centroid norms
       this.clusterNorms.set(`cluster-${i}`, calculateNorm(clusters[i].centroid));
     }
@@ -479,7 +474,7 @@ export class HierarchicalIndex {
     const newClusters = this.clusters.map(cluster => ({
       ...cluster,
       memberIds: [] as string[],
-      memberCount: 0
+      memberCount: 0,
     }));
 
     // Assign each vector to nearest cluster using cosine similarity
@@ -489,7 +484,8 @@ export class HierarchicalIndex {
       const embeddingNorm = this.vectorNorms.get(embedding.id) || calculateNorm(embedding.vector);
 
       for (let i = 0; i < newClusters.length; i++) {
-        const clusterNorm = this.clusterNorms.get(newClusters[i].id) || calculateNorm(newClusters[i].centroid);
+        const clusterNorm =
+          this.clusterNorms.get(newClusters[i].id) || calculateNorm(newClusters[i].centroid);
         const similarity = calculateCosineSimilarityOptimized(
           embedding.vector,
           newClusters[i].centroid,
@@ -565,18 +561,14 @@ export class HierarchicalIndex {
     }
   }
 
-
-
   getIndexStats(): Record<string, unknown> {
     return {
       clusterCount: this.clusters.length,
       totalVectors: this.vectorMap.size,
-      averageClusterSize: this.clusters.length > 0 
-        ? this.vectorMap.size / this.clusters.length 
-        : 0,
+      averageClusterSize: this.clusters.length > 0 ? this.vectorMap.size / this.clusters.length : 0,
       cacheSize: this.queryCache.size(),
       cacheCapacity: this.config.cacheSize,
-      config: this.config
+      config: this.config,
     };
   }
 }
@@ -609,15 +601,15 @@ export class LSHIndex {
       // Ensure Float32Array and validate non-zero vectors
       const vector = ensureFloat32Array(embedding.vector);
       const norm = calculateNorm(vector);
-      
+
       if (norm === 0) {
         console.warn(`Skipping zero vector with id: ${embedding.id}`);
         continue; // Skip zero vectors
       }
-      
+
       const optimizedEmbedding = {
         ...embedding,
-        vector
+        vector,
       };
       this.vectorMap.set(embedding.id, optimizedEmbedding);
       this.vectorNorms.set(embedding.id, norm);
@@ -630,24 +622,26 @@ export class LSHIndex {
     // Initialize hash tables and random projections
     const dimension = Array.from(this.vectorMap.values())[0].vector.length;
     const numTables = this.getOptimalTableCount();
-    
-    this.hashTables = Array(numTables).fill(null).map(() => new Map<string, LSHBucket>());
+
+    this.hashTables = Array(numTables)
+      .fill(null)
+      .map(() => new Map<string, LSHBucket>());
     this.randomProjections = this.generateRandomProjections(numTables, dimension);
 
     // Hash all vectors into buckets
     for (const embedding of Array.from(this.vectorMap.values())) {
       const hashes = this.computeHashes(embedding.vector);
-      
+
       for (let tableIndex = 0; tableIndex < numTables; tableIndex++) {
         const hash = hashes[tableIndex];
         const bucket = this.hashTables[tableIndex].get(hash);
-        
+
         if (bucket) {
           bucket.vectorIds.push(embedding.id);
         } else {
           this.hashTables[tableIndex].set(hash, {
             hash,
-            vectorIds: [embedding.id]
+            vectorIds: [embedding.id],
           });
         }
       }
@@ -662,7 +656,7 @@ export class LSHIndex {
     // Convert query vector to Float32Array for optimal performance
     const queryFloat32 = ensureFloat32Array(queryVector);
     const queryNorm = calculateNorm(queryFloat32);
-    
+
     if (queryNorm === 0) {
       return []; // Skip zero query vectors
     }
@@ -681,7 +675,7 @@ export class LSHIndex {
     for (let tableIndex = 0; tableIndex < this.hashTables.length; tableIndex++) {
       const hash = queryHashes[tableIndex];
       const bucket = this.hashTables[tableIndex].get(hash);
-      
+
       if (bucket) {
         for (const vectorId of bucket.vectorIds) {
           candidateIds.add(vectorId);
@@ -694,7 +688,7 @@ export class LSHIndex {
       score: number;
     }
     const candidates: CandidateWithScore[] = [];
-    
+
     for (const candidateId of candidateIds) {
       const vector = this.vectorMap.get(candidateId);
       if (vector && vector.vector instanceof Float32Array) {
@@ -710,7 +704,7 @@ export class LSHIndex {
           semanticId: vector.semanticId,
           similarity,
           score: -similarity, // Negative for sorting (higher is better)
-          ...(vector.metadata ? { metadata: vector.metadata } : {})
+          ...(vector.metadata ? { metadata: vector.metadata } : {}),
         });
       }
     }
@@ -721,13 +715,13 @@ export class LSHIndex {
       k,
       (a, b) => a.score - b.score // Lower score (higher similarity) first
     );
-    
+
     // Remove score field and return
     const finalResults: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
-    
+
     // Cache the results (undefined check handled in LRUCache.set)
     this.queryCache.set(cacheKey, finalResults);
-    
+
     return finalResults;
   }
 
@@ -746,10 +740,10 @@ export class LSHIndex {
 
   private generateRandomProjections(numTables: number, dimension: number): Float32Array[][] {
     const projections: Float32Array[][] = [];
-    
+
     for (let table = 0; table < numTables; table++) {
       const tableProjections: Float32Array[] = [];
-      
+
       // Generate independent random projection for each bit
       for (let bit = 0; bit < this.config.hashBits; bit++) {
         const projection = new Float32Array(dimension);
@@ -764,42 +758,41 @@ export class LSHIndex {
       }
       projections.push(tableProjections);
     }
-    
+
     return projections;
   }
 
   private computeHashes(vector: Float32Array | number[]): string[] {
     const vec = ensureFloat32Array(vector);
     const hashes: string[] = [];
-    
+
     for (let tableIndex = 0; tableIndex < this.randomProjections.length; tableIndex++) {
       const tableProjections = this.randomProjections[tableIndex];
       let hash = '';
-      
+
       // Create hash bits using independent random projections for each bit
       for (let bit = 0; bit < this.config.hashBits; bit++) {
         const projection = tableProjections[bit];
         let dotProduct = 0;
-        
+
         // Compute dot product with full precision
         for (let i = 0; i < vec.length; i++) {
           dotProduct += vec[i] * projection[i];
         }
-        
+
         hash += dotProduct >= 0 ? '1' : '0';
       }
-      
+
       hashes.push(hash);
     }
-    
+
     return hashes;
   }
-
 
   getIndexStats(): Record<string, unknown> {
     const bucketCounts = this.hashTables.map(table => table.size);
     const totalBuckets = bucketCounts.reduce((sum, count) => sum + count, 0);
-    
+
     return {
       tableCount: this.hashTables.length,
       totalBuckets,
@@ -807,7 +800,7 @@ export class LSHIndex {
       totalVectors: this.vectorMap.size,
       cacheSize: this.queryCache.size(),
       cacheCapacity: this.config.cacheSize,
-      config: this.config
+      config: this.config,
     };
   }
 }
@@ -839,16 +832,16 @@ export class HybridANNIndex {
 
     // Combine and deduplicate results
     const combinedResults = new Map<string, SearchResult>();
-    
+
     // Cleaner score combination with explicit weights
     const w1 = 0.6; // Hierarchical weight
     const w2 = 0.4; // LSH weight
-    
+
     // Add hierarchical results with weight
     for (const result of hierarchicalResults) {
       combinedResults.set(result.id, {
         ...result,
-        similarity: result.similarity * w1
+        similarity: result.similarity * w1,
       });
     }
 
@@ -861,16 +854,18 @@ export class HybridANNIndex {
       } else {
         combinedResults.set(result.id, {
           ...result,
-          similarity: result.similarity * w2
+          similarity: result.similarity * w2,
         });
       }
     }
 
     // Sort by combined similarity and return top k
     const finalResults = Array.from(combinedResults.values());
-    
+
     // Use topK for efficiency instead of full sort
-    return topK(finalResults, k, (a, b) => a.similarity - b.similarity).sort((a, b) => b.similarity - a.similarity);
+    return topK(finalResults, k, (a, b) => a.similarity - b.similarity).sort(
+      (a, b) => b.similarity - a.similarity
+    );
   }
 
   getIndexStats(): Record<string, unknown> {
@@ -878,7 +873,7 @@ export class HybridANNIndex {
       algorithm: 'hybrid',
       hierarchical: this.hierarchicalIndex.getIndexStats(),
       lsh: this.lshIndex.getIndexStats(),
-      config: this.config
+      config: this.config,
     };
   }
 }
@@ -907,5 +902,5 @@ export const DEFAULT_ANN_CONFIG: ANNConfig = {
   clusterCount: 50,
   hashBits: 16,
   approximationLevel: 'balanced',
-  cacheSize: 1000
+  cacheSize: 1000,
 };

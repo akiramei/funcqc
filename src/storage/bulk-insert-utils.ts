@@ -52,7 +52,7 @@ export function prepareBulkInsertData(
       func.isStatic,
       func.accessModifier || null,
       func.jsDoc || null,
-      func.sourceCode || null
+      func.sourceCode || null,
     ]);
 
     // Prepare parameters
@@ -66,7 +66,7 @@ export function prepareBulkInsertData(
         param.isOptional,
         param.isRest,
         param.defaultValue || null,
-        param.description || null
+        param.description || null,
       ]);
     }
 
@@ -90,7 +90,7 @@ export function prepareBulkInsertData(
         func.metrics.codeToCommentRatio,
         func.metrics.halsteadVolume || null,
         func.metrics.halsteadDifficulty || null,
-        func.metrics.maintainabilityIndex || null
+        func.metrics.maintainabilityIndex || null,
       ]);
     }
   }
@@ -98,14 +98,18 @@ export function prepareBulkInsertData(
   return {
     functions: functionsData,
     parameters: parametersData,
-    metrics: metricsData
+    metrics: metricsData,
   };
 }
 
 /**
  * Generate bulk insert SQL statements
  */
-export function generateBulkInsertSQL(tableName: string, columns: string[], rowCount: number): string {
+export function generateBulkInsertSQL(
+  tableName: string,
+  columns: string[],
+  rowCount: number
+): string {
   if (rowCount === 0) return '';
 
   const placeholders: string[] = [];
@@ -127,11 +131,11 @@ export function generateBulkInsertSQL(tableName: string, columns: string[], rowC
  */
 export function splitIntoBatches<T>(data: T[], batchSize: number): T[][] {
   const batches: T[][] = [];
-  
+
   for (let i = 0; i < data.length; i += batchSize) {
     batches.push(data.slice(i, i + batchSize));
   }
-  
+
   return batches;
 }
 
@@ -144,10 +148,10 @@ const MAX_BATCH_SIZE = 1000;
  */
 export function calculateOptimalBatchSize(columnCount: number): number {
   const safeMaxParameters = Math.floor(POSTGRES_MAX_PARAMETERS * SAFETY_BUFFER_RATIO);
-  
+
   // Calculate how many rows we can insert at once
   const maxRows = Math.floor(safeMaxParameters / columnCount);
-  
+
   // Cap at a reasonable batch size to avoid memory issues
   return Math.min(maxRows, MAX_BATCH_SIZE);
 }

@@ -28,7 +28,7 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
   // Add schema version for future compatibility
   const outputData = {
     schema_version: schemaVersion,
-    ...data
+    ...data,
   };
 
   // Recursively sort keys for stable output
@@ -55,11 +55,11 @@ export function sanitizeForJson<T>(data: T): T | null {
   if (data === null || data === undefined) {
     return null;
   }
-  
+
   if (Array.isArray(data)) {
     return data.map(sanitizeForJson) as unknown as T;
   }
-  
+
   if (typeof data === 'object') {
     const sanitized = {} as Record<string, unknown>;
     for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
@@ -67,7 +67,7 @@ export function sanitizeForJson<T>(data: T): T | null {
     }
     return sanitized as unknown as T;
   }
-  
+
   return data;
 }
 

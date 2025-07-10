@@ -1,6 +1,12 @@
 import chalk from 'chalk';
 import simpleGit, { SimpleGit } from 'simple-git';
-import { HealthCommandOptions, FunctionInfo, FuncqcConfig, SnapshotInfo, QualityMetrics } from '../types';
+import {
+  HealthCommandOptions,
+  FunctionInfo,
+  FuncqcConfig,
+  SnapshotInfo,
+  QualityMetrics,
+} from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { QualityScorer } from '../utils/quality-scorer';
@@ -28,11 +34,11 @@ interface TrendAnalysis {
 export async function healthCommand(options: HealthCommandOptions): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
   const errorHandler = createErrorHandler(logger);
-  
+
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     if (!config.storage.path) {
       logger.error('Storage path is not configured');
       process.exit(1);
@@ -57,7 +63,6 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
     }
 
     await storage.close();
-    
   } catch (error) {
     if (error instanceof DatabaseError) {
       const funcqcError = errorHandler.createError(
@@ -80,8 +85,8 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
 }
 
 async function displayHealthOverview(
-  storage: PGLiteStorageAdapter, 
-  config: FuncqcConfig, 
+  storage: PGLiteStorageAdapter,
+  config: FuncqcConfig,
   options: HealthCommandOptions
 ): Promise<void> {
   console.log(chalk.blue('funcqc Health Report'));
@@ -89,7 +94,7 @@ async function displayHealthOverview(
   console.log();
 
   const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
-  
+
   if (snapshots.length === 0) {
     console.log(chalk.yellow('Warning: No data found'));
     console.log('Run "funcqc scan" to analyze your project');
@@ -98,7 +103,7 @@ async function displayHealthOverview(
 
   const latest = snapshots[0];
   const functions = await storage.getFunctions(latest.id);
-  
+
   if (functions.length === 0) {
     console.log(chalk.yellow('Warning: No functions found in latest snapshot'));
     return;
@@ -128,12 +133,12 @@ async function displayHealthOverview(
 }
 
 async function displayQualityOverview(
-  functions: FunctionInfo[], 
-  _config: FuncqcConfig, 
+  functions: FunctionInfo[],
+  _config: FuncqcConfig,
   verbose: boolean
 ): Promise<void> {
   console.log(chalk.yellow('Quality Overview:'));
-  
+
   const functionsWithMetrics = functions.filter(f => f.metrics);
   if (functionsWithMetrics.length === 0) {
     console.log('  No quality metrics available');
@@ -151,7 +156,7 @@ async function displayQualityOverview(
   if (verbose) {
     console.log(`  Code Quality Score: ${projectScore.codeQualityScore}/100`);
     console.log(`  High Risk Functions: ${projectScore.highRiskFunctions}`);
-    
+
     if (projectScore.topProblematicFunctions.length > 0) {
       console.log('  Most Problematic Functions:');
       projectScore.topProblematicFunctions.slice(0, 3).forEach((func, index) => {
@@ -162,9 +167,13 @@ async function displayQualityOverview(
   console.log();
 }
 
-async function displayRiskDistribution(functions: FunctionInfo[], config: FuncqcConfig, verbose: boolean = false): Promise<void> {
+async function displayRiskDistribution(
+  functions: FunctionInfo[],
+  config: FuncqcConfig,
+  verbose: boolean = false
+): Promise<void> {
   console.log(chalk.yellow('Risk Distribution:'));
-  
+
   const functionsWithMetrics = functions.filter(f => f.metrics);
   if (functionsWithMetrics.length === 0) {
     console.log('  No risk assessment available');
@@ -180,10 +189,16 @@ async function displayRiskDistribution(functions: FunctionInfo[], config: Funcqc
 
     const { riskDistribution } = riskAssessment;
     const total = riskDistribution.high + riskDistribution.medium + riskDistribution.low;
-    
-    console.log(`  High Risk: ${riskDistribution.high} functions (${((riskDistribution.high / total) * 100).toFixed(1)}%)`);
-    console.log(`  Medium Risk: ${riskDistribution.medium} functions (${((riskDistribution.medium / total) * 100).toFixed(1)}%)`);
-    console.log(`  Low Risk: ${riskDistribution.low} functions (${((riskDistribution.low / total) * 100).toFixed(1)}%)`);
+
+    console.log(
+      `  High Risk: ${riskDistribution.high} functions (${((riskDistribution.high / total) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `  Medium Risk: ${riskDistribution.medium} functions (${((riskDistribution.medium / total) * 100).toFixed(1)}%)`
+    );
+    console.log(
+      `  Low Risk: ${riskDistribution.low} functions (${((riskDistribution.low / total) * 100).toFixed(1)}%)`
+    );
     console.log();
   } catch (error) {
     console.log('  Risk assessment failed');
@@ -211,7 +226,7 @@ async function displayDetailedRiskAssessment(
 
   const functions = await storage.getFunctions(snapshots[0].id);
   const functionsWithMetrics = functions.filter(f => f.metrics);
-  
+
   if (functionsWithMetrics.length === 0) {
     console.log(chalk.yellow('Warning: No functions with metrics found'));
     return;
@@ -231,7 +246,7 @@ async function displayDetailedRiskAssessment(
 
     // Display risk summary
     const summary = riskAssessor.createAssessmentSummary(riskAssessment);
-    
+
     console.log(chalk.yellow('Risk Summary:'));
     console.log(`  Total Functions: ${summary.totalFunctions}`);
     console.log(`  High Risk: ${summary.highRiskFunctions}`);
@@ -250,7 +265,9 @@ async function displayDetailedRiskAssessment(
       console.log(chalk.yellow('Most Complex Function:'));
       const worstFunction = functionsWithMetrics.find(f => f.id === summary.worstFunctionId);
       if (worstFunction) {
-        console.log(`  ${worstFunction.displayName}() in ${worstFunction.filePath}:${worstFunction.startLine}`);
+        console.log(
+          `  ${worstFunction.displayName}() in ${worstFunction.filePath}:${worstFunction.startLine}`
+        );
       }
       console.log();
     }
@@ -260,9 +277,11 @@ async function displayDetailedRiskAssessment(
       console.log(`  ${summary.mostCommonViolation}`);
       console.log();
     }
-
   } catch (error) {
-    console.error(chalk.red('Risk assessment failed:'), error instanceof Error ? error.message : String(error));
+    console.error(
+      chalk.red('Risk assessment failed:'),
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }
 
@@ -276,7 +295,7 @@ async function displayTrendAnalysis(
   console.log();
 
   const snapshots = await storage.getSnapshots();
-  
+
   if (snapshots.length < 2) {
     console.log(chalk.yellow('Warning: Not enough data for trend analysis'));
     console.log('Need at least 2 snapshots to show trends');
@@ -286,7 +305,7 @@ async function displayTrendAnalysis(
 
   const periodDays = determinePeriod(options);
   const trendData = await analyzeTrends(snapshots, periodDays, storage);
-  
+
   if (options.json) {
     console.log(JSON.stringify(trendData, null, 2));
   } else {
@@ -318,7 +337,7 @@ async function analyzeTrends(
   for (let i = 0; i < maxPeriods; i++) {
     const periodEnd = new Date(now.getTime() - i * periodMs);
     const periodStart = new Date(periodEnd.getTime() - periodMs);
-    
+
     const periodSnapshots = snapshots.filter(s => {
       const snapshotDate = new Date(s.createdAt);
       return snapshotDate >= periodStart && snapshotDate < periodEnd;
@@ -328,16 +347,16 @@ async function analyzeTrends(
 
     const functions = await storage.getFunctions(periodSnapshots[0].id);
     const functionsWithMetrics = functions.filter(f => f.metrics);
-    
+
     if (functionsWithMetrics.length === 0) continue;
 
-    const avgComplexity = functionsWithMetrics.reduce(
-      (sum, f) => sum + f.metrics!.cyclomaticComplexity, 0
-    ) / functionsWithMetrics.length;
+    const avgComplexity =
+      functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.cyclomaticComplexity, 0) /
+      functionsWithMetrics.length;
 
     // Simple quality score calculation
     const qualityScore = Math.max(0, 100 - (avgComplexity - 1) * 10);
-    
+
     const highRiskCount = functionsWithMetrics.filter(
       f => f.metrics!.cyclomaticComplexity > 10
     ).length;
@@ -349,59 +368,66 @@ async function analyzeTrends(
       totalFunctions: functionsWithMetrics.length,
       highRiskCount,
       qualityScore,
-      trend: 'stable' // Simple implementation
+      trend: 'stable', // Simple implementation
     });
   }
 
   // Calculate overall trend
-  const overallTrend = periods.length >= 2 && periods[0].qualityScore > periods[1].qualityScore
-    ? 'improving' : periods.length >= 2 && periods[0].qualityScore < periods[1].qualityScore
-    ? 'degrading' : 'stable';
+  const overallTrend =
+    periods.length >= 2 && periods[0].qualityScore > periods[1].qualityScore
+      ? 'improving'
+      : periods.length >= 2 && periods[0].qualityScore < periods[1].qualityScore
+        ? 'degrading'
+        : 'stable';
 
   return {
     periods: periods.reverse(),
     overallTrend,
     keyInsights: generateKeyInsights(periods),
-    recommendations: generateRecommendations(periods)
+    recommendations: generateRecommendations(periods),
   };
 }
 
 function generateKeyInsights(periods: TrendData[]): string[] {
   const insights: string[] = [];
-  
+
   if (periods.length >= 2) {
     const latest = periods[periods.length - 1];
     const previous = periods[periods.length - 2];
-    
+
     const complexityChange = latest.avgComplexity - previous.avgComplexity;
     if (Math.abs(complexityChange) > 0.5) {
-      insights.push(`Complexity ${complexityChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(complexityChange).toFixed(1)}`);
+      insights.push(
+        `Complexity ${complexityChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(complexityChange).toFixed(1)}`
+      );
     }
-    
+
     const riskChange = latest.highRiskCount - previous.highRiskCount;
     if (riskChange !== 0) {
-      insights.push(`High-risk functions ${riskChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(riskChange)}`);
+      insights.push(
+        `High-risk functions ${riskChange > 0 ? 'increased' : 'decreased'} by ${Math.abs(riskChange)}`
+      );
     }
   }
-  
+
   return insights;
 }
 
 function generateRecommendations(periods: TrendData[]): string[] {
   const recommendations: string[] = [];
-  
+
   if (periods.length > 0) {
     const latest = periods[periods.length - 1];
-    
+
     if (latest.highRiskCount > 0) {
       recommendations.push('Review high-risk functions for refactoring opportunities');
     }
-    
+
     if (latest.avgComplexity > 5) {
       recommendations.push('Consider breaking down complex functions');
     }
   }
-  
+
   return recommendations;
 }
 
@@ -480,12 +506,12 @@ async function displayGitStatus(verbose: boolean): Promise<void> {
   try {
     const git: SimpleGit = simpleGit();
     const status = await git.status();
-    
+
     console.log(chalk.yellow('Git Status:'));
     console.log(`  Branch: ${status.current || 'unknown'}`);
     console.log(`  Staged Files: ${status.staged.length}`);
     console.log(`  Modified Files: ${status.modified.length}`);
-    
+
     if (verbose && (status.staged.length > 0 || status.modified.length > 0)) {
       if (status.staged.length > 0) {
         console.log('  Staged:');
@@ -514,7 +540,7 @@ async function displayDetailedInsights(
   snapshots: SnapshotInfo[]
 ): Promise<void> {
   console.log(chalk.yellow('Detailed Insights:'));
-  
+
   const functionsWithMetrics = functions.filter(f => f.metrics);
   if (functionsWithMetrics.length === 0) return;
 
@@ -525,7 +551,9 @@ async function displayDetailedInsights(
 
   console.log('  Most Complex Functions:');
   mostComplex.forEach((func, index) => {
-    console.log(`    ${index + 1}. ${func.displayName}() (CC: ${func.metrics!.cyclomaticComplexity})`);
+    console.log(
+      `    ${index + 1}. ${func.displayName}() (CC: ${func.metrics!.cyclomaticComplexity})`
+    );
     console.log(`       ${func.filePath}:${func.startLine}`);
   });
   console.log();
@@ -542,9 +570,12 @@ async function displayDetailedInsights(
 
 function getTrendDisplay(trend: 'improving' | 'stable' | 'degrading'): string {
   switch (trend) {
-    case 'improving': return chalk.green('Improving');
-    case 'degrading': return chalk.red('Degrading');
-    default: return chalk.yellow('Stable');
+    case 'improving':
+      return chalk.green('Improving');
+    case 'degrading':
+      return chalk.red('Degrading');
+    default:
+      return chalk.yellow('Stable');
   }
 }
 
@@ -596,37 +627,55 @@ async function displayAIOptimizedHealth(
   _options: HealthCommandOptions
 ): Promise<void> {
   const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
-  
+
   if (snapshots.length === 0) {
-    console.log(JSON.stringify({
-      error: 'No data found',
-      suggestion: 'Run "funcqc scan" to analyze your project'
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          error: 'No data found',
+          suggestion: 'Run "funcqc scan" to analyze your project',
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
   const latest = snapshots[0];
   const functions = await storage.getFunctions(latest.id);
-  
+
   if (functions.length === 0) {
-    console.log(JSON.stringify({
-      error: 'No functions found in latest snapshot'
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          error: 'No functions found in latest snapshot',
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
   const functionsWithMetrics = functions.filter(f => f.metrics);
-  
+
   if (functionsWithMetrics.length === 0) {
-    console.log(JSON.stringify({
-      error: 'No functions with metrics found'
-    }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          error: 'No functions with metrics found',
+        },
+        null,
+        2
+      )
+    );
     return;
   }
 
   const scorer = new QualityScorer();
   const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
-  
+
   // Get high risk functions with detailed information (expanded criteria)
   const highRiskFunctions = functionsWithMetrics.filter(f => {
     const complexity = f.metrics?.cyclomaticComplexity || 1;
@@ -641,19 +690,21 @@ async function displayAIOptimizedHealth(
     const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
     const tryCatchCount = f.metrics?.tryCatchCount || 0;
     const loopCount = f.metrics?.loopCount || 0;
-    
-    return complexity > config.metrics.complexityThreshold || 
-           cognitiveComplexity > config.metrics.cognitiveComplexityThreshold ||
-           maintainability < 50 || 
-           lines > config.metrics.linesOfCodeThreshold ||
-           nesting > config.metrics.maxNestingLevelThreshold ||
-           branches > Math.max(5, config.metrics.complexityThreshold / 2) ||
-           halsteadVolume > 1000 ||
-           halsteadDifficulty > 20 ||
-           returnStatements > 3 ||
-           asyncAwaitCount > 3 ||
-           tryCatchCount > 2 ||
-           loopCount > 3;
+
+    return (
+      complexity > config.metrics.complexityThreshold ||
+      cognitiveComplexity > config.metrics.cognitiveComplexityThreshold ||
+      maintainability < 50 ||
+      lines > config.metrics.linesOfCodeThreshold ||
+      nesting > config.metrics.maxNestingLevelThreshold ||
+      branches > Math.max(5, config.metrics.complexityThreshold / 2) ||
+      halsteadVolume > 1000 ||
+      halsteadDifficulty > 20 ||
+      returnStatements > 3 ||
+      asyncAwaitCount > 3 ||
+      tryCatchCount > 2 ||
+      loopCount > 3
+    );
   });
 
   // Sort by risk score (complexity + size + maintainability issues)
@@ -663,7 +714,7 @@ async function displayAIOptimizedHealth(
       return {
         function: f,
         riskScore,
-        riskFactors
+        riskFactors,
       };
     })
     .sort((a, b) => b.riskScore - a.riskScore);
@@ -675,13 +726,13 @@ async function displayAIOptimizedHealth(
       high_risk_functions: highRiskFunctions.length,
       overall_grade: projectScore.overallGrade,
       overall_score: projectScore.score,
-      last_analyzed: new Date(latest.createdAt).toISOString()
+      last_analyzed: new Date(latest.createdAt).toISOString(),
     },
     high_risk_functions: sortedHighRiskFunctions.map((item, index) => {
       const f = item.function;
       const complexity = f.metrics?.cyclomaticComplexity || 1;
       const lines = f.metrics?.linesOfCode || 0;
-      
+
       return {
         id: f.id,
         name: f.name,
@@ -705,12 +756,12 @@ async function displayAIOptimizedHealth(
           return_statement_count: f.metrics?.returnStatementCount || 0,
           async_await_count: f.metrics?.asyncAwaitCount || 0,
           try_catch_count: f.metrics?.tryCatchCount || 0,
-          loop_count: f.metrics?.loopCount || 0
-        }
+          loop_count: f.metrics?.loopCount || 0,
+        },
       };
     }),
     improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions, config),
-    next_actions: generateNextActions(sortedHighRiskFunctions, config)
+    next_actions: generateNextActions(sortedHighRiskFunctions, config),
   };
 
   console.log(JSON.stringify(report, null, 2));
@@ -732,40 +783,40 @@ function calculateRiskScore(
   const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
   const tryCatchCount = f.metrics?.tryCatchCount || 0;
   const loopCount = f.metrics?.loopCount || 0;
-  
+
   let riskScore = 0;
   const riskFactors: string[] = [];
-  
+
   // Cyclomatic complexity (existing)
   if (complexity > config.metrics.complexityThreshold) {
     riskScore += (complexity - config.metrics.complexityThreshold) * 10;
     riskFactors.push(`complexity:${complexity}`);
   }
-  
+
   // Cognitive complexity (new - more accurate for human understanding)
   if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
     riskScore += (cognitiveComplexity - config.metrics.cognitiveComplexityThreshold) * 12;
     riskFactors.push(`cognitive_complexity:${cognitiveComplexity}`);
   }
-  
+
   // Maintainability index (existing)
   if (maintainability < 50) {
     riskScore += (50 - maintainability) * 2;
     riskFactors.push(`maintainability:${maintainability.toFixed(1)}`);
   }
-  
+
   // Lines of code (existing)
   if (lines > config.metrics.linesOfCodeThreshold) {
     riskScore += (lines - config.metrics.linesOfCodeThreshold) * 0.5;
     riskFactors.push(`size:${lines}`);
   }
-  
+
   // Max nesting level (new - readability indicator)
   if (nesting > config.metrics.maxNestingLevelThreshold) {
     riskScore += (nesting - config.metrics.maxNestingLevelThreshold) * 15;
     riskFactors.push(`deep_nesting:${nesting}`);
   }
-  
+
   // Branch count (new - testing complexity indicator)
   // Use either 5 or half the complexity threshold, whichever is higher
   // This ensures reasonable branch limits even with low complexity thresholds
@@ -774,61 +825,71 @@ function calculateRiskScore(
     riskScore += (branches - branchThreshold) * 8;
     riskFactors.push(`excessive_branching:${branches}`);
   }
-  
+
   // Halstead volume (new - mental effort required)
   // Use configured threshold or reasonable default for TypeScript
-  const halsteadVolumeThreshold = (typeof config.thresholds?.halsteadVolume?.warning === 'number') 
-    ? config.thresholds.halsteadVolume.warning : 1000;
+  const halsteadVolumeThreshold =
+    typeof config.thresholds?.halsteadVolume?.warning === 'number'
+      ? config.thresholds.halsteadVolume.warning
+      : 1000;
   if (halsteadVolume > halsteadVolumeThreshold) {
     riskScore += (halsteadVolume - halsteadVolumeThreshold) * 0.05;
     riskFactors.push(`high_halstead_volume:${Math.round(halsteadVolume)}`);
   }
-  
+
   // Halstead difficulty (new - program difficulty)
   // Use configured threshold or reasonable default for TypeScript
-  const halsteadDifficultyThreshold = (typeof config.thresholds?.halsteadDifficulty?.warning === 'number') 
-    ? config.thresholds.halsteadDifficulty.warning : 20;
+  const halsteadDifficultyThreshold =
+    typeof config.thresholds?.halsteadDifficulty?.warning === 'number'
+      ? config.thresholds.halsteadDifficulty.warning
+      : 20;
   if (halsteadDifficulty > halsteadDifficultyThreshold) {
     riskScore += (halsteadDifficulty - halsteadDifficultyThreshold) * 3;
     riskFactors.push(`high_halstead_difficulty:${Math.round(halsteadDifficulty)}`);
   }
-  
+
   // Return statement count (new - control flow complexity)
   // Use configured threshold or reasonable default
-  const returnThreshold = (typeof config.thresholds?.returnStatements?.warning === 'number') 
-    ? config.thresholds.returnStatements.warning : 3;
+  const returnThreshold =
+    typeof config.thresholds?.returnStatements?.warning === 'number'
+      ? config.thresholds.returnStatements.warning
+      : 3;
   if (returnStatements > returnThreshold) {
     riskScore += (returnStatements - returnThreshold) * 6;
     riskFactors.push(`multiple_returns:${returnStatements}`);
   }
-  
+
   // Async/await count (new - async complexity)
   // Use configured threshold or reasonable default
-  const asyncThreshold = (typeof config.thresholds?.asyncAwait?.warning === 'number') 
-    ? config.thresholds.asyncAwait.warning : 3;
+  const asyncThreshold =
+    typeof config.thresholds?.asyncAwait?.warning === 'number'
+      ? config.thresholds.asyncAwait.warning
+      : 3;
   if (asyncAwaitCount > asyncThreshold) {
     riskScore += (asyncAwaitCount - asyncThreshold) * 4;
     riskFactors.push(`heavy_async:${asyncAwaitCount}`);
   }
-  
+
   // Try-catch count (new - error handling complexity)
   // Use configured threshold or reasonable default
-  const tryCatchThreshold = (typeof config.thresholds?.tryCatch?.warning === 'number') 
-    ? config.thresholds.tryCatch.warning : 2;
+  const tryCatchThreshold =
+    typeof config.thresholds?.tryCatch?.warning === 'number'
+      ? config.thresholds.tryCatch.warning
+      : 2;
   if (tryCatchCount > tryCatchThreshold) {
     riskScore += (tryCatchCount - tryCatchThreshold) * 5;
     riskFactors.push(`complex_error_handling:${tryCatchCount}`);
   }
-  
+
   // Loop count (new - iteration complexity)
   // Use configured threshold or reasonable default
-  const loopThreshold = (typeof config.thresholds?.loops?.warning === 'number') 
-    ? config.thresholds.loops.warning : 3;
+  const loopThreshold =
+    typeof config.thresholds?.loops?.warning === 'number' ? config.thresholds.loops.warning : 3;
   if (loopCount > loopThreshold) {
     riskScore += (loopCount - loopThreshold) * 7;
     riskFactors.push(`excessive_loops:${loopCount}`);
   }
-  
+
   return { riskScore, riskFactors };
 }
 
@@ -862,142 +923,138 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
     codeToCommentRatio: 0,
     halsteadVolume: 0,
     halsteadDifficulty: 0,
-    maintainabilityIndex: 0
+    maintainabilityIndex: 0,
   };
   const suggestedActionsSet = new Set<string>();
-  
+
   // Helper function to get configurable threshold with fallback
-  const getConfigurableThreshold = (
-    thresholdPath: string,
-    defaultValue: number
-  ): number => {
+  const getConfigurableThreshold = (thresholdPath: string, defaultValue: number): number => {
     const thresholdConfig = config.thresholds?.[thresholdPath as keyof typeof config.thresholds];
-    return (typeof thresholdConfig?.warning === 'number') 
-      ? thresholdConfig.warning : defaultValue;
+    return typeof thresholdConfig?.warning === 'number' ? thresholdConfig.warning : defaultValue;
   };
-  
+
   // Define metric-to-action mapping rules
   const metricRules: MetricThresholdRule[] = [
     {
       name: 'cyclomaticComplexity',
-      getValue: (m) => m.cyclomaticComplexity || 1,
-      getThreshold: (c) => c.metrics.complexityThreshold,
+      getValue: m => m.cyclomaticComplexity || 1,
+      getThreshold: c => c.metrics.complexityThreshold,
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['extract_methods', 'reduce_branching']
-      }
+        actions: ['extract_methods', 'reduce_branching'],
+      },
     },
     {
       name: 'cognitiveComplexity',
-      getValue: (m) => m.cognitiveComplexity || 0,
-      getThreshold: (c) => c.metrics.cognitiveComplexityThreshold,
+      getValue: m => m.cognitiveComplexity || 0,
+      getThreshold: c => c.metrics.cognitiveComplexityThreshold,
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['simplify_logic', 'reduce_cognitive_load']
-      }
+        actions: ['simplify_logic', 'reduce_cognitive_load'],
+      },
     },
     {
       name: 'linesOfCode',
-      getValue: (m) => m.linesOfCode || 0,
-      getThreshold: (c) => c.metrics.linesOfCodeThreshold * 3,
+      getValue: m => m.linesOfCode || 0,
+      getThreshold: c => c.metrics.linesOfCodeThreshold * 3,
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['split_function', 'extract_helpers']
-      }
+        actions: ['split_function', 'extract_helpers'],
+      },
     },
     {
       name: 'parameterCount',
-      getValue: (m) => m.parameterCount || 0,
-      getThreshold: (c) => c.metrics.parameterCountThreshold,
+      getValue: m => m.parameterCount || 0,
+      getThreshold: c => c.metrics.parameterCountThreshold,
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['parameterize_object', 'extract_config']
-      }
+        actions: ['parameterize_object', 'extract_config'],
+      },
     },
     {
       name: 'maxNestingLevel',
-      getValue: (m) => m.maxNestingLevel || 0,
-      getThreshold: (c) => c.metrics.maxNestingLevelThreshold,
+      getValue: m => m.maxNestingLevel || 0,
+      getThreshold: c => c.metrics.maxNestingLevelThreshold,
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['flatten_structure', 'use_early_returns']
-      }
+        actions: ['flatten_structure', 'use_early_returns'],
+      },
     },
     {
       name: 'branchCount',
-      getValue: (m) => m.branchCount || 0,
-      getThreshold: (c) => Math.max(5, c.metrics.complexityThreshold / 2),
+      getValue: m => m.branchCount || 0,
+      getThreshold: c => Math.max(5, c.metrics.complexityThreshold / 2),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['consolidate_branches', 'extract_switch_logic']
-      }
+        actions: ['consolidate_branches', 'extract_switch_logic'],
+      },
     },
     {
       name: 'halsteadVolume',
-      getValue: (m) => m.halsteadVolume || 0,
+      getValue: m => m.halsteadVolume || 0,
       getThreshold: () => getConfigurableThreshold('halsteadVolume', 1000),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['reduce_vocabulary', 'extract_constants']
-      }
+        actions: ['reduce_vocabulary', 'extract_constants'],
+      },
     },
     {
       name: 'halsteadDifficulty',
-      getValue: (m) => m.halsteadDifficulty || 0,
+      getValue: m => m.halsteadDifficulty || 0,
       getThreshold: () => getConfigurableThreshold('halsteadDifficulty', 20),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['simplify_expressions', 'improve_readability']
-      }
+        actions: ['simplify_expressions', 'improve_readability'],
+      },
     },
     {
       name: 'returnStatementCount',
-      getValue: (m) => m.returnStatementCount || 0,
+      getValue: m => m.returnStatementCount || 0,
       getThreshold: () => getConfigurableThreshold('returnStatements', 3),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['unify_returns', 'extract_result_builder']
-      }
+        actions: ['unify_returns', 'extract_result_builder'],
+      },
     },
     {
       name: 'asyncAwaitCount',
-      getValue: (m) => m.asyncAwaitCount || 0,
+      getValue: m => m.asyncAwaitCount || 0,
       getThreshold: () => getConfigurableThreshold('asyncAwait', 3),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['extract_async_helpers', 'simplify_async_flow']
-      }
+        actions: ['extract_async_helpers', 'simplify_async_flow'],
+      },
     },
     {
       name: 'tryCatchCount',
-      getValue: (m) => m.tryCatchCount || 0,
+      getValue: m => m.tryCatchCount || 0,
       getThreshold: () => getConfigurableThreshold('tryCatch', 2),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['consolidate_error_handling', 'extract_error_handlers']
-      }
+        actions: ['consolidate_error_handling', 'extract_error_handlers'],
+      },
     },
     {
       name: 'loopCount',
-      getValue: (m) => m.loopCount || 0,
+      getValue: m => m.loopCount || 0,
       getThreshold: () => getConfigurableThreshold('loops', 3),
       rule: {
         condition: (val, threshold) => val > threshold,
-        actions: ['extract_loop_logic', 'use_functional_style']
-      }
-    }
+        actions: ['extract_loop_logic', 'use_functional_style'],
+      },
+    },
   ];
-  
+
   // Apply all metric rules
   metricRules.forEach(({ getValue, getThreshold, rule }) => {
     const value = getValue(metrics);
     const threshold = getThreshold(config);
-    
+
     if (rule.condition(value, threshold)) {
       rule.actions.forEach(action => suggestedActionsSet.add(action));
     }
   });
-  
+
   return Array.from(suggestedActionsSet);
 }
 
@@ -1008,7 +1065,11 @@ function estimateEffort(complexity: number, config: FuncqcConfig): string {
 }
 
 function generateImprovementRoadmap(
-  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  sortedHighRiskFunctions: Array<{
+    function: FunctionInfo;
+    riskScore: number;
+    riskFactors: string[];
+  }>,
   config: FuncqcConfig
 ): Array<{
   step: number;
@@ -1023,20 +1084,25 @@ function generateImprovementRoadmap(
     const complexity = f.metrics?.cyclomaticComplexity || 1;
     const highThreshold = config.metrics.complexityThreshold * 2;
     const mediumThreshold = config.metrics.complexityThreshold * 1.5;
-    
+
     return {
       step: index + 1,
       function_id: f.id,
       action: complexity > mediumThreshold ? 'split_complex_function' : 'refactor_simplify',
       estimated_time: complexity > highThreshold ? '90min' : '45min',
       impact: complexity > highThreshold ? 'high' : complexity > mediumThreshold ? 'medium' : 'low',
-      difficulty: complexity > highThreshold ? 'hard' : complexity > mediumThreshold ? 'medium' : 'easy'
+      difficulty:
+        complexity > highThreshold ? 'hard' : complexity > mediumThreshold ? 'medium' : 'easy',
     };
   });
 }
 
 function generateNextActions(
-  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  sortedHighRiskFunctions: Array<{
+    function: FunctionInfo;
+    riskScore: number;
+    riskFactors: string[];
+  }>,
   config: FuncqcConfig
 ): Array<{
   action_type: 'refactor' | 'split' | 'extract' | 'simplify';
@@ -1055,11 +1121,11 @@ function generateNextActions(
     const halsteadVolume = f.metrics?.halsteadVolume || 0;
     const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
     const returnStatements = f.metrics?.returnStatementCount || 0;
-    
+
     let actionType: 'refactor' | 'split' | 'extract' | 'simplify';
     let description: string;
     let specificSteps: string[];
-    
+
     // Prioritize based on most critical risk factors
     if (halsteadDifficulty > 20) {
       actionType = 'simplify';
@@ -1068,7 +1134,7 @@ function generateNextActions(
         'Replace complex expressions with meaningful variable names',
         'Extract magic numbers and strings into constants',
         'Simplify operator usage and reduce expression complexity',
-        'Use descriptive method names instead of inline logic'
+        'Use descriptive method names instead of inline logic',
       ];
     } else if (returnStatements > 3) {
       actionType = 'refactor';
@@ -1077,7 +1143,7 @@ function generateNextActions(
         'Identify the common return pattern',
         'Extract result building logic into a helper function',
         'Use a single return statement at the end of the function',
-        'Consider using a result object pattern'
+        'Consider using a result object pattern',
       ];
     } else if (nesting > config.metrics.maxNestingLevelThreshold) {
       actionType = 'simplify';
@@ -1086,7 +1152,7 @@ function generateNextActions(
         'Replace nested conditions with early returns',
         'Extract nested logic into separate functions',
         'Use guard clauses to reduce nesting',
-        'Consider using switch statements or strategy pattern'
+        'Consider using switch statements or strategy pattern',
       ];
     } else if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
       actionType = 'simplify';
@@ -1095,16 +1161,19 @@ function generateNextActions(
         'Break down complex logical expressions',
         'Extract meaningful variable names for conditions',
         'Simplify control flow structures',
-        'Use helper functions for repeated patterns'
+        'Use helper functions for repeated patterns',
       ];
-    } else if (complexity > config.metrics.complexityThreshold * 1.5 && lines > config.metrics.linesOfCodeThreshold * 2.5) {
+    } else if (
+      complexity > config.metrics.complexityThreshold * 1.5 &&
+      lines > config.metrics.linesOfCodeThreshold * 2.5
+    ) {
       actionType = 'split';
       description = 'Split large, complex function into smaller, focused functions';
       specificSteps = [
         'Identify logical sections within the function',
         'Extract each section into a separate function',
         'Reduce main function to coordinating calls',
-        'Verify tests still pass'
+        'Verify tests still pass',
       ];
     } else if (halsteadVolume > 1000) {
       actionType = 'extract';
@@ -1113,7 +1182,7 @@ function generateNextActions(
         'Extract repeated code patterns into functions',
         'Create constants for magic numbers and strings',
         'Reduce vocabulary size by standardizing naming',
-        'Split function into smaller, focused functions'
+        'Split function into smaller, focused functions',
       ];
     } else if (branches > Math.max(5, config.metrics.complexityThreshold / 2)) {
       actionType = 'extract';
@@ -1122,7 +1191,7 @@ function generateNextActions(
         'Group related conditions together',
         'Extract switch/case logic into separate functions',
         'Use lookup tables for simple mappings',
-        'Consider strategy or state pattern for complex branching'
+        'Consider strategy or state pattern for complex branching',
       ];
     } else if (complexity > config.metrics.complexityThreshold * 1.5) {
       actionType = 'simplify';
@@ -1131,7 +1200,7 @@ function generateNextActions(
         'Replace nested if-else with early returns',
         'Extract complex conditions into named functions',
         'Use strategy pattern for multiple similar branches',
-        'Simplify boolean expressions'
+        'Simplify boolean expressions',
       ];
     } else {
       actionType = 'refactor';
@@ -1140,16 +1209,16 @@ function generateNextActions(
         'Extract magic numbers into constants',
         'Improve variable naming',
         'Add appropriate comments',
-        'Reduce parameter count if needed'
+        'Reduce parameter count if needed',
       ];
     }
-    
+
     return {
       action_type: actionType,
       function_id: f.id,
       description,
       code_location: `${f.filePath}:${f.startLine}-${f.endLine}`,
-      specific_steps: specificSteps
+      specific_steps: specificSteps,
     };
   });
 }
