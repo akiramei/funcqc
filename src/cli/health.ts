@@ -36,54 +36,67 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
   const errorHandler = createErrorHandler(logger);
 
   try {
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-
-    if (!config.storage.path) {
-      logger.error('Storage path is not configured');
-      process.exit(1);
-    }
-
-    const storage = new PGLiteStorageAdapter(config.storage.path);
-    await storage.init();
-
-    // Handle different modes
-    if (options.trend) {
-      await displayTrendAnalysis(storage, options, logger);
-    } else if (options.risks) {
-      await displayDetailedRiskAssessment(storage, config, options);
-    } else if (options.showConfig) {
-      displayConfigurationDetails(config, options.verbose || false);
-    } else if (options.json || options.aiOptimized) {
-      // JSON output (new default for structured data)
-      if (options.aiOptimized) {
-        logger.warn('Warning: --ai-optimized option is deprecated. Use --json instead.');
-      }
-      await displayAIOptimizedHealth(storage, config, options);
-    } else {
-      // Default: Human-readable health overview  
-      await displayHealthOverview(storage, config, options);
-    }
-
+    const { storage, config } = await setupHealthCommand(options, logger);
+    await executeHealthCommand(storage, config, options, logger);
     await storage.close();
   } catch (error) {
-    if (error instanceof DatabaseError) {
-      const funcqcError = errorHandler.createError(
-        error.code,
-        error.message,
-        {},
-        error.originalError
-      );
-      errorHandler.handleError(funcqcError);
-    } else {
-      const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Failed to generate health report: ${error instanceof Error ? error.message : String(error)}`,
-        {},
-        error instanceof Error ? error : undefined
-      );
-      errorHandler.handleError(funcqcError);
-    }
+    handleHealthError(error, errorHandler);
+  }
+}
+
+async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger) {
+  const configManager = new ConfigManager();
+  const config = await configManager.load();
+
+  if (!config.storage.path) {
+    logger.error('Storage path is not configured');
+    process.exit(1);
+  }
+
+  const storage = new PGLiteStorageAdapter(config.storage.path);
+  await storage.init();
+
+  return { storage, config };
+}
+
+async function executeHealthCommand(storage: any, config: any, options: HealthCommandOptions, logger: Logger) {
+  if (options.trend) {
+    await displayTrendAnalysis(storage, options, logger);
+  } else if (options.risks) {
+    await displayDetailedRiskAssessment(storage, config, options);
+  } else if (options.showConfig) {
+    displayConfigurationDetails(config, options.verbose || false);
+  } else if (options.json || options.aiOptimized) {
+    await handleJsonOutput(storage, config, options, logger);
+  } else {
+    await displayHealthOverview(storage, config, options);
+  }
+}
+
+async function handleJsonOutput(storage: any, config: any, options: HealthCommandOptions, logger: Logger) {
+  if (options.aiOptimized) {
+    logger.warn('Warning: --ai-optimized option is deprecated. Use --json instead.');
+  }
+  await displayAIOptimizedHealth(storage, config, options);
+}
+
+function handleHealthError(error: unknown, errorHandler: any): void {
+  if (error instanceof DatabaseError) {
+    const funcqcError = errorHandler.createError(
+      error.code,
+      error.message,
+      {},
+      error.originalError
+    );
+    errorHandler.handleError(funcqcError);
+  } else {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to generate health report: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
@@ -667,12 +680,6 @@ async function validateHealthData(
   return { latest, functionsWithMetrics };
 }
 
-function handleHealthError(error: unknown): void {
-  console.log(JSON.stringify({
-    error: 'Failed to generate health report',
-    details: error instanceof Error ? error.message : 'Unknown error'
-  }, null, 2));
-}
 
 async function assessHighRiskFunctions(
   functionsWithMetrics: FunctionInfo[],
@@ -789,7 +796,10 @@ async function displayAIOptimizedHealth(
     console.log(JSON.stringify(report, null, 2));
     
   } catch (error) {
-    handleHealthError(error);
+    console.log(JSON.stringify({
+      error: 'Failed to generate health report',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, null, 2));
   }
 }
 

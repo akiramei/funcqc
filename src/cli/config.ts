@@ -125,10 +125,25 @@ async function handleShowPreset(
     return;
   }
 
+  displayPresetDetails(preset);
+}
+
+function displayPresetDetails(preset: any): void {
+  displayPresetHeader(preset);
+  displayPresetBasicInfo(preset);
+  displayPresetContext(preset);
+  displayQualityThresholds(preset);
+  displayRecommendations(preset);
+  displayMetadata(preset);
+}
+
+function displayPresetHeader(preset: any): void {
   console.log(chalk.blue(`Configuration Preset: ${preset.name}`));
   console.log('-'.repeat(50));
   console.log();
+}
 
+function displayPresetBasicInfo(preset: any): void {
   console.log(chalk.yellow('Description:'));
   console.log(`  ${preset.description}`);
   console.log();
@@ -136,40 +151,65 @@ async function handleShowPreset(
   console.log(chalk.yellow('Category:'));
   console.log(`  ${preset.category}`);
   console.log();
+}
 
-  if (preset.context && Object.keys(preset.context).length > 0) {
-    console.log(chalk.yellow('Target Context:'));
-    if (preset.context.domain) console.log(`  Domain: ${preset.context.domain}`);
-    if (preset.context.experienceLevel)
-      console.log(`  Experience Level: ${preset.context.experienceLevel}`);
-    if (preset.context.projectType) console.log(`  Project Type: ${preset.context.projectType}`);
-    if (preset.context.codebaseSize) console.log(`  Codebase Size: ${preset.context.codebaseSize}`);
-    console.log();
+function displayPresetContext(preset: any): void {
+  if (!preset.context || Object.keys(preset.context).length === 0) {
+    return;
   }
 
-  if (preset.config.metrics) {
-    console.log(chalk.yellow('Quality Thresholds:'));
-    const metrics = preset.config.metrics;
-    console.log(`  Cyclomatic Complexity: <= ${metrics.complexityThreshold}`);
-    console.log(`  Cognitive Complexity: <= ${metrics.cognitiveComplexityThreshold}`);
-    console.log(`  Lines of Code: <= ${metrics.linesOfCodeThreshold}`);
-    console.log(`  Parameter Count: <= ${metrics.parameterCountThreshold}`);
-    console.log(`  Max Nesting Level: <= ${metrics.maxNestingLevelThreshold}`);
-    console.log();
+  console.log(chalk.yellow('Target Context:'));
+  if (preset.context.domain) console.log(`  Domain: ${preset.context.domain}`);
+  if (preset.context.experienceLevel)
+    console.log(`  Experience Level: ${preset.context.experienceLevel}`);
+  if (preset.context.projectType) console.log(`  Project Type: ${preset.context.projectType}`);
+  if (preset.context.codebaseSize) console.log(`  Codebase Size: ${preset.context.codebaseSize}`);
+  console.log();
+}
+
+function displayQualityThresholds(preset: any): void {
+  if (!preset.config.metrics) {
+    return;
   }
 
-  if (preset.recommendations && preset.recommendations.length > 0) {
-    console.log(chalk.yellow('Recommendations:'));
-    for (const rec of preset.recommendations) {
-      const icon = rec.type === 'warning' ? '⚠️ ' : rec.type === 'tip' ? '💡 ' : 'ℹ️ ';
-      console.log(`  ${icon}${rec.message}`);
-      if (rec.action) {
-        console.log(`    ${chalk.gray('→')} ${rec.action}`);
-      }
+  console.log(chalk.yellow('Quality Thresholds:'));
+  const metrics = preset.config.metrics;
+  console.log(`  Cyclomatic Complexity: <= ${metrics.complexityThreshold}`);
+  console.log(`  Cognitive Complexity: <= ${metrics.cognitiveComplexityThreshold}`);
+  console.log(`  Lines of Code: <= ${metrics.linesOfCodeThreshold}`);
+  console.log(`  Parameter Count: <= ${metrics.parameterCountThreshold}`);
+  console.log(`  Max Nesting Level: <= ${metrics.maxNestingLevelThreshold}`);
+  console.log();
+}
+
+function displayRecommendations(preset: any): void {
+  if (!preset.recommendations || preset.recommendations.length === 0) {
+    return;
+  }
+
+  console.log(chalk.yellow('Recommendations:'));
+  for (const rec of preset.recommendations) {
+    const icon = getRecommendationIcon(rec.type);
+    console.log(`  ${icon}${rec.message}`);
+    if (rec.action) {
+      console.log(`    ${chalk.gray('→')} ${rec.action}`);
     }
-    console.log();
   }
+  console.log();
+}
 
+function getRecommendationIcon(type: string): string {
+  switch (type) {
+    case 'warning':
+      return '⚠️ ';
+    case 'tip':
+      return '💡 ';
+    default:
+      return 'ℹ️ ';
+  }
+}
+
+function displayMetadata(preset: any): void {
   console.log(chalk.yellow('Metadata:'));
   console.log(`  Version: ${preset.metadata.version}`);
   console.log(`  Tags: ${preset.metadata.tags.join(', ')}`);
@@ -186,14 +226,7 @@ async function handleApplyPreset(
     throw new Error('Preset ID is required. Use --preset <preset-id>');
   }
 
-  const applyOptions: Partial<PresetApplyOptions> = {
-    merge: !options.replace,
-    validate: !options.noValidate,
-    backup: !options.noBackup,
-    dryRun: options.dryRun || false,
-    interactive: options.interactive || false,
-  };
-
+  const applyOptions = buildApplyOptions(options);
   const result = await presetManager.applyPreset(options.preset, applyOptions);
 
   if (options.json) {
@@ -202,55 +235,86 @@ async function handleApplyPreset(
   }
 
   if (!result.success) {
-    console.log(chalk.red('Failed to apply preset'));
-
-    if (result.validationResults) {
-      console.log(chalk.yellow('Validation Errors:'));
-      for (const validation of result.validationResults) {
-        if (validation.level === 'error') {
-          console.log(`  ${chalk.red('✗')} ${validation.message}`);
-          if (validation.suggestion) {
-            console.log(`    ${chalk.gray('→')} ${validation.suggestion}`);
-          }
-        }
-      }
-    }
+    displayApplyFailure(result);
     return;
   }
 
-  const actionWord = options.dryRun ? 'Would apply' : 'Applied';
+  displayApplySuccess(result, options.dryRun);
+}
+
+function buildApplyOptions(options: ConfigCommandOptions): Partial<PresetApplyOptions> {
+  return {
+    merge: !options.replace,
+    validate: !options.noValidate,
+    backup: !options.noBackup,
+    dryRun: options.dryRun || false,
+    interactive: options.interactive || false,
+  };
+}
+
+function displayApplyFailure(result: any): void {
+  console.log(chalk.red('Failed to apply preset'));
+
+  if (!result.validationResults) {
+    return;
+  }
+
+  console.log(chalk.yellow('Validation Errors:'));
+  for (const validation of result.validationResults) {
+    if (validation.level === 'error') {
+      console.log(`  ${chalk.red('✗')} ${validation.message}`);
+      if (validation.suggestion) {
+        console.log(`    ${chalk.gray('→')} ${validation.suggestion}`);
+      }
+    }
+  }
+}
+
+function displayApplySuccess(result: any, isDryRun?: boolean): void {
+  const actionWord = isDryRun ? 'Would apply' : 'Applied';
   console.log(chalk.green(`${actionWord} preset: ${result.applied.name}`));
 
   if (result.backupPath) {
     console.log(chalk.gray(`Configuration backup created: ${result.backupPath}`));
   }
 
-  if (result.changes.length > 0) {
-    console.log(chalk.yellow(`\nConfiguration Changes (${result.changes.length}):`));
+  displayConfigurationChanges(result.changes);
+  displayWarnings(result.warnings);
+}
 
-    for (const change of result.changes) {
-      const impactColor =
-        change.impact === 'high'
-          ? chalk.red
-          : change.impact === 'medium'
-            ? chalk.yellow
-            : chalk.gray;
-      const impactBadge = impactColor(`[${change.impact.toUpperCase()}]`);
-
-      console.log(`  ${impactBadge} ${change.description}`);
-    }
+function displayConfigurationChanges(changes: any[]): void {
+  if (changes.length === 0) {
+    return;
   }
 
-  if (result.warnings.length > 0) {
-    console.log(chalk.yellow('\nWarnings:'));
-    for (const warning of result.warnings) {
-      console.log(`  ⚠️  ${warning}`);
-    }
+  console.log(chalk.yellow(`\nConfiguration Changes (${changes.length}):`));
+
+  for (const change of changes) {
+    const impactColor = getImpactColor(change.impact);
+    const impactBadge = impactColor(`[${change.impact.toUpperCase()}]`);
+    console.log(`  ${impactBadge} ${change.description}`);
+  }
+}
+
+function getImpactColor(impact: string) {
+  switch (impact) {
+    case 'high':
+      return chalk.red;
+    case 'medium':
+      return chalk.yellow;
+    default:
+      return chalk.gray;
+  }
+}
+
+function displayWarnings(warnings: string[]): void {
+  if (warnings.length === 0) {
+    return;
   }
 
-  if (!options.dryRun && result.success) {
-    console.log(chalk.green('\n✓ Configuration updated successfully'));
-    console.log(chalk.gray('Run "funcqc health" to see the effects of the new configuration'));
+  console.log(chalk.yellow('\nWarnings:'));
+  for (const warning of warnings) {
+    console.log(`  ⚠️  ${warning}`);
   }
 }
 
