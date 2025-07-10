@@ -365,6 +365,7 @@ export interface InitCommandOptions extends CommandOptions {
 export interface ScanCommandOptions extends CommandOptions {
   label?: string;
   comment?: string;
+  realtimeGate?: boolean;        // Enable real-time quality gate with adaptive thresholds
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -401,6 +402,13 @@ export interface HealthCommandOptions extends CommandOptions {
   period?: string;
   aiOptimized?: boolean;
   humanReadable?: boolean;
+}
+
+export interface EvaluateCommandOptions extends CommandOptions {
+  stdin?: boolean;           // Read code from stdin
+  aiGenerated?: boolean;     // Code is AI-generated (affects exit codes)
+  strict?: boolean;          // Strict mode for critical violations
+  json?: boolean;            // JSON output for integration
 }
 
 export interface ExplainCommandOptions extends CommandOptions {

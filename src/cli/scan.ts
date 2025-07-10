@@ -9,6 +9,7 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
 import { ParallelFileProcessor, ParallelProcessingResult } from '../utils/parallel-processor';
+import { RealTimeQualityGate, QualityAssessment } from '../core/realtime-quality-gate.js';
 
 export async function scanCommand(
   options: ScanCommandOptions
@@ -17,6 +18,12 @@ export async function scanCommand(
   
   try {
     const config = await initializeScan();
+    
+    // Handle realtime gate mode
+    if (options.realtimeGate) {
+      await runRealtimeGateMode(config, options, spinner);
+      return;
+    }
     
     // Check for configuration changes and enforce comment requirement
     await checkConfigurationChanges(config, options, spinner);
@@ -445,5 +452,128 @@ function calculateStats(functions: FunctionInfo[]) {
     maxComplexity,
     highComplexity
   };
+}
+
+/**
+ * Run real-time quality gate mode with adaptive thresholds
+ */
+async function runRealtimeGateMode(
+  config: FuncqcConfig,
+  _options: ScanCommandOptions,
+  spinner: typeof ora.prototype
+): Promise<void> {
+  spinner.start('Initializing real-time quality gate...');
+  
+  try {
+    // Initialize storage and load existing baseline
+    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+    await storage.init();
+    
+    // Get historical functions to build baseline
+    const recentSnapshots = await storage.getSnapshots({ limit: 5 });
+    const allHistoricalFunctions: FunctionInfo[] = [];
+    
+    for (const snapshot of recentSnapshots) {
+      const functions = await storage.getFunctions(snapshot.id);
+      allHistoricalFunctions.push(...functions);
+    }
+    
+    // Initialize quality gate with baseline
+    const qualityGate = new RealTimeQualityGate({
+      warningThreshold: 2.0,
+      criticalThreshold: 3.0,
+      minBaselineFunctions: 20
+    });
+    
+    if (allHistoricalFunctions.length > 0) {
+      qualityGate.updateBaseline(allHistoricalFunctions);
+      spinner.succeed(`Baseline established from ${allHistoricalFunctions.length} historical functions`);
+    } else {
+      spinner.warn('No historical data found - using static thresholds');
+    }
+    
+    // Analyze current files with real-time gate
+    const scanPaths = determineScanPaths(config);
+    const files = await discoverFiles(scanPaths, config, ora());
+    
+    if (files.length === 0) {
+      console.log(chalk.yellow('No TypeScript files found to analyze.'));
+      return;
+    }
+    
+    console.log(chalk.cyan('\n🚀 Real-time Quality Gate Analysis\n'));
+    
+    let totalViolations = 0;
+    let criticalViolations = 0;
+    
+    for (const file of files) {
+      try {
+        const fileContent = await import('fs/promises').then(fs => fs.readFile(file, 'utf-8'));
+        const assessment = await qualityGate.evaluateCode(fileContent, { filename: file });
+        
+        if (!assessment.acceptable || assessment.violations.length > 0 || assessment.structuralAnomalies.length > 0) {
+          await displayQualityAssessment(file, assessment);
+          totalViolations += assessment.violations.length + assessment.structuralAnomalies.length;
+          criticalViolations += assessment.violations.filter(v => v.severity === 'critical').length + 
+                               assessment.structuralAnomalies.filter(a => a.severity === 'critical').length;
+        }
+        
+      } catch (error) {
+        console.log(chalk.red(`✗ Failed to analyze ${path.relative(process.cwd(), file)}: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    }
+    
+    // Summary
+    console.log(chalk.cyan('\n📊 Real-time Analysis Summary'));
+    console.log(`Files analyzed: ${files.length}`);
+    console.log(`Total violations: ${totalViolations}`);
+    console.log(`Critical violations: ${criticalViolations}`);
+    
+    if (criticalViolations > 0) {
+      console.log(chalk.red(`\n❌ Quality gate failed: ${criticalViolations} critical violations found`));
+      process.exit(1);
+    } else if (totalViolations > 0) {
+      console.log(chalk.yellow(`\n⚠️  Quality gate passed with warnings: ${totalViolations} violations found`));
+    } else {
+      console.log(chalk.green('\n✅ Quality gate passed: All code meets quality standards'));
+    }
+    
+  } catch (error) {
+    spinner.fail(`Real-time quality gate failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
+  }
+}
+
+/**
+ * Display quality assessment results
+ */
+async function displayQualityAssessment(filePath: string, assessment: QualityAssessment): Promise<void> {
+  const relativePath = path.relative(process.cwd(), filePath);
+  
+  console.log(chalk.magenta(`\n📁 ${relativePath}`));
+  console.log(`   Quality Score: ${assessment.qualityScore}/100`);
+  console.log(`   Response Time: ${assessment.responseTime.toFixed(1)}ms`);
+  
+  if (assessment.violations.length > 0) {
+    console.log(chalk.yellow('   Violations:'));
+    for (const violation of assessment.violations) {
+      const icon = violation.severity === 'critical' ? '🔴' : '🟡';
+      console.log(`   ${icon} ${violation.metric}: ${violation.value} (threshold: ${violation.threshold.toFixed(1)})`);
+      console.log(`      ${violation.suggestion}`);
+    }
+  }
+  
+  if (assessment.structuralAnomalies.length > 0) {
+    console.log(chalk.magenta('   Structural Anomalies:'));
+    for (const anomaly of assessment.structuralAnomalies) {
+      const icon = anomaly.severity === 'critical' ? '🔴' : '🟡';
+      console.log(`   ${icon} ${anomaly.metric}: ${anomaly.value.toFixed(3)} (expected: ${anomaly.expectedRange[0]}-${anomaly.expectedRange[1]})`);
+      console.log(`      ${anomaly.suggestion}`);
+    }
+  }
+  
+  if (assessment.improvementInstruction) {
+    console.log(chalk.blue(`   💡 Suggestion: ${assessment.improvementInstruction}`));
+  }
 }
 
