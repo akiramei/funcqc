@@ -264,7 +264,7 @@ async function displayDetailedRiskAssessment(
     console.log();
 
     if (summary.worstFunctionId) {
-      console.log(chalk.yellow('Most Complex Function:'));
+      console.log(chalk.yellow('Highest Risk Function:'));
       const worstFunction = functionsWithMetrics.find(f => f.id === summary.worstFunctionId);
       if (worstFunction) {
         console.log(
