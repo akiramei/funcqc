@@ -28,22 +28,20 @@ export class ConfirmationHandler {
       return { confirmed: true, skipped: true };
     }
 
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       const rl = readline.createInterface({
         input: process.stdin,
-        output: process.stdout
+        output: process.stdout,
       });
 
-      const defaultText = options.defaultValue 
-        ? ' (Y/n)' 
-        : ' (y/N)';
-      
-      rl.question(`${options.message}${defaultText} `, (answer) => {
+      const defaultText = options.defaultValue ? ' (Y/n)' : ' (y/N)';
+
+      rl.question(`${options.message}${defaultText} `, answer => {
         rl.close();
-        
+
         const normalizedAnswer = answer.toLowerCase().trim();
         let confirmed: boolean;
-        
+
         if (normalizedAnswer === '') {
           // Use default value if no input
           confirmed = options.defaultValue ?? false;
@@ -55,7 +53,7 @@ export class ConfirmationHandler {
           // Invalid input, default to false for safety
           confirmed = false;
         }
-        
+
         resolve({ confirmed, skipped: false });
       });
     });
@@ -65,22 +63,22 @@ export class ConfirmationHandler {
    * Create confirmation message for vectorize operations
    */
   createVectorizeConfirmationMessage(
-    operation: string, 
+    operation: string,
     functionCount?: number,
     estimatedCost?: number
   ): string {
     let message = `⚠️  ${operation}`;
-    
+
     if (functionCount !== undefined) {
       message += `\nThis will process ${functionCount} functions`;
     }
-    
+
     if (estimatedCost !== undefined && estimatedCost > 0) {
       message += `\nEstimated cost: ~$${estimatedCost.toFixed(3)}`;
     }
-    
+
     message += '\nDo you want to continue?';
-    
+
     return message;
   }
 
@@ -88,20 +86,20 @@ export class ConfirmationHandler {
    * Estimate cost for embedding operations
    */
   estimateEmbeddingCost(
-    functionCount: number, 
+    functionCount: number,
     model: string = 'text-embedding-3-small',
     avgTokensPerFunction: number = 200
   ): number {
     // OpenAI pricing (as of 2025年7月)
     const pricing: Record<string, number> = {
       'text-embedding-ada-002': 0.0001, // per 1K tokens
-      'text-embedding-3-small': 0.00002, // per 1K tokens  
-      'text-embedding-3-large': 0.00013  // per 1K tokens
+      'text-embedding-3-small': 0.00002, // per 1K tokens
+      'text-embedding-3-large': 0.00013, // per 1K tokens
     };
-    
+
     const pricePerThousandTokens = pricing[model] || pricing['text-embedding-3-small'];
     const totalTokens = functionCount * avgTokensPerFunction;
-    
+
     return (totalTokens / 1000) * pricePerThousandTokens;
   }
 }

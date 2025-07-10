@@ -1,6 +1,6 @@
 /**
  * Local Similarity Service
- * 
+ *
  * Provides semantic search capabilities without external API dependencies.
  * Implements TF-IDF vectorization, cosine similarity, n-gram matching,
  * and lightweight embedding computation for AI-collaborative search.
@@ -58,17 +58,17 @@ function simpleStem(word: string): string {
     [/est$/, ''],
     [/tion$/, 'te'],
     [/ness$/, ''],
-    [/ment$/, '']
+    [/ment$/, ''],
   ] as const;
 
   const lowerWord = word.toLowerCase();
-  
+
   for (const [pattern, replacement] of stemRules) {
     if (pattern.test(lowerWord) && lowerWord.length > 3) {
       return lowerWord.replace(pattern, replacement);
     }
   }
-  
+
   return lowerWord;
 }
 
@@ -90,9 +90,7 @@ function tokenizeText(text: string, useStemming: boolean = true): string[] {
     .filter(token => token.length > 2 && /^[a-zA-Z]/.test(token))
     .map(token => token.replace(/[^a-zA-Z0-9]/g, ''));
 
-  return useStemming 
-    ? tokens.map(simpleStem)
-    : tokens;
+  return useStemming ? tokens.map(simpleStem) : tokens;
 }
 
 /**
@@ -101,11 +99,11 @@ function tokenizeText(text: string, useStemming: boolean = true): string[] {
 function generateNgrams(text: string, n: number): string[] {
   const words = tokenizeText(text, false);
   const ngrams: string[] = [];
-  
+
   for (let i = 0; i <= words.length - n; i++) {
     ngrams.push(words.slice(i, i + n).join(' '));
   }
-  
+
   return ngrams;
 }
 
@@ -119,25 +117,25 @@ function calculateTFIDF(
   totalDocuments: number
 ): Float32Array {
   const vector = new Float32Array(vocabulary.length);
-  
+
   // Calculate term frequency for this document
   const termFreq = new Map<string, number>();
   for (const term of documentTerms) {
     termFreq.set(term, (termFreq.get(term) || 0) + 1);
   }
-  
+
   // Calculate TF-IDF for each vocabulary term
   for (let i = 0; i < vocabulary.length; i++) {
     const term = vocabulary[i];
     const tf = termFreq.get(term) || 0;
     const df = documentFrequency.get(term) || 0;
-    
+
     if (tf > 0 && df > 0) {
       // TF-IDF = (term frequency) * log(total documents / document frequency)
       vector[i] = tf * Math.log(totalDocuments / df);
     }
   }
-  
+
   // Normalize vector
   const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
   if (norm > 0) {
@@ -145,7 +143,7 @@ function calculateTFIDF(
       vector[i] /= norm;
     }
   }
-  
+
   return vector;
 }
 
@@ -156,13 +154,13 @@ function calculateCosineSimilarity(vec1: Float32Array, vec2: Float32Array): numb
   let dotProduct = 0;
   let norm1 = 0;
   let norm2 = 0;
-  
+
   for (let i = 0; i < vec1.length; i++) {
     dotProduct += vec1[i] * vec2[i];
     norm1 += vec1[i] * vec1[i];
     norm2 += vec2[i] * vec2[i];
   }
-  
+
   const magnitude = Math.sqrt(norm1) * Math.sqrt(norm2);
   return magnitude === 0 ? 0 : dotProduct / magnitude;
 }
@@ -192,14 +190,16 @@ export class LocalSimilarityService {
       minTermFreq: 1,
       maxVocabSize: 10000,
       useStemming: true,
-      ...config
+      ...config,
     };
   }
 
   /**
    * Index documents for similarity search
    */
-  async indexDocuments(documents: { id: string; text: string; metadata?: Record<string, unknown> }[]): Promise<void> {
+  async indexDocuments(
+    documents: { id: string; text: string; metadata?: Record<string, unknown> }[]
+  ): Promise<void> {
     if (documents.length === 0) {
       return;
     }
@@ -230,9 +230,11 @@ export class LocalSimilarityService {
     const vocabulary = Array.from(documentFrequency.entries())
       .filter(([term, df]) => {
         const tf = termFrequency.get(term) || 0;
-        return tf >= this.config.minTermFreq &&
-               df >= this.config.minDocFreq &&
-               df / totalDocs <= this.config.maxDocFreq;
+        return (
+          tf >= this.config.minTermFreq &&
+          df >= this.config.minDocFreq &&
+          df / totalDocs <= this.config.maxDocFreq
+        );
       })
       .sort((a, b) => b[1] - a[1]) // Sort by document frequency
       .slice(0, this.config.maxVocabSize)
@@ -243,25 +245,20 @@ export class LocalSimilarityService {
       termFrequency,
       documentFrequency,
       vocabulary,
-      totalDocuments: totalDocs
+      totalDocuments: totalDocs,
     };
 
     // Calculate TF-IDF vectors for all documents
     this.documents.clear();
     for (const doc of documents) {
       const terms = documentTerms.get(doc.id) || [];
-      const vector = calculateTFIDF(
-        terms,
-        vocabulary,
-        documentFrequency,
-        totalDocs
-      );
+      const vector = calculateTFIDF(terms, vocabulary, documentFrequency, totalDocs);
 
       this.documents.set(doc.id, {
         id: doc.id,
         vector,
         terms,
-        ...(doc.metadata ? { metadata: doc.metadata } : {})
+        ...(doc.metadata ? { metadata: doc.metadata } : {}),
       });
     }
   }
@@ -294,7 +291,7 @@ export class LocalSimilarityService {
       limit = 10,
       minSimilarity = 0.1,
       weights = { tfidf: 0.5, ngram: 0.3, jaccard: 0.2 },
-      aiHints
+      aiHints,
     } = options;
 
     // Expand query with AI hints
@@ -335,16 +332,16 @@ export class LocalSimilarityService {
       const jaccardSim = calculateJaccardSimilarity(queryTermSet, docTermSet);
 
       // Combined similarity score
-      let combinedSim = 
-        (tfidfSim * (weights.tfidf || 0.5)) +
-        (ngramSim * (weights.ngram || 0.3)) +
-        (jaccardSim * (weights.jaccard || 0.2));
+      let combinedSim =
+        tfidfSim * (weights.tfidf || 0.5) +
+        ngramSim * (weights.ngram || 0.3) +
+        jaccardSim * (weights.jaccard || 0.2);
 
       // Apply AI hints weighting
       if (aiHints?.weights) {
         for (const term of docVector.terms) {
           if (aiHints.weights[term]) {
-            combinedSim *= (1 + aiHints.weights[term]);
+            combinedSim *= 1 + aiHints.weights[term];
           }
         }
         // Normalize to ensure score stays within 0-1 range
@@ -353,16 +350,17 @@ export class LocalSimilarityService {
 
       if (combinedSim >= minSimilarity) {
         // Find matched terms for explanation
-        const matchedTerms = docVector.terms.filter(term => 
-          queryTerms.includes(term) || 
-          (aiHints?.relatedTerms && aiHints.relatedTerms.includes(term))
+        const matchedTerms = docVector.terms.filter(
+          term =>
+            queryTerms.includes(term) ||
+            (aiHints?.relatedTerms && aiHints.relatedTerms.includes(term))
         );
 
         results.push({
           id: docId,
           similarity: combinedSim,
           explanation: `TF-IDF: ${tfidfSim.toFixed(3)}, N-gram: ${ngramSim.toFixed(3)}, Jaccard: ${jaccardSim.toFixed(3)}`,
-          matchedTerms
+          matchedTerms,
         });
       }
     }
@@ -386,12 +384,14 @@ export class LocalSimilarityService {
         vocabularySize: 0,
         documentCount: 0,
         averageTermsPerDocument: 0,
-        topTerms: []
+        topTerms: [],
       };
     }
 
-    const totalTerms = Array.from(this.documents.values())
-      .reduce((sum, doc) => sum + doc.terms.length, 0);
+    const totalTerms = Array.from(this.documents.values()).reduce(
+      (sum, doc) => sum + doc.terms.length,
+      0
+    );
 
     const topTerms = Array.from(this.tfidfMetrics.termFrequency.entries())
       .sort((a, b) => b[1] - a[1])
@@ -402,7 +402,7 @@ export class LocalSimilarityService {
       vocabularySize: this.tfidfMetrics.vocabulary.length,
       documentCount: this.documents.size,
       averageTermsPerDocument: this.documents.size > 0 ? totalTerms / this.documents.size : 0,
-      topTerms
+      topTerms,
     };
   }
 

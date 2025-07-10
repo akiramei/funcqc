@@ -1,20 +1,20 @@
-import { 
-  FunctionInfo, 
-  RefactoringOpportunity, 
-  RefactoringPattern, 
+import {
+  FunctionInfo,
+  RefactoringOpportunity,
+  RefactoringPattern,
   RefactoringReport,
   ProjectRefactoringSummary,
   QualityHotSpot,
   QualityIssue,
   RefactoringTrend,
-  RefactoringRecommendation
+  RefactoringRecommendation,
 } from '../types/index.js';
 import { StorageAdapter } from '../types/index.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Phase 3: RefactoringAnalyzer - Core engine for analyzing refactoring opportunities
- * 
+ *
  * This class provides comprehensive analysis of code quality and identifies specific
  * refactoring opportunities based on multiple quality metrics and patterns.
  */
@@ -35,20 +35,15 @@ export class RefactoringAnalyzer {
 
     const latestSnapshot = snapshots[0];
     const functions = await this.storage.getFunctions(latestSnapshot.id);
-    
+
     const filteredFunctions = this.applyAnalysisFilters(functions, options);
-    
+
     // Parallel analysis for better performance
-    const [
-      opportunities,
-      hotSpots,
-      trends,
-      projectSummary
-    ] = await Promise.all([
+    const [opportunities, hotSpots, trends, projectSummary] = await Promise.all([
       this.detectOpportunities(filteredFunctions, options.patterns),
       this.identifyQualityHotSpots(filteredFunctions),
       this.analyzeTrends(options.since),
-      this.generateProjectSummary(filteredFunctions)
+      this.generateProjectSummary(filteredFunctions),
     ]);
 
     const recommendations = this.generateRecommendations(opportunities, hotSpots);
@@ -58,7 +53,7 @@ export class RefactoringAnalyzer {
       opportunities,
       hotSpots,
       trends,
-      recommendations
+      recommendations,
     };
   }
 
@@ -104,7 +99,7 @@ export class RefactoringAnalyzer {
       risk: riskAnalysis,
       benefit: benefitAnalysis,
       effort: effortEstimate,
-      recommendation: this.calculateRecommendation(riskAnalysis, benefitAnalysis, effortEstimate)
+      recommendation: this.calculateRecommendation(riskAnalysis, benefitAnalysis, effortEstimate),
     };
   }
 
@@ -121,7 +116,7 @@ export class RefactoringAnalyzer {
       dependencies,
       estimatedTotalEffort: this.calculateTotalEffort(prioritizedOpportunities),
       riskLevel: this.assessOverallRisk(prioritizedOpportunities),
-      expectedBenefits: this.summarizeExpectedBenefits(prioritizedOpportunities)
+      expectedBenefits: this.summarizeExpectedBenefits(prioritizedOpportunities),
     };
   }
 
@@ -129,19 +124,20 @@ export class RefactoringAnalyzer {
   // PRIVATE ANALYSIS METHODS
   // ========================================
 
-  private applyAnalysisFilters(functions: FunctionInfo[], options: AnalysisOptions): FunctionInfo[] {
+  private applyAnalysisFilters(
+    functions: FunctionInfo[],
+    options: AnalysisOptions
+  ): FunctionInfo[] {
     let filtered = functions;
 
     if (options.complexityThreshold) {
-      filtered = filtered.filter(f => 
-        f.metrics && f.metrics.cyclomaticComplexity >= options.complexityThreshold!
+      filtered = filtered.filter(
+        f => f.metrics && f.metrics.cyclomaticComplexity >= options.complexityThreshold!
       );
     }
 
     if (options.sizeThreshold) {
-      filtered = filtered.filter(f => 
-        f.metrics && f.metrics.linesOfCode >= options.sizeThreshold!
-      );
+      filtered = filtered.filter(f => f.metrics && f.metrics.linesOfCode >= options.sizeThreshold!);
     }
 
     if (options.filePattern) {
@@ -173,7 +169,7 @@ export class RefactoringAnalyzer {
       suggested_actions: detection.suggestedActions || [],
       metadata: detection.metadata,
       created_at: new Date(),
-      updated_at: new Date()
+      updated_at: new Date(),
     };
   }
 
@@ -205,7 +201,7 @@ export class RefactoringAnalyzer {
       const issues = this.identifyQualityIssues(func);
       if (issues.length > 0) {
         const riskScore = this.calculateRiskScore(func, issues);
-        
+
         if (riskScore >= this.config.thresholds.hotSpotMinRisk) {
           hotSpots.push({
             functionId: func.id,
@@ -214,7 +210,7 @@ export class RefactoringAnalyzer {
             issues,
             complexity: func.metrics.cyclomaticComplexity,
             changeFrequency: 0, // Will be calculated from Git history in future
-            riskScore
+            riskScore,
           });
         }
       }
@@ -233,14 +229,18 @@ export class RefactoringAnalyzer {
         type: 'complexity',
         severity: 'critical',
         description: `Very high cyclomatic complexity (${metrics.cyclomaticComplexity})`,
-        suggestedActions: ['Extract methods', 'Simplify conditional logic', 'Consider strategy pattern']
+        suggestedActions: [
+          'Extract methods',
+          'Simplify conditional logic',
+          'Consider strategy pattern',
+        ],
       });
     } else if (metrics.cyclomaticComplexity >= this.config.thresholds.complexityHigh) {
       issues.push({
         type: 'complexity',
         severity: 'high',
         description: `High cyclomatic complexity (${metrics.cyclomaticComplexity})`,
-        suggestedActions: ['Extract methods', 'Reduce branching']
+        suggestedActions: ['Extract methods', 'Reduce branching'],
       });
     }
 
@@ -250,14 +250,14 @@ export class RefactoringAnalyzer {
         type: 'size',
         severity: 'critical',
         description: `Very large function (${metrics.linesOfCode} lines)`,
-        suggestedActions: ['Split into smaller functions', 'Extract logical blocks']
+        suggestedActions: ['Split into smaller functions', 'Extract logical blocks'],
       });
     } else if (metrics.linesOfCode >= this.config.thresholds.sizeHigh) {
       issues.push({
         type: 'size',
         severity: 'high',
         description: `Large function (${metrics.linesOfCode} lines)`,
-        suggestedActions: ['Consider extracting methods']
+        suggestedActions: ['Consider extracting methods'],
       });
     }
 
@@ -267,7 +267,7 @@ export class RefactoringAnalyzer {
         type: 'coupling',
         severity: 'critical',
         description: `Too many parameters (${metrics.parameterCount})`,
-        suggestedActions: ['Extract parameter object', 'Reduce dependencies']
+        suggestedActions: ['Extract parameter object', 'Reduce dependencies'],
       });
     }
 
@@ -276,13 +276,21 @@ export class RefactoringAnalyzer {
 
   private calculateRiskScore(func: FunctionInfo, issues: QualityIssue[]): number {
     let score = 0;
-    
+
     for (const issue of issues) {
       switch (issue.severity) {
-        case 'critical': score += 40; break;
-        case 'high': score += 25; break;
-        case 'medium': score += 15; break;
-        case 'low': score += 5; break;
+        case 'critical':
+          score += 40;
+          break;
+        case 'high':
+          score += 25;
+          break;
+        case 'medium':
+          score += 15;
+          break;
+        case 'low':
+          score += 5;
+          break;
       }
     }
 
@@ -299,9 +307,14 @@ export class RefactoringAnalyzer {
     return [];
   }
 
-  private async generateProjectSummary(functions: FunctionInfo[]): Promise<ProjectRefactoringSummary> {
+  private async generateProjectSummary(
+    functions: FunctionInfo[]
+  ): Promise<ProjectRefactoringSummary> {
     const analyzedFunctions = functions.filter(f => f.metrics);
-    const totalComplexity = analyzedFunctions.reduce((sum, f) => sum + (f.metrics?.cyclomaticComplexity || 0), 0);
+    const totalComplexity = analyzedFunctions.reduce(
+      (sum, f) => sum + (f.metrics?.cyclomaticComplexity || 0),
+      0
+    );
     const avgComplexity = totalComplexity / analyzedFunctions.length;
 
     let riskLevel: 'low' | 'medium' | 'high' = 'low';
@@ -314,7 +327,7 @@ export class RefactoringAnalyzer {
       opportunitiesFound: 0, // Will be set after opportunity detection
       estimatedEffort: 0, // Will be calculated based on opportunities
       riskLevel,
-      priorityAreas: this.identifyPriorityAreas(analyzedFunctions)
+      priorityAreas: this.identifyPriorityAreas(analyzedFunctions),
     };
   }
 
@@ -323,7 +336,7 @@ export class RefactoringAnalyzer {
 
     for (const func of functions) {
       if (!func.metrics) continue;
-      
+
       const filePath = func.filePath;
       const current = fileStats.get(filePath) || { complexity: 0, count: 0 };
       current.complexity += func.metrics.cyclomaticComplexity;
@@ -339,14 +352,14 @@ export class RefactoringAnalyzer {
   }
 
   private generateRecommendations(
-    opportunities: RefactoringOpportunity[], 
+    opportunities: RefactoringOpportunity[],
     _hotSpots: QualityHotSpot[]
   ): RefactoringRecommendation[] {
     const recommendations: RefactoringRecommendation[] = [];
-    
+
     // High-impact opportunities become high-priority recommendations
     const highImpactOpportunities = opportunities.filter(o => o.impact_score >= 70);
-    
+
     for (const opportunity of highImpactOpportunities) {
       recommendations.push({
         priority: 'high',
@@ -354,7 +367,7 @@ export class RefactoringAnalyzer {
         targets: [opportunity.function_id],
         reasoning: `High impact score (${opportunity.impact_score}) with ${opportunity.severity} severity`,
         estimatedEffort: this.estimateEffortForPattern(opportunity.pattern),
-        expectedBenefit: this.describeBenefitForPattern(opportunity.pattern)
+        expectedBenefit: this.describeBenefitForPattern(opportunity.pattern),
       });
     }
 
@@ -371,7 +384,7 @@ export class RefactoringAnalyzer {
       [RefactoringPattern.ReduceParameters]: 3,
       [RefactoringPattern.ExtractClass]: 8,
       [RefactoringPattern.InlineFunction]: 1,
-      [RefactoringPattern.RenameFunction]: 1
+      [RefactoringPattern.RenameFunction]: 1,
     };
     return effortMap[pattern] || 2;
   }
@@ -383,18 +396,20 @@ export class RefactoringAnalyzer {
       [RefactoringPattern.ReduceParameters]: 'Reduced coupling and improved maintainability',
       [RefactoringPattern.ExtractClass]: 'Better organization and single responsibility',
       [RefactoringPattern.InlineFunction]: 'Reduced indirection and complexity',
-      [RefactoringPattern.RenameFunction]: 'Improved code clarity and documentation'
+      [RefactoringPattern.RenameFunction]: 'Improved code clarity and documentation',
     };
     return benefitMap[pattern] || 'General code quality improvement';
   }
 
-  private prioritizeOpportunities(opportunities: RefactoringOpportunity[]): RefactoringOpportunity[] {
+  private prioritizeOpportunities(
+    opportunities: RefactoringOpportunity[]
+  ): RefactoringOpportunity[] {
     return opportunities.sort((a, b) => {
       // Primary sort: severity
       const severityOrder = { critical: 4, high: 3, medium: 2, low: 1 };
       const severityDiff = severityOrder[b.severity] - severityOrder[a.severity];
       if (severityDiff !== 0) return severityDiff;
-      
+
       // Secondary sort: impact score
       return b.impact_score - a.impact_score;
     });
@@ -402,7 +417,7 @@ export class RefactoringAnalyzer {
 
   private groupIntoPhases(opportunities: RefactoringOpportunity[]): RefactoringPhase[] {
     const phases: RefactoringPhase[] = [];
-    
+
     // Phase 1: Critical issues
     const critical = opportunities.filter(o => o.severity === 'critical');
     if (critical.length > 0) {
@@ -411,7 +426,7 @@ export class RefactoringAnalyzer {
         description: 'Address critical code quality issues',
         opportunities: critical,
         estimatedEffort: critical.length * 4,
-        priority: 'high'
+        priority: 'high',
       });
     }
 
@@ -423,26 +438,31 @@ export class RefactoringAnalyzer {
         description: 'Implement high-value refactoring opportunities',
         opportunities: high,
         estimatedEffort: high.length * 3,
-        priority: 'medium'
+        priority: 'medium',
       });
     }
 
     return phases;
   }
 
-  private async analyzeDependencies(_opportunities: RefactoringOpportunity[]): Promise<RefactoringDependency[]> {
+  private async analyzeDependencies(
+    _opportunities: RefactoringOpportunity[]
+  ): Promise<RefactoringDependency[]> {
     // For now, return empty array. Dependency analysis will be implemented later
     return [];
   }
 
   private calculateTotalEffort(opportunities: RefactoringOpportunity[]): number {
-    return opportunities.reduce((total, opp) => total + this.estimateEffortForPattern(opp.pattern), 0);
+    return opportunities.reduce(
+      (total, opp) => total + this.estimateEffortForPattern(opp.pattern),
+      0
+    );
   }
 
   private assessOverallRisk(opportunities: RefactoringOpportunity[]): 'low' | 'medium' | 'high' {
     const criticalCount = opportunities.filter(o => o.severity === 'critical').length;
     const highCount = opportunities.filter(o => o.severity === 'high').length;
-    
+
     if (criticalCount > 3 || highCount > 10) return 'high';
     if (criticalCount > 0 || highCount > 5) return 'medium';
     return 'low';
@@ -450,11 +470,11 @@ export class RefactoringAnalyzer {
 
   private summarizeExpectedBenefits(opportunities: RefactoringOpportunity[]): string[] {
     const benefits = new Set<string>();
-    
+
     for (const opp of opportunities) {
       benefits.add(this.describeBenefitForPattern(opp.pattern));
     }
-    
+
     return Array.from(benefits);
   }
 
@@ -464,37 +484,46 @@ export class RefactoringAnalyzer {
     return {
       level: riskLevel,
       factors: func.isExported ? ['Function is exported', 'May affect external consumers'] : [],
-      mitigation: ['Create comprehensive tests', 'Gradual rollout']
+      mitigation: ['Create comprehensive tests', 'Gradual rollout'],
     };
   }
 
-  private assessRefactoringBenefit(_func: FunctionInfo, _pattern: RefactoringPattern): BenefitAssessment {
+  private assessRefactoringBenefit(
+    _func: FunctionInfo,
+    _pattern: RefactoringPattern
+  ): BenefitAssessment {
     return {
       qualityImprovement: 'medium',
       maintainabilityGain: 'high',
       testabilityGain: 'medium',
-      performanceImpact: 'neutral'
+      performanceImpact: 'neutral',
     };
   }
 
-  private estimateRefactoringEffort(func: FunctionInfo, pattern: RefactoringPattern): EffortEstimate {
+  private estimateRefactoringEffort(
+    func: FunctionInfo,
+    pattern: RefactoringPattern
+  ): EffortEstimate {
     const baseEffort = this.estimateEffortForPattern(pattern);
-    const complexityMultiplier = func.metrics ? Math.min(2, func.metrics.cyclomaticComplexity / 10) : 1;
-    
+    const complexityMultiplier = func.metrics
+      ? Math.min(2, func.metrics.cyclomaticComplexity / 10)
+      : 1;
+
     return {
       hours: Math.round(baseEffort * complexityMultiplier),
       difficulty: complexityMultiplier > 1.5 ? 'hard' : 'medium',
-      prerequisites: []
+      prerequisites: [],
     };
   }
 
   private calculateRecommendation(
-    risk: RiskAssessment, 
-    benefit: BenefitAssessment, 
+    risk: RiskAssessment,
+    benefit: BenefitAssessment,
     effort: EffortEstimate
   ): 'proceed' | 'caution' | 'defer' {
     if (risk.level === 'high' && effort.difficulty === 'hard') return 'defer';
-    if (benefit.qualityImprovement === 'high' || benefit.maintainabilityGain === 'high') return 'proceed';
+    if (benefit.qualityImprovement === 'high' || benefit.maintainabilityGain === 'high')
+      return 'proceed';
     return 'caution';
   }
 }
@@ -535,7 +564,7 @@ export const DEFAULT_REFACTORING_CONFIG: RefactoringAnalyzerConfig = {
     sizeCritical: 60,
     parametersHigh: 4,
     parametersCritical: 6,
-    hotSpotMinRisk: 50
+    hotSpotMinRisk: 50,
   },
   patterns: {
     extractMethod: { minLines: 15, minComplexity: 8 },
@@ -543,8 +572,8 @@ export const DEFAULT_REFACTORING_CONFIG: RefactoringAnalyzerConfig = {
     reduceParameters: { minParameters: 5 },
     extractClass: { minMethods: 4, minCohesion: 0.3 },
     inlineFunction: { maxLines: 3, maxComplexity: 1 },
-    renameFunction: { minClarityScore: 0.6 }
-  }
+    renameFunction: { minClarityScore: 0.6 },
+  },
 };
 
 // ========================================
@@ -664,21 +693,28 @@ class ExtractMethodDetector implements PatternDetector {
       return { isCandidate: false, severity: 'low', impactScore: 0, metadata: {} };
     }
 
-    const isCandidate = func.metrics.linesOfCode >= this.config.minLines &&
-                       func.metrics.cyclomaticComplexity >= this.config.minComplexity;
+    const isCandidate =
+      func.metrics.linesOfCode >= this.config.minLines &&
+      func.metrics.cyclomaticComplexity >= this.config.minComplexity;
 
     if (!isCandidate) {
       return { isCandidate: false, severity: 'low', impactScore: 0, metadata: {} };
     }
 
-    const impactScore = Math.min(100, 
+    const impactScore = Math.min(
+      100,
       (func.metrics.linesOfCode / this.config.minLines) * 30 +
-      (func.metrics.cyclomaticComplexity / this.config.minComplexity) * 40
+        (func.metrics.cyclomaticComplexity / this.config.minComplexity) * 40
     );
 
-    const severity = impactScore >= 80 ? 'critical' : 
-                    impactScore >= 60 ? 'high' : 
-                    impactScore >= 40 ? 'medium' : 'low';
+    const severity =
+      impactScore >= 80
+        ? 'critical'
+        : impactScore >= 60
+          ? 'high'
+          : impactScore >= 40
+            ? 'medium'
+            : 'low';
 
     return {
       isCandidate: true,
@@ -687,8 +723,8 @@ class ExtractMethodDetector implements PatternDetector {
       metadata: {
         linesOfCode: func.metrics.linesOfCode,
         complexity: func.metrics.cyclomaticComplexity,
-        extractableBlocks: this.identifyExtractableBlocks(func)
-      }
+        extractableBlocks: this.identifyExtractableBlocks(func),
+      },
     };
   }
 
@@ -707,20 +743,21 @@ class SplitFunctionDetector implements PatternDetector {
     }
 
     const responsibilities = this.estimateResponsibilities(func);
-    const isCandidate = responsibilities >= this.config.minResponsibilities &&
-                       func.metrics.linesOfCode >= this.config.minLines;
+    const isCandidate =
+      responsibilities >= this.config.minResponsibilities &&
+      func.metrics.linesOfCode >= this.config.minLines;
 
     if (!isCandidate) {
       return { isCandidate: false, severity: 'low', impactScore: 0, metadata: {} };
     }
 
-    const impactScore = Math.min(100,
+    const impactScore = Math.min(
+      100,
       (responsibilities / this.config.minResponsibilities) * 40 +
-      (func.metrics.linesOfCode / this.config.minLines) * 30
+        (func.metrics.linesOfCode / this.config.minLines) * 30
     );
 
-    const severity = impactScore >= 75 ? 'critical' : 
-                    impactScore >= 55 ? 'high' : 'medium';
+    const severity = impactScore >= 75 ? 'critical' : impactScore >= 55 ? 'high' : 'medium';
 
     return {
       isCandidate: true,
@@ -728,8 +765,8 @@ class SplitFunctionDetector implements PatternDetector {
       impactScore: Math.round(impactScore),
       metadata: {
         estimatedResponsibilities: responsibilities,
-        linesOfCode: func.metrics.linesOfCode
-      }
+        linesOfCode: func.metrics.linesOfCode,
+      },
     };
   }
 
@@ -753,8 +790,7 @@ class ReduceParametersDetector implements PatternDetector {
     }
 
     const impactScore = Math.min(100, (paramCount / this.config.minParameters) * 60);
-    const severity = paramCount >= 8 ? 'critical' : 
-                    paramCount >= 6 ? 'high' : 'medium';
+    const severity = paramCount >= 8 ? 'critical' : paramCount >= 6 ? 'high' : 'medium';
 
     return {
       isCandidate: true,
@@ -762,8 +798,8 @@ class ReduceParametersDetector implements PatternDetector {
       impactScore: Math.round(impactScore),
       metadata: {
         parameterCount: paramCount,
-        parameters: func.parameters.map(p => ({ name: p.name, type: p.type }))
-      }
+        parameters: func.parameters.map(p => ({ name: p.name, type: p.type })),
+      },
     };
   }
 }
@@ -786,8 +822,9 @@ class InlineFunctionDetector implements PatternDetector {
       return { isCandidate: false, severity: 'low', impactScore: 0, metadata: {} };
     }
 
-    const isCandidate = func.metrics.linesOfCode <= this.config.maxLines &&
-                       func.metrics.cyclomaticComplexity <= this.config.maxComplexity;
+    const isCandidate =
+      func.metrics.linesOfCode <= this.config.maxLines &&
+      func.metrics.cyclomaticComplexity <= this.config.maxComplexity;
 
     if (!isCandidate) {
       return { isCandidate: false, severity: 'low', impactScore: 0, metadata: {} };
@@ -801,8 +838,8 @@ class InlineFunctionDetector implements PatternDetector {
       impactScore,
       metadata: {
         linesOfCode: func.metrics.linesOfCode,
-        complexity: func.metrics.cyclomaticComplexity
-      }
+        complexity: func.metrics.cyclomaticComplexity,
+      },
     };
   }
 }
@@ -819,8 +856,7 @@ class RenameFunctionDetector implements PatternDetector {
     }
 
     const impactScore = Math.round((1 - clarityScore) * 50);
-    const severity = clarityScore < 0.3 ? 'high' : 
-                    clarityScore < 0.5 ? 'medium' : 'low';
+    const severity = clarityScore < 0.3 ? 'high' : clarityScore < 0.5 ? 'medium' : 'low';
 
     return {
       isCandidate: true,
@@ -829,34 +865,34 @@ class RenameFunctionDetector implements PatternDetector {
       metadata: {
         currentName: func.name,
         clarityScore,
-        issues: this.identifyNameIssues(func.name)
-      }
+        issues: this.identifyNameIssues(func.name),
+      },
     };
   }
 
   private assessNameClarity(name: string): number {
     let score = 1.0;
-    
+
     // Penalize very short names
     if (name.length < 3) score -= 0.4;
-    
+
     // Penalize generic names
     const genericNames = ['data', 'temp', 'value', 'result', 'item', 'obj'];
     if (genericNames.includes(name.toLowerCase())) score -= 0.3;
-    
+
     // Penalize abbreviations
     if (name.length < 6 && !/^[A-Z]/.test(name)) score -= 0.2;
-    
+
     return Math.max(0, score);
   }
 
   private identifyNameIssues(name: string): string[] {
     const issues: string[] = [];
-    
+
     if (name.length < 3) issues.push('Name too short');
     if (!/^[a-z]/.test(name)) issues.push('Should start with lowercase');
     if (name.includes('_') && !name.startsWith('_')) issues.push('Consider camelCase');
-    
+
     return issues;
   }
 }

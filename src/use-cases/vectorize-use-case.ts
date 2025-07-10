@@ -68,39 +68,36 @@ export interface VectorizeUseCaseDependencies {
  * Core use case for vectorization operations
  */
 export class VectorizeUseCase {
-  constructor(
-    private dependencies: VectorizeUseCaseDependencies
-  ) {}
+  constructor(private dependencies: VectorizeUseCaseDependencies) {}
 
   /**
    * Execute vectorization based on options
    */
   async execute(options: VectorizeOptions): Promise<VectorizeResult> {
     const startTime = Date.now();
-    
+
     try {
       if (options.status) {
         return await this.getStatus();
       }
-      
+
       if (options.rebuildIndex) {
         return await this.rebuildIndex(options);
       }
-      
+
       if (options.benchmark) {
         return await this.benchmarkIndex(options);
       }
-      
+
       if (options.indexStats) {
         return await this.getIndexStats();
       }
-      
+
       if (options.all || options.recent) {
         return await this.vectorizeFunctions(options);
       }
-      
+
       throw new Error('No valid operation specified');
-      
     } catch (error) {
       const operation = this.getOperationType(options);
       return {
@@ -108,7 +105,7 @@ export class VectorizeUseCase {
         operation,
         data: this.getEmptyDataForOperation(operation),
         errors: [error instanceof Error ? error.message : String(error)],
-        timeTaken: Date.now() - startTime
+        timeTaken: Date.now() - startTime,
       };
     }
   }
@@ -118,14 +115,14 @@ export class VectorizeUseCase {
    */
   private async vectorizeFunctions(options: VectorizeOptions): Promise<VectorizeResult> {
     const startTime = Date.now();
-    
+
     if (!this.dependencies.embeddingService) {
       throw new Error('EmbeddingService not initialized. API key required.');
     }
 
     // Get functions to vectorize
     const functions = await this.getFunctionsToVectorize(options);
-    
+
     if (functions.length === 0) {
       return {
         success: true,
@@ -135,20 +132,19 @@ export class VectorizeUseCase {
           model: options.model,
           dimension: this.getModelDimension(options.model),
           batchSize: options.batchSize,
-          embeddings: []
+          embeddings: [],
         },
-        timeTaken: Date.now() - startTime
+        timeTaken: Date.now() - startTime,
       };
     }
 
     // Apply limit if specified
-    const functionsToProcess = options.limit 
-      ? functions.slice(0, options.limit)
-      : functions;
+    const functionsToProcess = options.limit ? functions.slice(0, options.limit) : functions;
 
     // Generate embeddings
-    const embeddings = await this.dependencies.embeddingService.generateFunctionEmbeddings(functionsToProcess);
-    
+    const embeddings =
+      await this.dependencies.embeddingService.generateFunctionEmbeddings(functionsToProcess);
+
     // Store embeddings
     await this.dependencies.storage.bulkSaveEmbeddings(embeddings);
 
@@ -164,10 +160,10 @@ export class VectorizeUseCase {
           functionId: e.functionId,
           semanticId: e.semanticId,
           model: e.model,
-          timestamp: e.timestamp
-        }))
+          timestamp: e.timestamp,
+        })),
       },
-      timeTaken: Date.now() - startTime
+      timeTaken: Date.now() - startTime,
     };
   }
 
@@ -176,13 +172,13 @@ export class VectorizeUseCase {
    */
   private async getStatus(): Promise<VectorizeResult> {
     const startTime = Date.now();
-    
+
     const stats = await this.dependencies.storage.getEmbeddingStats();
     const coverage = stats.total > 0 ? (stats.withEmbeddings / stats.total) * 100 : 0;
-    
+
     // TODO: Get model distribution (not implemented yet)
     const models: string[] = [];
-    
+
     // TODO: Get index status if available (not implemented yet)
     const indexStatus = { isBuilt: false };
 
@@ -195,9 +191,9 @@ export class VectorizeUseCase {
         withoutEmbeddings: stats.withoutEmbeddings,
         coverage: Math.round(coverage * 100) / 100,
         models,
-        indexStatus
+        indexStatus,
       },
-      timeTaken: Date.now() - startTime
+      timeTaken: Date.now() - startTime,
     };
   }
 
@@ -222,7 +218,9 @@ export class VectorizeUseCase {
     }
 
     // TODO: This feature will be implemented when enhanced embedding service is integrated
-    throw new Error('Index benchmarking feature is not yet available with current embedding service');
+    throw new Error(
+      'Index benchmarking feature is not yet available with current embedding service'
+    );
   }
 
   /**
@@ -242,15 +240,21 @@ export class VectorizeUseCase {
     if (snapshots.length === 0) {
       throw new Error('No snapshots found. Run "funcqc scan" first.');
     }
-    
+
     const snapshotId = snapshots[0].id;
-    
+
     if (options.all) {
       // Get all functions with descriptions for re-vectorization
-      return await this.dependencies.storage.getFunctionsWithDescriptions(snapshotId, options.limit ? { limit: options.limit } : undefined);
+      return await this.dependencies.storage.getFunctionsWithDescriptions(
+        snapshotId,
+        options.limit ? { limit: options.limit } : undefined
+      );
     } else if (options.recent) {
       // Get functions without embeddings
-      return await this.dependencies.storage.getFunctionsWithoutEmbeddings(snapshotId, options.limit);
+      return await this.dependencies.storage.getFunctionsWithoutEmbeddings(
+        snapshotId,
+        options.limit
+      );
     }
     return [];
   }
@@ -262,7 +266,7 @@ export class VectorizeUseCase {
     const dimensions: Record<string, number> = {
       'text-embedding-ada-002': 1536,
       'text-embedding-3-small': 1536,
-      'text-embedding-3-large': 3072
+      'text-embedding-3-large': 3072,
     };
     return dimensions[model] || 1536;
   }
@@ -281,7 +285,9 @@ export class VectorizeUseCase {
   /**
    * Get appropriate empty data structure for each operation type
    */
-  private getEmptyDataForOperation(operation: VectorizeResult['operation']): VectorizeData | StatusData | IndexData | BenchmarkData {
+  private getEmptyDataForOperation(
+    operation: VectorizeResult['operation']
+  ): VectorizeData | StatusData | IndexData | BenchmarkData {
     switch (operation) {
       case 'vectorize':
         return {
@@ -289,9 +295,9 @@ export class VectorizeUseCase {
           model: 'text-embedding-3-small',
           dimension: 1536,
           batchSize: 100,
-          embeddings: []
+          embeddings: [],
         } as VectorizeData;
-        
+
       case 'status':
         return {
           total: 0,
@@ -299,27 +305,27 @@ export class VectorizeUseCase {
           withoutEmbeddings: 0,
           coverage: 0,
           models: [],
-          indexStatus: { isBuilt: false }
+          indexStatus: { isBuilt: false },
         } as StatusData;
-        
+
       case 'rebuild-index':
       case 'index-stats':
         return {
           algorithm: 'hierarchical',
           vectorCount: 0,
           buildTime: 0,
-          indexSize: 0
+          indexSize: 0,
         } as IndexData;
-        
+
       case 'benchmark':
         return {
           algorithm: 'hierarchical',
           queryCount: 0,
           avgQueryTime: 0,
           accuracy: 0,
-          throughput: 0
+          throughput: 0,
         } as BenchmarkData;
-        
+
       default:
         // This should never happen, but provides a safe fallback
         return {
@@ -327,7 +333,7 @@ export class VectorizeUseCase {
           model: 'text-embedding-3-small',
           dimension: 1536,
           batchSize: 100,
-          embeddings: []
+          embeddings: [],
         } as VectorizeData;
     }
   }

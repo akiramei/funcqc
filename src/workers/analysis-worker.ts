@@ -26,7 +26,7 @@ export interface WorkerOutput {
 
 async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
   const startTime = Date.now();
-  
+
   try {
     const analyzer = new TypeScriptAnalyzer(input.maxSourceFilesInMemory);
     const qualityCalculator = new QualityCalculator();
@@ -36,17 +36,19 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
     for (const filePath of input.filePaths) {
       try {
         const fileFunctions = await analyzer.analyzeFile(filePath);
-        
+
         // Calculate quality metrics for each function
         for (const func of fileFunctions) {
           func.metrics = await qualityCalculator.calculate(func);
         }
-        
+
         allFunctions.push(...fileFunctions);
       } catch (error) {
         failedFiles++;
         // Log error but continue processing other files
-        console.warn(`Worker: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        console.warn(
+          `Worker: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -62,8 +64,8 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
         filesProcessed: input.filePaths.length,
         failedFiles,
         functionsFound: allFunctions.length,
-        processingTime
-      }
+        processingTime,
+      },
     };
   } catch (error) {
     return {
@@ -74,8 +76,8 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
         filesProcessed: 0,
         failedFiles: 0,
         functionsFound: 0,
-        processingTime: Date.now() - startTime
-      }
+        processingTime: Date.now() - startTime,
+      },
     };
   }
 }

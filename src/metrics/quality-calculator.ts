@@ -2,7 +2,6 @@ import * as ts from 'typescript';
 import { FunctionInfo, QualityMetrics } from '../types';
 
 export class QualityCalculator {
-  
   /**
    * Calculate quality metrics for a function
    */
@@ -17,7 +16,7 @@ export class QualityCalculator {
 
     // Find the function node in the AST
     let functionNode: ts.FunctionLikeDeclaration | null = null;
-    
+
     const findFunction = (node: ts.Node) => {
       if (this.isFunctionLike(node)) {
         functionNode = node as ts.FunctionLikeDeclaration;
@@ -53,14 +52,15 @@ export class QualityCalculator {
       asyncAwaitCount: this.countAsyncAwait(functionNode),
       callbackCount: this.countCallbacks(functionNode),
       commentLines,
-      codeToCommentRatio: linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,
+      codeToCommentRatio:
+        linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,
       halsteadVolume,
       halsteadDifficulty,
       maintainabilityIndex: this.calculateMaintainabilityIndex({
         cyclomaticComplexity,
         linesOfCode,
-        halsteadVolume
-      })
+        halsteadVolume,
+      }),
     };
 
     return metrics;
@@ -97,27 +97,29 @@ export class QualityCalculator {
       asyncAwaitCount: 0,
       callbackCount: 0,
       commentLines: 0,
-      codeToCommentRatio: 0
+      codeToCommentRatio: 0,
     };
   }
 
   private calculateLinesOfCode(node: ts.FunctionLikeDeclaration): number {
     const text = node.getFullText();
     const lines = text.split('\n');
-    
+
     // Count non-empty, non-comment lines
     let count = 0;
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.length > 0 && 
-          !trimmed.startsWith('//') && 
-          !trimmed.startsWith('/*') &&
-          !trimmed.startsWith('*') &&
-          !trimmed.endsWith('*/')) {
+      if (
+        trimmed.length > 0 &&
+        !trimmed.startsWith('//') &&
+        !trimmed.startsWith('/*') &&
+        !trimmed.startsWith('*') &&
+        !trimmed.endsWith('*/')
+      ) {
         count++;
       }
     }
-    
+
     return count;
   }
 
@@ -141,11 +143,13 @@ export class QualityCalculator {
         case ts.SyntaxKind.ConditionalExpression:
           complexity++;
           break;
-        
+
         case ts.SyntaxKind.BinaryExpression: {
           const binExpr = node as ts.BinaryExpression;
-          if (binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-              binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
+          if (
+            binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+            binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken
+          ) {
             complexity++;
           }
           break;
@@ -165,7 +169,7 @@ export class QualityCalculator {
 
     const visit = (node: ts.Node, isNested: boolean = false) => {
       const complexityInfo = this.getCognitiveComplexityInfo(node);
-      
+
       // Add nesting bonus
       let localIncrement = complexityInfo.increment;
       if (isNested && localIncrement > 0) {
@@ -190,11 +194,14 @@ export class QualityCalculator {
     return complexity;
   }
 
-  private getCognitiveComplexityInfo(node: ts.Node): { increment: number; incrementsNesting: boolean } {
+  private getCognitiveComplexityInfo(node: ts.Node): {
+    increment: number;
+    incrementsNesting: boolean;
+  } {
     const controlFlowNodes = [
       ts.SyntaxKind.IfStatement,
       ts.SyntaxKind.SwitchStatement,
-      ts.SyntaxKind.CatchClause
+      ts.SyntaxKind.CatchClause,
     ];
 
     const loopNodes = [
@@ -202,7 +209,7 @@ export class QualityCalculator {
       ts.SyntaxKind.ForInStatement,
       ts.SyntaxKind.ForOfStatement,
       ts.SyntaxKind.WhileStatement,
-      ts.SyntaxKind.DoStatement
+      ts.SyntaxKind.DoStatement,
     ];
 
     if (controlFlowNodes.includes(node.kind) || loopNodes.includes(node.kind)) {
@@ -215,10 +222,10 @@ export class QualityCalculator {
 
     if (node.kind === ts.SyntaxKind.BinaryExpression) {
       const binExpr = node as ts.BinaryExpression;
-      const isLogicalOperator = 
+      const isLogicalOperator =
         binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
         binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken;
-      
+
       return { increment: isLogicalOperator ? 1 : 0, incrementsNesting: false };
     }
 
@@ -231,7 +238,7 @@ export class QualityCalculator {
 
     const visit = (node: ts.Node) => {
       const isNestingNode = this.isNestingNode(node);
-      
+
       if (isNestingNode) {
         currentLevel++;
         maxLevel = Math.max(maxLevel, currentLevel);
@@ -295,11 +302,13 @@ export class QualityCalculator {
     let count = 0;
 
     const visit = (node: ts.Node) => {
-      if (ts.isForStatement(node) || 
-          ts.isForInStatement(node) || 
-          ts.isForOfStatement(node) || 
-          ts.isWhileStatement(node) || 
-          ts.isDoStatement(node)) {
+      if (
+        ts.isForStatement(node) ||
+        ts.isForInStatement(node) ||
+        ts.isForOfStatement(node) ||
+        ts.isWhileStatement(node) ||
+        ts.isDoStatement(node)
+      ) {
         count++;
       }
       ts.forEachChild(node, visit);
@@ -342,8 +351,10 @@ export class QualityCalculator {
 
     const visit = (node: ts.Node) => {
       // Count function expressions and arrow functions passed as arguments
-      if ((ts.isFunctionExpression(node) || ts.isArrowFunction(node)) && 
-          ts.isCallExpression(node.parent)) {
+      if (
+        (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) &&
+        ts.isCallExpression(node.parent)
+      ) {
         count++;
       }
       ts.forEachChild(node, visit);
@@ -356,18 +367,20 @@ export class QualityCalculator {
   private calculateCommentLines(node: ts.FunctionLikeDeclaration): number {
     const text = node.getFullText();
     const lines = text.split('\n');
-    
+
     let count = 0;
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed.startsWith('//') || 
-          trimmed.startsWith('/*') || 
-          trimmed.startsWith('*') ||
-          trimmed.endsWith('*/')) {
+      if (
+        trimmed.startsWith('//') ||
+        trimmed.startsWith('/*') ||
+        trimmed.startsWith('*') ||
+        trimmed.endsWith('*/')
+      ) {
         count++;
       }
     }
-    
+
     return count;
   }
 
@@ -398,7 +411,7 @@ export class QualityCalculator {
       uniqueOperators: operators.size,
       uniqueOperands: operands.size,
       totalOperators,
-      totalOperands
+      totalOperands,
     };
   }
 
@@ -407,33 +420,41 @@ export class QualityCalculator {
       this.processBinaryOperator(node, operators, incrementTotal);
       return;
     }
-    
+
     if (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) {
       this.processUnaryOperator(node, operators, incrementTotal);
       return;
     }
-    
+
     if (ts.isCallExpression(node)) {
       this.addOperator('()', operators, incrementTotal);
       return;
     }
-    
+
     if (ts.isPropertyAccessExpression(node)) {
       this.addOperator('.', operators, incrementTotal);
       return;
     }
-    
+
     if (ts.isElementAccessExpression(node)) {
       this.addOperator('[]', operators, incrementTotal);
     }
   }
 
-  private processBinaryOperator(node: ts.BinaryExpression, operators: Set<string>, incrementTotal: () => void) {
+  private processBinaryOperator(
+    node: ts.BinaryExpression,
+    operators: Set<string>,
+    incrementTotal: () => void
+  ) {
     const op = node.operatorToken.getText();
     this.addOperator(op, operators, incrementTotal);
   }
 
-  private processUnaryOperator(node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression, operators: Set<string>, incrementTotal: () => void) {
+  private processUnaryOperator(
+    node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression,
+    operators: Set<string>,
+    incrementTotal: () => void
+  ) {
     const op = this.getUnaryOperator(node);
     if (op) {
       this.addOperator(op, operators, incrementTotal);
@@ -447,18 +468,30 @@ export class QualityCalculator {
 
   private getUnaryOperator(node: ts.PrefixUnaryExpression | ts.PostfixUnaryExpression): string {
     switch (node.operator) {
-      case ts.SyntaxKind.PlusPlusToken: return '++';
-      case ts.SyntaxKind.MinusMinusToken: return '--';
-      case ts.SyntaxKind.ExclamationToken: return '!';
-      case ts.SyntaxKind.TildeToken: return '~';
-      case ts.SyntaxKind.PlusToken: return '+';
-      case ts.SyntaxKind.MinusToken: return '-';
-      default: return '';
+      case ts.SyntaxKind.PlusPlusToken:
+        return '++';
+      case ts.SyntaxKind.MinusMinusToken:
+        return '--';
+      case ts.SyntaxKind.ExclamationToken:
+        return '!';
+      case ts.SyntaxKind.TildeToken:
+        return '~';
+      case ts.SyntaxKind.PlusToken:
+        return '+';
+      case ts.SyntaxKind.MinusToken:
+        return '-';
+      default:
+        return '';
     }
   }
 
   private processOperands(node: ts.Node, operands: Set<string>, incrementTotal: () => void) {
-    if (ts.isIdentifier(node) || ts.isLiteralExpression(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node)) {
+    if (
+      ts.isIdentifier(node) ||
+      ts.isLiteralExpression(node) ||
+      ts.isStringLiteral(node) ||
+      ts.isNumericLiteral(node)
+    ) {
       const text = node.getText();
       operands.add(text);
       incrementTotal();
@@ -467,16 +500,21 @@ export class QualityCalculator {
 
   private calculateHalsteadDifficulty(node: ts.FunctionLikeDeclaration): number {
     const metrics = this.collectHalsteadMetrics(node);
-    
+
     // Halstead Difficulty = (n1/2) * (N2/n2)
     // Avoid division by zero
     if (metrics.uniqueOperands === 0) return 0;
-    
-    const difficulty = (metrics.uniqueOperators / 2) * (metrics.totalOperands / metrics.uniqueOperands);
+
+    const difficulty =
+      (metrics.uniqueOperators / 2) * (metrics.totalOperands / metrics.uniqueOperands);
     return Math.round(difficulty * 100) / 100;
   }
 
-  private calculateMaintainabilityIndex(partialMetrics: { cyclomaticComplexity: number; linesOfCode: number; halsteadVolume: number }): number {
+  private calculateMaintainabilityIndex(partialMetrics: {
+    cyclomaticComplexity: number;
+    linesOfCode: number;
+    halsteadVolume: number;
+  }): number {
     // Microsoft's maintainability index formula (simplified)
     const complexity = partialMetrics.cyclomaticComplexity;
     const loc = partialMetrics.linesOfCode;
@@ -489,10 +527,10 @@ export class QualityCalculator {
     const safeLoc = Math.max(1, loc);
 
     let mi = 171 - 5.2 * Math.log(safeVolume) - 0.23 * complexity - 16.2 * Math.log(safeLoc);
-    
+
     // Normalize to 0-100 scale
     mi = Math.max(0, Math.min(100, mi));
-    
+
     return Math.round(mi * 100) / 100;
   }
 }

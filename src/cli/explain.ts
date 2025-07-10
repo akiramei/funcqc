@@ -1,12 +1,12 @@
 import chalk from 'chalk';
 import { ExplainCommandOptions } from '../types';
-import { 
-  getMetricExplanation, 
-  getConceptExplanation, 
+import {
+  getMetricExplanation,
+  getConceptExplanation,
   getMetricsByCategory,
   getAllConcepts,
   searchMetrics,
-  MetricExplanation
+  MetricExplanation,
 } from '../data/metric-explanations';
 import { ConfigManager } from '../core/config';
 
@@ -48,7 +48,10 @@ export async function explainCommand(
       displayGeneralHelp();
     }
   } catch (error: unknown) {
-    console.error(chalk.red('Failed to provide explanation:'), error instanceof Error ? error.message : String(error));
+    console.error(
+      chalk.red('Failed to provide explanation:'),
+      error instanceof Error ? error.message : String(error)
+    );
     process.exit(1);
   }
 }
@@ -78,8 +81,12 @@ function displayMetricExplanation(metricName: string, options: ExplainCommandOpt
 
   console.log(chalk.yellow('Thresholds:'));
   console.log(`  Low (≤ ${metric.thresholds.low.value}): ${metric.thresholds.low.description}`);
-  console.log(`  Medium (≤ ${metric.thresholds.medium.value}): ${metric.thresholds.medium.description}`);
-  console.log(`  High (> ${metric.thresholds.medium.value}): ${metric.thresholds.high.description}`);
+  console.log(
+    `  Medium (≤ ${metric.thresholds.medium.value}): ${metric.thresholds.medium.description}`
+  );
+  console.log(
+    `  High (> ${metric.thresholds.medium.value}): ${metric.thresholds.high.description}`
+  );
   console.log();
 
   console.log(chalk.yellow('Industry Standards:'));
@@ -110,7 +117,9 @@ function displayConceptExplanation(conceptName: string): void {
   const concept = getConceptExplanation(conceptName);
   if (!concept) {
     console.error(chalk.red(`Unknown concept: "${conceptName}"`));
-    console.log(chalk.yellow('Available concepts: complexity, maintainability, quality, testing, refactoring'));
+    console.log(
+      chalk.yellow('Available concepts: complexity, maintainability, quality, testing, refactoring')
+    );
     process.exit(1);
   }
 
@@ -171,7 +180,7 @@ async function displayThresholdExplanation(): Promise<void> {
   try {
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     console.log(chalk.yellow('Current Project Thresholds:'));
     console.log(`  Cyclomatic Complexity: ${config.metrics.complexityThreshold}`);
     console.log(`  Cognitive Complexity: ${config.metrics.cognitiveComplexityThreshold}`);
@@ -203,8 +212,15 @@ function displayAllMetrics(): void {
   console.log('-'.repeat(50));
   console.log();
 
-  const categories = ['complexity', 'size', 'structure', 'documentation', 'advanced', 'patterns'] as const;
-  
+  const categories = [
+    'complexity',
+    'size',
+    'structure',
+    'documentation',
+    'advanced',
+    'patterns',
+  ] as const;
+
   categories.forEach(category => {
     const metrics = getMetricsByCategory(category);
     if (metrics.length === 0) return;
@@ -249,13 +265,13 @@ function displayGeneralHelp(): void {
   console.log();
 
   console.log(chalk.yellow('Quick Metric Overview:'));
-  
+
   const sampleMetrics = [
     'cyclomaticComplexity - Decision path complexity',
     'linesOfCode - Function size measurement',
-    'maintainabilityIndex - Overall maintainability score'
+    'maintainabilityIndex - Overall maintainability score',
   ];
-  
+
   sampleMetrics.forEach(metric => {
     console.log(`  ${metric}`);
   });
@@ -270,7 +286,11 @@ function displayGeneralHelp(): void {
   console.log(chalk.gray('For complete list: funcqc explain --all'));
 }
 
-function displaySearchResults(searchTerm: string, results: MetricExplanation[], options: ExplainCommandOptions = {}): void {
+function displaySearchResults(
+  searchTerm: string,
+  results: MetricExplanation[],
+  options: ExplainCommandOptions = {}
+): void {
   console.log(chalk.yellow(`Search results for "${searchTerm}":`));
   console.log();
 
@@ -280,13 +300,13 @@ function displaySearchResults(searchTerm: string, results: MetricExplanation[], 
   } else {
     console.log(`Found ${results.length} similar metrics:`);
     console.log();
-    
+
     results.forEach(metric => {
       console.log(`  ${chalk.cyan(metric.name)} - ${metric.displayName}`);
       console.log(`    ${metric.definition.split('.')[0]}.`);
       console.log();
     });
-    
+
     console.log(chalk.gray('Use "funcqc explain <metric-name>" for detailed explanation'));
   }
 }

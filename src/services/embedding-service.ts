@@ -1,13 +1,13 @@
 import OpenAI from 'openai';
 import { FunctionInfo } from '../types';
-import { 
-  ANNConfig, 
-  EmbeddingVector, 
-  HierarchicalIndex, 
-  LSHIndex, 
-  HybridANNIndex, 
-  createANNIndex, 
-  DEFAULT_ANN_CONFIG 
+import {
+  ANNConfig,
+  EmbeddingVector,
+  HierarchicalIndex,
+  LSHIndex,
+  HybridANNIndex,
+  createANNIndex,
+  DEFAULT_ANN_CONFIG,
 } from './ann-index';
 // Enhanced embedding service available in ./embedding module
 
@@ -24,7 +24,7 @@ export interface EmbeddingConfig {
 export const EMBEDDING_MODELS = {
   'text-embedding-ada-002': { dimension: 1536, maxTokens: 8191 },
   'text-embedding-3-small': { dimension: 1536, maxTokens: 8191 },
-  'text-embedding-3-large': { dimension: 3072, maxTokens: 8191 }
+  'text-embedding-3-large': { dimension: 3072, maxTokens: 8191 },
 } as const;
 
 export type EmbeddingModelName = keyof typeof EMBEDDING_MODELS;
@@ -59,10 +59,12 @@ export class EmbeddingService {
     this.batchSize = config.batchSize || 100;
     this.enableANN = config.enableANN ?? true;
     this.annConfig = { ...DEFAULT_ANN_CONFIG, ...config.annConfig };
-    
+
     // Validate and get model configuration
     if (!(this.model in EMBEDDING_MODELS)) {
-      throw new Error(`Unsupported embedding model: ${this.model}. Supported models: ${Object.keys(EMBEDDING_MODELS).join(', ')}`);
+      throw new Error(
+        `Unsupported embedding model: ${this.model}. Supported models: ${Object.keys(EMBEDDING_MODELS).join(', ')}`
+      );
     }
     this.modelConfig = EMBEDDING_MODELS[this.model as EmbeddingModelName];
 
@@ -97,7 +99,7 @@ export class EmbeddingService {
     return {
       model: this.model,
       dimension: this.modelConfig.dimension,
-      maxTokens: this.modelConfig.maxTokens
+      maxTokens: this.modelConfig.maxTokens,
     };
   }
 
@@ -109,7 +111,7 @@ export class EmbeddingService {
     return {
       enabled: this.enableANN,
       config: this.annConfig,
-      ...(indexStats ? { indexStats } : {})
+      ...(indexStats ? { indexStats } : {}),
     };
   }
 
@@ -125,15 +127,15 @@ export class EmbeddingService {
     const embeddingVectors: EmbeddingVector[] = embeddings.map(result => ({
       id: result.functionId,
       semanticId: result.semanticId,
-      vector: result.embedding,
+      vector: new Float32Array(result.embedding),
       metadata: {
         model: result.model,
-        timestamp: result.timestamp
-      }
+        timestamp: result.timestamp,
+      },
     }));
 
     // Build the index
-    await this.annIndex.buildIndex(embeddingVectors);
+    this.annIndex.buildIndex(embeddingVectors);
 
     // Store embeddings for quick lookup during search
     this.indexedEmbeddings.clear();
@@ -154,11 +156,11 @@ export class EmbeddingService {
     const newVectors: EmbeddingVector[] = newEmbeddings.map(result => ({
       id: result.functionId,
       semanticId: result.semanticId,
-      vector: result.embedding,
+      vector: new Float32Array(result.embedding),
       metadata: {
         model: result.model,
-        timestamp: result.timestamp
-      }
+        timestamp: result.timestamp,
+      },
     }));
 
     // Add to local storage
@@ -168,30 +170,39 @@ export class EmbeddingService {
 
     // Rebuild index with all embeddings (for now - future: incremental updates)
     const allVectors = Array.from(this.indexedEmbeddings.values());
-    await this.annIndex.buildIndex(allVectors);
+    this.annIndex.buildIndex(allVectors);
   }
 
   /**
    * Perform semantic search using ANN index or fall back to exact search
    */
   async semanticSearch(
-    queryText: string, 
-    allEmbeddings: EmbeddingResult[], 
+    queryText: string,
+    allEmbeddings: EmbeddingResult[],
     options: SemanticSearchOptions = {}
-  ): Promise<Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }>> {
+  ): Promise<
+    Array<{
+      functionId: string;
+      semanticId: string;
+      similarity: number;
+      metadata?: Record<string, unknown>;
+    }>
+  > {
     // Generate embedding for query
     const queryEmbedding = await this.generateEmbedding(queryText);
-    
+
     // Use ANN search if enabled and available
-    if (options.useANN !== false && this.enableANN && this.annIndex && this.indexedEmbeddings.size > 0) {
+    if (
+      options.useANN !== false &&
+      this.enableANN &&
+      this.annIndex &&
+      this.indexedEmbeddings.size > 0
+    ) {
       try {
         // TODO: Pass approximation level per search instead of modifying shared state
         // This requires updating ANN index interface to accept approximationLevel parameter
         // For now, we'll document this limitation
-        const searchResults = await this.annIndex.searchApproximate(
-          queryEmbedding, 
-          options.limit || 20
-        );
+        const searchResults = this.annIndex.searchApproximate(queryEmbedding, options.limit || 20);
 
         // Filter by threshold if specified
         const threshold = options.threshold || 0;
@@ -201,7 +212,7 @@ export class EmbeddingService {
             functionId: result.id,
             semanticId: result.semanticId,
             similarity: result.similarity,
-            ...(result.metadata ? { metadata: result.metadata } : {})
+            ...(result.metadata ? { metadata: result.metadata } : {}),
           }));
       } catch (error) {
         // Fall back to exact search if ANN search fails
@@ -217,15 +228,28 @@ export class EmbeddingService {
    * Exact semantic search (original implementation)
    */
   private exactSemanticSearch(
-    queryEmbedding: number[], 
-    allEmbeddings: EmbeddingResult[], 
+    queryEmbedding: number[],
+    allEmbeddings: EmbeddingResult[],
     options: SemanticSearchOptions = {}
-  ): Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }> {
-    const results: Array<{ functionId: string; semanticId: string; similarity: number; metadata?: Record<string, unknown> }> = [];
+  ): Array<{
+    functionId: string;
+    semanticId: string;
+    similarity: number;
+    metadata?: Record<string, unknown>;
+  }> {
+    const results: Array<{
+      functionId: string;
+      semanticId: string;
+      similarity: number;
+      metadata?: Record<string, unknown>;
+    }> = [];
 
     for (const embeddingResult of allEmbeddings) {
-      const similarity = EmbeddingService.cosineSimilarity(queryEmbedding, embeddingResult.embedding);
-      
+      const similarity = EmbeddingService.cosineSimilarity(
+        queryEmbedding,
+        embeddingResult.embedding
+      );
+
       // Apply threshold filter
       const threshold = options.threshold || 0;
       if (similarity >= threshold) {
@@ -235,8 +259,8 @@ export class EmbeddingService {
           similarity,
           metadata: {
             model: embeddingResult.model,
-            timestamp: embeddingResult.timestamp
-          }
+            timestamp: embeddingResult.timestamp,
+          },
         });
       }
     }
@@ -265,7 +289,7 @@ export class EmbeddingService {
     return {
       ...this.annIndex.getIndexStats(),
       indexedCount: this.indexedEmbeddings.size,
-      ready: this.isANNIndexReady()
+      ready: this.isANNIndexReady(),
     };
   }
 
@@ -286,7 +310,7 @@ export class EmbeddingService {
     // Rebuild index with existing embeddings
     if (this.indexedEmbeddings.size > 0) {
       const allVectors = Array.from(this.indexedEmbeddings.values());
-      await this.annIndex?.buildIndex(allVectors);
+      this.annIndex?.buildIndex(allVectors);
     }
   }
 
@@ -306,7 +330,9 @@ export class EmbeddingService {
 
       return response.data[0].embedding;
     } catch (error) {
-      throw new Error(`Failed to generate embedding: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to generate embedding: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -319,11 +345,11 @@ export class EmbeddingService {
     }
 
     const embeddings: number[][] = [];
-    
+
     // Process in batches to respect API limits
     for (let i = 0; i < texts.length; i += this.batchSize) {
       const batch = texts.slice(i, i + this.batchSize);
-      
+
       try {
         const response = await this.openai.embeddings.create({
           input: batch,
@@ -332,7 +358,9 @@ export class EmbeddingService {
 
         embeddings.push(...response.data.map(d => d.embedding));
       } catch (error) {
-        throw new Error(`Failed to generate embeddings for batch ${i / this.batchSize + 1}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to generate embeddings for batch ${i / this.batchSize + 1}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
 
@@ -347,7 +375,7 @@ export class EmbeddingService {
     const functionMap = new Map<number, FunctionInfo>();
 
     // Prepare texts for embedding
-    functions.forEach((func) => {
+    functions.forEach(func => {
       const text = this.prepareFunctionText(func);
       if (text) {
         textsToEmbed.push(text);
@@ -372,7 +400,7 @@ export class EmbeddingService {
           semanticId: func.semanticId,
           embedding,
           model: this.model,
-          timestamp: Date.now()
+          timestamp: Date.now(),
         });
       }
     });
@@ -428,7 +456,7 @@ export class EmbeddingService {
     if (func.contextPath && func.contextPath.length > 0) {
       parts.push(`Context: ${func.contextPath.join('.')}`);
     }
-    
+
     // Add file context (least important for semantic search)
     parts.push(`File: ${func.filePath}`);
 
@@ -441,7 +469,7 @@ export class EmbeddingService {
   private extractJsDocExamples(jsDoc: string): string {
     const exampleMatches = jsDoc.match(/@example\s+([\s\S]*?)(?=@\w+|$)/g);
     if (!exampleMatches) return '';
-    
+
     return exampleMatches
       .map(match => match.replace(/@example\s+/, '').trim())
       .filter(example => example.length > 0)
@@ -511,21 +539,21 @@ export class EmbeddingService {
 
 /**
  * ENHANCED SERVICE AVAILABLE
- * 
+ *
  * For new implementations, consider using the enhanced embedding service:
- * 
+ *
  * @example
  * import { EmbeddingServiceFactory, EmbeddingModel } from './embedding';
- * 
+ *
  * // Builder pattern for flexible configuration
  * const service = EmbeddingServiceFactory.builder()
  *   .withOpenAIKey('your-api-key', EmbeddingModel.SMALL_3)
  *   .forProduction()
  *   .build();
- * 
+ *
  * // Or use factory methods
  * const service = EmbeddingServiceFactory.createForProduction('your-api-key');
- * 
+ *
  * Benefits of enhanced service:
  * - Incremental index updates (3-5x faster)
  * - Enhanced error handling with retry logic

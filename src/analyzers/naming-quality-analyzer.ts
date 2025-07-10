@@ -1,6 +1,6 @@
 /**
  * Naming Quality Analyzer for funcqc v1.6
- * 
+ *
  * Evaluates function naming quality based on Clean Code principles:
  * - Basic Naming Rules (30%): Length, camelCase, generic name prohibition
  * - Semantic Appropriateness (40%): Action verbs, boolean patterns, role clarity
@@ -21,31 +21,136 @@ interface ASTContext {
 
 export class NamingQualityAnalyzer {
   private readonly GENERIC_NAMES = new Set([
-    'func', 'function', 'handler', 'util', 'utils', 'helper', 'helpers',
-    'data', 'item', 'obj', 'temp', 'tmp', 'value', 'val', 'result',
-    'process', 'handle', 'do', 'run', 'exec', 'execute', 'perform',
-    'check', 'test', 'validate', 'parse', 'convert', 'transform'
+    'func',
+    'function',
+    'handler',
+    'util',
+    'utils',
+    'helper',
+    'helpers',
+    'data',
+    'item',
+    'obj',
+    'temp',
+    'tmp',
+    'value',
+    'val',
+    'result',
+    'process',
+    'handle',
+    'do',
+    'run',
+    'exec',
+    'execute',
+    'perform',
+    'check',
+    'test',
+    'validate',
+    'parse',
+    'convert',
+    'transform',
   ]);
 
   private readonly ACTION_VERBS = new Set([
-    'get', 'set', 'create', 'make', 'build', 'generate', 'produce',
-    'add', 'remove', 'delete', 'update', 'modify', 'change', 'edit',
-    'find', 'search', 'locate', 'fetch', 'retrieve', 'load', 'save',
-    'store', 'insert', 'upload', 'download', 'send', 'receive',
-    'process', 'handle', 'manage', 'control', 'execute', 'run',
-    'calculate', 'compute', 'evaluate', 'analyze', 'parse', 'format',
-    'convert', 'transform', 'map', 'filter', 'reduce', 'sort',
-    'validate', 'verify', 'check', 'test', 'confirm', 'ensure',
-    'initialize', 'setup', 'configure', 'prepare', 'cleanup', 'dispose',
-    'connect', 'disconnect', 'open', 'close', 'start', 'stop', 'pause',
-    'enable', 'disable', 'activate', 'deactivate', 'trigger', 'emit',
-    'subscribe', 'unsubscribe', 'listen', 'notify', 'broadcast'
+    'get',
+    'set',
+    'create',
+    'make',
+    'build',
+    'generate',
+    'produce',
+    'add',
+    'remove',
+    'delete',
+    'update',
+    'modify',
+    'change',
+    'edit',
+    'find',
+    'search',
+    'locate',
+    'fetch',
+    'retrieve',
+    'load',
+    'save',
+    'store',
+    'insert',
+    'upload',
+    'download',
+    'send',
+    'receive',
+    'process',
+    'handle',
+    'manage',
+    'control',
+    'execute',
+    'run',
+    'calculate',
+    'compute',
+    'evaluate',
+    'analyze',
+    'parse',
+    'format',
+    'convert',
+    'transform',
+    'map',
+    'filter',
+    'reduce',
+    'sort',
+    'validate',
+    'verify',
+    'check',
+    'test',
+    'confirm',
+    'ensure',
+    'initialize',
+    'setup',
+    'configure',
+    'prepare',
+    'cleanup',
+    'dispose',
+    'connect',
+    'disconnect',
+    'open',
+    'close',
+    'start',
+    'stop',
+    'pause',
+    'enable',
+    'disable',
+    'activate',
+    'deactivate',
+    'trigger',
+    'emit',
+    'subscribe',
+    'unsubscribe',
+    'listen',
+    'notify',
+    'broadcast',
   ]);
 
   private readonly BOOLEAN_PREFIXES = new Set([
-    'is', 'has', 'can', 'should', 'will', 'was', 'were', 'does', 'did',
-    'contains', 'includes', 'exists', 'supports', 'allows', 'requires',
-    'needs', 'accepts', 'rejects', 'matches', 'equals', 'differs'
+    'is',
+    'has',
+    'can',
+    'should',
+    'will',
+    'was',
+    'were',
+    'does',
+    'did',
+    'contains',
+    'includes',
+    'exists',
+    'supports',
+    'allows',
+    'requires',
+    'needs',
+    'accepts',
+    'rejects',
+    'matches',
+    'equals',
+    'differs',
   ]);
 
   /**
@@ -53,10 +158,10 @@ export class NamingQualityAnalyzer {
    */
   analyze(functionInfo: FunctionInfo, contextFunctions: FunctionInfo[] = []): NamingQualityScore {
     const issues: NamingIssue[] = [];
-    
+
     // Parse function source code into AST
     const astContext = this.parseToAST(functionInfo);
-    
+
     // Calculate component scores using AST analysis
     const basicRules = this.checkBasicNamingRules(functionInfo, astContext, issues);
     const semanticAppropriate = this.checkSemanticAppropriateness(functionInfo, astContext, issues);
@@ -65,10 +170,7 @@ export class NamingQualityAnalyzer {
 
     // Calculate overall score with weights
     const score = Math.round(
-      basicRules * 0.30 +
-      semanticAppropriate * 0.40 +
-      consistency * 0.20 +
-      redundancy * 0.10
+      basicRules * 0.3 + semanticAppropriate * 0.4 + consistency * 0.2 + redundancy * 0.1
     );
 
     // Calculate confidence based on function attributes and AST information
@@ -80,10 +182,10 @@ export class NamingQualityAnalyzer {
         basicRules,
         semanticAppropriate,
         consistency,
-        redundancy
+        redundancy,
       },
       issues,
-      confidence
+      confidence,
     };
   }
 
@@ -94,28 +196,23 @@ export class NamingQualityAnalyzer {
     try {
       // Create a simple source file for parsing
       const sourceText = this.createParseableSource(functionInfo);
-      const sourceFile = ts.createSourceFile(
-        'temp.ts',
-        sourceText,
-        ts.ScriptTarget.Latest,
-        true
-      );
-      
+      const sourceFile = ts.createSourceFile('temp.ts', sourceText, ts.ScriptTarget.Latest, true);
+
       // Find the function declaration/expression in the AST
       const functionNode = this.findFunctionNode(sourceFile, functionInfo.name);
-      
+
       return {
         sourceFile,
         functionNode,
         hasValidAST: functionNode !== undefined,
-        error: undefined
+        error: undefined,
       };
     } catch (error) {
       return {
         sourceFile: undefined,
         functionNode: undefined,
         hasValidAST: false,
-        error: error instanceof Error ? error.message : 'Unknown AST parsing error'
+        error: error instanceof Error ? error.message : 'Unknown AST parsing error',
       };
     }
   }
@@ -126,9 +223,10 @@ export class NamingQualityAnalyzer {
   private createParseableSource(functionInfo: FunctionInfo): string {
     // Try to construct a minimal parseable function based on available information
     const name = functionInfo.name;
-    const params = functionInfo.parameters?.map(p => `${p.name}: ${p.type || 'any'}`).join(', ') || '';
+    const params =
+      functionInfo.parameters?.map(p => `${p.name}: ${p.type || 'any'}`).join(', ') || '';
     const returnType = functionInfo.returnType?.type || 'void';
-    
+
     if (functionInfo.isConstructor) {
       return `class TempClass { constructor(${params}) {} }`;
     } else if (functionInfo.functionType === 'arrow') {
@@ -143,23 +241,27 @@ export class NamingQualityAnalyzer {
    */
   private findFunctionNode(sourceFile: ts.SourceFile, functionName: string): ts.Node | undefined {
     let result: ts.Node | undefined;
-    
+
     const visit = (node: ts.Node): void => {
       if (ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
         result = node;
         return;
       }
-      if (ts.isVariableDeclaration(node) && 
-          node.name.kind === ts.SyntaxKind.Identifier &&
-          (node.name as ts.Identifier).text === functionName &&
-          node.initializer && 
-          ts.isArrowFunction(node.initializer)) {
+      if (
+        ts.isVariableDeclaration(node) &&
+        node.name.kind === ts.SyntaxKind.Identifier &&
+        (node.name as ts.Identifier).text === functionName &&
+        node.initializer &&
+        ts.isArrowFunction(node.initializer)
+      ) {
         result = node.initializer;
         return;
       }
-      if (ts.isMethodDeclaration(node) && 
-          node.name?.kind === ts.SyntaxKind.Identifier &&
-          (node.name as ts.Identifier).text === functionName) {
+      if (
+        ts.isMethodDeclaration(node) &&
+        node.name?.kind === ts.SyntaxKind.Identifier &&
+        (node.name as ts.Identifier).text === functionName
+      ) {
         result = node;
         return;
       }
@@ -167,10 +269,10 @@ export class NamingQualityAnalyzer {
         result = node;
         return;
       }
-      
+
       ts.forEachChild(node, visit);
     };
-    
+
     visit(sourceFile);
     return result;
   }
@@ -181,7 +283,11 @@ export class NamingQualityAnalyzer {
    * - camelCase compliance
    * - Generic name prohibition
    */
-  private checkBasicNamingRules(functionInfo: FunctionInfo, _astContext: ASTContext, issues: NamingIssue[]): number {
+  private checkBasicNamingRules(
+    functionInfo: FunctionInfo,
+    _astContext: ASTContext,
+    issues: NamingIssue[]
+  ): number {
     let score = 100;
     const name = functionInfo.name;
 
@@ -193,7 +299,7 @@ export class NamingQualityAnalyzer {
         severity: 'high',
         description: `Function name too short (${name.length} characters)`,
         points: 15,
-        suggestion: 'Use more descriptive names with at least 3 characters'
+        suggestion: 'Use more descriptive names with at least 3 characters',
       });
     } else if (name.length > 50) {
       score -= 10;
@@ -202,7 +308,7 @@ export class NamingQualityAnalyzer {
         severity: 'medium',
         description: `Function name too long (${name.length} characters)`,
         points: 10,
-        suggestion: 'Consider breaking down the function or using shorter, clearer names'
+        suggestion: 'Consider breaking down the function or using shorter, clearer names',
       });
     }
 
@@ -214,7 +320,7 @@ export class NamingQualityAnalyzer {
         severity: 'medium',
         description: 'Function name should use camelCase convention',
         points: 10,
-        suggestion: `Use camelCase: ${this.toCamelCase(name)}`
+        suggestion: `Use camelCase: ${this.toCamelCase(name)}`,
       });
     }
 
@@ -226,7 +332,7 @@ export class NamingQualityAnalyzer {
         severity: 'high',
         description: `Generic function name "${name}" provides no semantic meaning`,
         points: 20,
-        suggestion: 'Use descriptive names that clearly indicate the function\'s purpose'
+        suggestion: "Use descriptive names that clearly indicate the function's purpose",
       });
     }
 
@@ -238,7 +344,7 @@ export class NamingQualityAnalyzer {
         severity: 'low',
         description: 'Generic suffixes like "Func", "Method", "Handler" add no value',
         points: 5,
-        suggestion: 'Remove generic suffixes and focus on the function\'s actual purpose'
+        suggestion: "Remove generic suffixes and focus on the function's actual purpose",
       });
     }
 
@@ -251,7 +357,11 @@ export class NamingQualityAnalyzer {
    * - Boolean naming patterns
    * - Constructor vs function naming distinction
    */
-  private checkSemanticAppropriateness(functionInfo: FunctionInfo, astContext: ASTContext, issues: NamingIssue[]): number {
+  private checkSemanticAppropriateness(
+    functionInfo: FunctionInfo,
+    astContext: ASTContext,
+    issues: NamingIssue[]
+  ): number {
     let score = 100;
     const name = functionInfo.name;
     // Use AST to determine return type more accurately
@@ -266,7 +376,7 @@ export class NamingQualityAnalyzer {
           severity: 'high',
           description: 'Function names should start with action verbs (get, set, create, etc.)',
           points: 20,
-          suggestion: `Consider names like: ${this.suggestActionVerbs(name).join(', ')}`
+          suggestion: `Consider names like: ${this.suggestActionVerbs(name).join(', ')}`,
         });
       }
     }
@@ -278,9 +388,10 @@ export class NamingQualityAnalyzer {
         issues.push({
           type: 'semantic',
           severity: 'medium',
-          description: 'Boolean functions should use appropriate prefixes (is, has, can, should, etc.)',
+          description:
+            'Boolean functions should use appropriate prefixes (is, has, can, should, etc.)',
           points: 15,
-          suggestion: `Consider: ${this.suggestBooleanNames(name).join(', ')}`
+          suggestion: `Consider: ${this.suggestBooleanNames(name).join(', ')}`,
         });
       }
     }
@@ -294,7 +405,7 @@ export class NamingQualityAnalyzer {
           severity: 'medium',
           description: 'Constructor should be named after the class or use "constructor"',
           points: 10,
-          suggestion: 'Use class name or "constructor" for constructor functions'
+          suggestion: 'Use class name or "constructor" for constructor functions',
         });
       }
     }
@@ -307,7 +418,8 @@ export class NamingQualityAnalyzer {
         severity: 'low',
         description: 'Function name should clearly indicate both action (verb) and target (noun)',
         points: 10,
-        suggestion: 'Use verb-noun combinations like "getUserData", "validateEmail", "calculateTotal"'
+        suggestion:
+          'Use verb-noun combinations like "getUserData", "validateEmail", "calculateTotal"',
       });
     }
 
@@ -318,16 +430,22 @@ export class NamingQualityAnalyzer {
    * Checks consistency within file (20% weight) using AST analysis
    * - Pattern consistency with other functions in same file
    */
-  private checkConsistency(functionInfo: FunctionInfo, contextFunctions: FunctionInfo[], _astContext: ASTContext, issues: NamingIssue[]): number {
+  private checkConsistency(
+    functionInfo: FunctionInfo,
+    contextFunctions: FunctionInfo[],
+    _astContext: ASTContext,
+    issues: NamingIssue[]
+  ): number {
     if (contextFunctions.length < 2) {
       return 100; // Can't check consistency with insufficient context
     }
 
     let score = 100;
-    const sameLevelFunctions = contextFunctions.filter(f => 
-      f.filePath === functionInfo.filePath && 
-      f.id !== functionInfo.id &&
-      f.functionType === functionInfo.functionType
+    const sameLevelFunctions = contextFunctions.filter(
+      f =>
+        f.filePath === functionInfo.filePath &&
+        f.id !== functionInfo.id &&
+        f.functionType === functionInfo.functionType
     );
 
     if (sameLevelFunctions.length === 0) {
@@ -343,7 +461,7 @@ export class NamingQualityAnalyzer {
         severity: 'low',
         description: 'Function naming pattern inconsistent with other functions in file',
         points: 10,
-        suggestion: `Follow established patterns: ${Array.from(verbPatterns).join(', ')}`
+        suggestion: `Follow established patterns: ${Array.from(verbPatterns).join(', ')}`,
       });
     }
 
@@ -356,7 +474,7 @@ export class NamingQualityAnalyzer {
         severity: 'low',
         description: 'Naming convention inconsistent with file patterns',
         points: 5,
-        suggestion: 'Maintain consistent naming patterns within the same file'
+        suggestion: 'Maintain consistent naming patterns within the same file',
       });
     }
 
@@ -368,7 +486,11 @@ export class NamingQualityAnalyzer {
    * - Class name duplication avoidance
    * - Filename duplication avoidance
    */
-  private checkRedundancy(functionInfo: FunctionInfo, _astContext: ASTContext, issues: NamingIssue[]): number {
+  private checkRedundancy(
+    functionInfo: FunctionInfo,
+    _astContext: ASTContext,
+    issues: NamingIssue[]
+  ): number {
     let score = 100;
     const name = functionInfo.name;
 
@@ -382,7 +504,7 @@ export class NamingQualityAnalyzer {
           severity: 'low',
           description: `Function name redundantly includes class name "${className}"`,
           points: 5,
-          suggestion: `Remove class prefix: ${this.removeClassPrefix(name, className)}`
+          suggestion: `Remove class prefix: ${this.removeClassPrefix(name, className)}`,
         });
       }
     }
@@ -396,7 +518,7 @@ export class NamingQualityAnalyzer {
         severity: 'low',
         description: `Function name redundantly includes filename "${filename}"`,
         points: 3,
-        suggestion: `Remove file prefix: ${this.removeFilePrefix(name, filename)}`
+        suggestion: `Remove file prefix: ${this.removeFilePrefix(name, filename)}`,
       });
     }
 
@@ -410,14 +532,14 @@ export class NamingQualityAnalyzer {
     if (!astContext.hasValidAST || !astContext.functionNode) {
       return undefined;
     }
-    
+
     const node = astContext.functionNode;
-    
+
     // Check for explicit return type annotation
     if (ts.isFunctionLike(node) && node.type) {
       return node.type.getText();
     }
-    
+
     // For arrow functions, check the variable declaration
     if (ts.isArrowFunction(node)) {
       const parent = node.parent;
@@ -425,14 +547,18 @@ export class NamingQualityAnalyzer {
         return parent.type.getText();
       }
     }
-    
+
     return undefined;
   }
 
   /**
    * Calculates confidence in the analysis based on available information and AST quality
    */
-  private calculateConfidence(functionInfo: FunctionInfo, astContext: ASTContext, issues: NamingIssue[]): number {
+  private calculateConfidence(
+    functionInfo: FunctionInfo,
+    astContext: ASTContext,
+    issues: NamingIssue[]
+  ): number {
     let confidence = astContext.hasValidAST ? 0.85 : 0.75; // Higher confidence with valid AST
 
     // Higher confidence for exported functions (more important)
@@ -467,7 +593,7 @@ export class NamingQualityAnalyzer {
 
   private toCamelCase(name: string): string {
     return name
-      .replace(/[-_\s]+(.)?/g, (_, char) => char ? char.toUpperCase() : '')
+      .replace(/[-_\s]+(.)?/g, (_, char) => (char ? char.toUpperCase() : ''))
       .replace(/^[A-Z]/, char => char.toLowerCase());
   }
 
@@ -493,8 +619,9 @@ export class NamingQualityAnalyzer {
   }
 
   private isReturnTypeBoolean(returnType: string): boolean {
-    return returnType.toLowerCase().includes('boolean') || 
-           returnType.toLowerCase().includes('bool');
+    return (
+      returnType.toLowerCase().includes('boolean') || returnType.toLowerCase().includes('bool')
+    );
   }
 
   private isValidConstructorName(name: string): boolean {
@@ -505,10 +632,10 @@ export class NamingQualityAnalyzer {
     // Check if name has both verb and noun components
     const words = this.splitCamelCase(name);
     if (words.length < 2) return false;
-    
+
     const hasVerb = this.ACTION_VERBS.has(words[0].toLowerCase());
     const hasNoun = words.length > 1 && words[1].length > 2;
-    
+
     return hasVerb && hasNoun;
   }
 
@@ -524,18 +651,18 @@ export class NamingQualityAnalyzer {
   private suggestActionVerbs(name: string): string[] {
     const words = this.splitCamelCase(name);
     const mainPart = words.slice(1).join('');
-    
-    return ['get', 'set', 'create', 'update', 'delete'].map(verb => 
-      verb + mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+
+    return ['get', 'set', 'create', 'update', 'delete'].map(
+      verb => verb + mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
     );
   }
 
   private suggestBooleanNames(name: string): string[] {
     const words = this.splitCamelCase(name);
     const mainPart = words.join('');
-    
-    return ['is', 'has', 'can', 'should'].map(prefix => 
-      prefix + mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
+
+    return ['is', 'has', 'can', 'should'].map(
+      prefix => prefix + mainPart.charAt(0).toUpperCase() + mainPart.slice(1)
     );
   }
 
@@ -567,11 +694,11 @@ export class NamingQualityAnalyzer {
 
   private followsConventions(name: string, conventions: Set<string>): boolean {
     if (conventions.size === 0) return true;
-    
+
     if (conventions.has('camelCase') && this.isCamelCase(name)) return true;
     if (conventions.has('snake_case') && name.includes('_')) return true;
     if (conventions.has('PascalCase') && /^[A-Z]/.test(name)) return true;
-    
+
     return conventions.size > 1; // Allow flexibility with mixed conventions
   }
 

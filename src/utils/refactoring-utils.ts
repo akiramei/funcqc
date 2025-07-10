@@ -16,9 +16,9 @@ export function parsePattern(pattern: string): RefactoringPattern | undefined {
     'reduce-parameters': RefactoringPattern.ReduceParameters,
     'extract-class': RefactoringPattern.ExtractClass,
     'inline-function': RefactoringPattern.InlineFunction,
-    'rename-function': RefactoringPattern.RenameFunction
+    'rename-function': RefactoringPattern.RenameFunction,
   };
-  
+
   return patternMap[pattern];
 }
 
@@ -32,9 +32,9 @@ export function formatPatternName(pattern: RefactoringPattern | string): string 
     [RefactoringPattern.ReduceParameters]: 'Reduce Parameters',
     [RefactoringPattern.ExtractClass]: 'Extract Class',
     [RefactoringPattern.InlineFunction]: 'Inline Function',
-    [RefactoringPattern.RenameFunction]: 'Rename Function'
+    [RefactoringPattern.RenameFunction]: 'Rename Function',
   };
-  
+
   return nameMap[pattern as RefactoringPattern] || pattern;
 }
 
@@ -45,7 +45,7 @@ const SEVERITY_COLOR_MAP = {
   critical: { withBrackets: chalk.red, simple: chalk.red.bold },
   high: { withBrackets: chalk.redBright, simple: chalk.red },
   medium: { withBrackets: chalk.yellow, simple: chalk.yellow },
-  low: { withBrackets: chalk.green, simple: chalk.green }
+  low: { withBrackets: chalk.green, simple: chalk.green },
 } as const;
 
 /**
@@ -67,9 +67,11 @@ export function getSeverityDisplaySimple(severity: SeverityLevel | string): stri
 /**
  * Group refactoring opportunities by pattern
  */
-export function groupOpportunitiesByPattern(opportunities: RefactoringOpportunity[]): Record<string, RefactoringOpportunity[]> {
+export function groupOpportunitiesByPattern(
+  opportunities: RefactoringOpportunity[]
+): Record<string, RefactoringOpportunity[]> {
   const groups: Record<string, RefactoringOpportunity[]> = {};
-  
+
   for (const opp of opportunities) {
     const pattern = opp.pattern;
     if (!groups[pattern]) {
@@ -77,7 +79,7 @@ export function groupOpportunitiesByPattern(opportunities: RefactoringOpportunit
     }
     groups[pattern].push(opp);
   }
-  
+
   return groups;
 }
 
@@ -88,9 +90,9 @@ export function getRiskLevelDisplay(riskLevel: RiskLevel | string): string {
   const colorMap: Record<RiskLevel, (text: string) => string> = {
     high: chalk.red.bold,
     medium: chalk.yellow,
-    low: chalk.green
+    low: chalk.green,
   };
-  
+
   const colorFn = colorMap[riskLevel as RiskLevel] || chalk.gray;
   return colorFn(riskLevel.toUpperCase());
 }
@@ -102,9 +104,9 @@ export function getPriorityDisplay(priority: PriorityLevel | string): string {
   const iconMap: Record<PriorityLevel, string> = {
     high: '🔥',
     medium: '⚠️',
-    low: '💡'
+    low: '💡',
   };
-  
+
   return iconMap[priority as PriorityLevel] || '📌';
 }
 
@@ -116,8 +118,8 @@ export function getSeverityIcon(severity: SeverityLevel | string): string {
     critical: '🔴',
     high: '🟠',
     medium: '🟡',
-    low: '🟢'
+    low: '🟢',
   };
-  
+
   return iconMap[severity as SeverityLevel] || '⚪';
 }

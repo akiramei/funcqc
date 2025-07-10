@@ -1,4 +1,14 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction, SimilarityWeights, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../types';
+import {
+  FunctionInfo,
+  SimilarityDetector,
+  SimilarityOptions,
+  SimilarityResult,
+  SimilarFunction,
+  SimilarityWeights,
+  QualityMetrics,
+  ParameterInfo,
+  ReturnTypeInfo,
+} from '../types';
 import { ASTCanonicalizer, calculateASTSimilarity } from './ast-canonicalizer';
 import { Project } from 'ts-morph';
 
@@ -6,7 +16,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   name = 'ast-structural';
   version = '2.0.0'; // Updated for AST canonicalization
   supportedLanguages = ['typescript', 'javascript'];
-  
+
   private canonicalizer = new ASTCanonicalizer();
   private project: Project;
   private weights: Required<SimilarityWeights>;
@@ -18,7 +28,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
       signature: weights?.signature ?? 0.2,
       metrics: weights?.metrics ?? 0.2,
       parameters: weights?.parameters ?? 0.1,
-      returnType: weights?.returnType ?? 0.1
+      returnType: weights?.returnType ?? 0.1,
     };
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
@@ -30,8 +40,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         noResolve: true,
         noLib: true,
         target: 99, // ESNext
-        jsx: 4 // Preserve
-      }
+        jsx: 4, // Preserve
+      },
     });
   }
 
@@ -41,11 +51,14 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     sourceFiles.forEach(file => this.project.removeSourceFile(file));
   }
 
-  async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
+  async detect(
+    functions: FunctionInfo[],
+    options: SimilarityOptions = {}
+  ): Promise<SimilarityResult[]> {
     const config = this.parseDetectionOptions(options);
     const validFunctions = this.filterValidFunctions(functions, config);
     const pairwiseResults = this.detectPairwiseSimilarities(validFunctions, config);
-    
+
     return this.groupSimilarFunctions(pairwiseResults);
   }
 
@@ -57,18 +70,19 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     return {
       threshold: options.threshold || 0.8,
       minLines: options.minLines || 3,
-      crossFile: options.crossFile !== false
+      crossFile: options.crossFile !== false,
     };
   }
 
-  private filterValidFunctions(functions: FunctionInfo[], config: { minLines: number }): FunctionInfo[] {
-    return functions.filter(func => 
-      !func.metrics || func.metrics.linesOfCode >= config.minLines
-    );
+  private filterValidFunctions(
+    functions: FunctionInfo[],
+    config: { minLines: number }
+  ): FunctionInfo[] {
+    return functions.filter(func => !func.metrics || func.metrics.linesOfCode >= config.minLines);
   }
 
   private detectPairwiseSimilarities(
-    functions: FunctionInfo[], 
+    functions: FunctionInfo[],
     config: { threshold: number; crossFile: boolean }
   ): SimilarityResult[] {
     const results: SimilarityResult[] = [];
@@ -87,7 +101,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         processedPairs.add(pairKey);
 
         const similarity = this.calculateSimilarity(func1, func2);
-        
+
         if (similarity >= config.threshold) {
           results.push(this.createSimilarityResult(func1, func2, similarity));
         }
@@ -98,9 +112,9 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private shouldSkipComparison(
-    func1: FunctionInfo, 
-    func2: FunctionInfo, 
-    config: { crossFile: boolean }, 
+    func1: FunctionInfo,
+    func2: FunctionInfo,
+    config: { crossFile: boolean },
     processedPairs: Set<string>
   ): boolean {
     // Skip cross-file comparisons if disabled
@@ -114,24 +128,23 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private createSimilarityResult(
-    func1: FunctionInfo, 
-    func2: FunctionInfo, 
+    func1: FunctionInfo,
+    func2: FunctionInfo,
     similarity: number
   ): SimilarityResult {
     return {
       type: 'structural',
       similarity,
-      functions: [
-        this.createSimilarFunction(func1),
-        this.createSimilarFunction(func2)
-      ],
+      functions: [this.createSimilarFunction(func1), this.createSimilarFunction(func2)],
       detector: this.name,
       metadata: {
         astHashMatch: func1.astHash === func2.astHash,
         signatureHashMatch: func1.signatureHash === func2.signatureHash,
-        complexityDiff: Math.abs((func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)),
-        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0))
-      }
+        complexityDiff: Math.abs(
+          (func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)
+        ),
+        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0)),
+      },
     };
   }
 
@@ -171,7 +184,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     // Calculate weighted average
     const totalWeight = factors.reduce((sum, f) => sum + f.weight, 0);
     const weightedSum = factors.reduce((sum, f) => sum + f.weight * f.score, 0);
-    
+
     return totalWeight > 0 ? weightedSum / totalWeight : 0;
   }
 
@@ -204,30 +217,51 @@ export class ASTSimilarityDetector implements SimilarityDetector {
 
     const distance = this.levenshteinDistance(normalized1, normalized2);
     const maxLength = Math.max(normalized1.length, normalized2.length);
-    
-    return maxLength > 0 ? 1 - (distance / maxLength) : 0;
+
+    return maxLength > 0 ? 1 - distance / maxLength : 0;
   }
 
   private normalizeCode(code: string): string {
-    return code
-      // Remove comments
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
-      // Normalize whitespace
-      .replace(/\s+/g, ' ')
-      // Remove string contents but keep quotes
-      .replace(/"[^"]*"/g, '""')
-      .replace(/'[^']*'/g, "''")
-      .replace(/`[^`]*`/g, '``')
-      // Normalize variable names to generic placeholders
-      .replace(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g, (match) => {
-        // Keep keywords and common types
-        const keywords = ['function', 'const', 'let', 'var', 'if', 'else', 'for', 'while', 
-                         'return', 'async', 'await', 'class', 'extends', 'implements',
-                         'string', 'number', 'boolean', 'void', 'any', 'unknown'];
-        return keywords.includes(match) ? match : 'VAR';
-      })
-      .trim();
+    return (
+      code
+        // Remove comments
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .replace(/\/\/.*$/gm, '')
+        // Normalize whitespace
+        .replace(/\s+/g, ' ')
+        // Remove string contents but keep quotes
+        .replace(/"[^"]*"/g, '""')
+        .replace(/'[^']*'/g, "''")
+        .replace(/`[^`]*`/g, '``')
+        // Normalize variable names to generic placeholders
+        .replace(/\b[a-zA-Z_$][a-zA-Z0-9_$]*\b/g, match => {
+          // Keep keywords and common types
+          const keywords = [
+            'function',
+            'const',
+            'let',
+            'var',
+            'if',
+            'else',
+            'for',
+            'while',
+            'return',
+            'async',
+            'await',
+            'class',
+            'extends',
+            'implements',
+            'string',
+            'number',
+            'boolean',
+            'void',
+            'any',
+            'unknown',
+          ];
+          return keywords.includes(match) ? match : 'VAR';
+        })
+        .trim()
+    );
   }
 
   private calculateSignatureSimilarity(func1: FunctionInfo, func2: FunctionInfo): number {
@@ -235,22 +269,33 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     let score = 0;
     let factors = 0;
 
-    if (func1.isAsync === func2.isAsync) { score += 1; }
+    if (func1.isAsync === func2.isAsync) {
+      score += 1;
+    }
     factors++;
 
-    if (func1.isGenerator === func2.isGenerator) { score += 1; }
+    if (func1.isGenerator === func2.isGenerator) {
+      score += 1;
+    }
     factors++;
 
-    if (func1.isArrowFunction === func2.isArrowFunction) { score += 1; }
+    if (func1.isArrowFunction === func2.isArrowFunction) {
+      score += 1;
+    }
     factors++;
 
-    if (func1.parameters.length === func2.parameters.length) { score += 1; }
+    if (func1.parameters.length === func2.parameters.length) {
+      score += 1;
+    }
     factors++;
 
     return factors > 0 ? score / factors : 0;
   }
 
-  private calculateMetricsSimilarity(metrics1: QualityMetrics | undefined, metrics2: QualityMetrics | undefined): number {
+  private calculateMetricsSimilarity(
+    metrics1: QualityMetrics | undefined,
+    metrics2: QualityMetrics | undefined
+  ): number {
     if (!metrics1 || !metrics2) return 0;
     const metricKeys = [
       'cyclomaticComplexity',
@@ -258,7 +303,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
       'linesOfCode',
       'maxNestingLevel',
       'branchCount',
-      'loopCount'
+      'loopCount',
     ];
 
     let totalDiff = 0;
@@ -269,7 +314,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         const val1 = metrics1[key as keyof QualityMetrics] as number;
         const val2 = metrics2[key as keyof QualityMetrics] as number;
         const maxVal = Math.max(val1, val2);
-        
+
         if (maxVal > 0) {
           const diff = Math.abs(val1 - val2) / maxVal;
           totalDiff += 1 - diff;
@@ -297,17 +342,22 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     return params1.length > 0 ? matches / params1.length : 1;
   }
 
-  private calculateReturnTypeSimilarity(ret1: ReturnTypeInfo | undefined, ret2: ReturnTypeInfo | undefined): number {
+  private calculateReturnTypeSimilarity(
+    ret1: ReturnTypeInfo | undefined,
+    ret2: ReturnTypeInfo | undefined
+  ): number {
     if (!ret1 && !ret2) return 1;
     if (!ret1 || !ret2) return 0;
-    
+
     return ret1.typeSimple === ret2.typeSimple ? 1 : 0;
   }
 
   private levenshteinDistance(str1: string, str2: string): number {
     const m = str1.length;
     const n = str2.length;
-    const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+    const dp: number[][] = Array(m + 1)
+      .fill(null)
+      .map(() => Array(n + 1).fill(0));
 
     for (let i = 0; i <= m; i++) dp[i][0] = i;
     for (let j = 0; j <= n; j++) dp[0][j] = j;
@@ -317,11 +367,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         if (str1[i - 1] === str2[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1];
         } else {
-          dp[i][j] = Math.min(
-            dp[i - 1][j] + 1,
-            dp[i][j - 1] + 1,
-            dp[i - 1][j - 1] + 1
-          );
+          dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + 1);
         }
       }
     }
@@ -340,14 +386,14 @@ export class ASTSimilarityDetector implements SimilarityDetector {
       filePath: func.filePath,
       startLine: func.startLine,
       endLine: func.endLine,
-      originalFunction: func
+      originalFunction: func,
     };
   }
 
   private groupSimilarFunctions(results: SimilarityResult[]): SimilarityResult[] {
     const graph = this.buildSimilarityGraph(results);
     const components = this.findConnectedComponents(graph.adjacencyList);
-    
+
     return this.createGroupedResults(components, graph.functionMap, results);
   }
 
@@ -357,10 +403,10 @@ export class ASTSimilarityDetector implements SimilarityDetector {
 
     for (const result of results) {
       const [func1, func2] = result.functions;
-      
+
       this.ensureNodeExists(adjacencyList, func1.functionId);
       this.ensureNodeExists(adjacencyList, func2.functionId);
-      
+
       adjacencyList.get(func1.functionId)!.add(func2.functionId);
       adjacencyList.get(func2.functionId)!.add(func1.functionId);
 
@@ -394,8 +440,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private exploreComponent(
-    startId: string, 
-    adjacencyList: Map<string, Set<string>>, 
+    startId: string,
+    adjacencyList: Map<string, Set<string>>,
     visited: Set<string>
   ): Set<string> {
     const component = new Set<string>();
@@ -420,8 +466,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private createGroupedResults(
-    components: Set<string>[], 
-    functionMap: Map<string, SimilarFunction>, 
+    components: Set<string>[],
+    functionMap: Map<string, SimilarFunction>,
     originalResults: SimilarityResult[]
   ): SimilarityResult[] {
     return components.map(component => {
@@ -437,14 +483,14 @@ export class ASTSimilarityDetector implements SimilarityDetector {
         metadata: {
           ...firstResult?.metadata,
           groupSize: component.size,
-          averageSimilarity: avgSimilarity
-        }
+          averageSimilarity: avgSimilarity,
+        },
       };
     });
   }
 
   private getFunctionsInComponent(
-    component: Set<string>, 
+    component: Set<string>,
     functionMap: Map<string, SimilarFunction>
   ): SimilarFunction[] {
     return Array.from(component)
@@ -452,10 +498,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
       .filter(f => f !== undefined);
   }
 
-  private calculateAverageSimilarity(
-    component: Set<string>, 
-    results: SimilarityResult[]
-  ): number {
+  private calculateAverageSimilarity(component: Set<string>, results: SimilarityResult[]): number {
     let totalSimilarity = 0;
     let count = 0;
 
@@ -471,7 +514,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   private findFirstMatchingResult(
-    component: Set<string>, 
+    component: Set<string>,
     results: SimilarityResult[]
   ): SimilarityResult | undefined {
     return results.find(result => {

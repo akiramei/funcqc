@@ -1,4 +1,12 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, ConsensusStrategy, SimilarFunction, SimilarityWeights } from '../types';
+import {
+  FunctionInfo,
+  SimilarityDetector,
+  SimilarityOptions,
+  SimilarityResult,
+  ConsensusStrategy,
+  SimilarFunction,
+  SimilarityWeights,
+} from '../types';
 import { ASTSimilarityDetector } from './ast-similarity-detector';
 import { ANNSimilarityDetector } from './ann-similarity-detector';
 import { HashSimilarityDetector } from './hash-similarity-detector';
@@ -9,19 +17,18 @@ export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
   constructor(weights?: SimilarityWeights, storage?: PGLiteStorageAdapter) {
-    
     // Register detectors in priority order:
     // 1. Advanced detector with AST canonicalization, Merkle hashing, and SimHash (O(n))
     this.registerDetector(new AdvancedSimilarityDetector());
-    
+
     // 2. ANN detector for semantic similarity (if storage available)
     if (storage) {
       this.registerDetector(new ANNSimilarityDetector(storage));
     }
-    
+
     // 3. Hash detector for basic exact/near matches (O(n))
     this.registerDetector(new HashSimilarityDetector());
-    
+
     // 4. AST detector as comprehensive fallback (O(n²))
     this.registerDetector(new ASTSimilarityDetector(weights));
   }
@@ -95,20 +102,24 @@ export class SimilarityManager {
         const isAvailable = await detector.isAvailable();
         if (isAvailable) {
           console.log(`Using detector: ${detectorName}`);
-          
+
           // Suggest performance optimization if using slower detector
           if (detectorName === 'ast-structural') {
-            console.log('💡 Tip: For faster results, consider using "funcqc vectorize" to enable semantic search');
+            console.log(
+              '💡 Tip: For faster results, consider using "funcqc vectorize" to enable semantic search'
+            );
           } else if (detectorName === 'advanced-structural') {
-            console.log('🚀 Using advanced similarity detection with AST canonicalization and SimHash');
+            console.log(
+              '🚀 Using advanced similarity detection with AST canonicalization and SimHash'
+            );
           }
           const results = await detector.detect(functions, options);
-          
+
           // If we get good results, return them
           if (results.length > 0) {
             return results;
           }
-          
+
           // For high-performance detectors (hash), continue to next detector
           // For slower detectors, return empty results to avoid performance issues
           if (detectorName !== 'hash-duplicate') {
@@ -124,26 +135,34 @@ export class SimilarityManager {
     return [];
   }
 
-  private applyConsensus(results: SimilarityResult[], strategy: ConsensusStrategy, detectorCount?: number): SimilarityResult[] {
+  private applyConsensus(
+    results: SimilarityResult[],
+    strategy: ConsensusStrategy,
+    detectorCount?: number
+  ): SimilarityResult[] {
     switch (strategy.strategy) {
       case 'majority':
         return this.majorityConsensus(results, strategy.threshold || 0.5, detectorCount);
-      
+
       case 'intersection':
         return this.intersectionConsensus(results);
-      
+
       case 'union':
         return results;
-      
+
       case 'weighted':
         return this.weightedConsensus(results, strategy.weightings || {});
-      
+
       default:
         return results;
     }
   }
 
-  private majorityConsensus(results: SimilarityResult[], threshold: number, detectorCount?: number): SimilarityResult[] {
+  private majorityConsensus(
+    results: SimilarityResult[],
+    threshold: number,
+    detectorCount?: number
+  ): SimilarityResult[] {
     // Group results by function pairs
     const pairCounts = new Map<string, { count: number; results: SimilarityResult[] }>();
 
@@ -164,8 +183,9 @@ export class SimilarityManager {
     for (const [, entry] of pairCounts) {
       if (entry.count / totalDetectors >= threshold) {
         // Average the similarity scores
-        const avgSimilarity = entry.results.reduce((sum, r) => sum + r.similarity, 0) / entry.results.length;
-        
+        const avgSimilarity =
+          entry.results.reduce((sum, r) => sum + r.similarity, 0) / entry.results.length;
+
         consensusResults.push({
           ...entry.results[0],
           similarity: avgSimilarity,
@@ -173,8 +193,8 @@ export class SimilarityManager {
           metadata: {
             ...entry.results[0].metadata,
             detectorCount: entry.count,
-            detectors: entry.results.map(r => r.detector)
-          }
+            detectors: entry.results.map(r => r.detector),
+          },
         });
       }
     }
@@ -207,8 +227,9 @@ export class SimilarityManager {
     for (const pairKey of intersection) {
       const matchingResults = results.filter(r => this.getPairKey(r.functions) === pairKey);
       if (matchingResults.length > 0) {
-        const avgSimilarity = matchingResults.reduce((sum, r) => sum + r.similarity, 0) / matchingResults.length;
-        
+        const avgSimilarity =
+          matchingResults.reduce((sum, r) => sum + r.similarity, 0) / matchingResults.length;
+
         consensusResults.push({
           ...matchingResults[0],
           similarity: avgSimilarity,
@@ -216,8 +237,8 @@ export class SimilarityManager {
           metadata: {
             ...matchingResults[0].metadata,
             detectorCount: matchingResults.length,
-            detectors: matchingResults.map(r => r.detector)
-          }
+            detectors: matchingResults.map(r => r.detector),
+          },
         });
       }
     }
@@ -225,7 +246,10 @@ export class SimilarityManager {
     return consensusResults;
   }
 
-  private weightedConsensus(results: SimilarityResult[], weightings: Record<string, number>): SimilarityResult[] {
+  private weightedConsensus(
+    results: SimilarityResult[],
+    weightings: Record<string, number>
+  ): SimilarityResult[] {
     // Group results by function pairs
     const pairGroups = new Map<string, SimilarityResult[]>();
 
@@ -252,7 +276,7 @@ export class SimilarityManager {
 
       if (totalWeight > 0) {
         const weightedSimilarity = weightedSum / totalWeight;
-        
+
         consensusResults.push({
           ...group[0],
           similarity: weightedSimilarity,
@@ -261,8 +285,8 @@ export class SimilarityManager {
             ...group[0].metadata,
             detectorCount: group.length,
             detectors: group.map(r => r.detector),
-            weights: weightings
-          }
+            weights: weightings,
+          },
         });
       }
     }
@@ -281,4 +305,3 @@ export class SimilarityManager {
     return Array.from(this.detectors.keys());
   }
 }
-

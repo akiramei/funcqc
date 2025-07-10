@@ -5,11 +5,11 @@ import * as fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
-import { 
-  FunctionInfo, 
-  SnapshotInfo, 
-  StorageAdapter, 
-  QueryOptions, 
+import {
+  FunctionInfo,
+  SnapshotInfo,
+  StorageAdapter,
+  QueryOptions,
   SnapshotMetadata,
   SnapshotDiff,
   FunctionChange,
@@ -27,15 +27,19 @@ import {
   LineageKind,
   LineageStatus,
   LineageQuery,
-  RefactoringSession
+  RefactoringSession,
 } from '../types';
-import { BatchProcessor, TransactionalBatchProcessor, BatchTransactionProcessor } from '../utils/batch-processor';
+import {
+  BatchProcessor,
+  TransactionalBatchProcessor,
+  BatchTransactionProcessor,
+} from '../utils/batch-processor';
 import { ErrorCode } from '../utils/error-handler';
-import { 
-  prepareBulkInsertData, 
-  generateBulkInsertSQL, 
-  splitIntoBatches, 
-  calculateOptimalBatchSize 
+import {
+  prepareBulkInsertData,
+  generateBulkInsertSQL,
+  splitIntoBatches,
+  calculateOptimalBatchSize,
 } from './bulk-insert-utils';
 
 /**
@@ -62,14 +66,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private transactionDepth: number = 0;
   private dbPath: string;
   private originalDbPath: string;
-  
+
   // Static cache to avoid redundant schema checks across instances
   private static schemaCache = new Map<string, boolean>();
 
   constructor(dbPath: string) {
     // Validate input path
     this.validateDbPath(dbPath);
-    
+
     // Store original path for directory check logic
     this.originalDbPath = dbPath;
     // パスを正規化してキャッシュの一貫性を保証
@@ -120,7 +124,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Note: We check for invalid Windows filename characters, but exclude colon in drive paths and connection strings
     const invalidCharsPattern = /[<>"|?*]/;
     const suspiciousColonPattern = /[^A-Za-z]:[^\\\/]/; // Colon not part of drive letter or connection string
-    
+
     if (invalidCharsPattern.test(dbPath)) {
       throw new DatabaseError(
         ErrorCode.DATABASE_NOT_INITIALIZED,
@@ -136,7 +140,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
 
     // Ensure path has a reasonable length
-    if (dbPath.length > 260) { // Windows MAX_PATH limit
+    if (dbPath.length > 260) {
+      // Windows MAX_PATH limit
       throw new DatabaseError(
         ErrorCode.DATABASE_NOT_INITIALIZED,
         `Database path too long: ${dbPath.length} characters. Maximum allowed: 260`
@@ -153,12 +158,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (originalPath === ':memory:') {
       return false;
     }
-    
+
     // Skip check for special PostgreSQL-style connection strings
     if (originalPath.startsWith('postgres://') || originalPath.startsWith('postgresql://')) {
       return false;
     }
-    
+
     // For Windows: Check if it's a valid file path (not just a drive letter)
     // Valid examples: C:\path\to\db, /path/to/db, ./relative/path
     // Invalid examples: C:, D:, etc.
@@ -166,7 +171,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (isWindowsDriveOnly) {
       return false;
     }
-    
+
     return true;
   }
 
@@ -185,8 +190,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
 
       await this.db.waitReady;
-      
-      // Use cache to avoid redundant schema initialization  
+
+      // Use cache to avoid redundant schema initialization
       if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
         // 同期的にキャッシュに追加して競合を防ぐ
         PGLiteStorageAdapter.schemaCache.set(this.dbPath, true);
@@ -203,7 +208,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (error instanceof DatabaseError) {
         throw error;
       }
-      
+
       // Check if it's a database not found error
       if (error instanceof Error && error.message.includes('does not exist')) {
         throw new DatabaseError(
@@ -212,7 +217,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           error
         );
       }
-      
+
       throw new DatabaseError(
         ErrorCode.DATABASE_CONNECTION_FAILED,
         `Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`,
@@ -225,7 +230,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.close();
     } catch (error) {
-      throw new Error(`Failed to close database: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -233,22 +240,35 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // SNAPSHOT OPERATIONS
   // ========================================
 
-  async saveSnapshot(functions: FunctionInfo[], label?: string, comment?: string, configHash?: string): Promise<string> {
+  async saveSnapshot(
+    functions: FunctionInfo[],
+    label?: string,
+    comment?: string,
+    configHash?: string
+  ): Promise<string> {
     const snapshotId = this.generateSnapshotId();
-    
+
     try {
       // Execute entire snapshot creation in a single transaction
       await this.executeInTransaction(async () => {
         // Create snapshot record
-        await this.createSnapshotRecord(snapshotId, functions, configHash || 'unknown', label, comment);
-        
+        await this.createSnapshotRecord(
+          snapshotId,
+          functions,
+          configHash || 'unknown',
+          label,
+          comment
+        );
+
         // Save functions in batch
         await this.saveFunctions(snapshotId, functions);
       });
-      
+
       return snapshotId;
     } catch (error) {
-      throw new Error(`Failed to save snapshot: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -269,10 +289,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       const result = await this.db.query(sql, params);
 
-
       return result.rows.map(row => this.mapRowToSnapshotInfo(row as SnapshotRow));
     } catch (error) {
-      throw new Error(`Failed to get snapshots: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get snapshots: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -286,7 +307,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return this.mapRowToSnapshotInfo(result.rows[0] as SnapshotRow);
     } catch (error) {
-      throw new Error(`Failed to get snapshot: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -295,7 +318,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query('DELETE FROM snapshots WHERE id = $1', [id]);
       return (result as unknown as { changes: number }).changes > 0;
     } catch (error) {
-      throw new Error(`Failed to delete snapshot: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to delete snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -308,14 +333,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(
         'SELECT config_hash FROM snapshots ORDER BY created_at DESC LIMIT 1'
       );
-      
+
       if (result.rows.length === 0) {
         return null;
       }
-      
+
       return (result.rows[0] as { config_hash: string }).config_hash;
     } catch (error) {
-      throw new Error(`Failed to get last config hash: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get last config hash: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -367,10 +394,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           ['code_to_comment_ratio', 'q.code_to_comment_ratio'],
           ['halstead_volume', 'q.halstead_volume'],
           ['halstead_difficulty', 'q.halstead_difficulty'],
-          ['maintainability_index', 'q.maintainability_index']
+          ['maintainability_index', 'q.maintainability_index'],
         ]);
 
-        const filterClauses = options.filters.map((filter) => {
+        const filterClauses = options.filters.map(filter => {
           if (filter.operator === 'KEYWORD') {
             // Handle keyword search across multiple fields
             params.push(`%${filter.value}%`);
@@ -394,34 +421,34 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Add sorting with validation and proper field mapping
       const validSortFields = new Map([
         ['name', 'f.name'],
-        ['file_path', 'f.file_path'], 
+        ['file_path', 'f.file_path'],
         ['start_line', 'f.start_line'],
         ['complexity', 'q.cyclomatic_complexity'],
         ['lines_of_code', 'q.lines_of_code'],
         ['parameter_count', 'q.parameter_count'],
         ['is_exported', 'f.is_exported'],
         ['is_async', 'f.is_async'],
-        ['display_name', 'f.display_name']
+        ['display_name', 'f.display_name'],
       ]);
-      
+
       // Handle multi-field sorting (e.g., 'file_path,start_line')
       let orderByClause = 'f.start_line'; // default
-      
+
       if (options?.sort) {
         const sortFields = options.sort.split(',').map(field => field.trim());
         const validOrderByFields: string[] = [];
-        
+
         for (const field of sortFields) {
           if (validSortFields.has(field)) {
             validOrderByFields.push(validSortFields.get(field)!);
           }
         }
-        
+
         if (validOrderByFields.length > 0) {
           orderByClause = validOrderByFields.join(', ');
         }
       }
-      
+
       sql += ` ORDER BY ${orderByClause}`;
 
       // Add pagination
@@ -439,7 +466,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -447,23 +474,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getFunctionsBySnapshot(snapshotId: string): Promise<FunctionInfo[]> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT f.*, qm.*
         FROM functions f
         LEFT JOIN quality_metrics qm ON f.id = qm.function_id
         WHERE f.snapshot_id = $1
         ORDER BY f.start_line
-      `, [snapshotId]);
+      `,
+        [snapshotId]
+      );
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -471,7 +503,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions for snapshot: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions for snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -482,11 +516,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (snapshots.length === 0) {
         return [];
       }
-      
+
       // Use the latest snapshot to get functions
       return await this.getFunctions(snapshots[0].id, options);
     } catch (error) {
-      throw new Error(`Failed to query functions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to query functions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -499,16 +535,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const { fromSnapshot, toSnapshot } = await this.validateAndLoadSnapshots(fromId, toId);
       const { fromFunctions, toFunctions } = await this.loadSnapshotFunctions(fromId, toId);
       const diff = this.calculateSnapshotDifferences(fromFunctions, toFunctions);
-      const statistics = this.calculateDiffStatistics(fromFunctions, toFunctions, diff.added, diff.removed, diff.modified);
+      const statistics = this.calculateDiffStatistics(
+        fromFunctions,
+        toFunctions,
+        diff.added,
+        diff.removed,
+        diff.modified
+      );
 
       return {
         from: fromSnapshot,
         to: toSnapshot,
         ...diff,
-        statistics
+        statistics,
       };
     } catch (error) {
-      throw new Error(`Failed to diff snapshots: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to diff snapshots: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -545,22 +589,22 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private categorizeChangedFunctions(
-    toFunctions: FunctionInfo[], 
-    fromMap: Map<string, FunctionInfo>, 
-    added: FunctionInfo[], 
-    modified: FunctionChange[], 
+    toFunctions: FunctionInfo[],
+    fromMap: Map<string, FunctionInfo>,
+    added: FunctionInfo[],
+    modified: FunctionChange[],
     unchanged: FunctionInfo[]
   ) {
     for (const toFunc of toFunctions) {
       const fromFunc = fromMap.get(toFunc.semanticId);
-      
+
       if (!fromFunc) {
         added.push(toFunc);
       } else if (fromFunc.astHash !== toFunc.astHash) {
         modified.push({
           before: fromFunc,
           after: toFunc,
-          changes: this.calculateFunctionChanges(fromFunc, toFunc)
+          changes: this.calculateFunctionChanges(fromFunc, toFunc),
         });
       } else {
         unchanged.push(toFunc);
@@ -568,7 +612,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private findRemovedFunctions(fromFunctions: FunctionInfo[], toMap: Map<string, FunctionInfo>, removed: FunctionInfo[]) {
+  private findRemovedFunctions(
+    fromFunctions: FunctionInfo[],
+    toMap: Map<string, FunctionInfo>,
+    removed: FunctionInfo[]
+  ) {
     for (const fromFunc of fromFunctions) {
       if (!toMap.has(fromFunc.semanticId)) {
         removed.push(fromFunc);
@@ -585,19 +633,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         { key: 'cyclomaticComplexity' as const, name: 'cyclomaticComplexity' },
         { key: 'linesOfCode' as const, name: 'linesOfCode' },
         { key: 'cognitiveComplexity' as const, name: 'cognitiveComplexity' },
-        { key: 'parameterCount' as const, name: 'parameterCount' }
+        { key: 'parameterCount' as const, name: 'parameterCount' },
       ];
-      
+
       for (const { key, name } of metricsToCompare) {
         const oldValue = fromFunc.metrics[key];
         const newValue = toFunc.metrics[key];
-        
+
         if (oldValue !== newValue) {
           changes.push({
             field: name,
             oldValue,
             newValue,
-            impact: this.calculateChangeImpact(name, oldValue, newValue)
+            impact: this.calculateChangeImpact(name, oldValue, newValue),
           });
         }
       }
@@ -608,19 +656,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       { key: 'name' as const },
       { key: 'filePath' as const },
       { key: 'startLine' as const },
-      { key: 'endLine' as const }
+      { key: 'endLine' as const },
     ];
-    
+
     for (const { key } of basicPropsToCompare) {
       const oldValue = fromFunc[key];
       const newValue = toFunc[key];
-      
+
       if (oldValue !== newValue) {
         changes.push({
           field: key,
           oldValue,
           newValue,
-          impact: 'low'
+          impact: 'low',
         });
       }
     }
@@ -628,7 +676,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return changes;
   }
 
-  private calculateChangeImpact(metric: string, oldValue: number, newValue: number): 'low' | 'medium' | 'high' {
+  private calculateChangeImpact(
+    metric: string,
+    oldValue: number,
+    newValue: number
+  ): 'low' | 'medium' | 'high' {
     const diff = Math.abs(newValue - oldValue);
     const relativeChange = diff / Math.max(oldValue, 1);
 
@@ -638,12 +690,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         if (diff >= 5 || relativeChange >= 0.5) return 'high';
         if (diff >= 2 || relativeChange >= 0.2) return 'medium';
         return 'low';
-      
+
       case 'linesOfCode':
         if (diff >= 50 || relativeChange >= 1.0) return 'high';
         if (diff >= 20 || relativeChange >= 0.5) return 'medium';
         return 'low';
-      
+
       default:
         if (relativeChange >= 0.5) return 'high';
         if (relativeChange >= 0.2) return 'medium';
@@ -651,7 +703,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private calculateDiffStatistics(fromFunctions: FunctionInfo[], toFunctions: FunctionInfo[], added: FunctionInfo[], removed: FunctionInfo[], modified: FunctionChange[]): DiffStatistics {
+  private calculateDiffStatistics(
+    fromFunctions: FunctionInfo[],
+    toFunctions: FunctionInfo[],
+    added: FunctionInfo[],
+    removed: FunctionInfo[],
+    modified: FunctionChange[]
+  ): DiffStatistics {
     const fromMetrics = this.aggregateMetrics(fromFunctions);
     const toMetrics = this.aggregateMetrics(toFunctions);
 
@@ -661,23 +719,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       removedCount: removed.length,
       modifiedCount: modified.length,
       complexityChange: toMetrics.avgComplexity - fromMetrics.avgComplexity,
-      linesChange: toMetrics.totalLines - fromMetrics.totalLines
+      linesChange: toMetrics.totalLines - fromMetrics.totalLines,
     };
   }
 
-  private aggregateMetrics(functions: FunctionInfo[]): { avgComplexity: number; totalLines: number } {
+  private aggregateMetrics(functions: FunctionInfo[]): {
+    avgComplexity: number;
+    totalLines: number;
+  } {
     if (functions.length === 0) {
       return { avgComplexity: 0, totalLines: 0 };
     }
 
-    const totalComplexity = functions.reduce((sum, f) => 
-      sum + (f.metrics?.cyclomaticComplexity || 1), 0);
-    const totalLines = functions.reduce((sum, f) => 
-      sum + (f.metrics?.linesOfCode || 0), 0);
+    const totalComplexity = functions.reduce(
+      (sum, f) => sum + (f.metrics?.cyclomaticComplexity || 1),
+      0
+    );
+    const totalLines = functions.reduce((sum, f) => sum + (f.metrics?.linesOfCode || 0), 0);
 
     return {
       avgComplexity: totalComplexity / functions.length,
-      totalLines
+      totalLines,
     };
   }
 
@@ -687,7 +749,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveFunctionDescription(description: FunctionDescription): Promise<void> {
     try {
-      await this.db.query(`
+      await this.db.query(
+        `
         INSERT INTO function_descriptions (
           semantic_id, description, source, created_at, updated_at, created_by, ai_model, confidence_score, validated_for_content_id, needs_review, usage_example, side_effects, error_conditions
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, FALSE, $10, $11, $12)
@@ -704,22 +767,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           usage_example = EXCLUDED.usage_example,
           side_effects = EXCLUDED.side_effects,
           error_conditions = EXCLUDED.error_conditions
-      `, [
-        description.semanticId,
-        description.description,
-        description.source,
-        new Date(description.createdAt).toISOString(),
-        new Date(description.updatedAt).toISOString(),
-        description.createdBy || null,
-        description.aiModel || null,
-        description.confidenceScore || null,
-        description.validatedForContentId || null,
-        description.usageExample || null,
-        description.sideEffects || null,
-        description.errorConditions || null
-      ]);
+      `,
+        [
+          description.semanticId,
+          description.description,
+          description.source,
+          new Date(description.createdAt).toISOString(),
+          new Date(description.updatedAt).toISOString(),
+          description.createdBy || null,
+          description.aiModel || null,
+          description.confidenceScore || null,
+          description.validatedForContentId || null,
+          description.usageExample || null,
+          description.sideEffects || null,
+          description.errorConditions || null,
+        ]
+      );
     } catch (error) {
-      throw new Error(`Failed to save function description: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save function description: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -757,17 +824,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ...(row.created_by && { createdBy: row.created_by }),
         ...(row.ai_model && { aiModel: row.ai_model }),
         ...(row.confidence_score !== null && { confidenceScore: row.confidence_score }),
-        ...(row.validated_for_content_id && { validatedForContentId: row.validated_for_content_id }),
+        ...(row.validated_for_content_id && {
+          validatedForContentId: row.validated_for_content_id,
+        }),
         ...(row.usage_example && { usageExample: row.usage_example }),
         ...(row.side_effects && { sideEffects: row.side_effects }),
-        ...(row.error_conditions && { errorConditions: row.error_conditions })
+        ...(row.error_conditions && { errorConditions: row.error_conditions }),
       };
     } catch (error) {
-      throw new Error(`Failed to get function description: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get function description: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getFunctionsNeedingDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+  async getFunctionsNeedingDescriptions(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]> {
     try {
       // Query functions where:
       // 1. No description exists, OR
@@ -790,14 +864,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           OR (d.validated_for_content_id IS NULL OR d.validated_for_content_id != f.content_id)
         )
       `;
-      
+
       const params: (string | number)[] = [snapshotId];
-      
+
       if (options?.limit) {
         sql += ' LIMIT $' + (params.length + 1);
         params.push(options.limit);
       }
-      
+
       if (options?.offset) {
         sql += ' OFFSET $' + (params.length + 1);
         params.push(options.offset);
@@ -807,7 +881,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -815,11 +889,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions needing descriptions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions needing descriptions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+  async searchFunctionsByDescription(
+    keyword: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]> {
     try {
       // Get the latest snapshot
       const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
@@ -863,7 +942,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Get parameters for each function
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -871,11 +950,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to search functions by description: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to search functions by description: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+  async getFunctionsWithDescriptions(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]> {
     try {
       let sql = `
         SELECT 
@@ -907,7 +991,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
 
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -915,11 +999,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions with descriptions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions with descriptions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getFunctionsWithoutDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+  async getFunctionsWithoutDescriptions(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<FunctionInfo[]> {
     try {
       let sql = `
         SELECT 
@@ -950,7 +1039,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
 
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -958,7 +1047,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions without descriptions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions without descriptions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -966,12 +1057,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // EMBEDDING OPERATIONS
   // ========================================
 
-  async saveEmbedding(semanticId: string, embedding: number[], model: string = 'text-embedding-ada-002'): Promise<void> {
+  async saveEmbedding(
+    semanticId: string,
+    embedding: number[],
+    model: string = 'text-embedding-ada-002'
+  ): Promise<void> {
     try {
       // Convert array to PostgreSQL array literal
       const embeddingStr = `{${embedding.join(',')}}`;
-      
-      await this.db.query(`
+
+      await this.db.query(
+        `
         INSERT INTO function_embeddings (semantic_id, embedding_model, vector_dimension, embedding)
         VALUES ($1, $2, $3, $4)
         ON CONFLICT (semantic_id) 
@@ -980,9 +1076,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           vector_dimension = EXCLUDED.vector_dimension,
           embedding = EXCLUDED.embedding,
           updated_at = CURRENT_TIMESTAMP
-      `, [semanticId, model, embedding.length, embeddingStr]);
+      `,
+        [semanticId, model, embedding.length, embeddingStr]
+      );
     } catch (error) {
-      throw new Error(`Failed to save embedding: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save embedding: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1000,14 +1100,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const row = result.rows[0] as { embedding: number[]; embedding_model: string };
       return {
         embedding: row.embedding,
-        model: row.embedding_model
+        model: row.embedding_model,
       };
     } catch (error) {
-      throw new Error(`Failed to get embedding: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get embedding: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async searchByEmbedding(queryEmbedding: number[], threshold: number = 0.8, limit: number = 10): Promise<Array<FunctionInfo & { similarity: number }>> {
+  async searchByEmbedding(
+    queryEmbedding: number[],
+    threshold: number = 0.8,
+    limit: number = 10
+  ): Promise<Array<FunctionInfo & { similarity: number }>> {
     try {
       // Get the latest snapshot
       const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
@@ -1017,7 +1123,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       // Since PGLite doesn't have native vector operations, we need to calculate similarity in application
       // First, get all embeddings
-      const embeddings = await this.db.query(`
+      const embeddings = await this.db.query(
+        `
         SELECT 
           f.*, 
           e.embedding,
@@ -1032,21 +1139,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1
-      `, [snapshots[0].id]);
+      `,
+        [snapshots[0].id]
+      );
 
       // Calculate similarities and filter
-      type EmbeddingSearchRow = FunctionRow & Partial<MetricsRow> & {
-        embedding: number[];
-        description?: string;
-      };
-      
+      type EmbeddingSearchRow = FunctionRow &
+        Partial<MetricsRow> & {
+          embedding: number[];
+          description?: string;
+        };
+
       const results: Array<{ row: EmbeddingSearchRow; similarity: number }> = [];
-      
+
       for (const row of embeddings.rows) {
         const rowData = row as EmbeddingSearchRow;
         const embedding = rowData.embedding;
         const similarity = EmbeddingService.cosineSimilarity(queryEmbedding, embedding);
-        
+
         if (similarity >= threshold) {
           results.push({ row: rowData, similarity });
         }
@@ -1062,18 +1172,25 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const functions = await Promise.all(
         topResults.map(async ({ row, similarity }) => {
           const parameters = await this.getFunctionParameters(row.id);
-          const functionInfo = this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+          const functionInfo = this.mapRowToFunctionInfo(
+            row as FunctionRow & Partial<MetricsRow>,
+            parameters
+          );
           return { ...functionInfo, similarity };
         })
       );
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to search by embedding: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to search by embedding: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void> {
+  async bulkSaveEmbeddings(
+    embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>
+  ): Promise<void> {
     if (embeddings.length === 0) return;
 
     await this.executeInTransaction(async () => {
@@ -1112,7 +1229,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
 
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -1120,7 +1237,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions without embeddings: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions without embeddings: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1152,7 +1271,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
 
       const functions = await Promise.all(
-        result.rows.map(async (row) => {
+        result.rows.map(async row => {
           const parameters = await this.getFunctionParameters((row as FunctionRow).id);
           return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
         })
@@ -1160,13 +1279,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functions;
     } catch (error) {
-      throw new Error(`Failed to get functions with embeddings: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions with embeddings: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getFunction(functionId: string): Promise<FunctionInfo | null> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT 
           f.*,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
@@ -1180,7 +1302,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.id = $1 OR f.semantic_id = $1
         LIMIT 1
-      `, [functionId]);
+      `,
+        [functionId]
+      );
 
       if (result.rows.length === 0) {
         return null;
@@ -1190,7 +1314,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const parameters = await this.getFunctionParameters(row.id);
       return this.mapRowToFunctionInfo(row, parameters);
     } catch (error) {
-      throw new Error(`Failed to get function: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get function: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1202,8 +1328,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       // Use PostgreSQL array for efficient batch query
       const idsArray = this.formatPostgresArrayLiteral(functionIds);
-      
-      const result = await this.db.query(`
+
+      const result = await this.db.query(
+        `
         SELECT 
           f.*,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
@@ -1216,18 +1343,22 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.id = ANY($1::text[]) OR f.semantic_id = ANY($1::text[])
-      `, [idsArray]);
+      `,
+        [idsArray]
+      );
 
       // Get parameters for all functions in a single batch
-      const parameterMap = await this.getFunctionParametersBatch(result.rows.map((row) => (row as FunctionRow).id));
+      const parameterMap = await this.getFunctionParametersBatch(
+        result.rows.map(row => (row as FunctionRow).id)
+      );
 
       const functionMap = new Map<string, FunctionInfo>();
-      
+
       for (const row of result.rows) {
         const functionRow = row as FunctionRow & Partial<MetricsRow>;
         const parameters = parameterMap.get(functionRow.id) || [];
         const functionInfo = this.mapRowToFunctionInfo(functionRow, parameters);
-        
+
         // Store by both id and semantic_id for flexible lookup
         functionMap.set(functionRow.id, functionInfo);
         functionMap.set(functionRow.semantic_id, functionInfo);
@@ -1235,11 +1366,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       return functionMap;
     } catch (error) {
-      throw new Error(`Failed to get functions batch: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions batch: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }> {
+  async getEmbeddingStats(): Promise<{
+    total: number;
+    withEmbeddings: number;
+    withoutEmbeddings: number;
+  }> {
     try {
       const result = await this.db.query(`
         SELECT 
@@ -1256,13 +1393,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return {
         total,
         withEmbeddings,
-        withoutEmbeddings: total - withEmbeddings
+        withoutEmbeddings: total - withEmbeddings,
       };
     } catch (error) {
-      throw new Error(`Failed to get embedding stats: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get embedding stats: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
-
 
   // ========================================
   // ANN INDEX MANAGEMENT
@@ -1286,7 +1424,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.db.query('UPDATE ann_index_metadata SET is_current = FALSE');
 
       // Insert new index metadata
-      await this.db.query(`
+      await this.db.query(
+        `
         INSERT INTO ann_index_metadata (
           id, algorithm, config_json, embedding_model, vector_dimension, 
           vector_count, index_data, build_time_ms, accuracy_metrics, is_current
@@ -1303,19 +1442,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           accuracy_metrics = EXCLUDED.accuracy_metrics,
           updated_at = CURRENT_TIMESTAMP,
           is_current = TRUE
-      `, [
-        indexId,
-        config.algorithm,
-        JSON.stringify(config),
-        embeddingModel,
-        vectorDimension,
-        vectorCount,
-        indexData,
-        buildTimeMs,
-        accuracyMetrics ? JSON.stringify(accuracyMetrics) : null
-      ]);
+      `,
+        [
+          indexId,
+          config.algorithm,
+          JSON.stringify(config),
+          embeddingModel,
+          vectorDimension,
+          vectorCount,
+          indexData,
+          buildTimeMs,
+          accuracyMetrics ? JSON.stringify(accuracyMetrics) : null,
+        ]
+      );
     } catch (error) {
-      throw new Error(`Failed to save ANN index: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save ANN index: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1370,25 +1513,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         buildTimeMs: row.build_time_ms,
         accuracyMetrics: row.accuracy_metrics ? JSON.parse(row.accuracy_metrics) : undefined,
         createdAt: new Date(row.created_at),
-        updatedAt: new Date(row.updated_at)
+        updatedAt: new Date(row.updated_at),
       };
     } catch (error) {
-      throw new Error(`Failed to get current ANN index: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get current ANN index: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   /**
    * Get all ANN index metadata (for history/comparison)
    */
-  async getAllANNIndexes(): Promise<Array<{
-    id: string;
-    algorithm: string;
-    embeddingModel: string;
-    vectorCount: number;
-    buildTimeMs: number;
-    isCurrent: boolean;
-    createdAt: Date;
-  }>> {
+  async getAllANNIndexes(): Promise<
+    Array<{
+      id: string;
+      algorithm: string;
+      embeddingModel: string;
+      vectorCount: number;
+      buildTimeMs: number;
+      isCurrent: boolean;
+      createdAt: Date;
+    }>
+  > {
     try {
       const result = await this.db.query(`
         SELECT id, algorithm, embedding_model, vector_count, build_time_ms, is_current, created_at
@@ -1413,11 +1560,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           vectorCount: typedRow.vector_count,
           buildTimeMs: typedRow.build_time_ms,
           isCurrent: typedRow.is_current,
-          createdAt: new Date(typedRow.created_at)
+          createdAt: new Date(typedRow.created_at),
         };
       });
     } catch (error) {
-      throw new Error(`Failed to get ANN indexes: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get ANN indexes: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1428,7 +1577,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       await this.db.query('DELETE FROM ann_index_metadata WHERE id = $1', [indexId]);
     } catch (error) {
-      throw new Error(`Failed to delete ANN index: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to delete ANN index: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1453,7 +1604,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           FROM ann_index_metadata 
           WHERE is_current = TRUE
         `),
-        this.db.query('SELECT AVG(build_time_ms) as avg_time FROM ann_index_metadata')
+        this.db.query('SELECT AVG(build_time_ms) as avg_time FROM ann_index_metadata'),
       ]);
 
       type CurrentIndexRow = {
@@ -1466,15 +1617,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       type TotalRow = { total: string };
       type AvgTimeRow = { avg_time: string | null };
 
-      const currentIndex = currentResult.rows.length > 0 ? (() => {
-        const row = currentResult.rows[0] as CurrentIndexRow;
-        return {
-          algorithm: row.algorithm,
-          vectorCount: typeof row.vector_count === 'string' ? parseInt(row.vector_count, 10) : row.vector_count,
-          buildTimeMs: typeof row.build_time_ms === 'string' ? parseInt(row.build_time_ms, 10) : row.build_time_ms,
-          model: row.embedding_model
-        };
-      })() : null;
+      const currentIndex =
+        currentResult.rows.length > 0
+          ? (() => {
+              const row = currentResult.rows[0] as CurrentIndexRow;
+              return {
+                algorithm: row.algorithm,
+                vectorCount:
+                  typeof row.vector_count === 'string'
+                    ? parseInt(row.vector_count, 10)
+                    : row.vector_count,
+                buildTimeMs:
+                  typeof row.build_time_ms === 'string'
+                    ? parseInt(row.build_time_ms, 10)
+                    : row.build_time_ms,
+                model: row.embedding_model,
+              };
+            })()
+          : null;
 
       const totalRow = totalResult.rows[0] as TotalRow;
       const avgRow = avgResult.rows[0] as AvgTimeRow;
@@ -1486,10 +1646,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return {
         totalIndexes: isNaN(totalIndexes) ? 0 : totalIndexes,
         currentIndex,
-        averageBuildTime: isNaN(averageBuildTime) ? 0 : averageBuildTime
+        averageBuildTime: isNaN(averageBuildTime) ? 0 : averageBuildTime,
       };
     } catch (error) {
-      throw new Error(`Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get ANN index stats: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1507,34 +1669,42 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
       const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
 
-      await this.db.query(`
+      await this.db.query(
+        `
         INSERT INTO lineage (
           id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
         )
-      `, [
-        lineage.id,
-        fromIdsLiteral,
-        toIdsLiteral,
-        lineage.kind,
-        lineage.status,
-        lineage.confidence || null,
-        lineage.note || null,
-        lineage.gitCommit,
-        lineage.createdAt.toISOString(),
-        lineage.updatedAt?.toISOString() || null
-      ]);
+      `,
+        [
+          lineage.id,
+          fromIdsLiteral,
+          toIdsLiteral,
+          lineage.kind,
+          lineage.status,
+          lineage.confidence || null,
+          lineage.note || null,
+          lineage.gitCommit,
+          lineage.createdAt.toISOString(),
+          lineage.updatedAt?.toISOString() || null,
+        ]
+      );
     } catch (error) {
-      throw new Error(`Failed to save lineage: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save lineage: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getLineage(id: string): Promise<Lineage | null> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT * FROM lineage WHERE id = $1
-      `, [id]);
+      `,
+        [id]
+      );
 
       if (result.rows.length === 0) {
         return null;
@@ -1543,7 +1713,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const row = result.rows[0];
       return this.mapRowToLineage(row);
     } catch (error) {
-      throw new Error(`Failed to get lineage: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get lineage: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1598,7 +1770,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
       return result.rows.map(row => this.mapRowToLineage(row));
     } catch (error) {
-      throw new Error(`Failed to get lineages: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get lineages: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1686,7 +1860,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(sql, params);
       return result.rows.map(row => this.mapRowToLineage(row));
     } catch (error) {
-      throw new Error(`Failed to get lineages with function filter: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get lineages with function filter: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1696,14 +1872,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const sql = updateNote
         ? 'UPDATE lineage SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
         : 'UPDATE lineage SET status = $1, updated_at = $2 WHERE id = $3';
-      
+
       const params = updateNote
         ? [status, note, new Date().toISOString(), id]
         : [status, new Date().toISOString(), id];
 
       await this.db.query(sql, params);
     } catch (error) {
-      throw new Error(`Failed to update lineage status: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to update lineage status: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1717,7 +1895,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const fromIdsLiteral = this.formatPostgresArrayLiteral(lineage.fromIds);
       const toIdsLiteral = this.formatPostgresArrayLiteral(lineage.toIds);
 
-      await this.db.query(`
+      await this.db.query(
+        `
         UPDATE lineage SET 
           from_ids = $1, 
           to_ids = $2, 
@@ -1728,19 +1907,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           git_commit = $7, 
           updated_at = $8 
         WHERE id = $9
-      `, [
-        fromIdsLiteral,
-        toIdsLiteral,
-        lineage.kind,
-        lineage.status,
-        lineage.confidence,
-        lineage.note,
-        lineage.gitCommit,
-        new Date().toISOString(),
-        lineage.id
-      ]);
+      `,
+        [
+          fromIdsLiteral,
+          toIdsLiteral,
+          lineage.kind,
+          lineage.status,
+          lineage.confidence,
+          lineage.note,
+          lineage.gitCommit,
+          new Date().toISOString(),
+          lineage.id,
+        ]
+      );
     } catch (error) {
-      throw new Error(`Failed to update lineage: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to update lineage: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1751,33 +1934,45 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
       return affectedRows > 0;
     } catch (error) {
-      throw new Error(`Failed to delete lineage: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to delete lineage: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getLineagesByCommit(gitCommit: string): Promise<Lineage[]> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT * FROM lineage WHERE git_commit = $1 ORDER BY created_at DESC
-      `, [gitCommit]);
+      `,
+        [gitCommit]
+      );
 
       return result.rows.map(row => this.mapRowToLineage(row));
     } catch (error) {
-      throw new Error(`Failed to get lineages by commit: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get lineages by commit: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getFunctionLineageHistory(functionId: string): Promise<Lineage[]> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT * FROM lineage 
         WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
         ORDER BY created_at DESC
-      `, [functionId]);
+      `,
+        [functionId]
+      );
 
       return result.rows.map(row => this.mapRowToLineage(row));
     } catch (error) {
-      throw new Error(`Failed to get function lineage history: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get function lineage history: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -1786,22 +1981,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
 
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         DELETE FROM lineage 
         WHERE status = 'draft' AND created_at < $1
-      `, [cutoffDate.toISOString()]);
+      `,
+        [cutoffDate.toISOString()]
+      );
 
       // Type-safe handling of PGLite query result
       const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
       return affectedRows;
     } catch (error) {
-      throw new Error(`Failed to prune draft lineages: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to prune draft lineages: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   private mapRowToLineage(row: unknown): Lineage {
     // Type guard for database row structure
-    const isValidLineageRow = (obj: unknown): obj is {
+    const isValidLineageRow = (
+      obj: unknown
+    ): obj is {
       id: string;
       from_ids: string | string[];
       to_ids: string | string[];
@@ -1833,10 +2035,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Parse PostgreSQL arrays: {value1,value2} -> [value1, value2]
     const parsePostgresArray = (pgArray: string | string[]): string[] => {
       if (!pgArray) return [];
-      
+
       // If it's already an array, return it
       if (Array.isArray(pgArray)) return pgArray;
-      
+
       // If it's a string, parse it
       if (typeof pgArray === 'string') {
         if (pgArray === '{}') return [];
@@ -1845,7 +2047,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         if (!inner) return [];
         return inner.split(',').map(item => item.replace(/^"(.*)"$/, '$1'));
       }
-      
+
       return [];
     };
 
@@ -1859,7 +2061,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       note: row.note,
       gitCommit: row.git_commit,
       createdAt: new Date(row.created_at),
-      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined
+      updatedAt: row.updated_at ? new Date(row.updated_at) : undefined,
     } as Lineage;
   }
 
@@ -1878,7 +2080,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
   // TRANSACTION MANAGEMENT
   // ========================================
-  
+
   /**
    * Execute operations within a database transaction
    * Provides automatic rollback on errors and commit on success
@@ -1886,9 +2088,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async executeInTransaction<T>(operation: () => Promise<T>): Promise<T> {
     // Check for nested transactions
     if (this.transactionDepth > 0) {
-      throw new Error('Nested transactions are not supported. Use savepoints if nested transaction behavior is needed.');
+      throw new Error(
+        'Nested transactions are not supported. Use savepoints if nested transaction behavior is needed.'
+      );
     }
-    
+
     this.transactionDepth++;
     await this.db.query('BEGIN');
     try {
@@ -1902,60 +2106,66 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.transactionDepth--;
     }
   }
-  
+
   /**
    * Begin a database transaction manually
    */
   async beginTransaction(): Promise<void> {
     await this.db.query('BEGIN');
   }
-  
+
   /**
    * Commit the current transaction
    */
   async commitTransaction(): Promise<void> {
     await this.db.query('COMMIT');
   }
-  
+
   /**
    * Rollback the current transaction
    */
   async rollbackTransaction(): Promise<void> {
     await this.db.query('ROLLBACK');
   }
-  
+
   // ========================================
   // FUNCTION HISTORY OPERATIONS
   // ========================================
-  
+
   /**
    * Get function history across all snapshots efficiently
    * This avoids N+1 queries by fetching all data in a single query
    */
-  async getFunctionHistory(functionId: string, options?: {
-    limit?: number;
-    includeAbsent?: boolean;
-  }): Promise<Array<{
-    snapshot: SnapshotInfo;
-    function: FunctionInfo | null;
-    isPresent: boolean;
-  }>> {
+  async getFunctionHistory(
+    functionId: string,
+    options?: {
+      limit?: number;
+      includeAbsent?: boolean;
+    }
+  ): Promise<
+    Array<{
+      snapshot: SnapshotInfo;
+      function: FunctionInfo | null;
+      isPresent: boolean;
+    }>
+  > {
     const limit = options?.limit || 100;
     const includeAbsent = options?.includeAbsent ?? false;
-    
+
     try {
       // Get all snapshots ordered by creation time
       const snapshots = await this.getSnapshots({ limit });
-      
+
       if (snapshots.length === 0) {
         return [];
       }
-      
+
       // Build query to get function data across all snapshots in one go
       const snapshotIds = snapshots.map(s => s.id);
       const placeholders = snapshotIds.map((_, i) => `$${i + 2}`).join(',');
-      
-      const functionsResult = await this.db.query(`
+
+      const functionsResult = await this.db.query(
+        `
         SELECT 
           f.*,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
@@ -1967,11 +2177,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         WHERE f.snapshot_id IN (${placeholders})
           AND (f.id = $1 OR f.id LIKE $1 || '%')
-      `, [functionId, ...snapshotIds]);
-      
+      `,
+        [functionId, ...snapshotIds]
+      );
+
       // Get all function IDs for batch parameter loading
       const functionIds = functionsResult.rows.map(row => (row as FunctionRow).id);
-      
+
       // Batch load all parameters to avoid N+1 queries
       const parametersMap = new Map<string, ParameterRow[]>();
       if (functionIds.length > 0) {
@@ -1979,7 +2191,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           `SELECT * FROM function_parameters WHERE function_id = ANY($1) ORDER BY position`,
           [functionIds]
         );
-        
+
         for (const paramRow of parametersResult.rows) {
           const param = paramRow as ParameterRow;
           if (!parametersMap.has(param.function_id)) {
@@ -1988,7 +2200,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           parametersMap.get(param.function_id)!.push(param);
         }
       }
-      
+
       // Create a map for quick lookup
       const functionMap = new Map<string, FunctionInfo>();
       for (const row of functionsResult.rows) {
@@ -1999,61 +2211,77 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         // Use snapshot_id from the row to map functions
         functionMap.set(functionRow.snapshot_id, func);
       }
-      
+
       // Build history array
       const history = snapshots.map(snapshot => {
         const func = functionMap.get(snapshot.id) || null;
         return {
           snapshot,
           function: func,
-          isPresent: !!func
+          isPresent: !!func,
         };
       });
-      
+
       // Filter out absent functions if requested
       if (!includeAbsent) {
         return history.filter(h => h.isPresent);
       }
-      
+
       return history;
     } catch (error) {
-      throw new Error(`Failed to get function history: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get function history: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   // ========================================
   // BULK OPERATIONS
   // ========================================
-  
+
   /**
    * Bulk delete functions by snapshot ID with transaction support
    */
   async bulkDeleteFunctionsBySnapshot(snapshotId: string): Promise<number> {
     return await this.executeInTransaction(async () => {
       // Delete in reverse dependency order
-      await this.db.query('DELETE FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
-      await this.db.query('DELETE FROM function_parameters WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
-      await this.db.query('DELETE FROM function_descriptions WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)', [snapshotId]);
-      
-      const result = await this.db.query('DELETE FROM functions WHERE snapshot_id = $1', [snapshotId]);
+      await this.db.query(
+        'DELETE FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
+        [snapshotId]
+      );
+      await this.db.query(
+        'DELETE FROM function_parameters WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
+        [snapshotId]
+      );
+      await this.db.query(
+        'DELETE FROM function_descriptions WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
+        [snapshotId]
+      );
+
+      const result = await this.db.query('DELETE FROM functions WHERE snapshot_id = $1', [
+        snapshotId,
+      ]);
       return (result as unknown as { changes: number }).changes || 0;
     });
   }
-  
+
   /**
    * Bulk update quality metrics with transaction support
    */
-  async bulkUpdateQualityMetrics(updates: Array<{ functionId: string; metrics: QualityMetrics }>): Promise<void> {
+  async bulkUpdateQualityMetrics(
+    updates: Array<{ functionId: string; metrics: QualityMetrics }>
+  ): Promise<void> {
     if (updates.length === 0) return;
-    
+
     const batchSize = BatchProcessor.getOptimalBatchSize(updates.length, 2); // 2KB estimated per metric
-    
+
     await this.executeInTransaction(async () => {
       const batches = BatchProcessor.batchArray(updates, batchSize);
-      
+
       for (const batch of batches) {
         for (const { functionId, metrics } of batch) {
-          await this.db.query(`
+          await this.db.query(
+            `
             UPDATE quality_metrics SET
               lines_of_code = $2, total_lines = $3, cyclomatic_complexity = $4, cognitive_complexity = $5,
               max_nesting_level = $6, parameter_count = $7, return_statement_count = $8, branch_count = $9,
@@ -2061,19 +2289,33 @@ export class PGLiteStorageAdapter implements StorageAdapter {
               comment_lines = $14, code_to_comment_ratio = $15, halstead_volume = $16, halstead_difficulty = $17,
               maintainability_index = $18
             WHERE function_id = $1
-          `, [
-            functionId, metrics.linesOfCode, metrics.totalLines, metrics.cyclomaticComplexity,
-            metrics.cognitiveComplexity, metrics.maxNestingLevel, metrics.parameterCount,
-            metrics.returnStatementCount, metrics.branchCount, metrics.loopCount,
-            metrics.tryCatchCount, metrics.asyncAwaitCount, metrics.callbackCount,
-            metrics.commentLines, metrics.codeToCommentRatio, metrics.halsteadVolume || null,
-            metrics.halsteadDifficulty || null, metrics.maintainabilityIndex || null
-          ]);
+          `,
+            [
+              functionId,
+              metrics.linesOfCode,
+              metrics.totalLines,
+              metrics.cyclomaticComplexity,
+              metrics.cognitiveComplexity,
+              metrics.maxNestingLevel,
+              metrics.parameterCount,
+              metrics.returnStatementCount,
+              metrics.branchCount,
+              metrics.loopCount,
+              metrics.tryCatchCount,
+              metrics.asyncAwaitCount,
+              metrics.callbackCount,
+              metrics.commentLines,
+              metrics.codeToCommentRatio,
+              metrics.halsteadVolume || null,
+              metrics.halsteadDifficulty || null,
+              metrics.maintainabilityIndex || null,
+            ]
+          );
         }
       }
     });
   }
-  
+
   // ========================================
   // PRIVATE HELPER METHODS
   // ========================================
@@ -2081,16 +2323,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private async createSchema(): Promise<void> {
     // Check if functions table has the new schema
     const needsSchemaUpdate = await this.needsSchemaUpdate();
-    
+
     if (needsSchemaUpdate) {
       // Drop old tables and recreate with new schema
       await this.dropOldTablesIfNeeded();
     }
-    
+
     // Check if all core tables exist in one query to optimize startup
     const existingTables = await this.getExistingTables();
-    const requiredTables = ['snapshots', 'functions', 'function_parameters', 'quality_metrics', 'function_descriptions', 'function_embeddings', 'naming_evaluations', 'lineage', 'ann_index_metadata', 'refactoring_sessions', 'session_functions', 'refactoring_opportunities'];
-    
+    const requiredTables = [
+      'snapshots',
+      'functions',
+      'function_parameters',
+      'quality_metrics',
+      'function_descriptions',
+      'function_embeddings',
+      'naming_evaluations',
+      'lineage',
+      'ann_index_metadata',
+      'refactoring_sessions',
+      'session_functions',
+      'refactoring_opportunities',
+    ];
+
     // Only create tables that don't exist
     for (const tableName of requiredTables) {
       if (!existingTables.has(tableName)) {
@@ -2134,33 +2389,39 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }
       }
     }
-    
+
     // Run migrations for existing tables
     await this.runMigrations();
-    
+
     // Create triggers (they can be created multiple times safely)
     try {
       await this.db.exec(this.getTriggersSQL());
     } catch (error) {
       // Ignore trigger creation errors as they may already exist or not be supported
-      console.warn('Trigger creation failed:', error instanceof Error ? error.message : String(error));
+      console.warn(
+        'Trigger creation failed:',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
-  
+
   private async tableExists(tableName: string): Promise<boolean> {
     try {
-      const result = await this.db.query(`
+      const result = await this.db.query(
+        `
         SELECT EXISTS (
           SELECT FROM information_schema.tables 
           WHERE table_name = $1
         );
-      `, [tableName]);
+      `,
+        [tableName]
+      );
       return (result.rows[0] as { exists: boolean })?.exists === true;
     } catch {
       return false;
     }
   }
-  
+
   private async getExistingTables(): Promise<Set<string>> {
     try {
       const result = await this.db.query(`
@@ -2173,46 +2434,47 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return new Set();
     }
   }
-  
+
   private async needsSchemaUpdate(): Promise<boolean> {
     try {
       const functionsExists = await this.tableExists('functions');
       if (!functionsExists) {
         return false; // No update needed if table doesn't exist
       }
-      
+
       // Check if semantic_id column exists (indicates new schema)
       const result = await this.db.query(`
         SELECT column_name 
         FROM information_schema.columns 
         WHERE table_name = 'functions' AND column_name = 'semantic_id';
       `);
-      
+
       return result.rows.length === 0; // Need update if semantic_id doesn't exist
     } catch {
       return false;
     }
   }
-  
+
   private async dropOldTablesIfNeeded(): Promise<void> {
     try {
-      
       // Drop tables in reverse dependency order
       const dropTables = [
         'quality_metrics',
-        'function_parameters', 
+        'function_parameters',
         'function_embeddings',
         'function_descriptions',
         'functions',
-        'snapshots'
+        'snapshots',
       ];
-      
+
       for (const table of dropTables) {
         await this.db.exec(`DROP TABLE IF EXISTS ${table} CASCADE;`);
       }
-      
     } catch (error) {
-      console.warn('Error dropping old tables:', error instanceof Error ? error.message : String(error));
+      console.warn(
+        'Error dropping old tables:',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
 
@@ -2518,7 +2780,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `);
       console.log('Successfully added structured fields to function_descriptions table');
     } catch (error) {
-      throw new Error(`Failed to add structured fields: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to add structured fields: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -2612,7 +2876,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     `);
     } catch (error) {
       // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
-      throw new Error(`Failed to create database indexes: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to create database indexes: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -2630,22 +2896,25 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const metadata = this.calculateSnapshotMetadata(functions);
     // Use current UTC timestamp explicitly
     const nowUTC = new Date().toISOString();
-    
-    await this.db.query(`
+
+    await this.db.query(
+      `
       INSERT INTO snapshots (id, label, comment, git_commit, git_branch, git_tag, project_root, config_hash, metadata, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)
-    `, [
-      snapshotId,
-      label || null,
-      comment || null,
-      await this.getGitCommit(),
-      await this.getGitBranch(),
-      await this.getGitTag(),
-      process.cwd(),
-      configHash,
-      JSON.stringify(metadata),
-      nowUTC
-    ]);
+    `,
+      [
+        snapshotId,
+        label || null,
+        comment || null,
+        await this.getGitCommit(),
+        await this.getGitBranch(),
+        await this.getGitTag(),
+        process.cwd(),
+        configHash,
+        JSON.stringify(metadata),
+        nowUTC,
+      ]
+    );
   }
 
   /**
@@ -2653,10 +2922,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   private async saveFunctions(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     if (functions.length === 0) return;
-    
+
     // Use optimal batch size based on function count and estimated memory usage
     const batchSize = BatchProcessor.calculateFunctionBatchSize(functions);
-    
+
     // Create transaction processor for functions
     const processor: BatchTransactionProcessor<FunctionInfo> = {
       processBatch: async (batch: FunctionInfo[]) => {
@@ -2667,16 +2936,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       },
       onSuccess: async (_batch: FunctionInfo[]) => {
         // Optional: Log successful batch processing
-      }
+      },
     };
-    
+
     // Process all functions in batches with transaction support
-    await TransactionalBatchProcessor.processWithTransaction(
-      functions,
-      processor,
-      batchSize
-    );
-    
+    await TransactionalBatchProcessor.processWithTransaction(functions, processor, batchSize);
+
     // Verify that all functions and metrics were saved correctly
     if (process.env['NODE_ENV'] !== 'production') {
       const savedCount = await this.db.query(
@@ -2687,25 +2952,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         'SELECT COUNT(*) as count FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
         [snapshotId]
       );
-      
+
       const actualFunctionCount = (savedCount.rows[0] as { count: string }).count;
       const actualMetricsCount = (metricsCount.rows[0] as { count: string }).count;
       const expectedMetricsCount = functions.filter(f => f.metrics).length;
-      
+
       if (parseInt(actualFunctionCount) !== functions.length) {
-        console.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
+        console.warn(
+          `Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`
+        );
       }
       if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
-        console.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
+        console.warn(
+          `Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`
+        );
       }
     }
   }
-  
+
   /**
    * Save a batch of functions with transaction management
    */
   private async insertFunctionRecord(func: FunctionInfo, snapshotId: string): Promise<void> {
-    await this.db.query(`
+    await this.db.query(
+      `
       INSERT INTO functions (
         id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
         file_path, file_hash, start_line, end_line, start_column, end_column,
@@ -2717,26 +2987,61 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
       )
-    `, [
-      func.id, func.semanticId, func.contentId, snapshotId, func.name, func.displayName, func.signature, func.signatureHash,
-      func.filePath, func.fileHash, func.startLine, func.endLine, func.startColumn, func.endColumn,
-      func.astHash, JSON.stringify(func.contextPath || []), func.functionType || null, JSON.stringify(func.modifiers || []), func.nestingLevel || 0,
-      func.isExported, func.isAsync, func.isGenerator, func.isArrowFunction,
-      func.isMethod, func.isConstructor, func.isStatic, func.accessModifier || null,
-      func.jsDoc || null, func.sourceCode || null
-    ]);
+    `,
+      [
+        func.id,
+        func.semanticId,
+        func.contentId,
+        snapshotId,
+        func.name,
+        func.displayName,
+        func.signature,
+        func.signatureHash,
+        func.filePath,
+        func.fileHash,
+        func.startLine,
+        func.endLine,
+        func.startColumn,
+        func.endColumn,
+        func.astHash,
+        JSON.stringify(func.contextPath || []),
+        func.functionType || null,
+        JSON.stringify(func.modifiers || []),
+        func.nestingLevel || 0,
+        func.isExported,
+        func.isAsync,
+        func.isGenerator,
+        func.isArrowFunction,
+        func.isMethod,
+        func.isConstructor,
+        func.isStatic,
+        func.accessModifier || null,
+        func.jsDoc || null,
+        func.sourceCode || null,
+      ]
+    );
   }
 
   private async insertFunctionParameters(func: FunctionInfo): Promise<void> {
     for (const param of func.parameters) {
-      await this.db.query(`
+      await this.db.query(
+        `
         INSERT INTO function_parameters (
           function_id, name, type, type_simple, position, is_optional, is_rest, default_value, description
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      `, [
-        func.id, param.name, param.type, param.typeSimple, param.position,
-        param.isOptional, param.isRest, param.defaultValue || null, param.description || null
-      ]);
+      `,
+        [
+          func.id,
+          param.name,
+          param.type,
+          param.typeSimple,
+          param.position,
+          param.isOptional,
+          param.isRest,
+          param.defaultValue || null,
+          param.description || null,
+        ]
+      );
     }
   }
 
@@ -2745,7 +3050,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return;
     }
 
-    await this.db.query(`
+    await this.db.query(
+      `
       INSERT INTO quality_metrics (
         function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
         max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
@@ -2754,14 +3060,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
       )
-    `, [
-      func.id, func.metrics.linesOfCode, func.metrics.totalLines, func.metrics.cyclomaticComplexity,
-      func.metrics.cognitiveComplexity, func.metrics.maxNestingLevel, func.metrics.parameterCount,
-      func.metrics.returnStatementCount, func.metrics.branchCount, func.metrics.loopCount,
-      func.metrics.tryCatchCount, func.metrics.asyncAwaitCount, func.metrics.callbackCount,
-      func.metrics.commentLines, func.metrics.codeToCommentRatio, func.metrics.halsteadVolume || null,
-      func.metrics.halsteadDifficulty || null, func.metrics.maintainabilityIndex || null
-    ]);
+    `,
+      [
+        func.id,
+        func.metrics.linesOfCode,
+        func.metrics.totalLines,
+        func.metrics.cyclomaticComplexity,
+        func.metrics.cognitiveComplexity,
+        func.metrics.maxNestingLevel,
+        func.metrics.parameterCount,
+        func.metrics.returnStatementCount,
+        func.metrics.branchCount,
+        func.metrics.loopCount,
+        func.metrics.tryCatchCount,
+        func.metrics.asyncAwaitCount,
+        func.metrics.callbackCount,
+        func.metrics.commentLines,
+        func.metrics.codeToCommentRatio,
+        func.metrics.halsteadVolume || null,
+        func.metrics.halsteadDifficulty || null,
+        func.metrics.maintainabilityIndex || null,
+      ]
+    );
   }
 
   private async saveSingleFunction(func: FunctionInfo, snapshotId: string): Promise<void> {
@@ -2799,58 +3119,101 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     const executeBulkInsert = async () => {
       const bulkData = prepareBulkInsertData(functions, snapshotId);
-      
+
       // Bulk insert functions
       if (bulkData.functions.length > 0) {
         const functionColumns = [
-          'id', 'semantic_id', 'content_id', 'snapshot_id', 'name', 'display_name',
-          'signature', 'signature_hash', 'file_path', 'file_hash', 'start_line',
-          'end_line', 'start_column', 'end_column', 'ast_hash', 'context_path',
-          'function_type', 'modifiers', 'nesting_level', 'is_exported', 'is_async',
-          'is_generator', 'is_arrow_function', 'is_method', 'is_constructor',
-          'is_static', 'access_modifier', 'js_doc', 'source_code'
+          'id',
+          'semantic_id',
+          'content_id',
+          'snapshot_id',
+          'name',
+          'display_name',
+          'signature',
+          'signature_hash',
+          'file_path',
+          'file_hash',
+          'start_line',
+          'end_line',
+          'start_column',
+          'end_column',
+          'ast_hash',
+          'context_path',
+          'function_type',
+          'modifiers',
+          'nesting_level',
+          'is_exported',
+          'is_async',
+          'is_generator',
+          'is_arrow_function',
+          'is_method',
+          'is_constructor',
+          'is_static',
+          'access_modifier',
+          'js_doc',
+          'source_code',
         ];
-        
+
         const optimalBatchSize = calculateOptimalBatchSize(functionColumns.length);
         const functionBatches = splitIntoBatches(bulkData.functions, optimalBatchSize);
-        
+
         for (const batch of functionBatches) {
           const sql = generateBulkInsertSQL('functions', functionColumns, batch.length);
           const flatParams = batch.flat();
           await this.db.query(sql, flatParams);
         }
       }
-      
+
       // Bulk insert parameters
       if (bulkData.parameters.length > 0) {
         const paramColumns = [
-          'function_id', 'name', 'type', 'type_simple', 'position',
-          'is_optional', 'is_rest', 'default_value', 'description'
+          'function_id',
+          'name',
+          'type',
+          'type_simple',
+          'position',
+          'is_optional',
+          'is_rest',
+          'default_value',
+          'description',
         ];
-        
+
         const optimalBatchSize = calculateOptimalBatchSize(paramColumns.length);
         const paramBatches = splitIntoBatches(bulkData.parameters, optimalBatchSize);
-        
+
         for (const batch of paramBatches) {
           const sql = generateBulkInsertSQL('function_parameters', paramColumns, batch.length);
           const flatParams = batch.flat();
           await this.db.query(sql, flatParams);
         }
       }
-      
+
       // Bulk insert metrics
       if (bulkData.metrics.length > 0) {
         const metricsColumns = [
-          'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
-          'cognitive_complexity', 'max_nesting_level', 'parameter_count',
-          'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
-          'async_await_count', 'callback_count', 'comment_lines', 'code_to_comment_ratio',
-          'halstead_volume', 'halstead_difficulty', 'maintainability_index'
+          'function_id',
+          'lines_of_code',
+          'total_lines',
+          'cyclomatic_complexity',
+          'cognitive_complexity',
+          'max_nesting_level',
+          'parameter_count',
+          'return_statement_count',
+          'branch_count',
+          'loop_count',
+          'try_catch_count',
+          'async_await_count',
+          'callback_count',
+          'comment_lines',
+          'code_to_comment_ratio',
+          'halstead_volume',
+          'halstead_difficulty',
+          'maintainability_index',
         ];
-        
+
         const optimalBatchSize = calculateOptimalBatchSize(metricsColumns.length);
         const metricsBatches = splitIntoBatches(bulkData.metrics, optimalBatchSize);
-        
+
         for (const batch of metricsBatches) {
           const sql = generateBulkInsertSQL('quality_metrics', metricsColumns, batch.length);
           const flatParams = batch.flat();
@@ -2877,7 +3240,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return result.rows as ParameterRow[];
   }
 
-  private async getFunctionParametersBatch(functionIds: string[]): Promise<Map<string, ParameterRow[]>> {
+  private async getFunctionParametersBatch(
+    functionIds: string[]
+  ): Promise<Map<string, ParameterRow[]>> {
     if (functionIds.length === 0) {
       return new Map();
     }
@@ -2889,7 +3254,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     );
 
     const parameterMap = new Map<string, ParameterRow[]>();
-    
+
     for (const row of result.rows as ParameterRow[]) {
       const functionId = row.function_id;
       if (!parameterMap.has(functionId)) {
@@ -2912,11 +3277,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
-      metadata: JSON.parse(row.metadata || '{}')
+      metadata: JSON.parse(row.metadata || '{}'),
     };
   }
 
-  private mapRowToFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string; source?: string; created_at?: string; updated_at?: string; ai_model?: string }, parameters: ParameterRow[]): FunctionInfo {
+  private mapRowToFunctionInfo(
+    row: FunctionRow &
+      Partial<MetricsRow> & {
+        description?: string;
+        source?: string;
+        created_at?: string;
+        updated_at?: string;
+        ai_model?: string;
+      },
+    parameters: ParameterRow[]
+  ): FunctionInfo {
     const functionInfo = this.createBaseFunctionInfo(row, parameters);
     this.addOptionalProperties(functionInfo, row);
     this.addMetricsIfAvailable(functionInfo, row);
@@ -2939,13 +3314,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       startColumn: row.start_column,
       endColumn: row.end_column,
       astHash: row.ast_hash,
-      
+
       // Enhanced function identification
       ...(row.context_path && { contextPath: this.safeJsonParse(row.context_path, []) }),
       ...(row.function_type && { functionType: row.function_type }),
       ...(row.modifiers && { modifiers: this.safeJsonParse(row.modifiers, []) }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
-      
+
       // Existing function attributes
       isExported: row.is_exported,
       isAsync: row.is_async,
@@ -2954,7 +3329,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       isMethod: row.is_method,
       isConstructor: row.is_constructor,
       isStatic: row.is_static,
-      parameters: this.mapParameters(parameters)
+      parameters: this.mapParameters(parameters),
     };
   }
 
@@ -2967,11 +3342,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       isOptional: p.is_optional,
       isRest: p.is_rest,
       ...(p.default_value && { defaultValue: p.default_value }),
-      ...(p.description && { description: p.description })
+      ...(p.description && { description: p.description }),
     }));
   }
 
-  private addOptionalProperties(functionInfo: FunctionInfo, row: FunctionRow & { description?: string; source?: string; created_at?: string; updated_at?: string; ai_model?: string }): void {
+  private addOptionalProperties(
+    functionInfo: FunctionInfo,
+    row: FunctionRow & {
+      description?: string;
+      source?: string;
+      created_at?: string;
+      updated_at?: string;
+      ai_model?: string;
+    }
+  ): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
     if (row.js_doc) functionInfo.jsDoc = row.js_doc;
     if (row.source_code) functionInfo.sourceCode = row.source_code;
@@ -2987,7 +3371,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private addMetricsIfAvailable(functionInfo: FunctionInfo, row: Partial<MetricsRow>): void {
     if (row.lines_of_code === null || row.lines_of_code === undefined) return;
-    
+
     functionInfo.metrics = {
       linesOfCode: row.lines_of_code ?? 0,
       totalLines: row.total_lines ?? 0,
@@ -3003,15 +3387,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       callbackCount: row.callback_count ?? 0,
       commentLines: row.comment_lines ?? 0,
       codeToCommentRatio: row.code_to_comment_ratio ?? 0,
-      ...this.getOptionalMetrics(row)
+      ...this.getOptionalMetrics(row),
     };
   }
 
   private getOptionalMetrics(row: Partial<MetricsRow>): Partial<QualityMetrics> {
     return {
-      ...(row.halstead_volume !== null && row.halstead_volume !== undefined && { halsteadVolume: row.halstead_volume }),
-      ...(row.halstead_difficulty !== null && row.halstead_difficulty !== undefined && { halsteadDifficulty: row.halstead_difficulty }),
-      ...(row.maintainability_index !== null && row.maintainability_index !== undefined && { maintainabilityIndex: row.maintainability_index })
+      ...(row.halstead_volume !== null &&
+        row.halstead_volume !== undefined && { halsteadVolume: row.halstead_volume }),
+      ...(row.halstead_difficulty !== null &&
+        row.halstead_difficulty !== undefined && { halsteadDifficulty: row.halstead_difficulty }),
+      ...(row.maintainability_index !== null &&
+        row.maintainability_index !== undefined && {
+          maintainabilityIndex: row.maintainability_index,
+        }),
     };
   }
 
@@ -3025,7 +3414,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         exportedFunctions: 0,
         asyncFunctions: 0,
         complexityDistribution: {},
-        fileExtensions: {}
+        fileExtensions: {},
       };
     }
 
@@ -3033,7 +3422,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const complexities = functions
       .map(f => f.metrics?.cyclomaticComplexity || 1)
       .filter(c => c > 0);
-    
+
     const complexityDistribution: Record<number, number> = {};
     complexities.forEach(complexity => {
       complexityDistribution[complexity] = (complexityDistribution[complexity] || 0) + 1;
@@ -3048,13 +3437,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return {
       totalFunctions: functions.length,
       totalFiles: uniqueFiles.size,
-      avgComplexity: complexities.length > 0 ? 
-        Math.round((complexities.reduce((a, b) => a + b, 0) / complexities.length) * 10) / 10 : 0,
+      avgComplexity:
+        complexities.length > 0
+          ? Math.round((complexities.reduce((a, b) => a + b, 0) / complexities.length) * 10) / 10
+          : 0,
       maxComplexity: complexities.length > 0 ? Math.max(...complexities) : 0,
       exportedFunctions: functions.filter(f => f.isExported).length,
       asyncFunctions: functions.filter(f => f.isAsync).length,
       complexityDistribution,
-      fileExtensions
+      fileExtensions,
     };
   }
 
@@ -3063,7 +3454,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const isRepo = await this.git.checkIsRepo();
       if (!isRepo) return null;
-      
+
       return await this.git.revparse(['HEAD']);
     } catch {
       return null;
@@ -3074,7 +3465,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const isRepo = await this.git.checkIsRepo();
       if (!isRepo) return null;
-      
+
       return await this.git.revparse(['--abbrev-ref', 'HEAD']);
     } catch {
       return null;
@@ -3085,7 +3476,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const isRepo = await this.git.checkIsRepo();
       if (!isRepo) return null;
-      
+
       const tags = await this.git.tags(['--points-at', 'HEAD']);
       return tags.latest || null;
     } catch {
@@ -3099,7 +3490,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void> {
     try {
-      await this.db.query(`
+      await this.db.query(
+        `
         INSERT INTO naming_evaluations (
           function_id, semantic_id, function_name, description_hash, rating,
           evaluated_at, evaluated_by, issues, suggestions, revision_needed,
@@ -3118,22 +3510,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           ai_model = EXCLUDED.ai_model,
           confidence = EXCLUDED.confidence,
           updated_at = CURRENT_TIMESTAMP
-      `, [
-        evaluation.functionId,
-        evaluation.semanticId,
-        evaluation.functionName,
-        evaluation.descriptionHash,
-        evaluation.rating,
-        evaluation.evaluatedAt,
-        evaluation.evaluatedBy,
-        evaluation.issues || null,
-        evaluation.suggestions || null,
-        evaluation.revisionNeeded,
-        evaluation.aiModel || null,
-        evaluation.confidence || null
-      ]);
+      `,
+        [
+          evaluation.functionId,
+          evaluation.semanticId,
+          evaluation.functionName,
+          evaluation.descriptionHash,
+          evaluation.rating,
+          evaluation.evaluatedAt,
+          evaluation.evaluatedBy,
+          evaluation.issues || null,
+          evaluation.suggestions || null,
+          evaluation.revisionNeeded,
+          evaluation.aiModel || null,
+          evaluation.confidence || null,
+        ]
+      );
     } catch (error) {
-      throw new Error(`Failed to save naming evaluation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to save naming evaluation: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3171,21 +3567,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         rating: row.rating,
         evaluatedAt: parseInt(row.evaluated_at),
         evaluatedBy: row.evaluated_by,
-        revisionNeeded: row.revision_needed
+        revisionNeeded: row.revision_needed,
       };
 
       if (row.issues) result.issues = row.issues;
       if (row.suggestions) result.suggestions = row.suggestions;
       if (row.ai_model) result.aiModel = row.ai_model;
-      if (row.confidence !== null && row.confidence !== undefined) result.confidence = row.confidence;
+      if (row.confidence !== null && row.confidence !== undefined)
+        result.confidence = row.confidence;
 
       return result;
     } catch (error) {
-      throw new Error(`Failed to get naming evaluation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get naming evaluation: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getFunctionsNeedingEvaluation(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
+  async getFunctionsNeedingEvaluation(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
     try {
       let sql = `
         SELECT 
@@ -3201,14 +3603,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         )
         ORDER BY f.created_at DESC
       `;
-      
+
       const params: (string | number)[] = [snapshotId];
-      
+
       if (options?.limit) {
         sql += ' LIMIT $' + (params.length + 1);
         params.push(options.limit);
       }
-      
+
       if (options?.offset) {
         sql += ' OFFSET $' + (params.length + 1);
         params.push(options.offset);
@@ -3219,14 +3621,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return result.rows.map(row => ({
         functionId: (row as { function_id: string }).function_id,
         functionName: (row as { function_name: string }).function_name,
-        lastModified: (row as { last_modified: number }).last_modified
+        lastModified: (row as { last_modified: number }).last_modified,
       }));
     } catch (error) {
-      throw new Error(`Failed to get functions needing evaluation: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions needing evaluation: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getFunctionsWithEvaluations(snapshotId: string, options?: QueryOptions): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>> {
+  async getFunctionsWithEvaluations(
+    snapshotId: string,
+    options?: QueryOptions
+  ): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>> {
     try {
       let sql = `
         SELECT 
@@ -3237,14 +3644,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         WHERE f.snapshot_id = $1
         ORDER BY ne.evaluated_at DESC
       `;
-      
+
       const params: (string | number)[] = [snapshotId];
-      
+
       if (options?.limit) {
         sql += ' LIMIT $' + (params.length + 1);
         params.push(options.limit);
       }
-      
+
       if (options?.offset) {
         sql += ' OFFSET $' + (params.length + 1);
         params.push(options.offset);
@@ -3276,21 +3683,24 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           rating: r.rating,
           evaluatedAt: parseInt(r.evaluated_at),
           evaluatedBy: r.evaluated_by,
-          revisionNeeded: r.revision_needed
+          revisionNeeded: r.revision_needed,
         };
 
         if (r.issues) evaluation.issues = r.issues;
         if (r.suggestions) evaluation.suggestions = r.suggestions;
         if (r.ai_model) evaluation.aiModel = r.ai_model;
-        if (r.confidence !== null && r.confidence !== undefined) evaluation.confidence = r.confidence;
+        if (r.confidence !== null && r.confidence !== undefined)
+          evaluation.confidence = r.confidence;
 
         return {
           functionId: r.function_id,
-          evaluation
+          evaluation,
         };
       });
     } catch (error) {
-      throw new Error(`Failed to get functions with evaluations: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get functions with evaluations: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3301,7 +3711,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         [revisionNeeded, functionId]
       );
     } catch (error) {
-      throw new Error(`Failed to update evaluation revision status: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to update evaluation revision status: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3313,10 +3725,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         evaluations,
         {
           processBatch: async (batch: NamingEvaluation[]) => {
-            const values = batch.map((_, index) => {
-              const offset = index * 12;
-              return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`;
-            }).join(', ');
+            const values = batch
+              .map((_, index) => {
+                const offset = index * 12;
+                return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7}, $${offset + 8}, $${offset + 9}, $${offset + 10}, $${offset + 11}, $${offset + 12})`;
+              })
+              .join(', ');
 
             const params = batch.flatMap((evaluation: NamingEvaluation) => [
               evaluation.functionId,
@@ -3330,10 +3744,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
               evaluation.suggestions || null,
               evaluation.revisionNeeded,
               evaluation.aiModel || null,
-              evaluation.confidence || null
+              evaluation.confidence || null,
             ]);
 
-            await this.db.query(`
+            await this.db.query(
+              `
               INSERT INTO naming_evaluations (
                 function_id, semantic_id, function_name, description_hash, rating,
                 evaluated_at, evaluated_by, issues, suggestions, revision_needed,
@@ -3352,19 +3767,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
                 ai_model = EXCLUDED.ai_model,
                 confidence = EXCLUDED.confidence,
                 updated_at = CURRENT_TIMESTAMP
-            `, params);
+            `,
+              params
+            );
           },
           onError: async (error: Error, _batch: NamingEvaluation[]) => {
             throw error;
           },
           onSuccess: async (_batch: NamingEvaluation[]) => {
             // Success callback
-          }
+          },
         },
         10 // Process in batches of 10
       );
     } catch (error) {
-      throw new Error(`Failed to batch save evaluations: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to batch save evaluations: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3384,7 +3803,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const total = Number((totalResult.rows[0] as { total: string | number }).total);
 
       // Get functions with evaluations
-      const evaluationsResult = await this.db.query(`
+      const evaluationsResult = await this.db.query(
+        `
         SELECT 
           COUNT(*) as with_evaluations,
           AVG(ne.rating::numeric) as average_rating,
@@ -3394,7 +3814,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         FROM functions f
         INNER JOIN naming_evaluations ne ON f.id = ne.function_id
         WHERE f.snapshot_id = $1
-      `, [snapshotId]);
+      `,
+        [snapshotId]
+      );
 
       const evalRow = evaluationsResult.rows[0] as {
         with_evaluations: string | number;
@@ -3405,15 +3827,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       };
 
       // Get functions needing evaluation
-      const needingResult = await this.db.query(`
+      const needingResult = await this.db.query(
+        `
         SELECT COUNT(*) as needing_evaluation
         FROM functions f
         LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
         WHERE f.snapshot_id = $1 
         AND (ne.function_id IS NULL OR ne.revision_needed = TRUE)
-      `, [snapshotId]);
+      `,
+        [snapshotId]
+      );
 
-      const needingEvaluation = Number((needingResult.rows[0] as { needing_evaluation: string | number }).needing_evaluation);
+      const needingEvaluation = Number(
+        (needingResult.rows[0] as { needing_evaluation: string | number }).needing_evaluation
+      );
 
       return {
         total,
@@ -3423,11 +3850,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ratingDistribution: {
           1: Number(evalRow.rating_1) || 0,
           2: Number(evalRow.rating_2) || 0,
-          3: Number(evalRow.rating_3) || 0
-        }
+          3: Number(evalRow.rating_3) || 0,
+        },
       };
     } catch (error) {
-      throw new Error(`Failed to get evaluation statistics: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get evaluation statistics: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3452,21 +3881,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(
         'SELECT * FROM refactoring_sessions ORDER BY created_at DESC'
       );
-      
-      return result.rows.map(row => this.mapRowToRefactoringSession(row as {
-        id: string;
-        name: string;
-        description: string;
-        status: 'active' | 'completed' | 'cancelled';
-        target_branch: string;
-        start_time: string;
-        end_time?: string;
-        metadata: string;
-        created_at: string;
-        updated_at: string;
-      }));
+
+      return result.rows.map(row =>
+        this.mapRowToRefactoringSession(
+          row as {
+            id: string;
+            name: string;
+            description: string;
+            status: 'active' | 'completed' | 'cancelled';
+            target_branch: string;
+            start_time: string;
+            end_time?: string;
+            metadata: string;
+            created_at: string;
+            updated_at: string;
+          }
+        )
+      );
     } catch (error) {
-      throw new Error(`Failed to get refactoring sessions: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get refactoring sessions: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3476,29 +3911,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   async getRefactoringSessionById(id: string): Promise<RefactoringSession | null> {
     try {
-      const result = await this.db.query(
-        'SELECT * FROM refactoring_sessions WHERE id = $1',
-        [id]
-      );
-      
+      const result = await this.db.query('SELECT * FROM refactoring_sessions WHERE id = $1', [id]);
+
       if (result.rows.length === 0) {
         return null;
       }
-      
-      return this.mapRowToRefactoringSession(result.rows[0] as {
-        id: string;
-        name: string;
-        description: string;
-        status: 'active' | 'completed' | 'cancelled';
-        target_branch: string;
-        start_time: string;
-        end_time?: string;
-        metadata: string;
-        created_at: string;
-        updated_at: string;
-      });
+
+      return this.mapRowToRefactoringSession(
+        result.rows[0] as {
+          id: string;
+          name: string;
+          description: string;
+          status: 'active' | 'completed' | 'cancelled';
+          target_branch: string;
+          start_time: string;
+          end_time?: string;
+          metadata: string;
+          created_at: string;
+          updated_at: string;
+        }
+      );
     } catch (error) {
-      throw new Error(`Failed to get refactoring session by ID: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get refactoring session by ID: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -3527,13 +3963,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       start_time: new Date(row.start_time).getTime(),
       metadata: this.safeJsonParse(row.metadata, {}),
       created_at: new Date(row.created_at),
-      updated_at: new Date(row.updated_at)
+      updated_at: new Date(row.updated_at),
     };
-    
+
     if (row.end_time) {
       session.end_time = new Date(row.end_time).getTime();
     }
-    
+
     return session;
   }
 

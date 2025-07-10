@@ -49,7 +49,11 @@ export function createVectorizeCommand(): Command {
     .option('--recent', 'vectorize only functions without embeddings (default)')
     .option('--status', 'show vectorization status')
     .option('--rebuild-index', 'rebuild ANN index for faster search')
-    .option('--index-algorithm <algorithm>', 'ANN algorithm (hierarchical, lsh, hybrid)', 'hierarchical')
+    .option(
+      '--index-algorithm <algorithm>',
+      'ANN algorithm (hierarchical, lsh, hybrid)',
+      'hierarchical'
+    )
     .option('--index-config <config>', 'JSON config for ANN index (clusters, hash bits, etc.)')
     .option('--benchmark', 'benchmark ANN index performance')
     .option('--index-stats', 'show ANN index statistics')
@@ -66,29 +70,28 @@ export function createVectorizeCommand(): Command {
 async function vectorizeActionHandler(rawOptions: RawVectorizeOptions): Promise<void> {
   const spinner = ora();
   let storage: PGLiteStorageAdapter | null = null;
-  
+
   try {
     const validator = new VectorizeOptionsValidator();
     const options = await validateOptions(validator, rawOptions);
-    
+
     storage = await initializeStorage(spinner);
     const embeddingService = await initializeEmbeddingService(options, validator);
-    
+
     const context: VectorizeContext = {
       storage,
       embeddingService,
       validator,
-      spinner
+      spinner,
     };
-    
+
     await handleConfirmationIfNeeded(context, options);
     const result = await executeVectorizeOperation(context, options);
     await displayResults(result, options);
-    
+
     if (!result.success) {
       process.exit(1);
     }
-    
   } catch (error) {
     await handleError(error, rawOptions, spinner);
   } finally {
@@ -96,9 +99,12 @@ async function vectorizeActionHandler(rawOptions: RawVectorizeOptions): Promise<
   }
 }
 
-async function validateOptions(validator: VectorizeOptionsValidator, rawOptions: RawVectorizeOptions): Promise<VectorizeOptions> {
+async function validateOptions(
+  validator: VectorizeOptionsValidator,
+  rawOptions: RawVectorizeOptions
+): Promise<VectorizeOptions> {
   const validation = validator.validate(rawOptions);
-  
+
   if (!validation.success) {
     console.error(chalk.red('❌ Invalid options:'));
     validation.errors?.forEach(error => {
@@ -106,7 +112,7 @@ async function validateOptions(validator: VectorizeOptionsValidator, rawOptions:
     });
     process.exit(1);
   }
-  
+
   return validation.data!;
 }
 
@@ -120,78 +126,81 @@ async function initializeStorage(spinner: Ora): Promise<PGLiteStorageAdapter> {
 }
 
 async function initializeEmbeddingService(
-  options: VectorizeOptions, 
+  options: VectorizeOptions,
   validator: VectorizeOptionsValidator
 ): Promise<EmbeddingService | undefined> {
   const apiKey = options.apiKey || process.env['OPENAI_API_KEY'];
-  
+
   if (validator.requiresApiKey(options) && !apiKey) {
     console.error(chalk.red('OpenAI API key is required for this operation'));
     console.log('Provide it via --api-key option or OPENAI_API_KEY environment variable');
     process.exit(1);
   }
-  
+
   if (apiKey && validator.requiresApiKey(options)) {
     return new EmbeddingService({
       apiKey,
       model: options.model,
-      batchSize: options.batchSize
+      batchSize: options.batchSize,
     });
   }
-  
+
   return undefined;
 }
 
 async function handleConfirmationIfNeeded(
-  context: VectorizeContext, 
+  context: VectorizeContext,
   options: VectorizeOptions
 ): Promise<void> {
   if (!context.validator.isDangerousOperation(options) || options.force) {
     return;
   }
-  
+
   const functionCount = await getFunctionCount(context.storage, options);
   const confirmationHandler = new ConfirmationHandler();
-  
-  const estimatedCost = confirmationHandler.estimateEmbeddingCost(
-    functionCount, 
-    options.model
-  );
-  
+
+  const estimatedCost = confirmationHandler.estimateEmbeddingCost(functionCount, options.model);
+
   const message = confirmationHandler.createVectorizeConfirmationMessage(
     context.validator.getOperationDescription(options),
     functionCount,
     estimatedCost
   );
-  
+
   context.spinner.stop();
   const confirmation = await confirmationHandler.confirm({
     message,
-    defaultValue: false
+    defaultValue: false,
   });
-  
+
   if (!confirmation.confirmed) {
     console.log(chalk.yellow('Operation cancelled by user.'));
     process.exit(0);
   }
 }
 
-async function getFunctionCount(storage: PGLiteStorageAdapter, options: VectorizeOptions): Promise<number> {
+async function getFunctionCount(
+  storage: PGLiteStorageAdapter,
+  options: VectorizeOptions
+): Promise<number> {
   try {
     const snapshots = await storage.getSnapshots({ limit: 1 });
     if (snapshots.length === 0) return 0;
-    
+
     const functions = await storage.getFunctionsWithDescriptions(snapshots[0].id);
-    
+
     // Safely handle limit as it comes from VectorizeOptions as number | undefined
     if (options.limit !== undefined) {
       return Math.min(functions.length, options.limit);
     }
-    
+
     return functions.length;
   } catch (error) {
     // Log the error for debugging purposes while returning safe fallback
-    console.warn('Failed to get function count:', error instanceof Error ? error.message : String(error));
+    console.warn(
+      'Failed to get function count:',
+      error instanceof Error ? error.message : String(error)
+    );
     return 0;
   }
 }
@@ -199,15 +208,15 @@ async function getFunctionCount(storage: PGLiteStorageAdapter, options: Vectoriz
 async function executeVectorizeOperation(context: VectorizeContext, options: VectorizeOptions) {
   const operationDescription = context.validator.getOperationDescription(options);
   context.spinner.start(`Executing ${operationDescription.toLowerCase()}...`);
-  
+
   const useCase = new VectorizeUseCase({
     storage: context.storage,
-    embeddingService: context.embeddingService
+    embeddingService: context.embeddingService,
   });
-  
+
   const result = await useCase.execute(options);
   context.spinner.stop();
-  
+
   return result;
 }
 
@@ -215,34 +224,38 @@ async function displayResults(result: VectorizeResult, options: VectorizeOptions
   const formatter = new OutputFormatter({
     format: options.output,
     quiet: options.quiet || false,
-    color: process.stdout.isTTY
+    color: process.stdout.isTTY,
   });
-  
+
   const output = formatter.format(result);
   console.log(output);
 }
 
-async function handleError(error: unknown, rawOptions: RawVectorizeOptions, spinner: Ora): Promise<void> {
+async function handleError(
+  error: unknown,
+  rawOptions: RawVectorizeOptions,
+  spinner: Ora
+): Promise<void> {
   spinner.fail('Operation failed');
-  
+
   if (rawOptions.output === 'json') {
     const errorOutput = {
       success: false,
       operation: 'unknown',
       timestamp: new Date().toISOString(),
-      errors: [error instanceof Error ? error.message : String(error)]
+      errors: [error instanceof Error ? error.message : String(error)],
     };
     console.log(JSON.stringify(errorOutput, null, 2));
   } else {
     console.error(chalk.red('❌ Error:'), error instanceof Error ? error.message : String(error));
   }
-  
+
   process.exit(1);
 }
 
 async function cleanup(storage: PGLiteStorageAdapter | null): Promise<void> {
   if (!storage) return;
-  
+
   try {
     await storage.close();
   } catch {
