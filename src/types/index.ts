@@ -705,6 +705,121 @@ export interface ProjectContext {
   domain?: 'web' | 'api' | 'cli' | 'library' | 'embedded';
 }
 
+// ========================================
+// PHASE 4: CONFIGURATION PRESETS SYSTEM
+// ========================================
+
+/**
+ * Project preset templates for different development contexts
+ */
+export interface ProjectPreset {
+  id: string;
+  name: string;
+  description: string;
+  category: PresetCategory;
+  context: ProjectContext;
+  config: Partial<FuncqcConfig>;
+  recommendations?: PresetRecommendation[];
+  metadata: PresetMetadata;
+}
+
+export type PresetCategory = 
+  | 'framework'    // React, Vue, Angular, etc.
+  | 'platform'     // Node.js, Browser, Mobile
+  | 'domain'       // Web, API, CLI, Library
+  | 'methodology'  // Microservices, Monolith, etc.
+  | 'team'         // Junior, Senior, Mixed
+  | 'custom';      // User-defined presets
+
+export interface PresetRecommendation {
+  type: 'warning' | 'info' | 'tip';
+  category: 'performance' | 'maintainability' | 'team' | 'ai-optimization';
+  message: string;
+  action?: string;
+}
+
+export interface PresetMetadata {
+  version: string;
+  author?: string;
+  created: number;
+  updated?: number;
+  compatibility: string[]; // funcqc version compatibility
+  tags: string[];
+  usageStats?: {
+    adoptionRate?: number;
+    successRate?: number;
+    lastUsed?: number;
+  };
+}
+
+/**
+ * Configuration preset manager for dynamic application
+ */
+export interface PresetApplyOptions {
+  merge: boolean;           // Merge with existing config vs replace
+  validate: boolean;        // Validate before applying
+  backup: boolean;          // Create backup of current config
+  dryRun: boolean;         // Show what would change without applying
+  interactive: boolean;    // Prompt for confirmation on conflicts
+}
+
+export interface PresetApplyResult {
+  success: boolean;
+  applied: ProjectPreset;
+  changes: ConfigurationChange[];
+  warnings: string[];
+  backupPath?: string;
+  validationResults?: ConfigValidationResult[];
+}
+
+export interface ConfigurationChange {
+  path: string;            // JSON path to changed value
+  oldValue: unknown;
+  newValue: unknown;
+  impact: 'low' | 'medium' | 'high';
+  description: string;
+}
+
+export interface ConfigValidationResult {
+  valid: boolean;
+  field: string;
+  level: 'error' | 'warning' | 'info';
+  message: string;
+  suggestion?: string;
+}
+
+/**
+ * Project analysis result for intelligent preset suggestions
+ */
+export interface ProjectAnalysisResult {
+  hasReactComponents: boolean;
+  hasApiRoutes: boolean;
+  isCLITool: boolean;
+  isLibrary: boolean;
+  projectSize: 'small' | 'medium' | 'large';
+  detectedFrameworks: string[];
+  detectedDependencies: {
+    frontend: string[];
+    backend: string[];
+    testing: string[];
+    cli: string[];
+  };
+}
+
+/**
+ * CLI command options for configuration management
+ */
+export interface ConfigCommandOptions extends CommandOptions {
+  preset?: string;           // Preset ID to work with
+  replace?: boolean;         // Replace instead of merge
+  noValidate?: boolean;      // Skip validation
+  noBackup?: boolean;        // Skip backup creation
+  dryRun?: boolean;          // Show changes without applying
+  interactive?: boolean;     // Interactive mode
+  output?: string;           // Output file path
+  json?: boolean;            // JSON output format
+}
+
 // Statistical analysis types
 export interface ProjectStatistics {
   metrics: Record<keyof QualityMetrics, MetricStatistics>;
