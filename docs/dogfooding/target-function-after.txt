@@ -1,0 +1,8 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts list --name *displayAIOptimizedHealth*
+
+ID       Name                            CC LOC File                                     Location
+-------- ------------------------------- -- --- ---------------------------------------- --------
+
+Showing 0 of 0 filtered functions (1291 total)

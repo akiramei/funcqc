@@ -632,121 +632,158 @@ interface AIOptimizedHealthReport {
   }>;
 }
 
+// Extracted helper functions for displayAIOptimizedHealth refactoring
+
+async function validateHealthData(
+  storage: PGLiteStorageAdapter
+): Promise<{ latest: any; functionsWithMetrics: FunctionInfo[] } | null> {
+  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  
+  if (snapshots.length === 0) {
+    console.log(JSON.stringify({
+      error: 'No data found',
+      suggestion: 'Run "funcqc scan" to analyze your project'
+    }, null, 2));
+    return null;
+  }
+
+  const latest = snapshots[0];
+  const functions = await storage.getFunctions(latest.id);
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  
+  if (functionsWithMetrics.length === 0) {
+    console.log(JSON.stringify({
+      error: 'No functions with metrics found'
+    }, null, 2));
+    return null;
+  }
+
+  return { latest, functionsWithMetrics };
+}
+
+function handleHealthError(error: unknown): void {
+  console.log(JSON.stringify({
+    error: 'Failed to generate health report',
+    details: error instanceof Error ? error.message : 'Unknown error'
+  }, null, 2));
+}
+
+async function assessHighRiskFunctions(
+  functionsWithMetrics: FunctionInfo[],
+  config: FuncqcConfig
+): Promise<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }[]> {
+  // Use RiskAssessor to get consistent high-risk functions (matches --risks display)
+  const riskAssessment = await riskAssessor.assessProject(
+    functionsWithMetrics,
+    config.thresholds,
+    config.assessment
+  );
+
+  // Get ALL functions assessed as "high" risk level (matches --risks count: 134)
+  // Note: We need to re-assess functions to get all high-risk ones, not just top 10
+  const highRiskFunctions = [];
+  for (const func of functionsWithMetrics) {
+    const assessment = await riskAssessor.assessFunction(
+      func,
+      riskAssessment.statistics,
+      config.thresholds,
+      config.assessment
+    );
+    if (assessment.riskLevel === 'high') {
+      highRiskFunctions.push(func);
+    }
+  }
+
+  // Sort by risk score (complexity + size + maintainability issues)
+  return highRiskFunctions
+    .map(f => {
+      const { riskScore, riskFactors } = calculateRiskScore(f, config);
+      return {
+        function: f,
+        riskScore,
+        riskFactors,
+      };
+    })
+    .sort((a, b) => b.riskScore - a.riskScore);
+}
+
+function generateHealthReport(
+  functionsWithMetrics: FunctionInfo[],
+  sortedHighRiskFunctions: { function: FunctionInfo; riskScore: number; riskFactors: string[] }[],
+  projectScore: any,
+  latest: any,
+  config: FuncqcConfig
+): AIOptimizedHealthReport {
+  return {
+    summary: {
+      total_functions: functionsWithMetrics.length,
+      high_risk_functions: sortedHighRiskFunctions.length,
+      overall_grade: projectScore.overallGrade,
+      overall_score: projectScore.score,
+      last_analyzed: new Date(latest.createdAt).toISOString(),
+    },
+    high_risk_functions: sortedHighRiskFunctions.map((item, index) => {
+      const f = item.function;
+      const complexity = f.metrics?.cyclomaticComplexity || 1;
+      const lines = f.metrics?.linesOfCode || 0;
+
+      return {
+        id: f.id,
+        name: f.name,
+        display_name: f.displayName,
+        location: `${f.filePath}:${f.startLine}`,
+        risk_factors: item.riskFactors,
+        risk_score: Math.round(item.riskScore),
+        fix_priority: index + 1,
+        estimated_effort: estimateEffort(complexity, config),
+        suggested_actions: generateSuggestedActions(f, config),
+        metrics: {
+          cyclomatic_complexity: complexity,
+          cognitive_complexity: f.metrics?.cognitiveComplexity || 0,
+          lines_of_code: lines,
+          maintainability_index: f.metrics?.maintainabilityIndex || null,
+          parameter_count: f.metrics?.parameterCount || 0,
+          max_nesting_level: f.metrics?.maxNestingLevel || 0,
+          branch_count: f.metrics?.branchCount || 0,
+          halstead_volume: f.metrics?.halsteadVolume || 0,
+          halstead_difficulty: f.metrics?.halsteadDifficulty || 0,
+          return_statement_count: f.metrics?.returnStatementCount || 0,
+          async_await_count: f.metrics?.asyncAwaitCount || 0,
+          try_catch_count: f.metrics?.tryCatchCount || 0,
+          loop_count: f.metrics?.loopCount || 0,
+        },
+      };
+    }),
+    improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions, config),
+    next_actions: generateNextActions(sortedHighRiskFunctions, config),
+  };
+}
+
 async function displayAIOptimizedHealth(
   storage: PGLiteStorageAdapter,
   config: FuncqcConfig,
   _options: HealthCommandOptions
 ): Promise<void> {
   try {
-    const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
+    // Data validation
+    const validatedData = await validateHealthData(storage);
+    if (!validatedData) return;
     
-    if (snapshots.length === 0) {
-      console.log(JSON.stringify({
-        error: 'No data found',
-        suggestion: 'Run "funcqc scan" to analyze your project'
-      }, null, 2));
-      return;
-    }
-
-    const latest = snapshots[0];
-    const functions = await storage.getFunctions(latest.id);
-    const functionsWithMetrics = functions.filter(f => f.metrics);
+    const { latest, functionsWithMetrics } = validatedData;
     
-    if (functionsWithMetrics.length === 0) {
-      console.log(JSON.stringify({
-        error: 'No functions with metrics found'
-      }, null, 2));
-      return;
-    }
-
+    // Project score calculation
     const scorer = new QualityScorer();
     const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
-
-    // Use RiskAssessor to get consistent high-risk functions (matches --risks display)
-    const riskAssessment = await riskAssessor.assessProject(
-      functionsWithMetrics,
-      config.thresholds,
-      config.assessment
-    );
-
-    // Get ALL functions assessed as "high" risk level (matches --risks count: 134)
-    // Note: We need to re-assess functions to get all high-risk ones, not just top 10
-    const highRiskFunctions = [];
-    for (const func of functionsWithMetrics) {
-      const assessment = await riskAssessor.assessFunction(
-        func,
-        riskAssessment.statistics,
-        config.thresholds,
-        config.assessment
-      );
-      if (assessment.riskLevel === 'high') {
-        highRiskFunctions.push(func);
-      }
-    }
-
-    // Sort by risk score (complexity + size + maintainability issues)
-    const sortedHighRiskFunctions = highRiskFunctions
-      .map(f => {
-        const { riskScore, riskFactors } = calculateRiskScore(f, config);
-        return {
-          function: f,
-          riskScore,
-          riskFactors,
-        };
-      })
-      .sort((a, b) => b.riskScore - a.riskScore);
-
-    // Generate AI-optimized report
-    const report: AIOptimizedHealthReport = {
-      summary: {
-        total_functions: functionsWithMetrics.length,
-        high_risk_functions: highRiskFunctions.length,
-        overall_grade: projectScore.overallGrade,
-        overall_score: projectScore.score,
-        last_analyzed: new Date(latest.createdAt).toISOString(),
-      },
-      high_risk_functions: sortedHighRiskFunctions.map((item, index) => {
-        const f = item.function;
-        const complexity = f.metrics?.cyclomaticComplexity || 1;
-        const lines = f.metrics?.linesOfCode || 0;
-
-        return {
-          id: f.id,
-          name: f.name,
-          display_name: f.displayName,
-          location: `${f.filePath}:${f.startLine}`,
-          risk_factors: item.riskFactors,
-          risk_score: Math.round(item.riskScore),
-          fix_priority: index + 1,
-          estimated_effort: estimateEffort(complexity, config),
-          suggested_actions: generateSuggestedActions(f, config),
-          metrics: {
-            cyclomatic_complexity: complexity,
-            cognitive_complexity: f.metrics?.cognitiveComplexity || 0,
-            lines_of_code: lines,
-            maintainability_index: f.metrics?.maintainabilityIndex || null,
-            parameter_count: f.metrics?.parameterCount || 0,
-            max_nesting_level: f.metrics?.maxNestingLevel || 0,
-            branch_count: f.metrics?.branchCount || 0,
-            halstead_volume: f.metrics?.halsteadVolume || 0,
-            halstead_difficulty: f.metrics?.halsteadDifficulty || 0,
-            return_statement_count: f.metrics?.returnStatementCount || 0,
-            async_await_count: f.metrics?.asyncAwaitCount || 0,
-            try_catch_count: f.metrics?.tryCatchCount || 0,
-            loop_count: f.metrics?.loopCount || 0,
-          },
-        };
-      }),
-      improvement_roadmap: generateImprovementRoadmap(sortedHighRiskFunctions, config),
-      next_actions: generateNextActions(sortedHighRiskFunctions, config),
-    };
-
+    
+    // High-risk function assessment
+    const sortedHighRiskFunctions = await assessHighRiskFunctions(functionsWithMetrics, config);
+    
+    // Report generation and output
+    const report = generateHealthReport(functionsWithMetrics, sortedHighRiskFunctions, projectScore, latest, config);
     console.log(JSON.stringify(report, null, 2));
+    
   } catch (error) {
-    console.log(JSON.stringify({
-      error: 'Failed to generate health report',
-      details: error instanceof Error ? error.message : 'Unknown error'
-    }, null, 2));
+    handleHealthError(error);
   }
 }
 

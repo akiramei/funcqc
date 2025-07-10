@@ -1,0 +1,10 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts show --id b174a47d-99d1-4adb-bbe8-e57383c9eb3b
+
+Function: displayAIOptimizedHealth()
+ID: b174a47d-99d1-4adb-bbe8-e57383c9eb3b
+Location: src/cli/health.ts:635-760
+Signature: async displayAIOptimizedHealth(storage: PGLiteStorageAdapter, config: FuncqcConfig, _options: HealthCommandOptions): Promise<void>
+Attributes: async
+
