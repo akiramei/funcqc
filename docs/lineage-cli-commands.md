@@ -26,18 +26,24 @@ funcqc diff <from-snapshot> <to-snapshot> --lineage [options]
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--json` | Output in JSON format | false |
+| `--lineage-auto-save` | Automatically save detected lineage as draft | false |
 | `--min-confidence` | Minimum confidence threshold (0.0-1.0) | 0.6 |
 | `--max-candidates` | Maximum candidates per function | 50 |
 | `--file` | Limit analysis to specific files | all files |
 | `--cross-file` | Enable cross-file lineage detection | true |
 | `--types` | Lineage types to detect | all types |
+| `--no-change-detection` | Disable smart change detection | false |
+| `--change-detection-min-score` | Minimum score for lineage suggestion (0-100) | 50 |
 
 ### Examples
 
 #### Basic Lineage Analysis
 ```bash
-# Analyze changes between two snapshots
+# Analyze changes between two snapshots (detection only)
 funcqc diff baseline feature-branch --lineage
+
+# Auto-save detected lineages as drafts
+funcqc diff main HEAD --lineage --lineage-auto-save
 
 # Output in JSON format
 funcqc diff main HEAD --lineage --json
@@ -96,15 +102,12 @@ SPLIT: handleRequest → handleRequestValidation + processRequest (78% confidenc
 #### JSON Output
 ```json
 {
-  "summary": {
-    "total": 7,
-    "by_type": {
-      "rename": 3,
-      "signature-change": 2,
-      "split": 1,
-      "merge": 0,
-      "inline": 1
-    }
+  "diff": {
+    "from": { /* snapshot metadata */ },
+    "to": { /* snapshot metadata */ },
+    "added": [ /* new functions */ ],
+    "removed": [ /* deleted functions */ ],
+    "modified": [ /* changed functions */ ]
   },
   "lineages": [
     {
@@ -138,6 +141,8 @@ SPLIT: handleRequest → handleRequestValidation + processRequest (78% confidenc
   ]
 }
 ```
+
+**Note**: Without `--lineage-auto-save`, lineages are only detected and displayed. With `--lineage-auto-save`, they are saved to the database with `status: "draft"` for later review.
 
 ---
 
@@ -461,28 +466,43 @@ funcqc lineage review batch --auto-approve 0.9
 
 ### Workflow Integration
 ```bash
-# Pre-commit lineage check
+# Pre-commit lineage check (detection only)
 git add .
 funcqc scan --label "pre-commit"
 funcqc diff HEAD pre-commit --lineage --min-confidence 0.8
 
-# Post-merge analysis
+# Post-merge analysis with auto-save
 git checkout main
 git pull origin main
 funcqc scan --label "post-merge"
-funcqc diff main~10 post-merge --lineage --json > lineage-report.json
+funcqc diff main~10 post-merge --lineage --lineage-auto-save --json > lineage-report.json
 ```
 
 ### CI/CD Pipeline
 ```bash
-# Generate lineage for release
-funcqc diff v1.0 v2.0 --lineage --json --min-confidence 0.7 > release-lineage.json
+# Generate and save lineage for release
+funcqc diff v1.0 v2.0 --lineage --lineage-auto-save --min-confidence 0.7 --json > release-lineage.json
 
 # Validate all lineages are reviewed
-PENDING=$(funcqc lineage list --status draft --json | jq '.total')
+PENDING=$(funcqc lineage list --status draft --json | jq 'length')
 if [ "$PENDING" -gt 0 ]; then
   echo "Warning: $PENDING lineages pending review"
+  funcqc lineage list --status draft
 fi
+```
+
+### Draft Lineage Workflow
+```bash
+# 1. Detect and save lineages as drafts
+funcqc diff main feature-branch --lineage --lineage-auto-save
+
+# 2. Review and approve/reject drafts
+funcqc lineage list --status draft
+funcqc lineage review approve lin_abc123 --reason "Confirmed refactoring"
+funcqc lineage review reject lin_def456 --reason "False positive"
+
+# 3. Export approved lineages
+funcqc lineage list --status approved --json > approved-lineages.json
 ```
 
 ### Reporting and Analytics
