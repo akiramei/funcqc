@@ -130,13 +130,13 @@ funcqcの高機能を活用した包括的品質管理:
 
 ```bash
 # Phase 1: 基本品質確認
-npm run dev status                        # プロジェクト全体状況 (A-Fグレード)
+npm run dev health                        # プロジェクト全体状況とリスク評価
 npm run dev -- list --cc-ge 10           # High Risk関数の確認
 
 # Phase 2: 詳細分析
 npm run dev -- list --cc-ge 10 --limit 10 --sort cc --desc  # 複雑な関数TOP10
 npm run dev -- similar --threshold 0.8   # 重複コード検出
-npm run dev -- trend --weekly            # 品質トレンド分析
+npm run dev -- diff HEAD~1 HEAD          # 最新変更の品質影響分析
 
 # Phase 3: 改善計画
 npm run dev -- show "functionName"       # 問題関数の詳細分析
@@ -165,7 +165,7 @@ package.jsonに以下のスクリプトを追加して短縮化:
   "scripts": {
     "quality:scan": "npm run dev scan",
     "quality:check": "npm run dev -- list --cc-ge 10",
-    "quality:status": "npm run dev status",
+    "quality:health": "npm run dev health",
     "quality:trends": "npm run dev -- trend --weekly",
     "quality:complex": "npm run dev -- list --cc-ge 10 --limit 10 --sort cc --desc"
   }
@@ -176,7 +176,7 @@ package.jsonに以下のスクリプトを追加して短縮化:
 ```bash
 npm run quality:scan     # メトリクス収集
 npm run quality:check    # 品質確認
-npm run quality:status   # 概要表示
+npm run quality:health   # 概要表示
 ```
 
 ## 🚀 高速関数検索機能の活用
@@ -248,9 +248,9 @@ npm run dev list --threshold-violations # 品質基準違反関数
 
 ```bash
 # 📈 品質トレンド分析
-npm run dev -- trend --weekly           # 週次品質推移
-npm run dev -- diff main HEAD --summary # ブランチ間品質比較
-npm run dev status                      # プロジェクト全体状況
+npm run dev history                      # スナップショット履歴
+npm run dev -- diff HEAD~1 HEAD          # 最新変更の品質比較
+npm run dev health                      # プロジェクト全体状況
 
 # 🔍 問題関数の追跡
 npm run dev -- history --id "func-id"   # 特定関数の履歴追跡
@@ -276,7 +276,7 @@ npm run dev -- list --name "*test*"                    # テスト関連関数
 | 目的 | 第1選択 | 第2選択 | 詳細確認 |
 |------|---------|---------|----- ----|
 | **関数発見** | `search "keyword"` | `list --name "*pattern*"` | `show "funcName"` |
-| **品質確認** | `status` | `list --cc-ge 10` | `trend --weekly` |
+| **品質確認** | `health` | `list --cc-ge 10` | `diff HEAD~1 HEAD` |
 | **問題調査** | `list --cc-ge 10` | `similar --threshold 0.8` | `show "problemFunc"` |
 | **コードレビュー** | `list --cc-ge 5 --limit 10` | `list --name "*exported*"` | `similar --threshold 0.8` |
 | **関数文書化** | `describe --list-undocumented` | `describe --needs-description` | `describe "funcId" --text "説明"` |
@@ -287,7 +287,7 @@ npm run dev -- list --name "*test*"                    # テスト関連関数
 
 ```bash
 # Step 1: 全体把握 (必須)
-npm run dev status
+npm run dev health
 
 # Step 2: 問題特定 (課題発見)
 npm run dev -- list --cc-ge 10
@@ -516,9 +516,9 @@ funcqcへの移行により、従来の「High Risk関数ゼロ」から「包�
 
 ```bash
 # 週次品質レポート
-npm run dev -- trend --weekly | grep "Overall Grade"
+npm run dev -- diff HEAD~7 HEAD           # 週次変更の品質影響
 npm run dev -- list --threshold-violations --json | jq '.length'
-npm run dev -- status | grep "Risk Functions"
+npm run dev health | grep -i "risk"
 ```
 
 ## AI開発協働における心構え
