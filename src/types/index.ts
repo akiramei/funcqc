@@ -768,7 +768,7 @@ export interface PresetApplyResult {
   applied: ProjectPreset;
   changes: ConfigurationChange[];
   warnings: string[];
-  backupPath?: string | undefined;
+  backupPath?: string;
   validationResults?: ConfigValidationResult[];
 }
 
@@ -786,6 +786,24 @@ export interface ConfigValidationResult {
   level: 'error' | 'warning' | 'info';
   message: string;
   suggestion?: string;
+}
+
+/**
+ * Project analysis result for intelligent preset suggestions
+ */
+export interface ProjectAnalysisResult {
+  hasReactComponents: boolean;
+  hasApiRoutes: boolean;
+  isCLITool: boolean;
+  isLibrary: boolean;
+  projectSize: 'small' | 'medium' | 'large';
+  detectedFrameworks: string[];
+  detectedDependencies: {
+    frontend: string[];
+    backend: string[];
+    testing: string[];
+    cli: string[];
+  };
 }
 
 /**

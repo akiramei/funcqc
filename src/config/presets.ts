@@ -86,7 +86,7 @@ export const PRESET_WEB_FRONTEND: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['frontend', 'components', 'ui', 'react', 'vue', 'angular']
   }
@@ -165,7 +165,7 @@ export const PRESET_API_BACKEND: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['backend', 'api', 'rest', 'graphql', 'business-logic', 'server']
   }
@@ -243,7 +243,7 @@ export const PRESET_CLI_TOOL: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['cli', 'command-line', 'tool', 'terminal', 'scripting']
   }
@@ -322,7 +322,7 @@ export const PRESET_LIBRARY: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['library', 'package', 'npm', 'reusable', 'api', 'public']
   }
@@ -400,7 +400,7 @@ export const PRESET_JUNIOR_TEAM: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['junior', 'team', 'learning', 'best-practices', 'education']
   }
@@ -478,7 +478,7 @@ export const PRESET_AI_OPTIMIZED: ProjectPreset = {
   metadata: {
     version: '1.0.0',
     author: 'funcqc-team',
-    created: Date.now(),
+    created: new Date('2024-01-01T00:00:00.000Z').getTime(),
     compatibility: ['0.1.0'],
     tags: ['ai', 'optimization', 'assistant', 'analysis', 'suggestions', 'modern']
   }

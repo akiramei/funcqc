@@ -12,7 +12,8 @@ import {
   PresetApplyOptions, 
   PresetApplyResult, 
   ConfigurationChange,
-  ConfigValidationResult
+  ConfigValidationResult,
+  ProjectAnalysisResult
 } from '../types';
 import { BUILTIN_PRESETS, getPreset } from './presets';
 import { ConfigManager } from '../core/config';
@@ -84,14 +85,19 @@ export class PresetManager {
       await this.saveConfiguration(newConfig);
     }
 
-    return {
+    const result: PresetApplyResult = {
       success: true,
       applied: preset,
       changes,
       warnings: validationResults.filter(r => r.level === 'warning').map(r => r.message),
-      backupPath,
       validationResults
     };
+
+    if (backupPath) {
+      result.backupPath = backupPath;
+    }
+
+    return result;
   }
 
   /**
@@ -225,15 +231,15 @@ export class PresetManager {
     const changes: ConfigurationChange[] = [];
     
     // Deep comparison of configuration objects
-    this.compareConfigObjects('', currentConfig, presetConfig, changes, merge);
+    this.compareConfigObjects('', currentConfig as unknown as Record<string, unknown>, presetConfig as unknown as Record<string, unknown>, changes, merge);
     
     return changes;
   }
 
   private compareConfigObjects(
     basePath: string,
-    current: any,
-    preset: any,
+    current: Record<string, unknown>,
+    preset: Record<string, unknown>,
     changes: ConfigurationChange[],
     merge: boolean
   ): void {
@@ -243,7 +249,7 @@ export class PresetManager {
       
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         if (typeof currentValue === 'object' && currentValue !== null) {
-          this.compareConfigObjects(currentPath, currentValue, value, changes, merge);
+          this.compareConfigObjects(currentPath, currentValue as Record<string, unknown>, value as Record<string, unknown>, changes, merge);
         } else {
           changes.push({
             path: currentPath,
@@ -265,7 +271,7 @@ export class PresetManager {
     }
   }
 
-  private assessChangeImpact(path: string, _oldValue: any, _newValue: any): 'low' | 'medium' | 'high' {
+  private assessChangeImpact(path: string, _oldValue: unknown, _newValue: unknown): 'low' | 'medium' | 'high' {
     // Critical configuration paths
     if (path.includes('threshold') || path.includes('complexity')) {
       return 'high';
@@ -284,7 +290,7 @@ export class PresetManager {
     return 'low';
   }
 
-  private describeChange(path: string, oldValue: any, newValue: any): string {
+  private describeChange(path: string, oldValue: unknown, newValue: unknown): string {
     if (oldValue === undefined) {
       return `Add ${path}: ${JSON.stringify(newValue)}`;
     }
@@ -353,15 +359,15 @@ export class PresetManager {
     }
     
     // Deep merge configurations
-    return this.deepMerge(current, preset) as FuncqcConfig;
+    return this.deepMerge(current as unknown as Record<string, unknown>, preset as unknown as Record<string, unknown>) as unknown as FuncqcConfig;
   }
 
-  private deepMerge(target: any, source: any): any {
+  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
     const result = { ...target };
     
     for (const [key, value] of Object.entries(source)) {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        result[key] = this.deepMerge(target[key] || {}, value);
+        result[key] = this.deepMerge((target[key] as Record<string, unknown>) || {}, value as Record<string, unknown>);
       } else {
         result[key] = value;
       }
@@ -378,15 +384,21 @@ export class PresetManager {
     await fs.writeFile(configPath, JSON.stringify(config, null, 2));
   }
 
-  private async analyzeProjectStructure(): Promise<any> {
+  private async analyzeProjectStructure(): Promise<ProjectAnalysisResult> {
     // Analyze current project to suggest appropriate presets
-    // This is a simplified implementation
-    const analysis = {
+    const analysis: ProjectAnalysisResult = {
       hasReactComponents: false,
       hasApiRoutes: false,
       isCLITool: false,
       isLibrary: false,
-      projectSize: 'medium'
+      projectSize: 'medium',
+      detectedFrameworks: [],
+      detectedDependencies: {
+        frontend: [],
+        backend: [],
+        testing: [],
+        cli: []
+      }
     };
 
     try {
@@ -396,20 +408,70 @@ export class PresetManager {
         const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
         const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
         
-        if (deps.react || deps.vue || deps.angular || deps['@angular/core']) {
+        // Frontend framework detection
+        if (deps.react) {
           analysis.hasReactComponents = true;
+          analysis.detectedFrameworks.push('React');
+          analysis.detectedDependencies.frontend.push('react');
+        }
+        if (deps.vue) {
+          analysis.hasReactComponents = true;
+          analysis.detectedFrameworks.push('Vue');
+          analysis.detectedDependencies.frontend.push('vue');
+        }
+        if (deps.angular || deps['@angular/core']) {
+          analysis.hasReactComponents = true;
+          analysis.detectedFrameworks.push('Angular');
+          analysis.detectedDependencies.frontend.push('angular');
         }
         
-        if (deps.express || deps.fastify || deps.koa || deps['@nestjs/core']) {
+        // Backend framework detection
+        if (deps.express) {
           analysis.hasApiRoutes = true;
+          analysis.detectedFrameworks.push('Express');
+          analysis.detectedDependencies.backend.push('express');
+        }
+        if (deps.fastify) {
+          analysis.hasApiRoutes = true;
+          analysis.detectedFrameworks.push('Fastify');
+          analysis.detectedDependencies.backend.push('fastify');
+        }
+        if (deps.koa) {
+          analysis.hasApiRoutes = true;
+          analysis.detectedFrameworks.push('Koa');
+          analysis.detectedDependencies.backend.push('koa');
+        }
+        if (deps['@nestjs/core']) {
+          analysis.hasApiRoutes = true;
+          analysis.detectedFrameworks.push('NestJS');
+          analysis.detectedDependencies.backend.push('@nestjs/core');
         }
         
+        // CLI tool detection
         if (packageJson.bin || deps.commander || deps.yargs) {
           analysis.isCLITool = true;
+          if (deps.commander) analysis.detectedDependencies.cli.push('commander');
+          if (deps.yargs) analysis.detectedDependencies.cli.push('yargs');
         }
         
+        // Library detection
         if (packageJson.main && !packageJson.private) {
           analysis.isLibrary = true;
+        }
+        
+        // Testing framework detection
+        if (deps.jest) analysis.detectedDependencies.testing.push('jest');
+        if (deps.vitest) analysis.detectedDependencies.testing.push('vitest');
+        if (deps.mocha) analysis.detectedDependencies.testing.push('mocha');
+        
+        // Project size estimation based on dependencies count
+        const depCount = Object.keys(deps).length;
+        if (depCount < 10) {
+          analysis.projectSize = 'small';
+        } else if (depCount > 30) {
+          analysis.projectSize = 'large';
+        } else {
+          analysis.projectSize = 'medium';
         }
       } catch {
         // package.json not found or invalid
@@ -421,7 +483,7 @@ export class PresetManager {
     return analysis;
   }
 
-  private calculatePresetScore(preset: ProjectPreset, analysis: any): { score: number; reasons: string[] } {
+  private calculatePresetScore(preset: ProjectPreset, analysis: ProjectAnalysisResult): { score: number; reasons: string[] } {
     let score = 0;
     const reasons: string[] = [];
 
