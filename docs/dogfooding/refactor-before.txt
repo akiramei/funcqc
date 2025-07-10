@@ -1,0 +1,45 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts refactor analyze --complexity-threshold 40 --format detailed
+
+ℹ️  Info: Starting refactoring analysis...
+ℹ️  Info: 🔍 Analyzing project for refactoring opportunities...
+
+🔍 Refactoring Analysis Report
+
+📊 Project Summary
+   Total Functions: 1
+   Analyzed: 1
+   Opportunities: 2
+   Estimated Effort: 6 hours
+   Risk Level: HIGH
+
+🎯 Priority Areas:
+   • src/cli/health.ts
+
+🚨 Top Opportunities:
+   1. CRITICAL Extract Method (Score: 100)
+      Function: b174a47d-99d1-4adb-bbe8-e57383c9eb3b
+      linesOfCode: 113
+   2. CRITICAL Split Function (Score: 100)
+      Function: b174a47d-99d1-4adb-bbe8-e57383c9eb3b
+      estimatedResponsibilities: 13
+
+🔥 Quality Hot Spots:
+   1. displayAIOptimizedHealth (Risk: 80)
+      src/cli/health.ts
+      Complexity: 47, Issues: 2
+
+💡 Top Recommendations:
+   1. 🔥 Extract Method
+      High impact score (100) with critical severity
+      Effort: 2h, Benefit: Improved readability and reusability
+   2. 🔥 Split Function
+      High impact score (100) with critical severity
+      Effort: 4h, Benefit: Better separation of concerns and testability
+
+💡 Next Steps:
+   • Review high-priority opportunities above
+   • Run funcqc refactor detect for specific patterns
+   • Use funcqc refactor interactive for guided refactoring
+

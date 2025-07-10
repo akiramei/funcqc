@@ -1,0 +1,18 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts refactor analyze --complexity-threshold 40 --format detailed
+
+ℹ️  Info: Starting refactoring analysis...
+ℹ️  Info: 🔍 Analyzing project for refactoring opportunities...
+
+🔍 Refactoring Analysis Report
+
+📊 Project Summary
+   Total Functions: 0
+   Analyzed: 0
+   Opportunities: 0
+   Estimated Effort: 0 hours
+   Risk Level: LOW
+
+✅ No major refactoring opportunities found. Code quality looks good!
+

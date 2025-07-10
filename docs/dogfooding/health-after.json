@@ -1,0 +1,4908 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts health --json
+
+{
+  "summary": {
+    "total_functions": 1291,
+    "high_risk_functions": 135,
+    "overall_grade": "A",
+    "overall_score": 91,
+    "last_analyzed": "2025-07-10T14:05:28.562Z"
+  },
+  "high_risk_functions": [
+    {
+      "id": "3199e352-7e2b-40dd-ad08-c8ce3315bc55",
+      "name": "calculateRiskScore",
+      "display_name": "calculateRiskScore",
+      "location": "src/cli/health.ts:790",
+      "risk_factors": [
+        "complexity:31",
+        "cognitive_complexity:30",
+        "size:75",
+        "excessive_branching:12",
+        "high_halstead_volume:2830",
+        "high_halstead_difficulty:21"
+      ],
+      "risk_score": 558,
+      "fix_priority": 1,
+      "estimated_effort": "60-120min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 31,
+        "cognitive_complexity": 30,
+        "lines_of_code": 75,
+        "maintainability_index": 52.6,
+        "parameter_count": 2,
+        "max_nesting_level": 3,
+        "branch_count": 12,
+        "halstead_volume": 2830.31,
+        "halstead_difficulty": 20.91,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "2aa3b5bf-e070-44f8-b26f-9fb369da7646",
+      "name": "handleApplyPreset",
+      "display_name": "handleApplyPreset",
+      "location": "src/cli/config.ts:181",
+      "risk_factors": [
+        "complexity:20",
+        "cognitive_complexity:36",
+        "size:63",
+        "deep_nesting:11",
+        "excessive_branching:10",
+        "high_halstead_volume:1665"
+      ],
+      "risk_score": 557,
+      "fix_priority": 2,
+      "estimated_effort": "30-60min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 20,
+        "cognitive_complexity": 36,
+        "lines_of_code": 63,
+        "maintainability_index": 60.71,
+        "parameter_count": 2,
+        "max_nesting_level": 11,
+        "branch_count": 10,
+        "halstead_volume": 1665.06,
+        "halstead_difficulty": 8.75,
+        "return_statement_count": 2,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 3
+      }
+    },
+    {
+      "id": "31cec7fb-8d2a-4f5d-9a9f-3db7960c5e04",
+      "name": "explainCommand",
+      "display_name": "explainCommand",
+      "location": "src/cli/explain.ts:13",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:39",
+        "size:43",
+        "deep_nesting:15",
+        "excessive_branching:8"
+      ],
+      "risk_score": 504,
+      "fix_priority": 3,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 39,
+        "lines_of_code": 43,
+        "maintainability_index": 74.3,
+        "parameter_count": 2,
+        "max_nesting_level": 15,
+        "branch_count": 8,
+        "halstead_volume": 597.25,
+        "halstead_difficulty": 4.29,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "da08b7dd-8dc9-4747-b2cb-8afe3308029c",
+      "name": "diffCommand",
+      "display_name": "diffCommand",
+      "location": "src/cli/diff.ts:46",
+      "risk_factors": [
+        "complexity:16",
+        "cognitive_complexity:32",
+        "size:76",
+        "deep_nesting:11",
+        "excessive_branching:9",
+        "high_halstead_volume:1682",
+        "heavy_async:8"
+      ],
+      "risk_score": 488,
+      "fix_priority": 4,
+      "estimated_effort": "30-60min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 16,
+        "cognitive_complexity": 32,
+        "lines_of_code": 76,
+        "maintainability_index": 58.54,
+        "parameter_count": 3,
+        "max_nesting_level": 11,
+        "branch_count": 9,
+        "halstead_volume": 1681.63,
+        "halstead_difficulty": 9.72,
+        "return_statement_count": 1,
+        "async_await_count": 8,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "1c6af5e3-5765-4fb5-8444-ebc7983467f2",
+      "name": "handleShowPreset",
+      "display_name": "handleShowPreset",
+      "location": "src/cli/config.ts:110",
+      "risk_factors": [
+        "complexity:18",
+        "cognitive_complexity:30",
+        "size:61",
+        "deep_nesting:7",
+        "excessive_branching:12",
+        "high_halstead_volume:2196"
+      ],
+      "risk_score": 446,
+      "fix_priority": 5,
+      "estimated_effort": "30-60min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 18,
+        "cognitive_complexity": 30,
+        "lines_of_code": 61,
+        "maintainability_index": 60.25,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 12,
+        "halstead_volume": 2196.49,
+        "halstead_difficulty": 9.45,
+        "return_statement_count": 1,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "93fc5cb9-e6b2-4cc7-9878-25240793334d",
+      "name": "healthCommand",
+      "display_name": "healthCommand",
+      "location": "src/cli/health.ts:33",
+      "risk_factors": [
+        "complexity:13",
+        "cognitive_complexity:34",
+        "size:47",
+        "deep_nesting:10",
+        "excessive_branching:7",
+        "heavy_async:7"
+      ],
+      "risk_score": 399,
+      "fix_priority": 6,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 34,
+        "lines_of_code": 47,
+        "maintainability_index": 70.34,
+        "parameter_count": 1,
+        "max_nesting_level": 10,
+        "branch_count": 7,
+        "halstead_volume": 887.83,
+        "halstead_difficulty": 5.42,
+        "return_statement_count": 0,
+        "async_await_count": 7,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e9979c75-e23a-4a81-bdfb-522f16e49d3b",
+      "name": "prepareBulkInsertData",
+      "display_name": "prepareBulkInsertData",
+      "location": "src/storage/bulk-insert-utils.ts:16",
+      "risk_factors": [
+        "complexity:16",
+        "cognitive_complexity:34",
+        "size:81",
+        "deep_nesting:5",
+        "high_halstead_volume:1574"
+      ],
+      "risk_score": 367,
+      "fix_priority": 7,
+      "estimated_effort": "30-60min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 16,
+        "cognitive_complexity": 34,
+        "lines_of_code": 81,
+        "maintainability_index": 57.85,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 1574.34,
+        "halstead_difficulty": 3.53,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "48314113-0ddf-4f88-accb-936ce69a87dc",
+      "name": "displayHumanResults",
+      "display_name": "displayHumanResults",
+      "location": "src/cli/evaluate.ts:203",
+      "risk_factors": [
+        "complexity:15",
+        "cognitive_complexity:27",
+        "size:68",
+        "deep_nesting:7",
+        "excessive_branching:10",
+        "high_halstead_volume:1868",
+        "excessive_loops:4"
+      ],
+      "risk_score": 358,
+      "fix_priority": 8,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 15,
+        "cognitive_complexity": 27,
+        "lines_of_code": 68,
+        "maintainability_index": 60.03,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 10,
+        "halstead_volume": 1867.72,
+        "halstead_difficulty": 6.03,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 4
+      }
+    },
+    {
+      "id": "ba24436c-a4e7-48d8-9d37-adfb740383dd",
+      "name": "runRealtimeGateMode",
+      "display_name": "runRealtimeGateMode",
+      "location": "src/cli/scan.ts:516",
+      "risk_factors": [
+        "complexity:15",
+        "cognitive_complexity:24",
+        "size:83",
+        "deep_nesting:9",
+        "high_halstead_volume:2081",
+        "heavy_async:7"
+      ],
+      "risk_score": 340,
+      "fix_priority": 9,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 15,
+        "cognitive_complexity": 24,
+        "lines_of_code": 83,
+        "maintainability_index": 56.23,
+        "parameter_count": 3,
+        "max_nesting_level": 9,
+        "branch_count": 5,
+        "halstead_volume": 2080.85,
+        "halstead_difficulty": 10.29,
+        "return_statement_count": 1,
+        "async_await_count": 7,
+        "try_catch_count": 2,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "0edc8374-0efe-4949-ba14-19aa2829fdf1",
+      "name": "handleValidateConfig",
+      "display_name": "handleValidateConfig",
+      "location": "src/cli/config.ts:360",
+      "risk_factors": [
+        "complexity:16",
+        "cognitive_complexity:24",
+        "size:74",
+        "deep_nesting:7",
+        "excessive_branching:10",
+        "high_halstead_volume:1784"
+      ],
+      "risk_score": 324,
+      "fix_priority": 10,
+      "estimated_effort": "30-60min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 16,
+        "cognitive_complexity": 24,
+        "lines_of_code": 74,
+        "maintainability_index": 58.66,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 10,
+        "halstead_volume": 1783.62,
+        "halstead_difficulty": 11.61,
+        "return_statement_count": 2,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "eb9437b9-534b-4985-aaab-8e597b03d97f",
+      "name": "handleListPresets",
+      "display_name": "handleListPresets",
+      "location": "src/cli/config.ts:59",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:26",
+        "deep_nesting:9",
+        "excessive_branching:7",
+        "high_halstead_volume:1254"
+      ],
+      "risk_score": 261,
+      "fix_priority": 11,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 26,
+        "lines_of_code": 40,
+        "maintainability_index": 71.61,
+        "parameter_count": 2,
+        "max_nesting_level": 9,
+        "branch_count": 7,
+        "halstead_volume": 1253.61,
+        "halstead_difficulty": 8.65,
+        "return_statement_count": 1,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 3
+      }
+    },
+    {
+      "id": "3b55026c-81b7-4c60-bcca-ce89119775b7",
+      "name": "runInteractiveDetection",
+      "display_name": "runInteractiveDetection",
+      "location": "src/cli/refactor/detect.ts:161",
+      "risk_factors": [
+        "cognitive_complexity:22",
+        "size:66",
+        "deep_nesting:8",
+        "excessive_branching:7",
+        "high_halstead_volume:2129",
+        "heavy_async:6"
+      ],
+      "risk_score": 256,
+      "fix_priority": 12,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 22,
+        "lines_of_code": 66,
+        "maintainability_index": 60.98,
+        "parameter_count": 3,
+        "max_nesting_level": 8,
+        "branch_count": 7,
+        "halstead_volume": 2128.64,
+        "halstead_difficulty": 11,
+        "return_statement_count": 0,
+        "async_await_count": 6,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "a6c82c01-944f-41c8-9d72-1e92638dffec",
+      "name": "winnowHashes",
+      "display_name": "winnowHashes",
+      "location": "src/utils/hash-winnowing-utility.ts:10",
+      "risk_factors": [
+        "complexity:13",
+        "cognitive_complexity:25",
+        "deep_nesting:7",
+        "high_halstead_difficulty:32",
+        "excessive_loops:4"
+      ],
+      "risk_score": 252,
+      "fix_priority": 13,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 25,
+        "lines_of_code": 34,
+        "maintainability_index": 76.31,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 5,
+        "halstead_volume": 771,
+        "halstead_difficulty": 31.7,
+        "return_statement_count": 3,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 4
+      }
+    },
+    {
+      "id": "15bbf6c4-81e8-4972-bca5-82307c3021ab",
+      "name": "displayRefactoringPlan",
+      "display_name": "displayRefactoringPlan",
+      "location": "src/cli/refactor/plan.ts:729",
+      "risk_factors": [
+        "complexity:11",
+        "size:72",
+        "deep_nesting:6",
+        "excessive_branching:10",
+        "high_halstead_volume:3593"
+      ],
+      "risk_score": 241,
+      "fix_priority": 14,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 12,
+        "lines_of_code": 72,
+        "maintainability_index": 56.62,
+        "parameter_count": 1,
+        "max_nesting_level": 6,
+        "branch_count": 10,
+        "halstead_volume": 3593.16,
+        "halstead_difficulty": 8.51,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "547ee8bf-8216-4afe-b26a-fd157d78cab0",
+      "name": "reviewOpportunities",
+      "display_name": "reviewOpportunities",
+      "location": "src/cli/refactor/interactive.ts:420",
+      "risk_factors": [
+        "cognitive_complexity:20",
+        "size:62",
+        "deep_nesting:8",
+        "excessive_branching:6",
+        "high_halstead_volume:2216"
+      ],
+      "risk_score": 215,
+      "fix_priority": 15,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 20,
+        "lines_of_code": 62,
+        "maintainability_index": 62.01,
+        "parameter_count": 4,
+        "max_nesting_level": 8,
+        "branch_count": 6,
+        "halstead_volume": 2215.59,
+        "halstead_difficulty": 12.19,
+        "return_statement_count": 0,
+        "async_await_count": 3,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "3aff956d-a5af-40fc-8816-fc8a1955722c",
+      "name": "displayDetailedFunctionHistory",
+      "display_name": "displayDetailedFunctionHistory",
+      "location": "src/cli/history.ts:537",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:21",
+        "size:45",
+        "deep_nesting:8",
+        "excessive_branching:7",
+        "high_halstead_volume:1241"
+      ],
+      "risk_score": 188,
+      "fix_priority": 16,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 21,
+        "lines_of_code": 45,
+        "maintainability_index": 69.76,
+        "parameter_count": 2,
+        "max_nesting_level": 8,
+        "branch_count": 7,
+        "halstead_volume": 1241.24,
+        "halstead_difficulty": 11.52,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "3865c3df-b7d1-4d80-9af2-0339cee5d0a8",
+      "name": "generateMarkdownPlan",
+      "display_name": "generateMarkdownPlan",
+      "location": "src/cli/refactor/plan.ts:614",
+      "risk_factors": [
+        "size:92",
+        "deep_nesting:5",
+        "excessive_branching:9",
+        "high_halstead_volume:2778"
+      ],
+      "risk_score": 177,
+      "fix_priority": 17,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 9,
+        "lines_of_code": 92,
+        "maintainability_index": 54.21,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 9,
+        "halstead_volume": 2778.27,
+        "halstead_difficulty": 6.3,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c5a4563c-d899-4806-9b9c-887d2d03592a",
+      "name": "applySorting",
+      "display_name": "applySorting",
+      "location": "src/cli/list.ts:117",
+      "risk_factors": [
+        "complexity:13",
+        "cognitive_complexity:21",
+        "deep_nesting:6",
+        "multiple_returns:4"
+      ],
+      "risk_score": 153,
+      "fix_priority": 18,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 21,
+        "lines_of_code": 32,
+        "maintainability_index": 78.7,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 588.67,
+        "halstead_difficulty": 8.28,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "6973a004-3453-4989-97c3-8dd18365ce39",
+      "name": "performHybridSearch",
+      "display_name": "performHybridSearch",
+      "location": "src/cli/search.ts:573",
+      "risk_factors": [
+        "cognitive_complexity:16",
+        "size:51",
+        "deep_nesting:11",
+        "high_halstead_volume:1053",
+        "heavy_async:4"
+      ],
+      "risk_score": 144,
+      "fix_priority": 19,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 16,
+        "lines_of_code": 51,
+        "maintainability_index": 69.04,
+        "parameter_count": 5,
+        "max_nesting_level": 11,
+        "branch_count": 3,
+        "halstead_volume": 1053.13,
+        "halstead_difficulty": 7,
+        "return_statement_count": 2,
+        "async_await_count": 4,
+        "try_catch_count": 1,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "12a6751b-7c30-4ac0-a807-bdc50c894218",
+      "name": "extractVariableFunctions",
+      "display_name": "TypeScriptAnalyzer.extractVariableFunctions",
+      "location": "src/analyzers/typescript-analyzer.ts:481",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:17",
+        "size:73",
+        "deep_nesting:6",
+        "excessive_branching:7",
+        "high_halstead_volume:1601"
+      ],
+      "risk_score": 142,
+      "fix_priority": 20,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 17,
+        "lines_of_code": 73,
+        "maintainability_index": 60.6,
+        "parameter_count": 4,
+        "max_nesting_level": 6,
+        "branch_count": 7,
+        "halstead_volume": 1601.16,
+        "halstead_difficulty": 6.62,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "13ccb780-1712-4c0e-ab4b-b5c8325d8efb",
+      "name": "performParallelAnalysis",
+      "display_name": "performParallelAnalysis",
+      "location": "src/cli/scan.ts:207",
+      "risk_factors": [
+        "cognitive_complexity:17",
+        "size:51",
+        "deep_nesting:10",
+        "heavy_async:4"
+      ],
+      "risk_score": 139,
+      "fix_priority": 21,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 17,
+        "lines_of_code": 51,
+        "maintainability_index": 69.75,
+        "parameter_count": 2,
+        "max_nesting_level": 10,
+        "branch_count": 0,
+        "halstead_volume": 960.78,
+        "halstead_difficulty": 12.32,
+        "return_statement_count": 2,
+        "async_await_count": 4,
+        "try_catch_count": 2,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "05cb4d1e-0683-48bb-93e1-32d9f90019ef",
+      "name": "findTypeScriptFiles",
+      "display_name": "findTypeScriptFiles",
+      "location": "src/cli/diff.ts:307",
+      "risk_factors": [
+        "cognitive_complexity:18",
+        "deep_nesting:9"
+      ],
+      "risk_score": 126,
+      "fix_priority": 22,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 18,
+        "lines_of_code": 21,
+        "maintainability_index": 89.44,
+        "parameter_count": 1,
+        "max_nesting_level": 9,
+        "branch_count": 4,
+        "halstead_volume": 361.66,
+        "halstead_difficulty": 2.63,
+        "return_statement_count": 1,
+        "async_await_count": 3,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "ef8f6c3b-f1eb-426d-add0-e26fa99d912d",
+      "name": "displayDetailedRiskAssessment",
+      "display_name": "displayDetailedRiskAssessment",
+      "location": "src/cli/health.ts:214",
+      "risk_factors": [
+        "size:64",
+        "deep_nesting:7",
+        "excessive_branching:6",
+        "high_halstead_volume:1799"
+      ],
+      "risk_score": 120,
+      "fix_priority": 23,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 10,
+        "lines_of_code": 64,
+        "maintainability_index": 62.58,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 6,
+        "halstead_volume": 1799.4,
+        "halstead_difficulty": 6.13,
+        "return_statement_count": 3,
+        "async_await_count": 3,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "b0d013eb-1484-4576-a2c9-18d3506dbc2b",
+      "name": "evaluateCommand",
+      "display_name": "evaluateCommand",
+      "location": "src/cli/evaluate.ts:24",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:17",
+        "size:45",
+        "deep_nesting:7",
+        "heavy_async:8"
+      ],
+      "risk_score": 117,
+      "fix_priority": 24,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 17,
+        "lines_of_code": 45,
+        "maintainability_index": 71,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 4,
+        "halstead_volume": 978,
+        "halstead_difficulty": 7.5,
+        "return_statement_count": 0,
+        "async_await_count": 8,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "1a46feb0-0987-496f-bb87-4b6981efb911",
+      "name": "generateSuggestedActions",
+      "display_name": "generateSuggestedActions",
+      "location": "src/cli/health.ts:887",
+      "risk_factors": [
+        "complexity:15",
+        "size:45",
+        "excessive_branching:10",
+        "high_halstead_volume:1445"
+      ],
+      "risk_score": 115,
+      "fix_priority": 25,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 15,
+        "cognitive_complexity": 15,
+        "lines_of_code": 45,
+        "maintainability_index": 68.05,
+        "parameter_count": 2,
+        "max_nesting_level": 3,
+        "branch_count": 10,
+        "halstead_volume": 1445.37,
+        "halstead_difficulty": 8.75,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "be91f3a5-03c3-474f-b190-bfb03bcc3ebc",
+      "name": "displayUsageExamples",
+      "display_name": "displayUsageExamples",
+      "location": "src/cli/show.ts:783",
+      "risk_factors": [
+        "cognitive_complexity:17",
+        "deep_nesting:9"
+      ],
+      "risk_score": 114,
+      "fix_priority": 26,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 17,
+        "lines_of_code": 25,
+        "maintainability_index": 82.68,
+        "parameter_count": 1,
+        "max_nesting_level": 9,
+        "branch_count": 5,
+        "halstead_volume": 771,
+        "halstead_difficulty": 8.03,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "cc2cd46a-2160-4209-875c-cac3203014d7",
+      "name": "outputFriendly",
+      "display_name": "outputFriendly",
+      "location": "src/cli/show.ts:331",
+      "risk_factors": [
+        "complexity:14",
+        "cognitive_complexity:17",
+        "size:42",
+        "excessive_branching:9",
+        "multiple_returns:5"
+      ],
+      "risk_score": 109,
+      "fix_priority": 27,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 14,
+        "cognitive_complexity": 17,
+        "lines_of_code": 42,
+        "maintainability_index": 74.91,
+        "parameter_count": 3,
+        "max_nesting_level": 3,
+        "branch_count": 9,
+        "halstead_volume": 500.11,
+        "halstead_difficulty": 5.08,
+        "return_statement_count": 5,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "ec6ee5c7-88da-409b-a980-5f93a02bcb2c",
+      "name": "describeCommand",
+      "display_name": "describeCommand",
+      "location": "src/cli/describe.ts:28",
+      "risk_factors": [
+        "deep_nesting:9",
+        "heavy_async:7"
+      ],
+      "risk_score": 106,
+      "fix_priority": 28,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 14,
+        "lines_of_code": 36,
+        "maintainability_index": 78.16,
+        "parameter_count": 2,
+        "max_nesting_level": 9,
+        "branch_count": 3,
+        "halstead_volume": 564.08,
+        "halstead_difficulty": 3.27,
+        "return_statement_count": 0,
+        "async_await_count": 7,
+        "try_catch_count": 2,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "88ef5c77-f25b-4b91-9d07-06a96b4691e0",
+      "name": "createTrackCreateCommand",
+      "display_name": "createTrackCreateCommand",
+      "location": "src/cli/refactor/track.ts:135",
+      "risk_factors": [
+        "size:54",
+        "deep_nesting:6",
+        "high_halstead_volume:1564",
+        "heavy_async:7"
+      ],
+      "risk_score": 96,
+      "fix_priority": 29,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 7,
+        "lines_of_code": 54,
+        "maintainability_index": 66.29,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 1563.89,
+        "halstead_difficulty": 4.78,
+        "return_statement_count": 1,
+        "async_await_count": 7,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "a5800d11-6f0f-4d97-967c-13196a4773bd",
+      "name": "findFunctionNode",
+      "display_name": "NamingQualityAnalyzer.findFunctionNode",
+      "location": "src/analyzers/naming-quality-analyzer.ts:242",
+      "risk_factors": [
+        "complexity:13",
+        "cognitive_complexity:20",
+        "multiple_returns:4"
+      ],
+      "risk_score": 96,
+      "fix_priority": 30,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 20,
+        "lines_of_code": 29,
+        "maintainability_index": 81.05,
+        "parameter_count": 2,
+        "max_nesting_level": 3,
+        "branch_count": 4,
+        "halstead_volume": 508.93,
+        "halstead_difficulty": 8.42,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "abe35a16-bec1-4288-af80-d9d878eac0f9",
+      "name": "findFunctionNode",
+      "display_name": "TypeSafetyAnalyzer.findFunctionNode",
+      "location": "src/analyzers/type-safety-analyzer.ts:642",
+      "risk_factors": [
+        "complexity:13",
+        "cognitive_complexity:20",
+        "multiple_returns:4"
+      ],
+      "risk_score": 96,
+      "fix_priority": 31,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 20,
+        "lines_of_code": 29,
+        "maintainability_index": 81.05,
+        "parameter_count": 2,
+        "max_nesting_level": 3,
+        "branch_count": 4,
+        "halstead_volume": 508.93,
+        "halstead_difficulty": 8.42,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c6eea0f1-2ace-4efd-9a5f-c8c48515cf32",
+      "name": "displaySessionDetails",
+      "display_name": "displaySessionDetails",
+      "location": "src/cli/refactor/track.ts:460",
+      "risk_factors": [
+        "size:47",
+        "deep_nesting:6",
+        "high_halstead_volume:1928"
+      ],
+      "risk_score": 95,
+      "fix_priority": 32,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 8,
+        "lines_of_code": 47,
+        "maintainability_index": 67.68,
+        "parameter_count": 3,
+        "max_nesting_level": 6,
+        "branch_count": 5,
+        "halstead_volume": 1928.16,
+        "halstead_difficulty": 10.97,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "4012a895-ed51-4da0-8396-c29412fa1b95",
+      "name": "processFiles",
+      "display_name": "processFiles",
+      "location": "src/workers/analysis-worker.ts:27",
+      "risk_factors": [
+        "size:47",
+        "deep_nesting:9"
+      ],
+      "risk_score": 94,
+      "fix_priority": 33,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 11,
+        "lines_of_code": 47,
+        "maintainability_index": 73.35,
+        "parameter_count": 1,
+        "max_nesting_level": 9,
+        "branch_count": 0,
+        "halstead_volume": 648.04,
+        "halstead_difficulty": 6.62,
+        "return_statement_count": 2,
+        "async_await_count": 3,
+        "try_catch_count": 2,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "d55daab0-e978-4d61-93d4-6ece71d7cec5",
+      "name": "showAnalysisSummary",
+      "display_name": "showAnalysisSummary",
+      "location": "src/cli/scan.ts:398",
+      "risk_factors": [
+        "complexity:11",
+        "size:63",
+        "deep_nesting:4",
+        "high_halstead_volume:2049"
+      ],
+      "risk_score": 89,
+      "fix_priority": 34,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 12,
+        "lines_of_code": 63,
+        "maintainability_index": 61.7,
+        "parameter_count": 1,
+        "max_nesting_level": 4,
+        "branch_count": 4,
+        "halstead_volume": 2048.83,
+        "halstead_difficulty": 8.73,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "f6388c7b-9682-4025-90de-61273119d45d",
+      "name": "formatTable",
+      "display_name": "formatTable",
+      "location": "src/utils/cli-utils.ts:123",
+      "risk_factors": [
+        "size:57",
+        "deep_nesting:5",
+        "high_halstead_volume:1745",
+        "multiple_returns:5"
+      ],
+      "risk_score": 88,
+      "fix_priority": 35,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 7,
+        "lines_of_code": 57,
+        "maintainability_index": 64.62,
+        "parameter_count": 3,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 1744.86,
+        "halstead_difficulty": 15.19,
+        "return_statement_count": 5,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c626c6d7-a04b-411a-8eed-dd92e53a7eb5",
+      "name": "resolveSnapshotId",
+      "display_name": "resolveSnapshotId",
+      "location": "src/cli/diff.ts:138",
+      "risk_factors": [
+        "complexity:12",
+        "cognitive_complexity:16",
+        "deep_nesting:4",
+        "excessive_branching:7",
+        "multiple_returns:7"
+      ],
+      "risk_score": 87,
+      "fix_priority": 36,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 12,
+        "cognitive_complexity": 16,
+        "lines_of_code": 31,
+        "maintainability_index": 78.47,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 7,
+        "halstead_volume": 709.73,
+        "halstead_difficulty": 6.95,
+        "return_statement_count": 7,
+        "async_await_count": 3,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "17852762-5d0c-4661-b8a9-885ef2e59cc5",
+      "name": "processBatchDescription",
+      "display_name": "processBatchDescription",
+      "location": "src/cli/describe.ts:106",
+      "risk_factors": [
+        "complexity:14",
+        "cognitive_complexity:16",
+        "deep_nesting:5"
+      ],
+      "risk_score": 82,
+      "fix_priority": 37,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 14,
+        "cognitive_complexity": 16,
+        "lines_of_code": 37,
+        "maintainability_index": 74,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 3,
+        "halstead_volume": 884.19,
+        "halstead_difficulty": 8,
+        "return_statement_count": 2,
+        "async_await_count": 3,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "69c0202b-7bbb-4b7e-8d55-369ae33120fb",
+      "name": "levenshteinDistance",
+      "display_name": "levenshteinDistance",
+      "location": "src/similarity/ast-canonicalizer.ts:437",
+      "risk_factors": [
+        "deep_nesting:7",
+        "high_halstead_difficulty:24",
+        "excessive_loops:4"
+      ],
+      "risk_score": 80,
+      "fix_priority": 38,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 8,
+        "lines_of_code": 19,
+        "maintainability_index": 88.09,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 1,
+        "halstead_volume": 668.72,
+        "halstead_difficulty": 24.19,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 4
+      }
+    },
+    {
+      "id": "a005891b-800b-4074-b070-06973b40a617",
+      "name": "refactorAnalyzeCommand",
+      "display_name": "refactorAnalyzeCommand",
+      "location": "src/cli/refactor/analyze.ts:27",
+      "risk_factors": [
+        "complexity:11",
+        "size:50",
+        "deep_nesting:5",
+        "excessive_branching:7",
+        "high_halstead_volume:1192",
+        "heavy_async:5"
+      ],
+      "risk_score": 79,
+      "fix_priority": 39,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 12,
+        "lines_of_code": 50,
+        "maintainability_index": 68.26,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 7,
+        "halstead_volume": 1192.43,
+        "halstead_difficulty": 7.66,
+        "return_statement_count": 0,
+        "async_await_count": 5,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "867308e4-7e22-4725-a33d-9ccdaae033fd",
+      "name": "createTrackCompleteCommand",
+      "display_name": "createTrackCompleteCommand",
+      "location": "src/cli/refactor/track.ts:263",
+      "risk_factors": [
+        "size:46",
+        "deep_nesting:6",
+        "high_halstead_volume:1228",
+        "heavy_async:7"
+      ],
+      "risk_score": 75,
+      "fix_priority": 40,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 46,
+        "maintainability_index": 70.84,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 1228.29,
+        "halstead_difficulty": 4.31,
+        "return_statement_count": 1,
+        "async_await_count": 7,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "02215bf0-96e4-4dc6-8eff-5fc2b56d8724",
+      "name": "ensureDir",
+      "display_name": "ensureDir",
+      "location": "src/utils/file-utils.ts:22",
+      "risk_factors": [
+        "deep_nesting:8"
+      ],
+      "risk_score": 75,
+      "fix_priority": 41,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 12,
+        "lines_of_code": 14,
+        "maintainability_index": 100,
+        "parameter_count": 1,
+        "max_nesting_level": 8,
+        "branch_count": 2,
+        "halstead_volume": 118.54,
+        "halstead_difficulty": 5.73,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "defc9287-5c34-4967-9604-d5cd718c1fa8",
+      "name": "generateHotSpotsSection",
+      "display_name": "generateHotSpotsSection",
+      "location": "src/cli/refactor/analyze.ts:197",
+      "risk_factors": [
+        "deep_nesting:8"
+      ],
+      "risk_score": 75,
+      "fix_priority": 42,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 25,
+        "maintainability_index": 84.45,
+        "parameter_count": 3,
+        "max_nesting_level": 8,
+        "branch_count": 3,
+        "halstead_volume": 625.76,
+        "halstead_difficulty": 6.47,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "8d435c6b-1a44-433b-82db-33b4dae9f88c",
+      "name": "retry",
+      "display_name": "retry",
+      "location": "src/utils/file-utils.ts:202",
+      "risk_factors": [
+        "deep_nesting:8"
+      ],
+      "risk_score": 75,
+      "fix_priority": 43,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 6,
+        "lines_of_code": 25,
+        "maintainability_index": 88.24,
+        "parameter_count": 2,
+        "max_nesting_level": 8,
+        "branch_count": 1,
+        "halstead_volume": 302.21,
+        "halstead_difficulty": 8.52,
+        "return_statement_count": 1,
+        "async_await_count": 2,
+        "try_catch_count": 1,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "d883d3bc-88c4-435d-937c-75e9e0710e7c",
+      "name": "displayGitStatus",
+      "display_name": "displayGitStatus",
+      "location": "src/cli/health.ts:507",
+      "risk_factors": [
+        "deep_nesting:8"
+      ],
+      "risk_score": 75,
+      "fix_priority": 44,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 11,
+        "lines_of_code": 28,
+        "maintainability_index": 81.21,
+        "parameter_count": 1,
+        "max_nesting_level": 8,
+        "branch_count": 3,
+        "halstead_volume": 686.96,
+        "halstead_difficulty": 8.1,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "088a96b4-ddbe-41df-be39-a827ae1c44ce",
+      "name": "displayTable",
+      "display_name": "displayTable",
+      "location": "src/cli/search.ts:169",
+      "risk_factors": [
+        "complexity:12",
+        "cognitive_complexity:16",
+        "size:46",
+        "deep_nesting:4",
+        "high_halstead_volume:1448"
+      ],
+      "risk_score": 72,
+      "fix_priority": 45,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 12,
+        "cognitive_complexity": 16,
+        "lines_of_code": 46,
+        "maintainability_index": 68.37,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 1448.42,
+        "halstead_difficulty": 6.67,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "cf4cdabf-36be-46f0-aa7e-672a3651ade4",
+      "name": "calculateOverallQualityTrend",
+      "display_name": "calculateOverallQualityTrend",
+      "location": "src/cli/history.ts:643",
+      "risk_factors": [
+        "complexity:11",
+        "deep_nesting:4",
+        "excessive_branching:10",
+        "multiple_returns:4"
+      ],
+      "risk_score": 71,
+      "fix_priority": 46,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 15,
+        "lines_of_code": 26,
+        "maintainability_index": 83.27,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 10,
+        "halstead_volume": 510.28,
+        "halstead_difficulty": 14.32,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "8293ac92-9bfc-4863-8bb4-dfdd1f2ba8db",
+      "name": "displayDetectionResults",
+      "display_name": "displayDetectionResults",
+      "location": "src/cli/refactor/detect.ts:248",
+      "risk_factors": [
+        "size:48",
+        "deep_nesting:4",
+        "excessive_branching:7",
+        "high_halstead_volume:1685"
+      ],
+      "risk_score": 69,
+      "fix_priority": 47,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 10,
+        "lines_of_code": 48,
+        "maintainability_index": 67.35,
+        "parameter_count": 3,
+        "max_nesting_level": 4,
+        "branch_count": 7,
+        "halstead_volume": 1685.04,
+        "halstead_difficulty": 14.09,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c7557715-ba53-4583-95b8-ba42adf72ee1",
+      "name": "createSnapshotForGitCommit",
+      "display_name": "createSnapshotForGitCommit",
+      "location": "src/cli/diff.ts:250",
+      "risk_factors": [
+        "deep_nesting:6",
+        "heavy_async:9"
+      ],
+      "risk_score": 69,
+      "fix_priority": 48,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 3,
+        "lines_of_code": 37,
+        "maintainability_index": 77.3,
+        "parameter_count": 4,
+        "max_nesting_level": 6,
+        "branch_count": 0,
+        "halstead_volume": 729.48,
+        "halstead_difficulty": 3.16,
+        "return_statement_count": 1,
+        "async_await_count": 9,
+        "try_catch_count": 2,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "1ed50797-1eee-43c0-a898-402dbb439f40",
+      "name": "searchCommand",
+      "display_name": "searchCommand",
+      "location": "src/cli/search.ts:91",
+      "risk_factors": [
+        "deep_nesting:7",
+        "heavy_async:5"
+      ],
+      "risk_score": 68,
+      "fix_priority": 49,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 10,
+        "lines_of_code": 37,
+        "maintainability_index": 78.05,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 578.62,
+        "halstead_difficulty": 4.22,
+        "return_statement_count": 1,
+        "async_await_count": 5,
+        "try_catch_count": 2,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "01162072-2212-4c8e-b4b2-86942caf90fe",
+      "name": "parseConsensusStrategy",
+      "display_name": "parseConsensusStrategy",
+      "location": "src/cli/similar.ts:201",
+      "risk_factors": [
+        "deep_nesting:7",
+        "multiple_returns:4"
+      ],
+      "risk_score": 66,
+      "fix_priority": 50,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 8,
+        "lines_of_code": 28,
+        "maintainability_index": 85.02,
+        "parameter_count": 1,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 330.34,
+        "halstead_difficulty": 4.24,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "59382187-5579-44a9-9bfe-2610e1370980",
+      "name": "listCommand",
+      "display_name": "listCommand",
+      "location": "src/cli/list.ts:7",
+      "risk_factors": [
+        "size:48",
+        "deep_nesting:7"
+      ],
+      "risk_score": 64,
+      "fix_priority": 51,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 11,
+        "lines_of_code": 48,
+        "maintainability_index": 72.16,
+        "parameter_count": 1,
+        "max_nesting_level": 7,
+        "branch_count": 3,
+        "halstead_volume": 763.86,
+        "halstead_difficulty": 4.89,
+        "return_statement_count": 1,
+        "async_await_count": 3,
+        "try_catch_count": 2,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "7b045f08-a469-4aac-8826-bc40577749f9",
+      "name": "generateHealthReport",
+      "display_name": "generateHealthReport",
+      "location": "src/cli/health.ts:710",
+      "risk_factors": [
+        "complexity:14",
+        "size:50",
+        "high_halstead_volume:1352"
+      ],
+      "risk_score": 63,
+      "fix_priority": 52,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 14,
+        "cognitive_complexity": 13,
+        "lines_of_code": 50,
+        "maintainability_index": 66.92,
+        "parameter_count": 5,
+        "max_nesting_level": 2,
+        "branch_count": 0,
+        "halstead_volume": 1351.51,
+        "halstead_difficulty": 3.77,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "2ba23121-2210-4f4c-bce5-ea4a9370997f",
+      "name": "buildLineageQuery",
+      "display_name": "buildLineageQuery",
+      "location": "src/cli/lineage.ts:142",
+      "risk_factors": [
+        "cognitive_complexity:17",
+        "deep_nesting:5",
+        "excessive_branching:6"
+      ],
+      "risk_score": 62,
+      "fix_priority": 53,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 17,
+        "lines_of_code": 23,
+        "maintainability_index": 86.62,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 6,
+        "halstead_volume": 410,
+        "halstead_difficulty": 10.37,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "352d3e60-d73e-4075-846a-d5f60b533cd0",
+      "name": "displayConfigurationDetails",
+      "display_name": "displayConfigurationDetails",
+      "location": "src/cli/health.ts:472",
+      "risk_factors": [
+        "deep_nesting:7",
+        "high_halstead_volume:1032"
+      ],
+      "risk_score": 62,
+      "fix_priority": 54,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 7,
+        "lines_of_code": 31,
+        "maintainability_index": 78.14,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 3,
+        "halstead_volume": 1031.83,
+        "halstead_difficulty": 6.92,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e46be367-6511-439b-b9f4-54e698984146",
+      "name": "checkConfigurationChanges",
+      "display_name": "checkConfigurationChanges",
+      "location": "src/cli/scan.ts:59",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 55,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 7,
+        "lines_of_code": 39,
+        "maintainability_index": 74.7,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 976.96,
+        "halstead_difficulty": 5.85,
+        "return_statement_count": 0,
+        "async_await_count": 3,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "124b160b-6208-42f7-a247-b1717593ff04",
+      "name": "buildGraph",
+      "display_name": "StructuralAnalyzer.buildGraph",
+      "location": "src/utils/structural-analyzer.ts:124",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 56,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 6,
+        "lines_of_code": 10,
+        "maintainability_index": 100,
+        "parameter_count": 1,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 152.93,
+        "halstead_difficulty": 1.53,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "7ffb0779-2170-46df-beb0-33d396e91e42",
+      "name": "calculateCyclomaticComplexity",
+      "display_name": "QualityCalculator.calculateCyclomaticComplexity",
+      "location": "src/metrics/quality-calculator.ts:130",
+      "risk_factors": [
+        "complexity:13",
+        "deep_nesting:5"
+      ],
+      "risk_score": 60,
+      "fix_priority": 57,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 13,
+        "cognitive_complexity": 6,
+        "lines_of_code": 26,
+        "maintainability_index": 83.55,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 442.2,
+        "halstead_difficulty": 6.48,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "711cd9c9-6f4a-4217-a773-e2e89b29df14",
+      "name": "generateOpportunitiesSection",
+      "display_name": "generateOpportunitiesSection",
+      "location": "src/cli/refactor/analyze.ts:172",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 58,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 7,
+        "lines_of_code": 20,
+        "maintainability_index": 88.85,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 515,
+        "halstead_difficulty": 4.57,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "d6575210-75f4-4826-8130-01fdc35d5c65",
+      "name": "displaySnapshotChanges",
+      "display_name": "displaySnapshotChanges",
+      "location": "src/cli/history.ts:243",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 59,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 13,
+        "lines_of_code": 27,
+        "maintainability_index": 83.17,
+        "parameter_count": 4,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 552.2,
+        "halstead_difficulty": 4.24,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "268dc86b-c596-46c4-a7f8-041b4ffd54eb",
+      "name": "select",
+      "display_name": "select",
+      "location": "src/utils/cli-utils.ts:246",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 60,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 7,
+        "lines_of_code": 31,
+        "maintainability_index": 81.31,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 560.8,
+        "halstead_difficulty": 8,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "6a6c6a20-ed8a-4cba-af9a-6d50566d8c11",
+      "name": "handleSuggestPresets",
+      "display_name": "handleSuggestPresets",
+      "location": "src/cli/config.ts:296",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 61,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 8,
+        "lines_of_code": 32,
+        "maintainability_index": 78.15,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 3,
+        "halstead_volume": 891.73,
+        "halstead_difficulty": 9.14,
+        "return_statement_count": 2,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "c0491308-8498-4f53-a01f-56216cd23616",
+      "name": "parseComparisonCondition",
+      "display_name": "parseComparisonCondition",
+      "location": "src/utils/file-utils.ts:327",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 62,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 6,
+        "lines_of_code": 19,
+        "maintainability_index": 92.59,
+        "parameter_count": 1,
+        "max_nesting_level": 7,
+        "branch_count": 2,
+        "halstead_volume": 307.6,
+        "halstead_difficulty": 4.57,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "3bfd6056-1ea3-4906-b7f6-59be4b17dc62",
+      "name": "analyzeBatch",
+      "display_name": "analyzeBatch",
+      "location": "src/cli/scan.ts:369",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 63,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 8,
+        "lines_of_code": 23,
+        "maintainability_index": 89.9,
+        "parameter_count": 3,
+        "max_nesting_level": 7,
+        "branch_count": 0,
+        "halstead_volume": 272.05,
+        "halstead_difficulty": 3.28,
+        "return_statement_count": 1,
+        "async_await_count": 2,
+        "try_catch_count": 1,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "c3cd8547-e394-4fce-8457-1ba63b5f21cd",
+      "name": "displayModifiedFunctions",
+      "display_name": "displayModifiedFunctions",
+      "location": "src/cli/diff.ts:484",
+      "risk_factors": [
+        "deep_nesting:7"
+      ],
+      "risk_score": 60,
+      "fix_priority": 64,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 9,
+        "lines_of_code": 22,
+        "maintainability_index": 85.98,
+        "parameter_count": 2,
+        "max_nesting_level": 7,
+        "branch_count": 3,
+        "halstead_volume": 581.39,
+        "halstead_difficulty": 6.27,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "1790e571-55a7-401d-bdf7-3d30a37aba7e",
+      "name": "createTrackShowCommand",
+      "display_name": "createTrackShowCommand",
+      "location": "src/cli/refactor/track.ts:76",
+      "risk_factors": [
+        "size:44",
+        "deep_nesting:6",
+        "heavy_async:6"
+      ],
+      "risk_score": 59,
+      "fix_priority": 65,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 44,
+        "maintainability_index": 73.34,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 871.82,
+        "halstead_difficulty": 2.48,
+        "return_statement_count": 1,
+        "async_await_count": 6,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "594d45b6-d7d7-4478-aa29-bc2f97d88839",
+      "name": "createTrackUpdateCommand",
+      "display_name": "createTrackUpdateCommand",
+      "location": "src/cli/refactor/track.ts:207",
+      "risk_factors": [
+        "size:44",
+        "deep_nesting:6",
+        "heavy_async:6"
+      ],
+      "risk_score": 59,
+      "fix_priority": 66,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 5,
+        "lines_of_code": 44,
+        "maintainability_index": 72.93,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 943.84,
+        "halstead_difficulty": 3.06,
+        "return_statement_count": 1,
+        "async_await_count": 6,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "085a9562-5658-4a38-8862-6cb0aa8b91ef",
+      "name": "mergeHybridResults",
+      "display_name": "mergeHybridResults",
+      "location": "src/cli/search.ts:645",
+      "risk_factors": [
+        "size:86",
+        "deep_nesting:4",
+        "high_halstead_volume:1412"
+      ],
+      "risk_score": 59,
+      "fix_priority": 67,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 86,
+        "maintainability_index": 59.98,
+        "parameter_count": 5,
+        "max_nesting_level": 4,
+        "branch_count": 3,
+        "halstead_volume": 1411.77,
+        "halstead_difficulty": 13.92,
+        "return_statement_count": 3,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "687c92eb-006b-409a-8a5f-6745736de285",
+      "name": "createTrackCancelCommand",
+      "display_name": "createTrackCancelCommand",
+      "location": "src/cli/refactor/track.ts:327",
+      "risk_factors": [
+        "deep_nesting:6",
+        "heavy_async:6"
+      ],
+      "risk_score": 57,
+      "fix_priority": 68,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 40,
+        "maintainability_index": 75.34,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 798,
+        "halstead_difficulty": 2.93,
+        "return_statement_count": 1,
+        "async_await_count": 6,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "19826308-2ec9-4574-a4e1-020e9d28be91",
+      "name": "historyCommand",
+      "display_name": "historyCommand",
+      "location": "src/cli/history.ts:22",
+      "risk_factors": [
+        "deep_nesting:6",
+        "heavy_async:5"
+      ],
+      "risk_score": 53,
+      "fix_priority": 69,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 10,
+        "lines_of_code": 34,
+        "maintainability_index": 79.72,
+        "parameter_count": 1,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 545.78,
+        "halstead_difficulty": 3.09,
+        "return_statement_count": 0,
+        "async_await_count": 5,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "54238f9c-b027-465a-bbca-ed3a619a786e",
+      "name": "createTrackListCommand",
+      "display_name": "createTrackListCommand",
+      "location": "src/cli/refactor/track.ts:27",
+      "risk_factors": [
+        "deep_nesting:6",
+        "heavy_async:5"
+      ],
+      "risk_score": 53,
+      "fix_priority": 70,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 35,
+        "maintainability_index": 78.28,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 687.98,
+        "halstead_difficulty": 2.22,
+        "return_statement_count": 1,
+        "async_await_count": 5,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e53291bb-1d47-4ed8-86ec-dff050ebf690",
+      "name": "runInteractiveUpdate",
+      "display_name": "runInteractiveUpdate",
+      "location": "src/cli/refactor/track.ts:382",
+      "risk_factors": [
+        "deep_nesting:6",
+        "high_halstead_volume:1064",
+        "heavy_async:4"
+      ],
+      "risk_score": 52,
+      "fix_priority": 71,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 14,
+        "lines_of_code": 36,
+        "maintainability_index": 74.86,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 1063.96,
+        "halstead_difficulty": 6.26,
+        "return_statement_count": 1,
+        "async_await_count": 4,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "64309167-e915-4c46-af87-ad774e3f9ead",
+      "name": "similarCommand",
+      "display_name": "similarCommand",
+      "location": "src/cli/similar.ts:40",
+      "risk_factors": [
+        "deep_nesting:6",
+        "heavy_async:4"
+      ],
+      "risk_score": 49,
+      "fix_priority": 72,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 9,
+        "lines_of_code": 36,
+        "maintainability_index": 78.11,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 1,
+        "halstead_volume": 651.15,
+        "halstead_difficulty": 3.15,
+        "return_statement_count": 0,
+        "async_await_count": 4,
+        "try_catch_count": 2,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "6f236c6a-1bc3-4dd9-b915-792fdbf86810",
+      "name": "applyAdvancedFiltersBatch",
+      "display_name": "applyAdvancedFiltersBatch",
+      "location": "src/cli/lineage.ts:179",
+      "risk_factors": [
+        "size:42",
+        "deep_nesting:5",
+        "multiple_returns:6"
+      ],
+      "risk_score": 49,
+      "fix_priority": 73,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 7,
+        "lines_of_code": 42,
+        "maintainability_index": 73.56,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 5,
+        "halstead_volume": 884,
+        "halstead_difficulty": 7.08,
+        "return_statement_count": 6,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e3b3483c-2d25-4166-b1a0-5781d81661e5",
+      "name": "getDetectorInfo",
+      "display_name": "getDetectorInfo",
+      "location": "src/cli/similar.ts:443",
+      "risk_factors": [
+        "size:54",
+        "multiple_returns:10"
+      ],
+      "risk_score": 49,
+      "fix_priority": 74,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 1,
+        "lines_of_code": 54,
+        "maintainability_index": 74.97,
+        "parameter_count": 1,
+        "max_nesting_level": 2,
+        "branch_count": 1,
+        "halstead_volume": 270,
+        "halstead_difficulty": 0,
+        "return_statement_count": 10,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "775c0983-81ed-4f5d-9ab1-b0036ede0007",
+      "name": "handleListFunctions",
+      "display_name": "handleListFunctions",
+      "location": "src/cli/describe.ts:580",
+      "risk_factors": [
+        "size:57",
+        "deep_nesting:4",
+        "high_halstead_volume:1225",
+        "multiple_returns:4",
+        "heavy_async:5"
+      ],
+      "risk_score": 49,
+      "fix_priority": 75,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants",
+        "unify_returns",
+        "extract_result_builder",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 11,
+        "lines_of_code": 57,
+        "maintainability_index": 66.46,
+        "parameter_count": 1,
+        "max_nesting_level": 4,
+        "branch_count": 5,
+        "halstead_volume": 1225.34,
+        "halstead_difficulty": 7.05,
+        "return_statement_count": 4,
+        "async_await_count": 5,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c9dce7ad-20b7-49c1-ba47-76eea8d7e7e0",
+      "name": "showFinalSummary",
+      "display_name": "showFinalSummary",
+      "location": "src/cli/refactor/interactive.ts:569",
+      "risk_factors": [
+        "deep_nesting:5",
+        "high_halstead_volume:1301"
+      ],
+      "risk_score": 45,
+      "fix_priority": 76,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 5,
+        "lines_of_code": 36,
+        "maintainability_index": 74.74,
+        "parameter_count": 3,
+        "max_nesting_level": 5,
+        "branch_count": 3,
+        "halstead_volume": 1300.85,
+        "halstead_difficulty": 5,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "7c4eaebd-2b9b-47d6-8102-1af69126f8ab",
+      "name": "showCommand",
+      "display_name": "showCommand",
+      "location": "src/cli/show.ts:9",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 77,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 10,
+        "lines_of_code": 34,
+        "maintainability_index": 80.89,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 435.99,
+        "halstead_difficulty": 2.86,
+        "return_statement_count": 0,
+        "async_await_count": 3,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "35172ec3-624a-422e-81bf-10051819159e",
+      "name": "findConnectedComponents",
+      "display_name": "findConnectedComponents",
+      "location": "src/utils/graph-algorithms.ts:10",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 78,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 5,
+        "lines_of_code": 20,
+        "maintainability_index": 92.43,
+        "parameter_count": 3,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 270.51,
+        "halstead_difficulty": 4.1,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "48eceb0b-f48a-4931-b972-0dcd2b3012c0",
+      "name": "confirm",
+      "display_name": "ConfirmationHandler.confirm",
+      "location": "src/use-cases/confirmation-handler.ts:25",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 79,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 14,
+        "lines_of_code": 22,
+        "maintainability_index": 88.4,
+        "parameter_count": 1,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 381.56,
+        "halstead_difficulty": 5.04,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "891ce903-cf9d-4eab-97c5-e7aef7ade22b",
+      "name": "processDirectoryEntries",
+      "display_name": "processDirectoryEntries",
+      "location": "src/utils/file-utils.ts:84",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 80,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 8,
+        "lines_of_code": 18,
+        "maintainability_index": 95.5,
+        "parameter_count": 4,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 199.04,
+        "halstead_difficulty": 2.4,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "07536425-eccc-410d-a9ff-dcda730d204a",
+      "name": "displayQualityOverview",
+      "display_name": "displayQualityOverview",
+      "location": "src/cli/health.ts:137",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 81,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 29,
+        "maintainability_index": 81.32,
+        "parameter_count": 3,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 719.43,
+        "halstead_difficulty": 5.13,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "02a3375c-f08e-4ed2-9f51-9cebc51a9fa8",
+      "name": "displayRiskDistribution",
+      "display_name": "displayRiskDistribution",
+      "location": "src/cli/health.ts:172",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 82,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 7,
+        "lines_of_code": 37,
+        "maintainability_index": 76.72,
+        "parameter_count": 3,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 780.7,
+        "halstead_difficulty": 8.32,
+        "return_statement_count": 1,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e1007f73-281d-4819-8dff-789b5c3fa8de",
+      "name": "scaleNumericThresholds",
+      "display_name": "RiskAssessor.scaleNumericThresholds",
+      "location": "src/core/risk-assessor.ts:224",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 83,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "lines_of_code": 13,
+        "maintainability_index": 100,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 2,
+        "halstead_volume": 184.48,
+        "halstead_difficulty": 6,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "d250b6c4-f848-47f4-b547-b15fda68862c",
+      "name": "displayTopOpportunities",
+      "display_name": "displayTopOpportunities",
+      "location": "src/cli/refactor/analyze.ts:276",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 84,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 8,
+        "lines_of_code": 19,
+        "maintainability_index": 87.59,
+        "parameter_count": 2,
+        "max_nesting_level": 6,
+        "branch_count": 3,
+        "halstead_volume": 737.22,
+        "halstead_difficulty": 9.35,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "8efa0386-2387-4fca-8ede-d54d2991ddde",
+      "name": "listSessions",
+      "display_name": "SessionManager.listSessions",
+      "location": "src/refactoring/session-manager-simple.ts:418",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 85,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 6,
+        "lines_of_code": 17,
+        "maintainability_index": 98.64,
+        "parameter_count": 0,
+        "max_nesting_level": 6,
+        "branch_count": 1,
+        "halstead_volume": 135.93,
+        "halstead_difficulty": 5.08,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "f2d792f2-4e7a-4166-9c7c-25507bdc57f2",
+      "name": "displayDescriptionSection",
+      "display_name": "displayDescriptionSection",
+      "location": "src/cli/show.ts:827",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 86,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 13,
+        "lines_of_code": 33,
+        "maintainability_index": 80.45,
+        "parameter_count": 5,
+        "max_nesting_level": 6,
+        "branch_count": 5,
+        "halstead_volume": 456.34,
+        "halstead_difficulty": 7,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "bec7020b-7340-4d8d-954c-6618807752af",
+      "name": "saveLineageCandidates",
+      "display_name": "saveLineageCandidates",
+      "location": "src/cli/diff.ts:958",
+      "risk_factors": [
+        "deep_nesting:6"
+      ],
+      "risk_score": 45,
+      "fix_priority": 87,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 5,
+        "lines_of_code": 36,
+        "maintainability_index": 78.57,
+        "parameter_count": 3,
+        "max_nesting_level": 6,
+        "branch_count": 0,
+        "halstead_volume": 595.6,
+        "halstead_difficulty": 4.08,
+        "return_statement_count": 0,
+        "async_await_count": 2,
+        "try_catch_count": 2,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "7083b8d8-d284-48ba-b25a-a8717c7f1feb",
+      "name": "displaySummary",
+      "display_name": "displaySummary",
+      "location": "src/cli/diff.ts:335",
+      "risk_factors": [
+        "complexity:11",
+        "cognitive_complexity:16",
+        "high_halstead_volume:1405"
+      ],
+      "risk_score": 42,
+      "fix_priority": 88,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 16,
+        "lines_of_code": 31,
+        "maintainability_index": 75.15,
+        "parameter_count": 1,
+        "max_nesting_level": 3,
+        "branch_count": 2,
+        "halstead_volume": 1404.87,
+        "halstead_difficulty": 7.4,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "571a2d1f-341e-47aa-af51-31f4df9760e3",
+      "name": "configCommand",
+      "display_name": "configCommand",
+      "location": "src/cli/config.ts:14",
+      "risk_factors": [
+        "complexity:11",
+        "size:42",
+        "deep_nesting:4",
+        "heavy_async:7"
+      ],
+      "risk_score": 42,
+      "fix_priority": 89,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "extract_methods",
+        "reduce_branching",
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 11,
+        "cognitive_complexity": 6,
+        "lines_of_code": 42,
+        "maintainability_index": 75.33,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 1,
+        "halstead_volume": 527.22,
+        "halstead_difficulty": 2.61,
+        "return_statement_count": 0,
+        "async_await_count": 7,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "3174f053-02d1-4c2a-b66e-d2435af05d86",
+      "name": "calculateTFIDF",
+      "display_name": "calculateTFIDF",
+      "location": "src/services/local-similarity-service.ts:113",
+      "risk_factors": [
+        "cognitive_complexity:16",
+        "deep_nesting:5"
+      ],
+      "risk_score": 42,
+      "fix_priority": 90,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "simplify_logic",
+        "reduce_cognitive_load",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 10,
+        "cognitive_complexity": 16,
+        "lines_of_code": 27,
+        "maintainability_index": 82.06,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 598.26,
+        "halstead_difficulty": 19.76,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 3
+      }
+    },
+    {
+      "id": "24aeb86d-e61f-44c2-9fbf-da9c713cb297",
+      "name": "analyzeTrends",
+      "display_name": "analyzeTrends",
+      "location": "src/cli/health.ts:329",
+      "risk_factors": [
+        "size:50",
+        "deep_nesting:4",
+        "high_halstead_volume:1381"
+      ],
+      "risk_score": 39,
+      "fix_priority": 91,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 11,
+        "lines_of_code": 50,
+        "maintainability_index": 67.96,
+        "parameter_count": 3,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 1380.79,
+        "halstead_difficulty": 14.96,
+        "return_statement_count": 2,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "c6c95467-88fa-427a-9437-8204de586c76",
+      "name": "generateNextActions",
+      "display_name": "generateNextActions",
+      "location": "src/cli/health.ts:987",
+      "risk_factors": [
+        "size:58",
+        "deep_nesting:5"
+      ],
+      "risk_score": 39,
+      "fix_priority": 92,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 7,
+        "lines_of_code": 58,
+        "maintainability_index": 68.9,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 827.63,
+        "halstead_difficulty": 6.49,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "17e09e8d-b306-478b-95ba-037085faf1a8",
+      "name": "displayLineageList",
+      "display_name": "displayLineageList",
+      "location": "src/cli/lineage.ts:279",
+      "risk_factors": [
+        "size:62",
+        "high_halstead_volume:1547"
+      ],
+      "risk_score": 38,
+      "fix_priority": 93,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 3,
+        "lines_of_code": 62,
+        "maintainability_index": 65.03,
+        "parameter_count": 3,
+        "max_nesting_level": 3,
+        "branch_count": 1,
+        "halstead_volume": 1546.87,
+        "halstead_difficulty": 7.5,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "12fafeaa-e4c8-422f-8ce1-02034571f8d8",
+      "name": "lineageListCommand",
+      "display_name": "lineageListCommand",
+      "location": "src/cli/lineage.ts:27",
+      "risk_factors": [
+        "deep_nesting:5",
+        "heavy_async:5"
+      ],
+      "risk_score": 38,
+      "fix_priority": 94,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "extract_async_helpers",
+        "simplify_async_flow"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 5,
+        "lines_of_code": 33,
+        "maintainability_index": 79.57,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 644.33,
+        "halstead_difficulty": 3.72,
+        "return_statement_count": 0,
+        "async_await_count": 5,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "29eb3663-9766-4932-b95a-f790896358bb",
+      "name": "displaySessionsOverview",
+      "display_name": "displaySessionsOverview",
+      "location": "src/cli/refactor/status.ts:326",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1459"
+      ],
+      "risk_score": 38,
+      "fix_priority": 95,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 9,
+        "lines_of_code": 37,
+        "maintainability_index": 72.78,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 1458.78,
+        "halstead_difficulty": 12.48,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "258c69e8-16c1-45da-8e32-c21893f442ed",
+      "name": "displaySourceSection",
+      "display_name": "displaySourceSection",
+      "location": "src/cli/show.ts:670",
+      "risk_factors": [
+        "deep_nesting:5",
+        "high_halstead_volume:1128"
+      ],
+      "risk_score": 36,
+      "fix_priority": 96,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 12,
+        "lines_of_code": 37,
+        "maintainability_index": 73.89,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 4,
+        "halstead_volume": 1128.16,
+        "halstead_difficulty": 6.92,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "dab59469-e2fd-4d89-b0ca-b32e72ea894f",
+      "name": "displayThresholdExplanation",
+      "display_name": "displayThresholdExplanation",
+      "location": "src/cli/explain.ts:157",
+      "risk_factors": [
+        "size:45",
+        "deep_nesting:4",
+        "high_halstead_volume:1356"
+      ],
+      "risk_score": 35,
+      "fix_priority": 97,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 2,
+        "cognitive_complexity": 1,
+        "lines_of_code": 45,
+        "maintainability_index": 71.37,
+        "parameter_count": 0,
+        "max_nesting_level": 4,
+        "branch_count": 0,
+        "halstead_volume": 1356.49,
+        "halstead_difficulty": 3.28,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "d2240c06-b710-4dd2-b5fe-5eb792d5ce60",
+      "name": "createMetricMappings",
+      "display_name": "ThresholdEvaluator.createMetricMappings",
+      "location": "src/utils/threshold-evaluator.ts:52",
+      "risk_factors": [
+        "size:110"
+      ],
+      "risk_score": 35,
+      "fix_priority": 98,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 1,
+        "cognitive_complexity": 1,
+        "lines_of_code": 110,
+        "maintainability_index": null,
+        "parameter_count": 2,
+        "max_nesting_level": 1,
+        "branch_count": 0,
+        "halstead_volume": 0,
+        "halstead_difficulty": 0,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "b9fdf9da-e481-4cd0-bff1-044fcd755101",
+      "name": "displayLineageDetails",
+      "display_name": "displayLineageDetails",
+      "location": "src/cli/lineage.ts:351",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1365"
+      ],
+      "risk_score": 33,
+      "fix_priority": 99,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 6,
+        "lines_of_code": 35,
+        "maintainability_index": 74.49,
+        "parameter_count": 4,
+        "max_nesting_level": 4,
+        "branch_count": 4,
+        "halstead_volume": 1364.91,
+        "halstead_difficulty": 11.28,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "e3c863f3-6d49-48b6-8bb2-7fd126971379",
+      "name": "handleEmptyResults",
+      "display_name": "handleEmptyResults",
+      "location": "src/cli/search.ts:41",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 100,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 10,
+        "lines_of_code": 30,
+        "maintainability_index": 83.35,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 401.29,
+        "halstead_difficulty": 3.85,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "d219139c-1e9b-41fd-adba-d98ef87611a8",
+      "name": "runSpecificDetectors",
+      "display_name": "SimilarityManager.runSpecificDetectors",
+      "location": "src/similarity/similarity-manager.ts:55",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 101,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 2,
+        "lines_of_code": 13,
+        "maintainability_index": 100,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 99.91,
+        "halstead_difficulty": 1.64,
+        "return_statement_count": 3,
+        "async_await_count": 2,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "c7187538-58e8-4087-8c3e-a5cfad7c6db0",
+      "name": "processWithTransaction",
+      "display_name": "TransactionalBatchProcessor.processWithTransaction",
+      "location": "src/utils/batch-processor.ts:118",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 102,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 2,
+        "lines_of_code": 13,
+        "maintainability_index": 100,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 150.12,
+        "halstead_difficulty": 2.6,
+        "return_statement_count": 0,
+        "async_await_count": 3,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "7b2215f5-9a4a-4d26-8116-aacde297cbc7",
+      "name": "getRefactoringOpportunities",
+      "display_name": "getRefactoringOpportunities",
+      "location": "src/cli/refactor/plan.ts:154",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 103,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 5,
+        "lines_of_code": 30,
+        "maintainability_index": 83.34,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 4,
+        "halstead_volume": 420,
+        "halstead_difficulty": 4.43,
+        "return_statement_count": 1,
+        "async_await_count": 3,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "1f781644-a868-43fa-b763-145a7782194e",
+      "name": "partition",
+      "display_name": "partition",
+      "location": "src/services/ann-index.ts:156",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 104,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "lines_of_code": 17,
+        "maintainability_index": 95.61,
+        "parameter_count": 4,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 254.37,
+        "halstead_difficulty": 11,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "e6878b5a-54a1-4251-adfd-c8b67530286f",
+      "name": "handleSourceGuardValidation",
+      "display_name": "handleSourceGuardValidation",
+      "location": "src/cli/describe.ts:324",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 105,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 5,
+        "lines_of_code": 28,
+        "maintainability_index": 83.32,
+        "parameter_count": 5,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 546.99,
+        "halstead_difficulty": 4,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "316c0d85-9a2b-4b97-8a5e-7c384079a234",
+      "name": "generateKeyInsights",
+      "display_name": "generateKeyInsights",
+      "location": "src/cli/health.ts:393",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 106,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 11,
+        "lines_of_code": 20,
+        "maintainability_index": 89.88,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 3,
+        "halstead_volume": 403.82,
+        "halstead_difficulty": 9,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "4028e44b-2677-4e84-955b-78cbbb225e97",
+      "name": "reviewAllDraftLineages",
+      "display_name": "reviewAllDraftLineages",
+      "location": "src/cli/lineage.ts:456",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 107,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 8,
+        "lines_of_code": 30,
+        "maintainability_index": 81.54,
+        "parameter_count": 3,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 543.69,
+        "halstead_difficulty": 4.44,
+        "return_statement_count": 1,
+        "async_await_count": 2,
+        "try_catch_count": 1,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "e049c339-16ac-4d10-b1d8-6043fb025577",
+      "name": "displayCompactFunctionHistory",
+      "display_name": "displayCompactFunctionHistory",
+      "location": "src/cli/history.ts:508",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 108,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 14,
+        "lines_of_code": 21,
+        "maintainability_index": 86.02,
+        "parameter_count": 3,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 668.15,
+        "halstead_difficulty": 4.38,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "7e62e68e-0fe7-47a6-b1fb-9a0f059633de",
+      "name": "processRemovedFunctions",
+      "display_name": "processRemovedFunctions",
+      "location": "src/cli/diff.ts:616",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 109,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 28,
+        "maintainability_index": 86.8,
+        "parameter_count": 6,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 279.69,
+        "halstead_difficulty": 2.44,
+        "return_statement_count": 2,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "5636fc2a-f08c-43cb-8d92-1087068253c0",
+      "name": "displayQualityAssessment",
+      "display_name": "displayQualityAssessment",
+      "location": "src/cli/scan.ts:621",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 110,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 13,
+        "lines_of_code": 32,
+        "maintainability_index": 77.48,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 3,
+        "halstead_volume": 928.12,
+        "halstead_difficulty": 6.5,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "4b37f2db-1683-45fe-a5d5-45f4f404042b",
+      "name": "assessHighRiskFunctions",
+      "display_name": "assessHighRiskFunctions",
+      "location": "src/cli/health.ts:671",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 111,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "lines_of_code": 32,
+        "maintainability_index": 83.26,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 1,
+        "halstead_volume": 381.47,
+        "halstead_difficulty": 4.15,
+        "return_statement_count": 2,
+        "async_await_count": 2,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "3ffebcc1-e02e-4660-98e7-f51a9eb0fcf9",
+      "name": "processSignificantModifications",
+      "display_name": "processSignificantModifications",
+      "location": "src/cli/diff.ts:701",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 112,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 32,
+        "maintainability_index": 81.05,
+        "parameter_count": 5,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 557.88,
+        "halstead_difficulty": 4.39,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "27f764d9-df44-4636-8264-14edd66f2a72",
+      "name": "processFunctionSplits",
+      "display_name": "processFunctionSplits",
+      "location": "src/cli/diff.ts:740",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 113,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 8,
+        "lines_of_code": 34,
+        "maintainability_index": 79.96,
+        "parameter_count": 6,
+        "max_nesting_level": 5,
+        "branch_count": 2,
+        "halstead_volume": 520.92,
+        "halstead_difficulty": 4.47,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "2c669be8-7412-4742-b4ff-ef99278c3798",
+      "name": "validateLineageOptions",
+      "display_name": "validateLineageOptions",
+      "location": "src/cli/diff.ts:786",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 114,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 10,
+        "lines_of_code": 19,
+        "maintainability_index": 88.83,
+        "parameter_count": 2,
+        "max_nesting_level": 5,
+        "branch_count": 3,
+        "halstead_volume": 531.36,
+        "halstead_difficulty": 6.68,
+        "return_statement_count": 3,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "742fe9cf-7123-4df8-a3d8-9ee3d2c2b0fe",
+      "name": "bulkUpdateQualityMetrics",
+      "display_name": "PGLiteStorageAdapter.bulkUpdateQualityMetrics",
+      "location": "src/storage/pglite-adapter.ts:2271",
+      "risk_factors": [
+        "deep_nesting:5"
+      ],
+      "risk_score": 30,
+      "fix_priority": 115,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 12,
+        "lines_of_code": 38,
+        "maintainability_index": 80.06,
+        "parameter_count": 1,
+        "max_nesting_level": 5,
+        "branch_count": 0,
+        "halstead_volume": 361.66,
+        "halstead_difficulty": 2.57,
+        "return_statement_count": 0,
+        "async_await_count": 1,
+        "try_catch_count": 0,
+        "loop_count": 2
+      }
+    },
+    {
+      "id": "59805f9a-1264-4530-a2d2-e65adf9cb3b8",
+      "name": "displaySummary",
+      "display_name": "displaySummary",
+      "location": "src/cli/similar.ts:395",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1286"
+      ],
+      "risk_score": 29,
+      "fix_priority": 116,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 6,
+        "lines_of_code": 39,
+        "maintainability_index": 73.04,
+        "parameter_count": 3,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 1286.11,
+        "halstead_difficulty": 14.34,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "f9348207-6463-441b-9ccf-97455484ca6e",
+      "name": "displayOpportunitiesOverview",
+      "display_name": "displayOpportunitiesOverview",
+      "location": "src/cli/refactor/status.ts:280",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1230"
+      ],
+      "risk_score": 27,
+      "fix_priority": 117,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 5,
+        "cognitive_complexity": 4,
+        "lines_of_code": 34,
+        "maintainability_index": 75.73,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 1230,
+        "halstead_difficulty": 10.15,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "8e5f99e3-5be1-4c9a-8e54-75bbb7dfa87a",
+      "name": "displayRecommendations",
+      "display_name": "displayRecommendations",
+      "location": "src/cli/refactor/status.ts:408",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1197"
+      ],
+      "risk_score": 25,
+      "fix_priority": 118,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 6,
+        "cognitive_complexity": 6,
+        "lines_of_code": 37,
+        "maintainability_index": 74.27,
+        "parameter_count": 1,
+        "max_nesting_level": 4,
+        "branch_count": 5,
+        "halstead_volume": 1197.09,
+        "halstead_difficulty": 6.54,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "45f48d96-f6da-49b3-afb6-afa9365d9eb1",
+      "name": "displayResults",
+      "display_name": "displayResults",
+      "location": "src/cli/similar.ts:351",
+      "risk_factors": [
+        "deep_nesting:4",
+        "high_halstead_volume:1170"
+      ],
+      "risk_score": 23,
+      "fix_priority": 119,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "reduce_vocabulary",
+        "extract_constants"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 7,
+        "lines_of_code": 34,
+        "maintainability_index": 75.3,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 3,
+        "halstead_volume": 1169.56,
+        "halstead_difficulty": 7.86,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "caf6c103-33d9-4929-b579-cedd2f4276bb",
+      "name": "displayQualityWarnings",
+      "display_name": "displayQualityWarnings",
+      "location": "src/cli/show.ts:932",
+      "risk_factors": [
+        "deep_nesting:4",
+        "excessive_branching:6"
+      ],
+      "risk_score": 23,
+      "fix_priority": 120,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "consolidate_branches",
+        "extract_switch_logic"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 6,
+        "lines_of_code": 35,
+        "maintainability_index": 76.86,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 6,
+        "halstead_volume": 827.28,
+        "halstead_difficulty": 6.48,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "03278cc0-c2c4-489b-94cb-9eebb6d2eba5",
+      "name": "formatMetricValue",
+      "display_name": "formatMetricValue",
+      "location": "src/cli/show.ts:555",
+      "risk_factors": [
+        "deep_nesting:4",
+        "multiple_returns:4"
+      ],
+      "risk_score": 21,
+      "fix_priority": 121,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns",
+        "unify_returns",
+        "extract_result_builder"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 8,
+        "cognitive_complexity": 4,
+        "lines_of_code": 29,
+        "maintainability_index": 83.48,
+        "parameter_count": 3,
+        "max_nesting_level": 4,
+        "branch_count": 3,
+        "halstead_volume": 398.35,
+        "halstead_difficulty": 5.42,
+        "return_statement_count": 4,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "032f4753-8697-49c6-a7a2-2af4f5e17036",
+      "name": "extractMethodInfo",
+      "display_name": "TypeScriptAnalyzer.extractMethodInfo",
+      "location": "src/analyzers/typescript-analyzer.ts:308",
+      "risk_factors": [
+        "size:74"
+      ],
+      "risk_score": 17,
+      "fix_priority": 122,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 1,
+        "cognitive_complexity": 1,
+        "lines_of_code": 74,
+        "maintainability_index": null,
+        "parameter_count": 5,
+        "max_nesting_level": 1,
+        "branch_count": 0,
+        "halstead_volume": 0,
+        "halstead_difficulty": 0,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "1a4189b4-8d5b-4ab1-be09-3e01cda3b61d",
+      "name": "createEvaluateCommand",
+      "display_name": "createEvaluateCommand",
+      "location": "src/cli/evaluate-naming.ts:9",
+      "risk_factors": [
+        "size:41",
+        "deep_nesting:4"
+      ],
+      "risk_score": 16,
+      "fix_priority": 123,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 2,
+        "cognitive_complexity": 1,
+        "lines_of_code": 41,
+        "maintainability_index": 78.94,
+        "parameter_count": 0,
+        "max_nesting_level": 4,
+        "branch_count": 1,
+        "halstead_volume": 422.83,
+        "halstead_difficulty": 1.38,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "f8e6b13b-c6be-436b-bc23-2eb8292fa0e8",
+      "name": "processFileBatch",
+      "display_name": "ParallelFileProcessor.processFileBatch",
+      "location": "src/utils/parallel-processor.ts:108",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 124,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 2,
+        "lines_of_code": 36,
+        "maintainability_index": 79.77,
+        "parameter_count": 3,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 516.23,
+        "halstead_difficulty": 3.72,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "bac1013b-ee26-43bb-a40f-2c97e3e80520",
+      "name": "displaySearchResults",
+      "display_name": "displaySearchResults",
+      "location": "src/cli/search.ts:133",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 125,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 17,
+        "maintainability_index": 96.17,
+        "parameter_count": 4,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 218.51,
+        "halstead_difficulty": 3.89,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "34d18807-6e2f-4ec0-a851-856c00f0f215",
+      "name": "quickselect",
+      "display_name": "quickselect",
+      "location": "src/services/ann-index.ts:136",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 126,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 4,
+        "lines_of_code": 17,
+        "maintainability_index": 96.95,
+        "parameter_count": 5,
+        "max_nesting_level": 4,
+        "branch_count": 3,
+        "halstead_volume": 188.02,
+        "halstead_difficulty": 7.92,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "77e83a01-bae9-4cf5-a517-38c739ff0356",
+      "name": "outputFormatted",
+      "display_name": "outputFormatted",
+      "location": "src/cli/list.ts:168",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 127,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 9,
+        "cognitive_complexity": 15,
+        "lines_of_code": 37,
+        "maintainability_index": 74.69,
+        "parameter_count": 4,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 966.2,
+        "halstead_difficulty": 10.9,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 1
+      }
+    },
+    {
+      "id": "53148e40-84fb-4a67-a69f-fd84ce7f830a",
+      "name": "reviewSingleLineage",
+      "display_name": "reviewSingleLineage",
+      "location": "src/cli/lineage.ts:419",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 128,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 7,
+        "lines_of_code": 30,
+        "maintainability_index": 82.01,
+        "parameter_count": 4,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 496.83,
+        "halstead_difficulty": 6.09,
+        "return_statement_count": 2,
+        "async_await_count": 2,
+        "try_catch_count": 1,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "7a390507-f8bb-4c1f-9c80-5d8c14465f04",
+      "name": "displayFullTrendAnalysis",
+      "display_name": "displayFullTrendAnalysis",
+      "location": "src/cli/health.ts:436",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 129,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 4,
+        "cognitive_complexity": 3,
+        "lines_of_code": 32,
+        "maintainability_index": 78.74,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 3,
+        "halstead_volume": 870,
+        "halstead_difficulty": 5.12,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "bd8246a8-f4e8-4f1f-8677-d35c80a5d56e",
+      "name": "convertResultsToFunctions",
+      "display_name": "convertResultsToFunctions",
+      "location": "src/cli/search.ts:485",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 130,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config",
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "lines_of_code": 28,
+        "maintainability_index": 85.3,
+        "parameter_count": 5,
+        "max_nesting_level": 4,
+        "branch_count": 1,
+        "halstead_volume": 390,
+        "halstead_difficulty": 6.58,
+        "return_statement_count": 3,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "8b7d02b7-5eeb-40e4-823e-657586bada81",
+      "name": "displayFunctionTable",
+      "display_name": "displayFunctionTable",
+      "location": "src/cli/describe.ts:650",
+      "risk_factors": [
+        "deep_nesting:4"
+      ],
+      "risk_score": 15,
+      "fix_priority": 131,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "flatten_structure",
+        "use_early_returns"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 7,
+        "cognitive_complexity": 7,
+        "lines_of_code": 31,
+        "maintainability_index": 78.2,
+        "parameter_count": 2,
+        "max_nesting_level": 4,
+        "branch_count": 2,
+        "halstead_volume": 933.48,
+        "halstead_difficulty": 8.02,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "be7813e8-74d0-4681-8e91-d30b66f7288b",
+      "name": "extractConstructorInfo",
+      "display_name": "TypeScriptAnalyzer.extractConstructorInfo",
+      "location": "src/analyzers/typescript-analyzer.ts:398",
+      "risk_factors": [
+        "size:69"
+      ],
+      "risk_score": 15,
+      "fix_priority": 132,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 1,
+        "cognitive_complexity": 1,
+        "lines_of_code": 69,
+        "maintainability_index": null,
+        "parameter_count": 5,
+        "max_nesting_level": 1,
+        "branch_count": 0,
+        "halstead_volume": 0,
+        "halstead_difficulty": 0,
+        "return_statement_count": 1,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "aa429a87-de7d-400d-994e-05c6ed6d4c00",
+      "name": "extractFunctionInfo",
+      "display_name": "TypeScriptAnalyzer.extractFunctionInfo",
+      "location": "src/analyzers/typescript-analyzer.ts:232",
+      "risk_factors": [
+        "size:63"
+      ],
+      "risk_score": 12,
+      "fix_priority": 133,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "split_function",
+        "extract_helpers",
+        "parameterize_object",
+        "extract_config"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 1,
+        "cognitive_complexity": 1,
+        "lines_of_code": 63,
+        "maintainability_index": null,
+        "parameter_count": 5,
+        "max_nesting_level": 1,
+        "branch_count": 0,
+        "halstead_volume": 0,
+        "halstead_difficulty": 0,
+        "return_statement_count": 2,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "36fdd86f-0a1c-4404-a5ed-99d76abe1b53",
+      "name": "outputIntermediateResults",
+      "display_name": "outputIntermediateResults",
+      "location": "src/cli/search.ts:464",
+      "risk_factors": [],
+      "risk_score": 0,
+      "fix_priority": 134,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 3,
+        "cognitive_complexity": 3,
+        "lines_of_code": 20,
+        "maintainability_index": 94.74,
+        "parameter_count": 6,
+        "max_nesting_level": 3,
+        "branch_count": 1,
+        "halstead_volume": 181.11,
+        "halstead_difficulty": 1.35,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    },
+    {
+      "id": "ad311720-06ab-477f-8279-fe3f892acb59",
+      "name": "saveANNIndex",
+      "display_name": "PGLiteStorageAdapter.saveANNIndex",
+      "location": "src/storage/pglite-adapter.ts:1412",
+      "risk_factors": [],
+      "risk_score": 0,
+      "fix_priority": 135,
+      "estimated_effort": "15-30min",
+      "suggested_actions": [
+        "parameterize_object",
+        "extract_config"
+      ],
+      "metrics": {
+        "cyclomatic_complexity": 2,
+        "cognitive_complexity": 1,
+        "lines_of_code": 5,
+        "maintainability_index": 100,
+        "parameter_count": 8,
+        "max_nesting_level": 1,
+        "branch_count": 0,
+        "halstead_volume": 36,
+        "halstead_difficulty": 2.7,
+        "return_statement_count": 0,
+        "async_await_count": 0,
+        "try_catch_count": 0,
+        "loop_count": 0
+      }
+    }
+  ],
+  "improvement_roadmap": [
+    {
+      "step": 1,
+      "function_id": "3199e352-7e2b-40dd-ad08-c8ce3315bc55",
+      "action": "split_complex_function",
+      "estimated_time": "90min",
+      "impact": "high",
+      "difficulty": "hard"
+    },
+    {
+      "step": 2,
+      "function_id": "2aa3b5bf-e070-44f8-b26f-9fb369da7646",
+      "action": "split_complex_function",
+      "estimated_time": "45min",
+      "impact": "medium",
+      "difficulty": "medium"
+    },
+    {
+      "step": 3,
+      "function_id": "31cec7fb-8d2a-4f5d-9a9f-3db7960c5e04",
+      "action": "refactor_simplify",
+      "estimated_time": "45min",
+      "impact": "low",
+      "difficulty": "easy"
+    },
+    {
+      "step": 4,
+      "function_id": "da08b7dd-8dc9-4747-b2cb-8afe3308029c",
+      "action": "split_complex_function",
+      "estimated_time": "45min",
+      "impact": "medium",
+      "difficulty": "medium"
+    },
+    {
+      "step": 5,
+      "function_id": "1c6af5e3-5765-4fb5-8444-ebc7983467f2",
+      "action": "split_complex_function",
+      "estimated_time": "45min",
+      "impact": "medium",
+      "difficulty": "medium"
+    }
+  ],
+  "next_actions": [
+    {
+      "action_type": "simplify",
+      "function_id": "3199e352-7e2b-40dd-ad08-c8ce3315bc55",
+      "description": "Reduce cyclomatic complexity through refactoring",
+      "code_location": "src/cli/health.ts:790-885",
+      "specific_steps": [
+        "Replace nested if-else with early returns",
+        "Extract complex conditions into named functions",
+        "Use strategy pattern for multiple similar branches",
+        "Simplify boolean expressions"
+      ]
+    },
+    {
+      "action_type": "simplify",
+      "function_id": "2aa3b5bf-e070-44f8-b26f-9fb369da7646",
+      "description": "Reduce cyclomatic complexity through refactoring",
+      "code_location": "src/cli/config.ts:181-255",
+      "specific_steps": [
+        "Replace nested if-else with early returns",
+        "Extract complex conditions into named functions",
+        "Use strategy pattern for multiple similar branches",
+        "Simplify boolean expressions"
+      ]
+    },
+    {
+      "action_type": "refactor",
+      "function_id": "31cec7fb-8d2a-4f5d-9a9f-3db7960c5e04",
+      "description": "General refactoring to improve maintainability",
+      "code_location": "src/cli/explain.ts:13-57",
+      "specific_steps": [
+        "Extract magic numbers into constants",
+        "Improve variable naming",
+        "Add appropriate comments",
+        "Reduce parameter count if needed"
+      ]
+    }
+  ]
+}
