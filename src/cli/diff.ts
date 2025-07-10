@@ -513,6 +513,11 @@ function displayModifiedFunctions(functions: FunctionChange[], options: DiffComm
 function displayChange(change: ChangeDetail, verbose: boolean = false): void {
   const { field, oldValue, newValue, impact } = change;
 
+  // Skip location fields as they are not quality metrics
+  if (field === 'startLine' || field === 'endLine') {
+    return;
+  }
+
   const impactIcon = {
     low: '🟢',
     medium: '🟡',
