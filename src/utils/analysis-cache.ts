@@ -28,14 +28,16 @@ export class AnalysisCache {
   private persistentCachePath: string;
   private stats = {
     hits: 0,
-    misses: 0
+    misses: 0,
   };
 
-  constructor(options: {
-    maxMemoryEntries?: number;
-    maxMemorySize?: number; // in MB
-    persistentCachePath?: string;
-  } = {}) {
+  constructor(
+    options: {
+      maxMemoryEntries?: number;
+      maxMemorySize?: number; // in MB
+      persistentCachePath?: string;
+    } = {}
+  ) {
     // Configure in-memory cache
     this.memoryCache = new LRUCache({
       max: options.maxMemoryEntries || 1000,
@@ -44,16 +46,18 @@ export class AnalysisCache {
         // Estimate size: JSON stringify the functions and calculate size
         return JSON.stringify(entry.functions).length * 2; // *2 for UTF-16
       },
-      ttl: 1000 * 60 * 60 * 24 // 24 hours TTL
+      ttl: 1000 * 60 * 60 * 24, // 24 hours TTL
     });
 
     // Setup persistent cache
-    this.persistentCachePath = options.persistentCachePath || 
-      path.join(process.cwd(), '.funcqc-cache');
-    
+    this.persistentCachePath =
+      options.persistentCachePath || path.join(process.cwd(), '.funcqc-cache');
+
     // Initialize persistent cache asynchronously
     this.initializePersistentCache().catch(error => {
-      console.warn(`Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`
+      );
     });
   }
 
@@ -62,17 +66,17 @@ export class AnalysisCache {
    */
   async get(filePath: string): Promise<FunctionInfo[] | null> {
     const cacheKey = this.generateCacheKey(filePath);
-    
+
     // Try memory cache first
     const memoryEntry = this.memoryCache.get(cacheKey);
-    if (memoryEntry && await this.isValidCacheEntry(filePath, memoryEntry)) {
+    if (memoryEntry && (await this.isValidCacheEntry(filePath, memoryEntry))) {
       this.stats.hits++;
       return memoryEntry.functions;
     }
 
     // Try persistent cache
     const persistentEntry = await this.loadFromPersistentCache(cacheKey);
-    if (persistentEntry && await this.isValidCacheEntry(filePath, persistentEntry)) {
+    if (persistentEntry && (await this.isValidCacheEntry(filePath, persistentEntry))) {
       // Promote to memory cache
       this.memoryCache.set(cacheKey, persistentEntry);
       this.stats.hits++;
@@ -89,12 +93,12 @@ export class AnalysisCache {
   async set(filePath: string, functions: FunctionInfo[]): Promise<void> {
     const cacheKey = this.generateCacheKey(filePath);
     const fileStats = await fs.promises.stat(filePath);
-    
+
     const entry: CacheEntry = {
       fileHash: await this.calculateFileHash(filePath),
       lastModified: fileStats.mtimeMs,
       functions,
-      createdAt: Date.now()
+      createdAt: Date.now(),
     };
 
     // Store in memory cache
@@ -120,13 +124,13 @@ export class AnalysisCache {
   getStats(): CacheStats {
     const memorySize = this.memoryCache.calculatedSize || 0;
     const totalRequests = this.stats.hits + this.stats.misses;
-    
+
     return {
       totalEntries: this.memoryCache.size,
       totalSize: memorySize,
       hitRate: totalRequests > 0 ? this.stats.hits / totalRequests : 0,
       hits: this.stats.hits,
-      misses: this.stats.misses
+      misses: this.stats.misses,
     };
   }
 
@@ -135,9 +139,9 @@ export class AnalysisCache {
    */
   async preload(filePaths: string[]): Promise<{ loaded: number; total: number }> {
     let loaded = 0;
-    
+
     await Promise.all(
-      filePaths.map(async (filePath) => {
+      filePaths.map(async filePath => {
         const cached = await this.get(filePath);
         if (cached) {
           loaded++;
@@ -158,16 +162,14 @@ export class AnalysisCache {
   }
 
   private generateCacheKey(filePath: string): string {
-    return crypto.createHash('md5')
-      .update(path.resolve(filePath))
-      .digest('hex');
+    return crypto.createHash('md5').update(path.resolve(filePath)).digest('hex');
   }
 
   private async calculateFileHash(filePath: string): Promise<string> {
     return new Promise((resolve, reject) => {
       const hash = crypto.createHash('sha256');
       const stream = fs.createReadStream(filePath);
-      
+
       stream.on('error', reject);
       stream.on('data', chunk => hash.update(chunk));
       stream.on('end', () => resolve(hash.digest('hex')));
@@ -177,7 +179,7 @@ export class AnalysisCache {
   private async isValidCacheEntry(filePath: string, entry: CacheEntry): Promise<boolean> {
     try {
       const fileStats = await fs.promises.stat(filePath);
-      
+
       // Check if file was modified
       if (fileStats.mtimeMs > entry.lastModified) {
         return false;
@@ -200,7 +202,9 @@ export class AnalysisCache {
         await fs.promises.mkdir(this.persistentCachePath, { recursive: true });
       }
     } catch (error) {
-      console.warn(`Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `Failed to initialize persistent cache: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -225,7 +229,9 @@ export class AnalysisCache {
       const filePath = path.join(this.persistentCachePath, `${cacheKey}.json`);
       await fs.promises.writeFile(filePath, JSON.stringify(entry));
     } catch (error) {
-      console.warn(`Failed to save to persistent cache: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `Failed to save to persistent cache: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -239,7 +245,9 @@ export class AnalysisCache {
         // Directory doesn't exist, nothing to clear
       }
     } catch (error) {
-      console.warn(`Failed to clear persistent cache: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(
+        `Failed to clear persistent cache: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -252,7 +260,7 @@ export class AnalysisCache {
       for (const file of files) {
         const filePath = path.join(this.persistentCachePath, file);
         const stats = await fs.promises.stat(filePath);
-        
+
         if (now - stats.mtimeMs > maxAge) {
           await fs.promises.unlink(filePath);
         }

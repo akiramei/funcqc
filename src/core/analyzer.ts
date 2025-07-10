@@ -23,17 +23,19 @@ export class FunctionAnalyzer {
     try {
       // Determine analyzer based on file extension
       const analyzer = this.getAnalyzerForFile(filePath);
-      
+
       if (!analyzer) {
         return {
           success: false,
-          errors: [{
-            name: 'UnsupportedFileType',
-            message: `Unsupported file type: ${filePath}`,
-            code: 'UNSUPPORTED_FILE_TYPE',
-            recoverable: false
-          }],
-          warnings: []
+          errors: [
+            {
+              name: 'UnsupportedFileType',
+              message: `Unsupported file type: ${filePath}`,
+              code: 'UNSUPPORTED_FILE_TYPE',
+              recoverable: false,
+            },
+          ],
+          warnings: [],
         };
       }
 
@@ -45,7 +47,9 @@ export class FunctionAnalyzer {
         try {
           func.metrics = await this.qualityCalculator.calculate(func);
         } catch (error) {
-          warnings.push(`Failed to calculate metrics for ${func.name}: ${(error as Error).message}`);
+          warnings.push(
+            `Failed to calculate metrics for ${func.name}: ${(error as Error).message}`
+          );
         }
       }
 
@@ -53,9 +57,8 @@ export class FunctionAnalyzer {
         success: true,
         data: functions,
         errors: [],
-        warnings
+        warnings,
       };
-
     } catch (error) {
       const err = error as Error;
       errors.push({
@@ -63,13 +66,13 @@ export class FunctionAnalyzer {
         message: err.message,
         code: 'ANALYSIS_ERROR',
         recoverable: true,
-        details: { filePath, stack: err.stack }
+        details: { filePath, stack: err.stack },
       });
 
       return {
         success: false,
         errors,
-        warnings
+        warnings,
       };
     }
   }
@@ -84,11 +87,11 @@ export class FunctionAnalyzer {
 
     for (const filePath of filePaths) {
       const result = await this.analyzeFile(filePath);
-      
+
       if (result.success && result.data) {
         allFunctions.push(...result.data);
       }
-      
+
       allErrors.push(...result.errors);
       allWarnings.push(...result.warnings);
     }
@@ -97,7 +100,7 @@ export class FunctionAnalyzer {
       success: allErrors.length === 0,
       data: allFunctions,
       errors: allErrors,
-      warnings: allWarnings
+      warnings: allWarnings,
     };
   }
 
@@ -111,13 +114,13 @@ export class FunctionAnalyzer {
       case 'ts':
       case 'tsx':
         return this.tsAnalyzer;
-      
+
       // Future: Add support for other languages
       case 'js':
       case 'jsx':
         // For now, treat JS files as TypeScript (with permissive parsing)
         return this.tsAnalyzer;
-      
+
       default:
         return null;
     }
@@ -174,7 +177,7 @@ export class FunctionAnalyzer {
         if (!param.name) {
           issues.push(`Parameter at position ${index} has no name`);
         }
-        
+
         if (param.position !== index) {
           issues.push(`Parameter position mismatch at index ${index}`);
         }
@@ -186,11 +189,11 @@ export class FunctionAnalyzer {
       if (func.metrics.cyclomaticComplexity < 1) {
         issues.push('Cyclomatic complexity cannot be less than 1');
       }
-      
+
       if (func.metrics.linesOfCode < 0) {
         issues.push('Lines of code cannot be negative');
       }
-      
+
       if (func.metrics.parameterCount !== func.parameters.length) {
         issues.push('Parameter count mismatch between metrics and actual parameters');
       }
@@ -207,7 +210,7 @@ export class FunctionAnalyzer {
       func.filePath,
       func.name,
       func.startLine,
-      func.astHash || func.signature
+      func.astHash || func.signature,
     ].filter(Boolean);
 
     // Create a simple hash of the components
@@ -219,7 +222,7 @@ export class FunctionAnalyzer {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
       const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash; // Convert to 32-bit integer
     }
     return Math.abs(hash).toString(36);
@@ -240,7 +243,10 @@ export class FunctionAnalyzer {
 
     // Parameter count similarity
     const paramDiff = Math.abs(func1.parameters.length - func2.parameters.length);
-    similarity += Math.max(0, 1 - paramDiff / Math.max(func1.parameters.length, func2.parameters.length, 1));
+    similarity += Math.max(
+      0,
+      1 - paramDiff / Math.max(func1.parameters.length, func2.parameters.length, 1)
+    );
     factors++;
 
     // AST similarity (exact match)
@@ -257,10 +263,11 @@ export class FunctionAnalyzer {
       similarity += Math.max(0, 1 - complexityDiff / 10); // Normalize by max expected complexity
       factors++;
 
-      const linesDiff = Math.abs(
-        func1.metrics.linesOfCode - func2.metrics.linesOfCode
+      const linesDiff = Math.abs(func1.metrics.linesOfCode - func2.metrics.linesOfCode);
+      similarity += Math.max(
+        0,
+        1 - linesDiff / Math.max(func1.metrics.linesOfCode, func2.metrics.linesOfCode, 1)
       );
-      similarity += Math.max(0, 1 - linesDiff / Math.max(func1.metrics.linesOfCode, func2.metrics.linesOfCode, 1));
       factors++;
     }
 

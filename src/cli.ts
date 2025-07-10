@@ -89,6 +89,7 @@ program
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
+  .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
   .action(async (options: OptionValues) => {
     const { scanCommand } = await import('./cli/scan');
     return scanCommand(options);
@@ -166,10 +167,9 @@ program
   .option('--risks', 'show detailed risk assessment')
   .option('--show-config', 'show configuration details')
   .option('--verbose', 'show detailed information')
-  .option('-j, --json', 'output as JSON for jq/script processing')
+  .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
-  .option('--ai-optimized', 'output AI-optimized structured data for efficient processing (default behavior)')
-  .option('--human-readable', 'output traditional human-readable format instead of AI-optimized')
+  .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();
@@ -400,11 +400,45 @@ program.addCommand(
   new Command('evaluate')
     .description('Evaluate function naming quality')
     .action(async () => {
-      const { createEvaluateCommand } = await import('./cli/evaluate');
+      const { createEvaluateCommand } = await import('./cli/evaluate-naming');
       const evaluateCommand = createEvaluateCommand();
       await evaluateCommand.parseAsync(process.argv.slice(2));
     })
 );
+
+// Add real-time code quality evaluation command (Phase 5)
+program
+  .command('eval')
+  .description('Real-time code quality evaluation for AI-generated code')
+  .argument('[input]', 'TypeScript code file to evaluate (or use --stdin)')
+  .option('--stdin', 'read code from stdin')
+  .option('--ai-generated', 'code is AI-generated (affects exit codes)')
+  .option('--strict', 'strict mode for critical violations')
+  .option('-j, --json', 'output as JSON for integration')
+  .action(async (input: string | undefined, options: OptionValues) => {
+    const { evaluateCommand } = await import('./cli/evaluate.js');
+    return evaluateCommand(input || '', options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Evaluate a file
+  $ funcqc eval myFunction.ts
+  
+  # Evaluate from stdin (AI workflow)
+  $ echo "function test() { return 42; }" | funcqc eval --stdin --ai-generated
+  
+  # JSON output for integration
+  $ funcqc eval code.ts --json
+  
+  # Strict mode (exit 1 on any critical violation)
+  $ funcqc eval code.ts --strict
+  
+AI Integration:
+  - Use --ai-generated for proper exit codes (0=acceptable, 1=needs improvement)
+  - Use --json for structured output with improvement suggestions
+  - Sub-20ms response time for real-time feedback
+  - Adaptive thresholds based on project baseline
+`);
 
 // Add lineage commands
 program

@@ -55,32 +55,30 @@ export class ParallelFileProcessor {
           totalFunctions: 0,
           totalProcessingTime: 0,
           workersUsed: 0,
-          avgFunctionsPerFile: 0
-        }
+          avgFunctionsPerFile: 0,
+        },
       };
     }
 
     const startTime = Date.now();
-    const filesPerWorker = options.filesPerWorker || this.calculateOptimalFilesPerWorker(filePaths.length);
-    const workerCount = Math.min(
-      Math.ceil(filePaths.length / filesPerWorker),
-      this.maxWorkers
-    );
+    const filesPerWorker =
+      options.filesPerWorker || this.calculateOptimalFilesPerWorker(filePaths.length);
+    const workerCount = Math.min(Math.ceil(filePaths.length / filesPerWorker), this.maxWorkers);
 
     // Split files into batches for workers
     const fileBatches = this.splitFilesForWorkers(filePaths, workerCount);
-    
+
     // Process batches in parallel
-    const workerPromises = fileBatches.map((batch, index) => 
+    const workerPromises = fileBatches.map((batch, index) =>
       this.processFileBatch(batch, index, options.onProgress)
     );
 
     const results = await Promise.all(workerPromises);
-    
+
     // Aggregate results
     const allFunctions: FunctionInfo[] = [];
     let totalProcessingTime = 0;
-    
+
     for (const result of results) {
       if (result.success) {
         allFunctions.push(...result.functions);
@@ -99,8 +97,8 @@ export class ParallelFileProcessor {
         totalFunctions: allFunctions.length,
         totalProcessingTime: totalProcessingTimeMs,
         workersUsed: workerCount,
-        avgFunctionsPerFile: filePaths.length > 0 ? allFunctions.length / filePaths.length : 0
-      }
+        avgFunctionsPerFile: filePaths.length > 0 ? allFunctions.length / filePaths.length : 0,
+      },
     };
   }
 
@@ -116,38 +114,41 @@ export class ParallelFileProcessor {
       const workerPath = path.join(__dirname, '../workers/analysis-worker.js');
       const workerInput: WorkerInput = {
         filePaths,
-        maxSourceFilesInMemory: this.maxSourceFilesInMemory
+        maxSourceFilesInMemory: this.maxSourceFilesInMemory,
       };
 
       const worker = new Worker(workerPath, {
-        workerData: workerInput
+        workerData: workerInput,
       });
 
       // Add timeout to prevent hanging workers
-      const timeout = setTimeout(() => {
-        worker.terminate();
-        reject(new Error(`Worker ${workerIndex} timed out after 5 minutes`));
-      }, 5 * 60 * 1000); // 5 minutes
+      const timeout = setTimeout(
+        () => {
+          worker.terminate();
+          reject(new Error(`Worker ${workerIndex} timed out after 5 minutes`));
+        },
+        5 * 60 * 1000
+      ); // 5 minutes
 
       worker.on('message', (result: WorkerOutput) => {
         clearTimeout(timeout);
         worker.terminate();
-        
+
         // Update progress if callback provided
         if (onProgress) {
           onProgress(result.stats.filesProcessed, filePaths.length);
         }
-        
+
         resolve(result);
       });
 
-      worker.on('error', (error) => {
+      worker.on('error', error => {
         clearTimeout(timeout);
         worker.terminate();
         reject(error);
       });
 
-      worker.on('exit', (code) => {
+      worker.on('exit', code => {
         clearTimeout(timeout);
         if (code !== 0) {
           reject(new Error(`Worker ${workerIndex} stopped with exit code ${code}`));
@@ -200,7 +201,7 @@ export class ParallelFileProcessor {
     return {
       maxWorkers: Math.min(cpuCount, 8),
       maxSourceFilesInMemory: totalMemoryGB >= 8 ? 100 : 50,
-      filesPerWorker: totalMemoryGB >= 8 ? 100 : 50
+      filesPerWorker: totalMemoryGB >= 8 ? 100 : 50,
     };
   }
 }

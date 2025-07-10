@@ -1,9 +1,9 @@
 /**
  * Quality Enhancement Types for funcqc v1.6
- * 
+ *
  * Enhanced Code Quality Evaluation System with:
  * - Naming Quality Analysis (15% weight)
- * - Type Safety Analysis (15% weight) 
+ * - Type Safety Analysis (15% weight)
  * - AI-collaborative 3-level evaluation system
  */
 
@@ -14,7 +14,7 @@
 export interface NamingQualityScore {
   /** Overall naming quality score (0-100) */
   score: number;
-  
+
   /** Individual component scores */
   components: {
     /** Basic naming rules score (0-100) */
@@ -26,10 +26,10 @@ export interface NamingQualityScore {
     /** Redundancy avoidance score (0-100) */
     redundancy: number;
   };
-  
+
   /** Issues found during analysis */
   issues: NamingIssue[];
-  
+
   /** Automatic evaluation confidence (0-1) */
   confidence: number;
 }
@@ -37,16 +37,16 @@ export interface NamingQualityScore {
 export interface NamingIssue {
   /** Issue type */
   type: 'basic' | 'semantic' | 'consistency' | 'redundancy';
-  
+
   /** Issue severity */
   severity: 'low' | 'medium' | 'high';
-  
+
   /** Human-readable description */
   description: string;
-  
+
   /** Points deducted */
   points: number;
-  
+
   /** Suggested improvement */
   suggestion?: string;
 }
@@ -58,7 +58,7 @@ export interface NamingIssue {
 export interface TypeSafetyScore {
   /** Overall type safety score (0-100) */
   score: number;
-  
+
   /** Individual component scores */
   components: {
     /** Any type usage penalty score (0-100) */
@@ -70,10 +70,10 @@ export interface TypeSafetyScore {
     /** Return type explicitness score (0-100) */
     returnTypeExplicit: number;
   };
-  
+
   /** Issues found during analysis */
   issues: TypeSafetyIssue[];
-  
+
   /** TypeScript-specific metrics */
   metrics: {
     /** Number of any types used */
@@ -90,19 +90,19 @@ export interface TypeSafetyScore {
 export interface TypeSafetyIssue {
   /** Issue type */
   type: 'any-type' | 'missing-annotation' | 'generic-type' | 'implicit-return';
-  
+
   /** Issue severity */
   severity: 'low' | 'medium' | 'high';
-  
+
   /** Human-readable description */
   description: string;
-  
+
   /** Points deducted */
   points: number;
-  
+
   /** Suggested improvement */
   suggestion?: string;
-  
+
   /** Location in code */
   location?: string;
 }
@@ -114,37 +114,37 @@ export interface TypeSafetyIssue {
 export interface NamingEvaluation {
   /** Function identifier */
   functionId: string;
-  
+
   /** Semantic ID for function content tracking */
   semanticId: string;
-  
+
   /** Function name being evaluated */
   functionName: string;
-  
+
   /** Description hash for change detection */
   descriptionHash: string;
-  
+
   /** Three-level rating (1=Appropriate, 2=Partially Correct, 3=Inappropriate) */
   rating: 1 | 2 | 3;
-  
+
   /** When evaluation was performed */
   evaluatedAt: number;
-  
+
   /** Who/what performed the evaluation */
   evaluatedBy: 'human' | 'ai' | 'auto';
-  
+
   /** Optional issue description */
   issues?: string | undefined;
-  
+
   /** Optional improvement suggestions */
   suggestions?: string | undefined;
-  
+
   /** Whether re-evaluation is needed due to changes */
   revisionNeeded: boolean;
-  
+
   /** AI model used for evaluation (if applicable) */
   aiModel?: string;
-  
+
   /** Confidence score for AI evaluations (0-1) */
   confidence?: number;
 }
@@ -157,7 +157,7 @@ export interface EvaluationBatch {
     issues?: string;
     suggestions?: string;
   }>;
-  
+
   /** Batch metadata */
   metadata?: {
     evaluatedBy?: 'human' | 'ai' | 'auto';
@@ -177,7 +177,7 @@ export interface EnhancedQualityMetrics {
     complexityScore: number;
     sizeScore: number;
   };
-  
+
   /** New enhanced metrics */
   enhanced: {
     /** Naming quality score (0-100) */
@@ -185,7 +185,7 @@ export interface EnhancedQualityMetrics {
     /** Type safety score (0-100) */
     typeSafetyScore: number;
   };
-  
+
   /** Composite scores */
   composite: {
     /** Automatic naming quality analysis */
@@ -195,7 +195,7 @@ export interface EnhancedQualityMetrics {
     /** Combined naming score (60% auto + 40% evaluation) */
     finalNaming: number;
   };
-  
+
   /** Final weighted score */
   final: {
     /** Overall score (0-100) */
@@ -222,9 +222,9 @@ export interface QualityScoreWeights {
 export const DEFAULT_QUALITY_WEIGHTS: QualityScoreWeights = {
   maintainability: 0.25,
   complexity: 0.25,
-  size: 0.20,
+  size: 0.2,
   namingQuality: 0.15,
-  typeSafety: 0.15
+  typeSafety: 0.15,
 };
 
 // =============================================================================
@@ -234,10 +234,10 @@ export const DEFAULT_QUALITY_WEIGHTS: QualityScoreWeights = {
 export interface EnhancedProjectQualityScore {
   /** Overall project grade */
   overallGrade: 'A' | 'B' | 'C' | 'D' | 'F';
-  
+
   /** Overall project score (0-100) */
   score: number;
-  
+
   /** Individual component scores */
   componentScores: {
     maintainability: number;
@@ -246,7 +246,7 @@ export interface EnhancedProjectQualityScore {
     namingQuality: number;
     typeSafety: number;
   };
-  
+
   /** Project statistics */
   statistics: {
     totalFunctions: number;
@@ -255,7 +255,7 @@ export interface EnhancedProjectQualityScore {
     functionsNeedingEvaluation: number;
     averageConfidence: number;
   };
-  
+
   /** Top problematic functions */
   topProblematicFunctions: Array<{
     name: string;
@@ -268,7 +268,7 @@ export interface EnhancedProjectQualityScore {
       maintainability: number;
     };
   }>;
-  
+
   /** Improvement recommendations */
   recommendations: QualityRecommendation[];
 }
@@ -276,19 +276,19 @@ export interface EnhancedProjectQualityScore {
 export interface QualityRecommendation {
   /** Recommendation type */
   type: 'naming' | 'type-safety' | 'complexity' | 'maintainability' | 'size';
-  
+
   /** Recommendation priority */
   priority: 'high' | 'medium' | 'low';
-  
+
   /** Number of functions affected */
   affectedFunctions: number;
-  
+
   /** Human-readable description */
   description: string;
-  
+
   /** Actionable improvement steps */
   actions: string[];
-  
+
   /** Expected impact on overall score */
   expectedImpact: number;
 }
@@ -300,31 +300,31 @@ export interface QualityRecommendation {
 export interface EvaluateCommandOptions {
   /** Function ID to evaluate */
   functionId?: string;
-  
+
   /** Rating (1-3) */
   rating?: string;
-  
+
   /** Issue description */
   issues?: string;
-  
+
   /** Improvement suggestions */
   suggestions?: string;
-  
+
   /** Batch mode */
   batch?: boolean;
-  
+
   /** Input file for batch mode */
   input?: string;
-  
+
   /** AI model to use for evaluation */
   aiModel?: string;
-  
+
   /** Minimum confidence threshold */
   confidence?: string;
-  
+
   /** Evaluator identifier */
   evaluatedBy?: string;
-  
+
   /** Output format */
   format?: 'table' | 'json' | 'friendly';
 }
@@ -332,22 +332,22 @@ export interface EvaluateCommandOptions {
 export interface ListCommandEnhancements {
   /** Show functions needing evaluation */
   needsEvaluation?: boolean;
-  
+
   /** Show functions with evaluations */
   hasEvaluation?: boolean;
-  
+
   /** Filter by evaluation rating */
   rating?: string;
-  
+
   /** Filter by evaluator */
   evaluatedBy?: string;
-  
+
   /** Show naming quality scores */
   showNamingScore?: boolean;
-  
+
   /** Show type safety scores */
   showTypeSafetyScore?: boolean;
-  
+
   /** Show enhanced quality metrics */
   showEnhancedMetrics?: boolean;
 }
@@ -359,22 +359,26 @@ export interface ListCommandEnhancements {
 export interface StorageEnhancements {
   /** Save naming evaluation */
   saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void>;
-  
+
   /** Get naming evaluation by function ID */
   getNamingEvaluation(functionId: string): Promise<NamingEvaluation | null>;
-  
+
   /** Get functions needing evaluation */
-  getFunctionsNeedingEvaluation(snapshotId: string): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>>;
-  
+  getFunctionsNeedingEvaluation(
+    snapshotId: string
+  ): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>>;
+
   /** Get functions with evaluations */
-  getFunctionsWithEvaluations(snapshotId: string): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>>;
-  
+  getFunctionsWithEvaluations(
+    snapshotId: string
+  ): Promise<Array<{ functionId: string; evaluation: NamingEvaluation }>>;
+
   /** Update evaluation revision status */
   updateEvaluationRevisionStatus(functionId: string, revisionNeeded: boolean): Promise<void>;
-  
+
   /** Batch save evaluations */
   batchSaveEvaluations(evaluations: NamingEvaluation[]): Promise<void>;
-  
+
   /** Get evaluation statistics */
   getEvaluationStatistics(snapshotId: string): Promise<{
     total: number;
@@ -398,19 +402,19 @@ export interface NamingAnalysisResult {
     filePath: string;
     signature: string;
   };
-  
+
   /** Naming quality analysis */
   namingQuality: NamingQualityScore;
-  
+
   /** Type safety analysis */
   typeSafety: TypeSafetyScore;
-  
+
   /** Existing evaluation (if any) */
   existingEvaluation?: NamingEvaluation;
-  
+
   /** Recommended action */
   recommendedAction: 'no-action' | 'needs-evaluation' | 'needs-re-evaluation';
-  
+
   /** Analysis confidence */
   confidence: number;
 }
@@ -418,7 +422,7 @@ export interface NamingAnalysisResult {
 export interface BatchAnalysisResult {
   /** Individual analysis results */
   results: NamingAnalysisResult[];
-  
+
   /** Overall statistics */
   statistics: {
     analyzed: number;
@@ -427,7 +431,7 @@ export interface BatchAnalysisResult {
     averageNamingScore: number;
     averageTypeSafetyScore: number;
   };
-  
+
   /** Processing metadata */
   metadata: {
     timestamp: number;

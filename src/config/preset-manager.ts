@@ -1,19 +1,19 @@
 /**
  * Phase 4: Preset Configuration Manager
- * 
+ *
  * Handles application, validation, and management of configuration presets
  */
 
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { 
-  ProjectPreset, 
-  FuncqcConfig, 
-  PresetApplyOptions, 
-  PresetApplyResult, 
+import {
+  ProjectPreset,
+  FuncqcConfig,
+  PresetApplyOptions,
+  PresetApplyResult,
   ConfigurationChange,
   ConfigValidationResult,
-  ProjectAnalysisResult
+  ProjectAnalysisResult,
 } from '../types';
 import { BUILTIN_PRESETS, getPreset } from './presets';
 import { ConfigManager } from '../core/config';
@@ -31,7 +31,7 @@ export class PresetManager {
    * Apply a preset to the current configuration
    */
   async applyPreset(
-    presetId: string, 
+    presetId: string,
     options: Partial<PresetApplyOptions> = {}
   ): Promise<PresetApplyResult> {
     const defaultOptions: PresetApplyOptions = {
@@ -39,11 +39,11 @@ export class PresetManager {
       validate: true,
       backup: true,
       dryRun: false,
-      interactive: false
+      interactive: false,
     };
 
     const finalOptions = { ...defaultOptions, ...options };
-    
+
     // Find the preset
     const preset = await this.getPreset(presetId);
     if (!preset) {
@@ -52,7 +52,7 @@ export class PresetManager {
 
     // Load current configuration
     const currentConfig = await this.configManager.load();
-    
+
     // Create backup if requested
     let backupPath: string | undefined;
     if (finalOptions.backup && !finalOptions.dryRun) {
@@ -61,9 +61,9 @@ export class PresetManager {
 
     // Calculate configuration changes
     const changes = this.calculateChanges(currentConfig, preset.config, finalOptions.merge);
-    
+
     // Validate the new configuration
-    const validationResults = finalOptions.validate 
+    const validationResults = finalOptions.validate
       ? await this.validateConfiguration(preset.config, currentConfig, finalOptions.merge)
       : [];
 
@@ -75,7 +75,7 @@ export class PresetManager {
         applied: preset,
         changes,
         warnings: validationResults.filter(r => r.level === 'warning').map(r => r.message),
-        validationResults
+        validationResults,
       };
     }
 
@@ -90,7 +90,7 @@ export class PresetManager {
       applied: preset,
       changes,
       warnings: validationResults.filter(r => r.level === 'warning').map(r => r.message),
-      validationResults
+      validationResults,
     };
 
     if (backupPath) {
@@ -128,18 +128,18 @@ export class PresetManager {
    */
   async saveCustomPreset(preset: ProjectPreset): Promise<void> {
     const customPresets = await this.loadCustomPresets();
-    
+
     // Remove existing preset with same ID
     const filteredPresets = customPresets.filter(p => p.id !== preset.id);
-    
+
     // Add the new preset
     filteredPresets.push({
       ...preset,
       category: 'custom',
       metadata: {
         ...preset.metadata,
-        updated: Date.now()
-      }
+        updated: Date.now(),
+      },
     });
 
     await this.saveCustomPresets(filteredPresets);
@@ -151,7 +151,7 @@ export class PresetManager {
   async deleteCustomPreset(presetId: string): Promise<boolean> {
     const customPresets = await this.loadCustomPresets();
     const filteredPresets = customPresets.filter(p => p.id !== presetId);
-    
+
     if (filteredPresets.length === customPresets.length) {
       return false; // Preset not found
     }
@@ -176,12 +176,14 @@ export class PresetManager {
   /**
    * Suggest presets based on current project structure
    */
-  async suggestPresets(): Promise<Array<{ preset: ProjectPreset; score: number; reasons: string[] }>> {
+  async suggestPresets(): Promise<
+    Array<{ preset: ProjectPreset; score: number; reasons: string[] }>
+  > {
     const suggestions: Array<{ preset: ProjectPreset; score: number; reasons: string[] }> = [];
-    
+
     // Analyze current project structure
     const analysis = await this.analyzeProjectStructure();
-    
+
     for (const preset of BUILTIN_PRESETS) {
       const { score, reasons } = this.calculatePresetScore(preset, analysis);
       if (score > 0) {
@@ -215,24 +217,30 @@ export class PresetManager {
   private async createConfigBackup(config: FuncqcConfig): Promise<string> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupPath = `.funcqc/config-backup-${timestamp}.json`;
-    
+
     const dir = path.dirname(backupPath);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(backupPath, JSON.stringify(config, null, 2));
-    
+
     return backupPath;
   }
 
   private calculateChanges(
-    currentConfig: FuncqcConfig, 
-    presetConfig: Partial<FuncqcConfig>, 
+    currentConfig: FuncqcConfig,
+    presetConfig: Partial<FuncqcConfig>,
     merge: boolean
   ): ConfigurationChange[] {
     const changes: ConfigurationChange[] = [];
-    
+
     // Deep comparison of configuration objects
-    this.compareConfigObjects('', currentConfig as unknown as Record<string, unknown>, presetConfig as unknown as Record<string, unknown>, changes, merge);
-    
+    this.compareConfigObjects(
+      '',
+      currentConfig as unknown as Record<string, unknown>,
+      presetConfig as unknown as Record<string, unknown>,
+      changes,
+      merge
+    );
+
     return changes;
   }
 
@@ -246,17 +254,23 @@ export class PresetManager {
     for (const [key, value] of Object.entries(preset)) {
       const currentPath = basePath ? `${basePath}.${key}` : key;
       const currentValue = current[key];
-      
+
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
         if (typeof currentValue === 'object' && currentValue !== null) {
-          this.compareConfigObjects(currentPath, currentValue as Record<string, unknown>, value as Record<string, unknown>, changes, merge);
+          this.compareConfigObjects(
+            currentPath,
+            currentValue as Record<string, unknown>,
+            value as Record<string, unknown>,
+            changes,
+            merge
+          );
         } else {
           changes.push({
             path: currentPath,
             oldValue: currentValue,
             newValue: value,
             impact: this.assessChangeImpact(currentPath, currentValue, value),
-            description: `Set ${currentPath} to new object configuration`
+            description: `Set ${currentPath} to new object configuration`,
           });
         }
       } else if (currentValue !== value) {
@@ -265,28 +279,32 @@ export class PresetManager {
           oldValue: currentValue,
           newValue: value,
           impact: this.assessChangeImpact(currentPath, currentValue, value),
-          description: this.describeChange(currentPath, currentValue, value)
+          description: this.describeChange(currentPath, currentValue, value),
         });
       }
     }
   }
 
-  private assessChangeImpact(path: string, _oldValue: unknown, _newValue: unknown): 'low' | 'medium' | 'high' {
+  private assessChangeImpact(
+    path: string,
+    _oldValue: unknown,
+    _newValue: unknown
+  ): 'low' | 'medium' | 'high' {
     // Critical configuration paths
     if (path.includes('threshold') || path.includes('complexity')) {
       return 'high';
     }
-    
+
     // Storage and roots changes
     if (path.includes('storage') || path === 'roots') {
       return 'high';
     }
-    
+
     // Exclude patterns and other configurations
     if (path === 'exclude' || path.includes('git')) {
       return 'medium';
     }
-    
+
     return 'low';
   }
 
@@ -294,11 +312,11 @@ export class PresetManager {
     if (oldValue === undefined) {
       return `Add ${path}: ${JSON.stringify(newValue)}`;
     }
-    
+
     if (newValue === undefined) {
       return `Remove ${path}`;
     }
-    
+
     return `Change ${path} from ${JSON.stringify(oldValue)} to ${JSON.stringify(newValue)}`;
   }
 
@@ -309,32 +327,32 @@ export class PresetManager {
   ): Promise<ConfigValidationResult[]> {
     const results: ConfigValidationResult[] = [];
     const mergedConfig = this.mergeConfigurations(currentConfig, presetConfig, merge);
-    
+
     // Validate threshold consistency
     if (mergedConfig.metrics) {
       const metrics = mergedConfig.metrics;
-      
+
       if (metrics.complexityThreshold < 1) {
         results.push({
           valid: false,
           field: 'metrics.complexityThreshold',
           level: 'error',
           message: 'Complexity threshold must be at least 1',
-          suggestion: 'Set to a reasonable value like 5-10'
+          suggestion: 'Set to a reasonable value like 5-10',
         });
       }
-      
+
       if (metrics.linesOfCodeThreshold < 5) {
         results.push({
           valid: false,
           field: 'metrics.linesOfCodeThreshold',
           level: 'warning',
           message: 'Very low line count threshold may be too restrictive',
-          suggestion: 'Consider values between 20-50 for most projects'
+          suggestion: 'Consider values between 20-50 for most projects',
         });
       }
     }
-    
+
     // Validate storage configuration
     if (mergedConfig.storage && !mergedConfig.storage.path) {
       results.push({
@@ -342,37 +360,49 @@ export class PresetManager {
         field: 'storage.path',
         level: 'error',
         message: 'Storage path is required',
-        suggestion: 'Set storage.path to a valid file path like .funcqc/funcqc.db'
+        suggestion: 'Set storage.path to a valid file path like .funcqc/funcqc.db',
       });
     }
-    
+
     return results;
   }
 
   private mergeConfigurations(
-    current: FuncqcConfig, 
-    preset: Partial<FuncqcConfig>, 
+    current: FuncqcConfig,
+    preset: Partial<FuncqcConfig>,
     merge: boolean
   ): FuncqcConfig {
     if (!merge) {
       return { ...current, ...preset } as FuncqcConfig;
     }
-    
+
     // Deep merge configurations
-    return this.deepMerge(current as unknown as Record<string, unknown>, preset as unknown as Record<string, unknown>) as unknown as FuncqcConfig;
+    return this.deepMerge(
+      current as unknown as Record<string, unknown>,
+      preset as unknown as Record<string, unknown>
+    ) as unknown as FuncqcConfig;
   }
 
-  private deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  private deepMerge(
+    target: Record<string, unknown>,
+    source: Record<string, unknown>
+  ): Record<string, unknown> {
     const result = { ...target };
-    
+
     for (const [key, value] of Object.entries(source)) {
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        result[key] = this.deepMerge((target[key] as Record<string, unknown>) || {}, value as Record<string, unknown>);
+        result[key] = this.deepMerge(
+          (target[key] as Record<string, unknown>) || {},
+          value as Record<string, unknown>
+        );
+      } else if (Array.isArray(value) && Array.isArray(target[key])) {
+        // Merge arrays instead of overwriting
+        result[key] = [...(target[key] as unknown[]), ...value];
       } else {
         result[key] = value;
       }
     }
-    
+
     return result;
   }
 
@@ -397,8 +427,8 @@ export class PresetManager {
         frontend: [],
         backend: [],
         testing: [],
-        cli: []
-      }
+        cli: [],
+      },
     };
 
     try {
@@ -407,7 +437,7 @@ export class PresetManager {
       try {
         const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
         const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-        
+
         // Frontend framework detection
         if (deps.react) {
           analysis.hasReactComponents = true;
@@ -424,7 +454,7 @@ export class PresetManager {
           analysis.detectedFrameworks.push('Angular');
           analysis.detectedDependencies.frontend.push('angular');
         }
-        
+
         // Backend framework detection
         if (deps.express) {
           analysis.hasApiRoutes = true;
@@ -446,24 +476,24 @@ export class PresetManager {
           analysis.detectedFrameworks.push('NestJS');
           analysis.detectedDependencies.backend.push('@nestjs/core');
         }
-        
+
         // CLI tool detection
         if (packageJson.bin || deps.commander || deps.yargs) {
           analysis.isCLITool = true;
           if (deps.commander) analysis.detectedDependencies.cli.push('commander');
           if (deps.yargs) analysis.detectedDependencies.cli.push('yargs');
         }
-        
+
         // Library detection
         if (packageJson.main && !packageJson.private) {
           analysis.isLibrary = true;
         }
-        
+
         // Testing framework detection
         if (deps.jest) analysis.detectedDependencies.testing.push('jest');
         if (deps.vitest) analysis.detectedDependencies.testing.push('vitest');
         if (deps.mocha) analysis.detectedDependencies.testing.push('mocha');
-        
+
         // Project size estimation based on dependencies count
         const depCount = Object.keys(deps).length;
         if (depCount < 10) {
@@ -483,7 +513,10 @@ export class PresetManager {
     return analysis;
   }
 
-  private calculatePresetScore(preset: ProjectPreset, analysis: ProjectAnalysisResult): { score: number; reasons: string[] } {
+  private calculatePresetScore(
+    preset: ProjectPreset,
+    analysis: ProjectAnalysisResult
+  ): { score: number; reasons: string[] } {
     let score = 0;
     const reasons: string[] = [];
 

@@ -59,9 +59,9 @@ export async function findFiles(
     maxDepth,
     extensions,
     exclude,
-    files: []
+    files: [],
   };
-  
+
   await walkDirectory(dir, 0, context);
   return context.files;
 }
@@ -89,11 +89,11 @@ async function processDirectoryEntries(
 ): Promise<void> {
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
-    
+
     if (shouldExclude(fullPath, context.exclude)) {
       continue;
     }
-    
+
     if (entry.isDirectory()) {
       await walkDirectory(fullPath, depth + 1, context);
     } else if (entry.isFile()) {
@@ -164,12 +164,9 @@ export function formatDuration(ms: number): string {
 /**
  * Debounce function execution
  */
-export function debounce<T extends (...args: unknown[]) => unknown>(
-  func: T,
-  delay: number
-): T {
+export function debounce<T extends (...args: unknown[]) => unknown>(func: T, delay: number): T {
   let timeoutId: NodeJS.Timeout;
-  
+
   return ((...args: Parameters<T>) => {
     clearTimeout(timeoutId);
     timeoutId = setTimeout(() => func(...args), delay);
@@ -179,12 +176,9 @@ export function debounce<T extends (...args: unknown[]) => unknown>(
 /**
  * Throttle function execution
  */
-export function throttle<T extends (...args: unknown[]) => unknown>(
-  func: T,
-  delay: number
-): T {
+export function throttle<T extends (...args: unknown[]) => unknown>(func: T, delay: number): T {
   let lastCall = 0;
-  
+
   return ((...args: Parameters<T>): ReturnType<T> => {
     const now = Date.now();
     if (now - lastCall >= delay) {
@@ -214,12 +208,7 @@ export async function retry<T>(
     factor?: number;
   } = {}
 ): Promise<T> {
-  const {
-    maxAttempts = 3,
-    baseDelay = 1000,
-    maxDelay = 10000,
-    factor = 2
-  } = options;
+  const { maxAttempts = 3, baseDelay = 1000, maxDelay = 10000, factor = 2 } = options;
 
   let lastError: Error;
 
@@ -263,7 +252,7 @@ export function simpleHash(str: string): string {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
+    hash = (hash << 5) - hash + char;
     hash = hash & hash; // Convert to 32-bit integer
   }
   return Math.abs(hash).toString(36);
@@ -272,15 +261,18 @@ export function simpleHash(str: string): string {
 /**
  * Deep merge objects using simple JSON approach
  */
-export function deepMerge<T extends Record<string, unknown>>(target: T, ...sources: Partial<T>[]): T {
+export function deepMerge<T extends Record<string, unknown>>(
+  target: T,
+  ...sources: Partial<T>[]
+): T {
   const result = JSON.parse(JSON.stringify(target)) as T;
-  
+
   for (const source of sources) {
     if (source) {
       Object.assign(result, JSON.parse(JSON.stringify(source)));
     }
   }
-  
+
   return result;
 }
 
@@ -311,7 +303,7 @@ export function parseNumericCondition(condition: string): {
 
 function parseRangeCondition(condition: string) {
   if (!condition.includes('..')) return null;
-  
+
   const [min, max] = condition.split('..').map(Number);
   if (!isNaN(min) && !isNaN(max)) {
     return { operator: 'BETWEEN' as const, value: [min, max] };
@@ -321,8 +313,11 @@ function parseRangeCondition(condition: string) {
 
 function parseInCondition(condition: string) {
   if (!condition.includes(',')) return null;
-  
-  const values = condition.split(',').map(Number).filter(n => !isNaN(n));
+
+  const values = condition
+    .split(',')
+    .map(Number)
+    .filter(n => !isNaN(n));
   if (values.length > 0) {
     return { operator: 'IN' as const, value: values };
   }
@@ -336,7 +331,7 @@ function parseComparisonCondition(condition: string) {
     { prefix: '!=', operator: '!=' as const, length: 2 },
     { prefix: '<>', operator: '!=' as const, length: 2 },
     { prefix: '>', operator: '>' as const, length: 1 },
-    { prefix: '<', operator: '<' as const, length: 1 }
+    { prefix: '<', operator: '<' as const, length: 1 },
   ];
 
   for (const { prefix, operator, length } of operators) {
@@ -366,6 +361,8 @@ export async function calculateFileHash(filePath: string): Promise<string> {
     const content = await fs.readFile(filePath);
     return crypto.createHash('sha256').update(content).digest('hex');
   } catch (error) {
-    throw new Error(`Failed to calculate hash for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(
+      `Failed to calculate hash for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }

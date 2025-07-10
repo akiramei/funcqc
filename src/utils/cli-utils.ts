@@ -10,14 +10,17 @@ export enum LogLevel {
   WARN = 'warn',
   INFO = 'info',
   DEBUG = 'debug',
-  SUCCESS = 'success'
+  SUCCESS = 'success',
 }
 
 /**
  * Simple logger with colored output
  */
 export class Logger {
-  constructor(private verbose: boolean = false, private quiet: boolean = false) {}
+  constructor(
+    private verbose: boolean = false,
+    private quiet: boolean = false
+  ) {}
 
   get isVerbose(): boolean {
     return this.verbose;
@@ -131,7 +134,7 @@ export function formatTable(
   }
 
   const { maxWidth = 120, padding = 1, alignment = [] } = options;
-  
+
   // Calculate column widths
   const columnWidths = headers.map((header, index) => {
     const maxContentWidth = Math.max(
@@ -143,46 +146,49 @@ export function formatTable(
 
   // Format row
   const formatRow = (row: unknown[], isHeader = false): string => {
-    return row.map((cell, index) => {
-      const cellStr = String(cell || '');
-      const width = columnWidths[index];
-      const align = alignment[index] || 'left';
-      
-      let formatted = cellStr.length > width - padding * 2 
-        ? cellStr.substring(0, width - padding * 2 - 3) + '...'
-        : cellStr;
+    return row
+      .map((cell, index) => {
+        const cellStr = String(cell || '');
+        const width = columnWidths[index];
+        const align = alignment[index] || 'left';
 
-      switch (align) {
-        case 'right':
-          formatted = formatted.padStart(width);
-          break;
-        case 'center': {
-          const leftPad = Math.floor((width - formatted.length) / 2);
-          const rightPad = width - formatted.length - leftPad;
-          formatted = ' '.repeat(leftPad) + formatted + ' '.repeat(rightPad);
-          break;
+        let formatted =
+          cellStr.length > width - padding * 2
+            ? cellStr.substring(0, width - padding * 2 - 3) + '...'
+            : cellStr;
+
+        switch (align) {
+          case 'right':
+            formatted = formatted.padStart(width);
+            break;
+          case 'center': {
+            const leftPad = Math.floor((width - formatted.length) / 2);
+            const rightPad = width - formatted.length - leftPad;
+            formatted = ' '.repeat(leftPad) + formatted + ' '.repeat(rightPad);
+            break;
+          }
+          default:
+            formatted = formatted.padEnd(width);
         }
-        default:
-          formatted = formatted.padEnd(width);
-      }
 
-      return isHeader ? chalk.bold(formatted) : formatted;
-    }).join('│');
+        return isHeader ? chalk.bold(formatted) : formatted;
+      })
+      .join('│');
   };
 
   // Build table
   const lines: string[] = [];
-  
+
   // Header
   lines.push('┌' + columnWidths.map(w => '─'.repeat(w)).join('┬') + '┐');
   lines.push('│' + formatRow(headers, true) + '│');
   lines.push('├' + columnWidths.map(w => '─'.repeat(w)).join('┼') + '┤');
-  
+
   // Data rows
   data.forEach(row => {
     lines.push('│' + formatRow(row) + '│');
   });
-  
+
   // Footer
   lines.push('└' + columnWidths.map(w => '─'.repeat(w)).join('┴') + '┘');
 
@@ -193,15 +199,13 @@ export function formatTable(
  * Interactive prompt for user input
  */
 export function prompt(question: string, defaultValue?: string): Promise<string> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout
+      output: process.stdout,
     });
 
-    const promptText = defaultValue 
-      ? `${question} (${defaultValue}): `
-      : `${question}: `;
+    const promptText = defaultValue ? `${question} (${defaultValue}): ` : `${question}: `;
 
     rl.question(promptText, (answer: string) => {
       rl.close();
@@ -214,10 +218,10 @@ export function prompt(question: string, defaultValue?: string): Promise<string>
  * Confirm action with user
  */
 export function confirm(question: string, defaultValue: boolean = false): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout
+      output: process.stdout,
     });
 
     const options = defaultValue ? '[Y/n]' : '[y/N]';
@@ -225,7 +229,7 @@ export function confirm(question: string, defaultValue: boolean = false): Promis
 
     rl.question(promptText, (answer: string) => {
       rl.close();
-      
+
       if (answer.trim() === '') {
         resolve(defaultValue);
       } else {
@@ -244,7 +248,7 @@ export function select(
   options: string[],
   defaultIndex: number = 0
 ): Promise<number> {
-  return new Promise((resolve) => {
+  return new Promise(resolve => {
     console.log(question);
     options.forEach((option, index) => {
       const marker = index === defaultIndex ? '→' : ' ';
@@ -253,12 +257,12 @@ export function select(
 
     const rl = readline.createInterface({
       input: process.stdin,
-      output: process.stdout
+      output: process.stdout,
     });
 
     rl.question(`Select option (1-${options.length}) [${defaultIndex + 1}]: `, (answer: string) => {
       rl.close();
-      
+
       if (answer.trim() === '') {
         resolve(defaultIndex);
       } else {
@@ -288,17 +292,19 @@ export function displayBanner(version: string): void {
                                                      
 Function Quality Control v${version}
 `;
-  
+
   console.log(chalk.cyan(banner));
 }
 
 /**
  * Format command help text
  */
-export function formatHelp(sections: {
-  title: string;
-  content: string;
-}[]): string {
+export function formatHelp(
+  sections: {
+    title: string;
+    content: string;
+  }[]
+): string {
   return sections
     .map(section => {
       return `${chalk.yellow.bold(section.title)}\n${section.content}`;
@@ -318,7 +324,7 @@ export function exitWithError(message: string, code: number = 1): never {
  * Handle uncaught exceptions gracefully
  */
 export function setupErrorHandling(): void {
-  process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', error => {
     console.error(chalk.red('Uncaught Exception:'), error.message);
     if (process.env['NODE_ENV'] === 'development') {
       console.error(error.stack);

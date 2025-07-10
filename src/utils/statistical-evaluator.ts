@@ -21,14 +21,29 @@ export class StatisticalEvaluator {
     }
 
     const metricKeys = [
-      'linesOfCode', 'totalLines', 'cyclomaticComplexity', 'cognitiveComplexity',
-      'maxNestingLevel', 'parameterCount', 'returnStatementCount', 'branchCount',
-      'loopCount', 'tryCatchCount', 'asyncAwaitCount', 'callbackCount',
-      'commentLines', 'codeToCommentRatio', 'halsteadVolume', 'halsteadDifficulty',
-      'maintainabilityIndex'
+      'linesOfCode',
+      'totalLines',
+      'cyclomaticComplexity',
+      'cognitiveComplexity',
+      'maxNestingLevel',
+      'parameterCount',
+      'returnStatementCount',
+      'branchCount',
+      'loopCount',
+      'tryCatchCount',
+      'asyncAwaitCount',
+      'callbackCount',
+      'commentLines',
+      'codeToCommentRatio',
+      'halsteadVolume',
+      'halsteadDifficulty',
+      'maintainabilityIndex',
     ] as const;
 
-    const statistics: Record<keyof QualityMetrics, MetricStatistics> = {} as Record<keyof QualityMetrics, MetricStatistics>;
+    const statistics: Record<keyof QualityMetrics, MetricStatistics> = {} as Record<
+      keyof QualityMetrics,
+      MetricStatistics
+    >;
 
     for (const key of metricKeys) {
       const values = functionMetrics
@@ -54,22 +69,21 @@ export class StatisticalEvaluator {
   private calculateMetricStatistics(values: number[]): MetricStatistics {
     const sorted = [...values].sort((a, b) => a - b);
     const n = sorted.length;
-    
+
     // Basic measures
     const min = sorted[0];
     const max = sorted[n - 1];
     const sum = sorted.reduce((acc, val) => acc + val, 0);
     const mean = sum / n;
-    
+
     // Median
-    const median = n % 2 === 0
-      ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2
-      : sorted[Math.floor(n / 2)];
-    
+    const median =
+      n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
+
     // Variance and standard deviation
     const variance = sorted.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / n;
     const standardDeviation = Math.sqrt(variance);
-    
+
     // Percentiles
     const percentiles = {
       p25: this.calculatePercentile(sorted, 25),
@@ -79,14 +93,16 @@ export class StatisticalEvaluator {
       p95: this.calculatePercentile(sorted, 95),
       p99: this.calculatePercentile(sorted, 99),
     };
-    
+
     // Median Absolute Deviation (MAD)
     const deviationsFromMedian = sorted.map(val => Math.abs(val - median)).sort((a, b) => a - b);
-    const mad = deviationsFromMedian.length % 2 === 0
-      ? (deviationsFromMedian[deviationsFromMedian.length / 2 - 1] + 
-         deviationsFromMedian[deviationsFromMedian.length / 2]) / 2
-      : deviationsFromMedian[Math.floor(deviationsFromMedian.length / 2)];
-    
+    const mad =
+      deviationsFromMedian.length % 2 === 0
+        ? (deviationsFromMedian[deviationsFromMedian.length / 2 - 1] +
+            deviationsFromMedian[deviationsFromMedian.length / 2]) /
+          2
+        : deviationsFromMedian[Math.floor(deviationsFromMedian.length / 2)];
+
     return {
       mean,
       median,
@@ -106,20 +122,20 @@ export class StatisticalEvaluator {
     if (percentile < 0 || percentile > 100) {
       throw new Error('Percentile must be between 0 and 100');
     }
-    
+
     const n = sortedValues.length;
     const rank = (percentile / 100) * (n - 1);
     const lowerIndex = Math.floor(rank);
     const upperIndex = Math.ceil(rank);
-    
+
     if (lowerIndex === upperIndex) {
       return sortedValues[lowerIndex];
     }
-    
+
     const lowerValue = sortedValues[lowerIndex];
     const upperValue = sortedValues[upperIndex];
     const fractionalPart = rank - lowerIndex;
-    
+
     return lowerValue + fractionalPart * (upperValue - lowerValue);
   }
 
@@ -130,7 +146,12 @@ export class StatisticalEvaluator {
     value: number,
     threshold: ThresholdValue,
     statistics: MetricStatistics
-  ): { threshold: number; exceeded: boolean; method: 'absolute' | 'statistical'; statisticalContext?: Record<string, unknown> } {
+  ): {
+    threshold: number;
+    exceeded: boolean;
+    method: 'absolute' | 'statistical';
+    statisticalContext?: Record<string, unknown>;
+  } {
     if (typeof threshold === 'number') {
       return {
         threshold,
@@ -141,7 +162,7 @@ export class StatisticalEvaluator {
 
     // Statistical threshold evaluation
     const calculatedThreshold = this.calculateStatisticalThreshold(threshold, statistics);
-    
+
     return {
       threshold: calculatedThreshold,
       exceeded: value >= calculatedThreshold,
@@ -165,28 +186,33 @@ export class StatisticalEvaluator {
     switch (threshold.method) {
       case 'mean+sigma': {
         const multiplier = threshold.multiplier ?? 1;
-        return statistics.mean + (multiplier * statistics.standardDeviation);
+        return statistics.mean + multiplier * statistics.standardDeviation;
       }
-      
+
       case 'percentile': {
         const percentile = threshold.percentile ?? 95;
         return this.getPercentileValue(statistics, percentile);
       }
-      
+
       case 'median+mad': {
         const multiplier = threshold.multiplier ?? 1;
-        return statistics.median + (multiplier * statistics.mad);
+        return statistics.median + multiplier * statistics.mad;
       }
-      
+
       default:
-        throw new Error(`Unknown statistical threshold method: ${(threshold as StatisticalThreshold).method}`);
+        throw new Error(
+          `Unknown statistical threshold method: ${(threshold as StatisticalThreshold).method}`
+        );
     }
   }
 
   /**
    * Get baseline value for statistical method
    */
-  private getBaseline(method: StatisticalThreshold['method'], statistics: MetricStatistics): number {
+  private getBaseline(
+    method: StatisticalThreshold['method'],
+    statistics: MetricStatistics
+  ): number {
     switch (method) {
       case 'mean+sigma':
         return statistics.mean;
@@ -204,23 +230,34 @@ export class StatisticalEvaluator {
    */
   private getPercentileValue(statistics: MetricStatistics, percentile: number): number {
     const percentiles = statistics.percentiles;
-    
+
     switch (percentile) {
-      case 25: return percentiles.p25;
-      case 50: return percentiles.p50;
-      case 75: return percentiles.p75;
-      case 90: return percentiles.p90;
-      case 95: return percentiles.p95;
-      case 99: return percentiles.p99;
+      case 25:
+        return percentiles.p25;
+      case 50:
+        return percentiles.p50;
+      case 75:
+        return percentiles.p75;
+      case 90:
+        return percentiles.p90;
+      case 95:
+        return percentiles.p95;
+      case 99:
+        return percentiles.p99;
       default:
         // For other percentiles, we'd need the raw data to calculate precisely
         // For now, interpolate between known percentiles or use closest
         if (percentile < 25) return percentiles.p25;
-        if (percentile < 50) return percentiles.p25 + (percentiles.p50 - percentiles.p25) * (percentile - 25) / 25;
-        if (percentile < 75) return percentiles.p50 + (percentiles.p75 - percentiles.p50) * (percentile - 50) / 25;
-        if (percentile < 90) return percentiles.p75 + (percentiles.p90 - percentiles.p75) * (percentile - 75) / 15;
-        if (percentile < 95) return percentiles.p90 + (percentiles.p95 - percentiles.p90) * (percentile - 90) / 5;
-        if (percentile < 99) return percentiles.p95 + (percentiles.p99 - percentiles.p95) * (percentile - 95) / 4;
+        if (percentile < 50)
+          return percentiles.p25 + ((percentiles.p50 - percentiles.p25) * (percentile - 25)) / 25;
+        if (percentile < 75)
+          return percentiles.p50 + ((percentiles.p75 - percentiles.p50) * (percentile - 50)) / 25;
+        if (percentile < 90)
+          return percentiles.p75 + ((percentiles.p90 - percentiles.p75) * (percentile - 75)) / 15;
+        if (percentile < 95)
+          return percentiles.p90 + ((percentiles.p95 - percentiles.p90) * (percentile - 90)) / 5;
+        if (percentile < 99)
+          return percentiles.p95 + ((percentiles.p99 - percentiles.p95) * (percentile - 95)) / 4;
         return percentiles.p99;
     }
   }
@@ -235,9 +272,20 @@ export class StatisticalEvaluator {
     criticalThreshold?: ThresholdValue,
     statistics?: MetricStatistics
   ): ViolationLevel | null {
-    this.validateStatisticalRequirements(warningThreshold, errorThreshold, criticalThreshold, statistics);
+    this.validateStatisticalRequirements(
+      warningThreshold,
+      errorThreshold,
+      criticalThreshold,
+      statistics
+    );
 
-    return this.checkThresholdViolations(value, warningThreshold, errorThreshold, criticalThreshold, statistics);
+    return this.checkThresholdViolations(
+      value,
+      warningThreshold,
+      errorThreshold,
+      criticalThreshold,
+      statistics
+    );
   }
 
   private validateStatisticalRequirements(
@@ -247,9 +295,10 @@ export class StatisticalEvaluator {
     statistics?: MetricStatistics
   ): void {
     if (!statistics && (warningThreshold || errorThreshold || criticalThreshold)) {
-      const hasStatisticalThreshold = [warningThreshold, errorThreshold, criticalThreshold]
-        .some(t => t && typeof t === 'object');
-      
+      const hasStatisticalThreshold = [warningThreshold, errorThreshold, criticalThreshold].some(
+        t => t && typeof t === 'object'
+      );
+
       if (hasStatisticalThreshold) {
         throw new Error('Project statistics required for statistical threshold evaluation');
       }
@@ -266,7 +315,7 @@ export class StatisticalEvaluator {
     const thresholds = [
       { level: 'critical' as const, threshold: criticalThreshold },
       { level: 'error' as const, threshold: errorThreshold },
-      { level: 'warning' as const, threshold: warningThreshold }
+      { level: 'warning' as const, threshold: warningThreshold },
     ];
 
     for (const { level, threshold } of thresholds) {
@@ -290,7 +339,7 @@ export class StatisticalEvaluator {
     statistics: MetricStatistics
   ): ThresholdViolation {
     const evaluation = this.evaluateThreshold(value, threshold, statistics);
-    
+
     const violation: ThresholdViolation = {
       metric,
       value,
@@ -299,7 +348,7 @@ export class StatisticalEvaluator {
       excess: value - evaluation.threshold,
       method: evaluation.method,
     };
-    
+
     if (evaluation.statisticalContext) {
       violation.statisticalContext = evaluation.statisticalContext as {
         method: 'mean+sigma' | 'percentile' | 'median+mad';
@@ -308,7 +357,7 @@ export class StatisticalEvaluator {
         baseline: number;
       };
     }
-    
+
     return violation;
   }
 }

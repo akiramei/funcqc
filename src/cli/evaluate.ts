@@ -1,404 +1,324 @@
 /**
- * Evaluate command for funcqc v1.6
- * 
- * Implements the 3-level naming evaluation system:
- * - Rating 1 (Appropriate): Function name accurately represents processing
- * - Rating 2 (Partially Correct): Partially correct but includes extra responsibilities
- * - Rating 3 (Inappropriate): Function name does not match processing
+ * Evaluate command for AI-generated code quality assessment
+ * Provides immediate feedback for code generation workflows
  */
 
-import { Command } from 'commander';
 import chalk from 'chalk';
-import ora, { Ora } from 'ora';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import { createHash } from 'crypto';
-import { EvaluateCommandOptions, NamingEvaluation, EvaluationBatch, FunctionInfo } from '../types';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
-import { ConfigManager } from '../core/config';
+import ora from 'ora';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { EvaluateCommandOptions, FunctionInfo } from '../types/index.js';
+import { ConfigManager } from '../core/config.js';
+import { PGLiteStorageAdapter } from '../storage/pglite-adapter.js';
+import {
+  RealTimeQualityGate,
+  QualityAssessment,
+  QualityViolation,
+} from '../core/realtime-quality-gate.js';
+import { StructuralAnomaly } from '../utils/structural-analyzer.js';
+import { outputJson, isJsonOutput } from '../utils/format-helpers.js';
 
-interface EvaluateOptions extends EvaluateCommandOptions {
-  functionId?: string;
-  rating?: string;
-  issues?: string;
-  suggestions?: string;
-  batch?: boolean;
-  input?: string;
-  aiModel?: string;
-  confidence?: string;
-  evaluatedBy?: string;
-  format?: 'table' | 'json' | 'friendly';
-}
+/**
+ * Evaluate code quality with real-time feedback
+ */
+export async function evaluateCommand(
+  input: string,
+  options: EvaluateCommandOptions
+): Promise<void> {
+  const spinner = ora();
 
-export function createEvaluateCommand(): Command {
-  return new Command('evaluate')
-    .description('Evaluate function naming quality using 3-level rating system')
-    .argument('[function-id]', 'Function ID to evaluate (use "funcqc list --show-id" to find IDs)')
-    .option('--rating <1-3>', 'Rating: 1=Appropriate, 2=Partially Correct, 3=Inappropriate')
-    .option('--issues <description>', 'Issues found with the function name')
-    .option('--suggestions <text>', 'Suggestions for improvement')
-    .option('--batch', 'Batch evaluation mode using JSON input file')
-    .option('--input <file>', 'Input JSON file for batch evaluation')
-    .option('--ai-model <model>', 'AI model used for evaluation (for metadata)')
-    .option('--confidence <0-1>', 'Confidence score for AI evaluations (0.0-1.0)')
-    .option('--evaluated-by <evaluator>', 'Evaluator type: human, ai, auto', 'human')
-    .option('--format <format>', 'Output format: table, json, friendly', 'table')
-    .action(async (functionId: string | undefined, options: EvaluateOptions) => {
-      const spinner = ora();
-      
-      try {
-        // Validate options
-        validateEvaluateOptions(functionId, options);
-        
-        // Load configuration
-        const configManager = new ConfigManager();
-        const config = await configManager.load();
-        const storage = new PGLiteStorageAdapter(config.storage.path!);
-        await storage.init();
+  try {
+    // Initialize configuration and storage
+    const config = await new ConfigManager().load();
+    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+    await storage.init();
 
-        if (options.batch) {
-          await handleBatchEvaluation(options, storage, spinner);
-        } else {
-          await handleSingleEvaluation(functionId!, options, storage, spinner);
-        }
+    // Load baseline from historical data
+    const qualityGate = await initializeQualityGate(storage, spinner);
 
-        await storage.close();
-      } catch (error) {
-        spinner.fail('Evaluation failed');
-        
-        console.error(chalk.red(`Error: ${error instanceof Error ? error.message : String(error)}`));
+    // Get code to evaluate
+    let code: string;
+    let filename: string;
+
+    if (options.stdin) {
+      code = await readFromStdin();
+      filename = 'stdin.ts';
+    } else {
+      // Input is a file path
+      filename = path.resolve(input);
+      code = await fs.readFile(filename, 'utf-8');
+    }
+
+    spinner.start('Evaluating code quality...');
+
+    // Perform evaluation
+    const assessment = await qualityGate.evaluateCode(code, { filename });
+
+    spinner.stop();
+
+    // Output results
+    if (isJsonOutput(options)) {
+      await outputJsonResults(assessment, options);
+    } else {
+      await displayHumanResults(assessment, filename, options);
+    }
+
+    // Exit with appropriate code
+    if (options.aiGenerated) {
+      // For AI generation: exit 1 if not acceptable, 0 otherwise
+      process.exit(assessment.acceptable ? 0 : 1);
+    } else {
+      // For normal evaluation: always exit 0 unless critical errors
+      const criticalViolations = assessment.violations.filter(
+        v => v.severity === 'critical'
+      ).length;
+      const criticalAnomalies = assessment.structuralAnomalies.filter(
+        a => a.severity === 'critical'
+      ).length;
+      if ((criticalViolations > 0 || criticalAnomalies > 0) && options.strict) {
         process.exit(1);
       }
+    }
+  } catch (error) {
+    spinner.fail(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+
+/**
+ * Initialize quality gate with historical baseline
+ */
+async function initializeQualityGate(
+  storage: PGLiteStorageAdapter,
+  spinner: typeof ora.prototype
+): Promise<RealTimeQualityGate> {
+  spinner.start('Loading project baseline...');
+
+  const qualityGate = new RealTimeQualityGate({
+    warningThreshold: 2.0,
+    criticalThreshold: 3.0,
+    minBaselineFunctions: 10, // Lower threshold for evaluate command
+    maxAnalysisTime: 5000, // 5 second timeout for single evaluation
+  });
+
+  try {
+    // Get recent snapshots to build baseline
+    const recentSnapshots = await storage.getSnapshots({ limit: 3 });
+    const allHistoricalFunctions: FunctionInfo[] = [];
+
+    for (const snapshot of recentSnapshots) {
+      const functions = await storage.getFunctions(snapshot.id);
+      allHistoricalFunctions.push(...functions);
+    }
+
+    if (allHistoricalFunctions.length > 0) {
+      qualityGate.updateBaseline(allHistoricalFunctions);
+      spinner.succeed(`Baseline loaded from ${allHistoricalFunctions.length} functions`);
+    } else {
+      spinner.warn('No historical data - using static thresholds');
+    }
+  } catch {
+    spinner.warn('Failed to load baseline - using static thresholds');
+  }
+
+  return qualityGate;
+}
+
+/**
+ * Read code from stdin
+ */
+async function readFromStdin(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+
+    process.stdin.setEncoding('utf8');
+
+    process.stdin.on('readable', () => {
+      const chunk = process.stdin.read();
+      if (chunk !== null) {
+        data += chunk;
+      }
     });
+
+    process.stdin.on('end', () => {
+      if (data.trim() === '') {
+        reject(new Error('No input provided'));
+      } else {
+        resolve(data);
+      }
+    });
+
+    process.stdin.on('error', reject);
+
+    // Set timeout for stdin read
+    setTimeout(() => {
+      reject(new Error('Timeout waiting for stdin input'));
+    }, 10000); // 10 second timeout
+  });
 }
 
-function validateEvaluateOptions(functionId: string | undefined, options: EvaluateOptions): void {
-  if (options.batch) {
-    if (!options.input) {
-      throw new Error('Batch evaluation requires --input parameter');
-    }
+/**
+ * Output results in JSON format
+ */
+async function outputJsonResults(
+  assessment: QualityAssessment,
+  options: EvaluateCommandOptions
+): Promise<void> {
+  const result = {
+    acceptable: assessment.acceptable,
+    qualityScore: assessment.qualityScore,
+    structuralScore: assessment.structuralScore,
+    responseTime: assessment.responseTime,
+    violations: assessment.violations.map(v => ({
+      metric: v.metric,
+      value: v.value,
+      threshold: v.threshold,
+      zScore: v.zScore,
+      severity: v.severity,
+      suggestion: v.suggestion,
+    })),
+    structuralAnomalies: assessment.structuralAnomalies.map(a => ({
+      metric: a.metric,
+      value: a.value,
+      expectedRange: a.expectedRange,
+      severity: a.severity,
+      description: a.description,
+      suggestion: a.suggestion,
+    })),
+    structuralMetrics: assessment.structuralMetrics,
+    improvementInstruction: assessment.improvementInstruction || null,
+    metadata: {
+      evaluationTime: new Date().toISOString(),
+      mode: options.aiGenerated ? 'ai-generation' : 'evaluation',
+      baseline: 'adaptive',
+    },
+  };
+
+  outputJson(result, options);
+}
+
+/**
+ * Display results in human-readable format
+ */
+async function displayHumanResults(
+  assessment: QualityAssessment,
+  filename: string,
+  options: EvaluateCommandOptions
+): Promise<void> {
+  const relativePath = path.relative(process.cwd(), filename);
+
+  console.log(chalk.cyan('\n🎯 Code Quality Evaluation\n'));
+  console.log(`📁 File: ${chalk.bold(relativePath)}`);
+  console.log(`⚡ Response Time: ${chalk.green(assessment.responseTime.toFixed(1))}ms`);
+  console.log(
+    `📊 Quality Score: ${getScoreColor(assessment.qualityScore)(`${assessment.qualityScore}/100`)}`
+  );
+  console.log(
+    `🏗️  Structural Score: ${getScoreColor(assessment.structuralScore)(`${assessment.structuralScore}/100`)}`
+  );
+
+  // Overall status
+  if (assessment.acceptable) {
+    console.log(chalk.green('\n✅ Code quality: ACCEPTABLE'));
   } else {
-    if (!functionId) {
-      throw new Error('Function ID is required for single evaluation. Use "funcqc list --show-id" to find function IDs');
+    console.log(chalk.red('\n❌ Code quality: NEEDS IMPROVEMENT'));
+  }
+
+  // Violations
+  if (assessment.violations.length > 0) {
+    console.log(chalk.yellow('\n⚠️  Quality Violations:'));
+
+    const criticalViolations = assessment.violations.filter(v => v.severity === 'critical');
+    const warningViolations = assessment.violations.filter(v => v.severity === 'warning');
+
+    if (criticalViolations.length > 0) {
+      console.log(chalk.red('\n  Critical:'));
+      for (const violation of criticalViolations) {
+        displayViolation(violation, '🔴');
+      }
     }
 
-    if (!options.rating) {
-      throw new Error('Rating is required for single evaluation. Provide rating using --rating parameter (1, 2, or 3)');
-    }
-
-    const rating = parseInt(options.rating);
-    if (isNaN(rating) || rating < 1 || rating > 3) {
-      throw new Error(`Rating must be 1, 2, or 3. Provided: ${options.rating}`);
-    }
-  }
-
-  if (options.confidence) {
-    const confidence = parseFloat(options.confidence);
-    if (isNaN(confidence) || confidence < 0 || confidence > 1) {
-      throw new Error(`Confidence must be between 0.0 and 1.0. Provided: ${options.confidence}`);
-    }
-  }
-
-  if (options.evaluatedBy && !['human', 'ai', 'auto'].includes(options.evaluatedBy)) {
-    throw new Error(`Evaluator must be human, ai, or auto. Provided: ${options.evaluatedBy}`);
-  }
-}
-
-async function handleSingleEvaluation(
-  functionId: string,
-  options: EvaluateOptions,
-  storage: PGLiteStorageAdapter,
-  spinner: Ora
-): Promise<void> {
-  spinner.start(`Evaluating function ${functionId}...`);
-
-  // Get function information to validate ID exists
-  const functions = await storage.queryFunctions({ 
-    filters: [{ field: 'id', operator: '=', value: functionId }] 
-  });
-
-  if (functions.length === 0) {
-    throw new Error(`Function with ID "${functionId}" not found. Check function ID using "funcqc list --show-id"`);
-  }
-
-  const functionInfo = functions[0] as FunctionInfo;
-  
-  // Create evaluation
-  const evaluation: NamingEvaluation = {
-    functionId,
-    semanticId: functionInfo.semanticId,
-    functionName: functionInfo.name,
-    descriptionHash: generateDescriptionHash(functionInfo),
-    rating: parseInt(options.rating!) as 1 | 2 | 3,
-    evaluatedAt: Date.now(),
-    evaluatedBy: (options.evaluatedBy as 'human' | 'ai' | 'auto') || 'human',
-    revisionNeeded: false,
-    ...(options.issues && { issues: options.issues }),
-    ...(options.suggestions && { suggestions: options.suggestions }),
-    ...(options.aiModel && { aiModel: options.aiModel }),
-    ...(options.confidence && { confidence: parseFloat(options.confidence) })
-  };
-
-  // Save evaluation
-  await storage.saveNamingEvaluation(evaluation);
-
-  spinner.succeed(`Evaluation saved for function "${functionInfo.displayName}"`);
-
-  // Display result
-  displayEvaluationResult(evaluation, functionInfo, options.format || 'table');
-}
-
-function readBatchDataFromFile(inputPath: string): EvaluationBatch {
-  try {
-    const fileContent = readFileSync(inputPath, 'utf-8');
-    return JSON.parse(fileContent);
-  } catch (error) {
-    throw new Error(`Failed to read or parse input file: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
-function validateBatchDataStructure(batchData: EvaluationBatch): void {
-  if (!batchData.evaluations || !Array.isArray(batchData.evaluations)) {
-    throw new Error('Input file must contain "evaluations" array');
-  }
-}
-
-function validateEvaluationData(evalData: unknown, index: number): string | null {
-  if (!evalData || typeof evalData !== 'object') {
-    return `Evaluation ${index + 1}: Invalid data format`;
-  }
-
-  const data = evalData as { functionId?: unknown; rating?: unknown };
-  
-  if (!data.functionId || !data.rating) {
-    return `Evaluation ${index + 1}: Missing required fields (functionId, rating)`;
-  }
-
-  if (![1, 2, 3].includes(data.rating as number)) {
-    return `Evaluation ${index + 1}: Invalid rating ${data.rating} (must be 1, 2, or 3)`;
-  }
-
-  return null;
-}
-
-async function findFunctionInfo(storage: PGLiteStorageAdapter, functionId: string): Promise<FunctionInfo | null> {
-  const functions = await storage.queryFunctions({ 
-    filters: [{ field: 'id', operator: '=', value: functionId }] 
-  });
-  
-  return functions.length > 0 ? functions[0] as FunctionInfo : null;
-}
-
-function createNamingEvaluation(
-  evalData: unknown,
-  functionInfo: FunctionInfo,
-  batchData: EvaluationBatch,
-  options: EvaluateOptions
-): NamingEvaluation {
-  const data = evalData as {
-    functionId: string;
-    rating: 1 | 2 | 3;
-    issues?: string;
-    suggestions?: string;
-  };
-
-  return {
-    functionId: data.functionId,
-    semanticId: functionInfo.semanticId,
-    functionName: functionInfo.name,
-    descriptionHash: generateDescriptionHash(functionInfo),
-    rating: data.rating,
-    evaluatedAt: Date.now(),
-    evaluatedBy: batchData.metadata?.evaluatedBy || options.evaluatedBy as 'human' | 'ai' | 'auto' || 'human',
-    revisionNeeded: false,
-    ...(data.issues && { issues: data.issues }),
-    ...(data.suggestions && { suggestions: data.suggestions }),
-    ...((batchData.metadata?.aiModel || options.aiModel) && { aiModel: batchData.metadata?.aiModel || options.aiModel }),
-    ...(batchData.metadata?.confidence && { confidence: batchData.metadata.confidence }),
-    ...(options.confidence && { confidence: parseFloat(options.confidence) })
-  };
-}
-
-function displayProcessingErrors(errors: string[]): void {
-  if (errors.length > 0) {
-    console.warn(chalk.yellow('⚠ Some evaluations could not be processed:'));
-    errors.forEach(error => console.warn(chalk.yellow(`  ${error}`)));
-    console.log();
-  }
-}
-
-async function processEvaluationItem(
-  evalData: unknown,
-  index: number,
-  storage: PGLiteStorageAdapter,
-  batchData: EvaluationBatch,
-  options: EvaluateOptions
-): Promise<{ evaluation?: NamingEvaluation; error?: string }> {
-  try {
-    const validationError = validateEvaluationData(evalData, index);
-    if (validationError) {
-      return { error: validationError };
-    }
-
-    const data = evalData as { functionId: string };
-    const functionInfo = await findFunctionInfo(storage, data.functionId);
-    if (!functionInfo) {
-      return { error: `Evaluation ${index + 1}: Function "${data.functionId}" not found` };
-    }
-
-    const evaluation = createNamingEvaluation(evalData, functionInfo, batchData, options);
-    return { evaluation };
-  } catch (error) {
-    return { error: `Evaluation ${index + 1}: ${error instanceof Error ? error.message : String(error)}` };
-  }
-}
-
-async function handleBatchEvaluation(
-  options: EvaluateOptions,
-  storage: PGLiteStorageAdapter,
-  spinner: Ora
-): Promise<void> {
-  spinner.start(`Loading batch evaluation data from ${options.input}...`);
-
-  const inputPath = resolve(options.input!);
-  const batchData = readBatchDataFromFile(inputPath);
-  validateBatchDataStructure(batchData);
-
-  spinner.text = `Processing ${batchData.evaluations.length} evaluations...`;
-
-  const evaluations: NamingEvaluation[] = [];
-  const errors: string[] = [];
-
-  for (const [index, evalData] of batchData.evaluations.entries()) {
-    const result = await processEvaluationItem(evalData, index, storage, batchData, options);
-    
-    if (result.evaluation) {
-      evaluations.push(result.evaluation);
-    } else if (result.error) {
-      errors.push(result.error);
+    if (warningViolations.length > 0) {
+      console.log(chalk.yellow('\n  Warnings:'));
+      for (const violation of warningViolations) {
+        displayViolation(violation, '🟡');
+      }
     }
   }
 
-  displayProcessingErrors(errors);
+  // Structural Anomalies
+  if (assessment.structuralAnomalies.length > 0) {
+    console.log(chalk.magenta('\n🔗 Structural Anomalies:'));
 
-  if (evaluations.length === 0) {
-    throw new Error('No valid evaluations to process. Fix validation errors in input file');
+    const criticalAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'critical');
+    const warningAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'warning');
+
+    if (criticalAnomalies.length > 0) {
+      console.log(chalk.red('\n  Critical:'));
+      for (const anomaly of criticalAnomalies) {
+        displayStructuralAnomaly(anomaly, '🔴');
+      }
+    }
+
+    if (warningAnomalies.length > 0) {
+      console.log(chalk.yellow('\n  Warnings:'));
+      for (const anomaly of warningAnomalies) {
+        displayStructuralAnomaly(anomaly, '🟡');
+      }
+    }
   }
 
-  spinner.text = `Saving ${evaluations.length} evaluations...`;
-  await storage.batchSaveEvaluations(evaluations);
+  // Improvement suggestions
+  if (assessment.improvementInstruction) {
+    console.log(chalk.blue('\n💡 Suggested Improvements:'));
+    console.log(`   ${assessment.improvementInstruction}`);
+  }
 
-  spinner.succeed(`Batch evaluation completed: ${evaluations.length} evaluations saved`);
-  displayBatchSummary(evaluations, batchData.evaluations.length, errors.length, options.format || 'table');
+  // AI-specific feedback
+  if (options.aiGenerated) {
+    console.log(chalk.magenta('\n🤖 AI Generation Feedback:'));
+    if (assessment.acceptable) {
+      console.log('   ✅ Generated code meets quality standards');
+    } else {
+      console.log('   🔄 Regeneration recommended with improvements');
+    }
+  }
+
+  console.log(); // Empty line for spacing
 }
 
-function generateDescriptionHash(functionInfo: FunctionInfo): string {
-  // Create hash based on function description or signature if no description
-  const content = functionInfo.description || functionInfo.signature || functionInfo.name;
-  return createHash('md5').update(content).digest('hex');
+/**
+ * Display individual violation
+ */
+function displayViolation(violation: QualityViolation, icon: string): void {
+  console.log(
+    `   ${icon} ${chalk.bold(violation.metric)}: ${violation.value} (threshold: ${violation.threshold.toFixed(1)})`
+  );
+  if (violation.zScore !== 0) {
+    console.log(
+      `      Z-score: ${violation.zScore.toFixed(2)} (${Math.abs(violation.zScore).toFixed(1)}σ from project mean)`
+    );
+  }
+  console.log(`      ${violation.suggestion}`);
 }
 
-function displayEvaluationResult(
-  evaluation: NamingEvaluation,
-  functionInfo: FunctionInfo,
-  format: string
-): void {
-  if (format === 'json') {
-    console.log(JSON.stringify({
-      functionId: evaluation.functionId,
-      functionName: evaluation.functionName,
-      rating: evaluation.rating,
-      ratingDescription: getRatingDescription(evaluation.rating),
-      evaluatedBy: evaluation.evaluatedBy,
-      evaluatedAt: new Date(evaluation.evaluatedAt).toISOString(),
-      issues: evaluation.issues,
-      suggestions: evaluation.suggestions
-    }, null, 2));
-    return;
-  }
-
-  console.log();
-  console.log(chalk.green('✓ Evaluation completed successfully'));
-  console.log();
-  console.log(`${chalk.bold('Function:')} ${functionInfo.displayName}`);
-  console.log(`${chalk.bold('File:')} ${functionInfo.filePath}:${functionInfo.startLine}`);
-  console.log(`${chalk.bold('Rating:')} ${evaluation.rating} - ${getRatingDescription(evaluation.rating)}`);
-  console.log(`${chalk.bold('Evaluated by:')} ${evaluation.evaluatedBy}`);
-  console.log(`${chalk.bold('Evaluated at:')} ${new Date(evaluation.evaluatedAt).toLocaleString()}`);
-  
-  if (evaluation.issues) {
-    console.log(`${chalk.bold('Issues:')} ${evaluation.issues}`);
-  }
-  
-  if (evaluation.suggestions) {
-    console.log(`${chalk.bold('Suggestions:')} ${evaluation.suggestions}`);
-  }
-  
-  if (evaluation.confidence) {
-    console.log(`${chalk.bold('Confidence:')} ${(evaluation.confidence * 100).toFixed(1)}%`);
-  }
-
-  console.log();
+/**
+ * Display individual structural anomaly
+ */
+function displayStructuralAnomaly(anomaly: StructuralAnomaly, icon: string): void {
+  console.log(
+    `   ${icon} ${chalk.bold(anomaly.metric)}: ${anomaly.value.toFixed(3)} (expected: ${anomaly.expectedRange[0]}-${anomaly.expectedRange[1]})`
+  );
+  console.log(`      ${anomaly.description}`);
+  console.log(`      ${anomaly.suggestion}`);
 }
 
-function displayBatchSummary(
-  evaluations: NamingEvaluation[],
-  totalCount: number,
-  errorCount: number,
-  format: string
-): void {
-  if (format === 'json') {
-    const ratingCounts = evaluations.reduce((acc, evaluation) => {
-      acc[evaluation.rating] = (acc[evaluation.rating] || 0) + 1;
-      return acc;
-    }, {} as Record<number, number>);
-
-    console.log(JSON.stringify({
-      summary: {
-        total: totalCount,
-        successful: evaluations.length,
-        errors: errorCount,
-        ratingDistribution: ratingCounts
-      },
-      evaluations: evaluations.map(evaluation => ({
-        functionId: evaluation.functionId,
-        functionName: evaluation.functionName,
-        rating: evaluation.rating
-      }))
-    }, null, 2));
-    return;
-  }
-
-  console.log();
-  console.log(chalk.green('📊 Batch Evaluation Summary'));
-  console.log(chalk.gray('─'.repeat(50)));
-  console.log(`${chalk.bold('Total evaluations:')} ${totalCount}`);
-  console.log(`${chalk.bold('Successful:')} ${chalk.green(evaluations.length)}`);
-  if (errorCount > 0) {
-    console.log(`${chalk.bold('Errors:')} ${chalk.red(errorCount)}`);
-  }
-
-  // Rating distribution
-  const ratingCounts = evaluations.reduce((acc, evaluation) => {
-    acc[evaluation.rating] = (acc[evaluation.rating] || 0) + 1;
-    return acc;
-  }, {} as Record<number, number>);
-
-  console.log();
-  console.log(chalk.bold('Rating Distribution:'));
-  console.log(`  ${chalk.green('1 (Appropriate):')} ${ratingCounts[1] || 0}`);
-  console.log(`  ${chalk.yellow('2 (Partially Correct):')} ${ratingCounts[2] || 0}`);
-  console.log(`  ${chalk.red('3 (Inappropriate):')} ${ratingCounts[3] || 0}`);
-  console.log();
+/**
+ * Get color for score display
+ */
+function getScoreColor(score: number): typeof chalk.green {
+  if (score >= 90) return chalk.green;
+  if (score >= 80) return chalk.yellow;
+  if (score >= 70) return chalk.yellow; // chalk doesn't have orange
+  return chalk.red;
 }
-
-function getRatingDescription(rating: 1 | 2 | 3): string {
-  switch (rating) {
-    case 1: return chalk.green('Appropriate - Function name accurately represents processing');
-    case 2: return chalk.yellow('Partially Correct - Name partially correct but includes extra responsibilities');
-    case 3: return chalk.red('Inappropriate - Function name does not match processing');
-  }
-}
-
-// Export validation function for testing
-export { validateEvaluateOptions };

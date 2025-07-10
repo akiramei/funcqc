@@ -36,7 +36,7 @@ export async function describeCommand(
     // Load configuration
     const configManager = new ConfigManager();
     const config = await configManager.load();
-    
+
     // Initialize storage
     const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
     await storage.init();
@@ -56,7 +56,6 @@ export async function describeCommand(
     } finally {
       await storage.close();
     }
-
   } catch (error) {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,
@@ -71,9 +70,9 @@ export async function describeCommand(
 
 async function handleBatchDescribe(context: DescribeContext): Promise<void> {
   const { storage, logger, options } = context;
-  
+
   const descriptions = await loadBatchDescriptions(options.input!);
-  
+
   logger.info(`Processing ${descriptions.length} function descriptions...`);
 
   for (const desc of descriptions) {
@@ -92,9 +91,11 @@ async function loadBatchDescriptions(inputPath: string): Promise<DescribeBatchIn
   try {
     inputData = JSON.parse(fs.readFileSync(inputPath, 'utf-8'));
   } catch (error) {
-    throw new Error(`Failed to parse JSON from input file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(
+      `Failed to parse JSON from input file: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
   }
-  
+
   if (!Array.isArray(inputData)) {
     throw new Error('Input file must contain an array of descriptions');
   }
@@ -118,30 +119,29 @@ async function processBatchDescription(
   // Check for existing description and validate source guard for batch operations
   const existingDescription = await storage.getFunctionDescription(desc.semanticId);
   const newSource = desc.source || options.source || 'human';
-  
+
   if (existingDescription && !options.force) {
     const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
     if (sourceGuardWarning) {
       logger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning}`);
-      logger.info(`    → Use "source": "${existingDescription.source}" in JSON or --force to override`);
+      logger.info(
+        `    → Use "source": "${existingDescription.source}" in JSON or --force to override`
+      );
       return;
     }
   }
 
-  const description = createFunctionDescription(
-    desc.semanticId,
-    desc.description,
-    {
-      source: newSource,
-      validatedForContentId,
-      createdBy: desc.createdBy || options.by,
-      aiModel: desc.aiModel || options.model,
-      confidenceScore: desc.confidenceScore ?? (options.confidence ? parseFloat(options.confidence) : undefined),
-      usageExample: desc.usageExample || options.usageExample,
-      sideEffects: desc.sideEffects || options.sideEffects,
-      errorConditions: desc.errorConditions || options.errorConditions
-    }
-  );
+  const description = createFunctionDescription(desc.semanticId, desc.description, {
+    source: newSource,
+    validatedForContentId,
+    createdBy: desc.createdBy || options.by,
+    aiModel: desc.aiModel || options.model,
+    confidenceScore:
+      desc.confidenceScore ?? (options.confidence ? parseFloat(options.confidence) : undefined),
+    usageExample: desc.usageExample || options.usageExample,
+    sideEffects: desc.sideEffects || options.sideEffects,
+    errorConditions: desc.errorConditions || options.errorConditions,
+  });
 
   await storage.saveFunctionDescription(description);
   logger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
@@ -158,15 +158,17 @@ async function findContentIdBySemanticId(
         {
           field: 'semantic_id',
           operator: '=',
-          value: semanticId
-        }
+          value: semanticId,
+        },
       ],
-      limit: 1
+      limit: 1,
     });
-    
+
     return functions.length > 0 ? functions[0].contentId : undefined;
   } catch (error) {
-    logger.warn(`Could not find function with semantic ID ${semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    logger.warn(
+      `Could not find function with semantic ID ${semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
     return undefined;
   }
 }
@@ -176,9 +178,9 @@ async function handleSingleDescribe(
   functionIdOrPattern: string
 ): Promise<void> {
   const { storage, logger, options } = context;
-  
+
   const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
-  
+
   if (!targetFunction) {
     return;
   }
@@ -197,17 +199,17 @@ async function findTargetFunction(
 ): Promise<FunctionInfo | null> {
   // Try exact ID match first
   let functions = await findFunctionById(storage, functionIdOrPattern);
-  
+
   // Try partial ID match
   if (functions.length === 0) {
     functions = await findFunctionByPartialId(storage, functionIdOrPattern);
   }
-  
+
   // Try name pattern match
   if (functions.length === 0) {
     const result = await findFunctionByName(storage, functionIdOrPattern, logger);
     if (!result) return null;
-    
+
     if (typeof result === 'string') {
       // Single match, use its ID
       functions = await findFunctionById(storage, result);
@@ -216,12 +218,12 @@ async function findTargetFunction(
       return null;
     }
   }
-  
+
   if (functions.length === 0) {
     showFunctionNotFound(logger, functionIdOrPattern);
     return null;
   }
-  
+
   return functions[0];
 }
 
@@ -234,9 +236,9 @@ async function findFunctionById(
       {
         field: 'id',
         operator: '=',
-        value: functionId
-      }
-    ]
+        value: functionId,
+      },
+    ],
   });
 }
 
@@ -249,9 +251,9 @@ async function findFunctionByPartialId(
       {
         field: 'id',
         operator: 'LIKE',
-        value: `${partialId}%`
-      }
-    ]
+        value: `${partialId}%`,
+      },
+    ],
   });
 }
 
@@ -265,9 +267,9 @@ async function findFunctionByName(
       {
         field: 'name',
         operator: 'LIKE',
-        value: `%${namePattern}%`
-      }
-    ]
+        value: `%${namePattern}%`,
+      },
+    ],
   });
 
   if (functions.length === 0) {
@@ -292,21 +294,25 @@ function showFunctionNotFound(logger: Logger, pattern: string): void {
 }
 
 function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern: string): void {
-  logger.info(chalk.yellow(`Multiple functions found matching "${pattern}". Please specify a function ID:`));
+  logger.info(
+    chalk.yellow(`Multiple functions found matching "${pattern}". Please specify a function ID:`)
+  );
   logger.info('');
-  
+
   functions.forEach((func, index) => {
     const riskIcon = getRiskIcon(func);
-    logger.info(`  ${index + 1}. ${chalk.cyan(func.id.substring(0, 8))} - ${riskIcon} ${func.displayName}`);
+    logger.info(
+      `  ${index + 1}. ${chalk.cyan(func.id.substring(0, 8))} - ${riskIcon} ${func.displayName}`
+    );
     logger.info(`     📍 ${func.filePath}:${func.startLine}`);
-    
+
     if (func.jsDoc) {
       const jsDocPreview = func.jsDoc.replace(/\n/g, ' ').substring(0, 80);
       logger.info(`     📝 ${chalk.gray(jsDocPreview)}${func.jsDoc.length > 80 ? '...' : ''}`);
     }
     logger.info('');
   });
-  
+
   logger.info(chalk.blue('Usage examples:'));
   logger.info(`  funcqc describe ${functions[0].id.substring(0, 8)} --text "Your description"`);
   logger.info(`  funcqc describe ${functions[0].id} --text "Your description"`);
@@ -328,11 +334,17 @@ function handleSourceGuardValidation(
       logger.warn(chalk.yellow(`⚠️  ${sourceGuardWarning}`));
       logger.info('');
       logger.info(chalk.blue('To resolve this:'));
-      logger.info(`  1. Use matching source: ${chalk.cyan(`--source ${existingDescription.source}`)}`);
+      logger.info(
+        `  1. Use matching source: ${chalk.cyan(`--source ${existingDescription.source}`)}`
+      );
       logger.info(`  2. Or force overwrite: ${chalk.cyan('--force')}`);
       logger.info('');
       logger.info(chalk.gray('Example:'));
-      logger.info(chalk.gray(`  funcqc describe ${targetFunction.id.substring(0, 8)} --text "..." --source ${existingDescription.source}`));
+      logger.info(
+        chalk.gray(
+          `  funcqc describe ${targetFunction.id.substring(0, 8)} --text "..." --source ${existingDescription.source}`
+        )
+      );
       process.exit(1);
     }
   }
@@ -347,21 +359,17 @@ function buildFunctionDescription(
   options: DescribeCommandOptions
 ): FunctionDescription {
   const newSource = options.source || 'human';
-  
-  return createFunctionDescription(
-    targetFunction.semanticId,
-    descriptionText,
-    {
-      source: newSource,
-      validatedForContentId: targetFunction.contentId,
-      createdBy: options.by,
-      aiModel: options.model,
-      confidenceScore: options.confidence ? parseFloat(options.confidence) : undefined,
-      usageExample: options.usageExample,
-      sideEffects: options.sideEffects,
-      errorConditions: options.errorConditions
-    }
-  );
+
+  return createFunctionDescription(targetFunction.semanticId, descriptionText, {
+    source: newSource,
+    validatedForContentId: targetFunction.contentId,
+    createdBy: options.by,
+    aiModel: options.model,
+    confidenceScore: options.confidence ? parseFloat(options.confidence) : undefined,
+    usageExample: options.usageExample,
+    sideEffects: options.sideEffects,
+    errorConditions: options.errorConditions,
+  });
 }
 
 /**
@@ -377,14 +385,14 @@ function displaySaveConfirmation(
   logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
   logger.info(`  Function ID: ${targetFunction.id}`);
   logger.info(`  Semantic ID: ${targetFunction.semanticId}`);
-  
+
   if (text) {
     logger.info(`  Description: ${text}`);
   }
-  
-  const truncateText = (text: string): string => 
+
+  const truncateText = (text: string): string =>
     text.length > 80 ? `${text.substring(0, 80)}...` : text;
-  
+
   if (options.usageExample) {
     logger.info(`  Usage Example: ${truncateText(options.usageExample)}`);
   }
@@ -394,7 +402,7 @@ function displaySaveConfirmation(
   if (options.errorConditions) {
     logger.info(`  Error Conditions: ${truncateText(options.errorConditions)}`);
   }
-  
+
   logger.info(`  Source: ${description.source}`);
 }
 
@@ -404,17 +412,23 @@ async function saveDescription(
   text: string | undefined
 ): Promise<void> {
   const { storage, logger, options } = context;
-  
+
   const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
   const newSource = options.source || 'human';
-  
-  handleSourceGuardValidation(existingDescription, newSource, targetFunction, logger, options.force || false);
-  
+
+  handleSourceGuardValidation(
+    existingDescription,
+    newSource,
+    targetFunction,
+    logger,
+    options.force || false
+  );
+
   const descriptionText = text || existingDescription?.description || '';
   const description = buildFunctionDescription(targetFunction, descriptionText, options);
 
   await storage.saveFunctionDescription(description);
-  
+
   displaySaveConfirmation(targetFunction, description, text, options, logger);
 }
 
@@ -423,9 +437,9 @@ async function showExistingDescription(
   targetFunction: FunctionInfo
 ): Promise<void> {
   const { storage, logger } = context;
-  
+
   const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
-  
+
   if (existingDescription) {
     displayDescription(logger, targetFunction, existingDescription);
   } else {
@@ -442,7 +456,7 @@ function displayDescription(
   logger.info(`  Description: ${description.description}`);
   logger.info(`  Source: ${description.source}`);
   logger.info(`  Created: ${new Date(description.createdAt).toISOString()}`);
-  
+
   if (description.createdBy) {
     logger.info(`  Created by: ${description.createdBy}`);
   }
@@ -452,7 +466,7 @@ function displayDescription(
   if (description.confidenceScore !== undefined) {
     logger.info(`  Confidence: ${description.confidenceScore}`);
   }
-  
+
   // Display structured fields if present
   if (description.usageExample) {
     logger.info('');
@@ -460,14 +474,14 @@ function displayDescription(
     const lines = description.usageExample.split('\n');
     lines.forEach(line => logger.info(`    ${line}`));
   }
-  
+
   if (description.sideEffects) {
     logger.info('');
     logger.info(chalk.yellow('  Side Effects:'));
     const lines = description.sideEffects.split('\n');
     lines.forEach(line => logger.info(`    ${line}`));
   }
-  
+
   if (description.errorConditions) {
     logger.info('');
     logger.info(chalk.red('  Error Conditions:'));
@@ -494,12 +508,12 @@ function validateSourceGuard(
   if (existingSource === null) {
     return null;
   }
-  
+
   // Allow updates if source is the same
   if (existingSource === newSource) {
     return null;
   }
-  
+
   // Warn about cross-source updates
   return `Overwriting ${existingSource} description with ${newSource} description.`;
 }
@@ -519,7 +533,7 @@ function createFunctionDescription(
   }
 ): FunctionDescription {
   const now = Date.now();
-  
+
   return {
     semanticId,
     description,
@@ -529,12 +543,13 @@ function createFunctionDescription(
     ...(options.validatedForContentId && { validatedForContentId: options.validatedForContentId }),
     ...(options.createdBy && { createdBy: options.createdBy }),
     ...(options.aiModel && { aiModel: options.aiModel }),
-    ...(options.confidenceScore !== undefined && !isNaN(options.confidenceScore) && { 
-      confidenceScore: options.confidenceScore 
-    }),
+    ...(options.confidenceScore !== undefined &&
+      !isNaN(options.confidenceScore) && {
+        confidenceScore: options.confidenceScore,
+      }),
     ...(options.usageExample && { usageExample: options.usageExample }),
     ...(options.sideEffects && { sideEffects: options.sideEffects }),
-    ...(options.errorConditions && { errorConditions: options.errorConditions })
+    ...(options.errorConditions && { errorConditions: options.errorConditions }),
   };
 }
 
@@ -542,24 +557,29 @@ function getRiskIcon(func: FunctionInfo): string {
   if (!func.metrics) {
     return ''; // No metrics available
   }
-  
-  const { cyclomaticComplexity, linesOfCode, cognitiveComplexity, parameterCount, maxNestingLevel } = func.metrics;
-  
+
+  const {
+    cyclomaticComplexity,
+    linesOfCode,
+    cognitiveComplexity,
+    parameterCount,
+    maxNestingLevel,
+  } = func.metrics;
+
   // Determine if function is high risk based on common thresholds
-  const isHighRisk = (
+  const isHighRisk =
     cyclomaticComplexity > 10 ||
     (cognitiveComplexity ?? 0) > 15 ||
     linesOfCode > 40 ||
     parameterCount > 4 ||
-    maxNestingLevel > 3
-  );
-  
+    maxNestingLevel > 3;
+
   return isHighRisk ? chalk.red('⚠️') : chalk.green('✅');
 }
 
 async function handleListFunctions(context: DescribeContext): Promise<void> {
   const { storage, logger, options } = context;
-  
+
   // Get the latest snapshot ID
   const snapshots = await storage.getSnapshots({ limit: 1 });
   if (snapshots.length === 0) {
@@ -567,10 +587,10 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
     return;
   }
   const latestSnapshotId = snapshots[0].id;
-  
+
   let functions: FunctionInfo[];
   let title: string;
-  
+
   if (options.listUndocumented) {
     functions = await storage.getFunctionsWithoutDescriptions(latestSnapshotId);
     title = 'Functions without descriptions';
@@ -583,23 +603,23 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
     logger.warn('No list option specified');
     return;
   }
-  
+
   if (functions.length === 0) {
     logger.info(chalk.green(`✓ No functions found for: ${title.toLowerCase()}`));
     return;
   }
-  
+
   // Get descriptions for functions that have them
   const functionsWithDescriptions = await Promise.all(
-    functions.map(async (func) => {
+    functions.map(async func => {
       const description = await storage.getFunctionDescription(func.semanticId);
       return {
         ...func,
-        currentDescription: description?.description || undefined
+        currentDescription: description?.description || undefined,
       };
     })
   );
-  
+
   if (options.json) {
     const jsonOutput = {
       title: title.toLowerCase(),
@@ -612,8 +632,8 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
         filePath: func.filePath,
         startLine: func.startLine,
         description: func.currentDescription || null,
-        metrics: func.metrics || null
-      }))
+        metrics: func.metrics || null,
+      })),
     };
     console.log(JSON.stringify(jsonOutput, null, 2));
   } else {
@@ -635,28 +655,30 @@ function displayFunctionTable(
   const idHeader = options.showId ? 'ID'.padEnd(16) : 'ID'.padEnd(8);
   const nameHeader = 'Name'.padEnd(31);
   const descHeader = 'Description';
-  
+
   console.log(`${idHeader} ${nameHeader} ${descHeader}`);
   console.log(`${'-'.repeat(idHeader.length)} ${'-'.repeat(31)} ${'-'.repeat(40)}`);
-  
+
   // Table rows
   functions.forEach(func => {
     const id = options.showId ? func.id : func.id.substring(0, 8);
     const idCol = id.padEnd(idHeader.length);
-    const nameCol = func.displayName.length > 31 
-      ? func.displayName.substring(0, 28) + '...' 
-      : func.displayName.padEnd(31);
-    
+    const nameCol =
+      func.displayName.length > 31
+        ? func.displayName.substring(0, 28) + '...'
+        : func.displayName.padEnd(31);
+
     let descCol = '';
     if (func.currentDescription) {
-      descCol = func.currentDescription.length > 40
-        ? func.currentDescription.substring(0, 37) + '...'
-        : func.currentDescription;
+      descCol =
+        func.currentDescription.length > 40
+          ? func.currentDescription.substring(0, 37) + '...'
+          : func.currentDescription;
     }
-    
+
     console.log(`${idCol} ${nameCol} ${descCol}`);
   });
-  
+
   console.log('');
   if (!options.showId) {
     console.log(chalk.blue('💡 Use --show-id to see complete function IDs'));
@@ -664,19 +686,22 @@ function displayFunctionTable(
   console.log(chalk.blue('Usage: funcqc describe <ID> --text "description" to add descriptions'));
 }
 
-async function handleGenerateTemplate(context: DescribeContext, functionIdOrPattern: string): Promise<void> {
+async function handleGenerateTemplate(
+  context: DescribeContext,
+  functionIdOrPattern: string
+): Promise<void> {
   const { storage, logger, options } = context;
-  
+
   if (!functionIdOrPattern) {
     throw new Error('Function ID or name pattern is required for template generation');
   }
-  
+
   const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
-  
+
   if (!targetFunction) {
     return;
   }
-  
+
   // Generate template based on function information
   const template: DescribeBatchInput = {
     semanticId: targetFunction.semanticId,
@@ -687,9 +712,9 @@ async function handleGenerateTemplate(context: DescribeContext, functionIdOrPatt
     createdBy: 'ai-assistant',
     usageExample: `[TODO] Add usage example for ${targetFunction.name}(${targetFunction.parameters.map(p => p.name).join(', ')})`,
     sideEffects: '[TODO] Document any side effects or state modifications',
-    errorConditions: '[TODO] Document error conditions and exception handling'
+    errorConditions: '[TODO] Document error conditions and exception handling',
   };
-  
+
   // Add function context for AI to understand
   const contextInfo = {
     // Function metadata for AI analysis
@@ -704,12 +729,12 @@ async function handleGenerateTemplate(context: DescribeContext, functionIdOrPatt
       isExported: targetFunction.isExported,
       functionType: targetFunction.functionType,
       sourceCode: targetFunction.sourceCode,
-      metrics: targetFunction.metrics
+      metrics: targetFunction.metrics,
     },
     // Template for batch processing
-    template: [template]
+    template: [template],
   };
-  
+
   if (options.aiMode) {
     // AI-optimized output with context
     console.log(JSON.stringify(contextInfo, null, 2));

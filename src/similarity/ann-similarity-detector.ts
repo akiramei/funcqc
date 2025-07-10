@@ -1,4 +1,10 @@
-import { FunctionInfo, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction } from '../types';
+import {
+  FunctionInfo,
+  SimilarityDetector,
+  SimilarityOptions,
+  SimilarityResult,
+  SimilarFunction,
+} from '../types';
 import { EmbeddingService } from '../services/embedding-service';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { DEFAULT_ANN_CONFIG } from '../services/ann-index';
@@ -11,7 +17,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
   name = 'ann-semantic';
   version = '1.0.0';
   supportedLanguages = ['typescript', 'javascript'];
-  
+
   private embeddingService: EmbeddingService;
   private storage: PGLiteStorageAdapter;
 
@@ -19,7 +25,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
     this.storage = storage;
     this.embeddingService = new EmbeddingService({
       enableANN: true,
-      annConfig: DEFAULT_ANN_CONFIG
+      annConfig: DEFAULT_ANN_CONFIG,
     });
   }
 
@@ -33,12 +39,15 @@ export class ANNSimilarityDetector implements SimilarityDetector {
     }
   }
 
-  async detect(functions: FunctionInfo[], options: SimilarityOptions = {}): Promise<SimilarityResult[]> {
+  async detect(
+    functions: FunctionInfo[],
+    options: SimilarityOptions = {}
+  ): Promise<SimilarityResult[]> {
     const config = this.parseDetectionOptions(options);
-    
+
     // Load all embeddings for the functions
     const embeddings = await this.loadEmbeddings(functions);
-    
+
     if (embeddings.length === 0) {
       return []; // No embeddings available, fallback to other detectors
     }
@@ -57,7 +66,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
         {
           useANN: true,
           limit: 20, // Get top 20 candidates
-          threshold: 0.0 // We'll filter by threshold later
+          threshold: 0.0, // We'll filter by threshold later
         }
       );
 
@@ -77,7 +86,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
         if (similar.similarity >= config.threshold) {
           const func1 = functions.find(f => f.id === embedding.functionId);
           const func2 = functions.find(f => f.id === similar.functionId);
-          
+
           if (func1 && func2) {
             // Apply additional filters
             if (!this.passesFilters(func1, func2, config)) {
@@ -95,7 +104,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
 
   private async loadEmbeddings(functions: FunctionInfo[]) {
     const embeddings = [];
-    
+
     for (const func of functions) {
       try {
         const embedding = await this.storage.getEmbedding(func.semanticId);
@@ -105,7 +114,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
             semanticId: func.semanticId,
             embedding: embedding.embedding,
             model: embedding.model,
-            timestamp: Date.now()
+            timestamp: Date.now(),
           });
         }
       } catch {
@@ -120,13 +129,13 @@ export class ANNSimilarityDetector implements SimilarityDetector {
     return {
       threshold: options.threshold || 0.8,
       minLines: options.minLines || 3,
-      crossFile: options.crossFile !== false
+      crossFile: options.crossFile !== false,
     };
   }
 
   private passesFilters(
-    func1: FunctionInfo, 
-    func2: FunctionInfo, 
+    func1: FunctionInfo,
+    func2: FunctionInfo,
     config: { minLines: number; crossFile: boolean }
   ): boolean {
     // Check minimum lines requirement
@@ -149,24 +158,23 @@ export class ANNSimilarityDetector implements SimilarityDetector {
   }
 
   private createSimilarityResult(
-    func1: FunctionInfo, 
-    func2: FunctionInfo, 
+    func1: FunctionInfo,
+    func2: FunctionInfo,
     similarity: number
   ): SimilarityResult {
     return {
       type: 'semantic',
       similarity,
-      functions: [
-        this.createSimilarFunction(func1),
-        this.createSimilarFunction(func2)
-      ],
+      functions: [this.createSimilarFunction(func1), this.createSimilarFunction(func2)],
       detector: this.name,
       metadata: {
         embeddingBased: true,
         annAccelerated: true,
-        complexityDiff: Math.abs((func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)),
-        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0))
-      }
+        complexityDiff: Math.abs(
+          (func1.metrics?.cyclomaticComplexity || 0) - (func2.metrics?.cyclomaticComplexity || 0)
+        ),
+        linesDiff: Math.abs((func1.metrics?.linesOfCode || 0) - (func2.metrics?.linesOfCode || 0)),
+      },
     };
   }
 
@@ -177,7 +185,7 @@ export class ANNSimilarityDetector implements SimilarityDetector {
       filePath: func.filePath,
       startLine: func.startLine,
       endLine: func.endLine,
-      originalFunction: func
+      originalFunction: func,
     };
   }
 
@@ -221,20 +229,20 @@ export class ANNSimilarityDetector implements SimilarityDetector {
     for (const [, members] of groups) {
       if (members.size >= 2) {
         const memberArray = Array.from(members);
-        const relevantResults = results.filter(r => 
-          members.has(r.functions[0].functionId) && members.has(r.functions[1].functionId)
+        const relevantResults = results.filter(
+          r => members.has(r.functions[0].functionId) && members.has(r.functions[1].functionId)
         );
 
         if (relevantResults.length > 0) {
           // Use the highest similarity in the group
-          const bestResult = relevantResults.reduce((best, current) => 
+          const bestResult = relevantResults.reduce((best, current) =>
             current.similarity > best.similarity ? current : best
           );
 
           // Create group result with all functions
           const allFunctions = memberArray.map(id => {
-            const result = relevantResults.find(r => 
-              r.functions[0].functionId === id || r.functions[1].functionId === id
+            const result = relevantResults.find(
+              r => r.functions[0].functionId === id || r.functions[1].functionId === id
             );
             return result?.functions.find(f => f.functionId === id) || bestResult.functions[0];
           });
@@ -245,8 +253,9 @@ export class ANNSimilarityDetector implements SimilarityDetector {
             metadata: {
               ...bestResult.metadata,
               groupSize: members.size,
-              avgSimilarity: relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length
-            }
+              avgSimilarity:
+                relevantResults.reduce((sum, r) => sum + r.similarity, 0) / relevantResults.length,
+            },
           });
         }
       }

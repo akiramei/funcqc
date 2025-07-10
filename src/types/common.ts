@@ -45,9 +45,9 @@ export interface SnapshotRow {
 }
 
 export interface FunctionRow {
-  id: string;                                              // Physical UUID
-  semantic_id: string;                                     // Semantic hash (role-based identification)
-  content_id: string;                                      // Content hash (implementation-based identification)
+  id: string; // Physical UUID
+  semantic_id: string; // Semantic hash (role-based identification)
+  content_id: string; // Content hash (implementation-based identification)
   snapshot_id: string;
   name: string;
   display_name: string;
@@ -60,13 +60,13 @@ export interface FunctionRow {
   start_column: number;
   end_column: number;
   ast_hash: string;
-  
+
   // Enhanced function identification
-  context_path?: string;                                   // Hierarchical context JSON
+  context_path?: string; // Hierarchical context JSON
   function_type?: 'function' | 'method' | 'arrow' | 'local';
-  modifiers?: string;                                      // Modifiers JSON ['static', 'private', 'async']
-  nesting_level?: number;                                  // Nesting depth
-  
+  modifiers?: string; // Modifiers JSON ['static', 'private', 'async']
+  nesting_level?: number; // Nesting depth
+
   // Existing function attributes
   is_exported: boolean;
   is_async: boolean;
@@ -170,6 +170,11 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
 export function isConfigValue(value: unknown): value is ConfigValue {
   if (value === null || value === undefined) return false;
   const type = typeof value;
-  return type === 'string' || type === 'number' || type === 'boolean' || 
-         isStringArray(value) || isRecord(value);
+  return (
+    type === 'string' ||
+    type === 'number' ||
+    type === 'boolean' ||
+    isStringArray(value) ||
+    isRecord(value)
+  );
 }

@@ -68,11 +68,11 @@ export class SystemChecker {
       const memUsage = process.memoryUsage();
       // Check if memory pressure is high (>90% heap usage)
       const heapUsageRatio = memUsage.heapUsed / memUsage.heapTotal;
-      
+
       // Only warn if heap usage is extremely high AND total heap is small
       const isHighPressure = heapUsageRatio > 0.9;
       const isSmallHeap = memUsage.heapTotal < 20 * 1024 * 1024; // 20MB
-      
+
       return !(isHighPressure && isSmallHeap);
     } catch {
       return true; // Default to no warning if check fails
@@ -97,32 +97,34 @@ export class SystemChecker {
         name: 'Node.js Version',
         check: () => this.checkNodeVersion(),
         errorMessage: 'Node.js 18.0.0 or higher is required. Current version: ' + process.version,
-        required: true
+        required: true,
       },
       {
         name: 'Git Availability',
         check: () => this.checkGitAvailable(),
         errorMessage: 'Git is not available in PATH. Git integration features will be disabled.',
-        required: false
+        required: false,
       },
       {
         name: 'TypeScript Project',
         check: () => this.checkTypescriptProject(),
-        errorMessage: 'No tsconfig.json or jsconfig.json found. Are you in a TypeScript/JavaScript project?',
-        required: true
+        errorMessage:
+          'No tsconfig.json or jsconfig.json found. Are you in a TypeScript/JavaScript project?',
+        required: true,
       },
       {
         name: 'Memory Available',
         check: () => this.checkMemoryAvailable(),
-        errorMessage: 'High memory pressure detected. Consider using --quick option or increasing Node.js memory limit.',
-        required: false
+        errorMessage:
+          'High memory pressure detected. Consider using --quick option or increasing Node.js memory limit.',
+        required: false,
       },
       {
         name: 'Write Permissions',
         check: () => this.checkWritePermissions(),
         errorMessage: 'Cannot write to current directory. Check file permissions.',
-        required: true
-      }
+        required: true,
+      },
     ];
   }
 
@@ -134,7 +136,7 @@ export class SystemChecker {
         const result: Record<string, unknown> = {
           name: req.name,
           passed,
-          required: req.required
+          required: req.required,
         };
         if (!passed && req.errorMessage) {
           result['errorMessage'] = req.errorMessage;
@@ -144,20 +146,27 @@ export class SystemChecker {
         const result: Record<string, unknown> = {
           name: req.name,
           passed: false,
-          required: req.required
+          required: req.required,
         };
         if (req.errorMessage) {
-          result['errorMessage'] = req.errorMessage + ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`;
+          result['errorMessage'] =
+            req.errorMessage +
+            ` (Error: ${error instanceof Error ? error.message : 'Unknown error'})`;
         }
         return result;
       }
     });
 
     const requiredPassed = results.every(r => !r['required'] || r['passed']);
-    
+
     return {
       passed: requiredPassed,
-      requirements: results as { name: string; passed: boolean; required: boolean; errorMessage?: string }[]
+      requirements: results as {
+        name: string;
+        passed: boolean;
+        required: boolean;
+        errorMessage?: string;
+      }[],
     };
   }
 
@@ -169,14 +178,14 @@ export class SystemChecker {
     // Only check Node.js version for read-only commands
     const nodeVersionOk = this.checkNodeVersion();
     const fileSystemOk = this.checkFileSystemAccess();
-    
+
     if (!nodeVersionOk || !fileSystemOk) {
       if (this.logger.isVerbose) {
         this.logger.error('Basic system check failed');
       }
       return false;
     }
-    
+
     return true;
   }
 
@@ -185,9 +194,9 @@ export class SystemChecker {
     if (this.logger.isVerbose) {
       this.logger.info('🔍 Checking system requirements...');
     }
-    
+
     const result = this.checkSystem();
-    
+
     // Show results based on verbosity level
     if (this.logger.isVerbose) {
       // Verbose mode: show all details
@@ -200,7 +209,7 @@ export class SystemChecker {
           this.logger.warn(`⚠️  ${req.name}: ${req.errorMessage}`);
         }
       });
-      
+
       if (result.passed) {
         this.logger.info('✅ System check passed!');
       } else {
@@ -217,7 +226,7 @@ export class SystemChecker {
           }
         }
       });
-      
+
       // Only show failure message if there were required failures
       if (!result.passed) {
         this.logger.error('System check failed. Please resolve the required issues above.');

@@ -4,7 +4,13 @@
  */
 
 import chalk from 'chalk';
-import { VectorizeResult, VectorizeData, StatusData, IndexData, BenchmarkData } from './vectorize-use-case';
+import {
+  VectorizeResult,
+  VectorizeData,
+  StatusData,
+  IndexData,
+  BenchmarkData,
+} from './vectorize-use-case';
 import { OutputFormat } from './vectorize-options';
 
 export interface FormatterOptions {
@@ -41,7 +47,7 @@ export class OutputFormatter {
       timestamp: new Date().toISOString(),
       timeTaken: result.timeTaken,
       data: result.data,
-      errors: result.errors
+      errors: result.errors,
     };
 
     return JSON.stringify(jsonOutput, null, 2);
@@ -85,7 +91,7 @@ export class OutputFormatter {
       `Functions processed: ${this.colorize(data.functionsProcessed.toString(), 'cyan')}`,
       `Model used: ${this.colorize(data.model, 'cyan')}`,
       `Embedding dimension: ${this.colorize(data.dimension.toString(), 'cyan')}`,
-      `Batch size: ${this.colorize(data.batchSize.toString(), 'cyan')}`
+      `Batch size: ${this.colorize(data.batchSize.toString(), 'cyan')}`,
     ];
 
     if (timeTaken) {
@@ -98,7 +104,7 @@ export class OutputFormatter {
       recentEmbeddings.forEach(emb => {
         lines.push(`  • ${emb.functionId} (${emb.model})`);
       });
-      
+
       if (data.embeddings.length > 5) {
         lines.push(`  ... and ${data.embeddings.length - 5} more`);
       }
@@ -117,7 +123,7 @@ export class OutputFormatter {
       `Total functions with descriptions: ${this.colorize(data.total.toString(), 'cyan')}`,
       `Functions with embeddings: ${this.colorize(data.withEmbeddings.toString(), 'green')}`,
       `Functions without embeddings: ${this.colorize(data.withoutEmbeddings.toString(), 'yellow')}`,
-      `Coverage: ${this.colorize(`${data.coverage}%`, data.coverage >= 80 ? 'green' : data.coverage >= 50 ? 'yellow' : 'red')}`
+      `Coverage: ${this.colorize(`${data.coverage}%`, data.coverage >= 80 ? 'green' : data.coverage >= 50 ? 'yellow' : 'red')}`,
     ];
 
     if (data.models.length > 0) {
@@ -129,8 +135,10 @@ export class OutputFormatter {
 
     if (data.indexStatus) {
       lines.push('', this.colorize('ANN Index Status:', 'gray'));
-      lines.push(`Built: ${this.colorize(data.indexStatus.isBuilt ? 'Yes' : 'No', data.indexStatus.isBuilt ? 'green' : 'red')}`);
-      
+      lines.push(
+        `Built: ${this.colorize(data.indexStatus.isBuilt ? 'Yes' : 'No', data.indexStatus.isBuilt ? 'green' : 'red')}`
+      );
+
       if (data.indexStatus.isBuilt) {
         if (data.indexStatus.algorithm) {
           lines.push(`Algorithm: ${data.indexStatus.algorithm}`);
@@ -157,7 +165,7 @@ export class OutputFormatter {
       this.colorize('─'.repeat(40), 'gray'),
       `Algorithm: ${this.colorize(data.algorithm, 'cyan')}`,
       `Vectors indexed: ${this.colorize(data.vectorCount.toString(), 'cyan')}`,
-      `Index size: ${this.colorize(this.formatBytes(data.indexSize), 'cyan')}`
+      `Index size: ${this.colorize(this.formatBytes(data.indexSize), 'cyan')}`,
     ];
 
     if (timeTaken) {
@@ -178,7 +186,7 @@ export class OutputFormatter {
       `Queries: ${this.colorize(data.queryCount.toString(), 'cyan')}`,
       `Average query time: ${this.colorize(`${data.avgQueryTime.toFixed(2)}ms`, 'cyan')}`,
       `Accuracy: ${this.colorize(`${(data.accuracy * 100).toFixed(1)}%`, data.accuracy >= 0.9 ? 'green' : 'yellow')}`,
-      `Throughput: ${this.colorize(`${data.throughput.toFixed(1)} queries/sec`, 'cyan')}`
+      `Throughput: ${this.colorize(`${data.throughput.toFixed(1)} queries/sec`, 'cyan')}`,
     ];
 
     return lines.join('\n');
@@ -193,11 +201,13 @@ export class OutputFormatter {
       this.colorize('─'.repeat(40), 'gray'),
       `Algorithm: ${this.colorize(data.algorithm, 'cyan')}`,
       `Vector count: ${this.colorize(data.vectorCount.toString(), 'cyan')}`,
-      `Index size: ${this.colorize(this.formatBytes(data.indexSize), 'cyan')}`
+      `Index size: ${this.colorize(this.formatBytes(data.indexSize), 'cyan')}`,
     ];
 
     if (data.buildTime > 0) {
-      lines.push(`Last build time: ${this.colorize(`${(data.buildTime / 1000).toFixed(2)}s`, 'cyan')}`);
+      lines.push(
+        `Last build time: ${this.colorize(`${(data.buildTime / 1000).toFixed(2)}s`, 'cyan')}`
+      );
     }
 
     return lines.join('\n');
@@ -209,7 +219,7 @@ export class OutputFormatter {
   private formatErrors(errors: string[]): string {
     const lines = [
       this.colorize('❌ Operation failed:', 'red'),
-      this.colorize('─'.repeat(40), 'gray')
+      this.colorize('─'.repeat(40), 'gray'),
     ];
 
     errors.forEach(error => {
@@ -228,13 +238,20 @@ export class OutputFormatter {
     }
 
     switch (color) {
-      case 'red': return chalk.red(text);
-      case 'green': return chalk.green(text);
-      case 'yellow': return chalk.yellow(text);
-      case 'blue': return chalk.blue(text);
-      case 'cyan': return chalk.cyan(text);
-      case 'gray': return chalk.gray(text);
-      default: return text;
+      case 'red':
+        return chalk.red(text);
+      case 'green':
+        return chalk.green(text);
+      case 'yellow':
+        return chalk.yellow(text);
+      case 'blue':
+        return chalk.blue(text);
+      case 'cyan':
+        return chalk.cyan(text);
+      case 'gray':
+        return chalk.gray(text);
+      default:
+        return text;
     }
   }
 
@@ -243,11 +260,11 @@ export class OutputFormatter {
    */
   private formatBytes(bytes: number): string {
     if (bytes === 0) return '0 B';
-    
+
     const k = 1024;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
+
     return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
   }
 }

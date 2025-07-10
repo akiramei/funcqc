@@ -5,26 +5,26 @@ export enum ErrorCode {
   SYSTEM_REQUIREMENTS_NOT_MET = 'SYSTEM_REQUIREMENTS_NOT_MET',
   INSUFFICIENT_MEMORY = 'INSUFFICIENT_MEMORY',
   FILE_PERMISSION_DENIED = 'FILE_PERMISSION_DENIED',
-  
+
   // Configuration errors
   INVALID_CONFIG = 'INVALID_CONFIG',
   CONFIG_NOT_FOUND = 'CONFIG_NOT_FOUND',
   TYPESCRIPT_CONFIG_ERROR = 'TYPESCRIPT_CONFIG_ERROR',
-  
+
   // Database errors
   DATABASE_CONNECTION_FAILED = 'DATABASE_CONNECTION_FAILED',
   DATABASE_NOT_INITIALIZED = 'DATABASE_NOT_INITIALIZED',
   DATABASE_CORRUPTION = 'DATABASE_CORRUPTION',
   MIGRATION_FAILED = 'MIGRATION_FAILED',
-  
+
   // Analysis errors
   PARSING_FAILED = 'PARSING_FAILED',
   FILE_NOT_ACCESSIBLE = 'FILE_NOT_ACCESSIBLE',
   ANALYSIS_TIMEOUT = 'ANALYSIS_TIMEOUT',
-  
+
   // Generic errors
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
-  OPERATION_CANCELLED = 'OPERATION_CANCELLED'
+  OPERATION_CANCELLED = 'OPERATION_CANCELLED',
 }
 
 export interface FuncqcError {
@@ -54,24 +54,29 @@ export class ErrorHandler {
       retryDelay: 1000,
       enableRecovery: true,
       logLevel: 'error',
-      ...options
+      ...options,
     };
   }
 
-  createError(code: ErrorCode, message: string, details?: Record<string, unknown>, originalError?: Error): FuncqcError {
+  createError(
+    code: ErrorCode,
+    message: string,
+    details?: Record<string, unknown>,
+    originalError?: Error
+  ): FuncqcError {
     const errorInfo = this.getErrorInfo(code);
-    
+
     const result: FuncqcError = {
       code,
       message,
       recoverable: errorInfo.recoverable,
-      stack: originalError?.stack || new Error().stack
+      stack: originalError?.stack || new Error().stack,
     } as FuncqcError;
-    
+
     if (details) result.details = details;
     if (errorInfo.recoveryActions) result.recoveryActions = errorInfo.recoveryActions;
     if (originalError) result.originalError = originalError;
-    
+
     return result;
   }
 
@@ -83,8 +88,8 @@ export class ErrorHandler {
           recoveryActions: [
             'Update Node.js to version 18 or higher',
             'Install Git if Git integration is needed',
-            'Ensure you are in a TypeScript project directory'
-          ]
+            'Ensure you are in a TypeScript project directory',
+          ],
         };
 
       case ErrorCode.INSUFFICIENT_MEMORY:
@@ -93,8 +98,8 @@ export class ErrorHandler {
           recoveryActions: [
             'Close other applications to free memory',
             'Process smaller batches of files',
-            'Use --exclude to reduce analysis scope'
-          ]
+            'Use --exclude to reduce analysis scope',
+          ],
         };
 
       case ErrorCode.FILE_PERMISSION_DENIED:
@@ -103,18 +108,14 @@ export class ErrorHandler {
           recoveryActions: [
             'Check file permissions',
             'Run with appropriate user privileges',
-            'Ensure funcqc database directory is writable'
-          ]
+            'Ensure funcqc database directory is writable',
+          ],
         };
 
       case ErrorCode.DATABASE_NOT_INITIALIZED:
         return {
           recoverable: true,
-          recoveryActions: [
-            'Run: funcqc init',
-            'Run: funcqc scan',
-            'Then try your command again'
-          ]
+          recoveryActions: ['Run: funcqc init', 'Run: funcqc scan', 'Then try your command again'],
         };
 
       case ErrorCode.DATABASE_CORRUPTION:
@@ -123,8 +124,8 @@ export class ErrorHandler {
           recoveryActions: [
             'Backup current data if possible',
             'Run funcqc --repair-database',
-            'Reinitialize with funcqc init --force if repair fails'
-          ]
+            'Reinitialize with funcqc init --force if repair fails',
+          ],
         };
 
       case ErrorCode.PARSING_FAILED:
@@ -133,8 +134,8 @@ export class ErrorHandler {
           recoveryActions: [
             'Check TypeScript syntax errors',
             'Ensure tsconfig.json is valid',
-            'Use --exclude to skip problematic files'
-          ]
+            'Use --exclude to skip problematic files',
+          ],
         };
 
       case ErrorCode.ANALYSIS_TIMEOUT:
@@ -143,8 +144,8 @@ export class ErrorHandler {
           recoveryActions: [
             'Increase timeout with --timeout option',
             'Process smaller batches of files',
-            'Exclude large or complex files'
-          ]
+            'Exclude large or complex files',
+          ],
         };
 
       default:
@@ -153,9 +154,10 @@ export class ErrorHandler {
   }
 
   handleError(error: FuncqcError | Error): never {
-    const funcqcError = error instanceof Error ? 
-      this.createError(ErrorCode.UNKNOWN_ERROR, error.message, {}, error) : 
-      error;
+    const funcqcError =
+      error instanceof Error
+        ? this.createError(ErrorCode.UNKNOWN_ERROR, error.message, {}, error)
+        : error;
 
     this.logError(funcqcError);
 
@@ -170,7 +172,7 @@ export class ErrorHandler {
 
   private logError(error: FuncqcError): void {
     this.logger.error(`[${error.code}] ${error.message}`);
-    
+
     if (error.details) {
       this.logger.error('Details:', error.details);
     }
@@ -232,9 +234,11 @@ export class ErrorHandler {
         return await operation();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         if (attempt < this.options.maxRetries) {
-          this.logger.warn(`${operationName} failed (attempt ${attempt}/${this.options.maxRetries}). Retrying in ${this.options.retryDelay}ms...`);
+          this.logger.warn(
+            `${operationName} failed (attempt ${attempt}/${this.options.maxRetries}). Retrying in ${this.options.retryDelay}ms...`
+          );
           await new Promise(resolve => setTimeout(resolve, this.options.retryDelay));
         }
       }
@@ -280,13 +284,15 @@ export class ErrorHandler {
     try {
       return operation();
     } catch (error) {
-      this.logger.warn(`${operationName} failed: ${error instanceof Error ? error.message : String(error)}`);
-      
+      this.logger.warn(
+        `${operationName} failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+
       if (fallback !== undefined) {
         this.logger.info(`Using fallback value for ${operationName}`);
         return fallback;
       }
-      
+
       return undefined;
     }
   }
@@ -299,7 +305,7 @@ export function createErrorHandler(logger: Logger): ErrorHandler {
 
 // Process-level error handlers
 export function setupGlobalErrorHandlers(errorHandler: ErrorHandler): void {
-  process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', error => {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,
       'Uncaught exception',

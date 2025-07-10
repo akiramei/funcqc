@@ -1,4 +1,12 @@
-import { Node, SyntaxKind, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression } from 'ts-morph';
+import {
+  Node,
+  SyntaxKind,
+  SourceFile,
+  FunctionDeclaration,
+  MethodDeclaration,
+  ArrowFunction,
+  FunctionExpression,
+} from 'ts-morph';
 
 /**
  * AST Canonicalizer for TypeScript functions
@@ -11,7 +19,9 @@ export class ASTCanonicalizer {
   /**
    * Canonicalize a function's AST to a normalized string representation
    */
-  canonicalize(functionNode: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression): string {
+  canonicalize(
+    functionNode: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression
+  ): string {
     // Reset state for each function
     this.identifierCounter = 0;
     this.identifierMap.clear();
@@ -28,11 +38,9 @@ export class ASTCanonicalizer {
   canonicalizeSourceCode(sourceCode: string, sourceFile: SourceFile): string {
     try {
       // Create a temporary source file to parse the function
-      const tempFile = sourceFile.getProject().createSourceFile(
-        'temp.ts',
-        sourceCode,
-        { overwrite: true }
-      );
+      const tempFile = sourceFile
+        .getProject()
+        .createSourceFile('temp.ts', sourceCode, { overwrite: true });
 
       // Find the first function in the code
       const functions = tempFile.getFunctions();
@@ -40,7 +48,7 @@ export class ASTCanonicalizer {
       const arrows = this.findArrowFunctions(tempFile);
 
       const allFunctions = [...functions, ...methods, ...arrows];
-      
+
       if (allFunctions.length > 0) {
         const result = this.canonicalize(allFunctions[0]);
         // Clean up
@@ -58,13 +66,13 @@ export class ASTCanonicalizer {
 
   private findArrowFunctions(sourceFile: SourceFile): (ArrowFunction | FunctionExpression)[] {
     const arrows: (ArrowFunction | FunctionExpression)[] = [];
-    
+
     sourceFile.forEachDescendant(node => {
       if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
         arrows.push(node);
       }
     });
-    
+
     return arrows;
   }
 
@@ -75,63 +83,67 @@ export class ASTCanonicalizer {
     if (this.isStatementNode(kind)) {
       return this.canonicalizeStatementNode(node, kind);
     }
-    
+
     if (this.isExpressionNode(kind)) {
       return this.canonicalizeExpressionNode(node, kind);
     }
-    
+
     if (this.isLiteralNode(kind)) {
       return this.canonicalizeLiteralNode(kind);
     }
-    
+
     if (this.isKeywordNode(kind)) {
       return this.canonicalizeKeywordNode(kind);
     }
-    
+
     // For unhandled nodes, recursively process children
     return this.canonicalizeChildren(node);
   }
 
   private canonicalizeBlock(node: Node): string {
-    const children = node.getChildren().filter(child => 
-      child.getKind() !== SyntaxKind.OpenBraceToken && 
-      child.getKind() !== SyntaxKind.CloseBraceToken
-    );
-    
-    const statements = children.map(child => this.canonicalizeNode(child)).filter(s => s.length > 0);
+    const children = node
+      .getChildren()
+      .filter(
+        child =>
+          child.getKind() !== SyntaxKind.OpenBraceToken &&
+          child.getKind() !== SyntaxKind.CloseBraceToken
+      );
+
+    const statements = children
+      .map(child => this.canonicalizeNode(child))
+      .filter(s => s.length > 0);
     return `{${statements.join(';')}}`;
   }
 
   private canonicalizeIfStatement(node: Node): string {
     const children = node.getChildren();
-    const condition = children.find(child => 
-      child.getKind() === SyntaxKind.ParenthesizedExpression ||
-      child.getKind() === SyntaxKind.BinaryExpression ||
-      child.getKind() === SyntaxKind.Identifier
+    const condition = children.find(
+      child =>
+        child.getKind() === SyntaxKind.ParenthesizedExpression ||
+        child.getKind() === SyntaxKind.BinaryExpression ||
+        child.getKind() === SyntaxKind.Identifier
     );
-    const thenStatement = children.find(child => 
-      child.getKind() === SyntaxKind.Block || 
-      child.getKind() === SyntaxKind.ExpressionStatement
+    const thenStatement = children.find(
+      child =>
+        child.getKind() === SyntaxKind.Block || child.getKind() === SyntaxKind.ExpressionStatement
     );
-    const elseStatement = children.find(child => 
-      child.getKind() === SyntaxKind.ElseKeyword
-    );
+    const elseStatement = children.find(child => child.getKind() === SyntaxKind.ElseKeyword);
 
     let result = 'if(' + (condition ? this.canonicalizeNode(condition) : 'CONDITION') + ')';
     result += thenStatement ? this.canonicalizeNode(thenStatement) : '{}';
-    
+
     if (elseStatement) {
       const elseIndex = children.indexOf(elseStatement);
       const elseBody = children[elseIndex + 1];
       result += 'else' + (elseBody ? this.canonicalizeNode(elseBody) : '{}');
     }
-    
+
     return result;
   }
 
   private canonicalizeLoop(node: Node): string {
     const children = node.getChildren();
-    
+
     // Simplify all loops to a generic LOOP structure
     const body = children.find(child => child.getKind() === SyntaxKind.Block);
     return 'LOOP' + (body ? this.canonicalizeNode(body) : '{}');
@@ -139,11 +151,12 @@ export class ASTCanonicalizer {
 
   private canonicalizeReturnStatement(node: Node): string {
     const children = node.getChildren();
-    const expression = children.find(child => 
-      child.getKind() !== SyntaxKind.ReturnKeyword && 
-      child.getKind() !== SyntaxKind.SemicolonToken
+    const expression = children.find(
+      child =>
+        child.getKind() !== SyntaxKind.ReturnKeyword &&
+        child.getKind() !== SyntaxKind.SemicolonToken
     );
-    
+
     return 'return' + (expression ? '(' + this.canonicalizeNode(expression) + ')' : '');
   }
 
@@ -165,7 +178,7 @@ export class ASTCanonicalizer {
 
     let result = 'try' + (tryBlock ? this.canonicalizeNode(tryBlock) : '{}');
     if (catchClause) result += 'catch{}';
-    
+
     return result;
   }
 
@@ -178,12 +191,12 @@ export class ASTCanonicalizer {
     const children = node.getChildren();
     const expression = children[0];
     const args = children.find(child => child.getKind() === SyntaxKind.SyntaxList);
-    
+
     const funcName = expression ? this.canonicalizeNode(expression) : 'FUNC';
-    const argCount = args ? args.getChildren().filter(child => 
-      child.getKind() !== SyntaxKind.CommaToken
-    ).length : 0;
-    
+    const argCount = args
+      ? args.getChildren().filter(child => child.getKind() !== SyntaxKind.CommaToken).length
+      : 0;
+
     return `${funcName}(${Array(argCount).fill('ARG').join(',')})`;
   }
 
@@ -202,24 +215,54 @@ export class ASTCanonicalizer {
     const children = node.getChildren();
     const object = children[0];
     const property = children[2]; // Skip the dot token
-    
+
     const objName = object ? this.canonicalizeNode(object) : 'OBJ';
     const propName = property ? this.canonicalizeNode(property) : 'PROP';
-    
+
     return `${objName}.${propName}`;
   }
 
   private canonicalizeIdentifier(identifier: string): string {
     // Preserve built-in functions and keywords
     const builtins = [
-      'console', 'log', 'error', 'warn', 'info',
-      'Array', 'Object', 'String', 'Number', 'Boolean',
-      'Math', 'Date', 'JSON', 'Promise',
-      'setTimeout', 'setInterval', 'clearTimeout', 'clearInterval',
-      'parseInt', 'parseFloat', 'isNaN', 'isFinite',
-      'push', 'pop', 'shift', 'unshift', 'slice', 'splice',
-      'map', 'filter', 'reduce', 'forEach', 'find', 'includes',
-      'length', 'indexOf', 'toString', 'valueOf'
+      'console',
+      'log',
+      'error',
+      'warn',
+      'info',
+      'Array',
+      'Object',
+      'String',
+      'Number',
+      'Boolean',
+      'Math',
+      'Date',
+      'JSON',
+      'Promise',
+      'setTimeout',
+      'setInterval',
+      'clearTimeout',
+      'clearInterval',
+      'parseInt',
+      'parseFloat',
+      'isNaN',
+      'isFinite',
+      'push',
+      'pop',
+      'shift',
+      'unshift',
+      'slice',
+      'splice',
+      'map',
+      'filter',
+      'reduce',
+      'forEach',
+      'find',
+      'includes',
+      'length',
+      'indexOf',
+      'toString',
+      'valueOf',
     ];
 
     if (builtins.includes(identifier)) {
@@ -230,41 +273,62 @@ export class ASTCanonicalizer {
     if (!this.identifierMap.has(identifier)) {
       this.identifierMap.set(identifier, `VAR${this.identifierCounter++}`);
     }
-    
+
     return this.identifierMap.get(identifier)!;
   }
 
   private isStatementNode(kind: SyntaxKind): boolean {
     return [
-      SyntaxKind.Block, SyntaxKind.IfStatement, SyntaxKind.ForStatement,
-      SyntaxKind.ForInStatement, SyntaxKind.ForOfStatement, SyntaxKind.WhileStatement,
-      SyntaxKind.ReturnStatement, SyntaxKind.VariableStatement, SyntaxKind.ExpressionStatement,
-      SyntaxKind.TryStatement, SyntaxKind.SwitchStatement
+      SyntaxKind.Block,
+      SyntaxKind.IfStatement,
+      SyntaxKind.ForStatement,
+      SyntaxKind.ForInStatement,
+      SyntaxKind.ForOfStatement,
+      SyntaxKind.WhileStatement,
+      SyntaxKind.ReturnStatement,
+      SyntaxKind.VariableStatement,
+      SyntaxKind.ExpressionStatement,
+      SyntaxKind.TryStatement,
+      SyntaxKind.SwitchStatement,
     ].includes(kind);
   }
 
   private isExpressionNode(kind: SyntaxKind): boolean {
     return [
-      SyntaxKind.Identifier, SyntaxKind.CallExpression, SyntaxKind.BinaryExpression,
-      SyntaxKind.PropertyAccessExpression
+      SyntaxKind.Identifier,
+      SyntaxKind.CallExpression,
+      SyntaxKind.BinaryExpression,
+      SyntaxKind.PropertyAccessExpression,
     ].includes(kind);
   }
 
   private isLiteralNode(kind: SyntaxKind): boolean {
     return [
-      SyntaxKind.StringLiteral, SyntaxKind.NoSubstitutionTemplateLiteral,
-      SyntaxKind.NumericLiteral, SyntaxKind.TrueKeyword, SyntaxKind.FalseKeyword,
-      SyntaxKind.NullKeyword, SyntaxKind.UndefinedKeyword
+      SyntaxKind.StringLiteral,
+      SyntaxKind.NoSubstitutionTemplateLiteral,
+      SyntaxKind.NumericLiteral,
+      SyntaxKind.TrueKeyword,
+      SyntaxKind.FalseKeyword,
+      SyntaxKind.NullKeyword,
+      SyntaxKind.UndefinedKeyword,
     ].includes(kind);
   }
 
   private isKeywordNode(kind: SyntaxKind): boolean {
     return [
-      SyntaxKind.IfKeyword, SyntaxKind.ElseKeyword, SyntaxKind.ForKeyword,
-      SyntaxKind.WhileKeyword, SyntaxKind.ReturnKeyword, SyntaxKind.TryKeyword,
-      SyntaxKind.CatchKeyword, SyntaxKind.FinallyKeyword, SyntaxKind.SwitchKeyword,
-      SyntaxKind.CaseKeyword, SyntaxKind.DefaultKeyword, SyntaxKind.BreakKeyword,
-      SyntaxKind.ContinueKeyword
+      SyntaxKind.IfKeyword,
+      SyntaxKind.ElseKeyword,
+      SyntaxKind.ForKeyword,
+      SyntaxKind.WhileKeyword,
+      SyntaxKind.ReturnKeyword,
+      SyntaxKind.TryKeyword,
+      SyntaxKind.CatchKeyword,
+      SyntaxKind.FinallyKeyword,
+      SyntaxKind.SwitchKeyword,
+      SyntaxKind.CaseKeyword,
+      SyntaxKind.DefaultKeyword,
+      SyntaxKind.BreakKeyword,
+      SyntaxKind.ContinueKeyword,
     ].includes(kind);
   }
 
@@ -342,14 +406,15 @@ export class ASTCanonicalizer {
       [SyntaxKind.CaseKeyword]: 'case',
       [SyntaxKind.DefaultKeyword]: 'default',
       [SyntaxKind.BreakKeyword]: 'break',
-      [SyntaxKind.ContinueKeyword]: 'continue'
+      [SyntaxKind.ContinueKeyword]: 'continue',
     };
-    
+
     return keywordMap[kind] ?? '';
   }
 
   private canonicalizeChildren(node: Node): string {
-    return node.getChildren()
+    return node
+      .getChildren()
       .map(child => this.canonicalizeNode(child))
       .filter(s => s.length > 0)
       .join('');
@@ -365,14 +430,16 @@ export function calculateASTSimilarity(canonical1: string, canonical2: string): 
 
   const distance = levenshteinDistance(canonical1, canonical2);
   const maxLength = Math.max(canonical1.length, canonical2.length);
-  
-  return maxLength > 0 ? 1 - (distance / maxLength) : 0;
+
+  return maxLength > 0 ? 1 - distance / maxLength : 0;
 }
 
 function levenshteinDistance(str1: string, str2: string): number {
   const m = str1.length;
   const n = str2.length;
-  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  const dp: number[][] = Array(m + 1)
+    .fill(null)
+    .map(() => Array(n + 1).fill(0));
 
   for (let i = 0; i <= m; i++) dp[i][0] = i;
   for (let j = 0; j <= n; j++) dp[0][j] = j;
@@ -382,11 +449,7 @@ function levenshteinDistance(str1: string, str2: string): number {
       if (str1[i - 1] === str2[j - 1]) {
         dp[i][j] = dp[i - 1][j - 1];
       } else {
-        dp[i][j] = Math.min(
-          dp[i - 1][j] + 1,
-          dp[i][j - 1] + 1,
-          dp[i - 1][j - 1] + 1
-        );
+        dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + 1);
       }
     }
   }
