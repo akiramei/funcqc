@@ -172,6 +172,20 @@ export class ConfigManager {
           userConfig.metrics.parameterCountThreshold
         );
       }
+
+      if (typeof userConfig.metrics.cognitiveComplexityThreshold === 'number') {
+        config.metrics.cognitiveComplexityThreshold = Math.max(
+          1,
+          userConfig.metrics.cognitiveComplexityThreshold
+        );
+      }
+
+      if (typeof userConfig.metrics.maxNestingLevelThreshold === 'number') {
+        config.metrics.maxNestingLevelThreshold = Math.max(
+          1,
+          userConfig.metrics.maxNestingLevelThreshold
+        );
+      }
     }
   }
 
@@ -203,7 +217,7 @@ export class ConfigManager {
   resolvePath(relativePath: string): string {
     const result = this.explorer.search();
 
-    if (result && result.filepath) {
+    if (result?.filepath) {
       const configDir = path.dirname(result.filepath);
       return path.resolve(configDir, relativePath);
     }

@@ -395,6 +395,9 @@ export class PresetManager {
           (target[key] as Record<string, unknown>) || {},
           value as Record<string, unknown>
         );
+      } else if (Array.isArray(value) && Array.isArray(target[key])) {
+        // Merge arrays instead of overwriting
+        result[key] = [...(target[key] as unknown[]), ...value];
       } else {
         result[key] = value;
       }

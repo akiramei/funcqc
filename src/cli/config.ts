@@ -365,7 +365,7 @@ async function handleValidateConfig(
   const issues: Array<{ level: string; message: string; field?: string }> = [];
 
   // Basic validation
-  if (!config.storage.path) {
+  if (!config.storage?.path) {
     issues.push({
       level: 'error',
       field: 'storage.path',
@@ -373,7 +373,7 @@ async function handleValidateConfig(
     });
   }
 
-  if (config.metrics.complexityThreshold < 1) {
+  if (config.metrics?.complexityThreshold !== undefined && config.metrics.complexityThreshold < 1) {
     issues.push({
       level: 'error',
       field: 'metrics.complexityThreshold',
@@ -381,7 +381,7 @@ async function handleValidateConfig(
     });
   }
 
-  if (config.metrics.linesOfCodeThreshold < 5) {
+  if (config.metrics?.linesOfCodeThreshold !== undefined && config.metrics.linesOfCodeThreshold < 5) {
     issues.push({
       level: 'warning',
       field: 'metrics.linesOfCodeThreshold',

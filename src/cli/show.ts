@@ -242,7 +242,7 @@ function outputJSON(func: FunctionInfo): void {
 function extractUsageExamples(func: FunctionInfo): string[] {
   const examples: string[] = [];
 
-  if (func.description && func.description.toLowerCase().includes('example')) {
+  if (func.description?.toLowerCase().includes('example')) {
     const lines = func.description.split('\n');
     const exampleStart = lines.findIndex(line => line.toLowerCase().includes('example'));
     if (exampleStart >= 0) {
@@ -250,7 +250,7 @@ function extractUsageExamples(func: FunctionInfo): string[] {
     }
   }
 
-  if (func.jsDoc && func.jsDoc.toLowerCase().includes('@example')) {
+  if (func.jsDoc?.toLowerCase().includes('@example')) {
     const jsDocLines = func.jsDoc.split('\n');
     const exampleStart = jsDocLines.findIndex(line => line.toLowerCase().includes('@example'));
     if (exampleStart >= 0) {
@@ -303,7 +303,7 @@ function extractErrorConditions(func: FunctionInfo): string[] {
     conditions.push(...errorLines.map(line => line.trim()));
   }
 
-  if (func.jsDoc && func.jsDoc.toLowerCase().includes('@throws')) {
+  if (func.jsDoc?.toLowerCase().includes('@throws')) {
     const jsDocLines = func.jsDoc.split('\n');
     const throwsLines = jsDocLines.filter(line => line.toLowerCase().includes('@throws'));
     conditions.push(...throwsLines.map(line => line.replace(/^\s*\*?\s?@throws\s?/, '').trim()));
@@ -781,7 +781,7 @@ async function validateSourceIntegrity(func: FunctionInfo): Promise<boolean> {
 }
 
 function displayUsageExamples(func: FunctionInfo): void {
-  if (func.description && func.description.toLowerCase().includes('example')) {
+  if (func.description?.toLowerCase().includes('example')) {
     // Extract examples from description
     const lines = func.description.split('\n');
     const exampleStart = lines.findIndex(line => line.toLowerCase().includes('example'));
@@ -792,7 +792,7 @@ function displayUsageExamples(func: FunctionInfo): void {
       });
       console.log();
     }
-  } else if (func.jsDoc && func.jsDoc.toLowerCase().includes('@example')) {
+  } else if (func.jsDoc?.toLowerCase().includes('@example')) {
     // Extract examples from JSDoc
     const jsDocLines = func.jsDoc.split('\n');
     const exampleStart = jsDocLines.findIndex(line => line.toLowerCase().includes('@example'));

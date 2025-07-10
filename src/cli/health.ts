@@ -55,6 +55,9 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
       displayConfigurationDetails(config, options.verbose || false);
     } else if (options.json || options.aiOptimized) {
       // JSON output (new default for structured data)
+      if (options.aiOptimized) {
+        logger.warn('Warning: --ai-optimized option is deprecated. Use --json instead.');
+      }
       await displayAIOptimizedHealth(storage, config, options);
     } else {
       // Default: Human-readable health overview  
@@ -681,12 +684,12 @@ async function displayAIOptimizedHealth(
         lines > config.metrics.linesOfCodeThreshold ||
         nesting > config.metrics.maxNestingLevelThreshold ||
         branches > Math.max(5, config.metrics.complexityThreshold / 2) ||
-        halsteadVolume > 1000 ||
-        halsteadDifficulty > 20 ||
-        returnStatements > 3 ||
-        asyncAwaitCount > 3 ||
-        tryCatchCount > 2 ||
-        loopCount > 3
+        halsteadVolume > (typeof config.thresholds?.halsteadVolume?.warning === 'number' ? config.thresholds.halsteadVolume.warning : 1000) ||
+        halsteadDifficulty > (typeof config.thresholds?.halsteadDifficulty?.warning === 'number' ? config.thresholds.halsteadDifficulty.warning : 20) ||
+        returnStatements > (typeof config.thresholds?.returnStatements?.warning === 'number' ? config.thresholds.returnStatements.warning : 3) ||
+        asyncAwaitCount > (typeof config.thresholds?.asyncAwait?.warning === 'number' ? config.thresholds.asyncAwait.warning : 3) ||
+        tryCatchCount > (typeof config.thresholds?.tryCatch?.warning === 'number' ? config.thresholds.tryCatch.warning : 2) ||
+        loopCount > (typeof config.thresholds?.loops?.warning === 'number' ? config.thresholds.loops.warning : 3)
       );
     });
 
@@ -813,34 +816,40 @@ function calculateRiskScore(
     riskFactors.push(`excessive_branching:${branches}`);
   }
 
-  // Additional metric evaluations with fallback thresholds
-  if (halsteadVolume > 1000) {
-    riskScore += (halsteadVolume - 1000) * 0.05;
+  // Additional metric evaluations with configurable thresholds
+  const halsteadVolumeThreshold = typeof config.thresholds?.halsteadVolume?.warning === 'number' ? config.thresholds.halsteadVolume.warning : 1000;
+  if (halsteadVolume > halsteadVolumeThreshold) {
+    riskScore += (halsteadVolume - halsteadVolumeThreshold) * 0.05;
     riskFactors.push(`high_halstead_volume:${Math.round(halsteadVolume)}`);
   }
 
-  if (halsteadDifficulty > 20) {
-    riskScore += (halsteadDifficulty - 20) * 3;
+  const halsteadDifficultyThreshold = typeof config.thresholds?.halsteadDifficulty?.warning === 'number' ? config.thresholds.halsteadDifficulty.warning : 20;
+  if (halsteadDifficulty > halsteadDifficultyThreshold) {
+    riskScore += (halsteadDifficulty - halsteadDifficultyThreshold) * 3;
     riskFactors.push(`high_halstead_difficulty:${Math.round(halsteadDifficulty)}`);
   }
 
-  if (returnStatements > 3) {
-    riskScore += (returnStatements - 3) * 6;
+  const returnThreshold = typeof config.thresholds?.returnStatements?.warning === 'number' ? config.thresholds.returnStatements.warning : 3;
+  if (returnStatements > returnThreshold) {
+    riskScore += (returnStatements - returnThreshold) * 6;
     riskFactors.push(`multiple_returns:${returnStatements}`);
   }
 
-  if (asyncAwaitCount > 3) {
-    riskScore += (asyncAwaitCount - 3) * 4;
+  const asyncThreshold = typeof config.thresholds?.asyncAwait?.warning === 'number' ? config.thresholds.asyncAwait.warning : 3;
+  if (asyncAwaitCount > asyncThreshold) {
+    riskScore += (asyncAwaitCount - asyncThreshold) * 4;
     riskFactors.push(`heavy_async:${asyncAwaitCount}`);
   }
 
-  if (tryCatchCount > 2) {
-    riskScore += (tryCatchCount - 2) * 5;
+  const tryCatchThreshold = typeof config.thresholds?.tryCatch?.warning === 'number' ? config.thresholds.tryCatch.warning : 2;
+  if (tryCatchCount > tryCatchThreshold) {
+    riskScore += (tryCatchCount - tryCatchThreshold) * 5;
     riskFactors.push(`complex_error_handling:${tryCatchCount}`);
   }
 
-  if (loopCount > 3) {
-    riskScore += (loopCount - 3) * 7;
+  const loopThreshold = typeof config.thresholds?.loops?.warning === 'number' ? config.thresholds.loops.warning : 3;
+  if (loopCount > loopThreshold) {
+    riskScore += (loopCount - loopThreshold) * 7;
     riskFactors.push(`excessive_loops:${loopCount}`);
   }
 
@@ -888,17 +897,20 @@ function generateSuggestedActions(f: FunctionInfo, config: FuncqcConfig): string
     actions.add('extract_switch_logic');
   }
 
-  if ((metrics.halsteadVolume || 0) > 1000) {
+  const halsteadVolumeThreshold = typeof config.thresholds?.halsteadVolume?.warning === 'number' ? config.thresholds.halsteadVolume.warning : 1000;
+  if ((metrics.halsteadVolume || 0) > halsteadVolumeThreshold) {
     actions.add('reduce_vocabulary');
     actions.add('extract_constants');
   }
 
-  if (metrics.returnStatementCount > 3) {
+  const returnThreshold = typeof config.thresholds?.returnStatements?.warning === 'number' ? config.thresholds.returnStatements.warning : 3;
+  if (metrics.returnStatementCount > returnThreshold) {
     actions.add('unify_returns');
     actions.add('extract_result_builder');
   }
 
-  if (metrics.asyncAwaitCount > 3) {
+  const asyncThreshold = typeof config.thresholds?.asyncAwait?.warning === 'number' ? config.thresholds.asyncAwait.warning : 3;
+  if (metrics.asyncAwaitCount > asyncThreshold) {
     actions.add('extract_async_helpers');
     actions.add('simplify_async_flow');
   }

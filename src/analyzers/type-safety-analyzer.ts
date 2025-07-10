@@ -372,7 +372,7 @@ export class TypeSafetyAnalyzer {
 
     // Check parameters
     functionInfo.parameters.forEach((param, index) => {
-      if (this.UNSAFE_TYPES.has(param.type)) {
+      if (param.type && this.UNSAFE_TYPES.has(param.type)) {
         unsafeTypes.push({
           type: param.type,
           location: `parameter ${index + 1} (${param.name})`,

@@ -161,17 +161,15 @@ function parseThresholdSection<T extends Record<string, number>>(
   }
 
   const sectionConfig = section as Record<string, unknown>;
-  const parsed = {} as T;
+  const parsed: Record<string, number> = {};
 
   for (const field of fieldNames) {
-    (parsed as Record<string, number>)[field as string] = parseNumberField(
-      sectionConfig,
-      field as string,
-      defaultSection[field]
-    );
+    const fieldName = field as string;
+    const defaultValue = defaultSection[field];
+    parsed[fieldName] = parseNumberField(sectionConfig, fieldName, defaultValue);
   }
 
-  return parsed;
+  return parsed as T;
 }
 
 function parseQualityThresholds(config: Record<string, unknown>): Partial<QualityScorerThresholds> {
