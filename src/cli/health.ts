@@ -5,6 +5,7 @@ import {
   FunctionInfo,
   FuncqcConfig,
   SnapshotInfo,
+  QualityMetrics,
 } from '../types';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
@@ -797,7 +798,7 @@ interface MetricEvaluation {
   factor?: string;
 }
 
-function evaluateComplexityRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateComplexityRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const complexity = metrics?.cyclomaticComplexity || 1;
   if (complexity > config.metrics.complexityThreshold) {
     return {
@@ -808,7 +809,7 @@ function evaluateComplexityRisk(metrics: any, config: FuncqcConfig): MetricEvalu
   return { score: 0 };
 }
 
-function evaluateCognitiveComplexityRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateCognitiveComplexityRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const cognitiveComplexity = metrics?.cognitiveComplexity || 0;
   if (cognitiveComplexity > config.metrics.cognitiveComplexityThreshold) {
     return {
@@ -819,7 +820,7 @@ function evaluateCognitiveComplexityRisk(metrics: any, config: FuncqcConfig): Me
   return { score: 0 };
 }
 
-function evaluateMaintainabilityRisk(metrics: any): MetricEvaluation {
+function evaluateMaintainabilityRisk(metrics: QualityMetrics | undefined): MetricEvaluation {
   const maintainability = metrics?.maintainabilityIndex || 100;
   if (maintainability < 50) {
     return {
@@ -830,7 +831,7 @@ function evaluateMaintainabilityRisk(metrics: any): MetricEvaluation {
   return { score: 0 };
 }
 
-function evaluateSizeRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateSizeRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const lines = metrics?.linesOfCode || 0;
   if (lines > config.metrics.linesOfCodeThreshold) {
     return {
@@ -841,7 +842,7 @@ function evaluateSizeRisk(metrics: any, config: FuncqcConfig): MetricEvaluation 
   return { score: 0 };
 }
 
-function evaluateNestingRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateNestingRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const nesting = metrics?.maxNestingLevel || 0;
   if (nesting > config.metrics.maxNestingLevelThreshold) {
     return {
@@ -852,7 +853,7 @@ function evaluateNestingRisk(metrics: any, config: FuncqcConfig): MetricEvaluati
   return { score: 0 };
 }
 
-function evaluateBranchingRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateBranchingRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const branches = metrics?.branchCount || 0;
   const branchThreshold = Math.max(5, config.metrics.complexityThreshold / 2);
   if (branches > branchThreshold) {
@@ -864,7 +865,7 @@ function evaluateBranchingRisk(metrics: any, config: FuncqcConfig): MetricEvalua
   return { score: 0 };
 }
 
-function evaluateHalsteadVolumeRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateHalsteadVolumeRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const halsteadVolume = metrics?.halsteadVolume || 0;
   const threshold = typeof config.thresholds?.halsteadVolume?.warning === 'number' 
     ? config.thresholds.halsteadVolume.warning : 1000;
@@ -877,7 +878,7 @@ function evaluateHalsteadVolumeRisk(metrics: any, config: FuncqcConfig): MetricE
   return { score: 0 };
 }
 
-function evaluateHalsteadDifficultyRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateHalsteadDifficultyRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const halsteadDifficulty = metrics?.halsteadDifficulty || 0;
   const threshold = typeof config.thresholds?.halsteadDifficulty?.warning === 'number' 
     ? config.thresholds.halsteadDifficulty.warning : 20;
@@ -890,7 +891,7 @@ function evaluateHalsteadDifficultyRisk(metrics: any, config: FuncqcConfig): Met
   return { score: 0 };
 }
 
-function evaluateReturnStatementsRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateReturnStatementsRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const returnStatements = metrics?.returnStatementCount || 0;
   const threshold = typeof config.thresholds?.returnStatements?.warning === 'number' 
     ? config.thresholds.returnStatements.warning : 3;
@@ -903,7 +904,7 @@ function evaluateReturnStatementsRisk(metrics: any, config: FuncqcConfig): Metri
   return { score: 0 };
 }
 
-function evaluateAsyncAwaitRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateAsyncAwaitRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const asyncAwaitCount = metrics?.asyncAwaitCount || 0;
   const threshold = typeof config.thresholds?.asyncAwait?.warning === 'number' 
     ? config.thresholds.asyncAwait.warning : 3;
@@ -916,7 +917,7 @@ function evaluateAsyncAwaitRisk(metrics: any, config: FuncqcConfig): MetricEvalu
   return { score: 0 };
 }
 
-function evaluateTryCatchRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateTryCatchRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const tryCatchCount = metrics?.tryCatchCount || 0;
   const threshold = typeof config.thresholds?.tryCatch?.warning === 'number' 
     ? config.thresholds.tryCatch.warning : 2;
@@ -929,7 +930,7 @@ function evaluateTryCatchRisk(metrics: any, config: FuncqcConfig): MetricEvaluat
   return { score: 0 };
 }
 
-function evaluateLoopRisk(metrics: any, config: FuncqcConfig): MetricEvaluation {
+function evaluateLoopRisk(metrics: QualityMetrics | undefined, config: FuncqcConfig): MetricEvaluation {
   const loopCount = metrics?.loopCount || 0;
   const threshold = typeof config.thresholds?.loops?.warning === 'number' 
     ? config.thresholds.loops.warning : 3;
