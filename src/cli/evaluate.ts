@@ -205,8 +205,18 @@ async function displayHumanResults(
   filename: string,
   options: EvaluateCommandOptions
 ): Promise<void> {
-  const relativePath = path.relative(process.cwd(), filename);
+  displayAssessmentHeader(assessment, filename);
+  displayOverallStatus(assessment);
+  displayViolations(assessment.violations);
+  displayStructuralAnomalies(assessment.structuralAnomalies);
+  displayImprovementSuggestions(assessment);
+  displayAIFeedback(assessment, options);
+  console.log(); // Empty line for spacing
+}
 
+function displayAssessmentHeader(assessment: QualityAssessment, filename: string): void {
+  const relativePath = path.relative(process.cwd(), filename);
+  
   console.log(chalk.cyan('\n🎯 Code Quality Evaluation\n'));
   console.log(`📁 File: ${chalk.bold(relativePath)}`);
   console.log(`⚡ Response Time: ${chalk.green(assessment.responseTime.toFixed(1))}ms`);
@@ -216,75 +226,96 @@ async function displayHumanResults(
   console.log(
     `🏗️  Structural Score: ${getScoreColor(assessment.structuralScore)(`${assessment.structuralScore}/100`)}`
   );
+}
 
-  // Overall status
+function displayOverallStatus(assessment: QualityAssessment): void {
   if (assessment.acceptable) {
     console.log(chalk.green('\n✅ Code quality: ACCEPTABLE'));
   } else {
     console.log(chalk.red('\n❌ Code quality: NEEDS IMPROVEMENT'));
   }
+}
 
-  // Violations
-  if (assessment.violations.length > 0) {
-    console.log(chalk.yellow('\n⚠️  Quality Violations:'));
-
-    const criticalViolations = assessment.violations.filter(v => v.severity === 'critical');
-    const warningViolations = assessment.violations.filter(v => v.severity === 'warning');
-
-    if (criticalViolations.length > 0) {
-      console.log(chalk.red('\n  Critical:'));
-      for (const violation of criticalViolations) {
-        displayViolation(violation, '🔴');
-      }
-    }
-
-    if (warningViolations.length > 0) {
-      console.log(chalk.yellow('\n  Warnings:'));
-      for (const violation of warningViolations) {
-        displayViolation(violation, '🟡');
-      }
-    }
+function displayViolations(violations: QualityViolation[]): void {
+  if (violations.length === 0) {
+    return;
   }
 
-  // Structural Anomalies
-  if (assessment.structuralAnomalies.length > 0) {
-    console.log(chalk.magenta('\n🔗 Structural Anomalies:'));
+  console.log(chalk.yellow('\n⚠️  Quality Violations:'));
+  
+  const criticalViolations = violations.filter(v => v.severity === 'critical');
+  const warningViolations = violations.filter(v => v.severity === 'warning');
 
-    const criticalAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'critical');
-    const warningAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'warning');
+  displayViolationsByType(criticalViolations, 'Critical', chalk.red, '🔴');
+  displayViolationsByType(warningViolations, 'Warnings', chalk.yellow, '🟡');
+}
 
-    if (criticalAnomalies.length > 0) {
-      console.log(chalk.red('\n  Critical:'));
-      for (const anomaly of criticalAnomalies) {
-        displayStructuralAnomaly(anomaly, '🔴');
-      }
-    }
-
-    if (warningAnomalies.length > 0) {
-      console.log(chalk.yellow('\n  Warnings:'));
-      for (const anomaly of warningAnomalies) {
-        displayStructuralAnomaly(anomaly, '🟡');
-      }
-    }
+function displayViolationsByType(
+  violations: QualityViolation[], 
+  title: string, 
+  colorFn: any, 
+  icon: string
+): void {
+  if (violations.length === 0) {
+    return;
   }
 
-  // Improvement suggestions
-  if (assessment.improvementInstruction) {
-    console.log(chalk.blue('\n💡 Suggested Improvements:'));
-    console.log(`   ${assessment.improvementInstruction}`);
+  console.log(colorFn(`\n  ${title}:`));
+  for (const violation of violations) {
+    displayViolation(violation, icon);
+  }
+}
+
+function displayStructuralAnomalies(anomalies: StructuralAnomaly[]): void {
+  if (anomalies.length === 0) {
+    return;
   }
 
-  // AI-specific feedback
-  if (options.aiGenerated) {
-    console.log(chalk.magenta('\n🤖 AI Generation Feedback:'));
-    if (assessment.acceptable) {
-      console.log('   ✅ Generated code meets quality standards');
-    } else {
-      console.log('   🔄 Regeneration recommended with improvements');
-    }
+  console.log(chalk.magenta('\n🔗 Structural Anomalies:'));
+  
+  const criticalAnomalies = anomalies.filter(a => a.severity === 'critical');
+  const warningAnomalies = anomalies.filter(a => a.severity === 'warning');
+
+  displayAnomaliesByType(criticalAnomalies, 'Critical', chalk.red, '🔴');
+  displayAnomaliesByType(warningAnomalies, 'Warnings', chalk.yellow, '🟡');
+}
+
+function displayAnomaliesByType(
+  anomalies: StructuralAnomaly[], 
+  title: string, 
+  colorFn: any, 
+  icon: string
+): void {
+  if (anomalies.length === 0) {
+    return;
   }
 
-  console.log(); // Empty line for spacing
+  console.log(colorFn(`\n  ${title}:`));
+  for (const anomaly of anomalies) {
+    displayStructuralAnomaly(anomaly, icon);
+  }
+}
+
+function displayImprovementSuggestions(assessment: QualityAssessment): void {
+  if (!assessment.improvementInstruction) {
+    return;
+  }
+
+  console.log(chalk.blue('\n💡 Suggested Improvements:'));
+  console.log(`   ${assessment.improvementInstruction}`);
+}
+
+function displayAIFeedback(assessment: QualityAssessment, options: EvaluateCommandOptions): void {
+  if (!options.aiGenerated) {
+    return;
+  }
+
+  console.log(chalk.magenta('\n🤖 AI Generation Feedback:'));
+  if (assessment.acceptable) {
+    console.log('   ✅ Generated code meets quality standards');
+  } else {
+    console.log('   🔄 Regeneration recommended with improvements');
+  }
 }
 
 /**

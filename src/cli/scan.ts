@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import { globby } from 'globby';
 import {
   ScanCommandOptions,
@@ -520,98 +521,138 @@ async function runRealtimeGateMode(
 ): Promise<void> {
   spinner.start('Initializing real-time quality gate...');
 
+  let storage: PGLiteStorageAdapter | null = null;
+  
   try {
-    // Initialize storage and load existing baseline
-    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-    await storage.init();
-
-    // Get historical functions to build baseline
-    const recentSnapshots = await storage.getSnapshots({ limit: 5 });
-    const allHistoricalFunctions: FunctionInfo[] = [];
-
-    for (const snapshot of recentSnapshots) {
-      const functions = await storage.getFunctions(snapshot.id);
-      allHistoricalFunctions.push(...functions);
-    }
-
-    // Initialize quality gate with baseline
-    const qualityGate = new RealTimeQualityGate({
-      warningThreshold: 2.0,
-      criticalThreshold: 3.0,
-      minBaselineFunctions: 20,
-    });
-
-    if (allHistoricalFunctions.length > 0) {
-      qualityGate.updateBaseline(allHistoricalFunctions);
-      spinner.succeed(
-        `Baseline established from ${allHistoricalFunctions.length} historical functions`
-      );
-    } else {
-      spinner.warn('No historical data found - using static thresholds');
-    }
-
-    // Analyze current files with real-time gate
-    const scanPaths = determineScanPaths(config);
-    const files = await discoverFiles(scanPaths, config, ora());
-
-    if (files.length === 0) {
+    const initResult = await initializeQualityGate(config, spinner);
+    storage = initResult.storage;
+    
+    const analysisResult = await performRealTimeAnalysis(config, initResult.qualityGate);
+    
+    if (analysisResult.files.length === 0) {
       console.log(chalk.yellow('No TypeScript files found to analyze.'));
       return;
     }
 
-    console.log(chalk.cyan('\n🚀 Real-time Quality Gate Analysis\n'));
-
-    let totalViolations = 0;
-    let criticalViolations = 0;
-
-    for (const file of files) {
-      try {
-        const fileContent = await import('fs/promises').then(fs => fs.readFile(file, 'utf-8'));
-        const assessment = await qualityGate.evaluateCode(fileContent, { filename: file });
-
-        if (
-          !assessment.acceptable ||
-          assessment.violations.length > 0 ||
-          assessment.structuralAnomalies.length > 0
-        ) {
-          await displayQualityAssessment(file, assessment);
-          totalViolations += assessment.violations.length + assessment.structuralAnomalies.length;
-          criticalViolations +=
-            assessment.violations.filter(v => v.severity === 'critical').length +
-            assessment.structuralAnomalies.filter(a => a.severity === 'critical').length;
-        }
-      } catch (error) {
-        console.log(
-          chalk.red(
-            `✗ Failed to analyze ${path.relative(process.cwd(), file)}: ${error instanceof Error ? error.message : String(error)}`
-          )
-        );
-      }
-    }
-
-    // Summary
-    console.log(chalk.cyan('\n📊 Real-time Analysis Summary'));
-    console.log(`Files analyzed: ${files.length}`);
-    console.log(`Total violations: ${totalViolations}`);
-    console.log(`Critical violations: ${criticalViolations}`);
-
-    if (criticalViolations > 0) {
-      console.log(
-        chalk.red(`\n❌ Quality gate failed: ${criticalViolations} critical violations found`)
-      );
-      process.exit(1);
-    } else if (totalViolations > 0) {
-      console.log(
-        chalk.yellow(`\n⚠️  Quality gate passed with warnings: ${totalViolations} violations found`)
-      );
-    } else {
-      console.log(chalk.green('\n✅ Quality gate passed: All code meets quality standards'));
-    }
+    displayAnalysisResults(analysisResult);
   } catch (error) {
     spinner.fail(
       `Real-time quality gate failed: ${error instanceof Error ? error.message : String(error)}`
     );
     throw error;
+  } finally {
+    if (storage) {
+      await storage.close();
+    }
+  }
+}
+
+async function initializeQualityGate(config: FuncqcConfig, spinner: typeof ora.prototype) {
+  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+  await storage.init();
+
+  const allHistoricalFunctions = await loadHistoricalFunctions(storage);
+  const qualityGate = createQualityGate(allHistoricalFunctions, spinner);
+
+  return { storage, qualityGate };
+}
+
+async function loadHistoricalFunctions(storage: PGLiteStorageAdapter): Promise<FunctionInfo[]> {
+  const recentSnapshots = await storage.getSnapshots({ limit: 5 });
+  const allHistoricalFunctions: FunctionInfo[] = [];
+
+  for (const snapshot of recentSnapshots) {
+    const functions = await storage.getFunctions(snapshot.id);
+    allHistoricalFunctions.push(...functions);
+  }
+
+  return allHistoricalFunctions;
+}
+
+function createQualityGate(historicalFunctions: FunctionInfo[], spinner: typeof ora.prototype) {
+  const qualityGate = new RealTimeQualityGate({
+    warningThreshold: 2.0,
+    criticalThreshold: 3.0,
+    minBaselineFunctions: 20,
+  });
+
+  if (historicalFunctions.length > 0) {
+    qualityGate.updateBaseline(historicalFunctions);
+    spinner.succeed(
+      `Baseline established from ${historicalFunctions.length} historical functions`
+    );
+  } else {
+    spinner.warn('No historical data found - using static thresholds');
+  }
+
+  return qualityGate;
+}
+
+async function performRealTimeAnalysis(config: FuncqcConfig, qualityGate: RealTimeQualityGate) {
+  const scanPaths = determineScanPaths(config);
+  const files = await discoverFiles(scanPaths, config, ora());
+
+  console.log(chalk.cyan('\n🚀 Real-time Quality Gate Analysis\n'));
+
+  let totalViolations = 0;
+  let criticalViolations = 0;
+
+  for (const file of files) {
+    try {
+      const result = await analyzeFile(file, qualityGate);
+      totalViolations += result.totalViolations;
+      criticalViolations += result.criticalViolations;
+    } catch (error) {
+      console.log(
+        chalk.red(
+          `✗ Failed to analyze ${path.relative(process.cwd(), file)}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
+  }
+
+  return { files, totalViolations, criticalViolations };
+}
+
+async function analyzeFile(file: string, qualityGate: RealTimeQualityGate) {
+  const fileContent = await fs.readFile(file, 'utf-8');
+  const assessment = await qualityGate.evaluateCode(fileContent, { filename: file });
+
+  let totalViolations = 0;
+  let criticalViolations = 0;
+
+  if (
+    !assessment.acceptable ||
+    assessment.violations.length > 0 ||
+    assessment.structuralAnomalies.length > 0
+  ) {
+    await displayQualityAssessment(file, assessment);
+    totalViolations = assessment.violations.length + assessment.structuralAnomalies.length;
+    criticalViolations =
+      assessment.violations.filter(v => v.severity === 'critical').length +
+      assessment.structuralAnomalies.filter(a => a.severity === 'critical').length;
+  }
+
+  return { totalViolations, criticalViolations };
+}
+
+function displayAnalysisResults(result: { files: string[], totalViolations: number, criticalViolations: number }) {
+  console.log(chalk.cyan('\n📊 Real-time Analysis Summary'));
+  console.log(`Files analyzed: ${result.files.length}`);
+  console.log(`Total violations: ${result.totalViolations}`);
+  console.log(`Critical violations: ${result.criticalViolations}`);
+
+  if (result.criticalViolations > 0) {
+    console.log(
+      chalk.red(`\n❌ Quality gate failed: ${result.criticalViolations} critical violations found`)
+    );
+    process.exit(1);
+  } else if (result.totalViolations > 0) {
+    console.log(
+      chalk.yellow(`\n⚠️  Quality gate passed with warnings: ${result.totalViolations} violations found`)
+    );
+  } else {
+    console.log(chalk.green('\n✅ Quality gate passed: All code meets quality standards'));
   }
 }
 

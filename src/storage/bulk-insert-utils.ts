@@ -22,76 +22,11 @@ export function prepareBulkInsertData(
   const metricsData: unknown[][] = [];
 
   for (const func of functions) {
-    // Prepare function row
-    functionsData.push([
-      func.id,
-      func.semanticId,
-      func.contentId,
-      snapshotId,
-      func.name,
-      func.displayName,
-      func.signature,
-      func.signatureHash,
-      func.filePath,
-      func.fileHash,
-      func.startLine,
-      func.endLine,
-      func.startColumn,
-      func.endColumn,
-      func.astHash,
-      JSON.stringify(func.contextPath || []),
-      func.functionType || null,
-      JSON.stringify(func.modifiers || []),
-      func.nestingLevel || 0,
-      func.isExported,
-      func.isAsync,
-      func.isGenerator,
-      func.isArrowFunction,
-      func.isMethod,
-      func.isConstructor,
-      func.isStatic,
-      func.accessModifier || null,
-      func.jsDoc || null,
-      func.sourceCode || null,
-    ]);
-
-    // Prepare parameters
-    for (const param of func.parameters) {
-      parametersData.push([
-        func.id,
-        param.name,
-        param.type,
-        param.typeSimple,
-        param.position,
-        param.isOptional,
-        param.isRest,
-        param.defaultValue || null,
-        param.description || null,
-      ]);
-    }
-
-    // Prepare metrics
+    functionsData.push(buildFunctionRow(func, snapshotId));
+    parametersData.push(...buildParameterRows(func));
+    
     if (func.metrics) {
-      metricsData.push([
-        func.id,
-        func.metrics.linesOfCode,
-        func.metrics.totalLines,
-        func.metrics.cyclomaticComplexity,
-        func.metrics.cognitiveComplexity,
-        func.metrics.maxNestingLevel,
-        func.metrics.parameterCount,
-        func.metrics.returnStatementCount,
-        func.metrics.branchCount,
-        func.metrics.loopCount,
-        func.metrics.tryCatchCount,
-        func.metrics.asyncAwaitCount,
-        func.metrics.callbackCount,
-        func.metrics.commentLines,
-        func.metrics.codeToCommentRatio,
-        func.metrics.halsteadVolume || null,
-        func.metrics.halsteadDifficulty || null,
-        func.metrics.maintainabilityIndex || null,
-      ]);
+      metricsData.push(buildMetricsRow(func));
     }
   }
 
@@ -100,6 +35,77 @@ export function prepareBulkInsertData(
     parameters: parametersData,
     metrics: metricsData,
   };
+}
+
+function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
+  return [
+    func.id,
+    func.semanticId,
+    func.contentId,
+    snapshotId,
+    func.name,
+    func.displayName,
+    func.signature,
+    func.signatureHash,
+    func.filePath,
+    func.fileHash,
+    func.startLine,
+    func.endLine,
+    func.startColumn,
+    func.endColumn,
+    func.astHash,
+    JSON.stringify(func.contextPath || []),
+    func.functionType || null,
+    JSON.stringify(func.modifiers || []),
+    func.nestingLevel || 0,
+    func.isExported,
+    func.isAsync,
+    func.isGenerator,
+    func.isArrowFunction,
+    func.isMethod,
+    func.isConstructor,
+    func.isStatic,
+    func.accessModifier || null,
+    func.jsDoc || null,
+    func.sourceCode || null,
+  ];
+}
+
+function buildParameterRows(func: FunctionInfo): unknown[][] {
+  return func.parameters.map(param => [
+    func.id,
+    param.name,
+    param.type,
+    param.typeSimple,
+    param.position,
+    param.isOptional,
+    param.isRest,
+    param.defaultValue || null,
+    param.description || null,
+  ]);
+}
+
+function buildMetricsRow(func: FunctionInfo): unknown[] {
+  return [
+    func.id,
+    func.metrics!.linesOfCode,
+    func.metrics!.totalLines,
+    func.metrics!.cyclomaticComplexity,
+    func.metrics!.cognitiveComplexity,
+    func.metrics!.maxNestingLevel,
+    func.metrics!.parameterCount,
+    func.metrics!.returnStatementCount,
+    func.metrics!.branchCount,
+    func.metrics!.loopCount,
+    func.metrics!.tryCatchCount,
+    func.metrics!.asyncAwaitCount,
+    func.metrics!.callbackCount,
+    func.metrics!.commentLines,
+    func.metrics!.codeToCommentRatio,
+    func.metrics!.halsteadVolume || null,
+    func.metrics!.halsteadDifficulty || null,
+    func.metrics!.maintainabilityIndex || null,
+  ];
 }
 
 /**

@@ -52,86 +52,112 @@ export async function diffCommand(
   const errorHandler = createErrorHandler(logger);
 
   try {
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
+    const { storage, fromId, toId } = await setupDiffCommand(fromSnapshot, toSnapshot, options, logger);
 
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
-    await storage.init();
-
-    // Resolve snapshot IDs (support partial IDs and labels)
-    const fromId = await resolveSnapshotId(storage, fromSnapshot);
-    const toId = await resolveSnapshotId(storage, toSnapshot);
-
-    if (!fromId || !toId) {
-      logger.error(`Snapshot not found: ${!fromId ? fromSnapshot : toSnapshot}`);
-      process.exit(1);
-    }
-
-    // Check if comparing the same snapshot
     if (fromId === toId) {
-      logger.info('Comparing identical snapshots - no differences to show.');
-      console.log('\n📊 Diff Summary\n');
-      console.log(`From: ${fromId.substring(0, 8)} (same snapshot)`);
-      console.log(`To: ${toId.substring(0, 8)} (same snapshot)`);
-      console.log('\nChanges:');
-      console.log('  + 0 functions added');
-      console.log('  - 0 functions removed');
-      console.log('  ~ 0 functions modified');
-      console.log('  = No changes (identical snapshots)');
+      displayIdenticalSnapshots(fromId, toId);
       return;
     }
 
-    // Calculate diff
-    logger.info('Calculating differences...');
-    const diff = await storage.diffSnapshots(fromId, toId);
-
-    // Handle lineage detection if requested
-    if (options.lineage && diff.removed.length > 0) {
-      const lineageCandidates = await detectLineageCandidates(diff, storage, options, logger);
-
-      if (lineageCandidates.length > 0) {
-        if (options.json) {
-          console.log(JSON.stringify({ diff, lineageCandidates }, null, 2));
-        } else {
-          displayLineageCandidates(lineageCandidates, options, logger);
-
-          if (options.lineageAutoSave) {
-            await saveLineageCandidates(lineageCandidates, storage, logger);
-          }
-        }
-      } else {
-        logger.info('No lineage candidates found for removed functions.');
-      }
-    } else {
-      // Output regular diff results
-      if (options.json) {
-        console.log(JSON.stringify(diff, null, 2));
-      } else if (options.summary) {
-        displaySummary(diff);
-      } else {
-        displayFullDiff(diff, options);
-      }
-    }
-
+    const diff = await calculateDiff(storage, fromId, toId, logger);
+    await processDiffResults(diff, storage, options, logger);
     await storage.close();
   } catch (error) {
-    if (error instanceof DatabaseError) {
-      const funcqcError = errorHandler.createError(
-        error.code,
-        error.message,
-        {},
-        error.originalError
-      );
-      errorHandler.handleError(funcqcError);
+    handleDiffError(error, errorHandler);
+  }
+}
+
+async function setupDiffCommand(
+  fromSnapshot: string,
+  toSnapshot: string,
+  _options: DiffCommandOptions,
+  logger: Logger
+) {
+  const configManager = new ConfigManager();
+  const config = await configManager.load();
+
+  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  await storage.init();
+
+  const fromId = await resolveSnapshotId(storage, fromSnapshot);
+  const toId = await resolveSnapshotId(storage, toSnapshot);
+
+  if (!fromId || !toId) {
+    logger.error(`Snapshot not found: ${!fromId ? fromSnapshot : toSnapshot}`);
+    process.exit(1);
+  }
+
+  return { storage, fromId, toId };
+}
+
+function displayIdenticalSnapshots(fromId: string, toId: string): void {
+  console.log('\n📊 Diff Summary\n');
+  console.log(`From: ${fromId.substring(0, 8)} (same snapshot)`);
+  console.log(`To: ${toId.substring(0, 8)} (same snapshot)`);
+  console.log('\nChanges:');
+  console.log('  + 0 functions added');
+  console.log('  - 0 functions removed');
+  console.log('  ~ 0 functions modified');
+  console.log('  = No changes (identical snapshots)');
+}
+
+async function calculateDiff(storage: any, fromId: string, toId: string, logger: Logger) {
+  logger.info('Calculating differences...');
+  return await storage.diffSnapshots(fromId, toId);
+}
+
+async function processDiffResults(diff: any, storage: any, options: DiffCommandOptions, logger: Logger) {
+  if (options.lineage && diff.removed.length > 0) {
+    await handleLineageDetection(diff, storage, options, logger);
+  } else {
+    displayDiffResults(diff, options);
+  }
+}
+
+async function handleLineageDetection(diff: any, storage: any, options: DiffCommandOptions, logger: Logger) {
+  const lineageCandidates = await detectLineageCandidates(diff, storage, options, logger);
+
+  if (lineageCandidates.length > 0) {
+    if (options.json) {
+      console.log(JSON.stringify({ diff, lineageCandidates }, null, 2));
     } else {
-      const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Failed to calculate diff: ${error instanceof Error ? error.message : String(error)}`,
-        {},
-        error instanceof Error ? error : undefined
-      );
-      errorHandler.handleError(funcqcError);
+      displayLineageCandidates(lineageCandidates, options, logger);
+      if (options.lineageAutoSave) {
+        await saveLineageCandidates(lineageCandidates, storage, logger);
+      }
     }
+  } else {
+    logger.info('No lineage candidates found for removed functions.');
+  }
+}
+
+function displayDiffResults(diff: any, options: DiffCommandOptions): void {
+  if (options.json) {
+    console.log(JSON.stringify(diff, null, 2));
+  } else if (options.summary) {
+    displaySummary(diff);
+  } else {
+    displayFullDiff(diff, options);
+  }
+}
+
+function handleDiffError(error: unknown, errorHandler: any): void {
+  if (error instanceof DatabaseError) {
+    const funcqcError = errorHandler.createError(
+      error.code,
+      error.message,
+      {},
+      error.originalError
+    );
+    errorHandler.handleError(funcqcError);
+  } else {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to calculate diff: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
