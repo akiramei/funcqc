@@ -39,6 +39,52 @@ program
   });
 
 program
+  .command('config')
+  .description('Manage configuration presets and settings')
+  .argument('<action>', 'action to perform (list, show, apply, compare, suggest, backup, validate)')
+  .option('--preset <id>', 'preset ID to work with')
+  .option('--replace', 'replace current configuration instead of merging')
+  .option('--no-validate', 'skip validation when applying presets')
+  .option('--no-backup', 'skip backup creation when applying presets')
+  .option('--dry-run', 'show what would change without applying')
+  .option('--interactive', 'use interactive mode for confirmations')
+  .option('--output <path>', 'output file path for backup')
+  .option('--json', 'output as JSON')
+  .action(async (action: string, options: OptionValues, cmd) => {
+    // グローバルオプションをマージ
+    const globalOpts = cmd.parent.opts();
+    const mergedOptions = { ...globalOpts, ...options };
+    const { configCommand } = await import('./cli/config');
+    await configCommand(action, mergedOptions);
+  })
+  .addHelpText('after', `
+Examples:
+  # List available presets
+  $ funcqc config list
+  
+  # Show details of a specific preset
+  $ funcqc config show --preset web-frontend
+  
+  # Apply a preset to current configuration
+  $ funcqc config apply --preset web-frontend
+  
+  # Preview changes without applying
+  $ funcqc config apply --preset api-backend --dry-run
+  
+  # Compare current config with preset
+  $ funcqc config compare --preset library
+  
+  # Get preset suggestions for current project
+  $ funcqc config suggest
+  
+  # Backup current configuration
+  $ funcqc config backup
+  
+  # Validate current configuration
+  $ funcqc config validate
+`);
+
+program
   .command('scan')
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
@@ -122,7 +168,8 @@ program
   .option('--verbose', 'show detailed information')
   .option('--json', 'output as JSON')
   .option('--period <days>', 'period for trend analysis (default: 7)')
-  .option('--ai-optimized', 'output AI-optimized structured data for efficient processing')
+  .option('--ai-optimized', 'output AI-optimized structured data for efficient processing (default behavior)')
+  .option('--human-readable', 'output traditional human-readable format instead of AI-optimized')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();

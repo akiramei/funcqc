@@ -42,17 +42,18 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
     await storage.init();
 
     // Handle different modes
-    if (options.aiOptimized) {
-      await displayAIOptimizedHealth(storage, config, options);
-    } else if (options.trend) {
+    if (options.trend) {
       await displayTrendAnalysis(storage, options, logger);
     } else if (options.risks) {
       await displayDetailedRiskAssessment(storage, config, options);
     } else if (options.showConfig) {
       displayConfigurationDetails(config, options.verbose || false);
-    } else {
-      // Default health overview
+    } else if (options.humanReadable) {
+      // Traditional human-readable health overview
       await displayHealthOverview(storage, config, options);
+    } else {
+      // Default: AI-optimized structured output (Phase 3 change)
+      await displayAIOptimizedHealth(storage, config, options);
     }
 
     await storage.close();
