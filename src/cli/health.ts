@@ -662,36 +662,27 @@ async function displayAIOptimizedHealth(
     const scorer = new QualityScorer();
     const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
 
-    // Get high risk functions with detailed information (expanded criteria)
-    const highRiskFunctions = functionsWithMetrics.filter(f => {
-      const complexity = f.metrics?.cyclomaticComplexity || 1;
-      const cognitiveComplexity = f.metrics?.cognitiveComplexity || 0;
-      const maintainability = f.metrics?.maintainabilityIndex || 100;
-      const lines = f.metrics?.linesOfCode || 0;
-      const nesting = f.metrics?.maxNestingLevel || 0;
-      const branches = f.metrics?.branchCount || 0;
-      const halsteadVolume = f.metrics?.halsteadVolume || 0;
-      const halsteadDifficulty = f.metrics?.halsteadDifficulty || 0;
-      const returnStatements = f.metrics?.returnStatementCount || 0;
-      const asyncAwaitCount = f.metrics?.asyncAwaitCount || 0;
-      const tryCatchCount = f.metrics?.tryCatchCount || 0;
-      const loopCount = f.metrics?.loopCount || 0;
+    // Use RiskAssessor to get consistent high-risk functions (matches --risks display)
+    const riskAssessment = await riskAssessor.assessProject(
+      functionsWithMetrics,
+      config.thresholds,
+      config.assessment
+    );
 
-      return (
-        complexity > config.metrics.complexityThreshold ||
-        cognitiveComplexity > config.metrics.cognitiveComplexityThreshold ||
-        maintainability < 50 ||
-        lines > config.metrics.linesOfCodeThreshold ||
-        nesting > config.metrics.maxNestingLevelThreshold ||
-        branches > Math.max(5, config.metrics.complexityThreshold / 2) ||
-        halsteadVolume > (typeof config.thresholds?.halsteadVolume?.warning === 'number' ? config.thresholds.halsteadVolume.warning : 1000) ||
-        halsteadDifficulty > (typeof config.thresholds?.halsteadDifficulty?.warning === 'number' ? config.thresholds.halsteadDifficulty.warning : 20) ||
-        returnStatements > (typeof config.thresholds?.returnStatements?.warning === 'number' ? config.thresholds.returnStatements.warning : 3) ||
-        asyncAwaitCount > (typeof config.thresholds?.asyncAwait?.warning === 'number' ? config.thresholds.asyncAwait.warning : 3) ||
-        tryCatchCount > (typeof config.thresholds?.tryCatch?.warning === 'number' ? config.thresholds.tryCatch.warning : 2) ||
-        loopCount > (typeof config.thresholds?.loops?.warning === 'number' ? config.thresholds.loops.warning : 3)
+    // Get ALL functions assessed as "high" risk level (matches --risks count: 134)
+    // Note: We need to re-assess functions to get all high-risk ones, not just top 10
+    const highRiskFunctions = [];
+    for (const func of functionsWithMetrics) {
+      const assessment = await riskAssessor.assessFunction(
+        func,
+        riskAssessment.statistics,
+        config.thresholds,
+        config.assessment
       );
-    });
+      if (assessment.riskLevel === 'high') {
+        highRiskFunctions.push(func);
+      }
+    }
 
     // Sort by risk score (complexity + size + maintainability issues)
     const sortedHighRiskFunctions = highRiskFunctions
