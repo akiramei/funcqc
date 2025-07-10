@@ -31,8 +31,20 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
     ...data
   };
 
-  // Use stable key ordering for consistent jq processing
-  return JSON.stringify(outputData, Object.keys(outputData).sort(), 2);
+  // 再帰的にキーをソートする関数
+  const sortKeys = (obj: any): any => {
+    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+      return obj;
+    }
+    return Object.keys(obj)
+      .sort()
+      .reduce((sorted: any, key) => {
+        sorted[key] = sortKeys(obj[key]);
+        return sorted;
+      }, {});
+  };
+
+  return JSON.stringify(sortKeys(outputData), null, 2);
 }
 
 /**
