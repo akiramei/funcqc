@@ -1,5 +1,4 @@
 import chalk from 'chalk';
-import { table } from 'table';
 import { ConfigManager } from '../core/config';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { Logger } from '../utils/cli-utils';
@@ -288,50 +287,24 @@ function displayLineageList(
 
   console.log(chalk.cyan.bold(`\n🔗 Function Lineages (${lineages.length})\n`));
 
-  // Prepare table data
-  const headers = ['ID', 'Kind', 'Status', 'Confidence', 'From → To', 'Created', 'Note'];
-  const rows = lineages.map(lineage => [
-    lineage.id.substring(0, 8),
-    getLineageKindIcon(lineage.kind) + ' ' + lineage.kind,
-    getStatusIcon(lineage.status) + ' ' + lineage.status,
-    `${((lineage.confidence ?? 0) * 100).toFixed(1)}%`,
-    `${lineage.fromIds.length} → ${lineage.toIds.length}`,
-    formatDate(lineage.createdAt),
-    truncateText(lineage.note || '', 30),
-  ]);
-
-  const tableData = [headers, ...rows];
-
-  const tableConfig = {
-    border: {
-      topBody: '─',
-      topJoin: '┬',
-      topLeft: '┌',
-      topRight: '┐',
-      bottomBody: '─',
-      bottomJoin: '┴',
-      bottomLeft: '└',
-      bottomRight: '┘',
-      bodyLeft: '│',
-      bodyRight: '│',
-      bodyJoin: '│',
-      joinBody: '─',
-      joinLeft: '├',
-      joinRight: '┤',
-      joinJoin: '┼',
-    },
-    columns: {
-      0: { width: 10 },
-      1: { width: 18 },
-      2: { width: 12 },
-      3: { width: 12 },
-      4: { width: 10 },
-      5: { width: 12 },
-      6: { width: 32 },
-    },
-  };
-
-  console.log(table(tableData, tableConfig));
+  // Simple list display (similar to funcqc list command)
+  lineages.forEach((lineage, index) => {
+    const prefix = chalk.gray(`${index + 1}.`);
+    const id = chalk.yellow(lineage.id.substring(0, 8));
+    const kind = `${getLineageKindIcon(lineage.kind)} ${lineage.kind}`;
+    const status = `${getStatusIcon(lineage.status)} ${lineage.status}`;
+    const confidence = chalk.blue(`${((lineage.confidence ?? 0) * 100).toFixed(1)}%`);
+    const mapping = chalk.gray(`${lineage.fromIds.length} → ${lineage.toIds.length}`);
+    const created = chalk.gray(formatDate(lineage.createdAt));
+    
+    console.log(`${prefix} ${id} ${kind} ${status} ${confidence} ${mapping} ${created}`);
+    
+    if (lineage.note) {
+      const truncatedNote = truncateText(lineage.note, 80);
+      console.log(`   ${chalk.gray('Note:')} ${chalk.dim(truncatedNote)}`);
+    }
+    console.log(); // Empty line between entries
+  });
 
   // Show summary statistics
   const statusCounts = lineages.reduce(
