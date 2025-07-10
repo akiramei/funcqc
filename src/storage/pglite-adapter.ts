@@ -1699,12 +1699,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async getLineage(id: string): Promise<Lineage | null> {
     try {
-      const result = await this.db.query(
+      // First try exact match
+      let result = await this.db.query(
         `
         SELECT * FROM lineage WHERE id = $1
       `,
         [id]
       );
+
+      // If no exact match and id is shorter than full UUID, try prefix match
+      if (result.rows.length === 0 && id.length < 36) {
+        result = await this.db.query(
+          `
+          SELECT * FROM lineage WHERE id LIKE $1 || '%'
+        `,
+          [id]
+        );
+
+        // Ensure uniqueness for prefix matches
+        if (result.rows.length > 1) {
+          throw new Error(`Ambiguous lineage ID: '${id}' matches multiple lineages`);
+        }
+      }
 
       if (result.rows.length === 0) {
         return null;
