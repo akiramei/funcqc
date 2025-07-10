@@ -384,8 +384,10 @@ export class HierarchicalIndex {
       (a, b) => a.score - b.score // Lower score (higher similarity) first
     );
 
-    // Remove score field and return
-    const results: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
+    // Remove score field and sort by similarity (descending)
+    const results: SearchResult[] = topResults
+      .map(({ score: _score, ...result }) => result)
+      .sort((a, b) => b.similarity - a.similarity);
 
     // Cache the results (undefined check handled in LRUCache.set)
     this.queryCache.set(cacheKey, results);
@@ -716,8 +718,10 @@ export class LSHIndex {
       (a, b) => a.score - b.score // Lower score (higher similarity) first
     );
 
-    // Remove score field and return
-    const finalResults: SearchResult[] = topResults.map(({ score: _score, ...result }) => result);
+    // Remove score field and sort by similarity (descending)
+    const finalResults: SearchResult[] = topResults
+      .map(({ score: _score, ...result }) => result)
+      .sort((a, b) => b.similarity - a.similarity);
 
     // Cache the results (undefined check handled in LRUCache.set)
     this.queryCache.set(cacheKey, finalResults);
