@@ -31,15 +31,16 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
     ...data
   };
 
-  // 再帰的にキーをソートする関数
-  const sortKeys = (obj: any): any => {
+  // Recursively sort keys for stable output
+  const sortKeys = (obj: unknown): unknown => {
     if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
       return obj;
     }
-    return Object.keys(obj)
+    const record = obj as Record<string, unknown>;
+    return Object.keys(record)
       .sort()
-      .reduce((sorted: any, key) => {
-        sorted[key] = sortKeys(obj[key]);
+      .reduce((sorted: Record<string, unknown>, key) => {
+        sorted[key] = sortKeys(record[key]);
         return sorted;
       }, {});
   };
