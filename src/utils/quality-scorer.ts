@@ -41,12 +41,12 @@ export class QualityScorer {
       codeQuality: this.calculateCodeQualityScore(functions),
     };
 
-    // Weighted average: complexity and maintainability are most important
+    // Balanced weighted average with adjusted weights
     const overallScore = Math.round(
-      scores.complexity * 0.35 +
-        scores.maintainability * 0.35 +
-        scores.size * 0.15 +
-        scores.codeQuality * 0.15
+      scores.complexity * 0.30 +
+        scores.maintainability * 0.30 +
+        scores.size * 0.20 +
+        scores.codeQuality * 0.20
     );
 
     const overallGrade = this.scoreToGrade(overallScore);
@@ -69,51 +69,98 @@ export class QualityScorer {
   private calculateComplexityScore(functions: FunctionInfo[]): number {
     const complexities = functions.map(f => f.metrics?.cyclomaticComplexity || 1);
     const avgComplexity = complexities.reduce((a, b) => a + b, 0) / complexities.length;
-    const maxComplexity = Math.max(...complexities);
-
-    // Score based on average and max complexity
+    
+    // Use ratio-based scoring instead of extreme max penalties
+    const highComplexityRatio = this.getHighComplexityRatio(functions, 10);
+    const veryHighComplexityRatio = this.getHighComplexityRatio(functions, 15);
+    
     let score = 100;
 
-    // Penalize high average complexity
-    if (avgComplexity > 5) score -= (avgComplexity - 5) * 8;
-    if (avgComplexity > 10) score -= (avgComplexity - 10) * 15;
+    // Penalize high average complexity (moderate impact)
+    if (avgComplexity > 5) score -= (avgComplexity - 5) * 4;
+    if (avgComplexity > 10) score -= (avgComplexity - 10) * 8;
 
-    // Penalize very high max complexity
-    if (maxComplexity > 15) score -= (maxComplexity - 15) * 5;
-    if (maxComplexity > 25) score -= (maxComplexity - 25) * 10;
+    // Penalize based on proportion of high complexity functions
+    // 10% threshold: moderate penalty, 20% threshold: severe penalty
+    if (highComplexityRatio > 0.05) score -= (highComplexityRatio - 0.05) * 300;
+    if (veryHighComplexityRatio > 0.02) score -= (veryHighComplexityRatio - 0.02) * 500;
 
     return Math.max(0, Math.min(100, score));
   }
 
+  /**
+   * Calculate the ratio of functions exceeding complexity threshold
+   */
+  private getHighComplexityRatio(functions: FunctionInfo[], threshold: number): number {
+    const highComplexityFunctions = functions.filter(
+      f => (f.metrics?.cyclomaticComplexity || 1) > threshold
+    );
+    return highComplexityFunctions.length / functions.length;
+  }
+
   private calculateMaintainabilityScore(functions: FunctionInfo[]): number {
-    const maintainabilityIndexes = functions
-      .map(f => f.metrics?.maintainabilityIndex || 100)
-      .filter(mi => mi > 0);
+    // Use Lines of Code weighted average for more realistic assessment
+    const weightedData = functions.map(f => ({
+      mi: f.metrics?.maintainabilityIndex || 100,
+      weight: Math.max(1, f.metrics?.linesOfCode || 1), // Minimum weight of 1
+    })).filter(data => data.mi > 0);
 
-    if (maintainabilityIndexes.length === 0) return 100;
+    if (weightedData.length === 0) return 100;
 
-    const avgMaintainability =
-      maintainabilityIndexes.reduce((a, b) => a + b, 0) / maintainabilityIndexes.length;
+    const totalWeight = weightedData.reduce((sum, data) => sum + data.weight, 0);
+    const weightedAvg = weightedData.reduce((sum, data) => sum + data.mi * data.weight, 0) / totalWeight;
 
-    // Convert maintainability index (0-100) to score
-    return Math.max(0, Math.min(100, Math.round(avgMaintainability)));
+    // Additional penalty for functions with very low maintainability
+    const lowMaintainabilityRatio = this.getLowMaintainabilityRatio(functions, 50);
+    let score = Math.round(weightedAvg);
+    
+    // Penalize if significant portion has low maintainability
+    if (lowMaintainabilityRatio > 0.1) {
+      score -= (lowMaintainabilityRatio - 0.1) * 200;
+    }
+
+    return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * Calculate the ratio of functions with low maintainability
+   */
+  private getLowMaintainabilityRatio(functions: FunctionInfo[], threshold: number): number {
+    const lowMaintainabilityFunctions = functions.filter(
+      f => (f.metrics?.maintainabilityIndex || 100) < threshold
+    );
+    return lowMaintainabilityFunctions.length / functions.length;
   }
 
   private calculateSizeScore(functions: FunctionInfo[]): number {
     const lines = functions.map(f => f.metrics?.linesOfCode || 0);
     const avgLines = lines.reduce((a, b) => a + b, 0) / lines.length;
-    const maxLines = Math.max(...lines);
+    
+    // Use ratio-based scoring for large functions
+    const largeFunctionRatio = this.getLargeFunctionRatio(functions, 50);
+    const veryLargeFunctionRatio = this.getLargeFunctionRatio(functions, 100);
 
     let score = 100;
 
-    // Penalize large functions
-    if (avgLines > 20) score -= (avgLines - 20) * 2;
-    if (avgLines > 50) score -= (avgLines - 50) * 5;
+    // Penalize high average size (moderate impact)
+    if (avgLines > 20) score -= (avgLines - 20) * 1.5;
+    if (avgLines > 40) score -= (avgLines - 40) * 3;
 
-    if (maxLines > 100) score -= (maxLines - 100) * 1;
-    if (maxLines > 200) score -= (maxLines - 200) * 2;
+    // Penalize based on proportion of large functions
+    if (largeFunctionRatio > 0.1) score -= (largeFunctionRatio - 0.1) * 200;
+    if (veryLargeFunctionRatio > 0.05) score -= (veryLargeFunctionRatio - 0.05) * 300;
 
     return Math.max(0, Math.min(100, score));
+  }
+
+  /**
+   * Calculate the ratio of functions exceeding size threshold
+   */
+  private getLargeFunctionRatio(functions: FunctionInfo[], threshold: number): number {
+    const largeFunctions = functions.filter(
+      f => (f.metrics?.linesOfCode || 0) > threshold
+    );
+    return largeFunctions.length / functions.length;
   }
 
   private calculateCodeQualityScore(functions: FunctionInfo[]): number {
