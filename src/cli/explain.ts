@@ -10,6 +10,30 @@ import {
 } from '../data/metric-explanations';
 import { ConfigManager } from '../core/config';
 
+function handleTargetExplanation(target: string, options: ExplainCommandOptions): void {
+  const metric = getMetricExplanation(target);
+  if (metric) {
+    displayMetricExplanation(target, options);
+    return;
+  }
+
+  const concept = getConceptExplanation(target);
+  if (concept) {
+    displayConceptExplanation(target);
+    return;
+  }
+
+  const searchResults = searchMetrics(target);
+  if (searchResults.length > 0) {
+    displaySearchResults(target, searchResults, options);
+    return;
+  }
+
+  console.error(chalk.red(`Unknown metric or concept: "${target}"`));
+  console.log(chalk.yellow('Use "funcqc explain --all" to see available metrics'));
+  process.exit(1);
+}
+
 export async function explainCommand(
   target?: string,
   options: ExplainCommandOptions = {}
@@ -17,36 +41,30 @@ export async function explainCommand(
   try {
     if (options.all) {
       displayAllMetrics();
-    } else if (options.threshold) {
-      await displayThresholdExplanation();
-    } else if (options.concept) {
-      displayConceptExplanation(options.concept);
-    } else if (options.metric) {
-      displayMetricExplanation(options.metric, options);
-    } else if (target) {
-      // Try to determine if target is a metric or concept
-      const metric = getMetricExplanation(target);
-      if (metric) {
-        displayMetricExplanation(target, options);
-      } else {
-        const concept = getConceptExplanation(target);
-        if (concept) {
-          displayConceptExplanation(target);
-        } else {
-          // Search for similar metrics
-          const searchResults = searchMetrics(target);
-          if (searchResults.length > 0) {
-            displaySearchResults(target, searchResults, options);
-          } else {
-            console.error(chalk.red(`Unknown metric or concept: "${target}"`));
-            console.log(chalk.yellow('Use "funcqc explain --all" to see available metrics'));
-            process.exit(1);
-          }
-        }
-      }
-    } else {
-      displayGeneralHelp();
+      return;
     }
+
+    if (options.threshold) {
+      await displayThresholdExplanation();
+      return;
+    }
+
+    if (options.concept) {
+      displayConceptExplanation(options.concept);
+      return;
+    }
+
+    if (options.metric) {
+      displayMetricExplanation(options.metric, options);
+      return;
+    }
+
+    if (target) {
+      handleTargetExplanation(target, options);
+      return;
+    }
+
+    displayGeneralHelp();
   } catch (error: unknown) {
     console.error(
       chalk.red('Failed to provide explanation:'),
