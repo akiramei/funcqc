@@ -51,21 +51,21 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
 /**
  * Sanitize data for JSON output (convert undefined to null, ensure number types)
  */
-export function sanitizeForJson<T>(data: T): T {
+export function sanitizeForJson<T>(data: T): T | null {
   if (data === null || data === undefined) {
-    return null as T;
+    return null;
   }
   
   if (Array.isArray(data)) {
-    return data.map(sanitizeForJson) as T;
+    return data.map(sanitizeForJson) as unknown as T;
   }
   
   if (typeof data === 'object') {
     const sanitized = {} as Record<string, unknown>;
-    for (const [key, value] of Object.entries(data)) {
+    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
       sanitized[key] = sanitizeForJson(value);
     }
-    return sanitized as T;
+    return sanitized as unknown as T;
   }
   
   return data;
@@ -95,7 +95,7 @@ export function outputJson<T extends Record<string, unknown>>(
 ): void {
   if (isJsonOutput(options)) {
     const sanitizedData = sanitizeForJson(data);
-    const stableJson = createStableJsonOutput(sanitizedData, schemaVersion);
+    const stableJson = createStableJsonOutput(sanitizedData as T, schemaVersion);
     console.log(stableJson);
   }
 }
