@@ -399,8 +399,7 @@ export interface HealthCommandOptions extends CommandOptions {
   verbose?: boolean;
   json?: boolean; // JSON output for jq/script processing
   period?: string;
-  aiOptimized?: boolean;
-  humanReadable?: boolean;
+  aiOptimized?: boolean; // Deprecated: use json instead
 }
 
 export interface EvaluateCommandOptions extends CommandOptions {

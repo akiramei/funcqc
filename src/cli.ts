@@ -167,10 +167,9 @@ program
   .option('--risks', 'show detailed risk assessment')
   .option('--show-config', 'show configuration details')
   .option('--verbose', 'show detailed information')
-  .option('-j, --json', 'output as JSON for jq/script processing')
+  .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
-  .option('--ai-optimized', 'output AI-optimized structured data for efficient processing (default behavior)')
-  .option('--human-readable', 'output traditional human-readable format instead of AI-optimized')
+  .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options, cmd) => {
     // グローバルオプションをマージ
     const globalOpts = cmd.parent.opts();

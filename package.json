@@ -39,7 +39,6 @@
     "test:ci": "vitest --config vitest.config.ci.ts --run",
     "test:watch": "vitest --watch",
     "test:coverage": "vitest --coverage",
-    "test:e2e": "vitest --config vitest.e2e.config.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",

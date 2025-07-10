@@ -94,10 +94,10 @@ The quality calculator computes comprehensive metrics:
 
 ## Testing Strategy
 
-- Unit tests for analyzers and calculators in `test/`
-- E2E tests for CLI commands in `test/e2e/`
+- Unit tests for analyzers and calculators in `test/` (452 tests)
 - Test fixtures in `test/fixtures/`
-- Separate Vitest configs for unit and E2E tests
+- Manual functional testing using `npm run dev` commands
+- Note: E2E tests removed due to high maintenance cost vs value ratio
 
 ## Development Notes
 
