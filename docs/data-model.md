@@ -89,7 +89,7 @@ CREATE TABLE snapshots (
   git_tag TEXT,                          -- Git tag (if any)
   project_root TEXT NOT NULL DEFAULT '', -- プロジェクトルートパス
   config_hash TEXT NOT NULL DEFAULT '',  -- 設定ファイルのハッシュ
-  metadata TEXT DEFAULT '{}'             -- JSON形式の追加情報
+  metadata JSONB DEFAULT '{}'            -- JSON形式の追加情報
 );
 
 CREATE INDEX idx_snapshots_created_at ON snapshots(created_at);
@@ -109,7 +109,7 @@ CREATE TABLE functions (
   end_line INTEGER NOT NULL,             -- ファイル内終了行
   start_column INTEGER NOT NULL DEFAULT 0,
   end_column INTEGER NOT NULL DEFAULT 0,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   
   -- 意味識別次元
   semantic_id TEXT NOT NULL,             -- Semantic hash（役割ベース識別）
@@ -234,8 +234,8 @@ CREATE TABLE function_descriptions (
   source TEXT NOT NULL DEFAULT 'human',  -- 'human' | 'ai' | 'jsdoc'
   validated_for_content_id TEXT,         -- 実装確認済みマーク
   needs_review BOOLEAN DEFAULT FALSE,    -- 実装変更時の確認要求
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   created_by TEXT,                       -- 作成者
   ai_model TEXT,                         -- AI生成時のモデル名
   confidence_score REAL,                 -- AI生成時の信頼度
