@@ -1,6 +1,10 @@
 # funcqc データモデル詳細仕様 - 3次元識別システム
 
-> **📋 Single Source of Truth**: このファイルは funcqc の完全なデータベーススキーマ定義を含む唯一の権威ある情報源です。
+> **⚠️ DEPRECATED**: このファイルは非推奨です。最新のデータベーススキーマ定義は `src/schemas/database.sql` を参照してください。
+> 
+> **📋 New Single Source of Truth**: `src/schemas/database.sql` が funcqc データベーススキーマの唯一の権威ある情報源となりました。
+> 
+> このファイルは段階的に廃止され、将来のバージョンで削除される予定です。
 
 ## 概要
 
