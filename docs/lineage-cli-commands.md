@@ -10,6 +10,8 @@ The funcqc lineage commands provide comprehensive tools for tracking and managin
 - **Browsing**: `lineage list` - Browse and filter lineage records  
 - **Details**: `lineage show` - View detailed lineage information
 - **Management**: `lineage review` - Approve, reject, or modify lineages
+- **Deletion**: `lineage delete` - Delete individual lineages
+- **Cleanup**: `lineage clean` - Batch delete lineages by criteria
 
 ---
 
@@ -462,6 +464,205 @@ funcqc lineage review batch --auto-approve 0.9
 
 ---
 
+## lineage delete
+
+Delete a specific lineage record from the database.
+
+### Syntax
+```bash
+funcqc lineage delete <lineage-id> [options]
+```
+
+### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-v, --verbose` | Show verbose output | false |
+
+### Examples
+
+#### Delete Individual Lineage
+```bash
+# Delete a draft lineage
+funcqc lineage delete lin_a1b2c3d4
+
+# Delete with verbose output
+funcqc lineage delete lin_a1b2c3d4 --verbose
+```
+
+### Safety Features
+
+- **Confirmation Required**: All deletions require user confirmation
+- **Status Display**: Shows lineage details before deletion
+- **Approved Warning**: Extra warning for approved lineages requiring "yes" confirmation
+- **Not Found Handling**: Clear error message for invalid lineage IDs
+
+### Output Example
+
+#### Draft Lineage Deletion
+```bash
+funcqc lineage delete lin_a1b2c3d4
+```
+```
+⚠️  About to delete lineage:
+
+ID: lin_a1b2c3d4
+Kind: ✂️ split
+Status: 📝 draft
+From/To: 1 → 2 functions
+Note: Auto-detected: advanced-structural detected 100.0% similarity
+
+Are you sure you want to delete this lineage? (y/N): y
+✅ Lineage lin_a1b2c3d4 has been deleted.
+```
+
+#### Approved Lineage Deletion
+```bash
+funcqc lineage delete lin_e5f6g7h8
+```
+```
+⚠️  About to delete lineage:
+
+ID: lin_e5f6g7h8
+Kind: ✏️ rename
+Status: ✅ approved
+From/To: 1 → 1 functions
+
+⚠️  WARNING: This lineage is APPROVED!
+Deleting approved lineages removes important project history.
+
+Are you sure you want to delete this APPROVED lineage? Type "yes" to confirm: no
+ℹ️ Deletion cancelled.
+```
+
+---
+
+## lineage clean
+
+Delete multiple lineages based on filtering criteria. Provides batch deletion capabilities with safety controls.
+
+### Syntax
+```bash
+funcqc lineage clean [options]
+```
+
+### Options
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--status <status>` | Filter by status (draft\|approved\|rejected) | draft |
+| `--older-than <days>` | Delete lineages older than N days | none |
+| `--dry-run` | Preview what would be deleted without making changes | false |
+| `-y, --yes` | Skip confirmation prompt | false |
+| `--include-approved` | Include approved lineages (requires --force) | false |
+| `--force` | Required flag when deleting approved lineages | false |
+| `-v, --verbose` | Show detailed list of lineages to be deleted | false |
+
+### Examples
+
+#### Basic Cleanup
+```bash
+# Delete all draft lineages (with confirmation)
+funcqc lineage clean
+
+# Preview what would be deleted
+funcqc lineage clean --dry-run
+
+# Delete without confirmation
+funcqc lineage clean --yes
+```
+
+#### Time-based Cleanup
+```bash
+# Delete draft lineages older than 30 days
+funcqc lineage clean --older-than 30
+
+# Delete all lineages older than 7 days
+funcqc lineage clean --older-than 7 --include-approved --force
+```
+
+#### Status-specific Cleanup
+```bash
+# Delete all rejected lineages
+funcqc lineage clean --status rejected
+
+# Delete specific status with time filter
+funcqc lineage clean --status draft --older-than 14
+```
+
+#### Advanced Cleanup (Dangerous)
+```bash
+# Delete all lineages including approved (requires confirmation)
+funcqc lineage clean --include-approved --force
+
+# Delete all approved lineages older than 90 days
+funcqc lineage clean --status approved --older-than 90 --force
+```
+
+### Safety Features
+
+- **Default to Draft**: Only deletes draft lineages by default
+- **Confirmation Required**: Asks for confirmation unless `--yes` is used
+- **Force Flag**: Requires `--force` when deleting approved lineages
+- **Dry Run Mode**: Preview deletions with `--dry-run`
+- **Extra Warnings**: Special warnings when approved lineages are included
+
+### Output Examples
+
+#### Standard Cleanup
+```bash
+funcqc lineage clean --older-than 30
+```
+```
+🧹 Lineages to be deleted (12):
+
+  📝 draft: 12
+
+Details:
+  1. 2c668ece - split (draft)
+  2. 7f4cc3ad - split (draft)
+  3. aadad585 - split (draft)
+  [... 9 more ...]
+
+Proceed with deletion? (y/N): y
+✅ Deleted 12 lineages.
+```
+
+#### Dry Run Mode
+```bash
+funcqc lineage clean --dry-run
+```
+```
+🧹 Lineages to be deleted (48):
+
+  📝 draft: 48
+
+(Dry run - no changes made)
+```
+
+#### Including Approved Lineages
+```bash
+funcqc lineage clean --include-approved --force
+```
+```
+🧹 Lineages to be deleted (50):
+
+  ✅ approved: 2
+  📝 draft: 48
+
+⚠️  WARNING: This will delete 2 APPROVED lineages!
+
+Type "yes" to confirm deletion of approved lineages: no
+ℹ️ Deletion cancelled.
+```
+
+### Use Cases
+
+1. **Regular Maintenance**: Clean up old draft lineages periodically
+2. **False Positive Cleanup**: Remove incorrectly detected lineages after fixing detection logic
+3. **Project Reset**: Clear all lineages when restructuring project
+4. **Storage Management**: Reduce database size by removing old records
+
+---
+
 ## Integration Examples
 
 ### Workflow Integration
@@ -496,13 +697,33 @@ fi
 # 1. Detect and save lineages as drafts
 funcqc diff main feature-branch --lineage --lineage-auto-save
 
-# 2. Review and approve/reject drafts
+# 2. Review drafts - approve, reject, or delete
 funcqc lineage list --status draft
 funcqc lineage review approve lin_abc123 --reason "Confirmed refactoring"
 funcqc lineage review reject lin_def456 --reason "False positive"
+funcqc lineage delete lin_ghi789  # Delete individual false positive
 
-# 3. Export approved lineages
+# 3. Clean up old drafts periodically
+funcqc lineage clean --older-than 30 --dry-run  # Preview cleanup
+funcqc lineage clean --older-than 30            # Perform cleanup
+
+# 4. Export approved lineages
 funcqc lineage list --status approved --json > approved-lineages.json
+```
+
+### Maintenance Workflow
+```bash
+# Weekly cleanup of old draft lineages
+funcqc lineage clean --older-than 14 --dry-run
+funcqc lineage clean --older-than 14 --yes
+
+# Remove all rejected lineages (cleanup storage)
+funcqc lineage clean --status rejected --yes
+
+# Emergency cleanup after detection logic fix
+funcqc lineage clean --dry-run              # Preview all drafts
+funcqc lineage clean --yes                  # Delete all drafts
+funcqc diff main HEAD --lineage --lineage-auto-save  # Re-detect with fixed logic
 ```
 
 ### Reporting and Analytics
