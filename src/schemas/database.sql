@@ -36,6 +36,7 @@ CREATE TABLE snapshots (
   id TEXT PRIMARY KEY,                    -- UUID v4 または "snap_" + timestamp
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   label TEXT,                            -- ユーザー定義ラベル
+  comment TEXT,                          -- ユーザーコメント
   git_commit TEXT,                       -- Git commit hash
   git_branch TEXT,                       -- Git branch name
   git_tag TEXT,                          -- Git tag (if any)
@@ -166,15 +167,16 @@ CREATE TABLE function_descriptions (
 );
 
 -- 自動トリガー: 内容変更検出
-CREATE TRIGGER function_content_change_detection
-  AFTER UPDATE ON functions
-  FOR EACH ROW
-  WHEN OLD.content_id != NEW.content_id
-BEGIN
-  UPDATE function_descriptions 
-  SET needs_review = TRUE 
-  WHERE semantic_id = NEW.semantic_id;
-END;
+-- Note: Triggers are created separately in the application layer for compatibility
+-- CREATE TRIGGER function_content_change_detection
+--   AFTER UPDATE ON functions
+--   FOR EACH ROW
+--   WHEN OLD.content_id != NEW.content_id
+-- BEGIN
+--   UPDATE function_descriptions 
+--   SET needs_review = TRUE 
+--   WHERE semantic_id = NEW.semantic_id;
+-- END;
 
 CREATE INDEX idx_function_descriptions_source ON function_descriptions(source);
 CREATE INDEX idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
@@ -187,7 +189,7 @@ CREATE INDEX idx_function_descriptions_needs_review ON function_descriptions(nee
 -- Function Parameters: Parameter information
 -- -----------------------------------------------------------------------------
 CREATE TABLE function_parameters (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  id SERIAL PRIMARY KEY,
   function_id TEXT NOT NULL,             -- 物理ID参照
   name TEXT NOT NULL,
   type TEXT NOT NULL,                    -- TypeScript型表現

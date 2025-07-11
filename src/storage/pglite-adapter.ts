@@ -1885,8 +1885,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const updateNote = note !== undefined;
       const sql = updateNote
-        ? 'UPDATE lineage SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
-        : 'UPDATE lineage SET status = $1, updated_at = $2 WHERE id = $3';
+        ? 'UPDATE lineages SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
+        : 'UPDATE lineages SET status = $1, updated_at = $2 WHERE id = $3';
 
       const params = updateNote
         ? [status, note, new Date().toISOString(), id]
@@ -1912,7 +1912,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       await this.db.query(
         `
-        UPDATE lineage SET 
+        UPDATE lineages SET 
           from_ids = $1, 
           to_ids = $2, 
           kind = $3, 
@@ -2373,6 +2373,44 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.db.exec(schemaSQL);
     } else {
       // All tables exist, indexes are already created with schema
+    }
+    
+    // Create triggers separately for compatibility
+    await this.createTriggers();
+  }
+  
+  /**
+   * Create database triggers
+   * Separated from main schema for PGLite compatibility
+   */
+  private async createTriggers(): Promise<void> {
+    try {
+      // Check if trigger already exists before creating
+      const triggerExists = await this.db.query(`
+        SELECT 1 FROM pg_trigger 
+        WHERE tgname = 'function_content_change_detection'
+      `);
+      
+      if (triggerExists.rows.length === 0) {
+        // Create trigger with PGLite-compatible syntax
+        await this.db.exec(`
+          CREATE TRIGGER function_content_change_detection
+          AFTER UPDATE ON functions
+          FOR EACH ROW
+          WHEN (OLD.content_id IS DISTINCT FROM NEW.content_id)
+          EXECUTE FUNCTION (
+            UPDATE function_descriptions 
+            SET needs_review = TRUE 
+            WHERE semantic_id = NEW.semantic_id
+          );
+        `);
+      }
+    } catch (error) {
+      // Log warning but don't fail - triggers are optional for functionality
+      console.warn(
+        'Trigger creation skipped (may not be supported):',
+        error instanceof Error ? error.message : String(error)
+      );
     }
   }
 
@@ -2846,7 +2884,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
-      metadata: JSON.parse(row.metadata || '{}'),
+      metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {}),
     };
   }
 

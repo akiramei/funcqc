@@ -4,6 +4,14 @@
 
 import { FunctionInfo } from '../types';
 
+/**
+ * Format array for PostgreSQL array literal
+ */
+function formatPostgresArray(arr: string[]): string {
+  if (arr.length === 0) return '{}';
+  return `{${arr.map(item => `"${item.replace(/"/g, '\\"')}"`).join(',')}}`;
+}
+
 export interface BulkInsertData {
   functions: unknown[][];
   parameters: unknown[][];
@@ -54,9 +62,9 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.startColumn,
     func.endColumn,
     func.astHash,
-    JSON.stringify(func.contextPath || []),
+    formatPostgresArray(func.contextPath || []),
     func.functionType || null,
-    JSON.stringify(func.modifiers || []),
+    formatPostgresArray(func.modifiers || []),
     func.nestingLevel || 0,
     func.isExported,
     func.isAsync,
