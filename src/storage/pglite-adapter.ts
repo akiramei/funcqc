@@ -2393,7 +2393,52 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   private async createTriggers(): Promise<void> {
     try {
-      // Check if trigger already exists before creating
+      // Create update_updated_at_column function if it doesn't exist
+      await this.db.exec(`
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ language 'plpgsql';
+      `);
+
+      // Create updated_at triggers for all tables that have this column
+      const tablesWithUpdatedAt = [
+        'refactoring_sessions',
+        'refactoring_opportunities',
+        'naming_evaluations',
+        'function_descriptions',
+        'lineages',
+        'ann_index_metadata',
+        'function_embeddings'
+      ];
+
+      for (const tableName of tablesWithUpdatedAt) {
+        const triggerName = `update_${tableName}_updated_at`;
+        try {
+          // Check if trigger already exists
+          const triggerExists = await this.db.query(`
+            SELECT 1 FROM pg_trigger 
+            WHERE tgname = $1
+          `, [triggerName]);
+          
+          if (triggerExists.rows.length === 0) {
+            await this.db.exec(`
+              CREATE TRIGGER ${triggerName} 
+              BEFORE UPDATE ON ${tableName}
+              FOR EACH ROW 
+              EXECUTE FUNCTION update_updated_at_column();
+            `);
+          }
+        } catch (err) {
+          // Individual trigger creation may fail, continue with others
+          console.warn(`Failed to create trigger ${triggerName}:`, err);
+        }
+      }
+
+      // Original function_content_change_detection trigger
       const triggerExists = await this.db.query(`
         SELECT 1 FROM pg_trigger 
         WHERE tgname = 'function_content_change_detection'
