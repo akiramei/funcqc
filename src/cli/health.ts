@@ -134,6 +134,7 @@ async function displayHealthOverview(
   const functionsWithMetrics = functions.filter(f => f.metrics);
   let riskAssessment = null;
   let assessmentSummary = null;
+  let sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }> = [];
   
   if (functionsWithMetrics.length > 0) {
     try {
@@ -143,7 +144,10 @@ async function displayHealthOverview(
         config.assessment
       );
       assessmentSummary = riskAssessor.createAssessmentSummary(riskAssessment);
-    } catch (error) {
+      
+      // Get high-risk functions sorted by calculateRiskScore
+      sortedHighRiskFunctions = await assessHighRiskFunctions(functionsWithMetrics, config);
+    } catch {
       // Continue without risk assessment
     }
   }
@@ -155,7 +159,10 @@ async function displayHealthOverview(
   await displayRiskDistribution(functions, config, options.verbose || false);
 
   // Risk Details
-  await displayRiskDetails(functionsWithMetrics, riskAssessment, assessmentSummary, options.verbose || false);
+  await displayRiskDetails(functionsWithMetrics, sortedHighRiskFunctions, assessmentSummary, options.verbose || false);
+
+  // Recommended Actions
+  await displayRecommendedActions(sortedHighRiskFunctions, config, options.verbose || false);
 
   // Git Status (if enabled)
   if (config.git.enabled) {
@@ -170,7 +177,7 @@ async function displayHealthOverview(
 async function displayQualityOverview(
   functions: FunctionInfo[],
   _config: FuncqcConfig,
-  assessmentSummary: any,
+  assessmentSummary: unknown,
   verbose: boolean
 ): Promise<void> {
   console.log(chalk.yellow('Quality Overview:'));
@@ -188,8 +195,8 @@ async function displayQualityOverview(
   console.log(`  Overall Grade: ${projectScore.overallGrade} (${projectScore.score}/100)`);
   
   // Use the pre-calculated assessment summary
-  if (assessmentSummary) {
-    const avgScore = assessmentSummary.averageRiskScore;
+  if (assessmentSummary && typeof assessmentSummary === 'object' && assessmentSummary !== null && 'averageRiskScore' in assessmentSummary) {
+    const avgScore = (assessmentSummary as { averageRiskScore: number }).averageRiskScore;
     const scoreInterpretation = getScoreInterpretation(avgScore);
     const scoreColor = getScoreColor(avgScore);
     console.log(`  Average Risk Score: ${scoreColor(avgScore.toFixed(1))} ${scoreInterpretation}`);
@@ -260,9 +267,9 @@ async function displayRiskDistribution(
 
 async function displayRiskDetails(
   functionsWithMetrics: FunctionInfo[],
-  riskAssessment: any,
-  summary: any,
-  verbose: boolean = false
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  summary: unknown,
+  _verbose: boolean = false
 ): Promise<void> {
   console.log(chalk.yellow('Risk Details:'));
 
@@ -272,25 +279,70 @@ async function displayRiskDetails(
     return;
   }
 
-  console.log(`  Threshold Violations: Critical: ${summary.criticalViolations}, Error: ${summary.errorViolations}, Warning: ${summary.warningViolations}`);
+  // Type guard for summary
+  const hasSummaryProperties = summary && typeof summary === 'object' && summary !== null && 
+    'criticalViolations' in summary && 'errorViolations' in summary && 'warningViolations' in summary;
   
-  if (summary.worstFunctionId && riskAssessment) {
-    const worstFunction = functionsWithMetrics.find(f => f.id === summary.worstFunctionId);
-    if (worstFunction) {
-      // Get the risk score for the worst function from worstFunctions array
-      const worstFuncAssessment = riskAssessment.worstFunctions?.find(
-        (assessment: any) => assessment.functionId === summary.worstFunctionId
-      );
-      const riskScore = worstFuncAssessment?.riskScore || 0;
-      const scoreColor = getScoreColor(riskScore);
-      console.log(`  Highest Risk Function: ${worstFunction.displayName}() (Risk: ${scoreColor(riskScore.toFixed(0))})`);
-      console.log(`    Location: ${worstFunction.filePath}:${worstFunction.startLine}`);
+  if (hasSummaryProperties) {
+    const summaryObj = summary as { criticalViolations: number; errorViolations: number; warningViolations: number; mostCommonViolation?: string };
+    console.log(`  Threshold Violations: Critical: ${summaryObj.criticalViolations}, Error: ${summaryObj.errorViolations}, Warning: ${summaryObj.warningViolations}`);
+    
+    if (summaryObj.mostCommonViolation) {
+      console.log(`  Most Common Violation: ${summaryObj.mostCommonViolation}`);
     }
   }
-
-  if (summary.mostCommonViolation) {
-    console.log(`  Most Common Violation: ${summary.mostCommonViolation}`);
+  
+  // Use the highest risk function from sortedHighRiskFunctions (calculateRiskScore based)
+  if (sortedHighRiskFunctions.length > 0) {
+    const highest = sortedHighRiskFunctions[0];
+    const scoreColor = getScoreColor(highest.riskScore);
+    console.log(`  Highest Risk Function: ${highest.function.displayName}() (Risk: ${scoreColor(highest.riskScore.toFixed(0))})`);
+    console.log(`    Location: ${highest.function.filePath}:${highest.function.startLine}`);
   }
+
+  console.log();
+}
+
+async function displayRecommendedActions(
+  sortedHighRiskFunctions: Array<{ function: FunctionInfo; riskScore: number; riskFactors: string[] }>,
+  config: FuncqcConfig,
+  verbose: boolean = false
+): Promise<void> {
+  console.log(chalk.yellow('Recommended Actions:'));
+
+  if (sortedHighRiskFunctions.length === 0) {
+    console.log('  No immediate actions needed - code quality is good!');
+    console.log();
+    return;
+  }
+
+  // Generate recommended actions (top 3 by default, more if verbose)
+  const nextActions = generateNextActions(
+    sortedHighRiskFunctions.slice(0, verbose ? 5 : 3), 
+    config
+  );
+
+  nextActions.forEach((action, index) => {
+    const func = sortedHighRiskFunctions.find(item => item.function.id === action.function_id)?.function;
+    if (func) {
+      console.log(`  ${index + 1}. ${func.displayName}() in ${action.code_location}`);
+      console.log(`     Action: ${action.description}`);
+      
+      // Show first 2 steps by default, all if verbose
+      const stepsToShow = verbose ? action.specific_steps : action.specific_steps.slice(0, 2);
+      stepsToShow.forEach(step => {
+        console.log(`     - ${step}`);
+      });
+      
+      if (!verbose && action.specific_steps.length > 2) {
+        console.log(`     ... and ${action.specific_steps.length - 2} more steps`);
+      }
+      
+      if (index < nextActions.length - 1) {
+        console.log();
+      }
+    }
+  });
 
   console.log();
 }
