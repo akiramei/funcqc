@@ -2519,7 +2519,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         await this.getGitTag(),
         process.cwd(),
         configHash,
-        JSON.stringify(metadata),
+        metadata,
         nowUTC,
       ]
     );
@@ -2924,9 +2924,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
 
       // Enhanced function identification
-      ...(row.context_path && { contextPath: Array.isArray(row.context_path) ? row.context_path : this.safeJsonParse(row.context_path, []) }),
+      ...(row.context_path && { contextPath: row.context_path }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: Array.isArray(row.modifiers) ? row.modifiers : this.safeJsonParse(row.modifiers, []) }),
+      ...(row.modifiers && { modifiers: row.modifiers }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes

@@ -41,7 +41,16 @@ export interface SnapshotRow {
   git_tag?: string;
   project_root: string;
   config_hash: string;
-  metadata: string; // JSON string
+  metadata: {
+    totalFunctions: number;
+    totalFiles: number;
+    avgComplexity: number;
+    maxComplexity: number;
+    exportedFunctions: number;
+    asyncFunctions: number;
+    complexityDistribution: Record<number, number>;
+    fileExtensions: Record<string, number>;
+  }; // JSONB is automatically parsed by PGLite
 }
 
 export interface FunctionRow {
@@ -62,9 +71,9 @@ export interface FunctionRow {
   ast_hash: string;
 
   // Enhanced function identification
-  context_path?: string; // Hierarchical context JSON
+  context_path?: string[]; // PostgreSQL TEXT[] array
   function_type?: 'function' | 'method' | 'arrow' | 'local';
-  modifiers?: string; // Modifiers JSON ['static', 'private', 'async']
+  modifiers?: string[]; // PostgreSQL TEXT[] array
   nesting_level?: number; // Nesting depth
 
   // Existing function attributes
