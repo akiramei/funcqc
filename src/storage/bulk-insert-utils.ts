@@ -6,11 +6,13 @@ import { FunctionInfo } from '../types';
 
 /**
  * Format array for PostgreSQL array literal
+ * Properly handles empty arrays and special characters
  */
 function formatPostgresArray(arr: string[]): string {
-  if (arr.length === 0) return '{}';
+  if (!arr || arr.length === 0) return '{}'; // Use empty PostgreSQL array for empty arrays
   return `{${arr.map(item => `"${item.replace(/"/g, '\\"')}"`).join(',')}}`;
 }
+
 
 export interface BulkInsertData {
   functions: unknown[][];

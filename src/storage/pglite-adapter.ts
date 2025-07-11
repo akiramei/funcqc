@@ -1901,7 +1901,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private formatPostgresArrayLiteral(ids: string[]): string {
-    return `{${ids.map(id => `"${id}"`).join(',')}}`;
+    if (!ids || ids.length === 0) return '{}';
+    return `{${ids.map(id => `"${id.replace(/"/g, '\\"')}"`).join(',')}}`;
   }
 
   async updateLineage(lineage: Lineage): Promise<void> {
@@ -2611,9 +2612,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         func.startColumn,
         func.endColumn,
         func.astHash,
-        JSON.stringify(func.contextPath || []),
+        this.formatPostgresArrayLiteral(func.contextPath || []),
         func.functionType || null,
-        JSON.stringify(func.modifiers || []),
+        this.formatPostgresArrayLiteral(func.modifiers || []),
         func.nestingLevel || 0,
         func.isExported,
         func.isAsync,
@@ -2884,7 +2885,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
-      metadata: typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : (row.metadata || {}),
+      metadata: row.metadata || {},
     };
   }
 
@@ -2923,9 +2924,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
 
       // Enhanced function identification
-      ...(row.context_path && { contextPath: this.safeJsonParse(row.context_path, []) }),
+      ...(row.context_path && { contextPath: Array.isArray(row.context_path) ? row.context_path : this.safeJsonParse(row.context_path, []) }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: this.safeJsonParse(row.modifiers, []) }),
+      ...(row.modifiers && { modifiers: Array.isArray(row.modifiers) ? row.modifiers : this.safeJsonParse(row.modifiers, []) }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes
