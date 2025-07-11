@@ -174,42 +174,7 @@ enum RefactoringPattern {
 
 ### Database Schema Extensions
 
-```sql
--- Refactoring sessions
-CREATE TABLE refactoring_sessions (
-  id TEXT PRIMARY KEY,
-  description TEXT,
-  start_time INTEGER,
-  end_time INTEGER,
-  git_branch TEXT,
-  initial_commit TEXT,
-  final_commit TEXT,
-  status TEXT, -- 'active', 'completed', 'cancelled'
-  metadata JSONB
-);
-
--- Session function tracking
-CREATE TABLE session_functions (
-  session_id TEXT,
-  function_id TEXT,
-  tracked_at INTEGER,
-  role TEXT, -- 'source', 'target', 'intermediate'
-  PRIMARY KEY (session_id, function_id)
-);
-
--- Refactoring opportunities
-CREATE TABLE refactoring_opportunities (
-  id TEXT PRIMARY KEY,
-  pattern TEXT,
-  function_id TEXT,
-  severity TEXT, -- 'low', 'medium', 'high', 'critical'
-  impact_score INTEGER,
-  detected_at INTEGER,
-  resolved_at INTEGER,
-  session_id TEXT,
-  metadata JSONB
-);
-```
+> **📋 Database Schema**: Complete table definitions for refactoring workflow tables (`refactoring_sessions`, `session_functions`, `refactoring_opportunities`) are documented in [data-model.md](./data-model.md#リファクタリングワークフロー管理)
 
 ## 🔄 Workflow Integration
 

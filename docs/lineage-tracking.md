@@ -63,20 +63,8 @@ funcqc lineage review approve <lineage-id>
 ## Architecture
 
 ### Database Schema
-```sql
--- Core lineage tracking table
-CREATE TABLE lineages (
-    id TEXT PRIMARY KEY,
-    kind TEXT NOT NULL,              -- rename, signature-change, split, merge, inline
-    confidence REAL NOT NULL,        -- 0.0-1.0 similarity score
-    status TEXT DEFAULT 'draft',     -- draft, approved, rejected
-    from_ids TEXT NOT NULL,          -- JSON array of source function IDs
-    to_ids TEXT NOT NULL,            -- JSON array of target function IDs
-    git_commit TEXT,                 -- Associated Git commit hash
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    metadata TEXT                    -- JSON metadata for analysis details
-);
-```
+
+> **📋 Database Schema**: Complete table definitions for lineage tracking are documented in [data-model.md](./data-model.md#lineage追跡システム)
 
 ### Analysis Pipeline
 1. **Function Extraction**: Parse source and target snapshots

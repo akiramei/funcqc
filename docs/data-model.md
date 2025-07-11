@@ -1,9 +1,19 @@
 # funcqc データモデル詳細仕様 - 3次元識別システム
 
+> **📋 Single Source of Truth**: このファイルは funcqc の完全なデータベーススキーマ定義を含む唯一の権威ある情報源です。
+
 ## 概要
 
 funcqc は関数の識別において、異なる目的に応じた3つの次元で管理される複合的なシステムを採用しています。
 この設計により、関数の物理的位置、意味的役割、実装内容を独立して追跡できます。
+
+## 関連ドキュメント
+
+このファイルで定義されたスキーマの運用・実装情報は以下を参照：
+- [lineage-database-schema.md](./lineage-database-schema.md) - Lineage運用とメンテナンス
+- [function-identity-design.md](./function-identity-design.md) - 3次元識別システムの設計思想
+- [phase3-unified-refactoring-workflow.md](./phase3-unified-refactoring-workflow.md) - リファクタリングワークフロー
+- [lineage-tracking.md](./lineage-tracking.md) - Lineage追跡機能の概要
 
 ## 3次元識別システム
 
@@ -534,6 +544,162 @@ CREATE TABLE function_similarities (
   calculated_at TIMESTAMP NOT NULL,
   UNIQUE(semantic_id_1, semantic_id_2, similarity_type)
 );
+```
+
+## Lineage追跡システム
+
+### 6. 関数系譜追跡（Lineage）
+
+```sql
+-- 関数の系譜・血統追跡
+CREATE TABLE lineage (
+  id TEXT PRIMARY KEY,                                                      -- 系譜ID
+  from_ids TEXT[] NOT NULL,                                                 -- 変更前関数IDの配列
+  to_ids TEXT[] NOT NULL,                                                   -- 変更後関数IDの配列
+  kind TEXT NOT NULL CHECK (kind IN ('rename', 'signature-change', 'inline', 'split')), -- 変更種別
+  status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'rejected')), -- レビュー状態
+  confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),          -- 信頼度（0.0-1.0）
+  note TEXT,                                                                -- 人間による注記
+  git_commit TEXT NOT NULL,                                                 -- 関連Git commit
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
+  updated_at TIMESTAMPTZ                                                    -- 更新日時
+);
+
+-- Lineage検索用インデックス
+CREATE INDEX idx_lineage_from_ids ON lineage USING GIN (from_ids);
+CREATE INDEX idx_lineage_to_ids ON lineage USING GIN (to_ids);
+CREATE INDEX idx_lineage_kind ON lineage(kind);
+CREATE INDEX idx_lineage_status ON lineage(status);
+CREATE INDEX idx_lineage_git_commit ON lineage(git_commit);
+CREATE INDEX idx_lineage_confidence ON lineage(confidence);
+```
+
+**Lineage種別（kind）**:
+- **rename**: 関数名変更、内容は同一
+- **signature-change**: シグネチャ変更（パラメータ・戻り値）
+- **inline**: 関数がインライン化され消失
+- **split**: 1つの関数が複数に分割
+
+**使用例**:
+```sql
+-- 特定関数の系譜を追跡
+SELECT * FROM lineage 
+WHERE from_ids::text LIKE '%func_abc123%' 
+   OR to_ids::text LIKE '%func_abc123%'
+ORDER BY created_at;
+
+-- 最近のリファクタリング履歴
+SELECT kind, COUNT(*), AVG(confidence) 
+FROM lineage 
+WHERE created_at > NOW() - INTERVAL '30 days'
+GROUP BY kind;
+```
+
+## リファクタリングワークフロー管理
+
+### 7. リファクタリングセッション
+
+```sql
+-- リファクタリング作業セッション
+CREATE TABLE refactoring_sessions (
+  id TEXT PRIMARY KEY,                                                      -- セッションID
+  description TEXT NOT NULL,                                                -- セッション説明
+  start_time INTEGER NOT NULL,                                              -- 開始時刻（Unix timestamp）
+  end_time INTEGER,                                                         -- 終了時刻
+  git_branch TEXT,                                                          -- 作業ブランチ
+  initial_commit TEXT,                                                      -- 開始時commit
+  final_commit TEXT,                                                        -- 終了時commit
+  status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active', -- セッション状態
+  metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP                         -- 更新日時
+);
+
+-- セッション検索用インデックス
+CREATE INDEX idx_refactoring_sessions_status ON refactoring_sessions(status);
+CREATE INDEX idx_refactoring_sessions_git_branch ON refactoring_sessions(git_branch);
+CREATE INDEX idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
+```
+
+### 8. セッション関数追跡
+
+```sql
+-- セッション内で追跡対象となる関数
+CREATE TABLE session_functions (
+  session_id TEXT NOT NULL,                                                 -- セッションID参照
+  function_id TEXT NOT NULL,                                                -- 関数ID参照
+  tracked_at INTEGER NOT NULL,                                              -- 追跡開始時刻
+  role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')) DEFAULT 'source', -- 関数の役割
+  metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
+  PRIMARY KEY (session_id, function_id),
+  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+);
+
+-- セッション関数検索用インデックス
+CREATE INDEX idx_session_functions_session_id ON session_functions(session_id);
+CREATE INDEX idx_session_functions_function_id ON session_functions(function_id);
+CREATE INDEX idx_session_functions_role ON session_functions(role);
+```
+
+**関数役割（role）**:
+- **source**: リファクタリング対象の元関数
+- **target**: リファクタリング後の新関数
+- **intermediate**: 途中段階で作成される関数
+
+### 9. リファクタリング機会検出
+
+```sql
+-- 自動検出されるリファクタリング機会
+CREATE TABLE refactoring_opportunities (
+  id TEXT PRIMARY KEY,                                                      -- 機会ID
+  pattern TEXT NOT NULL CHECK (pattern IN ('extract-method', 'split-function', 'reduce-parameters', 'extract-class', 'inline-function', 'rename-function')), -- パターン種別
+  function_id TEXT NOT NULL,                                                -- 対象関数ID
+  severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium', -- 深刻度
+  impact_score INTEGER NOT NULL CHECK (impact_score >= 0 AND impact_score <= 100), -- 影響度スコア
+  detected_at INTEGER NOT NULL,                                             -- 検出時刻
+  resolved_at INTEGER,                                                      -- 解決時刻
+  session_id TEXT,                                                          -- 関連セッション
+  metadata JSONB DEFAULT '{}',                                              -- 検出詳細
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 更新日時
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE SET NULL
+);
+
+-- リファクタリング機会検索用インデックス
+CREATE INDEX idx_refactoring_opportunities_pattern ON refactoring_opportunities(pattern);
+CREATE INDEX idx_refactoring_opportunities_severity ON refactoring_opportunities(severity);
+CREATE INDEX idx_refactoring_opportunities_function_id ON refactoring_opportunities(function_id);
+CREATE INDEX idx_refactoring_opportunities_resolved ON refactoring_opportunities(resolved_at) WHERE resolved_at IS NULL;
+```
+
+**リファクタリングパターン**:
+- **extract-method**: メソッド抽出
+- **split-function**: 関数分割
+- **reduce-parameters**: パラメータ削減
+- **extract-class**: クラス抽出
+- **inline-function**: 関数インライン化
+- **rename-function**: 関数名変更
+
+**使用例**:
+```sql
+-- 未解決の高優先度リファクタリング機会
+SELECT ro.*, f.name, f.file_path 
+FROM refactoring_opportunities ro
+JOIN functions f ON ro.function_id = f.id
+WHERE ro.resolved_at IS NULL 
+  AND ro.severity IN ('high', 'critical')
+ORDER BY ro.impact_score DESC;
+
+-- セッション別のリファクタリング成果
+SELECT rs.description, 
+       COUNT(ro.id) as opportunities_resolved,
+       AVG(ro.impact_score) as avg_impact
+FROM refactoring_sessions rs
+LEFT JOIN refactoring_opportunities ro ON rs.id = ro.session_id
+WHERE rs.status = 'completed'
+GROUP BY rs.id, rs.description;
 ```
 
 ---

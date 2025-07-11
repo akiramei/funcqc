@@ -68,15 +68,9 @@ FROM functions f
 JOIN snapshots s ON f.snapshot_id = s.id
 WHERE f.semantic_id = 'hash-of-role'
 ORDER BY s.created_at;
-
--- 説明管理
-CREATE TABLE function_descriptions (
-  semantic_id TEXT PRIMARY KEY,     -- 役割ベース参照
-  description TEXT,
-  validated_for_content_id TEXT,    -- 実装確認済みマーク
-  needs_review BOOLEAN
-);
 ```
+
+> **📋 Database Schema**: Complete table definitions including `function_descriptions` are documented in [data-model.md](./data-model.md)
 
 ### 3. 内容ベース識別 (Content Identity)
 
