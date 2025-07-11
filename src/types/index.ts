@@ -394,7 +394,6 @@ export interface ShowCommandOptions extends CommandOptions {
 
 export interface HealthCommandOptions extends CommandOptions {
   trend?: boolean;
-  risks?: boolean;
   showConfig?: boolean;
   verbose?: boolean;
   json?: boolean; // JSON output for jq/script processing

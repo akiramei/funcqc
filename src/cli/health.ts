@@ -62,8 +62,6 @@ async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger
 async function executeHealthCommand(storage: PGLiteStorageAdapter, config: FuncqcConfig, options: HealthCommandOptions, logger: Logger) {
   if (options.trend) {
     await displayTrendAnalysis(storage, options, logger);
-  } else if (options.risks) {
-    await displayDetailedRiskAssessment(storage, config, options);
   } else if (options.showConfig) {
     displayConfigurationDetails(config, options.verbose || false);
   } else if (options.json || options.aiOptimized) {
@@ -132,11 +130,32 @@ async function displayHealthOverview(
   console.log(`  Database: ${config.storage.path}`);
   console.log();
 
+  // Get risk assessment once for reuse
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  let riskAssessment = null;
+  let assessmentSummary = null;
+  
+  if (functionsWithMetrics.length > 0) {
+    try {
+      riskAssessment = await riskAssessor.assessProject(
+        functionsWithMetrics,
+        config.thresholds,
+        config.assessment
+      );
+      assessmentSummary = riskAssessor.createAssessmentSummary(riskAssessment);
+    } catch (error) {
+      // Continue without risk assessment
+    }
+  }
+
   // Quality Overview
-  await displayQualityOverview(functions, config, options.verbose || false);
+  await displayQualityOverview(functions, config, assessmentSummary, options.verbose || false);
 
   // Risk Distribution
   await displayRiskDistribution(functions, config, options.verbose || false);
+
+  // Risk Details
+  await displayRiskDetails(functionsWithMetrics, riskAssessment, assessmentSummary, options.verbose || false);
 
   // Git Status (if enabled)
   if (config.git.enabled) {
@@ -151,6 +170,7 @@ async function displayHealthOverview(
 async function displayQualityOverview(
   functions: FunctionInfo[],
   _config: FuncqcConfig,
+  assessmentSummary: any,
   verbose: boolean
 ): Promise<void> {
   console.log(chalk.yellow('Quality Overview:'));
@@ -164,13 +184,26 @@ async function displayQualityOverview(
   const scorer = new QualityScorer();
   const projectScore = scorer.calculateProjectScore(functionsWithMetrics);
 
+  // Display overall assessments first
   console.log(`  Overall Grade: ${projectScore.overallGrade} (${projectScore.score}/100)`);
-  console.log(`  Complexity Score: ${projectScore.complexityScore}/100`);
-  console.log(`  Maintainability Score: ${projectScore.maintainabilityScore}/100`);
-  console.log(`  Size Score: ${projectScore.sizeScore}/100`);
+  
+  // Use the pre-calculated assessment summary
+  if (assessmentSummary) {
+    const avgScore = assessmentSummary.averageRiskScore;
+    const scoreInterpretation = getScoreInterpretation(avgScore);
+    const scoreColor = getScoreColor(avgScore);
+    console.log(`  Average Risk Score: ${scoreColor(avgScore.toFixed(1))} ${scoreInterpretation}`);
+  }
+  
+  console.log();
+  console.log('  Details:');
+  console.log(`    Complexity: ${getGradeLabel(projectScore.complexityScore)} (${projectScore.complexityScore}/100)`);
+  console.log(`    Maintainability: ${getGradeLabel(projectScore.maintainabilityScore)} (${projectScore.maintainabilityScore}/100)`);
+  console.log(`    Code Size: ${getGradeLabel(projectScore.sizeScore)} (${projectScore.sizeScore}/100)`);
 
   if (verbose) {
-    console.log(`  Code Quality Score: ${projectScore.codeQualityScore}/100`);
+    console.log(`    Code Quality: ${getGradeLabel(projectScore.codeQualityScore)} (${projectScore.codeQualityScore}/100)`);
+    console.log();
     console.log(`  High Risk Functions: ${projectScore.highRiskFunctions}`);
 
     if (projectScore.topProblematicFunctions.length > 0) {
@@ -225,85 +258,41 @@ async function displayRiskDistribution(
   }
 }
 
-async function displayDetailedRiskAssessment(
-  storage: PGLiteStorageAdapter,
-  config: FuncqcConfig,
-  options: HealthCommandOptions
+async function displayRiskDetails(
+  functionsWithMetrics: FunctionInfo[],
+  riskAssessment: any,
+  summary: any,
+  verbose: boolean = false
 ): Promise<void> {
-  console.log(chalk.blue('funcqc Risk Assessment'));
-  console.log('-'.repeat(50));
+  console.log(chalk.yellow('Risk Details:'));
+
+  if (!summary || functionsWithMetrics.length === 0) {
+    console.log('  No risk assessment available');
+    console.log();
+    return;
+  }
+
+  console.log(`  Threshold Violations: Critical: ${summary.criticalViolations}, Error: ${summary.errorViolations}, Warning: ${summary.warningViolations}`);
+  
+  if (summary.worstFunctionId && riskAssessment) {
+    const worstFunction = functionsWithMetrics.find(f => f.id === summary.worstFunctionId);
+    if (worstFunction) {
+      // Get the risk score for the worst function from worstFunctions array
+      const worstFuncAssessment = riskAssessment.worstFunctions?.find(
+        (assessment: any) => assessment.functionId === summary.worstFunctionId
+      );
+      const riskScore = worstFuncAssessment?.riskScore || 0;
+      const scoreColor = getScoreColor(riskScore);
+      console.log(`  Highest Risk Function: ${worstFunction.displayName}() (Risk: ${scoreColor(riskScore.toFixed(0))})`);
+      console.log(`    Location: ${worstFunction.filePath}:${worstFunction.startLine}`);
+    }
+  }
+
+  if (summary.mostCommonViolation) {
+    console.log(`  Most Common Violation: ${summary.mostCommonViolation}`);
+  }
+
   console.log();
-
-  const snapshots = await storage.getSnapshots({ sort: 'created_at', limit: 1 });
-  if (snapshots.length === 0) {
-    console.log(chalk.yellow('Warning: No data found'));
-    return;
-  }
-
-  const functions = await storage.getFunctions(snapshots[0].id);
-  const functionsWithMetrics = functions.filter(f => f.metrics);
-
-  if (functionsWithMetrics.length === 0) {
-    console.log(chalk.yellow('Warning: No functions with metrics found'));
-    return;
-  }
-
-  try {
-    const riskAssessment = await riskAssessor.assessProject(
-      functionsWithMetrics,
-      config.thresholds,
-      config.assessment
-    );
-
-    if (options.json) {
-      console.log(JSON.stringify(riskAssessment, null, 2));
-      return;
-    }
-
-    // Display risk summary
-    const summary = riskAssessor.createAssessmentSummary(riskAssessment);
-
-    console.log(chalk.yellow('Risk Summary:'));
-    console.log(`  Total Functions: ${summary.totalFunctions}`);
-    console.log(`  High Risk: ${summary.highRiskFunctions}`);
-    console.log(`  Medium Risk: ${summary.mediumRiskFunctions}`);
-    console.log(`  Low Risk: ${summary.lowRiskFunctions}`);
-    
-    // Enhanced risk score display with interpretation
-    const avgScore = summary.averageRiskScore;
-    const scoreInterpretation = getScoreInterpretation(avgScore);
-    const scoreColor = getScoreColor(avgScore);
-    console.log(`  Average Risk Score: ${scoreColor(avgScore.toFixed(1))} ${scoreInterpretation}`);
-    console.log();
-
-    console.log(chalk.yellow('Threshold Violations:'));
-    console.log(`  Critical: ${summary.criticalViolations}`);
-    console.log(`  Error: ${summary.errorViolations}`);
-    console.log(`  Warning: ${summary.warningViolations}`);
-    console.log();
-
-    if (summary.worstFunctionId) {
-      console.log(chalk.yellow('Highest Risk Function:'));
-      const worstFunction = functionsWithMetrics.find(f => f.id === summary.worstFunctionId);
-      if (worstFunction) {
-        console.log(
-          `  ${worstFunction.displayName}() in ${worstFunction.filePath}:${worstFunction.startLine}`
-        );
-      }
-      console.log();
-    }
-
-    if (summary.mostCommonViolation) {
-      console.log(chalk.yellow('Most Common Violation:'));
-      console.log(`  ${summary.mostCommonViolation}`);
-      console.log();
-    }
-  } catch (error) {
-    console.error(
-      chalk.red('Risk assessment failed:'),
-      error instanceof Error ? error.message : String(error)
-    );
-  }
 }
 
 async function displayTrendAnalysis(
@@ -1163,4 +1152,15 @@ function getScoreInterpretation(score: number): string {
   if (score <= 100) return '(Fair - Some refactoring needed)';
   if (score <= 200) return '(Poor - Significant technical debt)';
   return '(Critical - Urgent refactoring required)';
+}
+
+/**
+ * Get grade label for quality scores
+ */
+function getGradeLabel(score: number): string {
+  if (score >= 90) return 'Excellent';
+  if (score >= 80) return 'Good';
+  if (score >= 70) return 'Fair';
+  if (score >= 60) return 'Poor';
+  return 'Critical';
 }
