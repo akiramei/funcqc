@@ -82,7 +82,7 @@ funcqc は関数の識別において、異なる目的に応じた3つの次元
 -- メインのスナップショットテーブル
 CREATE TABLE snapshots (
   id TEXT PRIMARY KEY,                    -- UUID v4 または "snap_" + timestamp
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   label TEXT,                            -- ユーザー定義ラベル
   git_commit TEXT,                       -- Git commit hash
   git_branch TEXT,                       -- Git branch name
@@ -552,7 +552,7 @@ CREATE TABLE function_similarities (
 
 ```sql
 -- 関数の系譜・血統追跡
-CREATE TABLE lineage (
+CREATE TABLE lineages (
   id TEXT PRIMARY KEY,                                                      -- 系譜ID
   from_ids TEXT[] NOT NULL,                                                 -- 変更前関数IDの配列
   to_ids TEXT[] NOT NULL,                                                   -- 変更後関数IDの配列
@@ -566,12 +566,12 @@ CREATE TABLE lineage (
 );
 
 -- Lineage検索用インデックス
-CREATE INDEX idx_lineage_from_ids ON lineage USING GIN (from_ids);
-CREATE INDEX idx_lineage_to_ids ON lineage USING GIN (to_ids);
-CREATE INDEX idx_lineage_kind ON lineage(kind);
-CREATE INDEX idx_lineage_status ON lineage(status);
-CREATE INDEX idx_lineage_git_commit ON lineage(git_commit);
-CREATE INDEX idx_lineage_confidence ON lineage(confidence);
+CREATE INDEX idx_lineages_from_ids ON lineages USING GIN (from_ids);
+CREATE INDEX idx_lineages_to_ids ON lineages USING GIN (to_ids);
+CREATE INDEX idx_lineages_kind ON lineages(kind);
+CREATE INDEX idx_lineages_status ON lineages(status);
+CREATE INDEX idx_lineages_git_commit ON lineages(git_commit);
+CREATE INDEX idx_lineages_confidence ON lineages(confidence);
 ```
 
 **Lineage種別（kind）**:
@@ -583,14 +583,14 @@ CREATE INDEX idx_lineage_confidence ON lineage(confidence);
 **使用例**:
 ```sql
 -- 特定関数の系譜を追跡
-SELECT * FROM lineage 
+SELECT * FROM lineages 
 WHERE from_ids::text LIKE '%func_abc123%' 
    OR to_ids::text LIKE '%func_abc123%'
 ORDER BY created_at;
 
 -- 最近のリファクタリング履歴
 SELECT kind, COUNT(*), AVG(confidence) 
-FROM lineage 
+FROM lineages 
 WHERE created_at > NOW() - INTERVAL '30 days'
 GROUP BY kind;
 ```
@@ -604,8 +604,8 @@ GROUP BY kind;
 CREATE TABLE refactoring_sessions (
   id TEXT PRIMARY KEY,                                                      -- セッションID
   description TEXT NOT NULL,                                                -- セッション説明
-  start_time INTEGER NOT NULL,                                              -- 開始時刻（Unix timestamp）
-  end_time INTEGER,                                                         -- 終了時刻
+  start_time TIMESTAMPTZ NOT NULL,                                         -- 開始日時
+  end_time TIMESTAMPTZ,                                                    -- 終了日時
   git_branch TEXT,                                                          -- 作業ブランチ
   initial_commit TEXT,                                                      -- 開始時commit
   final_commit TEXT,                                                        -- 終了時commit
@@ -619,6 +619,7 @@ CREATE TABLE refactoring_sessions (
 CREATE INDEX idx_refactoring_sessions_status ON refactoring_sessions(status);
 CREATE INDEX idx_refactoring_sessions_git_branch ON refactoring_sessions(git_branch);
 CREATE INDEX idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
+CREATE INDEX idx_refactoring_sessions_created_at ON refactoring_sessions(created_at);
 ```
 
 ### 8. セッション関数追跡
@@ -628,7 +629,7 @@ CREATE INDEX idx_refactoring_sessions_start_time ON refactoring_sessions(start_t
 CREATE TABLE session_functions (
   session_id TEXT NOT NULL,                                                 -- セッションID参照
   function_id TEXT NOT NULL,                                                -- 関数ID参照
-  tracked_at INTEGER NOT NULL,                                              -- 追跡開始時刻
+  tracked_at TIMESTAMPTZ NOT NULL,                                         -- 追跡開始日時
   role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')) DEFAULT 'source', -- 関数の役割
   metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
   PRIMARY KEY (session_id, function_id),
@@ -657,8 +658,8 @@ CREATE TABLE refactoring_opportunities (
   function_id TEXT NOT NULL,                                                -- 対象関数ID
   severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium', -- 深刻度
   impact_score INTEGER NOT NULL CHECK (impact_score >= 0 AND impact_score <= 100), -- 影響度スコア
-  detected_at INTEGER NOT NULL,                                             -- 検出時刻
-  resolved_at INTEGER,                                                      -- 解決時刻
+  detected_at TIMESTAMPTZ NOT NULL,                                        -- 検出日時
+  resolved_at TIMESTAMPTZ,                                                 -- 解決日時
   session_id TEXT,                                                          -- 関連セッション
   metadata JSONB DEFAULT '{}',                                              -- 検出詳細
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
