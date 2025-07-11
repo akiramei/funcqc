@@ -500,6 +500,42 @@ Examples:
   $ funcqc lineage review abc12345 --reject --note "Incorrect mapping"
   $ funcqc lineage review --all --approve        # Approve all draft lineages
 `)
+  )
+  .addCommand(
+    new Command('delete')
+      .description('Delete a specific lineage')
+      .argument('<lineage-id>', 'lineage ID to delete')
+      .action(async (lineageId: string, options: OptionValues) => {
+        const { lineageDeleteCommand } = await import('./cli/lineage');
+        await lineageDeleteCommand(lineageId, options);
+      })
+      .addHelpText('after', `
+Examples:
+  $ funcqc lineage delete abc12345               # Delete specific lineage
+  $ funcqc lineage delete abc12345 -v            # Delete with verbose output
+`)
+  )
+  .addCommand(
+    new Command('clean')
+      .description('Delete lineages matching criteria')
+      .option('--status <status>', 'filter by status (default: draft)')
+      .option('--older-than <days>', 'delete lineages older than N days')
+      .option('--dry-run', 'preview what would be deleted without making changes')
+      .option('-y, --yes', 'skip confirmation prompt')
+      .option('--include-approved', 'include approved lineages (requires --force)')
+      .option('--force', 'required flag when deleting approved lineages')
+      .action(async (options: OptionValues) => {
+        const { lineageCleanCommand } = await import('./cli/lineage');
+        await lineageCleanCommand(options);
+      })
+      .addHelpText('after', `
+Examples:
+  $ funcqc lineage clean                         # Delete all draft lineages
+  $ funcqc lineage clean --dry-run               # Preview what would be deleted
+  $ funcqc lineage clean --older-than 30         # Delete drafts older than 30 days
+  $ funcqc lineage clean -y                      # Skip confirmation
+  $ funcqc lineage clean --include-approved --force  # Delete including approved (dangerous!)
+`)
   );
 
 // Add explain command
