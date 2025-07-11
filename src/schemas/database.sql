@@ -397,37 +397,53 @@ CREATE INDEX idx_ann_index_metadata_created_at ON ann_index_metadata(created_at)
 -- -----------------------------------------------------------------------------
 -- Auto-update triggers for updated_at columns
 -- -----------------------------------------------------------------------------
--- Note: These triggers are created separately in the application layer
--- for PGLite compatibility. The following is documentation of the intended behavior.
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
 
--- CREATE OR REPLACE FUNCTION update_updated_at_column()
--- RETURNS TRIGGER AS $$
--- BEGIN
---     NEW.updated_at = CURRENT_TIMESTAMP;
---     RETURN NEW;
--- END;
--- $$ language 'plpgsql';
+CREATE TRIGGER update_refactoring_sessions_updated_at BEFORE UPDATE ON refactoring_sessions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_refactoring_sessions_updated_at BEFORE UPDATE ON refactoring_sessions
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_refactoring_opportunities_updated_at BEFORE UPDATE ON refactoring_opportunities
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_refactoring_opportunities_updated_at BEFORE UPDATE ON refactoring_opportunities
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_evaluations
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_evaluations
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function_descriptions
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function_descriptions
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_lineages_updated_at BEFORE UPDATE ON lineages
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_lineages_updated_at BEFORE UPDATE ON lineages
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_ann_index_metadata_updated_at BEFORE UPDATE ON ann_index_metadata
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_ann_index_metadata_updated_at BEFORE UPDATE ON ann_index_metadata
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_embeddings
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_embeddings
---     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- -----------------------------------------------------------------------------
+-- Content change detection trigger
+-- -----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION mark_function_for_review()
+RETURNS TRIGGER AS $$
+BEGIN
+    UPDATE function_descriptions 
+    SET needs_review = TRUE 
+    WHERE semantic_id = NEW.semantic_id;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER function_content_change_detection
+    AFTER UPDATE ON functions
+    FOR EACH ROW
+    WHEN (OLD.content_id IS DISTINCT FROM NEW.content_id)
+    EXECUTE FUNCTION mark_function_for_review();
 
 -- =============================================================================
 -- END OF SCHEMA DEFINITION
