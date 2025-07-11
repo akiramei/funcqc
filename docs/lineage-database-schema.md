@@ -4,7 +4,7 @@
 
 This document covers the operational aspects of funcqc's lineage tracking system, including database operations, migration processes, and maintenance procedures.
 
-> **📋 Database Schema Reference**: For complete database table definitions and schema details, see [data-model.md](./data-model.md)
+> **📋 Database Schema Reference**: For complete database table definitions and schema details, see [data-model.md](./data-model.md#lineage-tracking-system)
 
 ## Database Architecture
 
@@ -25,7 +25,7 @@ This document covers the operational aspects of funcqc's lineage tracking system
 
 ## Database Operations
 
-> **📋 Schema Details**: Complete table definitions including lineage tables, indexes, and constraints are documented in [data-model.md](./data-model.md#lineage追跡システム)
+> **📋 Schema Details**: Complete table definitions including lineage tables, indexes, and constraints are documented in [data-model.md](./data-model.md#lineage-tracking-system)
 
 ### Lineage System Overview
 

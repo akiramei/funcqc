@@ -546,7 +546,7 @@ CREATE TABLE function_similarities (
 );
 ```
 
-## Lineage追跡システム
+## Lineage追跡システム {#lineage-tracking-system}
 
 ### 6. 関数系譜追跡（Lineage）
 
@@ -562,7 +562,7 @@ CREATE TABLE lineage (
   note TEXT,                                                                -- 人間による注記
   git_commit TEXT NOT NULL,                                                 -- 関連Git commit
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
-  updated_at TIMESTAMPTZ                                                    -- 更新日時
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP                         -- 更新日時
 );
 
 -- Lineage検索用インデックス
@@ -595,7 +595,7 @@ WHERE created_at > NOW() - INTERVAL '30 days'
 GROUP BY kind;
 ```
 
-## リファクタリングワークフロー管理
+## リファクタリングワークフロー管理 {#refactoring-workflow}
 
 ### 7. リファクタリングセッション
 

@@ -174,7 +174,7 @@ enum RefactoringPattern {
 
 ### Database Schema Extensions
 
-> **📋 Database Schema**: Complete table definitions for refactoring workflow tables (`refactoring_sessions`, `session_functions`, `refactoring_opportunities`) are documented in [data-model.md](./data-model.md#リファクタリングワークフロー管理)
+> **📋 Database Schema**: Complete table definitions for refactoring workflow tables (`refactoring_sessions`, `session_functions`, `refactoring_opportunities`) are documented in [data-model.md](./data-model.md#refactoring-workflow)
 
 ## 🔄 Workflow Integration
 

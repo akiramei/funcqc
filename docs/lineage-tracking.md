@@ -64,7 +64,7 @@ funcqc lineage review approve <lineage-id>
 
 ### Database Schema
 
-> **📋 Database Schema**: Complete table definitions for lineage tracking are documented in [data-model.md](./data-model.md#lineage追跡システム)
+> **📋 Database Schema**: Complete table definitions for lineage tracking are documented in [data-model.md](./data-model.md#lineage-tracking-system)
 
 ### Analysis Pipeline
 1. **Function Extraction**: Parse source and target snapshots
