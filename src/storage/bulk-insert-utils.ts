@@ -10,7 +10,14 @@ import { FunctionInfo } from '../types';
  */
 function formatPostgresArray(arr: string[]): string {
   if (!arr || arr.length === 0) return '{}'; // Use empty PostgreSQL array for empty arrays
-  return `{${arr.map(item => `"${item.replace(/"/g, '\\"')}"`).join(',')}}`;
+  // PostgreSQL array elements need both backslash and quote escaping
+  return `{${arr.map(item => {
+    // First escape backslashes, then quotes
+    const escaped = item
+      .replace(/\\/g, '\\\\')  // Escape backslashes
+      .replace(/"/g, '\\"');   // Escape quotes
+    return `"${escaped}"`;
+  }).join(',')}}`;
 }
 
 

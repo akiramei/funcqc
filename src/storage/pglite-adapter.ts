@@ -1902,7 +1902,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private formatPostgresArrayLiteral(ids: string[]): string {
     if (!ids || ids.length === 0) return '{}';
-    return `{${ids.map(id => `"${id.replace(/"/g, '\\"')}"`).join(',')}}`;
+    // PostgreSQL array elements need both backslash and quote escaping
+    return `{${ids.map(id => {
+      // First escape backslashes, then quotes
+      const escaped = id
+        .replace(/\\/g, '\\\\')  // Escape backslashes
+        .replace(/"/g, '\\"');   // Escape quotes
+      return `"${escaped}"`;
+    }).join(',')}}`;
   }
 
   async updateLineage(lineage: Lineage): Promise<void> {
