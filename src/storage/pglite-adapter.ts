@@ -93,11 +93,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Allow special database paths
-    if (dbPath === ':memory:') {
-      return;
-    }
-
     // Allow PostgreSQL connection strings
     if (dbPath.startsWith('postgres://') || dbPath.startsWith('postgresql://')) {
       return;
@@ -120,23 +115,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Prevent paths that would create problematic directories
-    // Note: We check for invalid Windows filename characters, but exclude colon in drive paths and connection strings
-    const invalidCharsPattern = /[<>"|?*]/;
-    const suspiciousColonPattern = /[^A-Za-z]:[^\\\/]/; // Colon not part of drive letter or connection string
-
-    if (invalidCharsPattern.test(dbPath)) {
-      throw new DatabaseError(
-        ErrorCode.DATABASE_NOT_INITIALIZED,
-        `Invalid database path: '${dbPath}'. Path contains invalid characters: < > " | ? *`
-      );
-    }
-
-    if (suspiciousColonPattern.test(dbPath) && !dbPath.includes('://')) {
-      throw new DatabaseError(
-        ErrorCode.DATABASE_NOT_INITIALIZED,
-        `Invalid database path: '${dbPath}'. Suspicious colon placement detected`
-      );
+    // Comprehensive Windows path validation when dealing with file paths
+    // Only validate if it's not a connection string
+    if (!dbPath.includes('://')) {
+      this.validateWindowsFilePath(dbPath);
     }
 
     // Ensure path has a reasonable length
@@ -150,16 +132,91 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Comprehensive Windows file path validation
+   * Checks for all Windows-invalid characters and path patterns when on Windows
+   */
+  private validateWindowsFilePath(filePath: string): void {
+    // Only apply Windows validation on Windows platform or for Windows-style paths
+    const isWindowsPath = /^[A-Za-z]:[\\\/]/.test(filePath) || process.platform === 'win32';
+    
+    // Allow Unix-style paths on non-Windows platforms
+    if (!isWindowsPath && filePath.startsWith('/')) {
+      return; // Unix absolute path is valid
+    }
+    
+    // Allow relative paths with . and .. as they are valid on all platforms
+    if (filePath.startsWith('./') || filePath.startsWith('../')) {
+      return; // Valid relative paths
+    }
+    
+    // Allow special paths like :memory: for testing purposes (they will fail at filesystem level if problematic)
+    if (filePath.startsWith(':')) {
+      // Log warning but allow it - the error will manifest during actual filesystem operations
+      console.warn(`Warning: Path '${filePath}' may not be supported on Windows due to colon character`);
+      return;
+    }
+    
+    // Windows invalid characters: < > " | ? * and control characters (0-31)
+    // Exclude colon from this check as we handle it separately
+    const invalidChars = /[<>"|?*\x00-\x1f]/;
+    
+    // Special handling for drive letters: allow C:\ but not C: alone
+    const isDriveWithBackslash = /^[A-Za-z]:[\\\/]/.test(filePath);
+    
+    // For Windows paths, check colon usage
+    if (isWindowsPath && !isDriveWithBackslash && filePath.includes(':')) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${filePath}'. Colon (:) is not allowed in Windows file paths except for drive letters (e.g., C:\\path)`
+      );
+    }
+    
+    // Check for other invalid characters
+    const match = filePath.match(invalidChars);
+    if (match) {
+      const invalidChar = match[0];
+      const charCode = invalidChar.charCodeAt(0);
+      const charName = charCode < 32 ? `control character (${charCode})` : `'${invalidChar}'`;
+      
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${filePath}'. Contains Windows-invalid character: ${charName}`
+      );
+    }
+    
+    // Only check Windows-specific restrictions for Windows paths
+    if (isWindowsPath) {
+      // Check for reserved Windows names
+      const pathParts = filePath.split(/[\\\/]/);
+      const reservedNames = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i;
+      
+      for (const part of pathParts) {
+        if (part && reservedNames.test(part)) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            `Invalid database path: '${filePath}'. Contains reserved Windows name: '${part}'`
+          );
+        }
+      }
+      
+      // Check for trailing periods or spaces in path components (Windows restriction)
+      for (const part of pathParts) {
+        if (part && part !== '.' && part !== '..' && (part.endsWith('.') || part.endsWith(' '))) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            `Invalid database path: '${filePath}'. Path component '${part}' cannot end with period or space on Windows`
+          );
+        }
+      }
+    }
+  }
+
+  /**
    * Determines if we should check for database directory existence
-   * Handles Windows drive letters (C:) and special database paths
+   * Handles Windows drive letters (C:) and connection strings
    */
   private shouldCheckDatabaseDirectory(originalPath: string): boolean {
-    // Skip check for special database paths
-    if (originalPath === ':memory:') {
-      return false;
-    }
-
-    // Skip check for special PostgreSQL-style connection strings
+    // Skip check for PostgreSQL-style connection strings
     if (originalPath.startsWith('postgres://') || originalPath.startsWith('postgresql://')) {
       return false;
     }
@@ -197,7 +254,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         PGLiteStorageAdapter.schemaCache.set(this.dbPath, true);
         try {
           await this.createSchema();
-          await this.createIndexes();
         } catch (error) {
           // エラーが発生した場合はキャッシュから削除
           PGLiteStorageAdapter.schemaCache.delete(this.dbPath);
@@ -1671,7 +1727,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       await this.db.query(
         `
-        INSERT INTO lineage (
+        INSERT INTO lineages (
           id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
@@ -1702,7 +1758,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // First try exact match
       let result = await this.db.query(
         `
-        SELECT * FROM lineage WHERE id = $1
+        SELECT * FROM lineages WHERE id = $1
       `,
         [id]
       );
@@ -1711,7 +1767,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (result.rows.length === 0 && id.length < 36) {
         result = await this.db.query(
           `
-          SELECT * FROM lineage WHERE id LIKE $1 || '%'
+          SELECT * FROM lineages WHERE id LIKE $1 || '%'
         `,
           [id]
         );
@@ -1737,7 +1793,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async getLineages(query?: LineageQuery): Promise<Lineage[]> {
     try {
-      let sql = 'SELECT * FROM lineage WHERE 1=1';
+      let sql = 'SELECT * FROM lineages WHERE 1=1';
       const params: unknown[] = [];
       let paramIndex = 1;
 
@@ -1799,7 +1855,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   ): Promise<Lineage[]> {
     try {
       let sql = `
-        SELECT DISTINCT l.* FROM lineage l
+        SELECT DISTINCT l.* FROM lineages l
       `;
       const params: unknown[] = [];
       let paramIndex = 1;
@@ -1886,8 +1942,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const updateNote = note !== undefined;
       const sql = updateNote
-        ? 'UPDATE lineage SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
-        : 'UPDATE lineage SET status = $1, updated_at = $2 WHERE id = $3';
+        ? 'UPDATE lineages SET status = $1, note = $2, updated_at = $3 WHERE id = $4'
+        : 'UPDATE lineages SET status = $1, updated_at = $2 WHERE id = $3';
 
       const params = updateNote
         ? [status, note, new Date().toISOString(), id]
@@ -1902,7 +1958,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private formatPostgresArrayLiteral(ids: string[]): string {
-    return `{${ids.map(id => `"${id}"`).join(',')}}`;
+    if (!ids || ids.length === 0) return '{}';
+    // PostgreSQL array elements need both backslash and quote escaping
+    return `{${ids.map(id => {
+      // First escape backslashes, then quotes (critical order for security)
+      const escaped = id
+        .replace(/\\/g, '\\\\')      // Escape backslashes: \ -> \\
+        .replace(/"/g, '\\"');       // Escape quotes: " -> \"
+      return `"${escaped}"`;
+    }).join(',')}}`;
   }
 
   async updateLineage(lineage: Lineage): Promise<void> {
@@ -1913,7 +1977,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       await this.db.query(
         `
-        UPDATE lineage SET 
+        UPDATE lineages SET 
           from_ids = $1, 
           to_ids = $2, 
           kind = $3, 
@@ -1945,7 +2009,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async deleteLineage(id: string): Promise<boolean> {
     try {
-      const result = await this.db.query('DELETE FROM lineage WHERE id = $1', [id]);
+      const result = await this.db.query('DELETE FROM lineages WHERE id = $1', [id]);
       // Type-safe handling of PGLite query result
       const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
       return affectedRows > 0;
@@ -1960,7 +2024,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const result = await this.db.query(
         `
-        SELECT * FROM lineage WHERE git_commit = $1 ORDER BY created_at DESC
+        SELECT * FROM lineages WHERE git_commit = $1 ORDER BY created_at DESC
       `,
         [gitCommit]
       );
@@ -1977,7 +2041,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const result = await this.db.query(
         `
-        SELECT * FROM lineage 
+        SELECT * FROM lineages 
         WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
         ORDER BY created_at DESC
       `,
@@ -1999,7 +2063,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       const result = await this.db.query(
         `
-        DELETE FROM lineage 
+        DELETE FROM lineages 
         WHERE status = 'draft' AND created_at < $1
       `,
         [cutoffDate.toISOString()]
@@ -2355,71 +2419,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       'function_descriptions',
       'function_embeddings',
       'naming_evaluations',
-      'lineage',
+      'lineages',
       'ann_index_metadata',
       'refactoring_sessions',
       'session_functions',
       'refactoring_opportunities',
     ];
 
-    // Only create tables that don't exist
-    for (const tableName of requiredTables) {
-      if (!existingTables.has(tableName)) {
-        switch (tableName) {
-          case 'snapshots':
-            await this.db.exec(this.getSnapshotsTableSQL());
-            break;
-          case 'functions':
-            await this.db.exec(this.getFunctionsTableSQL());
-            break;
-          case 'function_parameters':
-            await this.db.exec(this.getParametersTableSQL());
-            break;
-          case 'quality_metrics':
-            await this.db.exec(this.getMetricsTableSQL());
-            break;
-          case 'function_descriptions':
-            await this.db.exec(this.getFunctionDescriptionsTableSQL());
-            break;
-          case 'function_embeddings':
-            await this.db.exec(this.getFunctionEmbeddingsTableSQL());
-            break;
-          case 'naming_evaluations':
-            await this.db.exec(this.getNamingEvaluationsTableSQL());
-            break;
-          case 'lineage':
-            await this.db.exec(this.getLineageTableSQL());
-            break;
-          case 'ann_index_metadata':
-            await this.db.exec(this.getANNIndexTableSQL());
-            break;
-          case 'refactoring_sessions':
-            await this.db.exec(this.getRefactoringSessionsTableSQL());
-            break;
-          case 'session_functions':
-            await this.db.exec(this.getSessionFunctionsTableSQL());
-            break;
-          case 'refactoring_opportunities':
-            await this.db.exec(this.getRefactoringOpportunitiesTableSQL());
-            break;
-        }
-      }
-    }
-
-    // Run migrations for existing tables
-    await this.runMigrations();
-
-    // Create triggers (they can be created multiple times safely)
-    try {
-      await this.db.exec(this.getTriggersSQL());
-    } catch (error) {
-      // Ignore trigger creation errors as they may already exist or not be supported
-      console.warn(
-        'Trigger creation failed:',
-        error instanceof Error ? error.message : String(error)
-      );
+    // Check if any tables are missing
+    const missingTables = requiredTables.filter(table => !existingTables.has(table));
+    
+    if (missingTables.length > 0) {
+      // Initialize complete schema from database.sql
+      const fs = await import('fs');
+      const path = await import('path');
+      const schemaPath = path.join(__dirname, '../schemas/database.sql');
+      const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
+      await this.db.exec(schemaSQL);
+    } else {
+      // All tables exist, indexes and triggers are already created with schema
     }
   }
+
+  // Legacy methods removed - schema now loaded from database.sql file
 
   private async tableExists(tableName: string): Promise<boolean> {
     try {
@@ -2494,410 +2516,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private getSnapshotsTableSQL(): string {
-    return `
-      CREATE TABLE snapshots (
-        id TEXT PRIMARY KEY,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        label TEXT,
-        comment TEXT,
-        git_commit TEXT,
-        git_branch TEXT,
-        git_tag TEXT,
-        project_root TEXT NOT NULL DEFAULT '',
-        config_hash TEXT NOT NULL DEFAULT '',
-        metadata TEXT DEFAULT '{}'
-      );`;
-  }
-
-  private getFunctionsTableSQL(): string {
-    return `
-      CREATE TABLE functions (
-        -- Physical identification dimension
-        id TEXT PRIMARY KEY,                   -- Physical UUID for unique function instance
-        snapshot_id TEXT NOT NULL,             -- Snapshot reference
-        start_line INTEGER NOT NULL,           -- Start line in file
-        end_line INTEGER NOT NULL,             -- End line in file
-        start_column INTEGER NOT NULL DEFAULT 0,
-        end_column INTEGER NOT NULL DEFAULT 0,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        
-        -- Semantic identification dimension
-        semantic_id TEXT NOT NULL,             -- Semantic hash for role-based identification
-        name TEXT NOT NULL,                    -- Function name
-        display_name TEXT NOT NULL,            -- Display name (Class.method etc.)
-        signature TEXT NOT NULL,               -- Complete signature
-        file_path TEXT NOT NULL,               -- Relative path from project root
-        context_path TEXT,                     -- Hierarchical context JSON ['Class', 'method']
-        function_type TEXT,                    -- 'function' | 'method' | 'arrow' | 'local'
-        modifiers TEXT,                        -- Modifiers JSON ['static', 'private', 'async']
-        nesting_level INTEGER DEFAULT 0,       -- Nesting depth
-        
-        -- Function attributes (semantic-based)
-        is_exported BOOLEAN DEFAULT FALSE,
-        is_async BOOLEAN DEFAULT FALSE,
-        is_generator BOOLEAN DEFAULT FALSE,
-        is_arrow_function BOOLEAN DEFAULT FALSE,
-        is_method BOOLEAN DEFAULT FALSE,
-        is_constructor BOOLEAN DEFAULT FALSE,
-        is_static BOOLEAN DEFAULT FALSE,
-        access_modifier TEXT,                  -- 'public' | 'private' | 'protected'
-        
-        -- Content identification dimension
-        content_id TEXT NOT NULL,              -- Content hash for implementation identification
-        ast_hash TEXT NOT NULL,                -- AST structure hash
-        source_code TEXT,                      -- Function source code
-        signature_hash TEXT NOT NULL,          -- Signature hash
-        
-        -- Efficiency fields
-        file_hash TEXT NOT NULL,               -- File content hash
-        file_content_hash TEXT,                -- File change detection optimization
-        
-        -- Documentation (to be moved to separate table in the future)
-        js_doc TEXT,                          -- JSDoc comment
-        
-        FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getParametersTableSQL(): string {
-    return `
-      CREATE TABLE function_parameters (
-        id SERIAL PRIMARY KEY,
-        function_id TEXT NOT NULL,
-        name TEXT NOT NULL,
-        type TEXT NOT NULL,
-        type_simple TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        is_optional BOOLEAN DEFAULT FALSE,
-        is_rest BOOLEAN DEFAULT FALSE,
-        default_value TEXT,
-        description TEXT,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getMetricsTableSQL(): string {
-    return `
-      CREATE TABLE quality_metrics (
-        function_id TEXT PRIMARY KEY,
-        lines_of_code INTEGER NOT NULL,
-        total_lines INTEGER NOT NULL,
-        cyclomatic_complexity INTEGER NOT NULL,
-        cognitive_complexity INTEGER NOT NULL,
-        max_nesting_level INTEGER NOT NULL,
-        parameter_count INTEGER NOT NULL,
-        return_statement_count INTEGER NOT NULL,
-        branch_count INTEGER NOT NULL,
-        loop_count INTEGER NOT NULL,
-        try_catch_count INTEGER NOT NULL,
-        async_await_count INTEGER NOT NULL,
-        callback_count INTEGER NOT NULL,
-        comment_lines INTEGER NOT NULL,
-        code_to_comment_ratio REAL NOT NULL,
-        halstead_volume REAL,
-        halstead_difficulty REAL,
-        maintainability_index REAL,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getFunctionDescriptionsTableSQL(): string {
-    return `
-      CREATE TABLE function_descriptions (
-        semantic_id TEXT PRIMARY KEY,          -- 意味ベース参照
-        description TEXT NOT NULL,
-        source TEXT NOT NULL DEFAULT 'human',  -- 'human' | 'ai' | 'jsdoc'
-        validated_for_content_id TEXT,         -- 実装確認済みマーク
-        needs_review BOOLEAN DEFAULT FALSE,    -- 実装変更時の確認要求
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        created_by TEXT,                       -- 作成者
-        ai_model TEXT,                         -- AI生成時のモデル名
-        confidence_score REAL                  -- AI生成時の信頼度
-      );`;
-  }
-
-  private getFunctionEmbeddingsTableSQL(): string {
-    return `
-      CREATE TABLE function_embeddings (
-        semantic_id TEXT PRIMARY KEY,
-        embedding_model TEXT NOT NULL DEFAULT 'text-embedding-ada-002',
-        vector_dimension INTEGER NOT NULL DEFAULT 1536,
-        embedding REAL[] NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (semantic_id) REFERENCES function_descriptions(semantic_id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getANNIndexTableSQL(): string {
-    return `
-      CREATE TABLE ann_index_metadata (
-        id TEXT PRIMARY KEY,
-        algorithm TEXT NOT NULL CHECK (algorithm IN ('hierarchical', 'lsh', 'hybrid')),
-        config_json TEXT NOT NULL,                   -- JSON serialized ANNConfig
-        embedding_model TEXT NOT NULL,               -- Model used for embeddings
-        vector_dimension INTEGER NOT NULL,           -- Dimension of vectors in index
-        vector_count INTEGER NOT NULL DEFAULT 0,    -- Number of vectors indexed
-        index_data TEXT,                            -- Serialized index data (clusters, hash tables, etc.)
-        build_time_ms INTEGER,                      -- Time taken to build index
-        accuracy_metrics TEXT,                      -- JSON with accuracy/performance metrics
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        is_current BOOLEAN DEFAULT TRUE             -- Whether this is the current active index
-      );`;
-  }
-
-  private getNamingEvaluationsTableSQL(): string {
-    return `
-      CREATE TABLE naming_evaluations (
-        function_id TEXT PRIMARY KEY,
-        semantic_id TEXT NOT NULL,
-        function_name TEXT NOT NULL,
-        description_hash TEXT NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating IN (1, 2, 3)),
-        evaluated_at BIGINT NOT NULL,
-        evaluated_by TEXT NOT NULL CHECK (evaluated_by IN ('human', 'ai', 'auto')),
-        issues TEXT,
-        suggestions TEXT,
-        revision_needed BOOLEAN DEFAULT FALSE,
-        ai_model TEXT,
-        confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getLineageTableSQL(): string {
-    return `
-      CREATE TABLE lineage (
-        id TEXT PRIMARY KEY,
-        from_ids TEXT[] NOT NULL,
-        to_ids TEXT[] NOT NULL,
-        kind TEXT NOT NULL CHECK (kind IN ('rename', 'signature-change', 'inline', 'split')),
-        status TEXT NOT NULL CHECK (status IN ('draft', 'approved', 'rejected')),
-        confidence REAL CHECK (confidence >= 0.0 AND confidence <= 1.0),
-        note TEXT,
-        git_commit TEXT NOT NULL,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ
-      );`;
-  }
-
-  private getRefactoringSessionsTableSQL(): string {
-    return `
-      CREATE TABLE refactoring_sessions (
-        id TEXT PRIMARY KEY,
-        description TEXT NOT NULL,
-        start_time INTEGER NOT NULL,
-        end_time INTEGER,
-        git_branch TEXT,
-        initial_commit TEXT,
-        final_commit TEXT,
-        status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active',
-        metadata JSONB DEFAULT '{}',
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-      );`;
-  }
-
-  private getSessionFunctionsTableSQL(): string {
-    return `
-      CREATE TABLE session_functions (
-        session_id TEXT NOT NULL,
-        function_id TEXT NOT NULL,
-        tracked_at INTEGER NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')) DEFAULT 'source',
-        metadata JSONB DEFAULT '{}',
-        PRIMARY KEY (session_id, function_id),
-        FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-      );`;
-  }
-
-  private getRefactoringOpportunitiesTableSQL(): string {
-    return `
-      CREATE TABLE refactoring_opportunities (
-        id TEXT PRIMARY KEY,
-        pattern TEXT NOT NULL CHECK (pattern IN ('extract-method', 'split-function', 'reduce-parameters', 'extract-class', 'inline-function', 'rename-function')),
-        function_id TEXT NOT NULL,
-        severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium',
-        impact_score INTEGER NOT NULL CHECK (impact_score >= 0 AND impact_score <= 100),
-        detected_at INTEGER NOT NULL,
-        resolved_at INTEGER,
-        session_id TEXT,
-        metadata JSONB DEFAULT '{}',
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-        FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE SET NULL
-      );`;
-  }
-
-  private getTriggersSQL(): string {
-    return `
-      -- 自動トリガー: 内容変更検出
-      CREATE OR REPLACE FUNCTION update_function_description_review() RETURNS TRIGGER AS $$
-      BEGIN
-        UPDATE function_descriptions 
-        SET needs_review = TRUE 
-        WHERE semantic_id = NEW.semantic_id;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-      
-      DROP TRIGGER IF EXISTS function_content_change_detection ON functions;
-      CREATE TRIGGER function_content_change_detection
-        AFTER UPDATE ON functions
-        FOR EACH ROW
-        WHEN (OLD.content_id IS DISTINCT FROM NEW.content_id)
-        EXECUTE FUNCTION update_function_description_review();
-    `;
-  }
-
-  private async runMigrations(): Promise<void> {
-    try {
-      // Check if function_descriptions table needs new columns
-      const needsStructuredFields = await this.needsStructuredFieldsMigration();
-      if (needsStructuredFields) {
-        await this.addStructuredFieldsToDescriptions();
-      }
-    } catch (error) {
-      // Log migration errors but don't fail initialization
-      console.warn('Migration warning:', error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  private async needsStructuredFieldsMigration(): Promise<boolean> {
-    try {
-      const result = await this.db.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'function_descriptions' 
-        AND column_name IN ('usage_example', 'side_effects', 'error_conditions');
-      `);
-      // If we don't have all 3 columns, we need migration
-      return result.rows.length < 3;
-    } catch {
-      return false;
-    }
-  }
-
-  private async addStructuredFieldsToDescriptions(): Promise<void> {
-    try {
-      // Add new columns if they don't exist
-      await this.db.exec(`
-        ALTER TABLE function_descriptions 
-        ADD COLUMN IF NOT EXISTS usage_example TEXT,
-        ADD COLUMN IF NOT EXISTS side_effects TEXT,
-        ADD COLUMN IF NOT EXISTS error_conditions TEXT;
-      `);
-      console.log('Successfully added structured fields to function_descriptions table');
-    } catch (error) {
-      throw new Error(
-        `Failed to add structured fields: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
-  private async createIndexes(): Promise<void> {
-    try {
-      await this.db.exec(`
-      -- 3次元識別に最適化されたインデックス
-      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_id ON functions(snapshot_id);
-      CREATE INDEX IF NOT EXISTS idx_functions_semantic_id ON functions(semantic_id);
-      CREATE INDEX IF NOT EXISTS idx_functions_content_id ON functions(content_id);
-      CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(name);
-      CREATE INDEX IF NOT EXISTS idx_functions_file_path ON functions(file_path);
-      CREATE INDEX IF NOT EXISTS idx_functions_signature_hash ON functions(signature_hash);
-      CREATE INDEX IF NOT EXISTS idx_functions_ast_hash ON functions(ast_hash);
-
-      -- 複合インデックス
-      CREATE INDEX IF NOT EXISTS idx_functions_semantic_content ON functions(semantic_id, content_id);
-      CREATE INDEX IF NOT EXISTS idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_id);
-
-      -- 条件付きインデックス
-      CREATE INDEX IF NOT EXISTS idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
-      CREATE INDEX IF NOT EXISTS idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
-
-      -- 重複検出用インデックス
-      CREATE INDEX IF NOT EXISTS idx_content_duplication ON functions(content_id, snapshot_id);
-      
-      -- Snapshot indexes
-      CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
-      CREATE INDEX IF NOT EXISTS idx_snapshots_git_commit ON snapshots(git_commit);
-      CREATE INDEX IF NOT EXISTS idx_snapshots_git_branch ON snapshots(git_branch);
-      
-      -- パフォーマンス最適化インデックス
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_complexity ON quality_metrics(cyclomatic_complexity);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_lines ON quality_metrics(lines_of_code);
-      CREATE INDEX IF NOT EXISTS idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
-      
-      -- Parameter search indexes
-      CREATE INDEX IF NOT EXISTS idx_function_parameters_function_id ON function_parameters(function_id);
-      CREATE INDEX IF NOT EXISTS idx_function_parameters_position ON function_parameters(function_id, position);
-      
-      -- 意味ベース関数説明管理インデックス
-      CREATE INDEX IF NOT EXISTS idx_function_descriptions_source ON function_descriptions(source);
-      CREATE INDEX IF NOT EXISTS idx_function_descriptions_needs_review ON function_descriptions(needs_review) WHERE needs_review = TRUE;
-      
-      -- Naming evaluations indexes
-      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_semantic_id ON naming_evaluations(semantic_id);
-      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_rating ON naming_evaluations(rating);
-      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_by ON naming_evaluations(evaluated_by);
-      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_revision_needed ON naming_evaluations(revision_needed) WHERE revision_needed = TRUE;
-      CREATE INDEX IF NOT EXISTS idx_naming_evaluations_evaluated_at ON naming_evaluations(evaluated_at);
-
-      -- Lineage table indexes for performance optimization
-      CREATE INDEX IF NOT EXISTS idx_lineage_status ON lineage(status);
-      CREATE INDEX IF NOT EXISTS idx_lineage_kind ON lineage(kind);
-      CREATE INDEX IF NOT EXISTS idx_lineage_confidence ON lineage(confidence);
-      CREATE INDEX IF NOT EXISTS idx_lineage_git_commit ON lineage(git_commit);
-      CREATE INDEX IF NOT EXISTS idx_lineage_created_at ON lineage(created_at);
-      CREATE INDEX IF NOT EXISTS idx_lineage_updated_at ON lineage(updated_at);
-      
-      -- GIN indexes for array operations on from_ids and to_ids
-      CREATE INDEX IF NOT EXISTS idx_lineage_from_ids_gin ON lineage USING GIN(from_ids);
-      CREATE INDEX IF NOT EXISTS idx_lineage_to_ids_gin ON lineage USING GIN(to_ids);
-      
-      -- Composite indexes for common query patterns
-      CREATE INDEX IF NOT EXISTS idx_lineage_status_kind ON lineage(status, kind);
-      CREATE INDEX IF NOT EXISTS idx_lineage_status_created_at ON lineage(status, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_lineage_kind_created_at ON lineage(kind, created_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_lineage_confidence_created_at ON lineage(confidence DESC, created_at DESC);
-      
-      -- Refactoring session indexes
-      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_status ON refactoring_sessions(status);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_git_branch ON refactoring_sessions(git_branch);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_sessions_created_at ON refactoring_sessions(created_at);
-      
-      -- Session functions indexes
-      CREATE INDEX IF NOT EXISTS idx_session_functions_session_id ON session_functions(session_id);
-      CREATE INDEX IF NOT EXISTS idx_session_functions_function_id ON session_functions(function_id);
-      CREATE INDEX IF NOT EXISTS idx_session_functions_role ON session_functions(role);
-      CREATE INDEX IF NOT EXISTS idx_session_functions_tracked_at ON session_functions(tracked_at);
-      
-      -- Refactoring opportunities indexes
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_pattern ON refactoring_opportunities(pattern);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_function_id ON refactoring_opportunities(function_id);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_severity ON refactoring_opportunities(severity);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_impact_score ON refactoring_opportunities(impact_score);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_detected_at ON refactoring_opportunities(detected_at);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_session_id ON refactoring_opportunities(session_id);
-      CREATE INDEX IF NOT EXISTS idx_refactoring_opportunities_unresolved ON refactoring_opportunities(pattern, severity) WHERE resolved_at IS NULL;
-    `);
-    } catch (error) {
-      // このエラーは予期しないもの（構文エラーなど）なので、適切にログ出力
-      throw new Error(
-        `Failed to create database indexes: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
-
   private generateSnapshotId(): string {
     return uuidv4();
   }
@@ -2927,7 +2545,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         await this.getGitTag(),
         process.cwd(),
         configHash,
-        JSON.stringify(metadata),
+        metadata,
         nowUTC,
       ]
     );
@@ -3020,9 +2638,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         func.startColumn,
         func.endColumn,
         func.astHash,
-        JSON.stringify(func.contextPath || []),
+        this.formatPostgresArrayLiteral(func.contextPath || []),
         func.functionType || null,
-        JSON.stringify(func.modifiers || []),
+        this.formatPostgresArrayLiteral(func.modifiers || []),
         func.nestingLevel || 0,
         func.isExported,
         func.isAsync,
@@ -3293,7 +2911,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
-      metadata: JSON.parse(row.metadata || '{}'),
+      metadata: row.metadata || {
+        totalFunctions: 0,
+        totalFiles: 0,
+        avgComplexity: 0,
+        maxComplexity: 0,
+        exportedFunctions: 0,
+        asyncFunctions: 0,
+        complexityDistribution: {},
+        fileExtensions: {}
+      },
     };
   }
 
@@ -3332,9 +2959,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
 
       // Enhanced function identification
-      ...(row.context_path && { contextPath: this.safeJsonParse(row.context_path, []) }),
+      ...(row.context_path && { contextPath: row.context_path }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: this.safeJsonParse(row.modifiers, []) }),
+      ...(row.modifiers && { modifiers: row.modifiers }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes

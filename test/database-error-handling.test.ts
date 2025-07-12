@@ -53,10 +53,20 @@ describe('Database Error Handling', () => {
       expect(() => new PGLiteStorageAdapter('./relative/path/db.sqlite')).not.toThrow();
     });
 
-    it('should allow special database paths', () => {
-      expect(() => new PGLiteStorageAdapter(':memory:')).not.toThrow();
+    it('should allow connection string database paths', () => {
+      // PostgreSQL connection strings are valid paths for PGLite
       expect(() => new PGLiteStorageAdapter('postgres://user:pass@host:port/db')).not.toThrow();
       expect(() => new PGLiteStorageAdapter('postgresql://user:pass@host:port/db')).not.toThrow();
+    });
+
+    it('should handle problematic paths that look like special syntax', () => {
+      // :memory: looks like special syntax but PGLite treats it as a regular file path
+      // This can cause issues on Windows due to invalid ':' character
+      // We allow it in path validation but it will fail during actual filesystem operations
+      expect(() => new PGLiteStorageAdapter(':memory:')).not.toThrow();
+      
+      // The issue becomes apparent during init() when filesystem operations are attempted
+      // (This is mocked in these tests to prevent actual filesystem pollution)
     });
 
     it('should reject invalid path formats', () => {

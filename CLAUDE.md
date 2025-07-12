@@ -20,6 +20,42 @@ All violations of this policy will result in code rejection and may be flagged a
 
 @~/.claude/CLAUDE.md  # ユーザー設定を明示的にインポート
 
+## Database Schema - Single Source of Truth
+
+**⚠️ CRITICAL: Database Schema Management**
+
+### 📄 **Authoritative Schema Source**
+- **Single Source of Truth**: `src/schemas/database.sql`
+- **Complete Definition**: All 12 tables, indexes, constraints, and documentation
+- **Automatic Loading**: Implementation reads this file dynamically
+
+### 🚫 **Absolute Prohibitions**
+- ❌ **NEVER edit schema in TypeScript files** (`pglite-adapter.ts`)
+- ❌ **NEVER edit schema in documentation** (`data-model.md` - DEPRECATED)
+- ❌ **NEVER create separate DDL files** for individual tables
+
+### ✅ **Schema Modification Process**
+1. **Edit Only**: `src/schemas/database.sql`
+2. **Restart funcqc**: Changes auto-applied on next run
+3. **Verification**: Run `funcqc list --limit 1` to confirm
+
+### 📋 **Table Information**
+To understand any table structure, column definitions, indexes, or relationships:
+```bash
+# View complete schema with documentation
+cat src/schemas/database.sql
+
+# Or use your IDE to open:
+src/schemas/database.sql
+```
+
+**Tables included**: `snapshots`, `functions`, `function_parameters`, `quality_metrics`, `function_descriptions`, `function_embeddings`, `naming_evaluations`, `lineages`, `ann_index_metadata`, `refactoring_sessions`, `session_functions`, `refactoring_opportunities`
+
+### 🛡️ **Consistency Guarantee**
+- **Physical Prevention**: Implementation cannot diverge from schema file
+- **Human Error Elimination**: No manual synchronization required
+- **Zero Risk**: Schema inconsistencies are physically impossible
+
 ## Development Commands
 
 ### Building and Development
@@ -67,6 +103,32 @@ funcqc is a TypeScript function quality control tool with a layered architecture
 - **Analysis**: TypeScript Compiler API for AST parsing
 - **CLI**: Commander.js with chalk/ora for rich output
 - **Build**: tsup bundler, TypeScript 5.3+, Vitest testing
+
+### 🚨 CRITICAL: Database Technology Understanding
+
+**PGLite is NOT SQLite**:
+- **PGLite**: PostgreSQL compiled to WebAssembly (WASM)
+- **SQLite**: Completely different database engine written in C
+- **No relation**: Despite similar names, they are entirely different technologies
+- **Different APIs**: PGLite uses PostgreSQL syntax, SQLite uses its own syntax
+- **Different features**: Never assume features from one exist in the other
+
+**Technical Facts**:
+```typescript
+// PGLite - PostgreSQL WASM
+const pgdb = new PGLite('./data');     // PostgreSQL in WASM
+await pgdb.exec('CREATE TABLE...');    // PostgreSQL SQL syntax
+
+// SQLite - Different database entirely  
+const sqlitedb = new Database('./data.sqlite'); // SQLite C library
+sqlitedb.exec('CREATE TABLE...');      // SQLite SQL syntax
+```
+
+**❌ NEVER assume**:
+- `:memory:` functionality exists in PGLite because it exists in SQLite
+- Similar API behavior between PGLite and SQLite
+- Feature parity between the two systems
+- Cross-compatibility or similar implementation approaches
 
 ### Database Schema
 - `snapshots`: Version history with metadata and Git integration

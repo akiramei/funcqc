@@ -4,6 +4,23 @@
 
 import { FunctionInfo } from '../types';
 
+/**
+ * Format array for PostgreSQL array literal
+ * Properly handles empty arrays and special characters
+ */
+function formatPostgresArray(arr: string[]): string {
+  if (!arr || arr.length === 0) return '{}'; // Use empty PostgreSQL array for empty arrays
+  // PostgreSQL array elements need both backslash and quote escaping
+  return `{${arr.map(item => {
+    // First escape backslashes, then quotes (critical order for security)
+    const escaped = item
+      .replace(/\\/g, '\\\\')      // Escape backslashes: \ -> \\
+      .replace(/"/g, '\\"');       // Escape quotes: " -> \"
+    return `"${escaped}"`;
+  }).join(',')}}`;
+}
+
+
 export interface BulkInsertData {
   functions: unknown[][];
   parameters: unknown[][];
@@ -54,9 +71,9 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.startColumn,
     func.endColumn,
     func.astHash,
-    JSON.stringify(func.contextPath || []),
+    formatPostgresArray(func.contextPath || []),
     func.functionType || null,
-    JSON.stringify(func.modifiers || []),
+    formatPostgresArray(func.modifiers || []),
     func.nestingLevel || 0,
     func.isExported,
     func.isAsync,

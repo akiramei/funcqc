@@ -1,8 +1,10 @@
-# Lineage Database Schema and Migration
+# Lineage Database Operations and Maintenance
 
 ## Overview
 
-The funcqc lineage tracking system uses an embedded PostgreSQL database (PGLite) with a comprehensive schema designed for performance, data integrity, and extensibility. This document covers the complete database structure, migration processes, and maintenance procedures.
+This document covers the operational aspects of funcqc's lineage tracking system, including database operations, migration processes, and maintenance procedures.
+
+> **📋 Database Schema Reference**: For complete database table definitions and schema details, see [data-model.md](./data-model.md#lineage-tracking-system)
 
 ## Database Architecture
 
@@ -21,156 +23,17 @@ The funcqc lineage tracking system uses an embedded PostgreSQL database (PGLite)
 
 ---
 
-## Core Schema
+## Database Operations
 
-### Lineages Table
+> **📋 Schema Details**: Complete table definitions including lineage tables, indexes, and constraints are documented in [data-model.md](./data-model.md#lineage-tracking-system)
 
-The central table storing function lineage relationships:
+### Lineage System Overview
 
-```sql
-CREATE TABLE lineages (
-    id TEXT PRIMARY KEY,                    -- Unique lineage identifier (lin_xxxxxxxx)
-    kind TEXT NOT NULL,                     -- Lineage type: rename, signature-change, split, merge, inline
-    confidence REAL NOT NULL,               -- Similarity confidence (0.0-1.0)
-    status TEXT DEFAULT 'draft',            -- Review status: draft, approved, rejected
-    from_ids TEXT NOT NULL,                 -- JSON array of source function IDs
-    to_ids TEXT NOT NULL,                   -- JSON array of target function IDs
-    git_commit TEXT,                        -- Git commit hash where lineage was detected
-    note TEXT,                              -- Optional human-readable note
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,  -- Creation timestamp (ISO 8601)
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,  -- Last update timestamp
-    metadata TEXT                           -- JSON metadata for similarity scores and analysis details
-);
-```
-
-#### Field Details
-
-| Field | Type | Description | Example |
-|-------|------|-------------|---------|
-| `id` | TEXT | Unique identifier with `lin_` prefix | `lin_a1b2c3d4` |
-| `kind` | TEXT | Lineage type (see [Types](#lineage-types)) | `rename` |
-| `confidence` | REAL | Similarity score 0.0-1.0 | `0.85` |
-| `status` | TEXT | Review status (see [Status Values](#status-values)) | `draft` |
-| `from_ids` | TEXT | JSON array of source function IDs | `["func_12345"]` |
-| `to_ids` | TEXT | JSON array of target function IDs | `["func_67890"]` |
-| `git_commit` | TEXT | Git commit hash | `abc123def456` |
-| `note` | TEXT | Optional description | `Manual verification confirmed` |
-| `created_at` | TEXT | ISO 8601 timestamp | `2024-03-15T10:30:00.000Z` |
-| `updated_at` | TEXT | ISO 8601 timestamp | `2024-03-15T14:22:00.000Z` |
-| `metadata` | TEXT | JSON analysis details | See [Metadata Schema](#metadata-schema) |
-
-#### Lineage Types
-
-| Type | Description | from_ids:to_ids | Example |
-|------|-------------|-----------------|---------|
-| `rename` | Function renamed, content unchanged | 1:1 | `getUserData` → `fetchUserProfile` |
-| `signature-change` | Parameters or return type modified | 1:1 | `process(data)` → `process(data, options)` |
-| `split` | Large function divided into smaller ones | 1:N | `handleRequest` → `validateRequest` + `processRequest` |
-| `merge` | Multiple functions combined | N:1 | `validateUser` + `checkPermissions` → `authenticateUser` |
-| `inline` | Function inlined into caller | 1:1 | `calculateTotal` → inlined into `processOrder` |
-
-#### Status Values
-
-| Status | Description | Usage |
-|--------|-------------|-------|
-| `draft` | Initial detection, needs review | Default for automated detection |
-| `approved` | Verified correct lineage | After manual review or high confidence |
-| `rejected` | Incorrect lineage, false positive | After manual review |
-
-#### Metadata Schema
-
-The `metadata` field contains JSON with similarity analysis details:
-
-```json
-{
-  "similarity_scores": {
-    "name": 0.3,           // Function name similarity
-    "signature": 1.0,      // Parameter/return type similarity  
-    "structure": 0.98,     // AST structure similarity
-    "content": 0.97        // Function body similarity
-  },
-  "analysis": {
-    "algorithm_version": "1.0",
-    "analysis_time_ms": 145,
-    "total_candidates": 12,
-    "cross_file": false
-  },
-  "review": {
-    "reviewer": "automated",
-    "review_time": "2024-03-15T14:22:00.000Z",
-    "confidence_override": null
-  }
-}
-```
-
-### Database Indexes
-
-Optimized indexes for common query patterns:
-
-```sql
--- Primary access patterns
-CREATE INDEX idx_lineages_status ON lineages(status);
-CREATE INDEX idx_lineages_kind ON lineages(kind);
-CREATE INDEX idx_lineages_confidence ON lineages(confidence);
-CREATE INDEX idx_lineages_created_at ON lineages(created_at);
-CREATE INDEX idx_lineages_git_commit ON lineages(git_commit);
-
--- Composite indexes for complex queries
-CREATE INDEX idx_lineages_status_kind ON lineages(status, kind);
-CREATE INDEX idx_lineages_status_confidence ON lineages(status, confidence);
-CREATE INDEX idx_lineages_kind_confidence ON lineages(kind, confidence);
-
--- JSON field indexes (PostgreSQL GIN)
-CREATE INDEX idx_lineages_from_ids ON lineages USING GIN ((from_ids::jsonb));
-CREATE INDEX idx_lineages_to_ids ON lineages USING GIN ((to_ids::jsonb));
-CREATE INDEX idx_lineages_metadata ON lineages USING GIN ((metadata::jsonb));
-```
-
----
-
-## Integration with Core Schema
-
-The lineage system integrates with funcqc's existing database schema:
-
-### Functions Table Reference
-
-Lineage records reference functions via the core `functions` table:
-
-```sql
--- Core functions table (existing)
-CREATE TABLE functions (
-    id TEXT PRIMARY KEY,              -- Referenced by lineages.from_ids/to_ids
-    name TEXT NOT NULL,
-    file_path TEXT NOT NULL,
-    start_line INTEGER NOT NULL,
-    end_line INTEGER NOT NULL,
-    -- ... other function fields
-);
-
--- Example lineage relationship
--- lineages.from_ids: ["func_getUserData_123"]
--- lineages.to_ids:   ["func_fetchUserProfile_456"]
-```
-
-### Snapshots Integration
-
-Lineage detection occurs between snapshots:
-
-```sql
--- Snapshots table (existing)
-CREATE TABLE snapshots (
-    id TEXT PRIMARY KEY,
-    label TEXT,
-    git_commit TEXT,
-    created_at TEXT,
-    -- ... other snapshot fields
-);
-
--- Lineage generation process
--- 1. Compare functions between snapshot A and snapshot B
--- 2. Generate lineage records with git_commit from snapshot B
--- 3. Store lineage records referencing function IDs from both snapshots
-```
+The lineage tracking system captures function evolution through:
+- **lineage**: Core table storing function relationships and transformations
+- **refactoring_sessions**: Organized refactoring workflow management  
+- **session_functions**: Function tracking within refactoring sessions
+- **refactoring_opportunities**: Automated detection of improvement opportunities
 
 ---
 
