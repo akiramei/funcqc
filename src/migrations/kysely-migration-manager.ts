@@ -369,6 +369,11 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
    * PostgreSQL標準手法でOLD_テーブル作成
    */
   async preserveTableData(tableName: string): Promise<string> {
+    // テーブル名検証（SQLインジェクション対策）
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
+      throw new Error(`Invalid table name: ${tableName}`);
+    }
+    
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '_');
     const backupTableName = `OLD_${tableName}_${timestamp}`;
     
@@ -391,7 +396,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
       }
 
       // データバックアップ（PostgreSQL標準手法）
-      // 注意: テーブル名はユーザー制御可能な入力ではないため、動的テーブル名作成では文字列補間を使用
+      // テーブル名は事前検証済みで安全な識別子のため、文字列補間を使用
       await sql.raw(`
         CREATE TABLE ${backupTableName} AS 
         SELECT * FROM ${tableName}
