@@ -8,13 +8,12 @@ interface TestConnection {
   [key: string]: unknown;
 }
 
+/* eslint-disable no-var */
+// reason: [type-safety] Global variable declarations require var in ambient context
 declare global {
-  // eslint-disable-next-line no-var
-  // reason: [type-safety] Global variable declarations require var in ambient context
   var __TEST_TRACK_CONNECTION__: ((connection: TestConnection) => void) | undefined;
-  // eslint-disable-next-line no-var
-  // reason: [type-safety] Global variable declarations require var in ambient context
   var __TEST_UNTRACK_CONNECTION__: ((connection: TestConnection) => void) | undefined;
 }
+/* eslint-enable no-var */
 
 export {};
