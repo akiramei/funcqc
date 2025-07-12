@@ -132,8 +132,17 @@ class TypeScriptMigrationProvider implements MigrationProvider {
             console.warn(`Migration file ${file} is missing up() or down() function`);
           }
         } catch (error) {
-          console.warn(`Failed to load migration ${file}:`, error);
-          // 個別のマイグレーションファイルの読み込み失敗は継続
+          // 詳細なエラー情報を提供し、適切に分類
+          if (error instanceof SyntaxError) {
+            console.warn(`Syntax error in migration ${file}:`, error.message);
+          } else if (error instanceof TypeError) {
+            console.warn(`Type error in migration ${file}:`, error.message);
+          } else if (error instanceof Error && error.message.includes('MODULE_NOT_FOUND')) {
+            console.warn(`Module dependency missing for migration ${file}:`, error.message);
+          } else {
+            console.warn(`Failed to load migration ${file}:`, error instanceof Error ? error.message : String(error));
+          }
+          // 個別のマイグレーションファイルの読み込み失敗は継続（その他のマイグレーションに影響しない）
         }
       }
     } catch (error) {

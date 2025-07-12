@@ -106,7 +106,7 @@ describe('KyselyMigrationManager', () => {
       
       // 実際のデータが保存されたかどうかの確認（これが最も重要）
       // preserveTableData内で既にカウント確認済みのため、機能は正常
-      console.log(`✅ Backup table created: ${backupTableName}`);
+      // テストの要点: メソッドがエラーなく実行され、適切なフォーマットの名前を返すこと
     });
 
     it('should handle non-existent table gracefully', async () => {
