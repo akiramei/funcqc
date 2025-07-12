@@ -726,6 +726,20 @@ migrateCommand.command('create')
     return createCommand(options);
   });
 
+migrateCommand.command('doctor')
+  .description('Run migration health check and diagnosis')
+  .action(async (options: OptionValues) => {
+    const { doctorCommand } = await import('./cli/migrate');
+    return doctorCommand(options);
+  });
+
+migrateCommand.command('restore')
+  .description('Restore missing migration files from database archive')
+  .action(async (options: OptionValues) => {
+    const { restoreCommand } = await import('./cli/migrate');
+    return restoreCommand(options);
+  });
+
 migrateCommand.command('info')
   .description('Show migration system information')
   .action(async (options: OptionValues) => {

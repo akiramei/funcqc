@@ -316,6 +316,78 @@ export async function createCommand(options: OptionValues): Promise<void> {
 }
 
 /**
+ * Migration health check command
+ */
+export async function doctorCommand(_options: OptionValues): Promise<void> {
+  const errorHandler = createErrorHandler(logger);
+
+  try {
+    logger.debug('Running migration health check...');
+    
+    const config = await new ConfigManager().load();
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
+    
+    try {
+      const healthResult = await migrationManager.diagnoseMigrationHealth();
+      
+      // Exit with appropriate code
+      process.exitCode = healthResult.healthy ? 0 : 1;
+      
+    } finally {
+      await cleanup();
+    }
+    
+  } catch (error) {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.MIGRATION_FAILED,
+      'Failed to run migration health check',
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
+}
+
+/**
+ * Migration restore command
+ */
+export async function restoreCommand(_options: OptionValues): Promise<void> {
+  const errorHandler = createErrorHandler(logger);
+
+  try {
+    logger.debug('Starting migration restore...');
+    
+    const config = await new ConfigManager().load();
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
+    
+    try {
+      const result = await migrationManager.restoreMissingMigrations();
+      
+      // Exit with appropriate code based on results
+      if (result.failed.length > 0) {
+        process.exitCode = 1;
+      } else if (result.restored.length === 0 && result.skipped.length === 0) {
+        process.exitCode = 0; // No missing files
+      } else {
+        process.exitCode = 0; // Successfully restored or skipped
+      }
+      
+    } finally {
+      await cleanup();
+    }
+    
+  } catch (error) {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.MIGRATION_FAILED,
+      'Failed to restore migrations',
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
+}
+
+/**
  * Migration info command
  */
 export async function infoCommand(_options: OptionValues): Promise<void> {
