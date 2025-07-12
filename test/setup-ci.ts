@@ -6,14 +6,14 @@
 import { beforeAll, afterAll } from 'vitest';
 
 // Track open connections to ensure proper cleanup
-const openConnections = new Set<any>();
+const openConnections = new Set<unknown>();
 
 // Global connection tracker with CI-specific handling
-global.__TEST_TRACK_CONNECTION__ = (connection: any) => {
+global.__TEST_TRACK_CONNECTION__ = (connection: unknown) => {
   openConnections.add(connection);
 };
 
-global.__TEST_UNTRACK_CONNECTION__ = (connection: any) => {
+global.__TEST_UNTRACK_CONNECTION__ = (connection: unknown) => {
   openConnections.delete(connection);
 };
 
@@ -39,9 +39,10 @@ afterAll(async () => {
     
     const cleanupPromises = Array.from(openConnections).map(async connection => {
       try {
-        if (connection && typeof connection.close === 'function') {
+        if (connection && typeof connection === 'object' && connection !== null && 'close' in connection && typeof (connection as Record<string, unknown>)['close'] === 'function') {
+          const closeMethod = (connection as Record<string, unknown>)['close'] as () => Promise<void>;
           await Promise.race([
-            connection.close(),
+            closeMethod(),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Cleanup timeout')), 5000))
           ]);
         }

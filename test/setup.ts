@@ -5,14 +5,14 @@
 import { beforeAll, afterAll } from 'vitest';
 
 // Track open connections to ensure proper cleanup
-const openConnections = new Set<any>();
+const openConnections = new Set<unknown>();
 
 // Global connection tracker
-global.__TEST_TRACK_CONNECTION__ = (connection: any) => {
+global.__TEST_TRACK_CONNECTION__ = (connection: unknown) => {
   openConnections.add(connection);
 };
 
-global.__TEST_UNTRACK_CONNECTION__ = (connection: any) => {
+global.__TEST_UNTRACK_CONNECTION__ = (connection: unknown) => {
   openConnections.delete(connection);
 };
 
@@ -29,8 +29,9 @@ afterAll(async () => {
     
     for (const connection of openConnections) {
       try {
-        if (connection && typeof connection.close === 'function') {
-          await connection.close();
+        if (connection && typeof connection === 'object' && connection !== null && 'close' in connection && typeof (connection as Record<string, unknown>)['close'] === 'function') {
+          const closeMethod = (connection as Record<string, unknown>)['close'] as () => Promise<void>;
+          await closeMethod();
         }
       } catch (error) {
         console.warn('Failed to close connection:', error);
