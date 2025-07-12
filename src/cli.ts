@@ -668,16 +668,32 @@ program
   .description('Database migration management')
   .action(() => {
     console.log(chalk.yellow('Please specify a migrate subcommand:'));
+    console.log('  up       - Apply all pending migrations');
+    console.log('  down     - Rollback one migration');
     console.log('  status   - Show migration status');
+    console.log('  create   - Create new migration file');
     console.log('  cleanup  - Clean up old backup tables');
     console.log('  reset    - Reset migration history (development only)');
-    console.log('  create   - Create new migration file');
     console.log('  info     - Show migration system information');
-    console.log('\nExample: funcqc migrate status');
+    console.log('\nExample: funcqc migrate up');
   });
 
 // Add migrate subcommands
 const migrateCommand = program.commands.find(cmd => cmd.name() === 'migrate')!;
+
+migrateCommand.command('up')
+  .description('Apply all pending migrations')
+  .action(async (options: OptionValues) => {
+    const { upCommand } = await import('./cli/migrate');
+    return upCommand(options);
+  });
+
+migrateCommand.command('down')
+  .description('Rollback one migration')
+  .action(async (options: OptionValues) => {
+    const { downCommand } = await import('./cli/migrate');
+    return downCommand(options);
+  });
 
 migrateCommand.command('status')
   .description('Show migration status and applied migrations')
