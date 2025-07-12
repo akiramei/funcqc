@@ -633,6 +633,108 @@ export interface LineageCleanOptions extends CommandOptions {
   force?: boolean;
 }
 
+async function buildLineageQuery(options: LineageCleanOptions, logger: Logger): Promise<LineageQuery> {
+  const query: LineageQuery = {};
+  
+  if (!options.includeApproved) {
+    query.status = 'draft';
+  } else if (!options.force) {
+    logger.error('--include-approved requires --force flag for safety');
+    process.exit(1);
+  }
+
+  if (options.status) {
+    query.status = options.status as LineageStatus;
+  }
+
+  return query;
+}
+
+function applyTimeFilter(lineages: LineageResult[], options: LineageCleanOptions, logger: Logger): LineageResult[] {
+  if (!options.olderThan) {
+    return lineages;
+  }
+
+  const days = parseInt(options.olderThan);
+  if (isNaN(days) || days < 0) {
+    logger.error('--older-than must be a positive number of days');
+    process.exit(1);
+  }
+
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - days);
+  
+  return lineages.filter(l => new Date(l.createdAt) < cutoffDate);
+}
+
+function displayLineageSummary(lineages: LineageResult[], options: LineageCleanOptions): Record<string, number> {
+  console.log(chalk.yellow.bold(`\n🧹 Lineages to be deleted (${lineages.length}):\n`));
+  
+  const statusCounts = lineages.reduce((acc, l) => {
+    acc[l.status] = (acc[l.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  Object.entries(statusCounts).forEach(([status, count]) => {
+    console.log(`  ${getStatusIcon(status)} ${status}: ${count}`);
+  });
+
+  if (options.verbose) {
+    console.log('\nDetails:');
+    lineages.forEach((l, i) => {
+      console.log(`  ${i + 1}. ${l.id.substring(0, 8)} - ${l.kind} (${l.status})`);
+    });
+  }
+
+  return statusCounts;
+}
+
+async function confirmDeletion(options: LineageCleanOptions, statusCounts: Record<string, number>): Promise<boolean> {
+  if (options.yes) {
+    return true;
+  }
+
+  if (options.includeApproved && statusCounts['approved'] > 0) {
+    console.log(chalk.red.bold(`\n⚠️  WARNING: This will delete ${statusCounts['approved']} APPROVED lineages!`));
+  }
+  
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    const prompt = options.includeApproved && statusCounts['approved'] > 0
+      ? chalk.red('\nType "yes" to confirm deletion of approved lineages: ')
+      : chalk.yellow('\nProceed with deletion? (y/N): ');
+
+    rl.question(prompt, (answer) => {
+      rl.close();
+      
+      if (options.includeApproved && statusCounts['approved'] > 0) {
+        resolve(answer.toLowerCase() === 'yes');
+      } else {
+        resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
+      }
+    });
+  });
+}
+
+async function performDeletion(lineages: LineageResult[], storage: PGLiteStorageAdapter, logger: Logger): Promise<number> {
+  let deletedCount = 0;
+  for (const lineage of lineages) {
+    try {
+      const deleted = await storage.deleteLineage(lineage.id);
+      if (deleted) {
+        deletedCount++;
+      }
+    } catch (error) {
+      logger.error(`Failed to delete lineage ${lineage.id}:`, error);
+    }
+  }
+  return deletedCount;
+}
+
 export async function lineageCleanCommand(options: LineageCleanOptions): Promise<void> {
   const logger = new Logger(options.verbose, options.quiet);
 
@@ -643,38 +745,9 @@ export async function lineageCleanCommand(options: LineageCleanOptions): Promise
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
-    // Build query for lineages to delete
-    const query: LineageQuery = {};
-    
-    // Default to draft only unless explicitly including approved
-    if (!options.includeApproved) {
-      query.status = 'draft';
-    } else if (!options.force) {
-      logger.error('--include-approved requires --force flag for safety');
-      process.exit(1);
-    }
-
-    // Override with specific status if provided
-    if (options.status) {
-      query.status = options.status as LineageStatus;
-    }
-
-    // Get all lineages matching the query
+    const query = await buildLineageQuery(options, logger);
     let lineages = await storage.getLineages(query);
-
-    // Apply time-based filtering if specified
-    if (options.olderThan) {
-      const days = parseInt(options.olderThan);
-      if (isNaN(days) || days < 0) {
-        logger.error('--older-than must be a positive number of days');
-        process.exit(1);
-      }
-
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - days);
-      
-      lineages = lineages.filter(l => new Date(l.createdAt) < cutoffDate);
-    }
+    lineages = applyTimeFilter(lineages, options, logger);
 
     if (lineages.length === 0) {
       logger.info('No lineages found matching the criteria.');
@@ -682,82 +755,22 @@ export async function lineageCleanCommand(options: LineageCleanOptions): Promise
       return;
     }
 
-    // Display what will be deleted
-    console.log(chalk.yellow.bold(`\n🧹 Lineages to be deleted (${lineages.length}):\n`));
-    
-    // Group by status for summary
-    const statusCounts = lineages.reduce((acc, l) => {
-      acc[l.status] = (acc[l.status] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const statusCounts = displayLineageSummary(lineages, options);
 
-    Object.entries(statusCounts).forEach(([status, count]) => {
-      console.log(`  ${getStatusIcon(status)} ${status}: ${count}`);
-    });
-
-    if (options.verbose) {
-      console.log('\nDetails:');
-      lineages.forEach((l, i) => {
-        console.log(`  ${i + 1}. ${l.id.substring(0, 8)} - ${l.kind} (${l.status})`);
-      });
-    }
-
-    // Dry run - just show what would be deleted
     if (options.dryRun) {
       console.log(chalk.gray('\n(Dry run - no changes made)'));
       await storage.close();
       return;
     }
 
-    // Confirmation
-    let confirmed = options.yes;
-    
-    if (!confirmed) {
-      if (options.includeApproved && statusCounts['approved'] > 0) {
-        console.log(chalk.red.bold(`\n⚠️  WARNING: This will delete ${statusCounts['approved']} APPROVED lineages!`));
-      }
-      
-      const rl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-      });
-
-      confirmed = await new Promise((resolve) => {
-        const prompt = options.includeApproved && statusCounts['approved'] > 0
-          ? chalk.red('\nType "yes" to confirm deletion of approved lineages: ')
-          : chalk.yellow('\nProceed with deletion? (y/N): ');
-
-        rl.question(prompt, (answer) => {
-          rl.close();
-          
-          if (options.includeApproved && statusCounts['approved'] > 0) {
-            resolve(answer.toLowerCase() === 'yes');
-          } else {
-            resolve(answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes');
-          }
-        });
-      });
-    }
-
+    const confirmed = await confirmDeletion(options, statusCounts);
     if (!confirmed) {
       logger.info('Deletion cancelled.');
       await storage.close();
       return;
     }
 
-    // Perform deletion
-    let deletedCount = 0;
-    for (const lineage of lineages) {
-      try {
-        const deleted = await storage.deleteLineage(lineage.id);
-        if (deleted) {
-          deletedCount++;
-        }
-      } catch (error) {
-        logger.error(`Failed to delete lineage ${lineage.id}:`, error);
-      }
-    }
-
+    const deletedCount = await performDeletion(lineages, storage, logger);
     logger.success(`Deleted ${deletedCount} lineages.`);
     await storage.close();
   } catch (error) {

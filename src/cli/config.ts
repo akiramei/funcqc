@@ -421,14 +421,15 @@ async function handleBackupConfig(
   console.log(chalk.gray(`Backup saved to: ${backupPath}`));
 }
 
-async function handleValidateConfig(
-  configManager: ConfigManager,
-  options: ConfigCommandOptions
-): Promise<void> {
-  const config = await configManager.load();
-  const issues: Array<{ level: string; message: string; field?: string }> = [];
+type ValidationIssue = {
+  level: 'error' | 'warning';
+  message: string;
+  field?: string;
+};
 
-  // Basic validation
+function validateConfigFields(config: any): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
   if (!config.storage?.path) {
     issues.push({
       level: 'error',
@@ -453,20 +454,23 @@ async function handleValidateConfig(
     });
   }
 
-  if (options.json) {
-    console.log(
-      JSON.stringify(
-        {
-          valid: issues.filter(i => i.level === 'error').length === 0,
-          issues,
-        },
-        null,
-        2
-      )
-    );
-    return;
-  }
+  return issues;
+}
 
+function outputValidationJson(issues: ValidationIssue[]): void {
+  console.log(
+    JSON.stringify(
+      {
+        valid: issues.filter(i => i.level === 'error').length === 0,
+        issues,
+      },
+      null,
+      2
+    )
+  );
+}
+
+function displayValidationResults(issues: ValidationIssue[]): void {
   const errors = issues.filter(i => i.level === 'error');
   const warnings = issues.filter(i => i.level === 'warning');
 
@@ -505,4 +509,19 @@ async function handleValidateConfig(
     console.log(chalk.red('Configuration has errors and may not work correctly'));
     process.exit(1);
   }
+}
+
+async function handleValidateConfig(
+  configManager: ConfigManager,
+  options: ConfigCommandOptions
+): Promise<void> {
+  const config = await configManager.load();
+  const issues = validateConfigFields(config);
+
+  if (options.json) {
+    outputValidationJson(issues);
+    return;
+  }
+
+  displayValidationResults(issues);
 }
