@@ -332,9 +332,9 @@ export class SimpleMigrationManager {
     for (const tableName of backupTables) {
       const dateMatch = tableName.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
       if (dateMatch) {
-        const dateStr = dateMatch[1].replace(/_/g, ':').replace('T', 'T').substring(0, 19);
+        const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
         try {
-          const tableDate = new Date(dateStr.replace(/_/g, '-').replace('T', 'T'));
+          const tableDate = new Date(dateStr.replace(/_/g, '-'));
           
           if (tableDate < cutoffDate) {
             await this.db.exec(`DROP TABLE ${tableName}`);

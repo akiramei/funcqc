@@ -171,8 +171,8 @@ export async function cleanupOldBackups(db: Kysely<any>, daysOld: number = 30): 
       // テーブル名から日時を抽出（例: OLD_functions_2025_01_12T14_30_00）
       const dateMatch = tableName.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
       if (dateMatch) {
-        const dateStr = dateMatch[1].replace(/_/g, ':').replace('T', 'T').substring(0, 19);
-        const tableDate = new Date(dateStr.replace(/_/g, '-').replace('T', 'T'));
+        const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
+        const tableDate = new Date(dateStr.replace(/_/g, '-'));
         
         if (tableDate < cutoffDate) {
           try {
@@ -215,9 +215,9 @@ export async function listBackupTables(db: Kysely<any>): Promise<Array<{ name: s
       let created: Date | undefined;
       
       if (dateMatch) {
-        const dateStr = dateMatch[1].replace(/_/g, ':').replace('T', 'T').substring(0, 19);
+        const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
         try {
-          created = new Date(dateStr.replace(/_/g, '-').replace('T', 'T'));
+          created = new Date(dateStr.replace(/_/g, '-'));
         } catch {
           // 日時パースに失敗した場合はundefined
         }
