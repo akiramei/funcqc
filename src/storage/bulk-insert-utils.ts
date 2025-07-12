@@ -83,7 +83,6 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.isConstructor,
     func.isStatic,
     func.accessModifier || null,
-    func.jsDoc || null,
     func.sourceCode || null,
   ];
 }

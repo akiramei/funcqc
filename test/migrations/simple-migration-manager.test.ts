@@ -249,20 +249,32 @@ describe('SimpleMigrationManager', () => {
     it('should list backup tables', async () => {
       // テスト用のバックアップテーブルを作成
       const timestamp = TEST_TIMESTAMP.substring(0, 19).replace(/[:-]/g, '_');
-      await db.exec(`CREATE TABLE OLD_test_backup_${timestamp} (id SERIAL, data TEXT)`);
+      const backupTableName = `old_test_backup_${timestamp}`;
+      await db.exec(`CREATE TABLE ${backupTableName} (id SERIAL, data TEXT)`);
+      
+      // デバッグ: 作成されたテーブルを確認
+      const allTables = await db.query(`
+        SELECT tablename 
+        FROM pg_tables 
+        WHERE schemaname = 'public'
+        ORDER BY tablename
+      `);
+      console.log('Debug: All tables:', allTables.rows.map(r => r.tablename));
       
       // バックアップテーブルが存在するか確認
       const backupTables = await manager.listBackupTables();
+      console.log('Debug: Found backup tables:', backupTables);
+      
       expect(Array.isArray(backupTables)).toBe(true);
       expect(backupTables.length).toBeGreaterThan(0);
       
       // 作成したバックアップテーブルを検証
-      const testBackup = backupTables.find(name => name.startsWith('OLD_test_backup_'));
+      const testBackup = backupTables.find(name => name.startsWith('old_test_backup_'));
       expect(testBackup).toBeDefined();
       
       if (testBackup) {
         // バックアップテーブル名の形式が正しいことを確認
-        expect(testBackup).toMatch(/^OLD_test_backup_\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2}$/);
+        expect(testBackup).toMatch(/^old_test_backup_\d{4}_\d{2}_\d{2}t\d{2}_\d{2}_\d{2}$/);
       }
     });
 

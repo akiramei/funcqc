@@ -219,26 +219,24 @@ export class SimpleMigrationManager {
       
       await this.db.exec('BEGIN');
       
-      // データ保全が必要な場合
-      if (preserveData) {
-        const backupTableName = `OLD_${tableName}_${new Date().toISOString().substring(0, 19).replace(/[:-]/g, '_')}`;
-        
-        // テーブルが存在するかチェック
-        const tableExistsResult = await this.db.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public' AND table_name = $1
-          )
-        `, [tableName]);
-        
-        if ((tableExistsResult.rows[0] as any)?.exists) {
-          // 既存データをバックアップ
+      // テーブルが存在するかチェック
+      const tableExistsResult = await this.db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_schema = 'public' AND table_name = $1
+        )
+      `, [tableName]);
+      
+      if ((tableExistsResult.rows[0] as any)?.exists) {
+        if (preserveData) {
+          // データ保全が必要な場合はバックアップを作成
+          const backupTableName = `old_${tableName}_${new Date().toISOString().substring(0, 19).replace(/[:-]/g, '_')}`;
           await this.db.exec(`CREATE TABLE ${backupTableName} AS SELECT * FROM ${tableName}`);
           console.log(`📦 Data preserved in ${backupTableName}`);
-          
-          // 既存テーブルを削除
-          await this.db.exec(`DROP TABLE ${tableName} CASCADE`);
         }
+        
+        // 既存テーブルを削除（データ保全の有無に関わらず）
+        await this.db.exec(`DROP TABLE ${tableName} CASCADE`);
       }
       
       // 新しいテーブルを作成
@@ -315,7 +313,7 @@ export class SimpleMigrationManager {
     const result = await this.db.query(`
       SELECT tablename 
       FROM pg_tables 
-      WHERE schemaname = 'public' AND tablename LIKE 'OLD_%'
+      WHERE schemaname = 'public' AND tablename LIKE 'old_%'
       ORDER BY tablename
     `);
     

@@ -464,10 +464,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             // Handle keyword search across multiple fields
             params.push(`%${filter.value}%`);
             params.push(`%${filter.value}%`);
-            params.push(`%${filter.value}%`);
             return `(
-              f.name ILIKE $${params.length - 2} OR 
-              f.js_doc ILIKE $${params.length - 1} OR 
+              f.name ILIKE $${params.length - 1} OR 
               f.source_code ILIKE $${params.length}
             )`;
           } else {
@@ -982,7 +980,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND (
           f.name ILIKE $2 OR 
-          f.js_doc ILIKE $2 OR 
           f.source_code ILIKE $2 OR
           d.description ILIKE $2
         )
@@ -2741,10 +2738,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ast_hash, context_path, function_type, modifiers, nesting_level,
         is_exported, is_async, is_generator, is_arrow_function,
         is_method, is_constructor, is_static, access_modifier,
-        js_doc, source_code
+        source_code
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
       )
     `,
       [
@@ -2775,7 +2772,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         func.isConstructor,
         func.isStatic,
         func.accessModifier || null,
-        func.jsDoc || null,
         func.sourceCode || null,
       ]
     );
@@ -2909,7 +2905,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           'is_constructor',
           'is_static',
           'access_modifier',
-          'js_doc',
           'source_code',
         ];
 
@@ -3125,7 +3120,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   ): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
-    if (row.js_doc) functionInfo.jsDoc = row.js_doc;
+    // Note: js_doc is now stored in function_documentation table
     if (row.source_code) functionInfo.sourceCode = row.source_code;
     if (row.description) {
       functionInfo.description = row.description;
