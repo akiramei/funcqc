@@ -56,6 +56,59 @@ src/schemas/database.sql
 - **Human Error Elimination**: No manual synchronization required
 - **Zero Risk**: Schema inconsistencies are physically impossible
 
+## Database Migration System
+
+**⚠️ CRITICAL: Data-Preserving Migration Management**
+
+### 🚀 **Migration System Overview**
+funcqc uses a custom SimpleMigrationManager that provides data-preserving database migrations for PGLite (WASM PostgreSQL). This system replaces the previous destructive `dropOldTablesIfNeeded()` approach.
+
+### 📄 **Key Features**
+- **Data Preservation**: OLD_ prefix backup strategy maintains historical data
+- **Transaction Safety**: BEGIN/COMMIT/ROLLBACK for atomic operations  
+- **Legacy Support**: Automatic detection and migration of old database schemas
+- **CLI Management**: Complete command-line interface for migration operations
+- **Zero Dependency**: Embedded PostgreSQL with no external database requirements
+
+### 🔧 **Migration Commands**
+```bash
+# Check migration status
+funcqc migrate status
+
+# Show system information
+funcqc migrate info
+
+# Clean up old backup tables (older than 30 days)
+funcqc migrate cleanup --days 30
+
+# Reset migration history (development only)
+funcqc migrate reset --force
+
+# Create new migration file
+funcqc migrate create --name "description_of_change"
+```
+
+### 📋 **Migration Workflow for Schema Changes**
+When you need to modify the database schema:
+
+1. **Edit Schema**: Modify `src/schemas/database.sql` with your changes
+2. **Test Locally**: Run `funcqc scan` to trigger automatic migration
+3. **Verify Migration**: Use `funcqc migrate status` to confirm success
+4. **Monitor Data**: Check that existing data is preserved
+5. **Cleanup**: Use `funcqc migrate cleanup` to remove old backups when ready
+
+### 🛡️ **Data Safety Features**
+- **Automatic Backup**: All existing data backed up with OLD_ prefix before changes
+- **Rollback Capability**: Transaction-based operations allow rollback on failure  
+- **Legacy Detection**: Automatically detects and migrates old database formats
+- **Fallback Strategy**: Direct schema creation if migration fails
+- **Comprehensive Logging**: Detailed console output for troubleshooting
+
+### 🚨 **Migration System vs Manual Changes**
+- ✅ **Use Migration System**: For all schema modifications and data preservation
+- ❌ **Avoid Manual Schema Changes**: Direct DDL execution bypasses safety mechanisms
+- ❌ **Never Delete Migration History**: Maintains data lineage and audit trail
+
 ## Development Commands
 
 ### Building and Development
