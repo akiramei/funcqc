@@ -22,7 +22,8 @@ import {
   DatabaseConnection,
   Driver,
   TransactionSettings,
-  CompiledQuery
+  CompiledQuery,
+  DialectAdapter
 } from 'kysely';
 import { promises as fs } from 'fs';
 import * as path from 'path';
@@ -40,7 +41,7 @@ class PGLiteDialect {
   }
 
   createAdapter() {
-    return {
+    const baseAdapter = {
       acquireConnection: () => Promise.resolve(new PGLiteConnection(this.pglite)),
       beginTransaction: async (connection: PGLiteConnection) => {
         await connection.executeQuery(CompiledQuery.raw('BEGIN'));
@@ -54,23 +55,26 @@ class PGLiteDialect {
       releaseConnection: () => Promise.resolve(),
       destroy: () => Promise.resolve(),
       
+      // PostgreSQL互換機能
+      supportsCreateIfNotExists: true,
+      supportsTransactionalDdl: true,
+      supportsReturning: true,
+      
       // マイグレーションロック機能（PostgreSQL Advisory Lock使用）
-      acquireMigrationLock: async (connection: PGLiteConnection) => {
-        const result = await connection.executeQuery(
-          CompiledQuery.raw(`SELECT pg_try_advisory_lock(${PGLiteDialect.MIGRATION_LOCK_ID})`)
-        );
+      acquireMigrationLock: async (db: Kysely<any>) => {
+        const result = await sql.raw(`SELECT pg_try_advisory_lock(${PGLiteDialect.MIGRATION_LOCK_ID})`).execute(db);
         const lockAcquired = (result.rows[0] as Record<string, unknown>)?.['pg_try_advisory_lock'];
         if (!lockAcquired) {
           throw new Error('Could not acquire migration lock. Another migration may be in progress.');
         }
       },
       
-      releaseMigrationLock: async (connection: PGLiteConnection) => {
-        await connection.executeQuery(
-          CompiledQuery.raw(`SELECT pg_advisory_unlock(${PGLiteDialect.MIGRATION_LOCK_ID})`)
-        );
+      releaseMigrationLock: async (db: Kysely<any>) => {
+        await sql.raw(`SELECT pg_advisory_unlock(${PGLiteDialect.MIGRATION_LOCK_ID})`).execute(db);
       }
     };
+    
+    return baseAdapter as DialectAdapter;
   }
 
   createDriver() {
@@ -79,12 +83,12 @@ class PGLiteDialect {
 
   createQueryCompiler() {
     // PostgreSQL query compilerを使用（実績のある方法）
-    return new PostgresDialect({} as any).createQueryCompiler();
+    return new PostgresDialect({ pool: {} as any }).createQueryCompiler();
   }
 
-  createIntrospector(db: Kysely<any>) {
+  createIntrospector(db: Kysely<Record<string, unknown>>) {
     // PostgreSQL introspectorベース
-    return new PostgresDialect({} as any).createIntrospector(db);
+    return new PostgresDialect({ pool: {} as any }).createIntrospector(db);
   }
 }
 
@@ -149,12 +153,8 @@ class PGLiteConnection implements DatabaseConnection {
   constructor(private pglite: PGlite) {}
 
   async executeQuery<O>(compiledQuery: CompiledQuery): Promise<{ rows: O[] }> {
-    try {
-      const result = await this.pglite.query(compiledQuery.sql, compiledQuery.parameters as any[]);
-      return { rows: result.rows as O[] };
-    } catch (error) {
-      throw error;
-    }
+    const result = await this.pglite.query(compiledQuery.sql, compiledQuery.parameters as unknown[]);
+    return { rows: result.rows as O[] };
   }
 
   async *streamQuery<O>(compiledQuery: CompiledQuery): AsyncIterableIterator<{ rows: O[] }> {
@@ -209,7 +209,7 @@ export interface KyselyMigrationOptions {
 }
 
 export class KyselyMigrationManager {
-  private kysely: Kysely<any>;
+  private kysely: Kysely<Record<string, unknown>>;
   private migrator: Migrator;
   private migrationFolder: string;
 
@@ -217,8 +217,8 @@ export class KyselyMigrationManager {
     this.migrationFolder = options.migrationFolder || path.join(process.cwd(), 'migrations');
     
     // PGLite + Kysely統合
-    this.kysely = new Kysely({
-      dialect: new PGLiteDialect(pglite) as any,
+    this.kysely = new Kysely<Record<string, unknown>>({
+      dialect: new PGLiteDialect(pglite),
     });
 
     // Migrator設定（TypeScript対応プロバイダー使用）
@@ -319,7 +319,7 @@ export class KyselyMigrationManager {
     // テンプレートコンテンツ
     const template = `import { Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
   // TODO: implement migration
   // Example:
   // await db.schema
@@ -329,7 +329,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   //   .execute();
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
   // TODO: implement rollback
   // Example:
   // await db.schema.dropTable('new_table').execute();
@@ -354,22 +354,23 @@ export async function down(db: Kysely<any>): Promise<void> {
     console.log(`📦 Preserving ${tableName} as ${backupTableName}...`);
     
     try {
-      // テーブル存在確認
-      const result = await sql.raw(`
+      // テーブル存在確認（SQLインジェクション対策）
+      const result = await sql`
         SELECT EXISTS (
           SELECT FROM information_schema.tables 
           WHERE table_schema = 'public' 
-          AND table_name = '${tableName}'
+          AND table_name = ${tableName}
         )
-      `).execute(this.kysely);
+      `.execute(this.kysely);
       
-      const exists = (result.rows[0] as any)?.exists;
+      const exists = (result.rows[0] as Record<string, unknown>)?.['exists'];
       if (!exists) {
         console.log(`⚠️  Table ${tableName} does not exist, skipping preservation`);
         return backupTableName;
       }
 
       // データバックアップ（PostgreSQL標準手法）
+      // 注意: テーブル名はユーザー制御可能な入力ではないため、動的テーブル名作成では文字列補間を使用
       await sql.raw(`
         CREATE TABLE ${backupTableName} AS 
         SELECT * FROM ${tableName}
@@ -377,7 +378,7 @@ export async function down(db: Kysely<any>): Promise<void> {
       
       // 保存確認
       const countResult = await sql.raw(`SELECT COUNT(*) as count FROM ${backupTableName}`).execute(this.kysely);
-      const backupCount = (countResult.rows[0] as any)?.count || 0;
+      const backupCount = (countResult.rows[0] as Record<string, unknown>)?.['count'] || 0;
       
       console.log(`✅ Preserved ${backupCount} rows from ${tableName} to ${backupTableName}`);
       return backupTableName;
@@ -441,6 +442,7 @@ export async function down(db: Kysely<any>): Promise<void> {
     for (const backup of backupTables) {
       if (backup.created && backup.created < cutoffDate) {
         try {
+          // backup.nameはlistBackupTables()で検証済みのOLD_プレフィックス付きテーブル名のため安全
           await sql.raw(`DROP TABLE ${backup.name}`).execute(this.kysely);
           console.log(`   Deleted old backup: ${backup.name}`);
           deletedCount++;
@@ -457,7 +459,7 @@ export async function down(db: Kysely<any>): Promise<void> {
   /**
    * Kyselyインスタンスを取得（高度な操作用）
    */
-  getKyselyInstance(): Kysely<any> {
+  getKyselyInstance(): Kysely<Record<string, unknown>> {
     return this.kysely;
   }
 
