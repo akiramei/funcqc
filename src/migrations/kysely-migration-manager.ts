@@ -61,7 +61,7 @@ class PGLiteDialect {
       supportsReturning: true,
       
       // マイグレーションロック機能（PostgreSQL Advisory Lock使用）
-      acquireMigrationLock: async (db: Kysely<any>) => {
+      acquireMigrationLock: async (db: Kysely<Record<string, unknown>>) => {
         const result = await sql.raw(`SELECT pg_try_advisory_lock(${PGLiteDialect.MIGRATION_LOCK_ID})`).execute(db);
         const lockAcquired = (result.rows[0] as Record<string, unknown>)?.['pg_try_advisory_lock'];
         if (!lockAcquired) {
@@ -69,7 +69,7 @@ class PGLiteDialect {
         }
       },
       
-      releaseMigrationLock: async (db: Kysely<any>) => {
+      releaseMigrationLock: async (db: Kysely<Record<string, unknown>>) => {
         await sql.raw(`SELECT pg_advisory_unlock(${PGLiteDialect.MIGRATION_LOCK_ID})`).execute(db);
       }
     };
@@ -83,12 +83,12 @@ class PGLiteDialect {
 
   createQueryCompiler() {
     // PostgreSQL query compilerを使用（実績のある方法）
-    return new PostgresDialect({ pool: {} as any }).createQueryCompiler();
+    return new PostgresDialect({ pool: {} as Record<string, unknown> }).createQueryCompiler();
   }
 
   createIntrospector(db: Kysely<Record<string, unknown>>) {
     // PostgreSQL introspectorベース
-    return new PostgresDialect({ pool: {} as any }).createIntrospector(db);
+    return new PostgresDialect({ pool: {} as Record<string, unknown> }).createIntrospector(db);
   }
 }
 
