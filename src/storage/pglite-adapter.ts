@@ -2647,7 +2647,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   private async getNewTableSchema(tableName: string): Promise<string> {
     // Read the schema for the specific table from database.sql
-    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    const schemaPath = new URL('../schemas/database.sql', import.meta.url).pathname;
     
     try {
       const fullSchema = readFileSync(schemaPath, 'utf-8');
@@ -2674,7 +2674,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Fallback method to create tables directly using database.sql
    */
   private async createTablesDirectly(): Promise<void> {
-    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    const schemaPath = new URL('../schemas/database.sql', import.meta.url).pathname;
     
     try {
       const schemaContent = readFileSync(schemaPath, 'utf-8');

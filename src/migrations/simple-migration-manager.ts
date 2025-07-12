@@ -93,7 +93,7 @@ export class SimpleMigrationManager {
       }
       
       // database.sqlを読み込んで実行
-      const schemaPath = path.join(__dirname, '../schemas/database.sql');
+      const schemaPath = new URL('../schemas/database.sql', import.meta.url).pathname;
       
       try {
         const schemaContent = await fs.readFile(schemaPath, 'utf-8');
