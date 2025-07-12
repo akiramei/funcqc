@@ -88,7 +88,7 @@ export async function preserveMultipleTables(
     try {
       const backupTableName = await preserveTableData(db, tableName, timestamp);
       backupMap.set(tableName, backupTableName);
-    } catch (error) {
+    } catch {
       console.error(`Failed to preserve table ${tableName}, continuing with others...`);
       // 他のテーブルのバックアップは継続
     }

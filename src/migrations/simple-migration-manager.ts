@@ -214,6 +214,9 @@ export class SimpleMigrationManager {
     console.log(`🔄 Running table migration: ${tableName}...`);
     
     try {
+      // マイグレーション履歴テーブルを確保
+      await this.ensureMigrationTable();
+      
       await this.db.exec('BEGIN');
       
       // データ保全が必要な場合
@@ -253,7 +256,7 @@ export class SimpleMigrationManager {
       await this.db.query(`
         INSERT INTO funcqc_migrations (name, version, execution_time_ms)
         VALUES ($1, $2, $3)
-      `, [migrationName, Date.now(), executionTime]);
+      `, [migrationName, Math.floor(Date.now() / 1000), executionTime]);
       
       await this.db.exec('COMMIT');
       
