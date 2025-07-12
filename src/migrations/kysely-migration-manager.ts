@@ -760,17 +760,17 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
       const checksum = await this.calculateChecksum(content);
       
       // 既存のアーカイブを確認
-      const existing = await sql.raw(`
+      const existing = await sql`
         SELECT id FROM migration_archive 
         WHERE name = ${name}
-      `).execute(this.kysely);
+      `.execute(this.kysely);
       
       if ((existing.rows as unknown[]).length === 0) {
         // 新規アーカイブ
-        await sql.raw(`
+        await sql`
           INSERT INTO migration_archive (id, name, content, checksum, archived_at)
           VALUES (${this.generateUUID()}, ${name}, ${content}, ${checksum}, CURRENT_TIMESTAMP)
-        `).execute(this.kysely);
+        `.execute(this.kysely);
       }
     } catch (error) {
       // アーカイブ失敗はログ出力のみ（メイン処理は継続）
@@ -861,10 +861,10 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
       for (const missingFile of missingFiles) {
         try {
           // アーカイブからファイル内容を取得
-          const archiveResult = await sql.raw(`
+          const archiveResult = await sql`
             SELECT content, checksum FROM migration_archive 
             WHERE name = ${missingFile}
-          `).execute(this.kysely);
+          `.execute(this.kysely);
           
           const rows = archiveResult.rows as unknown[];
           if (rows.length === 0) {
