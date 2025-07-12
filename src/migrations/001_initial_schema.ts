@@ -1,6 +1,5 @@
 import { Kysely, sql } from 'kysely';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 /**
  * 初回マイグレーション: 既存のdatabase.sqlをベースとした完全なスキーマ作成
@@ -14,7 +13,7 @@ export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
 
   try {
     // 既存のdatabase.sqlファイルを読み込み
-    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    const schemaPath = new URL('../schemas/database.sql', import.meta.url).pathname;
     const schemaContent = await fs.readFile(schemaPath, 'utf-8');
     
     // database.sqlの内容を実行
