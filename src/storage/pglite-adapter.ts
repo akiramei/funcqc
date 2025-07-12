@@ -84,6 +84,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
     this.migrationManager = new SimpleMigrationManager(this.db, this.dbPath);
+    
+    // Track connection in tests for proper cleanup
+    if (typeof global !== 'undefined' && (global as any).__TEST_TRACK_CONNECTION__) {
+      (global as any).__TEST_TRACK_CONNECTION__(this);
+    }
   }
 
   /**
@@ -288,8 +293,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async close(): Promise<void> {
     try {
-      await this.db.close();
+      // Check if database is already closed
+      if (!this.db.closed) {
+        await this.db.close();
+      }
+      
+      // Untrack connection in tests for proper cleanup
+      if (typeof global !== 'undefined' && (global as any).__TEST_UNTRACK_CONNECTION__) {
+        (global as any).__TEST_UNTRACK_CONNECTION__(this);
+      }
     } catch (error) {
+      // Still untrack connection even if close fails
+      if (typeof global !== 'undefined' && (global as any).__TEST_UNTRACK_CONNECTION__) {
+        (global as any).__TEST_UNTRACK_CONNECTION__(this);
+      }
       throw new Error(
         `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
       );
