@@ -253,7 +253,7 @@ function displayViolations(violations: QualityViolation[]): void {
 function displayViolationsByType(
   violations: QualityViolation[], 
   title: string, 
-  colorFn: any, 
+  colorFn: (text: string) => string, 
   icon: string
 ): void {
   if (violations.length === 0) {
@@ -283,7 +283,7 @@ function displayStructuralAnomalies(anomalies: StructuralAnomaly[]): void {
 function displayAnomaliesByType(
   anomalies: StructuralAnomaly[], 
   title: string, 
-  colorFn: any, 
+  colorFn: (text: string) => string, 
   icon: string
 ): void {
   if (anomalies.length === 0) {

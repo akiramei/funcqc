@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
+import { SimpleMigrationManager } from '../migrations/simple-migration-manager';
 import {
   FunctionInfo,
   SnapshotInfo,
@@ -57,6 +58,20 @@ export class DatabaseError extends Error {
 }
 
 /**
+ * Type guard for checking if global has test tracking properties
+ */
+function hasTestTrackingProperty(obj: unknown, property: string): obj is Record<string, unknown> {
+  return obj !== null && typeof obj === 'object' && property in obj;
+}
+
+/**
+ * Type guard for test connection tracking functions
+ */
+function isTestTrackingFunction(value: unknown): value is (connection: { close(): Promise<void> }) => void {
+  return typeof value === 'function';
+}
+
+/**
  * Clean PGLite storage adapter implementation
  * Focuses on type safety, proper error handling, and clean architecture
  */
@@ -66,9 +81,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private transactionDepth: number = 0;
   private dbPath: string;
   private originalDbPath: string;
+  private migrationManager: SimpleMigrationManager;
 
   // Static cache to avoid redundant schema checks across instances
   private static schemaCache = new Map<string, boolean>();
+  private isInitialized: boolean = false;
 
   constructor(dbPath: string) {
     // Validate input path
@@ -80,6 +97,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
+    this.migrationManager = new SimpleMigrationManager(this.db, this.dbPath);
+    
+    // Track connection in tests for proper cleanup
+    if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_TRACK_CONNECTION__')) {
+      const testTracker = global.__TEST_TRACK_CONNECTION__;
+      if (isTestTrackingFunction(testTracker)) {
+        testTracker(this);
+      }
+    }
   }
 
   /**
@@ -284,8 +310,26 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async close(): Promise<void> {
     try {
-      await this.db.close();
+      // Check if database is already closed
+      if (!this.db.closed) {
+        await this.db.close();
+      }
+      
+      // Untrack connection in tests for proper cleanup
+      if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_UNTRACK_CONNECTION__')) {
+        const testUntracker = global.__TEST_UNTRACK_CONNECTION__;
+        if (isTestTrackingFunction(testUntracker)) {
+          testUntracker(this);
+        }
+      }
     } catch (error) {
+      // Still untrack connection even if close fails
+      if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_UNTRACK_CONNECTION__')) {
+        const testUntracker = global.__TEST_UNTRACK_CONNECTION__;
+        if (isTestTrackingFunction(testUntracker)) {
+          testUntracker(this);
+        }
+      }
       throw new Error(
         `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
       );
@@ -329,6 +373,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
+    await this.ensureInitialized();
+    
     try {
       let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC';
       const params: (string | number)[] = [];
@@ -354,6 +400,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getSnapshot(id: string): Promise<SnapshotInfo | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query('SELECT * FROM snapshots WHERE id = $1', [id]);
 
@@ -370,6 +417,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async deleteSnapshot(id: string): Promise<boolean> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query('DELETE FROM snapshots WHERE id = $1', [id]);
       return (result as unknown as { changes: number }).changes > 0;
@@ -385,6 +433,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Returns null if no snapshots exist
    */
   async getLastConfigHash(): Promise<string | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query(
         'SELECT config_hash FROM snapshots ORDER BY created_at DESC LIMIT 1'
@@ -407,6 +456,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    await this.ensureInitialized();
     try {
       let sql = `
         SELECT 
@@ -458,10 +508,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             // Handle keyword search across multiple fields
             params.push(`%${filter.value}%`);
             params.push(`%${filter.value}%`);
-            params.push(`%${filter.value}%`);
             return `(
-              f.name ILIKE $${params.length - 2} OR 
-              f.js_doc ILIKE $${params.length - 1} OR 
+              f.name ILIKE $${params.length - 1} OR 
               f.source_code ILIKE $${params.length}
             )`;
           } else {
@@ -566,6 +614,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
+    await this.ensureInitialized();
     try {
       // Get the latest snapshot
       const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
@@ -587,6 +636,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   async diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff> {
+    await this.ensureInitialized();
     try {
       const { fromSnapshot, toSnapshot } = await this.validateAndLoadSnapshots(fromId, toId);
       const { fromFunctions, toFunctions } = await this.loadSnapshotFunctions(fromId, toId);
@@ -976,7 +1026,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1 AND (
           f.name ILIKE $2 OR 
-          f.js_doc ILIKE $2 OR 
           f.source_code ILIKE $2 OR
           d.description ILIKE $2
         )
@@ -1342,6 +1391,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getFunction(functionId: string): Promise<FunctionInfo | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query(
         `
@@ -2229,6 +2279,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       isPresent: boolean;
     }>
   > {
+    await this.ensureInitialized();
     const limit = options?.limit || 100;
     const includeAbsent = options?.includeAbsent ?? false;
 
@@ -2397,17 +2448,54 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // MIGRATION MANAGEMENT (PUBLIC API)
+  // ========================================
+
+  /**
+   * Get migration manager for advanced migration operations
+   */
+  getMigrationManager(): SimpleMigrationManager {
+    return this.migrationManager;
+  }
+
+  /**
+   * Get migration status
+   */
+  async getMigrationStatus() {
+    return await this.migrationManager.getStatus();
+  }
+
+  /**
+   * List backup tables created during migrations
+   */
+  async listBackupTables(): Promise<string[]> {
+    return await this.migrationManager.listBackupTables();
+  }
+
+  /**
+   * Clean up old backup tables
+   */
+  async cleanupOldBackups(daysOld: number = 30): Promise<number> {
+    return await this.migrationManager.cleanupOldBackups(daysOld);
+  }
+
+  // ========================================
   // PRIVATE HELPER METHODS
   // ========================================
 
-  private async createSchema(): Promise<void> {
-    // Check if functions table has the new schema
-    const needsSchemaUpdate = await this.needsSchemaUpdate();
-
-    if (needsSchemaUpdate) {
-      // Drop old tables and recreate with new schema
-      await this.dropOldTablesIfNeeded();
+  /**
+   * Ensure database is initialized before any operations
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.createSchema();
+      this.isInitialized = true;
     }
+  }
+
+  private async createSchema(): Promise<void> {
+    // Initialize database using migration system
+    await this.initializeWithMigrations();
 
     // Check if all core tables exist in one query to optimize startup
     const existingTables = await this.getExistingTables();
@@ -2493,26 +2581,108 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private async dropOldTablesIfNeeded(): Promise<void> {
+  /**
+   * Initialize database schema using migration system
+   * Replaces the destructive dropOldTablesIfNeeded approach
+   */
+  private async initializeWithMigrations(): Promise<void> {
     try {
-      // Drop tables in reverse dependency order
-      const dropTables = [
-        'quality_metrics',
-        'function_parameters',
-        'function_embeddings',
-        'function_descriptions',
-        'functions',
-        'snapshots',
-      ];
-
-      for (const table of dropTables) {
-        await this.db.exec(`DROP TABLE IF EXISTS ${table} CASCADE;`);
+      // Check if this is a legacy database that needs migration
+      const needsMigration = await this.needsSchemaUpdate();
+      
+      if (needsMigration) {
+        console.log('🔄 Legacy database detected, running data-preserving migration...');
+        
+        // Run data-preserving migration for legacy databases
+        await this.migrateFromLegacySchema();
+      } else {
+        // For new databases or already migrated ones, run the initial migration
+        const migrationResult = await this.migrationManager.runInitialMigration();
+        
+        if (!migrationResult.success) {
+          console.warn('⚠️ Initial migration failed:', migrationResult.error);
+          // Fallback to schema creation if migration fails
+          await this.createTablesDirectly();
+        } else {
+          console.log('✅ Database initialized with migration system');
+        }
       }
     } catch (error) {
-      console.warn(
-        'Error dropping old tables:',
-        error instanceof Error ? error.message : String(error)
+      console.warn('Migration initialization failed, falling back to direct schema creation:', error);
+      await this.createTablesDirectly();
+    }
+  }
+
+  /**
+   * Migrate legacy database schema while preserving data
+   */
+  private async migrateFromLegacySchema(): Promise<void> {
+    // Get list of existing tables with data
+    const existingTables = await this.getExistingTables();
+    const tablesToMigrate = ['snapshots', 'functions', 'function_parameters', 'quality_metrics'];
+    
+    for (const tableName of tablesToMigrate) {
+      if (existingTables.has(tableName)) {
+        console.log(`📦 Migrating table: ${tableName}`);
+        
+        // Use table migration with data preservation
+        const migrationResult = await this.migrationManager.runTableMigration(
+          tableName,
+          true, // preserve data
+          await this.getNewTableSchema(tableName)
+        );
+        
+        if (!migrationResult.success) {
+          console.warn(`⚠️ Failed to migrate table ${tableName}:`, migrationResult.error);
+        }
+      }
+    }
+    
+    // Run initial migration to create any missing tables
+    await this.migrationManager.runInitialMigration();
+  }
+
+  /**
+   * Get the new schema SQL for a specific table
+   */
+  private async getNewTableSchema(tableName: string): Promise<string> {
+    // Read the schema for the specific table from database.sql
+    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    
+    try {
+      const fullSchema = readFileSync(schemaPath, 'utf-8');
+      
+      // Extract table-specific CREATE TABLE statement
+      const tableRegex = new RegExp(
+        `CREATE TABLE ${tableName}\\s*\\([^;]+\\);`,
+        'gims'
       );
+      
+      const match = fullSchema.match(tableRegex);
+      if (match) {
+        return match[0];
+      }
+      
+      throw new Error(`Table schema not found for: ${tableName}`);
+    } catch (error) {
+      console.warn(`Could not read schema for table ${tableName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback method to create tables directly using database.sql
+   */
+  private async createTablesDirectly(): Promise<void> {
+    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    
+    try {
+      const schemaContent = readFileSync(schemaPath, 'utf-8');
+      await this.db.exec(schemaContent);
+      console.log('✅ Database schema created directly from database.sql');
+    } catch (error) {
+      console.error('❌ Failed to create database schema:', error);
+      throw new Error(`Database schema creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -2616,10 +2786,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ast_hash, context_path, function_type, modifiers, nesting_level,
         is_exported, is_async, is_generator, is_arrow_function,
         is_method, is_constructor, is_static, access_modifier,
-        js_doc, source_code
+        source_code
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
       )
     `,
       [
@@ -2650,7 +2820,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         func.isConstructor,
         func.isStatic,
         func.accessModifier || null,
-        func.jsDoc || null,
         func.sourceCode || null,
       ]
     );
@@ -2784,7 +2953,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           'is_constructor',
           'is_static',
           'access_modifier',
-          'js_doc',
           'source_code',
         ];
 
@@ -3000,7 +3168,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   ): void {
     if (row.access_modifier) functionInfo.accessModifier = row.access_modifier;
-    if (row.js_doc) functionInfo.jsDoc = row.js_doc;
+    // Note: js_doc is now stored in function_documentation table
     if (row.source_code) functionInfo.sourceCode = row.source_code;
     if (row.description) {
       functionInfo.description = row.description;

@@ -662,6 +662,61 @@ refactorCommand.addCommand(
     })
 );
 
+// Migrate command - Database migration management
+program
+  .command('migrate')
+  .description('Database migration management')
+  .action(() => {
+    console.log(chalk.yellow('Please specify a migrate subcommand:'));
+    console.log('  status   - Show migration status');
+    console.log('  cleanup  - Clean up old backup tables');
+    console.log('  reset    - Reset migration history (development only)');
+    console.log('  create   - Create new migration file');
+    console.log('  info     - Show migration system information');
+    console.log('\nExample: funcqc migrate status');
+  });
+
+// Add migrate subcommands
+const migrateCommand = program.commands.find(cmd => cmd.name() === 'migrate')!;
+
+migrateCommand.command('status')
+  .description('Show migration status and applied migrations')
+  .action(async (options: OptionValues) => {
+    const { statusCommand } = await import('./cli/migrate');
+    return statusCommand(options);
+  });
+
+migrateCommand.command('cleanup')
+  .description('Clean up old backup tables')
+  .option('--days <num>', 'delete backups older than specified days (default: 30)')
+  .action(async (options: OptionValues) => {
+    const { cleanupCommand } = await import('./cli/migrate');
+    return cleanupCommand(options);
+  });
+
+migrateCommand.command('reset')
+  .description('Reset migration history (development only)')
+  .option('--force', 'force reset without confirmation')
+  .action(async (options: OptionValues) => {
+    const { resetCommand } = await import('./cli/migrate');
+    return resetCommand(options);
+  });
+
+migrateCommand.command('create')
+  .description('Create new migration file')
+  .option('--name <name>', 'migration name (required)')
+  .action(async (options: OptionValues) => {
+    const { createCommand } = await import('./cli/migrate');
+    return createCommand(options);
+  });
+
+migrateCommand.command('info')
+  .description('Show migration system information')
+  .action(async (options: OptionValues) => {
+    const { infoCommand } = await import('./cli/migrate');
+    return infoCommand(options);
+  });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));

@@ -26,7 +26,7 @@ import {
   ChangeDetectorConfig,
   DEFAULT_CHANGE_DETECTOR_CONFIG,
 } from './diff/changeDetector';
-import { ErrorCode, createErrorHandler } from '../utils/error-handler';
+import { ErrorCode, ErrorHandler, createErrorHandler } from '../utils/error-handler';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -101,12 +101,12 @@ function displayIdenticalSnapshots(fromId: string, toId: string): void {
   console.log('  = No changes (identical snapshots)');
 }
 
-async function calculateDiff(storage: any, fromId: string, toId: string, logger: Logger) {
+async function calculateDiff(storage: PGLiteStorageAdapter, fromId: string, toId: string, logger: Logger) {
   logger.info('Calculating differences...');
   return await storage.diffSnapshots(fromId, toId);
 }
 
-async function processDiffResults(diff: any, storage: any, options: DiffCommandOptions, logger: Logger) {
+async function processDiffResults(diff: SnapshotDiff, storage: PGLiteStorageAdapter, options: DiffCommandOptions, logger: Logger) {
   if (options.lineage && diff.removed.length > 0) {
     await handleLineageDetection(diff, storage, options, logger);
   } else {
@@ -114,7 +114,7 @@ async function processDiffResults(diff: any, storage: any, options: DiffCommandO
   }
 }
 
-async function handleLineageDetection(diff: any, storage: any, options: DiffCommandOptions, logger: Logger) {
+async function handleLineageDetection(diff: SnapshotDiff, storage: PGLiteStorageAdapter, options: DiffCommandOptions, logger: Logger) {
   const lineageCandidates = await detectLineageCandidates(diff, storage, options, logger);
 
   if (lineageCandidates.length > 0) {
@@ -131,7 +131,7 @@ async function handleLineageDetection(diff: any, storage: any, options: DiffComm
   }
 }
 
-function displayDiffResults(diff: any, options: DiffCommandOptions): void {
+function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOptions): void {
   if (options.json) {
     console.log(JSON.stringify(diff, null, 2));
   } else if (options.summary) {
@@ -141,7 +141,7 @@ function displayDiffResults(diff: any, options: DiffCommandOptions): void {
   }
 }
 
-function handleDiffError(error: unknown, errorHandler: any): void {
+function handleDiffError(error: unknown, errorHandler: ErrorHandler): void {
   if (error instanceof DatabaseError) {
     const funcqcError = errorHandler.createError(
       error.code,

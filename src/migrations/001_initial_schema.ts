@@ -9,7 +9,7 @@ import * as path from 'path';
  * Kyselyマイグレーションシステムに移行するための初回セットアップです。
  */
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
   console.log('📋 Creating initial funcqc database schema...');
 
   try {
@@ -32,7 +32,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   }
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
   console.log('🗑️  Dropping all funcqc tables...');
 
   try {
@@ -86,7 +86,7 @@ export async function down(db: Kysely<any>): Promise<void> {
 /**
  * 初回スキーマ作成後の検証
  */
-async function validateInitialSchema(db: Kysely<any>): Promise<void> {
+async function validateInitialSchema(db: Kysely<Record<string, unknown>>): Promise<void> {
   console.log('🔍 Validating initial schema...');
 
   // 必須テーブルの存在確認
@@ -117,7 +117,8 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
         )
       `).execute(db);
       
-      const exists = (result.rows[0] as any)?.exists;
+      const existsRow = result.rows[0] as Record<string, unknown>;
+      const exists = existsRow?.['exists'];
       if (!exists) {
         missingTables.push(tableName);
       }
@@ -148,7 +149,8 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
         )
       `).execute(db);
       
-      const exists = (result.rows[0] as any)?.exists;
+      const indexExistsRow = result.rows[0] as Record<string, unknown>;
+      const exists = indexExistsRow?.['exists'];
       if (!exists) {
         console.warn(`⚠️  Critical index missing: ${indexName}`);
       }
@@ -166,7 +168,8 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
       )
     `).execute(db);
     
-    if (!(result.rows[0] as any)?.exists) {
+    const functionExistsRow = result.rows[0] as Record<string, unknown>;
+    if (!functionExistsRow?.['exists']) {
       console.warn('⚠️  Warning: update_updated_at_column function not found');
     }
   } catch (error) {
