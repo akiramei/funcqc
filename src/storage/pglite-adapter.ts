@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
-import * as fs from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
@@ -237,7 +237,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Check if database path exists (only check for directory-based databases)
       if (this.shouldCheckDatabaseDirectory(this.originalDbPath)) {
         const dbDir = path.dirname(this.dbPath);
-        if (!fs.existsSync(dbDir)) {
+        if (!existsSync(dbDir)) {
           throw new DatabaseError(
             ErrorCode.DATABASE_NOT_INITIALIZED,
             'Database directory not found. funcqc needs to be initialized first.',
@@ -2431,10 +2431,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     if (missingTables.length > 0) {
       // Initialize complete schema from database.sql
-      const fs = await import('fs');
-      const path = await import('path');
-      const schemaPath = path.join(__dirname, '../schemas/database.sql');
-      const schemaSQL = fs.readFileSync(schemaPath, 'utf8');
+      const schemaSQL = readFileSync(
+        new URL('../schemas/database.sql', import.meta.url),
+        'utf8'
+      );
       await this.db.exec(schemaSQL);
     } else {
       // All tables exist, indexes and triggers are already created with schema
