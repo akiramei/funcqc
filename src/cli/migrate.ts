@@ -227,7 +227,8 @@ export async function resetCommand(options: OptionValues): Promise<void> {
     
     const config = await new ConfigManager().load();
     const pglite = new PGlite(config.storage.path!);
-    const db = new KyselyMigrationManager(pglite).getKyselyInstance();
+    const migrationManager = new KyselyMigrationManager(pglite);
+    const db = migrationManager.getKyselyInstance();
     
     console.log(chalk.yellow('🔄 Resetting migration history...'));
     
@@ -238,6 +239,7 @@ export async function resetCommand(options: OptionValues): Promise<void> {
     console.log(chalk.green('✅ Migration history reset completed'));
     console.log(chalk.blue('ℹ️  Your data has been preserved, only migration tracking was reset'));
     
+    await migrationManager.close();
     await pglite.close();
     
   } catch (error) {
