@@ -33,7 +33,7 @@ export async function preserveTableData(
     
     // データの行数をチェック
     const result = await sql.raw(`SELECT COUNT(*) as count FROM ${tableName}`).execute(db);
-    const rowCount = parseInt(result.rows[0]?.count || '0');
+    const rowCount = parseInt((result.rows[0] as any)?.count || '0');
     
     if (rowCount === 0) {
       console.log(`⚠️  Table ${tableName} is empty, skipping preservation`);
@@ -51,7 +51,7 @@ export async function preserveTableData(
     
     // 保存されたデータの行数を確認
     const backupResult = await sql.raw(`SELECT COUNT(*) as count FROM ${backupTableName}`).execute(db);
-    const backupRowCount = parseInt(backupResult.rows[0]?.count || '0');
+    const backupRowCount = parseInt((backupResult.rows[0] as any)?.count || '0');
     
     if (backupRowCount !== rowCount) {
       throw new Error(`Data preservation failed: ${rowCount} rows in source, ${backupRowCount} rows in backup`);
@@ -110,7 +110,7 @@ export async function checkTableExists(db: Kysely<any>, tableName: string): Prom
       )
     `).execute(db);
     
-    return result.rows[0]?.exists === true;
+    return (result.rows[0] as any)?.exists === true;
   } catch (error) {
     console.warn(`Could not check existence of table ${tableName}:`, error);
     return false;
@@ -135,7 +135,7 @@ export async function checkColumnExists(
       )
     `).execute(db);
     
-    return result.rows[0]?.exists === true;
+    return (result.rows[0] as any)?.exists === true;
   } catch (error) {
     console.warn(`Could not check existence of column ${columnName} in ${tableName}:`, error);
     return false;
@@ -166,7 +166,7 @@ export async function cleanupOldBackups(db: Kysely<any>, daysOld: number = 30): 
     let deletedCount = 0;
     
     for (const row of result.rows) {
-      const tableName = row.tablename;
+      const tableName = (row as any).tablename;
       
       // テーブル名から日時を抽出（例: OLD_functions_2025_01_12T14_30_00）
       const dateMatch = tableName.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
@@ -197,7 +197,7 @@ export async function cleanupOldBackups(db: Kysely<any>, daysOld: number = 30): 
 /**
  * バックアップテーブル一覧を取得
  */
-export async function listBackupTables(db: Kysely<any>): Promise<Array<{ name: string; created?: Date; size?: number }>> {
+export async function listBackupTables(db: Kysely<any>): Promise<Array<{ name: string; created?: Date | undefined; size?: number | undefined }>> {
   try {
     const result = await sql.raw(`
       SELECT 
@@ -209,7 +209,7 @@ export async function listBackupTables(db: Kysely<any>): Promise<Array<{ name: s
       ORDER BY tablename
     `).execute(db);
     
-    return result.rows.map(row => {
+    return result.rows.map((row: any) => {
       // テーブル名から作成日時を推測
       const dateMatch = row.tablename.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
       let created: Date | undefined;
@@ -224,7 +224,7 @@ export async function listBackupTables(db: Kysely<any>): Promise<Array<{ name: s
       }
       
       return {
-        name: row.tablename,
+        name: row.tablename as string,
         created,
         size: row.size ? parseInt(row.size) : undefined
       };
@@ -270,8 +270,8 @@ export async function getMigrationStats(
       sql.raw(`SELECT COUNT(*) as count FROM ${targetTable}`).execute(db)
     ]);
     
-    const sourceRows = parseInt(sourceResult.rows[0]?.count || '0');
-    const targetRows = parseInt(targetResult.rows[0]?.count || '0');
+    const sourceRows = parseInt((sourceResult.rows[0] as any)?.count || '0');
+    const targetRows = parseInt((targetResult.rows[0] as any)?.count || '0');
     
     return {
       sourceRows,

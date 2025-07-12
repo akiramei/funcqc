@@ -27,15 +27,9 @@ export interface MigrationResult {
  * PoCとして、Kyselyを使わずPGLiteの生機能でマイグレーション管理を実装
  */
 export class SimpleMigrationManager {
-  private migrationsPath: string;
-
-  constructor(private db: PGlite, dbPath: string) {
-    // テスト環境では絶対パスを使用、本番では相対パス
-    if (process.env.NODE_ENV === 'test') {
-      this.migrationsPath = path.join(__dirname);
-    } else {
-      this.migrationsPath = path.join(path.dirname(dbPath), '../src/migrations');
-    }
+  constructor(private db: PGlite, _dbPath: string) {
+    // dbPathは将来のマイグレーションファイル読み込み用にパラメータとして受け取る
+    // 現在のPoCでは使用していない
   }
 
   /**
@@ -66,11 +60,11 @@ export class SimpleMigrationManager {
       ORDER BY version ASC
     `);
     
-    return result.rows.map(row => ({
-      name: row.name,
-      version: row.version,
+    return result.rows.map((row: any) => ({
+      name: row.name as string,
+      version: row.version as number,
       executedAt: new Date(row.executed_at),
-      checksum: row.checksum
+      checksum: row.checksum as string
     }));
   }
 
@@ -234,7 +228,7 @@ export class SimpleMigrationManager {
           )
         `, [tableName]);
         
-        if (tableExistsResult.rows[0]?.exists) {
+        if ((tableExistsResult.rows[0] as any)?.exists) {
           // 既存データをバックアップ
           await this.db.exec(`CREATE TABLE ${backupTableName} AS SELECT * FROM ${tableName}`);
           console.log(`📦 Data preserved in ${backupTableName}`);
@@ -322,7 +316,7 @@ export class SimpleMigrationManager {
       ORDER BY tablename
     `);
     
-    return result.rows.map(row => row.tablename);
+    return result.rows.map((row: any) => row.tablename as string);
   }
 
   /**

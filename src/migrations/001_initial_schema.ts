@@ -117,7 +117,7 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
         )
       `).execute(db);
       
-      const exists = result.rows[0]?.exists;
+      const exists = (result.rows[0] as any)?.exists;
       if (!exists) {
         missingTables.push(tableName);
       }
@@ -148,7 +148,7 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
         )
       `).execute(db);
       
-      const exists = result.rows[0]?.exists;
+      const exists = (result.rows[0] as any)?.exists;
       if (!exists) {
         console.warn(`⚠️  Critical index missing: ${indexName}`);
       }
@@ -166,7 +166,7 @@ async function validateInitialSchema(db: Kysely<any>): Promise<void> {
       )
     `).execute(db);
     
-    if (!result.rows[0]?.exists) {
+    if (!(result.rows[0] as any)?.exists) {
       console.warn('⚠️  Warning: update_updated_at_column function not found');
     }
   } catch (error) {
