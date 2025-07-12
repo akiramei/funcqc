@@ -1904,10 +1904,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (!ids || ids.length === 0) return '{}';
     // PostgreSQL array elements need both backslash and quote escaping
     return `{${ids.map(id => {
-      // First escape backslashes, then quotes
+      // First escape backslashes, then quotes (critical order for security)
       const escaped = id
-        .replace(/\\/g, '\\\\')  // Escape backslashes
-        .replace(/"/g, '\\"');   // Escape quotes
+        .replace(/\\/g, '\\\\\\\\')  // Escape backslashes: \ -> \\\\
+        .replace(/"/g, '\\\\"');     // Escape quotes: " -> \"
       return `"${escaped}"`;
     }).join(',')}}`;
   }
@@ -2854,7 +2854,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
-      metadata: row.metadata || {},
+      metadata: row.metadata || {
+        totalFunctions: 0,
+        totalFiles: 0,
+        avgComplexity: 0,
+        maxComplexity: 0,
+        exportedFunctions: 0,
+        asyncFunctions: 0,
+        complexityDistribution: {},
+        fileExtensions: {}
+      },
     };
   }
 

@@ -12,10 +12,10 @@ function formatPostgresArray(arr: string[]): string {
   if (!arr || arr.length === 0) return '{}'; // Use empty PostgreSQL array for empty arrays
   // PostgreSQL array elements need both backslash and quote escaping
   return `{${arr.map(item => {
-    // First escape backslashes, then quotes
+    // First escape backslashes, then quotes (critical order for security)
     const escaped = item
-      .replace(/\\/g, '\\\\')  // Escape backslashes
-      .replace(/"/g, '\\"');   // Escape quotes
+      .replace(/\\/g, '\\\\\\\\')  // Escape backslashes: \ -> \\\\
+      .replace(/"/g, '\\\\"');     // Escape quotes: " -> \"
     return `"${escaped}"`;
   }).join(',')}}`;
 }

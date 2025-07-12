@@ -7,10 +7,10 @@ describe('PostgreSQL Array Escaping', () => {
     if (!arr || arr.length === 0) return '{}';
     // PostgreSQL array elements need both backslash and quote escaping
     return `{${arr.map(item => {
-      // First escape backslashes, then quotes
+      // First escape backslashes, then quotes (critical order for security)
       const escaped = item
-        .replace(/\\/g, '\\\\')  // Escape backslashes
-        .replace(/"/g, '\\"');   // Escape quotes
+        .replace(/\\/g, '\\\\\\\\')  // Escape backslashes: \ -> \\\\
+        .replace(/"/g, '\\\\"');     // Escape quotes: " -> \"
       return `"${escaped}"`;
     }).join(',')}}`;
   };
@@ -28,27 +28,27 @@ describe('PostgreSQL Array Escaping', () => {
     });
 
     it('should escape quotes properly', () => {
-      expect(formatPostgresArray(['foo"bar'])).toBe('{"foo\\"bar"}');
-      expect(formatPostgresArray(['"quoted"'])).toBe('{"\\"quoted\\""}');
-      expect(formatPostgresArray(['multiple"quotes"here'])).toBe('{"multiple\\"quotes\\"here"}');
+      expect(formatPostgresArray(['foo"bar'])).toBe('{"foo\\\\"bar"}');
+      expect(formatPostgresArray(['"quoted"'])).toBe('{"\\\\"quoted\\\\""}');
+      expect(formatPostgresArray(['multiple"quotes"here'])).toBe('{"multiple\\\\"quotes\\\\"here"}');
     });
 
     it('should escape backslashes properly', () => {
-      expect(formatPostgresArray(['foo\\bar'])).toBe('{"foo\\\\bar"}');
-      expect(formatPostgresArray(['\\backslash'])).toBe('{"\\\\backslash"}');
-      expect(formatPostgresArray(['multiple\\back\\slashes'])).toBe('{"multiple\\\\back\\\\slashes"}');
+      expect(formatPostgresArray(['foo\\bar'])).toBe('{"foo\\\\\\\\bar"}');
+      expect(formatPostgresArray(['\\backslash'])).toBe('{"\\\\\\\\backslash"}');
+      expect(formatPostgresArray(['multiple\\back\\slashes'])).toBe('{"multiple\\\\\\\\back\\\\\\\\slashes"}');
     });
 
     it('should escape both quotes and backslashes', () => {
-      expect(formatPostgresArray(['foo\\"bar'])).toBe('{"foo\\\\\\"bar"}');
-      expect(formatPostgresArray(['\\"quoted\\"'])).toBe('{"\\\\\\"quoted\\\\\\""}');
-      expect(formatPostgresArray(['path\\to\\"file"'])).toBe('{"path\\\\to\\\\\\"file\\""}');
+      expect(formatPostgresArray(['foo\\"bar'])).toBe('{"foo\\\\\\\\\\\\"bar"}');
+      expect(formatPostgresArray(['\\"quoted\\"'])).toBe('{"\\\\\\\\\\\\"quoted\\\\\\\\\\\\""}');
+      expect(formatPostgresArray(['path\\to\\"file"'])).toBe('{"path\\\\\\\\to\\\\\\\\\\\\"file\\\\""}');
     });
 
     it('should handle special characters in context paths', () => {
       // Common patterns in TypeScript code
-      expect(formatPostgresArray(['Class', 'method"with"quotes'])).toBe('{"Class","method\\"with\\"quotes"}');
-      expect(formatPostgresArray(['namespace\\path', 'function'])).toBe('{"namespace\\\\path","function"}');
+      expect(formatPostgresArray(['Class', 'method"with"quotes'])).toBe('{"Class","method\\\\"with\\\\"quotes"}');
+      expect(formatPostgresArray(['namespace\\path', 'function'])).toBe('{"namespace\\\\\\\\path","function"}');
     });
 
     it('should handle edge cases', () => {
@@ -57,18 +57,18 @@ describe('PostgreSQL Array Escaping', () => {
       
       // Very long strings with special characters
       const longString = 'a'.repeat(100) + '\\"' + 'b'.repeat(100);
-      const expected = '{"' + 'a'.repeat(100) + '\\\\\\"' + 'b'.repeat(100) + '"}';
+      const expected = '{"' + 'a'.repeat(100) + '\\\\\\\\\\\\"' + 'b'.repeat(100) + '"}';
       expect(formatPostgresArray([longString])).toBe(expected);
     });
 
     it('should handle injection attempts', () => {
       // Attempts to break out of the array literal
-      expect(formatPostgresArray(['"}; DROP TABLE functions; --'])).toBe('{"\\"}; DROP TABLE functions; --"}');
-      expect(formatPostgresArray(['{"}'])).toBe('{"{\\"}"}');
+      expect(formatPostgresArray(['"}; DROP TABLE functions; --'])).toBe('{"\\\\"}; DROP TABLE functions; --"}');
+      expect(formatPostgresArray(['{"}'])).toBe('{"{\\\\"}"}');
       
       // SQL injection patterns
       expect(formatPostgresArray(["'; DELETE FROM users; --"])).toBe('{"\'; DELETE FROM users; --"}');
-      expect(formatPostgresArray(['"); INSERT INTO admin VALUES (1); --'])).toBe('{"\\\"); INSERT INTO admin VALUES (1); --"}');
+      expect(formatPostgresArray(['"); INSERT INTO admin VALUES (1); --'])).toBe('{"\\\\"); INSERT INTO admin VALUES (1); --"}');
     });
   });
 });

@@ -63,7 +63,7 @@ CREATE TABLE refactoring_sessions (
   status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active', -- セッション状態
   metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP                         -- 更新日時
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP                -- 更新日時
 );
 
 CREATE INDEX idx_refactoring_sessions_status ON refactoring_sessions(status);
