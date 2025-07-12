@@ -104,6 +104,32 @@ funcqc is a TypeScript function quality control tool with a layered architecture
 - **CLI**: Commander.js with chalk/ora for rich output
 - **Build**: tsup bundler, TypeScript 5.3+, Vitest testing
 
+### 🚨 CRITICAL: Database Technology Understanding
+
+**PGLite is NOT SQLite**:
+- **PGLite**: PostgreSQL compiled to WebAssembly (WASM)
+- **SQLite**: Completely different database engine written in C
+- **No relation**: Despite similar names, they are entirely different technologies
+- **Different APIs**: PGLite uses PostgreSQL syntax, SQLite uses its own syntax
+- **Different features**: Never assume features from one exist in the other
+
+**Technical Facts**:
+```typescript
+// PGLite - PostgreSQL WASM
+const pgdb = new PGLite('./data');     // PostgreSQL in WASM
+await pgdb.exec('CREATE TABLE...');    // PostgreSQL SQL syntax
+
+// SQLite - Different database entirely  
+const sqlitedb = new Database('./data.sqlite'); // SQLite C library
+sqlitedb.exec('CREATE TABLE...');      // SQLite SQL syntax
+```
+
+**❌ NEVER assume**:
+- `:memory:` functionality exists in PGLite because it exists in SQLite
+- Similar API behavior between PGLite and SQLite
+- Feature parity between the two systems
+- Cross-compatibility or similar implementation approaches
+
 ### Database Schema
 - `snapshots`: Version history with metadata and Git integration
 - `functions`: Core function information with multiple hash types

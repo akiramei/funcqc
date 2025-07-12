@@ -40,7 +40,11 @@ export function isCI(): boolean {
  */
 export function getSafeTestDbPath(): string {
   if (isCI()) {
-    return ':memory:';
+    // Use a safe temporary file path instead of :memory: 
+    // since PGLite doesn't support true in-memory databases
+    const os = require('os');
+    const path = require('path');
+    return path.join(os.tmpdir(), `funcqc-ci-test-${process.pid}.db`);
   }
   return './test-db.sqlite';
 }

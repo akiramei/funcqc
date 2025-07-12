@@ -93,11 +93,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Allow special database paths
-    if (dbPath === ':memory:') {
-      return;
-    }
-
     // Allow PostgreSQL connection strings
     if (dbPath.startsWith('postgres://') || dbPath.startsWith('postgresql://')) {
       return;
@@ -120,23 +115,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Prevent paths that would create problematic directories
-    // Note: We check for invalid Windows filename characters, but exclude colon in drive paths and connection strings
-    const invalidCharsPattern = /[<>"|?*]/;
-    const suspiciousColonPattern = /[^A-Za-z]:[^\\\/]/; // Colon not part of drive letter or connection string
-
-    if (invalidCharsPattern.test(dbPath)) {
-      throw new DatabaseError(
-        ErrorCode.DATABASE_NOT_INITIALIZED,
-        `Invalid database path: '${dbPath}'. Path contains invalid characters: < > " | ? *`
-      );
-    }
-
-    if (suspiciousColonPattern.test(dbPath) && !dbPath.includes('://')) {
-      throw new DatabaseError(
-        ErrorCode.DATABASE_NOT_INITIALIZED,
-        `Invalid database path: '${dbPath}'. Suspicious colon placement detected`
-      );
+    // Comprehensive Windows path validation when dealing with file paths
+    // Only validate if it's not a connection string
+    if (!dbPath.includes('://')) {
+      this.validateWindowsFilePath(dbPath);
     }
 
     // Ensure path has a reasonable length
@@ -150,16 +132,91 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Comprehensive Windows file path validation
+   * Checks for all Windows-invalid characters and path patterns when on Windows
+   */
+  private validateWindowsFilePath(filePath: string): void {
+    // Only apply Windows validation on Windows platform or for Windows-style paths
+    const isWindowsPath = /^[A-Za-z]:[\\\/]/.test(filePath) || process.platform === 'win32';
+    
+    // Allow Unix-style paths on non-Windows platforms
+    if (!isWindowsPath && filePath.startsWith('/')) {
+      return; // Unix absolute path is valid
+    }
+    
+    // Allow relative paths with . and .. as they are valid on all platforms
+    if (filePath.startsWith('./') || filePath.startsWith('../')) {
+      return; // Valid relative paths
+    }
+    
+    // Allow special paths like :memory: for testing purposes (they will fail at filesystem level if problematic)
+    if (filePath.startsWith(':')) {
+      // Log warning but allow it - the error will manifest during actual filesystem operations
+      console.warn(`Warning: Path '${filePath}' may not be supported on Windows due to colon character`);
+      return;
+    }
+    
+    // Windows invalid characters: < > " | ? * and control characters (0-31)
+    // Exclude colon from this check as we handle it separately
+    const invalidChars = /[<>"|?*\x00-\x1f]/;
+    
+    // Special handling for drive letters: allow C:\ but not C: alone
+    const isDriveWithBackslash = /^[A-Za-z]:[\\\/]/.test(filePath);
+    
+    // For Windows paths, check colon usage
+    if (isWindowsPath && !isDriveWithBackslash && filePath.includes(':')) {
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${filePath}'. Colon (:) is not allowed in Windows file paths except for drive letters (e.g., C:\\path)`
+      );
+    }
+    
+    // Check for other invalid characters
+    const match = filePath.match(invalidChars);
+    if (match) {
+      const invalidChar = match[0];
+      const charCode = invalidChar.charCodeAt(0);
+      const charName = charCode < 32 ? `control character (${charCode})` : `'${invalidChar}'`;
+      
+      throw new DatabaseError(
+        ErrorCode.DATABASE_NOT_INITIALIZED,
+        `Invalid database path: '${filePath}'. Contains Windows-invalid character: ${charName}`
+      );
+    }
+    
+    // Only check Windows-specific restrictions for Windows paths
+    if (isWindowsPath) {
+      // Check for reserved Windows names
+      const pathParts = filePath.split(/[\\\/]/);
+      const reservedNames = /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i;
+      
+      for (const part of pathParts) {
+        if (part && reservedNames.test(part)) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            `Invalid database path: '${filePath}'. Contains reserved Windows name: '${part}'`
+          );
+        }
+      }
+      
+      // Check for trailing periods or spaces in path components (Windows restriction)
+      for (const part of pathParts) {
+        if (part && part !== '.' && part !== '..' && (part.endsWith('.') || part.endsWith(' '))) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            `Invalid database path: '${filePath}'. Path component '${part}' cannot end with period or space on Windows`
+          );
+        }
+      }
+    }
+  }
+
+  /**
    * Determines if we should check for database directory existence
-   * Handles Windows drive letters (C:) and special database paths
+   * Handles Windows drive letters (C:) and connection strings
    */
   private shouldCheckDatabaseDirectory(originalPath: string): boolean {
-    // Skip check for special database paths
-    if (originalPath === ':memory:') {
-      return false;
-    }
-
-    // Skip check for special PostgreSQL-style connection strings
+    // Skip check for PostgreSQL-style connection strings
     if (originalPath.startsWith('postgres://') || originalPath.startsWith('postgresql://')) {
       return false;
     }
