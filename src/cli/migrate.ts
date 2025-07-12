@@ -3,11 +3,29 @@ import chalk from 'chalk';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
 import { ConfigManager } from '../core/config';
+import { FuncqcConfig } from '../types';
 import { KyselyMigrationManager } from '../migrations/kysely-migration-manager';
 import { PGlite } from '@electric-sql/pglite';
 import * as path from 'path';
 
 const logger = new Logger();
+
+/**
+ * Helper function to create migration components and provide cleanup
+ */
+async function createMigrationComponents(config: FuncqcConfig) {
+  const pglite = new PGlite(config.storage.path!);
+  const migrationManager = new KyselyMigrationManager(pglite);
+  
+  return {
+    pglite,
+    migrationManager,
+    async cleanup() {
+      await migrationManager.close();
+      await pglite.close();
+    }
+  };
+}
 
 /**
  * Migration up command - apply all pending migrations
@@ -19,30 +37,30 @@ export async function upCommand(_options: OptionValues): Promise<void> {
     logger.debug('Starting migration up...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    console.log(chalk.bold('\n🚀 Running migrations to latest version...\n'));
-    
-    const result = await migrationManager.migrateToLatest();
-    
-    if (result.error) {
-      throw result.error;
+    try {
+      console.log(chalk.bold('\n🚀 Running migrations to latest version...\n'));
+      
+      const result = await migrationManager.migrateToLatest();
+      
+      if (result.error) {
+        throw result.error;
+      }
+      
+      const appliedMigrations = result.results?.filter(r => r.status === 'Success') || [];
+      
+      if (appliedMigrations.length === 0) {
+        console.log(chalk.blue('ℹ️  No pending migrations to apply'));
+      } else {
+        console.log(chalk.green(`✅ Applied ${appliedMigrations.length} migrations successfully:`));
+        appliedMigrations.forEach(migration => {
+          console.log(`  ${chalk.cyan('✓')} ${migration.migrationName}`);
+        });
+      }
+    } finally {
+      await cleanup();
     }
-    
-    const appliedMigrations = result.results?.filter(r => r.status === 'Success') || [];
-    
-    if (appliedMigrations.length === 0) {
-      console.log(chalk.blue('ℹ️  No pending migrations to apply'));
-    } else {
-      console.log(chalk.green(`✅ Applied ${appliedMigrations.length} migrations successfully:`));
-      appliedMigrations.forEach(migration => {
-        console.log(`  ${chalk.cyan('✓')} ${migration.migrationName}`);
-      });
-    }
-    
-    await migrationManager.close();
-    await pglite.close();
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -65,30 +83,30 @@ export async function downCommand(_options: OptionValues): Promise<void> {
     logger.debug('Starting migration down...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    console.log(chalk.bold('\n🔄 Rolling back one migration...\n'));
-    
-    const result = await migrationManager.migrateDown();
-    
-    if (result.error) {
-      throw result.error;
+    try {
+      console.log(chalk.bold('\n🔄 Rolling back one migration...\n'));
+      
+      const result = await migrationManager.migrateDown();
+      
+      if (result.error) {
+        throw result.error;
+      }
+      
+      const rolledBackMigrations = result.results?.filter(r => r.status === 'Success') || [];
+      
+      if (rolledBackMigrations.length === 0) {
+        console.log(chalk.blue('ℹ️  No migrations to roll back'));
+      } else {
+        console.log(chalk.green(`✅ Rolled back ${rolledBackMigrations.length} migration(s) successfully:`));
+        rolledBackMigrations.forEach(migration => {
+          console.log(`  ${chalk.cyan('↩️')} ${migration.migrationName}`);
+        });
+      }
+    } finally {
+      await cleanup();
     }
-    
-    const rolledBackMigrations = result.results?.filter(r => r.status === 'Success') || [];
-    
-    if (rolledBackMigrations.length === 0) {
-      console.log(chalk.blue('ℹ️  No migrations to roll back'));
-    } else {
-      console.log(chalk.green(`✅ Rolled back ${rolledBackMigrations.length} migration(s) successfully:`));
-      rolledBackMigrations.forEach(migration => {
-        console.log(`  ${chalk.cyan('↩️')} ${migration.migrationName}`);
-      });
-    }
-    
-    await migrationManager.close();
-    await pglite.close();
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -111,53 +129,53 @@ export async function statusCommand(_options: OptionValues): Promise<void> {
     logger.debug('Starting migration status check...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    console.log(chalk.bold('\n📋 Migration Status\n'));
-    
-    const migrations = await migrationManager.getMigrationStatus();
-    const backupTables = await migrationManager.listBackupTables();
-    
-    // Applied migrations
-    const appliedMigrations = migrations.filter(m => m.executedAt);
-    const pendingMigrations = migrations.filter(m => !m.executedAt);
-    
-    console.log(chalk.green('✅ Applied Migrations:'));
-    if (appliedMigrations.length === 0) {
-      console.log('  No migrations applied yet');
-    } else {
-      appliedMigrations.forEach(migration => {
-        const date = migration.executedAt ? new Date(migration.executedAt).toLocaleString() : 'Unknown';
-        console.log(`  ${chalk.cyan(migration.name)} - ${date}`);
-      });
+    try {
+      console.log(chalk.bold('\n📋 Migration Status\n'));
+      
+      const migrations = await migrationManager.getMigrationStatus();
+      const backupTables = await migrationManager.listBackupTables();
+      
+      // Applied migrations
+      const appliedMigrations = migrations.filter(m => m.executedAt);
+      const pendingMigrations = migrations.filter(m => !m.executedAt);
+      
+      console.log(chalk.green('✅ Applied Migrations:'));
+      if (appliedMigrations.length === 0) {
+        console.log('  No migrations applied yet');
+      } else {
+        appliedMigrations.forEach(migration => {
+          const date = migration.executedAt ? new Date(migration.executedAt).toLocaleString() : 'Unknown';
+          console.log(`  ${chalk.cyan(migration.name)} - ${date}`);
+        });
+      }
+      
+      // Pending migrations
+      console.log(chalk.yellow('\n⏳ Pending Migrations:'));
+      if (pendingMigrations.length === 0) {
+        console.log('  No pending migrations');
+      } else {
+        pendingMigrations.forEach(migration => {
+          console.log(`  ${chalk.yellow(migration.name)}`);
+        });
+      }
+      
+      // Backup tables
+      console.log(chalk.blue('\n💾 Backup Tables:'));
+      if (backupTables.length === 0) {
+        console.log('  No backup tables found');
+      } else {
+        backupTables.forEach(backup => {
+          const dateStr = backup.created ? ` (${backup.created.toLocaleString()})` : '';
+          console.log(`  ${chalk.blue(backup.name)}${dateStr}`);
+        });
+      }
+      
+      console.log('');
+    } finally {
+      await cleanup();
     }
-    
-    // Pending migrations
-    console.log(chalk.yellow('\n⏳ Pending Migrations:'));
-    if (pendingMigrations.length === 0) {
-      console.log('  No pending migrations');
-    } else {
-      pendingMigrations.forEach(migration => {
-        console.log(`  ${chalk.yellow(migration.name)}`);
-      });
-    }
-    
-    // Backup tables
-    console.log(chalk.blue('\n💾 Backup Tables:'));
-    if (backupTables.length === 0) {
-      console.log('  No backup tables found');
-    } else {
-      backupTables.forEach(backup => {
-        const dateStr = backup.created ? ` (${backup.created.toLocaleString()})` : '';
-        console.log(`  ${chalk.blue(backup.name)}${dateStr}`);
-      });
-    }
-    
-    console.log('');
-    
-    await migrationManager.close();
-    await pglite.close();
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -180,23 +198,23 @@ export async function cleanupCommand(options: OptionValues): Promise<void> {
     logger.debug('Starting migration cleanup...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    const daysOld = parseInt(options['days']) || 30;
-    
-    console.log(chalk.yellow(`🧹 Cleaning up backup tables older than ${daysOld} days...`));
-    
-    const deletedCount = await migrationManager.cleanupOldBackups(daysOld);
-    
-    if (deletedCount > 0) {
-      console.log(chalk.green(`✅ Cleaned up ${deletedCount} old backup table(s)`));
-    } else {
-      console.log(chalk.blue('ℹ️  No old backup tables to clean up'));
+    try {
+      const daysOld = parseInt(options['days']) || 30;
+      
+      console.log(chalk.yellow(`🧹 Cleaning up backup tables older than ${daysOld} days...`));
+      
+      const deletedCount = await migrationManager.cleanupOldBackups(daysOld);
+      
+      if (deletedCount > 0) {
+        console.log(chalk.green(`✅ Cleaned up ${deletedCount} old backup table(s)`));
+      } else {
+        console.log(chalk.blue('ℹ️  No old backup tables to clean up'));
+      }
+    } finally {
+      await cleanup();
     }
-    
-    await migrationManager.close();
-    await pglite.close();
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -226,21 +244,22 @@ export async function resetCommand(options: OptionValues): Promise<void> {
     logger.debug('Starting migration reset...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
-    const db = migrationManager.getKyselyInstance();
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    console.log(chalk.yellow('🔄 Resetting migration history...'));
-    
-    // Drop Kysely migration table
-    await db.schema.dropTable('kysely_migration').ifExists().execute();
-    await db.schema.dropTable('kysely_migration_lock').ifExists().execute();
-    
-    console.log(chalk.green('✅ Migration history reset completed'));
-    console.log(chalk.blue('ℹ️  Your data has been preserved, only migration tracking was reset'));
-    
-    await migrationManager.close();
-    await pglite.close();
+    try {
+      const db = migrationManager.getKyselyInstance();
+      
+      console.log(chalk.yellow('🔄 Resetting migration history...'));
+      
+      // Drop Kysely migration table
+      await db.schema.dropTable('kysely_migration').ifExists().execute();
+      await db.schema.dropTable('kysely_migration_lock').ifExists().execute();
+      
+      console.log(chalk.green('✅ Migration history reset completed'));
+      console.log(chalk.blue('ℹ️  Your data has been preserved, only migration tracking was reset'));
+    } finally {
+      await cleanup();
+    }
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -269,21 +288,21 @@ export async function createCommand(options: OptionValues): Promise<void> {
     logger.debug(`Creating migration: ${options['name']}`);
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    const migrationName = options['name'].replace(/\s+/g, '_').toLowerCase();
-    
-    console.log(chalk.blue(`📝 Creating migration: ${migrationName}...`));
-    
-    const migrationPath = await migrationManager.createMigration(migrationName);
-    
-    console.log(chalk.green(`✅ Migration file created successfully`));
-    console.log(chalk.blue(`📁 Location: ${migrationPath}`));
-    console.log(chalk.yellow('Edit the file to add your migration logic, then run: funcqc migrate up'));
-    
-    await migrationManager.close();
-    await pglite.close();
+    try {
+      const migrationName = options['name'].replace(/\s+/g, '_').toLowerCase();
+      
+      console.log(chalk.blue(`📝 Creating migration: ${migrationName}...`));
+      
+      const migrationPath = await migrationManager.createMigration(migrationName);
+      
+      console.log(chalk.green(`✅ Migration file created successfully`));
+      console.log(chalk.blue(`📁 Location: ${migrationPath}`));
+      console.log(chalk.yellow('Edit the file to add your migration logic, then run: funcqc migrate up'));
+    } finally {
+      await cleanup();
+    }
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
@@ -306,46 +325,49 @@ export async function infoCommand(_options: OptionValues): Promise<void> {
     logger.debug('Getting migration system information...');
     
     const config = await new ConfigManager().load();
-    const pglite = new PGlite(config.storage.path!);
-    const migrationManager = new KyselyMigrationManager(pglite);
+    const { migrationManager, cleanup } = await createMigrationComponents(config);
     
-    console.log(chalk.bold('\n📊 Migration System Information\n'));
-    
-    console.log(chalk.cyan('Database Path:'), config.storage.path!);
-    console.log(chalk.cyan('Migration System:'), 'KyselyMigrationManager (PGLite + Kysely)');
-    console.log(chalk.cyan('Migration Folder:'), path.join(process.cwd(), 'migrations'));
-    console.log(chalk.cyan('Schema Source:'), 'TypeScript migration files (.ts)');
-    
-    const migrations = await migrationManager.getMigrationStatus();
-    const backupTables = await migrationManager.listBackupTables();
-    
-    const appliedCount = migrations.filter(m => m.executedAt).length;
-    const pendingCount = migrations.filter(m => !m.executedAt).length;
-    
-    console.log(chalk.cyan('Applied Migrations:'), appliedCount);
-    console.log(chalk.cyan('Pending Migrations:'), pendingCount);
-    console.log(chalk.cyan('Backup Tables:'), backupTables.length);
-    
-    if (backupTables.length > 0) {
-      const sortedBackups = backupTables.sort((a, b) => {
-        if (!a.created || !b.created) return 0;
-        return a.created.getTime() - b.created.getTime();
-      });
+    try {
+      console.log(chalk.bold('\n📊 Migration System Information\n'));
       
-      if (sortedBackups[0]?.created) {
-        console.log(chalk.cyan('Oldest Backup:'), `${sortedBackups[0].name} (${sortedBackups[0].created.toLocaleString()})`);
+      console.log(chalk.cyan('Database Path:'), config.storage.path!);
+      console.log(chalk.cyan('Migration System:'), 'KyselyMigrationManager (PGLite + Kysely)');
+      console.log(chalk.cyan('Migration Folder:'), path.join(process.cwd(), 'migrations'));
+      console.log(chalk.cyan('Schema Source:'), 'TypeScript migration files (.ts)');
+      
+      const migrations = await migrationManager.getMigrationStatus();
+      const backupTables = await migrationManager.listBackupTables();
+      
+      const appliedCount = migrations.filter(m => m.executedAt).length;
+      const pendingCount = migrations.filter(m => !m.executedAt).length;
+      
+      console.log(chalk.cyan('Applied Migrations:'), appliedCount);
+      console.log(chalk.cyan('Pending Migrations:'), pendingCount);
+      console.log(chalk.cyan('Backup Tables:'), backupTables.length);
+      
+      if (backupTables.length > 0) {
+        const sortedBackups = backupTables.sort((a, b) => {
+          if (!a.created || !b.created) return 0;
+          return a.created.getTime() - b.created.getTime();
+        });
+        
+        const oldestBackup = sortedBackups[0];
+        if (oldestBackup?.created) {
+          console.log(chalk.cyan('Oldest Backup:'), `${oldestBackup.name} (${oldestBackup.created.toLocaleString()})`);
+        }
+        
+        const latestBackup = sortedBackups[sortedBackups.length - 1];
+        if (latestBackup?.created) {
+          console.log(chalk.cyan('Latest Backup:'), `${latestBackup.name} (${latestBackup.created.toLocaleString()})`);
+        }
       }
-      if (sortedBackups[sortedBackups.length - 1]?.created) {
-        console.log(chalk.cyan('Latest Backup:'), `${sortedBackups[sortedBackups.length - 1]!.name} (${sortedBackups[sortedBackups.length - 1]!.created!.toLocaleString()})`);
-      }
+      
+      console.log(chalk.green('\n✅ Migration system is operational'));
+      console.log(chalk.blue('ℹ️  Use "funcqc migrate status" for detailed information'));
+      console.log('');
+    } finally {
+      await cleanup();
     }
-    
-    console.log(chalk.green('\n✅ Migration system is operational'));
-    console.log(chalk.blue('ℹ️  Use "funcqc migrate status" for detailed information'));
-    console.log('');
-    
-    await migrationManager.close();
-    await pglite.close();
     
   } catch (error) {
     const funcqcError = errorHandler.createError(
