@@ -377,6 +377,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getSnapshot(id: string): Promise<SnapshotInfo | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query('SELECT * FROM snapshots WHERE id = $1', [id]);
 
@@ -393,6 +394,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async deleteSnapshot(id: string): Promise<boolean> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query('DELETE FROM snapshots WHERE id = $1', [id]);
       return (result as unknown as { changes: number }).changes > 0;
@@ -408,6 +410,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Returns null if no snapshots exist
    */
   async getLastConfigHash(): Promise<string | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query(
         'SELECT config_hash FROM snapshots ORDER BY created_at DESC LIMIT 1'
@@ -430,6 +433,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    await this.ensureInitialized();
     try {
       let sql = `
         SELECT 
@@ -587,6 +591,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
+    await this.ensureInitialized();
     try {
       // Get the latest snapshot
       const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
@@ -608,6 +613,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // ========================================
 
   async diffSnapshots(fromId: string, toId: string): Promise<SnapshotDiff> {
+    await this.ensureInitialized();
     try {
       const { fromSnapshot, toSnapshot } = await this.validateAndLoadSnapshots(fromId, toId);
       const { fromFunctions, toFunctions } = await this.loadSnapshotFunctions(fromId, toId);
@@ -1362,6 +1368,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getFunction(functionId: string): Promise<FunctionInfo | null> {
+    await this.ensureInitialized();
     try {
       const result = await this.db.query(
         `
@@ -2249,6 +2256,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       isPresent: boolean;
     }>
   > {
+    await this.ensureInitialized();
     const limit = options?.limit || 100;
     const includeAbsent = options?.includeAbsent ?? false;
 
