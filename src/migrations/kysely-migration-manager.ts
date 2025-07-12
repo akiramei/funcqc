@@ -562,7 +562,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
       
       // 実行済みだがファイルが存在しないマイグレーションを特定
       return executedMigrations.filter(name => !migrationFiles.includes(name));
-    } catch (error) {
+    } catch {
       // テーブルが存在しない場合やその他のエラー
       return [];
     }
@@ -635,7 +635,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
         });
       }
       
-    } catch (error) {
+    } catch {
       issues.push({
         type: 'syntax-errors' as const,
         severity: 'error' as const,
@@ -695,7 +695,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
       
       // ファイルは存在するが実行されていないマイグレーションを特定
       return migrationFiles.filter(name => !executedMigrations.includes(name));
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -718,13 +718,13 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
           if (!content.includes('export async function up') || !content.includes('export async function down')) {
             errorFiles.push(file);
           }
-        } catch (error) {
+        } catch {
           errorFiles.push(file);
         }
       }
       
       return errorFiles;
-    } catch (error) {
+    } catch {
       return [];
     }
   }
@@ -742,7 +742,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
         .filter(line => line.trim())
         .map(line => line.substring(3)) // Remove status prefix
         .filter(file => file.endsWith('.ts'));
-    } catch (error) {
+    } catch {
       // Git not available or not in a Git repository
       return [];
     }
@@ -792,7 +792,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
         .addColumn('checksum', 'varchar(64)', col => col.notNull())
         .addColumn('archived_at', 'timestamp', col => col.notNull())
         .execute();
-    } catch (error) {
+    } catch {
       // テーブル作成失敗は無視（既存テーブルの可能性）
     }
   }
@@ -804,7 +804,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
     try {
       const crypto = await import('crypto');
       return crypto.createHash('sha256').update(content).digest('hex');
-    } catch (error) {
+    } catch {
       // フォールバック: 簡単なハッシュ
       let hash = 0;
       for (let i = 0; i < content.length; i++) {
@@ -956,7 +956,7 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
           // ファイルが存在しない場合はスキップ
         }
       }
-    } catch (error) {
+    } catch {
       // アーカイブ失敗は警告のみ
       console.log('⚠️  Warning: Failed to archive pending migrations');
     }
