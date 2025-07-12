@@ -1906,8 +1906,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return `{${ids.map(id => {
       // First escape backslashes, then quotes (critical order for security)
       const escaped = id
-        .replace(/\\/g, '\\\\\\\\')  // Escape backslashes: \ -> \\\\
-        .replace(/"/g, '\\\\"');     // Escape quotes: " -> \"
+        .replace(/\\/g, '\\\\')      // Escape backslashes: \ -> \\
+        .replace(/"/g, '\\"');       // Escape quotes: " -> \"
       return `"${escaped}"`;
     }).join(',')}}`;
   }

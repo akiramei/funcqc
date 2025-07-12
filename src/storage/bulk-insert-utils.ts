@@ -14,8 +14,8 @@ function formatPostgresArray(arr: string[]): string {
   return `{${arr.map(item => {
     // First escape backslashes, then quotes (critical order for security)
     const escaped = item
-      .replace(/\\/g, '\\\\\\\\')  // Escape backslashes: \ -> \\\\
-      .replace(/"/g, '\\\\"');     // Escape quotes: " -> \"
+      .replace(/\\/g, '\\\\')      // Escape backslashes: \ -> \\
+      .replace(/"/g, '\\"');       // Escape quotes: " -> \"
     return `"${escaped}"`;
   }).join(',')}}`;
 }
