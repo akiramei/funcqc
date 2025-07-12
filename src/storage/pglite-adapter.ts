@@ -58,6 +58,20 @@ export class DatabaseError extends Error {
 }
 
 /**
+ * Type guard for checking if global has test tracking properties
+ */
+function hasTestTrackingProperty(obj: unknown, property: string): obj is Record<string, unknown> {
+  return obj !== null && typeof obj === 'object' && property in obj;
+}
+
+/**
+ * Type guard for test connection tracking functions
+ */
+function isTestTrackingFunction(value: unknown): value is (connection: { close(): Promise<void> }) => void {
+  return typeof value === 'function';
+}
+
+/**
  * Clean PGLite storage adapter implementation
  * Focuses on type safety, proper error handling, and clean architecture
  */
@@ -86,8 +100,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.migrationManager = new SimpleMigrationManager(this.db, this.dbPath);
     
     // Track connection in tests for proper cleanup
-    if (typeof global !== 'undefined' && (global as any).__TEST_TRACK_CONNECTION__) {
-      (global as any).__TEST_TRACK_CONNECTION__(this);
+    if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_TRACK_CONNECTION__')) {
+      const testTracker = global.__TEST_TRACK_CONNECTION__;
+      if (isTestTrackingFunction(testTracker)) {
+        testTracker(this);
+      }
     }
   }
 
@@ -299,13 +316,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
       
       // Untrack connection in tests for proper cleanup
-      if (typeof global !== 'undefined' && (global as any).__TEST_UNTRACK_CONNECTION__) {
-        (global as any).__TEST_UNTRACK_CONNECTION__(this);
+      if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_UNTRACK_CONNECTION__')) {
+        const testUntracker = global.__TEST_UNTRACK_CONNECTION__;
+        if (isTestTrackingFunction(testUntracker)) {
+          testUntracker(this);
+        }
       }
     } catch (error) {
       // Still untrack connection even if close fails
-      if (typeof global !== 'undefined' && (global as any).__TEST_UNTRACK_CONNECTION__) {
-        (global as any).__TEST_UNTRACK_CONNECTION__(this);
+      if (typeof global !== 'undefined' && hasTestTrackingProperty(global, '__TEST_UNTRACK_CONNECTION__')) {
+        const testUntracker = global.__TEST_UNTRACK_CONNECTION__;
+        if (isTestTrackingFunction(testUntracker)) {
+          testUntracker(this);
+        }
       }
       throw new Error(
         `Failed to close database: ${error instanceof Error ? error.message : String(error)}`
