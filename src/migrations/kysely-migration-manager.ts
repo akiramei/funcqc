@@ -28,6 +28,30 @@ import {
 import { promises as fs } from 'fs';
 import * as path from 'path';
 
+// PostgreSQL Pool型の最小インターフェース（型キャスト用）
+interface MinimalPool {
+  connect: () => Promise<unknown>;
+  end: () => Promise<void>;
+  query: () => Promise<{ rows: unknown[]; fields: unknown[] }>;
+  on: () => void;
+  removeListener: () => void;
+  totalCount: number;
+  idleCount: number;
+  waitingCount: number;
+}
+
+// ダミープール実装（PGLite用途のため実際には使用されない）
+const createDummyPool = (): MinimalPool => ({
+  connect: () => Promise.resolve({} as never),
+  end: () => Promise.resolve(),
+  query: () => Promise.resolve({ rows: [], fields: [] } as never),
+  on: () => void 0,
+  removeListener: () => void 0,
+  totalCount: 0,
+  idleCount: 0,
+  waitingCount: 0,
+});
+
 /**
  * PGLite用のKysely Dialect
  * PostgreSQL dialectベースで、PGLiteに特化したadapter/driver実装
@@ -83,23 +107,15 @@ class PGLiteDialect {
 
   createQueryCompiler() {
     // PostgreSQL query compilerを使用（実績のある方法）
-    // PGLite用途のため、実際のプールは使用しない（型キャストのみ）
     return new PostgresDialect({ 
-      pool: {
-        connect: () => Promise.resolve({} as any),
-        end: () => Promise.resolve()
-      } as any 
+      pool: createDummyPool() as unknown as never
     }).createQueryCompiler();
   }
 
   createIntrospector(db: Kysely<Record<string, unknown>>) {
     // PostgreSQL introspectorベース
-    // PGLite用途のため、実際のプールは使用しない（型キャストのみ）
     return new PostgresDialect({ 
-      pool: {
-        connect: () => Promise.resolve({} as any),
-        end: () => Promise.resolve()
-      } as any 
+      pool: createDummyPool() as unknown as never
     }).createIntrospector(db);
   }
 }
