@@ -1,6 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 /**
  * マイグレーション情報の型定義

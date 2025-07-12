@@ -13,9 +13,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { 
   Kysely, 
   Migrator, 
-  FileMigrationProvider, 
   Migration,
-  MigrationResult,
+  MigrationInfo,
   MigrationResultSet,
   MigrationProvider,
   sql,
@@ -182,7 +181,7 @@ class PGLiteDriver implements Driver {
 
   async beginTransaction(
     connection: DatabaseConnection,
-    settings?: TransactionSettings
+    _settings?: TransactionSettings
   ): Promise<void> {
     await connection.executeQuery(CompiledQuery.raw('BEGIN'));
   }
@@ -195,7 +194,7 @@ class PGLiteDriver implements Driver {
     await connection.executeQuery(CompiledQuery.raw('ROLLBACK'));
   }
 
-  async releaseConnection(connection: DatabaseConnection): Promise<void> {
+  async releaseConnection(_connection: DatabaseConnection): Promise<void> {
     // PGLiteは接続プールを使わないため、何もしない
   }
 
@@ -210,13 +209,11 @@ export interface KyselyMigrationOptions {
 }
 
 export class KyselyMigrationManager {
-  private pglite: PGlite;
   private kysely: Kysely<any>;
   private migrator: Migrator;
   private migrationFolder: string;
 
   constructor(pglite: PGlite, options: KyselyMigrationOptions = {}) {
-    this.pglite = pglite;
     this.migrationFolder = options.migrationFolder || path.join(process.cwd(), 'migrations');
     
     // PGLite + Kysely統合
@@ -281,7 +278,7 @@ export class KyselyMigrationManager {
   /**
    * マイグレーション状況の確認
    */
-  async getMigrationStatus(): Promise<MigrationResult[]> {
+  async getMigrationStatus(): Promise<MigrationInfo[]> {
     console.log('📊 Checking migration status...');
     
     try {
@@ -300,7 +297,8 @@ export class KyselyMigrationManager {
         console.log(`${status} ${migration.name} (${date})`);
       }
       
-      return migrations;
+      // readonly配列を通常の配列に変換
+      return [...migrations];
     } catch (error) {
       console.error('❌ Failed to get migration status:', error);
       throw error;
@@ -393,7 +391,7 @@ export async function down(db: Kysely<any>): Promise<void> {
   /**
    * バックアップテーブル一覧取得
    */
-  async listBackupTables(): Promise<Array<{ name: string; created?: Date }>> {
+  async listBackupTables(): Promise<Array<{ name: string; created?: Date | undefined }>> {
     try {
       const result = await sql.raw(`
         SELECT table_name

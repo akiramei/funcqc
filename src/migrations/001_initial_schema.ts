@@ -1,6 +1,5 @@
 import { Kysely, sql } from 'kysely';
 import * as fs from 'fs/promises';
-import * as path from 'path';
 
 /**
  * 初回マイグレーション: 既存のdatabase.sqlをベースとした完全なスキーマ作成
