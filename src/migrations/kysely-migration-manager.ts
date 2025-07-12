@@ -273,10 +273,13 @@ export class KyselyMigrationManager {
     console.log('🚀 Running migrations to latest version...');
     
     try {
+      // 実行前にペンディングマイグレーションをアーカイブ
+      await this.archivePendingMigrations();
+      
       const result = await this.migrator.migrateToLatest();
       
       if (result.error) {
-        console.error('❌ Migration failed:', result.error);
+        await this.handleMigrationError(result.error);
         throw result.error;
       }
 
@@ -285,7 +288,7 @@ export class KyselyMigrationManager {
       
       return result;
     } catch (error) {
-      console.error('❌ Migration execution failed:', error);
+      await this.handleMigrationError(error);
       throw error;
     }
   }
@@ -496,6 +499,467 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
     
     console.log(`✅ Cleaned up ${deletedCount} old backup tables`);
     return deletedCount;
+  }
+
+  /**
+   * マイグレーションエラーの詳細ハンドリング
+   */
+  private async handleMigrationError(error: unknown): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // "corrupted migrations" エラーの特別処理
+    if (errorMessage.includes('corrupted migrations') || errorMessage.includes('missing')) {
+      console.log('\n🚨 Migration File Corruption Detected');
+      console.log('═══════════════════════════════════════');
+      
+      // 不足しているマイグレーションファイルを特定
+      const missingFiles = await this.detectMissingMigrationFiles();
+      
+      if (missingFiles.length > 0) {
+        console.log('📁 Missing Migration Files:');
+        missingFiles.forEach(file => console.log(`   • ${file}`));
+        console.log('');
+      }
+      
+      console.log('💡 Recovery Options:');
+      console.log('   1. Restore from Git:');
+      console.log('      git checkout HEAD -- migrations/');
+      console.log('');
+      console.log('   2. Run migration health check:');
+      console.log('      funcqc migrate doctor');
+      console.log('');
+      console.log('   3. Auto-restore (if available):');
+      console.log('      funcqc migrate restore');
+      console.log('');
+      console.log('   4. Reset migration history (⚠️  loses history):');
+      console.log('      funcqc migrate reset --force');
+      console.log('');
+    } else {
+      console.error('❌ Migration execution failed:', errorMessage);
+    }
+  }
+
+  /**
+   * 不足しているマイグレーションファイルを検出
+   */
+  private async detectMissingMigrationFiles(): Promise<string[]> {
+    try {
+      // データベースから実行済みマイグレーション一覧を取得
+      const result = await sql.raw(`
+        SELECT name FROM __kysely_migration 
+        ORDER BY name
+      `).execute(this.kysely);
+      
+      const executedMigrations = (result.rows as unknown[]).map(row => 
+        (row as Record<string, unknown>)['name'] as string
+      );
+      
+      // ファイルシステムのマイグレーションファイル一覧を取得
+      const files = await fs.readdir(this.migrationFolder);
+      const migrationFiles = files
+        .filter(file => file.endsWith('.ts'))
+        .map(file => file.replace('.ts', ''));
+      
+      // 実行済みだがファイルが存在しないマイグレーションを特定
+      return executedMigrations.filter(name => !migrationFiles.includes(name));
+    } catch {
+      // テーブルが存在しない場合やその他のエラー
+      return [];
+    }
+  }
+
+  /**
+   * マイグレーションシステムの健全性チェック
+   */
+  async diagnoseMigrationHealth(): Promise<{
+    healthy: boolean;
+    issues: Array<{
+      type: 'missing-files' | 'uncommitted-files' | 'syntax-errors' | 'orphaned-files';
+      severity: 'error' | 'warning' | 'info';
+      description: string;
+      files?: string[];
+      solution?: string;
+    }>;
+  }> {
+    console.log('🔍 Running Migration Health Check...');
+    console.log('═══════════════════════════════════════');
+    
+    const issues = [];
+    
+    try {
+      // 1. 不足ファイルチェック
+      const missingFiles = await this.detectMissingMigrationFiles();
+      if (missingFiles.length > 0) {
+        issues.push({
+          type: 'missing-files' as const,
+          severity: 'error' as const,
+          description: `${missingFiles.length} executed migration files are missing`,
+          files: missingFiles,
+          solution: 'Run: funcqc migrate restore or git checkout HEAD -- migrations/'
+        });
+      }
+      
+      // 2. 孤立ファイルチェック（ファイルは存在するが実行されていない古いファイル）
+      const orphanedFiles = await this.detectOrphanedMigrationFiles();
+      if (orphanedFiles.length > 0) {
+        issues.push({
+          type: 'orphaned-files' as const,
+          severity: 'warning' as const,
+          description: `${orphanedFiles.length} migration files exist but were not executed`,
+          files: orphanedFiles,
+          solution: 'Review and remove unused migration files or run: funcqc migrate up'
+        });
+      }
+      
+      // 3. 構文エラーチェック
+      const syntaxErrors = await this.detectSyntaxErrors();
+      if (syntaxErrors.length > 0) {
+        issues.push({
+          type: 'syntax-errors' as const,
+          severity: 'error' as const,
+          description: `${syntaxErrors.length} migration files have syntax errors`,
+          files: syntaxErrors,
+          solution: 'Fix TypeScript syntax errors in the listed files'
+        });
+      }
+      
+      // 4. Git状態チェック（未コミットファイル）
+      const uncommittedFiles = await this.detectUncommittedMigrationFiles();
+      if (uncommittedFiles.length > 0) {
+        issues.push({
+          type: 'uncommitted-files' as const,
+          severity: 'warning' as const,
+          description: `${uncommittedFiles.length} migration files are not committed to Git`,
+          files: uncommittedFiles,
+          solution: 'Run: git add migrations/ && git commit'
+        });
+      }
+      
+    } catch {
+      issues.push({
+        type: 'syntax-errors' as const,
+        severity: 'error' as const,
+        description: 'Failed to run health checks',
+        solution: 'Check database connectivity and file permissions'
+      });
+    }
+    
+    // 結果の表示
+    const healthy = issues.filter(issue => issue.severity === 'error').length === 0;
+    
+    console.log(`\n📊 Health Check Results: ${healthy ? '✅ Healthy' : '❌ Issues Found'}`);
+    console.log('═══════════════════════════════════════');
+    
+    if (issues.length === 0) {
+      console.log('✅ No issues detected');
+      console.log('🎉 Migration system is healthy');
+    } else {
+      issues.forEach((issue, index) => {
+        const icon = issue.severity === 'error' ? '❌' : issue.severity === 'warning' ? '⚠️' : 'ℹ️';
+        console.log(`\n${icon} Issue ${index + 1}: ${issue.description}`);
+        
+        if (issue.files && issue.files.length > 0) {
+          console.log('   Files affected:');
+          issue.files.forEach(file => console.log(`     • ${file}`));
+        }
+        
+        if (issue.solution) {
+          console.log(`   💡 Solution: ${issue.solution}`);
+        }
+      });
+    }
+    
+    return { healthy, issues };
+  }
+
+  /**
+   * 孤立したマイグレーションファイルを検出
+   */
+  private async detectOrphanedMigrationFiles(): Promise<string[]> {
+    try {
+      // ファイルシステムのマイグレーションファイル一覧を取得
+      const files = await fs.readdir(this.migrationFolder);
+      const migrationFiles = files
+        .filter(file => file.endsWith('.ts'))
+        .map(file => file.replace('.ts', ''));
+      
+      // データベースから実行済みマイグレーション一覧を取得
+      const result = await sql.raw(`
+        SELECT name FROM __kysely_migration 
+        ORDER BY name
+      `).execute(this.kysely);
+      
+      const executedMigrations = (result.rows as unknown[]).map(row => 
+        (row as Record<string, unknown>)['name'] as string
+      );
+      
+      // ファイルは存在するが実行されていないマイグレーションを特定
+      return migrationFiles.filter(name => !executedMigrations.includes(name));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 構文エラーのあるマイグレーションファイルを検出
+   */
+  private async detectSyntaxErrors(): Promise<string[]> {
+    try {
+      const files = await fs.readdir(this.migrationFolder);
+      const migrationFiles = files.filter(file => file.endsWith('.ts'));
+      const errorFiles = [];
+      
+      for (const file of migrationFiles) {
+        try {
+          const filePath = path.join(this.migrationFolder, file);
+          const content = await fs.readFile(filePath, 'utf-8');
+          
+          // 基本的な構文チェック（up/down関数の存在確認）
+          if (!content.includes('export async function up') || !content.includes('export async function down')) {
+            errorFiles.push(file);
+          }
+        } catch {
+          errorFiles.push(file);
+        }
+      }
+      
+      return errorFiles;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 未コミットのマイグレーションファイルを検出
+   */
+  private async detectUncommittedMigrationFiles(): Promise<string[]> {
+    try {
+      const { execSync } = await import('child_process');
+      const output = execSync('git status --porcelain migrations/', { encoding: 'utf-8' });
+      
+      return output
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => line.substring(3)) // Remove status prefix
+        .filter(file => file.endsWith('.ts'));
+    } catch {
+      // Git not available or not in a Git repository
+      return [];
+    }
+  }
+
+  /**
+   * マイグレーションファイルをデータベース内にアーカイブ
+   */
+  private async archiveMigration(name: string, filePath: string): Promise<void> {
+    try {
+      // マイグレーションアーカイブテーブルが存在しない場合は作成
+      await this.ensureMigrationArchiveTable();
+      
+      const content = await fs.readFile(filePath, 'utf-8');
+      const checksum = await this.calculateChecksum(content);
+      
+      // 既存のアーカイブを確認
+      const existing = await sql`
+        SELECT id FROM migration_archive 
+        WHERE name = ${name}
+      `.execute(this.kysely);
+      
+      if ((existing.rows as unknown[]).length === 0) {
+        // 新規アーカイブ
+        await sql`
+          INSERT INTO migration_archive (id, name, content, checksum, archived_at)
+          VALUES (${this.generateUUID()}, ${name}, ${content}, ${checksum}, CURRENT_TIMESTAMP)
+        `.execute(this.kysely);
+      }
+    } catch (error) {
+      // アーカイブ失敗はログ出力のみ（メイン処理は継続）
+      console.log(`⚠️  Failed to archive migration ${name}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
+   * マイグレーションアーカイブテーブルの作成
+   */
+  private async ensureMigrationArchiveTable(): Promise<void> {
+    try {
+      await this.kysely.schema
+        .createTable('migration_archive')
+        .ifNotExists()
+        .addColumn('id', 'uuid', col => col.primaryKey())
+        .addColumn('name', 'varchar(255)', col => col.notNull().unique())
+        .addColumn('content', 'text', col => col.notNull())
+        .addColumn('checksum', 'varchar(64)', col => col.notNull())
+        .addColumn('archived_at', 'timestamp', col => col.notNull())
+        .execute();
+    } catch {
+      // テーブル作成失敗は無視（既存テーブルの可能性）
+    }
+  }
+
+  /**
+   * チェックサム計算
+   */
+  private async calculateChecksum(content: string): Promise<string> {
+    try {
+      const crypto = await import('crypto');
+      return crypto.createHash('sha256').update(content).digest('hex');
+    } catch {
+      // フォールバック: 簡単なハッシュ
+      let hash = 0;
+      for (let i = 0; i < content.length; i++) {
+        const char = content.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // 32bit整数に変換
+      }
+      return Math.abs(hash).toString(16).padStart(8, '0');
+    }
+  }
+
+  /**
+   * UUID生成
+   */
+  private generateUUID(): string {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  /**
+   * マイグレーションファイルの自動復旧
+   */
+  async restoreMissingMigrations(): Promise<{
+    restored: string[];
+    failed: string[];
+    skipped: string[];
+  }> {
+    console.log('🔄 Attempting to restore missing migration files...');
+    console.log('═══════════════════════════════════════════════');
+    
+    const result = {
+      restored: [] as string[],
+      failed: [] as string[],
+      skipped: [] as string[]
+    };
+    
+    try {
+      // アーカイブテーブルの存在確認
+      await this.ensureMigrationArchiveTable();
+      
+      // 不足しているマイグレーションファイルを特定
+      const missingFiles = await this.detectMissingMigrationFiles();
+      
+      if (missingFiles.length === 0) {
+        console.log('✅ No missing migration files detected');
+        return result;
+      }
+      
+      console.log(`📁 Found ${missingFiles.length} missing migration files`);
+      
+      for (const missingFile of missingFiles) {
+        try {
+          // アーカイブからファイル内容を取得
+          const archiveResult = await sql`
+            SELECT content, checksum FROM migration_archive 
+            WHERE name = ${missingFile}
+          `.execute(this.kysely);
+          
+          const rows = archiveResult.rows as unknown[];
+          if (rows.length === 0) {
+            console.log(`❌ No archive found for: ${missingFile}`);
+            result.failed.push(missingFile);
+            continue;
+          }
+          
+          const archiveRow = rows[0] as Record<string, unknown>;
+          const content = archiveRow['content'] as string;
+          const originalChecksum = archiveRow['checksum'] as string;
+          
+          // チェックサム検証
+          const calculatedChecksum = await this.calculateChecksum(content);
+          if (calculatedChecksum !== originalChecksum) {
+            console.log(`❌ Checksum mismatch for: ${missingFile}`);
+            result.failed.push(missingFile);
+            continue;
+          }
+          
+          // ファイルを復元
+          const filePath = path.join(this.migrationFolder, `${missingFile}.ts`);
+          
+          // ファイルが既に存在する場合はスキップ
+          try {
+            await fs.access(filePath);
+            console.log(`⏭️  File already exists, skipping: ${missingFile}`);
+            result.skipped.push(missingFile);
+            continue;
+          } catch {
+            // ファイルが存在しない場合は続行
+          }
+          
+          // ディレクトリが存在しない場合は作成
+          await fs.mkdir(this.migrationFolder, { recursive: true });
+          
+          // ファイル復元
+          await fs.writeFile(filePath, content, 'utf-8');
+          
+          console.log(`✅ Restored: ${missingFile}`);
+          result.restored.push(missingFile);
+          
+        } catch (error) {
+          console.log(`❌ Failed to restore ${missingFile}:`, error instanceof Error ? error.message : String(error));
+          result.failed.push(missingFile);
+        }
+      }
+      
+      // 結果サマリー
+      console.log('\n📊 Restoration Summary:');
+      console.log('═══════════════════════');
+      console.log(`✅ Restored: ${result.restored.length} files`);
+      console.log(`⏭️  Skipped: ${result.skipped.length} files`);
+      console.log(`❌ Failed: ${result.failed.length} files`);
+      
+      if (result.restored.length > 0) {
+        console.log('\n💡 Restored files:');
+        result.restored.forEach(file => console.log(`   • ${file}.ts`));
+      }
+      
+      if (result.failed.length > 0) {
+        console.log('\n⚠️  Failed files (consider manual restoration):');
+        result.failed.forEach(file => console.log(`   • ${file}.ts`));
+      }
+      
+    } catch (error) {
+      console.error('❌ Error during migration restoration:', error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+    
+    return result;
+  }
+
+
+  /**
+   * ペンディングマイグレーションをアーカイブ
+   */
+  private async archivePendingMigrations(): Promise<void> {
+    try {
+      const migrations = await this.migrator.getMigrations();
+      const pendingMigrations = migrations.filter(m => !m.executedAt);
+      
+      for (const migration of pendingMigrations) {
+        const filePath = path.join(this.migrationFolder, `${migration.name}.ts`);
+        try {
+          await fs.access(filePath);
+          await this.archiveMigration(migration.name, filePath);
+        } catch {
+          // ファイルが存在しない場合はスキップ
+        }
+      }
+    } catch {
+      // アーカイブ失敗は警告のみ
+      console.log('⚠️  Warning: Failed to archive pending migrations');
+    }
   }
 
   /**
