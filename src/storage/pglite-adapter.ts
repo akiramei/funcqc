@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { EmbeddingService } from '../services/embedding-service';
 import { ANNConfig } from '../services/ann-index';
+import { SimpleMigrationManager } from '../migrations/simple-migration-manager';
 import {
   FunctionInfo,
   SnapshotInfo,
@@ -66,9 +67,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private transactionDepth: number = 0;
   private dbPath: string;
   private originalDbPath: string;
+  private migrationManager: SimpleMigrationManager;
 
   // Static cache to avoid redundant schema checks across instances
   private static schemaCache = new Map<string, boolean>();
+  private isInitialized: boolean = false;
 
   constructor(dbPath: string) {
     // Validate input path
@@ -80,6 +83,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
+    this.migrationManager = new SimpleMigrationManager(this.db, this.dbPath);
   }
 
   /**
@@ -329,6 +333,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
+    await this.ensureInitialized();
+    
     try {
       let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC';
       const params: (string | number)[] = [];
@@ -2397,17 +2403,54 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // MIGRATION MANAGEMENT (PUBLIC API)
+  // ========================================
+
+  /**
+   * Get migration manager for advanced migration operations
+   */
+  getMigrationManager(): SimpleMigrationManager {
+    return this.migrationManager;
+  }
+
+  /**
+   * Get migration status
+   */
+  async getMigrationStatus() {
+    return await this.migrationManager.getStatus();
+  }
+
+  /**
+   * List backup tables created during migrations
+   */
+  async listBackupTables(): Promise<string[]> {
+    return await this.migrationManager.listBackupTables();
+  }
+
+  /**
+   * Clean up old backup tables
+   */
+  async cleanupOldBackups(daysOld: number = 30): Promise<number> {
+    return await this.migrationManager.cleanupOldBackups(daysOld);
+  }
+
+  // ========================================
   // PRIVATE HELPER METHODS
   // ========================================
 
-  private async createSchema(): Promise<void> {
-    // Check if functions table has the new schema
-    const needsSchemaUpdate = await this.needsSchemaUpdate();
-
-    if (needsSchemaUpdate) {
-      // Drop old tables and recreate with new schema
-      await this.dropOldTablesIfNeeded();
+  /**
+   * Ensure database is initialized before any operations
+   */
+  private async ensureInitialized(): Promise<void> {
+    if (!this.isInitialized) {
+      await this.createSchema();
+      this.isInitialized = true;
     }
+  }
+
+  private async createSchema(): Promise<void> {
+    // Initialize database using migration system
+    await this.initializeWithMigrations();
 
     // Check if all core tables exist in one query to optimize startup
     const existingTables = await this.getExistingTables();
@@ -2493,26 +2536,108 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  private async dropOldTablesIfNeeded(): Promise<void> {
+  /**
+   * Initialize database schema using migration system
+   * Replaces the destructive dropOldTablesIfNeeded approach
+   */
+  private async initializeWithMigrations(): Promise<void> {
     try {
-      // Drop tables in reverse dependency order
-      const dropTables = [
-        'quality_metrics',
-        'function_parameters',
-        'function_embeddings',
-        'function_descriptions',
-        'functions',
-        'snapshots',
-      ];
-
-      for (const table of dropTables) {
-        await this.db.exec(`DROP TABLE IF EXISTS ${table} CASCADE;`);
+      // Check if this is a legacy database that needs migration
+      const needsMigration = await this.needsSchemaUpdate();
+      
+      if (needsMigration) {
+        console.log('🔄 Legacy database detected, running data-preserving migration...');
+        
+        // Run data-preserving migration for legacy databases
+        await this.migrateFromLegacySchema();
+      } else {
+        // For new databases or already migrated ones, run the initial migration
+        const migrationResult = await this.migrationManager.runInitialMigration();
+        
+        if (!migrationResult.success) {
+          console.warn('⚠️ Initial migration failed:', migrationResult.error);
+          // Fallback to schema creation if migration fails
+          await this.createTablesDirectly();
+        } else {
+          console.log('✅ Database initialized with migration system');
+        }
       }
     } catch (error) {
-      console.warn(
-        'Error dropping old tables:',
-        error instanceof Error ? error.message : String(error)
+      console.warn('Migration initialization failed, falling back to direct schema creation:', error);
+      await this.createTablesDirectly();
+    }
+  }
+
+  /**
+   * Migrate legacy database schema while preserving data
+   */
+  private async migrateFromLegacySchema(): Promise<void> {
+    // Get list of existing tables with data
+    const existingTables = await this.getExistingTables();
+    const tablesToMigrate = ['snapshots', 'functions', 'function_parameters', 'quality_metrics'];
+    
+    for (const tableName of tablesToMigrate) {
+      if (existingTables.has(tableName)) {
+        console.log(`📦 Migrating table: ${tableName}`);
+        
+        // Use table migration with data preservation
+        const migrationResult = await this.migrationManager.runTableMigration(
+          tableName,
+          true, // preserve data
+          await this.getNewTableSchema(tableName)
+        );
+        
+        if (!migrationResult.success) {
+          console.warn(`⚠️ Failed to migrate table ${tableName}:`, migrationResult.error);
+        }
+      }
+    }
+    
+    // Run initial migration to create any missing tables
+    await this.migrationManager.runInitialMigration();
+  }
+
+  /**
+   * Get the new schema SQL for a specific table
+   */
+  private async getNewTableSchema(tableName: string): Promise<string> {
+    // Read the schema for the specific table from database.sql
+    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    
+    try {
+      const fullSchema = readFileSync(schemaPath, 'utf-8');
+      
+      // Extract table-specific CREATE TABLE statement
+      const tableRegex = new RegExp(
+        `CREATE TABLE ${tableName}\\s*\\([^;]+\\);`,
+        'gims'
       );
+      
+      const match = fullSchema.match(tableRegex);
+      if (match) {
+        return match[0];
+      }
+      
+      throw new Error(`Table schema not found for: ${tableName}`);
+    } catch (error) {
+      console.warn(`Could not read schema for table ${tableName}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback method to create tables directly using database.sql
+   */
+  private async createTablesDirectly(): Promise<void> {
+    const schemaPath = path.join(__dirname, '../schemas/database.sql');
+    
+    try {
+      const schemaContent = readFileSync(schemaPath, 'utf-8');
+      await this.db.exec(schemaContent);
+      console.log('✅ Database schema created directly from database.sql');
+    } catch (error) {
+      console.error('❌ Failed to create database schema:', error);
+      throw new Error(`Database schema creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
