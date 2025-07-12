@@ -119,8 +119,6 @@ CREATE TABLE functions (
   file_hash TEXT NOT NULL,               -- ファイル内容のハッシュ
   file_content_hash TEXT,                -- ファイル変更検出高速化用
   
-  -- ドキュメント（将来は別テーブルに移動予定）
-  js_doc TEXT,                          -- JSDocコメント
   
   FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 );
@@ -204,6 +202,19 @@ CREATE TABLE function_parameters (
 
 CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);
 CREATE INDEX idx_function_parameters_position ON function_parameters(function_id, position);
+
+-- -----------------------------------------------------------------------------
+-- Function Documentation: JSDoc comments and documentation
+-- -----------------------------------------------------------------------------
+CREATE TABLE function_documentation (
+  function_id TEXT PRIMARY KEY,          -- 物理ID参照
+  js_doc TEXT,                          -- JSDocコメント
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_function_documentation_created_at ON function_documentation(created_at);
 
 -- -----------------------------------------------------------------------------
 -- Quality Metrics: Content-based quality indicators
@@ -426,15 +437,20 @@ CREATE TRIGGER update_ann_index_metadata_updated_at BEFORE UPDATE ON ann_index_m
 CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_embeddings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
 -- -----------------------------------------------------------------------------
 -- Content change detection trigger
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION mark_function_for_review()
 RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE function_descriptions 
-    SET needs_review = TRUE 
-    WHERE semantic_id = NEW.semantic_id;
+    IF EXISTS (SELECT 1 FROM function_descriptions WHERE semantic_id = NEW.semantic_id) THEN
+        UPDATE function_descriptions 
+        SET needs_review = TRUE 
+        WHERE semantic_id = NEW.semantic_id;
+    END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
