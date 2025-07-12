@@ -83,12 +83,24 @@ class PGLiteDialect {
 
   createQueryCompiler() {
     // PostgreSQL query compilerを使用（実績のある方法）
-    return new PostgresDialect({ pool: {} as Record<string, unknown> }).createQueryCompiler();
+    // PGLite用途のため、実際のプールは使用しない（型キャストのみ）
+    return new PostgresDialect({ 
+      pool: {
+        connect: () => Promise.resolve({} as any),
+        end: () => Promise.resolve()
+      } as any 
+    }).createQueryCompiler();
   }
 
   createIntrospector(db: Kysely<Record<string, unknown>>) {
     // PostgreSQL introspectorベース
-    return new PostgresDialect({ pool: {} as Record<string, unknown> }).createIntrospector(db);
+    // PGLite用途のため、実際のプールは使用しない（型キャストのみ）
+    return new PostgresDialect({ 
+      pool: {
+        connect: () => Promise.resolve({} as any),
+        end: () => Promise.resolve()
+      } as any 
+    }).createIntrospector(db);
   }
 }
 
