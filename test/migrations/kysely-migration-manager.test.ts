@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { KyselyMigrationManager } from '../../src/migrations/kysely-migration-manager';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 describe('KyselyMigrationManager', () => {
   let pglite: PGlite;
@@ -13,7 +14,9 @@ describe('KyselyMigrationManager', () => {
     // In-memory PGLite instance for testing
     pglite = new PGlite();
     
-    // Temporary migration directory
+    // Temporary migration directory (ESM compatible)
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
     tempMigrationDir = path.join(__dirname, 'temp_migrations');
     await fs.mkdir(tempMigrationDir, { recursive: true });
     
