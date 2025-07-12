@@ -60,12 +60,15 @@ export class SimpleMigrationManager {
       ORDER BY version ASC
     `);
     
-    return result.rows.map((row: any) => ({
-      name: row.name as string,
-      version: row.version as number,
-      executedAt: new Date(row.executed_at),
-      checksum: row.checksum as string
-    }));
+    return result.rows.map((row: unknown) => {
+      const migrationRow = row as Record<string, unknown>;
+      return {
+        name: migrationRow['name'] as string,
+        version: migrationRow['version'] as number,
+        executedAt: new Date(migrationRow['executed_at'] as string),
+        checksum: migrationRow['checksum'] as string
+      };
+    });
   }
 
   /**
@@ -227,7 +230,8 @@ export class SimpleMigrationManager {
         )
       `, [tableName]);
       
-      if ((tableExistsResult.rows[0] as any)?.exists) {
+      const tableExistsRow = tableExistsResult.rows[0] as Record<string, unknown>;
+      if (tableExistsRow?.['exists']) {
         if (preserveData) {
           // データ保全が必要な場合はバックアップを作成
           const backupTableName = `old_${tableName}_${new Date().toISOString().substring(0, 19).replace(/[:-]/g, '_')}`;
@@ -317,7 +321,10 @@ export class SimpleMigrationManager {
       ORDER BY tablename
     `);
     
-    return result.rows.map((row: any) => row.tablename as string);
+    return result.rows.map((row: unknown) => {
+      const tableRow = row as Record<string, unknown>;
+      return tableRow['tablename'] as string;
+    });
   }
 
   /**
