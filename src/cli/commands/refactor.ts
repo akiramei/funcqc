@@ -435,6 +435,126 @@ function displayNextSteps(summary: ProjectRefactoringSummary, outputPath?: strin
 // DETECT COMMAND IMPLEMENTATION
 // ========================================
 
+interface ParsedAnalysisOptions {
+  analysisOptions: {
+    patterns?: RefactoringPattern[];
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    includePatterns?: string[];
+  };
+  selectedPattern?: RefactoringPattern;
+}
+
+function parseDetectionOptions(options: RefactorDetectOptions, spinner: any): ParsedAnalysisOptions {
+  const analysisOptions: {
+    patterns?: RefactoringPattern[];
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    includePatterns?: string[];
+  } = {};
+  
+  let selectedPattern: RefactoringPattern | undefined;
+  if (options.pattern) {
+    selectedPattern = parsePattern(options.pattern);
+    if (!selectedPattern) {
+      spinner.fail();
+      console.error(chalk.red(`Invalid pattern: ${options.pattern}`));
+      console.log(chalk.yellow('Valid patterns: extract-method, split-function, reduce-parameters, extract-class, inline-function, rename-function'));
+      process.exit(1);
+    }
+    analysisOptions.patterns = [selectedPattern];
+  }
+  
+  analysisOptions.complexityThreshold = parseInt(options.complexityThreshold);
+  analysisOptions.sizeThreshold = parseInt(options.sizeThreshold);
+  
+  if (options.file) {
+    analysisOptions.includePatterns = [options.file];
+  }
+  
+  return { analysisOptions, selectedPattern };
+}
+
+function filterOpportunities(
+  opportunities: RefactoringOpportunity[],
+  selectedPattern: RefactoringPattern | undefined,
+  limit: string
+): RefactoringOpportunity[] {
+  let filtered = opportunities;
+  
+  if (selectedPattern) {
+    filtered = filtered.filter(opp => opp.pattern === selectedPattern);
+  }
+  
+  const limitNum = parseInt(limit);
+  if (filtered.length > limitNum) {
+    filtered = filtered.slice(0, limitNum);
+  }
+  
+  return filtered;
+}
+
+async function handleSessionCreation(
+  options: RefactorDetectOptions,
+  opportunities: RefactoringOpportunity[],
+  sessionManager: SessionManager,
+  selectedPattern: RefactoringPattern | undefined,
+  spinner: any
+): Promise<string | undefined> {
+  if (!options.createSession || opportunities.length === 0) {
+    return options.session;
+  }
+  
+  spinner.start('Creating refactoring session...');
+  
+  const sessionName = await prompts.input({
+    message: 'Session name:',
+    default: `Refactor ${selectedPattern || 'multiple patterns'} - ${new Date().toLocaleDateString()}`
+  });
+  
+  const sessionDescription = await prompts.input({
+    message: 'Session description:',
+    default: `Detected ${opportunities.length} refactoring opportunities`
+  });
+  
+  const session = await sessionManager.createSession(sessionName, sessionDescription);
+  
+  const opportunityIds = opportunities.map(opp => opp.id);
+  await sessionManager.linkOpportunitiesToSession(session.id, opportunityIds);
+  
+  const functionIds = [...new Set(opportunities.map(opp => opp.function_id))];
+  await sessionManager.addFunctionsToSession(session.id, functionIds);
+  
+  spinner.succeed(`Created session: ${session.name} (${session.id})`);
+  return session.id;
+}
+
+function displayResults(
+  opportunities: RefactoringOpportunity[],
+  selectedPattern: RefactoringPattern | undefined,
+  sessionId: string | undefined,
+  options: RefactorDetectOptions
+): void {
+  if (options.json) {
+    console.log(JSON.stringify({
+      pattern: selectedPattern,
+      opportunitiesFound: opportunities.length,
+      sessionId,
+      opportunities: opportunities.map(opp => ({
+        id: opp.id,
+        pattern: opp.pattern,
+        severity: opp.severity,
+        impact_score: opp.impact_score,
+        function_id: opp.function_id,
+        description: opp.description,
+        metadata: opp.metadata
+      }))
+    }, null, 2));
+  } else {
+    displayDetectionResults(opportunities, selectedPattern, sessionId);
+  }
+}
+
 async function refactorDetectCommandImpl(
   options: RefactorDetectOptions,
   env: CommandEnvironment
@@ -449,104 +569,18 @@ async function refactorDetectCommandImpl(
     
     spinner.text = 'Detecting refactoring opportunities...';
     
-    // Prepare detection options
-    const analysisOptions: {
-      patterns?: RefactoringPattern[];
-      complexityThreshold?: number;
-      sizeThreshold?: number;
-      includePatterns?: string[];
-    } = {};
-    
-    // Handle pattern selection
-    let selectedPattern: RefactoringPattern | undefined;
-    if (options.pattern) {
-      selectedPattern = parsePattern(options.pattern);
-      if (!selectedPattern) {
-        spinner.fail();
-        console.error(chalk.red(`Invalid pattern: ${options.pattern}`));
-        console.log(chalk.yellow('Valid patterns: extract-method, split-function, reduce-parameters, extract-class, inline-function, rename-function'));
-        process.exit(1);
-      }
-      analysisOptions.patterns = [selectedPattern];
-    }
-    
-    // Set thresholds
-    analysisOptions.complexityThreshold = parseInt(options.complexityThreshold);
-    analysisOptions.sizeThreshold = parseInt(options.sizeThreshold);
-    
-    if (options.file) {
-      analysisOptions.includePatterns = [options.file];
-    }
-    
-    // Perform analysis
+    const { analysisOptions, selectedPattern } = parseDetectionOptions(options, spinner);
     const report = await analyzer.analyzeProject(analysisOptions);
     
     spinner.succeed('Detection complete');
     
-    // Filter opportunities based on pattern and limit
-    let opportunities = report.opportunities;
-    if (selectedPattern) {
-      opportunities = opportunities.filter(opp => opp.pattern === selectedPattern);
-    }
+    const opportunities = filterOpportunities(report.opportunities, selectedPattern, options.limit);
+    const sessionId = await handleSessionCreation(options, opportunities, sessionManager, selectedPattern, spinner);
     
-    const limit = parseInt(options.limit);
-    if (opportunities.length > limit) {
-      opportunities = opportunities.slice(0, limit);
-    }
-    
-    // Handle session management
-    let sessionId = options.session;
-    
-    if (options.createSession && opportunities.length > 0) {
-      spinner.start('Creating refactoring session...');
-      
-      const sessionName = await prompts.input({
-        message: 'Session name:',
-        default: `Refactor ${selectedPattern || 'multiple patterns'} - ${new Date().toLocaleDateString()}`
-      });
-      
-      const sessionDescription = await prompts.input({
-        message: 'Session description:',
-        default: `Detected ${opportunities.length} refactoring opportunities`
-      });
-      
-      const session = await sessionManager.createSession(sessionName, sessionDescription);
-      sessionId = session.id;
-      
-      // Link opportunities to session
-      const opportunityIds = opportunities.map(opp => opp.id);
-      await sessionManager.linkOpportunitiesToSession(sessionId, opportunityIds);
-      
-      // Add functions to session
-      const functionIds = [...new Set(opportunities.map(opp => opp.function_id))];
-      await sessionManager.addFunctionsToSession(sessionId, functionIds);
-      
-      spinner.succeed(`Created session: ${session.name} (${session.id})`);
-    }
-    
-    // Interactive mode
     if (options.interactive && opportunities.length > 0) {
       await runInteractiveDetection(opportunities, sessionManager, sessionId);
     } else {
-      // Display results
-      if (options.json) {
-        console.log(JSON.stringify({
-          pattern: selectedPattern,
-          opportunitiesFound: opportunities.length,
-          sessionId,
-          opportunities: opportunities.map(opp => ({
-            id: opp.id,
-            pattern: opp.pattern,
-            severity: opp.severity,
-            impact_score: opp.impact_score,
-            function_id: opp.function_id,
-            description: opp.description,
-            metadata: opp.metadata
-          }))
-        }, null, 2));
-      } else {
-        displayDetectionResults(opportunities, selectedPattern, sessionId);
-      }
+      displayResults(opportunities, selectedPattern, sessionId, options);
     }
     
   } catch (error) {
