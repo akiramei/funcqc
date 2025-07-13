@@ -90,9 +90,10 @@ program
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
-  .action(async (options: OptionValues) => {
-    const { scanCommand } = await import('./cli/scan');
-    return scanCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { scanCommand } = await import('./cli/commands/scan');
+    return withEnvironment(scanCommand)(options, command);
   });
 
 program
@@ -214,9 +215,10 @@ program
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
-  .action(async (from: string, to: string, options: OptionValues) => {
-    const { diffCommand } = await import('./cli/diff');
-    return diffCommand(from, to, options);
+  .action(async (from: string, to: string, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { diffCommand } = await import('./cli/commands/diff');
+    return withEnvironment(diffCommand(from, to))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -262,9 +264,10 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
-  .action(async (options: OptionValues, cmd: Command) => {
-    const { similarCommand } = await import('./cli/similar');
-    await similarCommand(options, cmd);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { similarCommand } = await import('./cli/commands/similar');
+    return withEnvironment(similarCommand)(options, command);
   });
 
 program
@@ -287,9 +290,10 @@ program
   .option('--error-conditions <conditions>', 'document error conditions and handling')
   .option('--generate-template', 'generate JSON template for the specified function')
   .option('--ai-mode', 'enable AI-optimized batch processing')
-  .action(async (functionId: string | undefined, options: OptionValues) => {
-    const { describeCommand } = await import('./cli/describe');
-    await describeCommand(functionId || '', options);
+  .action(async (functionId: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { describeCommand } = await import('./cli/commands/describe');
+    return withEnvironment(describeCommand(functionId || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -356,9 +360,10 @@ program
   .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
   .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
   .option('--intermediate', 'output intermediate results for AI analysis')
-  .action(async (keyword: string, options: OptionValues) => {
-    const { searchCommand } = await import('./cli/search');
-    await searchCommand(keyword, options);
+  .action(async (keyword: string, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { searchCommand } = await import('./cli/commands/search');
+    return withEnvironment(searchCommand(keyword))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -382,16 +387,32 @@ Hybrid Search:
   Optimal for comprehensive code exploration
 `);
 
-// Add vectorize command - loaded dynamically
-program.addCommand(
-  new Command('vectorize')
-    .description('Vectorize functions for semantic search')
-    .action(async () => {
-      const { createVectorizeCommand } = await import('./cli/vectorize');
-      const vectorizeCommand = createVectorizeCommand();
-      await vectorizeCommand.parseAsync(process.argv.slice(2));
-    })
-);
+program
+  .command('vectorize')
+  .description('Generate and manage embeddings for function descriptions')
+  .option('--all', 'vectorize all functions with descriptions')
+  .option('--recent', 'vectorize only functions without embeddings (default)')
+  .option('--status', 'show vectorization status')
+  .option('--rebuild-index', 'rebuild ANN index for faster search')
+  .option(
+    '--index-algorithm <algorithm>',
+    'ANN algorithm (hierarchical, lsh, hybrid)',
+    'hierarchical'
+  )
+  .option('--index-config <config>', 'JSON config for ANN index (clusters, hash bits, etc.)')
+  .option('--benchmark', 'benchmark ANN index performance')
+  .option('--index-stats', 'show ANN index statistics')
+  .option('--api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env var)')
+  .option('--model <model>', 'embedding model to use', 'text-embedding-3-small')
+  .option('--batch-size <size>', 'batch size for processing', '100')
+  .option('--limit <n>', 'limit number of functions to process')
+  .option('--output <format>', 'output format (console, json)', 'console')
+  .option('--force', 'skip confirmation prompts')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { vectorizeCommand } = await import('./cli/commands/vectorize');
+    return withEnvironment(vectorizeCommand)(options, command);
+  });
 
 // Add evaluate command (v1.6 enhancement) - loaded dynamically
 program.addCommand(
@@ -413,9 +434,10 @@ program
   .option('--ai-generated', 'code is AI-generated (affects exit codes)')
   .option('--strict', 'strict mode for critical violations')
   .option('-j, --json', 'output as JSON for integration')
-  .action(async (input: string | undefined, options: OptionValues) => {
-    const { evaluateCommand } = await import('./cli/evaluate.js');
-    return evaluateCommand(input || '', options);
+  .action(async (input: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { evaluateCommand } = await import('./cli/commands/evaluate');
+    return withEnvironment(evaluateCommand(input || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -454,9 +476,10 @@ program
       .option('--from-function <pattern>', 'filter by source function name pattern')
       .option('--to-function <pattern>', 'filter by target function name pattern')
       .option('--confidence <threshold>', 'filter by minimum confidence (0-1)')
-      .action(async (options: OptionValues) => {
-        const { lineageListCommand } = await import('./cli/lineage');
-        await lineageListCommand(options);
+      .action(async (options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('list'))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -471,9 +494,10 @@ Examples:
     new Command('show')
       .description('Show detailed lineage information')
       .argument('<lineage-id>', 'lineage ID to display')
-      .action(async (lineageId: string, options: OptionValues) => {
-        const { lineageShowCommand } = await import('./cli/lineage');
-        await lineageShowCommand(lineageId, options);
+      .action(async (lineageId: string, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('show', [lineageId]))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -488,9 +512,10 @@ Examples:
       .option('--reject', 'reject the lineage')
       .option('--note <text>', 'add review note')
       .option('--all', 'review all draft lineages')
-      .action(async (lineageId: string | undefined, options: OptionValues) => {
-        const { lineageReviewCommand } = await import('./cli/lineage');
-        await lineageReviewCommand(lineageId || '', options);
+      .action(async (lineageId: string | undefined, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('review', lineageId ? [lineageId] : []))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -503,9 +528,10 @@ Examples:
     new Command('delete')
       .description('Delete a specific lineage')
       .argument('<lineage-id>', 'lineage ID to delete')
-      .action(async (lineageId: string, options: OptionValues) => {
-        const { lineageDeleteCommand } = await import('./cli/lineage');
-        await lineageDeleteCommand(lineageId, options);
+      .action(async (lineageId: string, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('delete', [lineageId]))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -522,9 +548,10 @@ Examples:
       .option('-y, --yes', 'skip confirmation prompt')
       .option('--include-approved', 'include approved lineages (requires --force)')
       .option('--force', 'required flag when deleting approved lineages')
-      .action(async (options: OptionValues) => {
-        const { lineageCleanCommand } = await import('./cli/lineage');
-        await lineageCleanCommand(options);
+      .action(async (options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('clean'))(options, command);
       })
       .addHelpText('after', `
 Examples:
