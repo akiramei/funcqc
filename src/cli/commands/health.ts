@@ -30,6 +30,18 @@ interface TrendAnalysis {
   recommendations: string[];
 }
 
+// リスク計算とフィルタリングの定数
+const RISK_CALCULATION_WEIGHTS = {
+  COMPLEXITY_WEIGHT: 10,
+  LOC_WEIGHT: 1,
+} as const;
+
+const RISK_THRESHOLDS = {
+  MIN_COMPLEXITY: 10,
+  MIN_LOC: 50,
+  MAX_RESULTS: 10,
+} as const;
+
 interface RecommendedAction {
   priority: number;
   functionName: string;
@@ -320,38 +332,10 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
   const qualityData = await calculateQualityMetrics(functions, env.config);
   const riskCounts = await calculateRiskDistribution(functions);
   
-  // Generate recommendations if --risks option is enabled
-  let recommendations: RecommendedAction[] | undefined;
-  let riskDetails;
-  
-  if (options.risks) {
-    const riskFunctions = await calculateRiskFunctions(functions);
-    recommendations = generateRecommendedActions(riskFunctions);
-    
-    riskDetails = {
-      distribution: riskCounts,
-      percentages: {
-        high: ((riskCounts.high / functions.length) * 100),
-        medium: ((riskCounts.medium / functions.length) * 100),
-        low: ((riskCounts.low / functions.length) * 100),
-      },
-      averageRiskScore: qualityData.averageRiskScore,
-      highestRiskFunction: riskFunctions.length > 0 ? {
-        name: riskFunctions[0].function.displayName,
-        riskScore: Math.round(riskFunctions[0].score),
-        location: `${riskFunctions[0].function.filePath}:${riskFunctions[0].function.startLine}`,
-      } : undefined,
-    };
-  } else {
-    riskDetails = {
-      distribution: riskCounts,
-      percentages: {
-        high: ((riskCounts.high / functions.length) * 100),
-        medium: ((riskCounts.medium / functions.length) * 100),
-        low: ((riskCounts.low / functions.length) * 100),
-      },
-    };
-  }
+  // Generate recommendations and risk details
+  const { recommendations, riskDetails } = await generateRiskAnalysis(
+    functions, riskCounts, qualityData, options.risks
+  );
 
   return {
     status: 'success',
@@ -383,14 +367,67 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
 
 async function calculateRiskFunctions(functions: FunctionInfo[]): Promise<Array<{ function: FunctionInfo; score: number }>> {
   return functions
-    .filter(f => f.metrics)
+    .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
+      f.metrics !== undefined && 
+      typeof f.metrics.cyclomaticComplexity === 'number' && 
+      typeof f.metrics.linesOfCode === 'number'
+    )
     .map(f => ({ 
       function: f, 
-      score: f.metrics!.cyclomaticComplexity * 10 + f.metrics!.linesOfCode
+      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
+             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
     }))
-    .filter(item => item.function.metrics!.cyclomaticComplexity >= 10 || item.function.metrics!.linesOfCode >= 50)
+    .filter(item => 
+      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
+      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
+    )
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10); // Get top 10 for JSON output
+    .slice(0, RISK_THRESHOLDS.MAX_RESULTS);
+}
+
+async function generateRiskAnalysis(
+  functions: FunctionInfo[], 
+  riskCounts: RiskDistribution, 
+  qualityData: QualityMetrics, 
+  includeRisks: boolean = false
+): Promise<{ recommendations: RecommendedAction[] | undefined; riskDetails: {
+  distribution: RiskDistribution;
+  percentages: { high: number; medium: number; low: number; };
+  averageRiskScore?: number;
+  highestRiskFunction?: { name: string; riskScore: number; location: string; } | undefined;
+} }> {
+  const baseRiskDetails = {
+    distribution: riskCounts,
+    percentages: {
+      high: ((riskCounts.high / functions.length) * 100),
+      medium: ((riskCounts.medium / functions.length) * 100),
+      low: ((riskCounts.low / functions.length) * 100),
+    },
+  };
+
+  if (!includeRisks) {
+    return { recommendations: undefined, riskDetails: baseRiskDetails };
+  }
+
+  try {
+    const riskFunctions = await calculateRiskFunctions(functions);
+    const recommendations = generateRecommendedActions(riskFunctions);
+    
+    const riskDetails = {
+      ...baseRiskDetails,
+      averageRiskScore: qualityData.averageRiskScore,
+      highestRiskFunction: riskFunctions.length > 0 ? {
+        name: riskFunctions[0].function.displayName,
+        riskScore: Math.round(riskFunctions[0].score),
+        location: `${riskFunctions[0].function.filePath}:${riskFunctions[0].function.startLine}`,
+      } : undefined,
+    };
+    
+    return { recommendations, riskDetails };
+  } catch (error) {
+    // エラーが発生した場合は基本的なリスク詳細のみを返す
+    return { recommendations: undefined, riskDetails: baseRiskDetails };
+  }
 }
 
 function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInfo; score: number }>): RecommendedAction[] {
