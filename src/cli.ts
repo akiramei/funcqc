@@ -105,9 +105,10 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
-  .action(async (options: OptionValues) => {
-    const { listCommand } = await import('./cli/list');
-    return listCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { listCommand } = await import('./cli/commands/list');
+    return withEnvironment(listCommand)(options, command);
   });
 
 program
@@ -126,9 +127,10 @@ program
   .option('--source', 'show function source code')
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .action(async (namePattern: string | undefined, options: OptionValues) => {
-    const { showCommand } = await import('./cli/show');
-    return showCommand(namePattern, options);
+  .action(async (namePattern: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { showCommand } = await import('./cli/commands/show');
+    return withEnvironment(showCommand(namePattern || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -170,9 +172,10 @@ program
   .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--ai-optimized', 'deprecated: use --json instead')
-  .action(async (options: OptionValues) => {
-    const { healthCommand } = await import('./cli/health');
-    return healthCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { healthCommand } = await import('./cli/commands/health');
+    return withEnvironment(healthCommand)(options, command);
   });
 
 program
@@ -188,9 +191,10 @@ program
   .option('--id <function-id>', 'track history of specific function by ID')
   .option('--all', 'show all snapshots including where function is absent (with --id)')
   .option('--json', 'output as JSON')
-  .action(async (options: OptionValues) => {
-    const { historyCommand } = await import('./cli/history');
-    return historyCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { historyCommand } = await import('./cli/commands/history');
+    return withEnvironment(historyCommand)(options, command);
   });
 
 program

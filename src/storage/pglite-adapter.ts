@@ -2495,19 +2495,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `);
       
       if (result.rows.length > 0) {
-        // Use the logger instead of console.log to respect quiet mode
-        this.logger?.log('✅ Database schema already exists, skipping creation');
+        // Database schema already exists - skip creation without logging
+        // to avoid stdout contamination in JSON output
         return;
       }
       
       const schemaContent = readFileSync(schemaPath, 'utf-8');
       await this.db.exec(schemaContent);
-      // Only log if not in silent mode or JSON output
-      const isJsonOutput = process.argv.includes('--json') || process.argv.includes('--jsonl');
-      const isSilent = process.env['npm_config_silent'] === 'true';
-      if (!isJsonOutput && !isSilent) {
-        console.log('✅ Database schema created directly from database.sql');
-      }
+      // Database schema creation completed - no logging to avoid stdout contamination
     } catch (error) {
       this.logger?.error(`❌ Failed to create database schema: ${error}`);
       throw new Error(`Database schema creation failed: ${error instanceof Error ? error.message : String(error)}`);

@@ -1,69 +1,56 @@
 import chalk from 'chalk';
-import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
-import { Logger } from '../utils/cli-utils';
-import { formatDuration } from '../utils/file-utils';
-import { CommandOptions, FunctionInfo, SnapshotInfo, SnapshotMetadata } from '../types';
-import { ErrorCode, createErrorHandler } from '../utils/error-handler';
+import { 
+  HistoryCommandOptions, 
+  FunctionInfo, 
+  SnapshotInfo, 
+  SnapshotMetadata 
+} from '../../types';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
+import { formatDuration } from '../../utils/file-utils';
 
-export interface HistoryCommandOptions extends CommandOptions {
-  verbose?: boolean;
-  since?: string;
-  until?: string;
-  limit?: string;
-  author?: string;
-  branch?: string;
-  label?: string;
-  id?: string;
-  all?: boolean;
-  json?: boolean;
-}
+/**
+ * History command as a Reader function
+ * Uses shared storage and config from environment
+ */
+export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
 
-export async function historyCommand(options: HistoryCommandOptions): Promise<void> {
-  const logger = new Logger(options.verbose, options.quiet);
-  const errorHandler = createErrorHandler(logger);
-
-  try {
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-
-    const storage = new PGLiteStorageAdapter(config.storage.path!, logger);
-    await storage.init();
-
-    if (options.id) {
-      // Function tracking mode
-      await displayFunctionHistory(options.id, options, storage, logger);
-    } else {
-      // Standard snapshot history mode
-      await displaySnapshotHistory(options, storage, logger);
+    try {
+      if (options.id) {
+        // Function tracking mode
+        await displayFunctionHistory(options.id, options, env);
+      } else {
+        // Standard snapshot history mode
+        await displaySnapshotHistory(options, env);
+      }
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        const funcqcError = errorHandler.createError(
+          error.code,
+          error.message,
+          {},
+          error.originalError
+        );
+        errorHandler.handleError(funcqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to retrieve history: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
     }
-
-    await storage.close();
-  } catch (error) {
-    if (error instanceof DatabaseError) {
-      const funcqcError = errorHandler.createError(
-        error.code,
-        error.message,
-        {},
-        error.originalError
-      );
-      errorHandler.handleError(funcqcError);
-    } else {
-      const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Failed to retrieve history: ${error instanceof Error ? error.message : String(error)}`,
-        {},
-        error instanceof Error ? error : undefined
-      );
-      errorHandler.handleError(funcqcError);
-    }
-  }
-}
+  };
 
 async function displaySnapshotHistory(
   options: HistoryCommandOptions,
-  storage: PGLiteStorageAdapter,
-  logger: Logger
+  env: CommandEnvironment
 ): Promise<void> {
   // Parse options
   const limit = options.limit ? parseInt(options.limit) : 20;
@@ -71,13 +58,13 @@ async function displaySnapshotHistory(
   const until = options.until ? new Date(options.until) : undefined;
 
   // Get snapshots with filters
-  const snapshots = await storage.getSnapshots({
+  const snapshots = await env.storage.getSnapshots({
     limit,
     // Note: More advanced filtering would be implemented here
   });
 
   if (snapshots.length === 0) {
-    logger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
+    env.commandLogger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
     return;
   }
 
@@ -100,17 +87,66 @@ async function displaySnapshotHistory(
     filteredSnapshots = filteredSnapshots.filter(s => s.label && s.label.includes(options.label!));
   }
 
+  // Check for JSON output
+  const isJsonMode = options.json || process.argv.includes('--json');
+  
+  if (isJsonMode) {
+    displaySnapshotHistoryJSON(filteredSnapshots);
+    return;
+  }
+
   // Display results
   console.log(chalk.cyan.bold(`\n📈 Snapshot History (${filteredSnapshots.length} snapshots)\n`));
 
-  if (options.verbose) {
-    await displayDetailedHistory(filteredSnapshots, storage, logger);
+  const isVerboseMode = options.verbose || process.argv.includes('--verbose');
+  
+  if (isVerboseMode) {
+    await displayDetailedHistory(filteredSnapshots, env);
   } else {
     displayCompactHistory(filteredSnapshots);
   }
 
   // Display summary statistics
   displayHistorySummary(filteredSnapshots);
+}
+
+function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
+  const output = {
+    snapshots: snapshots.map(snapshot => ({
+      id: snapshot.id,
+      label: snapshot.label || null,
+      comment: snapshot.comment || null,
+      createdAt: new Date(snapshot.createdAt).toISOString(),
+      gitBranch: snapshot.gitBranch || null,
+      gitCommit: snapshot.gitCommit || null,
+      metadata: {
+        totalFunctions: snapshot.metadata.totalFunctions,
+        totalFiles: snapshot.metadata.totalFiles,
+        avgComplexity: snapshot.metadata.avgComplexity,
+        maxComplexity: snapshot.metadata.maxComplexity,
+        exportedFunctions: snapshot.metadata.exportedFunctions,
+        asyncFunctions: snapshot.metadata.asyncFunctions,
+        complexityDistribution: snapshot.metadata.complexityDistribution,
+        fileExtensions: snapshot.metadata.fileExtensions
+      }
+    })),
+    summary: {
+      totalSnapshots: snapshots.length,
+      period: snapshots.length > 1 
+        ? formatDuration(snapshots[0].createdAt - snapshots[snapshots.length - 1].createdAt)
+        : 'single snapshot',
+      averageFunctionsPerSnapshot: snapshots.length > 0 
+        ? Math.round(snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0) / snapshots.length)
+        : 0,
+      overallAvgComplexity: snapshots.length > 0
+        ? (snapshots.reduce((sum, s) => sum + s.metadata.avgComplexity * s.metadata.totalFunctions, 0) / 
+           snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0))
+        : 0,
+      gitBranches: Array.from(new Set(snapshots.filter(s => s.gitBranch).map(s => s.gitBranch)))
+    }
+  };
+
+  console.log(JSON.stringify(output, null, 2));
 }
 
 function truncateWithEllipsis(str: string, maxLength: number): string {
@@ -168,8 +204,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
 
 async function displayDetailedHistory(
   snapshots: SnapshotInfo[],
-  storage: PGLiteStorageAdapter,
-  logger: Logger
+  env: CommandEnvironment
 ): Promise<void> {
   for (let i = 0; i < snapshots.length; i++) {
     const snapshot = snapshots[i];
@@ -187,7 +222,7 @@ async function displayDetailedHistory(
 
     // Display changes since previous
     if (prevSnapshot) {
-      await displaySnapshotChanges(prevSnapshot.id, snapshot.id, storage, logger);
+      await displaySnapshotChanges(prevSnapshot.id, snapshot.id, env);
     }
 
     console.log(''); // Empty line
@@ -243,11 +278,10 @@ function displayFileExtensions(extensions: Record<string, number> | undefined): 
 async function displaySnapshotChanges(
   _prevSnapshotId: string,
   _currentSnapshotId: string,
-  storage: PGLiteStorageAdapter,
-  logger: Logger
+  env: CommandEnvironment
 ): Promise<void> {
   try {
-    const diff = await storage.diffSnapshots(_prevSnapshotId, _currentSnapshotId);
+    const diff = await env.storage.diffSnapshots(_prevSnapshotId, _currentSnapshotId);
     const changes = diff.statistics.totalChanges;
 
     if (changes > 0) {
@@ -266,7 +300,7 @@ async function displaySnapshotChanges(
       }
     }
   } catch (error) {
-    logger.debug('Failed to calculate diff', error);
+    env.commandLogger.debug('Failed to calculate diff', error);
   }
 }
 
@@ -387,14 +421,13 @@ function formatDate(timestamp: number): string {
 async function displayFunctionHistory(
   functionId: string,
   options: HistoryCommandOptions,
-  storage: PGLiteStorageAdapter,
-  _logger: Logger
+  env: CommandEnvironment
 ): Promise<void> {
   const limit = options.limit ? parseInt(options.limit) : 20;
   const includeAbsent = options.all || false;
 
   // Use the new efficient method
-  const history = await storage.getFunctionHistory(functionId, {
+  const history = await env.storage.getFunctionHistory(functionId, {
     limit: limit * 2, // Get more to allow for filtering
     includeAbsent,
   });
@@ -496,7 +529,9 @@ function displayFunctionHistoryResults(
 
   console.log(chalk.cyan.bold(`\n🔍 Function History: ${functionName} [${shortId}]\n`));
 
-  if (options.verbose) {
+  const isVerboseMode = options.verbose || process.argv.includes('--verbose');
+  
+  if (isVerboseMode) {
     displayDetailedFunctionHistory(history, functionName);
   } else {
     displayCompactFunctionHistory(history, functionName, options);

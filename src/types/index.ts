@@ -399,6 +399,7 @@ export interface HealthCommandOptions extends CommandOptions {
   showConfig?: boolean;
   verbose?: boolean;
   json?: boolean; // JSON output for jq/script processing
+  quiet?: boolean;  // Ensure BaseCommandOptions compatibility
   period?: string;
   aiOptimized?: boolean; // Deprecated: use json instead
 }

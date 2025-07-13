@@ -26,18 +26,21 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
         systemChecker.checkSystem();
       }
 
+      // Detect JSON output mode to ensure complete silence
+      const isJsonOutput = Boolean(options['json']) || process.argv.includes('--json');
+      
       // Create application environment
       appEnv = await createAppEnvironment({
         configPath: parentOpts['config'],
         dbPath: parentOpts['cwd'] ? `${parentOpts['cwd']}/.funcqc/funcqc.db` : undefined,
-        quiet: Boolean(parentOpts['quiet']),
-        verbose: Boolean(parentOpts['verbose']),
+        quiet: Boolean(parentOpts['quiet']) || isJsonOutput, // Force quiet for JSON output
+        verbose: Boolean(parentOpts['verbose']) && !isJsonOutput, // Disable verbose for JSON output
       });
 
       // Create command-specific environment
       const commandEnv = createCommandEnvironment(appEnv, {
-        quiet: Boolean(options['quiet'] ?? parentOpts['quiet']),
-        verbose: Boolean(options['verbose'] ?? parentOpts['verbose']),
+        quiet: Boolean(options['quiet'] ?? parentOpts['quiet']) || isJsonOutput,
+        verbose: Boolean(options['verbose'] ?? parentOpts['verbose']) && !isJsonOutput,
       });
 
       // Execute Reader command with injected environment
