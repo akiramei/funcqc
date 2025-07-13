@@ -141,7 +141,7 @@ function outputFormatted(
   functions: FunctionInfo[],
   filteredCount: number,
   totalCount: number,
-  options: ListCommandOptions
+  _options: ListCommandOptions
 ): void {
   if (functions.length === 0) {
     console.log('No functions match the criteria.');

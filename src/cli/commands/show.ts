@@ -1,8 +1,7 @@
 import chalk from 'chalk';
-import { ShowCommandOptions, FunctionInfo, QualityMetrics } from '../../types';
+import { ShowCommandOptions, FunctionInfo } from '../../types';
 import { calculateFileHash, fileExists } from '../../utils/file-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
-import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 
@@ -143,7 +142,7 @@ async function outputFriendly(
   console.log(); // Empty line at end
 }
 
-async function displayBasicInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('📋 Basic Information:'));
   console.log(`  Name: ${func.displayName}`);
   console.log(`  File: ${func.filePath}:${func.startLine}-${func.endLine}`);
@@ -281,7 +280,7 @@ function displayTechnicalInfo(func: FunctionInfo): void {
   console.log();
 }
 
-async function displayUsageInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+async function displayUsageInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('🎯 Usage Information:'));
   
   // Function description usage patterns

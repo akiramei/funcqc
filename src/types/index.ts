@@ -402,6 +402,7 @@ export interface HealthCommandOptions extends CommandOptions {
   quiet?: boolean;  // Ensure BaseCommandOptions compatibility
   period?: string;
   aiOptimized?: boolean; // Deprecated: use json instead
+  snapshot?: string; // Snapshot ID/identifier for historical health analysis
 }
 
 export interface HistoryCommandOptions extends CommandOptions {

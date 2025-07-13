@@ -7,6 +7,7 @@ import {
   SnapshotInfo,
 } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { resolveSnapshotId } from '../../utils/snapshot-resolver';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
@@ -26,6 +27,35 @@ interface TrendAnalysis {
   overallTrend: 'improving' | 'stable' | 'degrading';
   keyInsights: string[];
   recommendations: string[];
+}
+
+interface HealthData {
+  status: 'success' | 'no-data';
+  message?: string;
+  snapshot?: {
+    id: string;
+    createdAt: string;
+    totalFunctions: number;
+  };
+  quality?: {
+    overallGrade: string;
+    overallScore: number;
+    complexity: {
+      grade: string;
+      score: number;
+    };
+    maintainability: {
+      grade: string;
+      score: number;
+    };
+    size: {
+      grade: string;
+      score: number;
+    };
+  };
+  risk?: unknown;
+  git?: unknown;
+  recommendations?: unknown;
 }
 
 /**
@@ -92,27 +122,24 @@ async function handleJsonOutput(env: CommandEnvironment, options: HealthCommandO
 
 async function displayHealthOverview(
   env: CommandEnvironment,
-  _options: HealthCommandOptions
+  options: HealthCommandOptions
 ): Promise<void> {
   console.log(chalk.blue('funcqc Health Report'));
   console.log('-'.repeat(50));
   console.log('');
 
-  // Get latest snapshot
-  const snapshots = await env.storage.getSnapshots({ limit: 1 });
-  if (snapshots.length === 0) {
+  const { snapshot: targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
+  
+  if (!targetSnapshot) {
     console.log(chalk.yellow('📋 No snapshots found.'));
     console.log(chalk.gray('   Run `funcqc scan` to create your first snapshot.'));
     return;
   }
 
-  const latestSnapshot = snapshots[0];
-  const functions = await env.storage.getFunctions(latestSnapshot.id);
-
   // Display project overview
   console.log(chalk.yellow('Project Overview:'));
   console.log(`  Total Functions: ${functions.length}`);
-  console.log(`  Last Analyzed: ${new Date(latestSnapshot.createdAt).toLocaleDateString()}`);
+  console.log(`  Last Analyzed: ${new Date(targetSnapshot.createdAt).toLocaleDateString()}`);
   console.log(`  Database: ${env.config.storage.path}`);
   console.log('');
 
@@ -207,17 +234,52 @@ function determinePeriod(options: HealthCommandOptions): number {
   return 7; // Default to 7 days
 }
 
-async function generateHealthData(env: CommandEnvironment, _options: HealthCommandOptions): Promise<any> {
-  const snapshots = await env.storage.getSnapshots({ limit: 1 });
-  if (snapshots.length === 0) {
+/**
+ * Gets the target snapshot and its functions based on options.
+ * If snapshot option is provided, resolve and use that specific snapshot.
+ * Otherwise, use the latest snapshot.
+ */
+async function getTargetSnapshotAndFunctions(
+  env: CommandEnvironment, 
+  options: HealthCommandOptions
+): Promise<{ snapshot: SnapshotInfo | null; functions: FunctionInfo[] }> {
+  let targetSnapshot: SnapshotInfo | null = null;
+  
+  if (options.snapshot) {
+    // Resolve specific snapshot
+    const snapshotId = await resolveSnapshotId(env, options.snapshot);
+    if (!snapshotId) {
+      throw new Error(`Snapshot not found: ${options.snapshot}`);
+    }
+    targetSnapshot = await env.storage.getSnapshot(snapshotId);
+    if (!targetSnapshot) {
+      throw new Error(`Snapshot not found: ${snapshotId}`);
+    }
+  } else {
+    // Use latest snapshot
+    const snapshots = await env.storage.getSnapshots({ limit: 1 });
+    if (snapshots.length > 0) {
+      targetSnapshot = snapshots[0];
+    }
+  }
+  
+  if (!targetSnapshot) {
+    return { snapshot: null, functions: [] };
+  }
+  
+  const functions = await env.storage.getFunctions(targetSnapshot.id);
+  return { snapshot: targetSnapshot, functions };
+}
+
+async function generateHealthData(env: CommandEnvironment, options: HealthCommandOptions): Promise<HealthData> {
+  const { snapshot: targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
+  
+  if (!targetSnapshot) {
     return {
       status: 'no-data',
       message: 'No snapshots found. Run `funcqc scan` to create your first snapshot.',
     };
   }
-
-  const latestSnapshot = snapshots[0];
-  const functions = await env.storage.getFunctions(latestSnapshot.id);
 
   const qualityData = await calculateQualityMetrics(functions, env.config);
   const riskCounts = await calculateRiskDistribution(functions);
@@ -225,8 +287,8 @@ async function generateHealthData(env: CommandEnvironment, _options: HealthComma
   return {
     status: 'success',
     snapshot: {
-      id: latestSnapshot.id,
-      createdAt: new Date(latestSnapshot.createdAt).toISOString(),
+      id: targetSnapshot.id,
+      createdAt: new Date(targetSnapshot.createdAt).toISOString(),
       totalFunctions: functions.length,
     },
     quality: {

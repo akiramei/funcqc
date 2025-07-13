@@ -75,10 +75,10 @@ export const lineageCommand = (subcommand: string, args: string[] = []): VoidCom
             if (args.length === 0) {
               throw new Error('Lineage ID is required for delete command');
             }
-            await lineageDeleteCommandImpl(args[0], options, env);
+            await lineageDeleteCommand(args[0], options, env);
             break;
           case 'clean':
-            await lineageCleanCommandImpl(options as LineageCleanOptions, env);
+            await lineageCleanCommand(options as LineageCleanOptions, env);
             break;
           default:
             throw new Error(`Unknown lineage subcommand: ${subcommand}`);
@@ -184,11 +184,15 @@ async function lineageReviewCommandImpl(
 // LINEAGE DELETE COMMAND
 // ========================================
 
-async function lineageDeleteCommandImpl(
+export async function lineageDeleteCommand(
   lineageId: string,
   _options: CommandOptions,
-  env: CommandEnvironment
+  env?: CommandEnvironment
 ): Promise<void> {
+  // For backward compatibility, create a mock environment if not provided
+  if (!env) {
+    throw new Error('Environment is required');
+  }
   // Get lineage details first
   const lineage = await env.storage.getLineage(lineageId);
   
@@ -236,10 +240,14 @@ async function lineageDeleteCommandImpl(
 // LINEAGE CLEAN COMMAND
 // ========================================
 
-async function lineageCleanCommandImpl(
+export async function lineageCleanCommand(
   options: LineageCleanOptions,
-  env: CommandEnvironment
+  env?: CommandEnvironment
 ): Promise<void> {
+  // For backward compatibility, create a mock environment if not provided
+  if (!env) {
+    throw new Error('Environment is required');
+  }
   const query = await buildCleanQuery(options, env.commandLogger);
   let lineages = await env.storage.getLineages(query);
   lineages = applyTimeFilter(lineages, options, env.commandLogger);

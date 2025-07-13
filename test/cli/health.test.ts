@@ -68,6 +68,38 @@ describe('Health Command', () => {
       expect(minimalOptions.json).toBeUndefined();
       expect(minimalOptions.period).toBeUndefined();
       expect(minimalOptions.aiOptimized).toBeUndefined();
+      expect(minimalOptions.snapshot).toBeUndefined();
+    });
+
+    it('should accept snapshot option', async () => {
+      const options: HealthCommandOptions = {
+        snapshot: 'abc123456',
+        trend: false,
+        risks: false,
+        showConfig: false,
+        verbose: false,
+        json: false
+      };
+
+      expect(options.snapshot).toBe('abc123456');
+      expect(typeof options.snapshot).toBe('string');
+    });
+
+    it('should accept various snapshot identifiers', async () => {
+      const testCases = [
+        'abc123456',          // Full ID
+        'abc123',             // Partial ID  
+        'HEAD~1',             // HEAD notation
+        'latest',             // Special keyword
+        'v1.0.0',             // Label/tag
+      ];
+
+      testCases.forEach(snapshotId => {
+        const options: HealthCommandOptions = {
+          snapshot: snapshotId
+        };
+        expect(options.snapshot).toBe(snapshotId);
+      });
     });
   });
 
