@@ -10,6 +10,7 @@ import {
   ConstructorDeclaration,
   Node,
   ModuleDeclaration,
+  VariableStatement,
 } from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -17,6 +18,18 @@ import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
+
+interface FunctionMetadata {
+  signature: string;
+  functionBody: string;
+  astHash: string;
+  signatureHash: string;
+  returnType: ReturnTypeInfo | undefined;
+  contextPath: string[];
+  modifiers: string[];
+  functionType: 'function' | 'method' | 'arrow' | 'local';
+  nestingLevel: number;
+}
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
@@ -478,6 +491,117 @@ export class TypeScriptAnalyzer {
     return functionInfo;
   }
 
+  /**
+   * Extracts function node from variable declaration initializer
+   */
+  private extractFunctionNodeFromVariable(initializer: Node): ArrowFunction | FunctionExpression | null {
+    if (initializer.getKind() === SyntaxKind.ArrowFunction) {
+      return initializer as ArrowFunction;
+    } else if (initializer.getKind() === SyntaxKind.FunctionExpression) {
+      return initializer as FunctionExpression;
+    }
+    return null;
+  }
+
+  /**
+   * Extracts metadata for a function node
+   */
+  private extractFunctionMetadata(
+    functionNode: ArrowFunction | FunctionExpression,
+    name: string,
+    fileContent: string,
+    stmt: VariableStatement
+  ): FunctionMetadata {
+    const signature = this.getArrowFunctionSignature(name, functionNode);
+    const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
+    const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
+    const functionBody = fileContent.substring(startPos, endPos);
+    const astHash = this.calculateASTHash(functionBody);
+    const signatureHash = this.calculateSignatureHash(signature);
+    const returnType = this.extractArrowFunctionReturnType(functionNode);
+
+    const contextPath = this.extractContextPath(functionNode as ArrowFunction);
+    const modifiers: string[] = [];
+    if (functionNode.isAsync()) modifiers.push('async');
+    if (stmt.isExported()) modifiers.push('exported');
+
+    const functionType = this.determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
+    const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
+
+    return {
+      signature,
+      functionBody,
+      astHash,
+      signatureHash,
+      returnType,
+      contextPath,
+      modifiers,
+      functionType,
+      nestingLevel,
+    };
+  }
+
+  /**
+   * Creates FunctionInfo object from extracted metadata
+   */
+  private createVariableFunctionInfo(
+    functionNode: ArrowFunction | FunctionExpression,
+    name: string,
+    metadata: FunctionMetadata,
+    relativePath: string,
+    fileHash: string,
+    stmt: VariableStatement
+  ): FunctionInfo {
+    const physicalId = this.generatePhysicalId();
+    const semanticId = this.generateSemanticId(
+      relativePath,
+      name,
+      metadata.signature,
+      metadata.contextPath,
+      metadata.modifiers
+    );
+    const contentId = this.generateContentId(metadata.astHash, metadata.functionBody);
+
+    const functionInfo: FunctionInfo = {
+      id: physicalId,
+      semanticId,
+      contentId,
+      name,
+      displayName: name,
+      signature: metadata.signature,
+      signatureHash: metadata.signatureHash,
+      filePath: relativePath,
+      fileHash,
+      startLine: functionNode.getStartLineNumber(),
+      endLine: functionNode.getEndLineNumber(),
+      startColumn: 0,
+      endColumn: 0,
+      astHash: metadata.astHash,
+      contextPath: metadata.contextPath,
+      functionType: metadata.functionType,
+      modifiers: metadata.modifiers,
+      nestingLevel: metadata.nestingLevel,
+      isExported: stmt.isExported(),
+      isAsync: functionNode.isAsync(),
+      isGenerator:
+        functionNode.getKind() === SyntaxKind.FunctionExpression
+          ? !!(functionNode as FunctionExpression).getAsteriskToken()
+          : false,
+      isArrowFunction: functionNode.getKind() === SyntaxKind.ArrowFunction,
+      isMethod: false,
+      isConstructor: false,
+      isStatic: false,
+      sourceCode: functionNode.getFullText().trim(),
+      parameters: this.extractArrowFunctionParameters(functionNode),
+    };
+
+    if (metadata.returnType) {
+      functionInfo.returnType = metadata.returnType;
+    }
+
+    return functionInfo;
+  }
+
   private extractVariableFunctions(
     sourceFile: SourceFile,
     relativePath: string,
@@ -492,83 +616,11 @@ export class TypeScriptAnalyzer {
         if (!initializer) return;
 
         const name = decl.getName();
-        let functionNode: ArrowFunction | FunctionExpression | null = null;
-
-        if (initializer.getKind() === SyntaxKind.ArrowFunction) {
-          functionNode = initializer as ArrowFunction;
-        } else if (initializer.getKind() === SyntaxKind.FunctionExpression) {
-          functionNode = initializer as FunctionExpression;
-        }
+        const functionNode = this.extractFunctionNodeFromVariable(initializer);
 
         if (functionNode) {
-          const signature = this.getArrowFunctionSignature(name, functionNode);
-          const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
-          const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
-          const functionBody = fileContent.substring(startPos, endPos);
-          const astHash = this.calculateASTHash(functionBody);
-          const signatureHash = this.calculateSignatureHash(signature);
-          const returnType = this.extractArrowFunctionReturnType(functionNode);
-
-          // Extract comprehensive function context
-          const contextPath = this.extractContextPath(functionNode as ArrowFunction);
-          const modifiers: string[] = [];
-          if (functionNode.isAsync()) modifiers.push('async');
-          if (stmt.isExported()) modifiers.push('exported');
-
-          const functionType = this.determineFunctionType(functionNode as ArrowFunction);
-          const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
-
-          // Generate 3D identification system
-          const physicalId = this.generatePhysicalId();
-          const semanticId = this.generateSemanticId(
-            relativePath,
-            name,
-            signature,
-            contextPath,
-            modifiers
-          );
-          const contentId = this.generateContentId(astHash, functionBody);
-          const functionInfo: FunctionInfo = {
-            id: physicalId,
-            semanticId,
-            contentId,
-            name,
-            displayName: name,
-            signature,
-            signatureHash,
-            filePath: relativePath,
-            fileHash,
-            startLine: functionNode.getStartLineNumber(),
-            endLine: functionNode.getEndLineNumber(),
-            startColumn: 0,
-            endColumn: 0,
-            astHash,
-
-            // Enhanced function identification
-            contextPath,
-            functionType,
-            modifiers,
-            nestingLevel,
-
-            // Existing function attributes
-            isExported: stmt.isExported(),
-            isAsync: functionNode.isAsync(),
-            isGenerator:
-              functionNode.getKind() === SyntaxKind.FunctionExpression
-                ? !!(functionNode as FunctionExpression).getAsteriskToken()
-                : false,
-            isArrowFunction: functionNode.getKind() === SyntaxKind.ArrowFunction,
-            isMethod: false,
-            isConstructor: false,
-            isStatic: false,
-            sourceCode: functionNode.getFullText().trim(),
-            parameters: this.extractArrowFunctionParameters(functionNode),
-          };
-
-          if (returnType) {
-            functionInfo.returnType = returnType;
-          }
-
+          const metadata = this.extractFunctionMetadata(functionNode, name, fileContent, stmt);
+          const functionInfo = this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
           functions.push(functionInfo);
         }
       });

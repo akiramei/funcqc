@@ -11,6 +11,7 @@
 import * as ts from 'typescript';
 import { FunctionInfo } from '../types';
 import { TypeSafetyScore, TypeSafetyIssue } from '../types/quality-enhancements';
+import { findFunctionNode } from '../utils/ast-utils';
 
 interface ASTContext {
   sourceFile: ts.SourceFile | undefined;
@@ -595,7 +596,7 @@ export class TypeSafetyAnalyzer {
       const typeChecker = program.getTypeChecker();
 
       // Find the function declaration/expression in the AST
-      const functionNode = this.findFunctionNode(sourceFile, functionInfo.name);
+      const functionNode = findFunctionNode(sourceFile, functionInfo.name);
 
       return {
         sourceFile,
@@ -636,44 +637,4 @@ export class TypeSafetyAnalyzer {
     }
   }
 
-  /**
-   * Finds the function node in the AST
-   */
-  private findFunctionNode(sourceFile: ts.SourceFile, functionName: string): ts.Node | undefined {
-    let result: ts.Node | undefined;
-
-    const visit = (node: ts.Node): void => {
-      if (ts.isFunctionDeclaration(node) && node.name?.text === functionName) {
-        result = node;
-        return;
-      }
-      if (
-        ts.isVariableDeclaration(node) &&
-        node.name.kind === ts.SyntaxKind.Identifier &&
-        (node.name as ts.Identifier).text === functionName &&
-        node.initializer &&
-        ts.isArrowFunction(node.initializer)
-      ) {
-        result = node.initializer;
-        return;
-      }
-      if (
-        ts.isMethodDeclaration(node) &&
-        node.name?.kind === ts.SyntaxKind.Identifier &&
-        (node.name as ts.Identifier).text === functionName
-      ) {
-        result = node;
-        return;
-      }
-      if (ts.isConstructorDeclaration(node) && functionName === 'constructor') {
-        result = node;
-        return;
-      }
-
-      ts.forEachChild(node, visit);
-    };
-
-    visit(sourceFile);
-    return result;
-  }
 }

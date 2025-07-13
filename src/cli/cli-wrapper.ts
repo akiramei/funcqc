@@ -8,6 +8,68 @@ import { AsyncReader } from '../types/reader';
 import { BaseCommandOptions } from '../types/command';
 
 /**
+ * Performs system check if enabled
+ */
+function performSystemCheck(parentOpts: OptionValues): void {
+  if (!parentOpts['noCheck'] && !parentOpts['checkSystem']) {
+    const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
+    const systemChecker = new SystemChecker(logger);
+    systemChecker.checkSystem();
+  }
+}
+
+/**
+ * Detects if JSON output mode is enabled
+ */
+function isJsonOutputMode<TOptions extends BaseCommandOptions>(options: TOptions): boolean {
+  return Boolean(options['json']) || process.argv.includes('--json');
+}
+
+/**
+ * Creates application environment with appropriate settings
+ */
+async function createAppEnv(parentOpts: OptionValues, isJsonOutput: boolean): Promise<AppEnvironment> {
+  return await createAppEnvironment({
+    configPath: parentOpts['config'],
+    dbPath: parentOpts['cwd'] ? `${parentOpts['cwd']}/.funcqc/funcqc.db` : undefined,
+    quiet: Boolean(parentOpts['quiet']) || isJsonOutput,
+    verbose: Boolean(parentOpts['verbose']) && !isJsonOutput,
+  });
+}
+
+/**
+ * Creates command environment with appropriate settings
+ */
+function createCmdEnv<TOptions extends BaseCommandOptions>(
+  appEnv: AppEnvironment,
+  options: TOptions,
+  parentOpts: OptionValues,
+  isJsonOutput: boolean
+): CommandEnvironment {
+  return createCommandEnvironment(appEnv, {
+    quiet: Boolean(options['quiet'] ?? parentOpts['quiet']) || isJsonOutput,
+    verbose: Boolean(options['verbose'] ?? parentOpts['verbose']) && !isJsonOutput,
+  });
+}
+
+/**
+ * Handles and logs errors with proper formatting
+ */
+function handleCommandError(error: unknown, parentOpts: OptionValues): never {
+  const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
+  const errorHandler = createErrorHandler(logger);
+  
+  const funcqcError = errorHandler.createError(
+    ErrorCode.UNKNOWN_ERROR,
+    `Command failed: ${error instanceof Error ? error.message : String(error)}`,
+    { command: process.argv.slice(2) },
+    error instanceof Error ? error : undefined
+  );
+  errorHandler.handleError(funcqcError);
+  process.exit(1);
+}
+
+/**
  * Higher-order function that wraps Reader-based commands with environment injection
  */
 export function withEnvironment<TOptions extends BaseCommandOptions>(
@@ -18,49 +80,18 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
     let appEnv: AppEnvironment | null = null;
     
     try {
+      performSystemCheck(parentOpts);
       
-      // System check if not disabled
-      if (!parentOpts['noCheck'] && !parentOpts['checkSystem']) {
-        const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
-        const systemChecker = new SystemChecker(logger);
-        systemChecker.checkSystem();
-      }
+      const isJsonOutput = isJsonOutputMode(options);
+      appEnv = await createAppEnv(parentOpts, isJsonOutput);
+      const commandEnv = createCmdEnv(appEnv, options, parentOpts, isJsonOutput);
 
-      // Detect JSON output mode to ensure complete silence
-      const isJsonOutput = Boolean(options['json']) || process.argv.includes('--json');
-      
-      // Create application environment
-      appEnv = await createAppEnvironment({
-        configPath: parentOpts['config'],
-        dbPath: parentOpts['cwd'] ? `${parentOpts['cwd']}/.funcqc/funcqc.db` : undefined,
-        quiet: Boolean(parentOpts['quiet']) || isJsonOutput, // Force quiet for JSON output
-        verbose: Boolean(parentOpts['verbose']) && !isJsonOutput, // Disable verbose for JSON output
-      });
-
-      // Create command-specific environment
-      const commandEnv = createCommandEnvironment(appEnv, {
-        quiet: Boolean(options['quiet'] ?? parentOpts['quiet']) || isJsonOutput,
-        verbose: Boolean(options['verbose'] ?? parentOpts['verbose']) && !isJsonOutput,
-      });
-
-      // Execute Reader command with injected environment
       const readerFn = commandReader(options);
       await readerFn(commandEnv);
 
     } catch (error) {
-      const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
-      const errorHandler = createErrorHandler(logger);
-      
-      const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Command failed: ${error instanceof Error ? error.message : String(error)}`,
-        { command: process.argv.slice(2) },
-        error instanceof Error ? error : undefined
-      );
-      errorHandler.handleError(funcqcError);
-      process.exit(1);
+      handleCommandError(error, parentOpts);
     } finally {
-      // Clean up resources
       if (appEnv) {
         await destroyAppEnvironment(appEnv);
       }

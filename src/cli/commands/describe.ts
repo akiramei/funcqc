@@ -91,34 +91,55 @@ async function loadBatchDescriptions(inputPath: string): Promise<DescribeBatchIn
   return inputData as DescribeBatchInput[];
 }
 
-async function processBatchDescription(
+/**
+ * Validates batch description input
+ */
+function validateBatchInput(
   env: CommandEnvironment,
-  desc: DescribeBatchInput,
-  options: DescribeCommandOptions
-): Promise<void> {
+  desc: DescribeBatchInput
+): boolean {
   if (!desc.semanticId || !desc.description) {
     env.commandLogger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
-    return;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Checks source guard permissions for batch operations
+ */
+function checkSourceGuardPermissions(
+  env: CommandEnvironment,
+  existingDescription: FunctionDescription | null,
+  newSource: 'human' | 'ai' | 'jsdoc',
+  semanticId: string,
+  force: boolean
+): boolean {
+  if (!existingDescription || force) {
+    return true;
   }
 
-  const validatedForContentId = await findContentIdBySemanticId(env, desc.semanticId);
-
-  // Check for existing description and validate source guard for batch operations
-  const existingDescription = await env.storage.getFunctionDescription(desc.semanticId);
-  const newSource = desc.source || options.source || 'human';
-
-  if (existingDescription && !options.force) {
-    const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
-    if (sourceGuardWarning) {
-      env.commandLogger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning}`);
-      env.commandLogger.info(
-        `    → Use "source": "${existingDescription.source}" in JSON or --force to override`
-      );
-      return;
-    }
+  const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
+  if (sourceGuardWarning) {
+    env.commandLogger.warn(`⚠️  Skipping ${semanticId}: ${sourceGuardWarning}`);
+    env.commandLogger.info(
+      `    → Use "source": "${existingDescription.source}" in JSON or --force to override`
+    );
+    return false;
   }
+  return true;
+}
 
-  const description = createFunctionDescription(desc.semanticId, desc.description, {
+/**
+ * Creates description object with merged options
+ */
+function buildDescriptionObject(
+  desc: DescribeBatchInput,
+  options: DescribeCommandOptions,
+  validatedForContentId: string,
+  newSource: 'human' | 'ai' | 'jsdoc'
+) {
+  return createFunctionDescription(desc.semanticId, desc.description, {
     source: newSource,
     validatedForContentId,
     createdBy: desc.createdBy || options.by,
@@ -129,7 +150,26 @@ async function processBatchDescription(
     sideEffects: desc.sideEffects || options.sideEffects,
     errorConditions: desc.errorConditions || options.errorConditions,
   });
+}
 
+async function processBatchDescription(
+  env: CommandEnvironment,
+  desc: DescribeBatchInput,
+  options: DescribeCommandOptions
+): Promise<void> {
+  if (!validateBatchInput(env, desc)) {
+    return;
+  }
+
+  const validatedForContentId = await findContentIdBySemanticId(env, desc.semanticId);
+  const existingDescription = await env.storage.getFunctionDescription(desc.semanticId);
+  const newSource: 'human' | 'ai' | 'jsdoc' = (desc.source as 'human' | 'ai' | 'jsdoc') || options.source || 'human';
+
+  if (!checkSourceGuardPermissions(env, existingDescription, newSource, desc.semanticId, Boolean(options.force))) {
+    return;
+  }
+
+  const description = buildDescriptionObject(desc, options, validatedForContentId || '', newSource);
   await env.storage.saveFunctionDescription(description);
   env.commandLogger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
 }

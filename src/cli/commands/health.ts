@@ -5,6 +5,7 @@ import {
   FunctionInfo,
   FuncqcConfig,
   SnapshotInfo,
+  QualityMetrics as FunctionQualityMetrics,
 } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { resolveSnapshotId } from '../../utils/snapshot-resolver';
@@ -27,6 +28,33 @@ interface TrendAnalysis {
   overallTrend: 'improving' | 'stable' | 'degrading';
   keyInsights: string[];
   recommendations: string[];
+}
+
+// リスク計算とフィルタリングの定数
+const RISK_CALCULATION_WEIGHTS = {
+  COMPLEXITY_WEIGHT: 10,
+  LOC_WEIGHT: 1,
+} as const;
+
+const RISK_THRESHOLDS = {
+  MIN_COMPLEXITY: 10,
+  MIN_LOC: 40, // Consistent with project-wide LOC threshold
+  MAX_RESULTS: 10,
+} as const;
+
+interface RecommendedAction {
+  priority: number;
+  functionName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  riskScore: number;
+  action: string;
+  suggestions: string[];
+  metrics: {
+    cyclomaticComplexity: number;
+    linesOfCode: number;
+  };
 }
 
 interface HealthData {
@@ -53,9 +81,22 @@ interface HealthData {
       score: number;
     };
   };
-  risk?: unknown;
+  risk?: {
+    distribution: RiskDistribution;
+    percentages: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+    averageRiskScore?: number;
+    highestRiskFunction?: {
+      name: string;
+      riskScore: number;
+      location: string;
+    } | undefined;
+  };
   git?: unknown;
-  recommendations?: unknown;
+  recommendations?: RecommendedAction[] | undefined;
 }
 
 /**
@@ -290,6 +331,11 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
 
   const qualityData = await calculateQualityMetrics(functions, env.config);
   const riskCounts = await calculateRiskDistribution(functions);
+  
+  // Generate recommendations and risk details
+  const { recommendations, riskDetails } = await generateRiskAnalysis(
+    functions, riskCounts, qualityData, options.risks
+  );
 
   return {
     status: 'success',
@@ -314,15 +360,127 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
         score: qualityData.sizeScore,
       },
     },
-    risk: {
-      distribution: riskCounts,
-      percentages: {
-        high: ((riskCounts.high / functions.length) * 100),
-        medium: ((riskCounts.medium / functions.length) * 100),
-        low: ((riskCounts.low / functions.length) * 100),
-      },
+    risk: riskDetails,
+    recommendations: recommendations,
+  };
+}
+
+async function calculateRiskFunctions(functions: FunctionInfo[]): Promise<Array<{ function: FunctionInfo; score: number }>> {
+  return functions
+    .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
+      f.metrics !== undefined && 
+      typeof f.metrics.cyclomaticComplexity === 'number' && 
+      typeof f.metrics.linesOfCode === 'number'
+    )
+    .map(f => ({ 
+      function: f, 
+      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
+             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
+    }))
+    .filter(item => 
+      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
+      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
+    )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, RISK_THRESHOLDS.MAX_RESULTS);
+}
+
+async function generateRiskAnalysis(
+  functions: FunctionInfo[], 
+  riskCounts: RiskDistribution, 
+  qualityData: QualityMetrics, 
+  includeRisks: boolean = false
+): Promise<{ recommendations: RecommendedAction[] | undefined; riskDetails: {
+  distribution: RiskDistribution;
+  percentages: { high: number; medium: number; low: number; };
+  averageRiskScore?: number;
+  highestRiskFunction?: { name: string; riskScore: number; location: string; } | undefined;
+} }> {
+  const baseRiskDetails = {
+    distribution: riskCounts,
+    percentages: {
+      high: ((riskCounts.high / functions.length) * 100),
+      medium: ((riskCounts.medium / functions.length) * 100),
+      low: ((riskCounts.low / functions.length) * 100),
     },
   };
+
+  if (!includeRisks) {
+    return { recommendations: undefined, riskDetails: baseRiskDetails };
+  }
+
+  try {
+    const riskFunctions = await calculateRiskFunctions(functions);
+    const recommendations = generateRecommendedActions(riskFunctions);
+    
+    const riskDetails = {
+      ...baseRiskDetails,
+      averageRiskScore: qualityData.averageRiskScore,
+      highestRiskFunction: riskFunctions.length > 0 ? {
+        name: riskFunctions[0].function.displayName,
+        riskScore: Math.round(riskFunctions[0].score),
+        location: `${riskFunctions[0].function.filePath}:${riskFunctions[0].function.startLine}`,
+      } : undefined,
+    };
+    
+    return { recommendations, riskDetails };
+  } catch {
+    // エラーが発生した場合は基本的なリスク詳細のみを返す
+    return { recommendations: undefined, riskDetails: baseRiskDetails };
+  }
+}
+
+function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInfo; score: number }>): RecommendedAction[] {
+  return riskFunctions.map((riskItem, index) => {
+    const func = riskItem.function;
+    const endLine = func.endLine ?? func.startLine + (func.metrics?.linesOfCode || 10);
+    
+    // より具体的な推奨事項の生成
+    const suggestions = generateSpecificSuggestions(func.metrics);
+    
+    return {
+      priority: index + 1,
+      functionName: func.displayName,
+      filePath: func.filePath,
+      startLine: func.startLine,
+      endLine: endLine,
+      riskScore: Math.round(riskItem.score),
+      action: "General refactoring to improve maintainability",
+      suggestions: suggestions,
+      metrics: {
+        cyclomaticComplexity: func.metrics?.cyclomaticComplexity || 0,
+        linesOfCode: func.metrics?.linesOfCode || 0,
+      },
+    };
+  });
+}
+
+function generateSpecificSuggestions(metrics?: FunctionQualityMetrics): string[] {
+  const suggestions: string[] = [];
+  
+  if (metrics?.cyclomaticComplexity && metrics.cyclomaticComplexity > 10) {
+    suggestions.push("Reduce cyclomatic complexity by extracting methods");
+  }
+  if (metrics?.linesOfCode && metrics.linesOfCode > 40) {
+    suggestions.push("Break down into smaller functions");
+  }
+  if (metrics?.maxNestingLevel && metrics.maxNestingLevel > 3) {
+    suggestions.push("Reduce nesting depth using early returns");
+  }
+  if (metrics?.parameterCount && metrics.parameterCount > 4) {
+    suggestions.push("Reduce parameter count using parameter objects");
+  }
+  if (metrics?.cognitiveComplexity && metrics.cognitiveComplexity > 15) {
+    suggestions.push("Simplify control flow to reduce cognitive complexity");
+  }
+  
+  return suggestions.length > 0
+    ? suggestions
+    : [
+        "Extract magic numbers into constants",
+        "Improve variable naming",
+        "Add proper error handling"
+      ];
 }
 
 // Helper functions (simplified for Reader pattern)
@@ -408,14 +566,22 @@ async function calculateRiskDistribution(functions: FunctionInfo[]) {
 }
 
 async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo[]): Promise<void> {
-  // Simplified high-risk function identification
+  // Simplified high-risk function identification using consistent thresholds
   const risks = functions
-    .filter(f => f.metrics)
+    .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
+      f.metrics !== undefined && 
+      typeof f.metrics.cyclomaticComplexity === 'number' && 
+      typeof f.metrics.linesOfCode === 'number'
+    )
     .map(f => ({ 
       function: f, 
-      score: f.metrics!.cyclomaticComplexity * 10 + f.metrics!.linesOfCode
+      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
+             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
     }))
-    .filter(item => item.function.metrics!.cyclomaticComplexity >= 10 || item.function.metrics!.linesOfCode >= 50)
+    .filter(item => 
+      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
+      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
+    )
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
