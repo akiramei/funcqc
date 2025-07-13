@@ -424,7 +424,7 @@ async function generateRiskAnalysis(
     };
     
     return { recommendations, riskDetails };
-  } catch (error) {
+  } catch {
     // エラーが発生した場合は基本的なリスク詳細のみを返す
     return { recommendations: undefined, riskDetails: baseRiskDetails };
   }
