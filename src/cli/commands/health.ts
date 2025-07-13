@@ -5,6 +5,7 @@ import {
   FunctionInfo,
   FuncqcConfig,
   SnapshotInfo,
+  QualityMetrics as FunctionQualityMetrics,
 } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { resolveSnapshotId } from '../../utils/snapshot-resolver';
@@ -395,7 +396,10 @@ async function calculateRiskFunctions(functions: FunctionInfo[]): Promise<Array<
 function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInfo; score: number }>): RecommendedAction[] {
   return riskFunctions.map((riskItem, index) => {
     const func = riskItem.function;
-    const endLine = func.endLine || func.startLine + 10;
+    const endLine = func.endLine ?? func.startLine + (func.metrics?.linesOfCode || 10);
+    
+    // より具体的な推奨事項の生成
+    const suggestions = generateSpecificSuggestions(func.metrics);
     
     return {
       priority: index + 1,
@@ -405,18 +409,41 @@ function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInf
       endLine: endLine,
       riskScore: Math.round(riskItem.score),
       action: "General refactoring to improve maintainability",
-      suggestions: [
-        "Extract magic numbers into constants",
-        "Improve variable naming",
-        "Break down into smaller functions",
-        "Reduce cyclomatic complexity"
-      ],
+      suggestions: suggestions,
       metrics: {
         cyclomaticComplexity: func.metrics?.cyclomaticComplexity || 0,
         linesOfCode: func.metrics?.linesOfCode || 0,
       },
     };
   });
+}
+
+function generateSpecificSuggestions(metrics?: FunctionQualityMetrics): string[] {
+  const suggestions: string[] = [];
+  
+  if (metrics?.cyclomaticComplexity && metrics.cyclomaticComplexity > 10) {
+    suggestions.push("Reduce cyclomatic complexity by extracting methods");
+  }
+  if (metrics?.linesOfCode && metrics.linesOfCode > 50) {
+    suggestions.push("Break down into smaller functions");
+  }
+  if (metrics?.maxNestingLevel && metrics.maxNestingLevel > 3) {
+    suggestions.push("Reduce nesting depth using early returns");
+  }
+  if (metrics?.parameterCount && metrics.parameterCount > 4) {
+    suggestions.push("Reduce parameter count using parameter objects");
+  }
+  if (metrics?.cognitiveComplexity && metrics.cognitiveComplexity > 15) {
+    suggestions.push("Simplify control flow to reduce cognitive complexity");
+  }
+  
+  return suggestions.length > 0
+    ? suggestions
+    : [
+        "Extract magic numbers into constants",
+        "Improve variable naming",
+        "Add proper error handling"
+      ];
 }
 
 // Helper functions (simplified for Reader pattern)
