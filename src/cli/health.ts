@@ -44,7 +44,7 @@ export async function healthCommand(options: HealthCommandOptions): Promise<void
   }
 }
 
-async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger) {
+async function setupHealthCommand(options: HealthCommandOptions, logger: Logger) {
   const configManager = new ConfigManager();
   const config = await configManager.load();
 
@@ -53,18 +53,27 @@ async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger
     process.exit(1);
   }
 
-  const storage = new PGLiteStorageAdapter(config.storage.path, logger);
+  // Use quiet logger for JSON output to avoid stdout contamination
+  const isJsonMode = options.json || options.aiOptimized || process.argv.includes('--json');
+  const storageLogger = isJsonMode 
+    ? new Logger(false, true) // verbose=false, quiet=true
+    : logger;
+
+  const storage = new PGLiteStorageAdapter(config.storage.path, storageLogger);
   await storage.init();
 
   return { storage, config };
 }
 
 async function executeHealthCommand(storage: PGLiteStorageAdapter, config: FuncqcConfig, options: HealthCommandOptions, logger: Logger) {
+  // Force JSON mode if --json flag is present in command line
+  const isJsonMode = options.json || options.aiOptimized || process.argv.includes('--json');
+  
   if (options.trend) {
     await displayTrendAnalysis(storage, options, logger);
   } else if (options.showConfig) {
     displayConfigurationDetails(config, options.verbose || false);
-  } else if (options.json || options.aiOptimized) {
+  } else if (isJsonMode) {
     await handleJsonOutput(storage, config, options, logger);
   } else {
     await displayHealthOverview(storage, config, options);

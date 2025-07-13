@@ -27,7 +27,7 @@ export async function historyCommand(options: HistoryCommandOptions): Promise<vo
     const configManager = new ConfigManager();
     const config = await configManager.load();
 
-    const storage = new PGLiteStorageAdapter(config.storage.path!);
+    const storage = new PGLiteStorageAdapter(config.storage.path!, logger);
     await storage.init();
 
     if (options.id) {

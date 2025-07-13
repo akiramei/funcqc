@@ -2495,12 +2495,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `);
       
       if (result.rows.length > 0) {
-        // Only log if not in silent mode or JSON output
-        const isJsonOutput = process.argv.includes('--json') || process.argv.includes('--jsonl');
-        const isSilent = process.env['npm_config_silent'] === 'true';
-        if (!isJsonOutput && !isSilent) {
-          console.log('✅ Database schema already exists, skipping creation');
-        }
+        // Use the logger instead of console.log to respect quiet mode
+        this.logger?.log('✅ Database schema already exists, skipping creation');
         return;
       }
       

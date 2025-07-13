@@ -18,6 +18,7 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
     let appEnv: AppEnvironment | null = null;
     
     try {
+      
       // System check if not disabled
       if (!parentOpts['noCheck'] && !parentOpts['checkSystem']) {
         const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
