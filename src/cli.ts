@@ -173,6 +173,7 @@ program
   .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
+  .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
   .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');

@@ -96,6 +96,12 @@ async function executeHealthCommand(env: CommandEnvironment, options: HealthComm
   // Note: Due to Reader pattern wrapper, we rely on process.argv detection
   const isJsonMode = options.json || options.aiOptimized || process.argv.includes('--json');
 
+  // Check if diff mode is requested
+  if (options.diff !== undefined) {
+    await handleHealthDiffCommand(env, options, isJsonMode);
+    return;
+  }
+
   if (isJsonMode) {
     await handleJsonOutput(env, options);
   } else {
@@ -622,4 +628,322 @@ function formatDateTime(date: Date | string | number): string {
   const seconds = String(d.getSeconds()).padStart(2, '0');
   
   return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+}
+
+interface HealthDiffOptions {
+  fromId: string;
+  toId: string;
+}
+
+interface HealthMetricsComparison {
+  from: {
+    snapshot: SnapshotInfo;
+    functions: FunctionInfo[];
+    quality: QualityMetrics;
+    riskDistribution: RiskDistribution;
+  };
+  to: {
+    snapshot: SnapshotInfo;
+    functions: FunctionInfo[];
+    quality: QualityMetrics;
+    riskDistribution: RiskDistribution;
+  };
+  changes: {
+    qualityChange: number;
+    complexityChange: number;
+    maintainabilityChange: number;
+    sizeChange: number;
+    functionCountChange: number;
+    riskDistributionChange: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+    trend: 'improving' | 'stable' | 'degrading';
+  };
+}
+
+interface QualityMetrics {
+  overallGrade: string;
+  overallScore: number;
+  complexityGrade: string;
+  complexityScore: number;
+  maintainabilityGrade: string;
+  maintainabilityScore: number;
+  sizeGrade: string;
+  sizeScore: number;
+  averageRiskScore: number;
+  riskDescription: string;
+}
+
+interface RiskDistribution {
+  high: number;
+  medium: number;
+  low: number;
+}
+
+async function handleHealthDiffCommand(
+  env: CommandEnvironment,
+  options: HealthCommandOptions,
+  isJsonMode: boolean
+): Promise<void> {
+  try {
+    const diffOptions = await parseHealthDiffOptions(env, options);
+    const comparison = await compareHealthMetrics(env, diffOptions);
+
+    if (isJsonMode) {
+      const jsonData = generateHealthComparisonData(comparison);
+      console.log(JSON.stringify(jsonData, null, 2));
+    } else {
+      displayHealthComparison(comparison);
+    }
+  } catch (error) {
+    env.commandLogger.error(`Health comparison failed: ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  }
+}
+
+async function parseHealthDiffOptions(
+  env: CommandEnvironment,
+  options: HealthCommandOptions
+): Promise<HealthDiffOptions> {
+  if (options.diff === true) {
+    // --diff: Compare latest with previous
+    const snapshots = await env.storage.getSnapshots({ limit: 2 });
+    if (snapshots.length < 2) {
+      throw new Error('Need at least 2 snapshots for comparison. Run `funcqc scan` to create more snapshots.');
+    }
+    return {
+      fromId: snapshots[1].id, // Previous snapshot
+      toId: snapshots[0].id,   // Latest snapshot
+    };
+  }
+
+  if (typeof options.diff === 'string') {
+    const diffParts = options.diff.split(/\s+/).filter(part => part.length > 0);
+    
+    if (diffParts.length === 1) {
+      // --diff <snapshot_id>: Compare latest with specified snapshot
+      const fromId = await resolveSnapshotId(env, diffParts[0]);
+      if (!fromId) {
+        throw new Error(`Snapshot not found: ${diffParts[0]}`);
+      }
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found for comparison');
+      }
+      
+      return {
+        fromId,
+        toId: snapshots[0].id, // Latest snapshot
+      };
+    }
+    
+    if (diffParts.length === 2) {
+      // --diff <id1> <id2>: Compare two specified snapshots
+      const fromId = await resolveSnapshotId(env, diffParts[0]);
+      const toId = await resolveSnapshotId(env, diffParts[1]);
+      
+      if (!fromId) {
+        throw new Error(`Snapshot not found: ${diffParts[0]}`);
+      }
+      if (!toId) {
+        throw new Error(`Snapshot not found: ${diffParts[1]}`);
+      }
+      
+      return { fromId, toId };
+    }
+    
+    throw new Error('Invalid diff format. Use --diff, --diff <snapshot_id>, or --diff "<id1> <id2>"');
+  }
+  
+  throw new Error('Invalid diff option');
+}
+
+async function compareHealthMetrics(
+  env: CommandEnvironment,
+  diffOptions: HealthDiffOptions
+): Promise<HealthMetricsComparison> {
+  const { fromId, toId } = diffOptions;
+  
+  if (fromId === toId) {
+    throw new Error('Cannot compare identical snapshots');
+  }
+  
+  // Get snapshots and their functions
+  const [fromSnapshot, toSnapshot] = await Promise.all([
+    env.storage.getSnapshot(fromId),
+    env.storage.getSnapshot(toId),
+  ]);
+  
+  if (!fromSnapshot || !toSnapshot) {
+    throw new Error(`Snapshot not found: ${!fromSnapshot ? fromId : toId}`);
+  }
+  
+  const [fromFunctions, toFunctions] = await Promise.all([
+    env.storage.getFunctions(fromId),
+    env.storage.getFunctions(toId),
+  ]);
+  
+  // Calculate quality metrics for both snapshots
+  const fromQuality = await calculateQualityMetrics(fromFunctions, env.config);
+  const toQuality = await calculateQualityMetrics(toFunctions, env.config);
+  
+  // Calculate risk distributions
+  const fromRisk = await calculateRiskDistribution(fromFunctions);
+  const toRisk = await calculateRiskDistribution(toFunctions);
+  
+  // Calculate changes
+  const qualityChange = toQuality.overallScore - fromQuality.overallScore;
+  const complexityChange = toQuality.complexityScore - fromQuality.complexityScore;
+  const maintainabilityChange = toQuality.maintainabilityScore - fromQuality.maintainabilityScore;
+  const sizeChange = toQuality.sizeScore - fromQuality.sizeScore;
+  const functionCountChange = toFunctions.length - fromFunctions.length;
+  
+  const riskDistributionChange = {
+    high: toRisk.high - fromRisk.high,
+    medium: toRisk.medium - fromRisk.medium,
+    low: toRisk.low - fromRisk.low,
+  };
+  
+  // Determine trend
+  let trend: 'improving' | 'stable' | 'degrading' = 'stable';
+  if (qualityChange > 5) {
+    trend = 'improving';
+  } else if (qualityChange < -5) {
+    trend = 'degrading';
+  }
+  
+  return {
+    from: {
+      snapshot: fromSnapshot,
+      functions: fromFunctions,
+      quality: fromQuality,
+      riskDistribution: fromRisk,
+    },
+    to: {
+      snapshot: toSnapshot,
+      functions: toFunctions,
+      quality: toQuality,
+      riskDistribution: toRisk,
+    },
+    changes: {
+      qualityChange,
+      complexityChange,
+      maintainabilityChange,
+      sizeChange,
+      functionCountChange,
+      riskDistributionChange,
+      trend,
+    },
+  };
+}
+
+function displayHealthComparison(comparison: HealthMetricsComparison): void {
+  const { from, to, changes } = comparison;
+  
+  console.log(chalk.blue.bold('\n📊 Health Comparison Report\n'));
+  
+  // Display snapshot information
+  console.log(chalk.yellow('Snapshots:'));
+  console.log(`  From: ${from.snapshot.id.substring(0, 8)}${from.snapshot.label ? ` (${from.snapshot.label})` : ''} - ${formatDateTime(from.snapshot.createdAt)}`);
+  console.log(`  To:   ${to.snapshot.id.substring(0, 8)}${to.snapshot.label ? ` (${to.snapshot.label})` : ''} - ${formatDateTime(to.snapshot.createdAt)}`);
+  console.log('');
+  
+  // Overall trend
+  const trendIcon = getTrendIcon(changes.trend);
+  const trendColor = changes.trend === 'improving' ? chalk.green : 
+                    changes.trend === 'degrading' ? chalk.red : chalk.yellow;
+  console.log(chalk.yellow(`📈 Overall Trend: ${trendIcon} ${trendColor(changes.trend.toUpperCase())}`));
+  console.log('');
+  
+  // Quality metrics comparison
+  console.log(chalk.yellow('Quality Metrics:'));
+  displayMetricChange('Overall', from.quality.overallGrade, from.quality.overallScore, to.quality.overallGrade, to.quality.overallScore);
+  displayMetricChange('Complexity', from.quality.complexityGrade, from.quality.complexityScore, to.quality.complexityGrade, to.quality.complexityScore);
+  displayMetricChange('Maintainability', from.quality.maintainabilityGrade, from.quality.maintainabilityScore, to.quality.maintainabilityGrade, to.quality.maintainabilityScore);
+  displayMetricChange('Size', from.quality.sizeGrade, from.quality.sizeScore, to.quality.sizeGrade, to.quality.sizeScore);
+  console.log('');
+  
+  // Function count change
+  console.log(chalk.yellow('Function Statistics:'));
+  const functionIcon = changes.functionCountChange > 0 ? '📈' : changes.functionCountChange < 0 ? '📉' : '📊';
+  const functionColor = changes.functionCountChange > 0 ? chalk.blue : changes.functionCountChange < 0 ? chalk.gray : chalk.white;
+  console.log(`  Total Functions: ${from.functions.length} → ${to.functions.length} ${functionIcon} ${functionColor(formatChange(changes.functionCountChange))}`);
+  console.log('');
+  
+  // Risk distribution changes
+  console.log(chalk.yellow('Risk Distribution Changes:'));
+  displayRiskChange('High Risk', from.riskDistribution.high, to.riskDistribution.high, changes.riskDistributionChange.high);
+  displayRiskChange('Medium Risk', from.riskDistribution.medium, to.riskDistribution.medium, changes.riskDistributionChange.medium);
+  displayRiskChange('Low Risk', from.riskDistribution.low, to.riskDistribution.low, changes.riskDistributionChange.low);
+}
+
+function displayMetricChange(
+  metricName: string, 
+  fromGrade: string, 
+  fromScore: number, 
+  toGrade: string, 
+  toScore: number
+): void {
+  const change = toScore - fromScore;
+  const changeStr = formatChange(change);
+  const changeColor = change > 0 ? chalk.green : change < 0 ? chalk.red : chalk.gray;
+  
+  console.log(`  ${metricName}: ${fromGrade}(${fromScore}) → ${toGrade}(${toScore}) ${changeColor(changeStr)}`);
+}
+
+function displayRiskChange(
+  riskLevel: string,
+  fromCount: number,
+  toCount: number,
+  change: number
+): void {
+  const changeStr = formatChange(change);
+  const changeColor = change < 0 ? chalk.green : change > 0 ? chalk.red : chalk.gray; // Less risk is better
+  const icon = change > 0 ? '⚠️' : change < 0 ? '✅' : '📊';
+  
+  console.log(`  ${riskLevel}: ${fromCount} → ${toCount} ${icon} ${changeColor(changeStr)}`);
+}
+
+function formatChange(change: number): string {
+  if (change === 0) return '(no change)';
+  return change > 0 ? `(+${change})` : `(${change})`;
+}
+
+function generateHealthComparisonData(comparison: HealthMetricsComparison): unknown {
+  return {
+    from: {
+      snapshot: {
+        id: comparison.from.snapshot.id,
+        createdAt: new Date(comparison.from.snapshot.createdAt).toISOString(),
+        label: comparison.from.snapshot.label ?? null,
+        gitCommit: comparison.from.snapshot.gitCommit ?? null,
+        gitBranch: comparison.from.snapshot.gitBranch ?? null,
+      },
+      totalFunctions: comparison.from.functions.length,
+      quality: comparison.from.quality,
+      riskDistribution: comparison.from.riskDistribution,
+    },
+    to: {
+      snapshot: {
+        id: comparison.to.snapshot.id,
+        createdAt: new Date(comparison.to.snapshot.createdAt).toISOString(),
+        label: comparison.to.snapshot.label ?? null,
+        gitCommit: comparison.to.snapshot.gitCommit ?? null,
+        gitBranch: comparison.to.snapshot.gitBranch ?? null,
+      },
+      totalFunctions: comparison.to.functions.length,
+      quality: comparison.to.quality,
+      riskDistribution: comparison.to.riskDistribution,
+    },
+    changes: comparison.changes,
+    summary: {
+      trend: comparison.changes.trend,
+      qualityImprovement: comparison.changes.qualityChange > 0,
+      functionCountChanged: comparison.changes.functionCountChange !== 0,
+      riskReduced: comparison.changes.riskDistributionChange.high < 0,
+    },
+  };
 }
