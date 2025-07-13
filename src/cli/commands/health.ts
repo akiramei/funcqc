@@ -1030,6 +1030,12 @@ function displayHealthComparison(comparison: HealthMetricsComparison): void {
   displayMetricChange('Complexity', from.quality.complexityGrade, from.quality.complexityScore, to.quality.complexityGrade, to.quality.complexityScore);
   displayMetricChange('Maintainability', from.quality.maintainabilityGrade, from.quality.maintainabilityScore, to.quality.maintainabilityGrade, to.quality.maintainabilityScore);
   displayMetricChange('Size', from.quality.sizeGrade, from.quality.sizeScore, to.quality.sizeGrade, to.quality.sizeScore);
+  
+  // Average Risk Score comparison
+  const riskChange = to.quality.averageRiskScore - from.quality.averageRiskScore;
+  const riskChangeStr = formatChange(riskChange);
+  const riskChangeColor = riskChange < 0 ? chalk.green : riskChange > 0 ? chalk.red : chalk.gray; // Lower risk is better
+  console.log(`  Average Risk Score: ${from.quality.averageRiskScore.toFixed(1)} → ${to.quality.averageRiskScore.toFixed(1)} ${riskChangeColor(riskChangeStr)}`);
   console.log('');
   
   // Function count change
