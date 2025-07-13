@@ -93,7 +93,7 @@ const performScan = (options: ScanCommandOptions) =>
         
         // Calculate metrics for each function
         for (const func of functions) {
-          const metrics = (qualityCalculator as any).calculateMetrics(func);
+          const metrics = await qualityCalculator.calculate(func);
           allFunctions.push({
             ...func,
             metrics,
@@ -113,12 +113,11 @@ const performScan = (options: ScanCommandOptions) =>
 
     // Save to database
     env.commandLogger.info(`💾 Saving ${allFunctions.length} functions to database...`);
-    const snapshotId = await (env.storage as any).saveFunctions(allFunctions, {
-      gitCommit: await getGitCommit(),
-      timestamp: new Date().toISOString(),
-      totalFiles: processedFiles,
-      config: env.config,
-    });
+    const snapshotId = await env.storage.saveSnapshot(
+      allFunctions,
+      options.label,
+      options.comment
+    );
 
     const processingTime = Date.now() - startTime;
 
@@ -184,18 +183,6 @@ function shouldProcessFile(_file: string, _env: CommandEnvironment): boolean {
   return true;
 }
 
-/**
- * Get current git commit hash
- */
-async function getGitCommit(): Promise<string | undefined> {
-  try {
-    const { execSync } = require('child_process');
-    const commit = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim();
-    return commit;
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Calculate overall quality score
