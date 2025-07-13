@@ -1,95 +1,108 @@
 /**
  * Evaluate command for AI-generated code quality assessment
  * Provides immediate feedback for code generation workflows
+ * 
+ * This is the Reader function version that uses shared storage and config
  */
 
 import chalk from 'chalk';
 import ora from 'ora';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { EvaluateCommandOptions, FunctionInfo } from '../types/index.js';
-import { ConfigManager } from '../core/config.js';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter.js';
+import { EvaluateCommandOptions, FunctionInfo } from '../../types/index.js';
 import {
   RealTimeQualityGate,
   QualityAssessment,
   QualityViolation,
-} from '../core/realtime-quality-gate.js';
-import { StructuralAnomaly } from '../utils/structural-analyzer.js';
-import { outputJson, isJsonOutput } from '../utils/format-helpers.js';
+} from '../../core/realtime-quality-gate.js';
+import { StructuralAnomaly } from '../../utils/structural-analyzer.js';
+import { outputJson, isJsonOutput } from '../../utils/format-helpers.js';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
 
 /**
- * Evaluate code quality with real-time feedback
+ * Evaluate command as a Reader function
+ * Uses shared storage and config from environment
  */
-export async function evaluateCommand(
+export function evaluateCommand(input: string): VoidCommand<EvaluateCommandOptions> {
+  return (options) => async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    const spinner = ora();
+
+    try {
+      await executeEvaluateCommand(env, input, options, spinner);
+    } catch (error) {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Evaluation failed: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
+  };
+}
+
+async function executeEvaluateCommand(
+  env: CommandEnvironment,
   input: string,
-  options: EvaluateCommandOptions
+  options: EvaluateCommandOptions,
+  spinner: typeof ora.prototype
 ): Promise<void> {
-  const spinner = ora();
+  // Load baseline from historical data
+  const qualityGate = await initializeQualityGate(env, spinner);
 
-  try {
-    // Initialize configuration and storage
-    const config = await new ConfigManager().load();
-    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-    await storage.init();
+  // Get code to evaluate
+  let code: string;
+  let filename: string;
 
-    // Load baseline from historical data
-    const qualityGate = await initializeQualityGate(storage, spinner);
+  if (options.stdin) {
+    code = await readFromStdin();
+    filename = 'stdin.ts';
+  } else {
+    // Input is a file path
+    filename = path.resolve(input);
+    code = await fs.readFile(filename, 'utf-8');
+  }
 
-    // Get code to evaluate
-    let code: string;
-    let filename: string;
+  spinner.start('Evaluating code quality...');
 
-    if (options.stdin) {
-      code = await readFromStdin();
-      filename = 'stdin.ts';
-    } else {
-      // Input is a file path
-      filename = path.resolve(input);
-      code = await fs.readFile(filename, 'utf-8');
+  // Perform evaluation
+  const assessment = await qualityGate.evaluateCode(code, { filename });
+
+  spinner.stop();
+
+  // Output results
+  if (isJsonOutput(options)) {
+    await outputJsonResults(assessment, options);
+  } else {
+    await displayHumanResults(assessment, filename, options);
+  }
+
+  // Exit with appropriate code
+  if (options.aiGenerated) {
+    // For AI generation: exit 1 if not acceptable, 0 otherwise
+    process.exit(assessment.acceptable ? 0 : 1);
+  } else {
+    // For normal evaluation: always exit 0 unless critical errors
+    const criticalViolations = assessment.violations.filter(
+      v => v.severity === 'critical'
+    ).length;
+    const criticalAnomalies = assessment.structuralAnomalies.filter(
+      a => a.severity === 'critical'
+    ).length;
+    if ((criticalViolations > 0 || criticalAnomalies > 0) && options.strict) {
+      process.exit(1);
     }
-
-    spinner.start('Evaluating code quality...');
-
-    // Perform evaluation
-    const assessment = await qualityGate.evaluateCode(code, { filename });
-
-    spinner.stop();
-
-    // Output results
-    if (isJsonOutput(options)) {
-      await outputJsonResults(assessment, options);
-    } else {
-      await displayHumanResults(assessment, filename, options);
-    }
-
-    // Exit with appropriate code
-    if (options.aiGenerated) {
-      // For AI generation: exit 1 if not acceptable, 0 otherwise
-      process.exit(assessment.acceptable ? 0 : 1);
-    } else {
-      // For normal evaluation: always exit 0 unless critical errors
-      const criticalViolations = assessment.violations.filter(
-        v => v.severity === 'critical'
-      ).length;
-      const criticalAnomalies = assessment.structuralAnomalies.filter(
-        a => a.severity === 'critical'
-      ).length;
-      if ((criticalViolations > 0 || criticalAnomalies > 0) && options.strict) {
-        process.exit(1);
-      }
-    }
-  } catch (error) {
-    spinner.fail(`Evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
   }
 }
 
 /**
- * Initialize quality gate with historical baseline
+ * Initialize quality gate with historical baseline using shared storage
  */
 async function initializeQualityGate(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   spinner: typeof ora.prototype
 ): Promise<RealTimeQualityGate> {
   spinner.start('Loading project baseline...');
@@ -103,11 +116,11 @@ async function initializeQualityGate(
 
   try {
     // Get recent snapshots to build baseline
-    const recentSnapshots = await storage.getSnapshots({ limit: 3 });
+    const recentSnapshots = await env.storage.getSnapshots({ limit: 3 });
     const allHistoricalFunctions: FunctionInfo[] = [];
 
     for (const snapshot of recentSnapshots) {
-      const functions = await storage.getFunctions(snapshot.id);
+      const functions = await env.storage.getFunctions(snapshot.id);
       allHistoricalFunctions.push(...functions);
     }
 

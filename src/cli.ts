@@ -614,9 +614,10 @@ refactorCommand.addCommand(
     .option('--output <file>', 'save report to file')
     .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
     .option('--patterns <list>', 'comma-separated list of patterns to detect')
-    .action(async (options: OptionValues) => {
-      const { refactorAnalyzeCommand } = await import('./cli/refactor/analyze.js');
-      await refactorAnalyzeCommand(options);
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('analyze'))(options, command);
     })
     .addHelpText('after', `
 Examples:
@@ -637,53 +638,152 @@ Supported Patterns:
 `)
 );
 
-// Add detect subcommand - loaded dynamically
+// Add detect subcommand
 refactorCommand.addCommand(
   new Command('detect')
-    .description('Detect refactoring opportunities')
-    .action(async () => {
-      const { refactorDetectCommand } = await import('./cli/refactor/detect.js');
-      await refactorDetectCommand.parseAsync(process.argv.slice(2));
+    .description('Detect specific refactoring patterns in the codebase')
+    .option('-p, --pattern <pattern>', 'Specific pattern to detect (extract-method, split-function, etc.)')
+    .option('-f, --file <file>', 'Target file pattern to analyze')
+    .option('--complexity-threshold <number>', 'Minimum complexity threshold', '5')
+    .option('--size-threshold <number>', 'Minimum size threshold (lines)', '20')
+    .option('-s, --session <id>', 'Link results to an existing session')
+    .option('--create-session', 'Create a new session for detected opportunities')
+    .option('-i, --interactive', 'Interactive mode for reviewing opportunities')
+    .option('--limit <number>', 'Maximum number of opportunities to detect', '20')
+    .option('--json', 'Output results as JSON')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('detect'))(options, command);
     })
 );
 
-// Add track subcommand - loaded dynamically
+// Add track subcommand
 refactorCommand.addCommand(
   new Command('track')
-    .description('Track refactoring progress')
-    .action(async () => {
-      const { refactorTrackCommand } = await import('./cli/refactor/track.js');
-      await refactorTrackCommand.parseAsync(process.argv.slice(2));
-    })
+    .description('Track refactoring sessions and progress')
+    .addCommand(
+      new Command('list')
+        .description('List active refactoring sessions')
+        .option('--all', 'Show all sessions including completed and cancelled')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['list']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('show')
+        .description('Show details of a refactoring session')
+        .argument('<sessionId>', 'Session ID to show')
+        .option('--json', 'Output as JSON')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['show', sessionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('create')
+        .description('Create a new refactoring session')
+        .option('-n, --name <name>', 'Session name')
+        .option('-d, --description <desc>', 'Session description')
+        .option('-b, --branch <branch>', 'Target Git branch')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['create']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('update')
+        .description('Update function status in a refactoring session')
+        .argument('<sessionId>', 'Session ID')
+        .argument('<functionId>', 'Function ID')
+        .option('-s, --status <status>', 'New status (pending, in_progress, completed, skipped)')
+        .option('-n, --notes <notes>', 'Add notes about the update')
+        .option('--interactive', 'Interactive mode to update multiple functions')
+        .action(async (sessionId: string, functionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['update', sessionId, functionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('complete')
+        .description('Complete a refactoring session')
+        .argument('<sessionId>', 'Session ID to complete')
+        .option('-s, --summary <summary>', 'Completion summary')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['complete', sessionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('cancel')
+        .description('Cancel a refactoring session')
+        .argument('<sessionId>', 'Session ID to cancel')
+        .option('-r, --reason <reason>', 'Cancellation reason')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['cancel', sessionId]))(options, command);
+        })
+    )
 );
 
-// Add interactive subcommand (Phase 3 Week 3) - loaded dynamically
+// Add interactive subcommand
 refactorCommand.addCommand(
   new Command('interactive')
-    .description('Interactive refactoring session')
-    .action(async () => {
-      const { refactorInteractiveCommand } = await import('./cli/refactor/interactive.js');
-      await refactorInteractiveCommand.parseAsync(process.argv.slice(2));
+    .description('Interactive refactoring wizard for guided code improvements')
+    .option('-s, --session <id>', 'Continue from existing session')
+    .option('-p, --pattern <pattern>', 'Focus on specific pattern')
+    .option('--complexity-threshold <number>', 'Minimum complexity threshold', '5')
+    .option('--size-threshold <number>', 'Minimum size threshold (lines)', '20')
+    .option('--limit <number>', 'Maximum opportunities to process', '10')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('interactive'))(options, command);
     })
 );
 
-// Add status subcommand (Phase 3 Week 3) - loaded dynamically
+// Add status subcommand
 refactorCommand.addCommand(
   new Command('status')
-    .description('Show refactoring status')
-    .action(async () => {
-      const { refactorStatusCommand } = await import('./cli/refactor/status.js');
-      await refactorStatusCommand.parseAsync(process.argv.slice(2));
+    .description('Display project refactoring status and health dashboard')
+    .option('-s, --session <id>', 'Show status for specific session')
+    .option('--all-sessions', 'Show status for all sessions')
+    .option('--complexity-threshold <number>', 'Complexity threshold for analysis', '5')
+    .option('--size-threshold <number>', 'Size threshold for analysis', '20')
+    .option('--json', 'Output as JSON')
+    .option('--detailed', 'Show detailed information')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('status'))(options, command);
     })
 );
 
-// Add plan subcommand (Phase 3 Week 3) - loaded dynamically
+// Add plan subcommand
 refactorCommand.addCommand(
   new Command('plan')
-    .description('Create refactoring plan')
-    .action(async () => {
-      const { refactorPlanCommand } = await import('./cli/refactor/plan.js');
-      await refactorPlanCommand.parseAsync(process.argv.slice(2));
+    .description('Generate comprehensive refactoring plan for project improvement')
+    .option('-s, --session <id>', 'Generate plan for specific session')
+    .option('-p, --pattern <pattern>', 'Focus plan on specific pattern')
+    .option('--complexity-threshold <number>', 'Complexity threshold for analysis', '5')
+    .option('--size-threshold <number>', 'Size threshold for analysis', '20')
+    .option('--output <file>', 'Save plan to file')
+    .option('--format <format>', 'Output format (markdown, json)', 'markdown')
+    .option('--timeline <weeks>', 'Target timeline in weeks', '4')
+    .option('--effort <hours>', 'Available effort per week in hours', '8')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('plan'))(options, command);
     })
 );
 

@@ -986,6 +986,23 @@ export interface SearchCommandOptions extends CommandOptions {
   intermediate?: boolean; // Output intermediate results for AI analysis
 }
 
+export interface VectorizeCommandOptions extends CommandOptions {
+  all?: boolean;
+  recent?: boolean;
+  status?: boolean;
+  rebuildIndex?: boolean;
+  benchmark?: boolean;
+  indexStats?: boolean;
+  apiKey?: string;
+  model?: string;
+  batchSize?: string;
+  limit?: string;
+  indexAlgorithm?: string;
+  indexConfig?: string;
+  output?: string;
+  force?: boolean;
+}
+
 // ========================================
 // PHASE 3: REFACTORING WORKFLOW TYPES
 // ========================================
