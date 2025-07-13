@@ -650,7 +650,7 @@ async function buildCleanQuery(options: LineageCleanOptions, logger: Logger): Pr
   return query;
 }
 
-function applyTimeFilter(lineages: LineageResult[], options: LineageCleanOptions, logger: Logger): LineageResult[] {
+function applyTimeFilter(lineages: Lineage[], options: LineageCleanOptions, logger: Logger): Lineage[] {
   if (!options.olderThan) {
     return lineages;
   }
@@ -667,7 +667,7 @@ function applyTimeFilter(lineages: LineageResult[], options: LineageCleanOptions
   return lineages.filter(l => new Date(l.createdAt) < cutoffDate);
 }
 
-function displayLineageSummary(lineages: LineageResult[], options: LineageCleanOptions): Record<string, number> {
+function displayLineageSummary(lineages: Lineage[], options: LineageCleanOptions): Record<string, number> {
   console.log(chalk.yellow.bold(`\n🧹 Lineages to be deleted (${lineages.length}):\n`));
   
   const statusCounts = lineages.reduce((acc, l) => {
@@ -720,7 +720,7 @@ async function confirmCleanDeletion(options: LineageCleanOptions, statusCounts: 
   });
 }
 
-async function performDeletion(lineages: LineageResult[], storage: PGLiteStorageAdapter, logger: Logger): Promise<number> {
+async function performDeletion(lineages: Lineage[], storage: PGLiteStorageAdapter, logger: Logger): Promise<number> {
   let deletedCount = 0;
   for (const lineage of lineages) {
     try {
