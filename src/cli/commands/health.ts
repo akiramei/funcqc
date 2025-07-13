@@ -1033,7 +1033,7 @@ function displayHealthComparison(comparison: HealthMetricsComparison): void {
   
   // Average Risk Score comparison
   const riskChange = to.quality.averageRiskScore - from.quality.averageRiskScore;
-  const riskChangeStr = formatChange(riskChange);
+  const riskChangeStr = formatChange(Number(riskChange.toFixed(1))); // Round change to 1 decimal place
   const riskChangeColor = riskChange < 0 ? chalk.green : riskChange > 0 ? chalk.red : chalk.gray; // Lower risk is better
   console.log(`  Average Risk Score: ${from.quality.averageRiskScore.toFixed(1)} → ${to.quality.averageRiskScore.toFixed(1)} ${riskChangeColor(riskChangeStr)}`);
   console.log('');
