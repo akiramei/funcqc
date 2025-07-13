@@ -633,7 +633,7 @@ export interface LineageCleanOptions extends CommandOptions {
   force?: boolean;
 }
 
-async function buildLineageQuery(options: LineageCleanOptions, logger: Logger): Promise<LineageQuery> {
+async function buildCleanQuery(options: LineageCleanOptions, logger: Logger): Promise<LineageQuery> {
   const query: LineageQuery = {};
   
   if (!options.includeApproved) {
@@ -689,7 +689,7 @@ function displayLineageSummary(lineages: LineageResult[], options: LineageCleanO
   return statusCounts;
 }
 
-async function confirmDeletion(options: LineageCleanOptions, statusCounts: Record<string, number>): Promise<boolean> {
+async function confirmCleanDeletion(options: LineageCleanOptions, statusCounts: Record<string, number>): Promise<boolean> {
   if (options.yes) {
     return true;
   }
@@ -745,7 +745,7 @@ export async function lineageCleanCommand(options: LineageCleanOptions): Promise
     const storage = new PGLiteStorageAdapter(config.storage.path!);
     await storage.init();
 
-    const query = await buildLineageQuery(options, logger);
+    const query = await buildCleanQuery(options, logger);
     let lineages = await storage.getLineages(query);
     lineages = applyTimeFilter(lineages, options, logger);
 
@@ -763,7 +763,7 @@ export async function lineageCleanCommand(options: LineageCleanOptions): Promise
       return;
     }
 
-    const confirmed = await confirmDeletion(options, statusCounts);
+    const confirmed = await confirmCleanDeletion(options, statusCounts);
     if (!confirmed) {
       logger.info('Deletion cancelled.');
       await storage.close();
