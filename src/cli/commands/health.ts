@@ -29,6 +29,21 @@ interface TrendAnalysis {
   recommendations: string[];
 }
 
+interface RecommendedAction {
+  priority: number;
+  functionName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  riskScore: number;
+  action: string;
+  suggestions: string[];
+  metrics: {
+    cyclomaticComplexity: number;
+    linesOfCode: number;
+  };
+}
+
 interface HealthData {
   status: 'success' | 'no-data';
   message?: string;
@@ -53,9 +68,22 @@ interface HealthData {
       score: number;
     };
   };
-  risk?: unknown;
+  risk?: {
+    distribution: RiskDistribution;
+    percentages: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+    averageRiskScore?: number;
+    highestRiskFunction?: {
+      name: string;
+      riskScore: number;
+      location: string;
+    } | undefined;
+  };
   git?: unknown;
-  recommendations?: unknown;
+  recommendations?: RecommendedAction[] | undefined;
 }
 
 /**
@@ -290,6 +318,39 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
 
   const qualityData = await calculateQualityMetrics(functions, env.config);
   const riskCounts = await calculateRiskDistribution(functions);
+  
+  // Generate recommendations if --risks option is enabled
+  let recommendations: RecommendedAction[] | undefined;
+  let riskDetails;
+  
+  if (options.risks) {
+    const riskFunctions = await calculateRiskFunctions(functions);
+    recommendations = generateRecommendedActions(riskFunctions);
+    
+    riskDetails = {
+      distribution: riskCounts,
+      percentages: {
+        high: ((riskCounts.high / functions.length) * 100),
+        medium: ((riskCounts.medium / functions.length) * 100),
+        low: ((riskCounts.low / functions.length) * 100),
+      },
+      averageRiskScore: qualityData.averageRiskScore,
+      highestRiskFunction: riskFunctions.length > 0 ? {
+        name: riskFunctions[0].function.displayName,
+        riskScore: Math.round(riskFunctions[0].score),
+        location: `${riskFunctions[0].function.filePath}:${riskFunctions[0].function.startLine}`,
+      } : undefined,
+    };
+  } else {
+    riskDetails = {
+      distribution: riskCounts,
+      percentages: {
+        high: ((riskCounts.high / functions.length) * 100),
+        medium: ((riskCounts.medium / functions.length) * 100),
+        low: ((riskCounts.low / functions.length) * 100),
+      },
+    };
+  }
 
   return {
     status: 'success',
@@ -314,15 +375,48 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
         score: qualityData.sizeScore,
       },
     },
-    risk: {
-      distribution: riskCounts,
-      percentages: {
-        high: ((riskCounts.high / functions.length) * 100),
-        medium: ((riskCounts.medium / functions.length) * 100),
-        low: ((riskCounts.low / functions.length) * 100),
-      },
-    },
+    risk: riskDetails,
+    recommendations: recommendations,
   };
+}
+
+async function calculateRiskFunctions(functions: FunctionInfo[]): Promise<Array<{ function: FunctionInfo; score: number }>> {
+  return functions
+    .filter(f => f.metrics)
+    .map(f => ({ 
+      function: f, 
+      score: f.metrics!.cyclomaticComplexity * 10 + f.metrics!.linesOfCode
+    }))
+    .filter(item => item.function.metrics!.cyclomaticComplexity >= 10 || item.function.metrics!.linesOfCode >= 50)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10); // Get top 10 for JSON output
+}
+
+function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInfo; score: number }>): RecommendedAction[] {
+  return riskFunctions.map((riskItem, index) => {
+    const func = riskItem.function;
+    const endLine = func.endLine || func.startLine + 10;
+    
+    return {
+      priority: index + 1,
+      functionName: func.displayName,
+      filePath: func.filePath,
+      startLine: func.startLine,
+      endLine: endLine,
+      riskScore: Math.round(riskItem.score),
+      action: "General refactoring to improve maintainability",
+      suggestions: [
+        "Extract magic numbers into constants",
+        "Improve variable naming",
+        "Break down into smaller functions",
+        "Reduce cyclomatic complexity"
+      ],
+      metrics: {
+        cyclomaticComplexity: func.metrics?.cyclomaticComplexity || 0,
+        linesOfCode: func.metrics?.linesOfCode || 0,
+      },
+    };
+  });
 }
 
 // Helper functions (simplified for Reader pattern)
