@@ -1027,15 +1027,19 @@ function displayHealthComparison(comparison: HealthMetricsComparison): void {
   // Quality metrics comparison
   console.log(chalk.yellow('Quality Metrics:'));
   displayMetricChange('Overall', from.quality.overallGrade, from.quality.overallScore, to.quality.overallGrade, to.quality.overallScore);
-  displayMetricChange('Complexity', from.quality.complexityGrade, from.quality.complexityScore, to.quality.complexityGrade, to.quality.complexityScore);
-  displayMetricChange('Maintainability', from.quality.maintainabilityGrade, from.quality.maintainabilityScore, to.quality.maintainabilityGrade, to.quality.maintainabilityScore);
-  displayMetricChange('Size', from.quality.sizeGrade, from.quality.sizeScore, to.quality.sizeGrade, to.quality.sizeScore);
   
-  // Average Risk Score comparison
+  // Average Risk Score comparison (following Overall, matching original health display order)
   const riskChange = to.quality.averageRiskScore - from.quality.averageRiskScore;
   const riskChangeStr = formatChange(Number(riskChange.toFixed(1))); // Round change to 1 decimal place
   const riskChangeColor = riskChange < 0 ? chalk.green : riskChange > 0 ? chalk.red : chalk.gray; // Lower risk is better
   console.log(`  Average Risk Score: ${from.quality.averageRiskScore.toFixed(1)} → ${to.quality.averageRiskScore.toFixed(1)} ${riskChangeColor(riskChangeStr)}`);
+  console.log('');
+  
+  // Details section
+  console.log(chalk.yellow('  Details:'));
+  displayMetricChange('    Complexity', from.quality.complexityGrade, from.quality.complexityScore, to.quality.complexityGrade, to.quality.complexityScore);
+  displayMetricChange('    Maintainability', from.quality.maintainabilityGrade, from.quality.maintainabilityScore, to.quality.maintainabilityGrade, to.quality.maintainabilityScore);
+  displayMetricChange('    Size', from.quality.sizeGrade, from.quality.sizeScore, to.quality.sizeGrade, to.quality.sizeScore);
   console.log('');
   
   // Function count change
