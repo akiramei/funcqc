@@ -78,7 +78,7 @@ export const vectorizeCommand: VoidCommand<VectorizeCommandOptions> = (options) 
       await displayResults(result, validation, options);
 
       if (!result.success) {
-        process.exit(1);
+        throw new Error('Vectorize operation failed');
       }
     } catch (error) {
       await handleError(error, options, spinner, errorHandler);
