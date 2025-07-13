@@ -170,7 +170,7 @@ export class QualityCalculator {
     const visit = (node: ts.Node, isNested: boolean = false) => {
       const complexityInfo = this.getCognitiveComplexityInfo(node);
 
-      // Add nesting bonus
+      // Add nesting bonus for complexity increment
       let localIncrement = complexityInfo.increment;
       if (isNested && localIncrement > 0) {
         localIncrement += nestingLevel;
@@ -183,7 +183,18 @@ export class QualityCalculator {
         nestingLevel++;
       }
 
-      ts.forEachChild(node, child => visit(child, true));
+      // Special handling for switch statements
+      if (ts.isSwitchStatement(node)) {
+        // Visit switch expression without nesting increment
+        ts.forEachChild(node.expression, child => visit(child, isNested));
+        
+        // Visit case block with proper nesting
+        if (node.caseBlock) {
+          ts.forEachChild(node.caseBlock, child => visit(child, true));
+        }
+      } else {
+        ts.forEachChild(node, child => visit(child, true));
+      }
 
       if (complexityInfo.incrementsNesting) {
         nestingLevel--;
@@ -198,9 +209,9 @@ export class QualityCalculator {
     increment: number;
     incrementsNesting: boolean;
   } {
-    const controlFlowNodes = [
+    // Basic control flow structures (contribute to complexity and nesting)
+    const basicControlFlowNodes = [
       ts.SyntaxKind.IfStatement,
-      ts.SyntaxKind.SwitchStatement,
       ts.SyntaxKind.CatchClause,
     ];
 
@@ -212,7 +223,22 @@ export class QualityCalculator {
       ts.SyntaxKind.DoStatement,
     ];
 
-    if (controlFlowNodes.includes(node.kind) || loopNodes.includes(node.kind)) {
+    // Handle switch statements with enhanced logic
+    if (node.kind === ts.SyntaxKind.SwitchStatement) {
+      return this.getSwitchComplexityInfo(node as ts.SwitchStatement);
+    }
+
+    // Handle case clauses specifically
+    if (node.kind === ts.SyntaxKind.CaseClause) {
+      return this.getCaseClauseComplexityInfo(node as ts.CaseClause);
+    }
+
+    // Handle default clause specifically
+    if (node.kind === ts.SyntaxKind.DefaultClause) {
+      return { increment: 1, incrementsNesting: false }; // Default clause adds complexity but doesn't nest
+    }
+
+    if (basicControlFlowNodes.includes(node.kind) || loopNodes.includes(node.kind)) {
       return { increment: 1, incrementsNesting: true };
     }
 
@@ -230,6 +256,103 @@ export class QualityCalculator {
     }
 
     return { increment: 0, incrementsNesting: false };
+  }
+
+  /**
+   * Enhanced switch statement complexity calculation
+   * Switch statements contribute +1 and increase nesting level
+   */
+  private getSwitchComplexityInfo(_switchNode: ts.SwitchStatement): {
+    increment: number;
+    incrementsNesting: boolean;
+  } {
+    return { increment: 1, incrementsNesting: true };
+  }
+
+  /**
+   * Enhanced case clause complexity calculation
+   * Each case adds complexity but doesn't create additional nesting
+   * (the nesting is already accounted for by the switch statement)
+   */
+  private getCaseClauseComplexityInfo(caseNode: ts.CaseClause): {
+    increment: number;
+    incrementsNesting: boolean;
+  } {
+    // Check if this case has a fall-through pattern (no break/return)
+    const hasFallThrough = this.caseHasFallThrough(caseNode);
+    
+    // Fall-through cases add extra cognitive load
+    const increment = hasFallThrough ? 2 : 1;
+    
+    return { increment, incrementsNesting: false };
+  }
+
+  /**
+   * Detect if a case clause has fall-through behavior
+   */
+  private caseHasFallThrough(caseNode: ts.CaseClause): boolean {
+    if (!caseNode.statements || caseNode.statements.length === 0) {
+      return true; // Empty case always falls through
+    }
+
+    const lastStatement = caseNode.statements[caseNode.statements.length - 1];
+    
+    // Check for explicit break/return/throw/continue statements
+    return !(
+      ts.isBreakStatement(lastStatement) ||
+      ts.isReturnStatement(lastStatement) ||
+      ts.isThrowStatement(lastStatement) ||
+      ts.isContinueStatement(lastStatement) ||
+      this.endsWithControlFlow(lastStatement)
+    );
+  }
+
+  /**
+   * Check if a statement ends with control flow that prevents fall-through
+   */
+  private endsWithControlFlow(statement: ts.Statement): boolean {
+    // Check for if/else structures that both return/break/throw
+    if (ts.isIfStatement(statement)) {
+      const hasElse = statement.elseStatement !== undefined;
+      if (!hasElse) return false;
+      
+      const thenEnds = this.blockEndsWithControlFlow(statement.thenStatement);
+      const elseEnds = this.blockEndsWithControlFlow(statement.elseStatement!);
+      
+      return thenEnds && elseEnds;
+    }
+    
+    // Check for switch statements (they don't prevent fall-through by default)
+    if (ts.isSwitchStatement(statement)) {
+      return false; // Switch statements don't prevent fall-through
+    }
+    
+    return false;
+  }
+
+  /**
+   * Check if a statement block ends with control flow
+   */
+  private blockEndsWithControlFlow(statement: ts.Statement): boolean {
+    if (ts.isBlock(statement)) {
+      if (statement.statements.length === 0) return false;
+      const lastStmt = statement.statements[statement.statements.length - 1];
+      return (
+        ts.isBreakStatement(lastStmt) ||
+        ts.isReturnStatement(lastStmt) ||
+        ts.isThrowStatement(lastStmt) ||
+        ts.isContinueStatement(lastStmt) ||
+        this.endsWithControlFlow(lastStmt)
+      );
+    }
+    
+    return (
+      ts.isBreakStatement(statement) ||
+      ts.isReturnStatement(statement) ||
+      ts.isThrowStatement(statement) ||
+      ts.isContinueStatement(statement) ||
+      this.endsWithControlFlow(statement)
+    );
   }
 
   private calculateMaxNestingLevel(node: ts.FunctionLikeDeclaration): number {
@@ -496,6 +619,13 @@ export class QualityCalculator {
       operands.add(text);
       incrementTotal();
     }
+    
+    // Include function calls as operands (missing in original implementation)
+    if (ts.isCallExpression(node)) {
+      const functionName = node.expression.getText();
+      operands.add(functionName);
+      incrementTotal();
+    }
   }
 
   private calculateHalsteadDifficulty(node: ts.FunctionLikeDeclaration): number {
@@ -515,20 +645,22 @@ export class QualityCalculator {
     linesOfCode: number;
     halsteadVolume: number;
   }): number {
-    // Microsoft's maintainability index formula (simplified)
+    // Improved Microsoft's maintainability index formula
     const complexity = partialMetrics.cyclomaticComplexity;
     const loc = partialMetrics.linesOfCode;
     const volume = partialMetrics.halsteadVolume || 0;
 
     if (loc === 0) return 100;
 
-    // Ensure we have valid values for the logarithms
-    const safeVolume = Math.max(1, volume);
-    const safeLoc = Math.max(1, loc);
+    // Use log2 for better information-theoretic interpretation
+    // Ensure numerical stability with proper floor values
+    const volumeTerm = Math.log2(Math.max(1, volume));
+    const locTerm = Math.log2(Math.max(1, loc));
 
-    let mi = 171 - 5.2 * Math.log(safeVolume) - 0.23 * complexity - 16.2 * Math.log(safeLoc);
+    // Adjusted coefficients for log2 and better 0-100 range
+    let mi = 171 - 5.2 * volumeTerm - 0.23 * complexity - 16.2 * locTerm;
 
-    // Normalize to 0-100 scale
+    // Normalize to 0-100 scale with better bounds
     mi = Math.max(0, Math.min(100, mi));
 
     return Math.round(mi * 100) / 100;

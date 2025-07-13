@@ -292,9 +292,9 @@ export class ThresholdEvaluator {
       case 'severity':
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
-          // Protect against zero division
-          const severityMultiplier =
-            violation.threshold !== 0 ? violation.excess / violation.threshold : 0;
+          // Protect against near-zero division with epsilon
+          const epsilon = 1e-9;
+          const severityMultiplier = violation.excess / Math.max(violation.threshold, epsilon);
           return score + weight * severityMultiplier;
         }, 0);
 
@@ -482,7 +482,7 @@ export class ThresholdEvaluator {
   private getDefaultRiskAssessmentConfig(config?: RiskAssessmentConfig): RiskAssessmentConfig {
     return {
       minViolations: 2,
-      violationWeights: { warning: 1, error: 3, critical: 10 },
+      violationWeights: { warning: 1, error: 5, critical: 25 },
       compositeScoringMethod: 'weighted',
       highRiskConditions: [],
       ...config,

@@ -340,12 +340,20 @@ export class StatisticalEvaluator {
   ): ThresholdViolation {
     const evaluation = this.evaluateThreshold(value, threshold, statistics);
 
+    // Calculate excess based on metric type
+    // For maintainability (lower is worse), excess = threshold - value
+    // For others (higher is worse), excess = value - threshold
+    const isLowerIsBetter = metric === 'maintainabilityIndex';
+    const excess = isLowerIsBetter 
+      ? Math.max(0, evaluation.threshold - value)
+      : Math.max(0, value - evaluation.threshold);
+
     const violation: ThresholdViolation = {
       metric,
       value,
       threshold: evaluation.threshold,
       level,
-      excess: value - evaluation.threshold,
+      excess,
       method: evaluation.method,
     };
 

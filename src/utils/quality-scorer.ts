@@ -42,6 +42,13 @@ const QUALITY_THRESHOLDS = {
   },
 } as const;
 
+export interface QualityWeights {
+  complexity: number;
+  maintainability: number;
+  size: number;
+  codeQuality: number;
+}
+
 export interface ProjectQualityScore {
   overallGrade: 'A' | 'B' | 'C' | 'D' | 'F';
   score: number;
@@ -58,9 +65,143 @@ export interface ProjectQualityScore {
     maintainabilityIndex: number;
     reason: string;
   }>;
+  weights?: QualityWeights; // Optional weights used for scoring
 }
 
 export class QualityScorer {
+  private configuredWeights?: QualityWeights;
+
+  /**
+   * Constructor with optional weight configuration
+   * @param weights Custom quality weights (must sum to 1.0)
+   */
+  constructor(weights?: QualityWeights) {
+    if (weights) {
+      this.validateAndSetWeights(weights);
+    }
+  }
+
+  /**
+   * Validate and set custom quality weights
+   */
+  private validateAndSetWeights(weights: QualityWeights): void {
+    // Validate all weights are positive and finite
+    for (const [key, weight] of Object.entries(weights)) {
+      if (!isFinite(weight) || weight < 0 || weight > 1) {
+        throw new Error(`Invalid weight for ${key}: ${weight}. Must be between 0 and 1.`);
+      }
+    }
+    
+    // Validate weights sum to 1.0 with proper tolerance
+    const sum = Object.values(weights).reduce((a, b) => a + b, 0);
+    const tolerance = 0.001;
+    if (Math.abs(sum - 1.0) > tolerance) {
+      throw new Error(
+        `Quality weights must sum to 1.0 ± ${tolerance}, got ${sum.toFixed(6)}. ` +
+        `Difference: ${Math.abs(sum - 1.0).toFixed(6)}`
+      );
+    }
+    
+    this.configuredWeights = weights;
+  }
+  /**
+   * Logistic function for smooth 0-100 scoring with proper boundary handling
+   * score = 100 / (1 + e^(k(x-x0)))
+   * @param value Current metric value
+   * @param threshold Target threshold (x0)
+   * @param steepness Steepness parameter (k) - higher = sharper transition
+   * @returns Score between 0-100
+   */
+  private logisticScore(value: number, threshold: number, steepness: number = 0.1): number {
+    // Handle edge cases and boundary conditions
+    if (!isFinite(value) || !isFinite(threshold) || !isFinite(steepness)) {
+      return 50; // Default score for invalid inputs
+    }
+    
+    if (value <= 0 && threshold > 0) {
+      return 100; // Perfect score for zero or negative values when threshold is positive
+    }
+    
+    if (steepness <= 0) {
+      steepness = 0.1; // Ensure positive steepness
+    }
+    
+    // Prevent extreme exponential values that could cause numerical instability
+    const exponent = steepness * (value - threshold);
+    const clampedExponent = Math.max(-50, Math.min(50, exponent));
+    
+    const score = 100 / (1 + Math.exp(clampedExponent));
+    
+    // Ensure score stays within 0-100 bounds with precision handling
+    return Math.round(Math.max(0.01, Math.min(99.99, score)) * 100) / 100;
+  }
+
+  /**
+   * Inverted logistic function for metrics where higher values are better
+   * score = 100 * (1 - 1 / (1 + e^(k(x-x0))))
+   * @param value Current metric value
+   * @param threshold Minimum acceptable threshold
+   * @param steepness Steepness parameter (k) - higher = sharper transition
+   * @returns Score between 0-100
+   */
+  private invertedLogisticScore(value: number, threshold: number, steepness: number = 0.1): number {
+    // Handle edge cases
+    if (!isFinite(value) || !isFinite(threshold) || !isFinite(steepness)) {
+      return 50; // Default score for invalid inputs
+    }
+    
+    if (steepness <= 0) {
+      steepness = 0.1; // Ensure positive steepness
+    }
+    
+    // For inverted scoring, we want high scores when value >= threshold
+    // Use logistic function but invert the result
+    const normalizedValue = threshold - value; // Flip the relationship
+    const exponent = steepness * normalizedValue;
+    const clampedExponent = Math.max(-50, Math.min(50, exponent));
+    
+    const score = 100 / (1 + Math.exp(clampedExponent));
+    
+    // Ensure score stays within 0-100 bounds
+    return Math.round(Math.max(0.01, Math.min(99.99, score)) * 100) / 100;
+  }
+
+  /**
+   * Get quality weights - either configured or default
+   */
+  private getQualityWeights(): QualityWeights {
+    if (this.configuredWeights) {
+      return this.configuredWeights;
+    }
+    
+    // Default weights based on expert recommendations
+    return {
+      complexity: 0.30,
+      maintainability: 0.30, 
+      size: 0.20,
+      codeQuality: 0.20
+    };
+  }
+
+  /**
+   * Get default quality weights (static method for external use)
+   */
+  static getDefaultWeights(): QualityWeights {
+    return {
+      complexity: 0.30,
+      maintainability: 0.30, 
+      size: 0.20,
+      codeQuality: 0.20
+    };
+  }
+
+  /**
+   * Create a scorer with custom weights
+   */
+  static withWeights(weights: QualityWeights): QualityScorer {
+    return new QualityScorer(weights);
+  }
+
   calculateProjectScore(functions: FunctionInfo[]): ProjectQualityScore {
     if (functions.length === 0) {
       return {
@@ -83,13 +224,26 @@ export class QualityScorer {
       codeQuality: this.calculateCodeQualityScore(functions),
     };
 
-    // Balanced weighted average with adjusted weights
-    const overallScore = Math.round(
-      scores.complexity * 0.30 +
-        scores.maintainability * 0.30 +
-        scores.size * 0.20 +
-        scores.codeQuality * 0.20
-    );
+    // Configurable weighted average with boundary protection
+    const weights = this.getQualityWeights();
+    
+    // Validate all scores are within expected bounds
+    const scoreEntries = Object.entries(scores);
+    for (const [key, score] of scoreEntries) {
+      if (!isFinite(score) || score < 0 || score > 100) {
+        console.warn(`Invalid ${key} score: ${score}. Clamping to valid range.`);
+        scores[key as keyof typeof scores] = Math.max(0, Math.min(100, score || 0));
+      }
+    }
+    
+    const weightedSum = 
+      scores.complexity * weights.complexity +
+      scores.maintainability * weights.maintainability +
+      scores.size * weights.size +
+      scores.codeQuality * weights.codeQuality;
+    
+    // Ensure final score is within bounds and properly rounded
+    const overallScore = Math.round(Math.max(0, Math.min(100, weightedSum)));
 
     const overallGrade = this.scoreToGrade(overallScore);
     const highRiskFunctions = this.countHighRiskFunctions(functions);
@@ -105,6 +259,7 @@ export class QualityScorer {
       totalFunctions: functions.length,
       highRiskFunctions,
       topProblematicFunctions,
+      weights: this.getQualityWeights(), // Include weights used in calculation
     };
   }
 
@@ -116,23 +271,27 @@ export class QualityScorer {
     const complexities = functionsWithMetrics.map(f => f.metrics!.cyclomaticComplexity!);
     const avgComplexity = complexities.reduce((a, b) => a + b, 0) / complexities.length;
     
-    // Use unified ratio-based scoring with smooth linear penalty
+    // Use logistic function for smooth S-curve scoring
     const highComplexityRatio = this.getComplexityRatio(functionsWithMetrics, QUALITY_THRESHOLDS.complexity.high);
     
-    let score = 100;
+    // Primary score using logistic function
+    const primaryScore = this.logisticScore(
+      highComplexityRatio, 
+      QUALITY_THRESHOLDS.complexity.ratioThreshold, 
+      10 // Steepness for ratio-based penalty
+    );
 
-    // Smooth linear penalty for high complexity ratio
-    if (highComplexityRatio > QUALITY_THRESHOLDS.complexity.ratioThreshold) {
-      const excessRatio = highComplexityRatio - QUALITY_THRESHOLDS.complexity.ratioThreshold;
-      score -= excessRatio * QUALITY_THRESHOLDS.complexity.penaltyCoefficient;
-    }
+    // Secondary penalty for high average complexity using logistic function
+    const avgComplexityScore = this.logisticScore(
+      avgComplexity, 
+      8, // Average complexity threshold
+      0.3 // Gentler steepness for average penalty
+    );
 
-    // Light penalty for high average complexity (avoid double penalty)
-    if (avgComplexity > 8) {
-      score -= (avgComplexity - 8) * 3;
-    }
+    // Weighted combination: primary score (80%) + average penalty (20%)
+    const combinedScore = primaryScore * 0.8 + avgComplexityScore * 0.2;
 
-    return Math.max(0, Math.min(100, score));
+    return Math.round(Math.max(0, Math.min(100, combinedScore)));
   }
 
   /**
@@ -162,17 +321,23 @@ export class QualityScorer {
     const totalWeight = weightedData.reduce((sum, data) => sum + data.weight, 0);
     const weightedAvg = weightedData.reduce((sum, data) => sum + data.mi * data.weight, 0) / totalWeight;
 
-    // Additional penalty for functions with very low maintainability
-    const lowMaintainabilityRatio = this.getMaintainabilityRatio(functionsWithMetrics, QUALITY_THRESHOLDS.maintainability.low);
-    let score = Math.round(weightedAvg);
-    
-    // Smooth linear penalty for low maintainability ratio
-    if (lowMaintainabilityRatio > QUALITY_THRESHOLDS.maintainability.ratioThreshold) {
-      const excessRatio = lowMaintainabilityRatio - QUALITY_THRESHOLDS.maintainability.ratioThreshold;
-      score -= excessRatio * QUALITY_THRESHOLDS.maintainability.penaltyCoefficient;
-    }
+    // Base score from weighted average maintainability index
+    const baseScore = Math.min(100, Math.max(0, weightedAvg));
 
-    return Math.max(0, Math.min(100, score));
+    // Additional penalty using logistic function for low maintainability ratio
+    const lowMaintainabilityRatio = this.getMaintainabilityRatio(functionsWithMetrics, QUALITY_THRESHOLDS.maintainability.low);
+    
+    // Apply logistic penalty for high ratio of low-maintainability functions
+    const penaltyScore = this.logisticScore(
+      lowMaintainabilityRatio,
+      QUALITY_THRESHOLDS.maintainability.ratioThreshold,
+      8 // Steepness for maintainability ratio penalty
+    );
+
+    // Combine base score (70%) with penalty (30%) for balanced assessment
+    const finalScore = baseScore * 0.7 + penaltyScore * 0.3;
+
+    return Math.round(Math.max(0, Math.min(100, finalScore)));
   }
 
   /**
@@ -193,23 +358,27 @@ export class QualityScorer {
     const lines = functionsWithMetrics.map(f => f.metrics!.linesOfCode!);
     const avgLines = lines.reduce((a, b) => a + b, 0) / lines.length;
     
-    // Use unified ratio-based scoring for large functions
+    // Use logistic function for smooth S-curve scoring
     const largeFunctionRatio = this.getSizeRatio(functionsWithMetrics, QUALITY_THRESHOLDS.size.large);
 
-    let score = 100;
+    // Primary score using logistic function for large function ratio
+    const ratioScore = this.logisticScore(
+      largeFunctionRatio,
+      QUALITY_THRESHOLDS.size.ratioThreshold,
+      12 // Steepness for size ratio penalty
+    );
 
-    // Penalize high average size with adjusted coefficients
-    if (avgLines > 30) {
-      score -= (avgLines - 30) * QUALITY_THRESHOLDS.size.avgPenalty;
-    }
+    // Secondary penalty for high average size using logistic function
+    const avgSizeScore = this.logisticScore(
+      avgLines,
+      30, // Average size threshold
+      0.1 // Gentle steepness for average size penalty
+    );
 
-    // Smooth linear penalty for large function ratio
-    if (largeFunctionRatio > QUALITY_THRESHOLDS.size.ratioThreshold) {
-      const excessRatio = largeFunctionRatio - QUALITY_THRESHOLDS.size.ratioThreshold;
-      score -= excessRatio * QUALITY_THRESHOLDS.size.penaltyCoefficient;
-    }
+    // Weighted combination: ratio score (75%) + average size (25%)
+    const combinedScore = ratioScore * 0.75 + avgSizeScore * 0.25;
 
-    return Math.max(0, Math.min(100, score));
+    return Math.round(Math.max(0, Math.min(100, combinedScore)));
   }
 
   /**
@@ -223,23 +392,24 @@ export class QualityScorer {
   }
 
   private calculateCodeQualityScore(functions: FunctionInfo[]): number {
-    let score = 100;
+    let commentScore = 100;
+    let parameterScore = 100;
 
-    // Filter functions with valid metrics
+    // Comment ratio scoring using inverted logistic function
     const functionsWithCommentMetrics = functions.filter(f => f.metrics?.codeToCommentRatio !== undefined);
     if (functionsWithCommentMetrics.length > 0) {
       const commentRatios = functionsWithCommentMetrics.map(f => f.metrics!.codeToCommentRatio!);
       const avgCommentRatio = commentRatios.reduce((a, b) => a + b, 0) / commentRatios.length;
 
-      // Penalize low comment ratio using thresholds
-      if (avgCommentRatio < QUALITY_THRESHOLDS.codeQuality.commentRatio.low) {
-        score -= 30;
-      } else if (avgCommentRatio < QUALITY_THRESHOLDS.codeQuality.commentRatio.medium) {
-        score -= 20;
-      }
+      // Use inverted logistic function for comment ratio (higher ratio = better score)
+      commentScore = this.invertedLogisticScore(
+        avgCommentRatio,
+        QUALITY_THRESHOLDS.codeQuality.commentRatio.medium, // Target threshold
+        15 // Steepness for comment ratio
+      );
     }
 
-    // Check for very high parameter counts
+    // Parameter count scoring using logistic function
     const functionsWithParamMetrics = functions.filter(f => f.metrics?.parameterCount !== undefined);
     if (functionsWithParamMetrics.length > 0) {
       const highParamFunctions = functionsWithParamMetrics.filter(
@@ -247,12 +417,18 @@ export class QualityScorer {
       );
       const highParamRatio = highParamFunctions.length / functionsWithParamMetrics.length;
 
-      if (highParamRatio > QUALITY_THRESHOLDS.codeQuality.parameterRatioThreshold) {
-        score -= (highParamRatio - QUALITY_THRESHOLDS.codeQuality.parameterRatioThreshold) * 200;
-      }
+      // Use logistic function for parameter ratio penalty
+      parameterScore = this.logisticScore(
+        highParamRatio,
+        QUALITY_THRESHOLDS.codeQuality.parameterRatioThreshold,
+        20 // Steepness for parameter ratio
+      );
     }
 
-    return Math.max(0, Math.min(100, score));
+    // Weighted combination: comment quality (60%) + parameter quality (40%)
+    const combinedScore = commentScore * 0.6 + parameterScore * 0.4;
+
+    return Math.round(Math.max(0, Math.min(100, combinedScore)));
   }
 
   private scoreToGrade(score: number): 'A' | 'B' | 'C' | 'D' | 'F' {

@@ -6,12 +6,17 @@ import {
   FuncqcConfig,
   SnapshotInfo,
   QualityMetrics as FunctionQualityMetrics,
+  QualityThresholds,
+  ProjectStatistics,
+  FunctionRiskAssessment,
+  MetricStatistics,
 } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { resolveSnapshotId } from '../../utils/snapshot-resolver';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import { ThresholdEvaluator } from '../../utils/threshold-evaluator';
 
 interface TrendData {
   period: string;
@@ -30,17 +35,16 @@ interface TrendAnalysis {
   recommendations: string[];
 }
 
-// リスク計算とフィルタリングの定数
-const RISK_CALCULATION_WEIGHTS = {
-  COMPLEXITY_WEIGHT: 10,
-  LOC_WEIGHT: 1,
-} as const;
-
-const RISK_THRESHOLDS = {
-  MIN_COMPLEXITY: 10,
-  MIN_LOC: 40, // Consistent with project-wide LOC threshold
-  MAX_RESULTS: 10,
-} as const;
+// ThresholdEvaluatorベースのリスク評価設定
+const DEFAULT_RISK_CONFIG = {
+  violationWeights: { warning: 1, error: 5, critical: 25 },
+  compositeScoringMethod: 'weighted' as const,
+  riskLevelConfig: {
+    high: { criticalViolations: true, multipleErrorViolations: true },
+    medium: { errorViolations: true, multipleViolations: 2 },
+    low: {}
+  }
+};
 
 interface RecommendedAction {
   priority: number;
@@ -68,6 +72,7 @@ interface HealthData {
   quality?: {
     overallGrade: string;
     overallScore: number;
+    averageRiskScore?: number;
     complexity: {
       grade: string;
       score: number;
@@ -191,13 +196,26 @@ async function displayHealthOverview(
   console.log(`  Database: ${env.config.storage.path}`);
   console.log('');
 
-  // Calculate quality metrics
+  // Calculate quality metrics and risk assessments using ThresholdEvaluator
   const qualityData = await calculateQualityMetrics(functions, env.config);
+  
+  // Use new ThresholdEvaluator approach
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  const projectStats: ProjectStatistics = {
+    totalFunctions: functions.length,
+    analysisTimestamp: Date.now(),
+    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
+  };
+
+  const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
+  const riskCounts = calculateRiskDistribution(riskAssessments);
+  const averageRiskScore = calculateAverageRiskScore(riskAssessments);
   
   // Display quality overview
   console.log(chalk.yellow('Quality Overview:'));
   console.log(`  Overall Grade: ${qualityData.overallGrade} (${qualityData.overallScore}/100)`);
-  console.log(`  Average Risk Score: ${qualityData.averageRiskScore.toFixed(1)} (${qualityData.riskDescription})`);
+  console.log(`  Average Risk Score: ${averageRiskScore.toFixed(1)} (${getRiskDescription(averageRiskScore)})`);
   console.log('');
 
   console.log(chalk.yellow('  Details:'));
@@ -208,7 +226,6 @@ async function displayHealthOverview(
 
   // Risk distribution
   console.log(chalk.yellow('Risk Distribution:'));
-  const riskCounts = await calculateRiskDistribution(functions);
   console.log(`  High Risk: ${riskCounts.high} functions (${((riskCounts.high / functions.length) * 100).toFixed(1)}%)`);
   console.log(`  Medium Risk: ${riskCounts.medium} functions (${((riskCounts.medium / functions.length) * 100).toFixed(1)}%)`);
   console.log(`  Low Risk: ${riskCounts.low} functions (${((riskCounts.low / functions.length) * 100).toFixed(1)}%)`);
@@ -329,12 +346,21 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
     };
   }
 
+  // ThresholdEvaluatorベースのリスク評価を実行
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  const projectStats: ProjectStatistics = {
+    totalFunctions: functions.length,
+    analysisTimestamp: Date.now(),
+    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
+  };
+
+  const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   const qualityData = await calculateQualityMetrics(functions, env.config);
-  const riskCounts = await calculateRiskDistribution(functions);
   
-  // Generate recommendations and risk details
+  // Generate recommendations and risk details using new approach
   const { recommendations, riskDetails } = await generateRiskAnalysis(
-    functions, riskCounts, qualityData, options.risks
+    riskAssessments, functions, options.risks
   );
 
   return {
@@ -347,6 +373,7 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
     quality: {
       overallGrade: qualityData.overallGrade,
       overallScore: qualityData.overallScore,
+      averageRiskScore: riskDetails.averageRiskScore, // 新しく追加
       complexity: {
         grade: qualityData.complexityGrade,
         score: qualityData.complexityScore,
@@ -365,44 +392,81 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
   };
 }
 
-async function calculateRiskFunctions(functions: FunctionInfo[]): Promise<Array<{ function: FunctionInfo; score: number }>> {
+/**
+ * ThresholdEvaluatorを使用して全関数のリスク評価を実行
+ */
+async function assessAllFunctions(
+  functions: FunctionInfo[],
+  projectStats: ProjectStatistics,
+  thresholds: QualityThresholds
+): Promise<FunctionRiskAssessment[]> {
+  const thresholdEvaluator = new ThresholdEvaluator();
+  
   return functions
     .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
-      f.metrics !== undefined && 
-      typeof f.metrics.cyclomaticComplexity === 'number' && 
-      typeof f.metrics.linesOfCode === 'number'
+      f.metrics !== undefined
     )
-    .map(f => ({ 
-      function: f, 
-      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
-             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
-    }))
-    .filter(item => 
-      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
-      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
-    )
-    .sort((a, b) => b.score - a.score)
-    .slice(0, RISK_THRESHOLDS.MAX_RESULTS);
+    .map(fn => {
+      const violations = thresholdEvaluator.evaluateFunctionThresholds(
+        fn.metrics,
+        thresholds,
+        projectStats
+      );
+      return thresholdEvaluator.assessFunctionRisk(fn.id, violations, DEFAULT_RISK_CONFIG);
+    });
 }
 
+/**
+ * 平均リスクスコアを計算（関数数で正規化）
+ */
+function calculateAverageRiskScore(riskAssessments: FunctionRiskAssessment[]): number {
+  if (riskAssessments.length === 0) return 0;
+  
+  const totalRiskScore = riskAssessments.reduce((sum, assessment) => sum + assessment.riskScore, 0);
+  return totalRiskScore / riskAssessments.length;
+}
+
+/**
+ * リスク分布を計算（ThresholdEvaluatorベース）
+ */
+function calculateRiskDistribution(riskAssessments: FunctionRiskAssessment[]): {
+  high: number;
+  medium: number; 
+  low: number;
+} {
+  return riskAssessments.reduce(
+    (acc, assessment) => {
+      acc[assessment.riskLevel] += 1;
+      return acc;
+    },
+    { low: 0, medium: 0, high: 0 }
+  );
+}
+
+/**
+ * ThresholdEvaluatorベースのリスク分析を生成
+ */
 async function generateRiskAnalysis(
-  functions: FunctionInfo[], 
-  riskCounts: RiskDistribution, 
-  qualityData: QualityMetrics, 
+  riskAssessments: FunctionRiskAssessment[],
+  functions: FunctionInfo[],
   includeRisks: boolean = false
 ): Promise<{ recommendations: RecommendedAction[] | undefined; riskDetails: {
-  distribution: RiskDistribution;
+  distribution: { high: number; medium: number; low: number; };
   percentages: { high: number; medium: number; low: number; };
-  averageRiskScore?: number;
+  averageRiskScore: number;
   highestRiskFunction?: { name: string; riskScore: number; location: string; } | undefined;
 } }> {
+  const distribution = calculateRiskDistribution(riskAssessments);
+  const averageRiskScore = calculateAverageRiskScore(riskAssessments);
+  
   const baseRiskDetails = {
-    distribution: riskCounts,
+    distribution,
     percentages: {
-      high: ((riskCounts.high / functions.length) * 100),
-      medium: ((riskCounts.medium / functions.length) * 100),
-      low: ((riskCounts.low / functions.length) * 100),
+      high: functions.length > 0 ? (distribution.high / functions.length) * 100 : 0,
+      medium: functions.length > 0 ? (distribution.medium / functions.length) * 100 : 0,
+      low: functions.length > 0 ? (distribution.low / functions.length) * 100 : 0,
     },
+    averageRiskScore,
   };
 
   if (!includeRisks) {
@@ -410,16 +474,20 @@ async function generateRiskAnalysis(
   }
 
   try {
-    const riskFunctions = await calculateRiskFunctions(functions);
-    const recommendations = generateRecommendedActions(riskFunctions);
+    const recommendations = generateRecommendedActions(riskAssessments, functions);
+    
+    // 最高リスク関数を見つける
+    const highestRiskAssessment = riskAssessments
+      .sort((a, b) => b.riskScore - a.riskScore)[0];
+    
+    const highestRiskFunction = highestRiskAssessment && functions.find(f => f.id === highestRiskAssessment.functionId);
     
     const riskDetails = {
       ...baseRiskDetails,
-      averageRiskScore: qualityData.averageRiskScore,
-      highestRiskFunction: riskFunctions.length > 0 ? {
-        name: riskFunctions[0].function.displayName,
-        riskScore: Math.round(riskFunctions[0].score),
-        location: `${riskFunctions[0].function.filePath}:${riskFunctions[0].function.startLine}`,
+      highestRiskFunction: highestRiskFunction ? {
+        name: highestRiskFunction.displayName,
+        riskScore: Math.round(highestRiskAssessment.riskScore),
+        location: `${highestRiskFunction.filePath}:${highestRiskFunction.startLine}`,
       } : undefined,
     };
     
@@ -430,9 +498,24 @@ async function generateRiskAnalysis(
   }
 }
 
-function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInfo; score: number }>): RecommendedAction[] {
-  return riskFunctions.map((riskItem, index) => {
-    const func = riskItem.function;
+/**
+ * リスク評価に基づく推奨アクションを生成
+ */
+function generateRecommendedActions(
+  riskAssessments: FunctionRiskAssessment[], 
+  functions: FunctionInfo[]
+): RecommendedAction[] {
+  // 高リスク関数のみを対象として、最大10件まで
+  const highRiskAssessments = riskAssessments
+    .filter(assessment => assessment.riskLevel === 'high')
+    .sort((a, b) => b.riskScore - a.riskScore)
+    .slice(0, 10);
+    
+  return highRiskAssessments.map((assessment, index) => {
+    const func = functions.find(f => f.id === assessment.functionId);
+    if (!func) {
+      throw new Error(`Function not found for assessment: ${assessment.functionId}`);
+    }
     const endLine = func.endLine ?? func.startLine + (func.metrics?.linesOfCode || 10);
     
     // より具体的な推奨事項の生成
@@ -444,7 +527,7 @@ function generateRecommendedActions(riskFunctions: Array<{ function: FunctionInf
       filePath: func.filePath,
       startLine: func.startLine,
       endLine: endLine,
-      riskScore: Math.round(riskItem.score),
+      riskScore: Math.round(assessment.riskScore),
       action: "General refactoring to improve maintainability",
       suggestions: suggestions,
       metrics: {
@@ -543,49 +626,24 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
   };
 }
 
-async function calculateRiskDistribution(functions: FunctionInfo[]) {
-  // Simplified risk calculation based on complexity
-  const metricsData = functions.filter(f => f.metrics);
-  
-  let high = 0, medium = 0, low = 0;
-  
-  metricsData.forEach(f => {
-    const complexity = f.metrics!.cyclomaticComplexity;
-    const loc = f.metrics!.linesOfCode;
-    
-    if (complexity >= 10 || loc >= 50) {
-      high++;
-    } else if (complexity >= 5 || loc >= 25) {
-      medium++;
-    } else {
-      low++;
-    }
-  });
-
-  return { high, medium, low };
-}
 
 async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo[]): Promise<void> {
-  // Simplified high-risk function identification using consistent thresholds
-  const risks = functions
-    .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
-      f.metrics !== undefined && 
-      typeof f.metrics.cyclomaticComplexity === 'number' && 
-      typeof f.metrics.linesOfCode === 'number'
-    )
-    .map(f => ({ 
-      function: f, 
-      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
-             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
-    }))
-    .filter(item => 
-      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
-      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
-    )
-    .sort((a, b) => b.score - a.score)
+  // Use ThresholdEvaluator approach for consistency
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  const projectStats: ProjectStatistics = {
+    totalFunctions: functions.length,
+    analysisTimestamp: Date.now(),
+    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
+  };
+
+  const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
+  const topRisks = riskAssessments
+    .filter(assessment => assessment.riskLevel === 'high')
+    .sort((a, b) => b.riskScore - a.riskScore)
     .slice(0, 3);
 
-  if (risks.length === 0) return;
+  if (topRisks.length === 0) return;
 
   console.log(chalk.yellow('Risk Details:'));
   // Note: getThresholdViolations method not available, using placeholder
@@ -595,17 +653,19 @@ async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo
     console.log(`  Threshold Violations: Critical: ${thresholdViolations.critical}, Error: ${thresholdViolations.error}, Warning: ${thresholdViolations.warning}`);
   }
 
-  if (risks.length > 0) {
-    const topRisk = risks[0];
+  if (topRisks.length > 0) {
+    const topRiskAssessment = topRisks[0];
+    const topRiskFunction = functions.find(f => f.id === topRiskAssessment.functionId);
     console.log(`  Most Common Violation: linesOfCode`);
-    console.log(`  Highest Risk Function: ${topRisk.function.displayName}() (Risk: ${Math.round(topRisk.score)})`);
-    console.log(`    Location: ${topRisk.function.filePath}:${topRisk.function.startLine}`);
+    console.log(`  Highest Risk Function: ${topRiskFunction?.displayName}() (Risk: ${Math.round(topRiskAssessment.riskScore)})`);
+    console.log(`    Location: ${topRiskFunction?.filePath}:${topRiskFunction?.startLine}`);
   }
   console.log('');
 
   console.log(chalk.yellow('Recommended Actions:'));
-  risks.forEach((riskItem, index) => {
-    const func = riskItem.function;
+  topRisks.forEach((riskAssessment, index) => {
+    const func = functions.find(f => f.id === riskAssessment.functionId);
+    if (!func) return;
     const endLine = func.endLine || func.startLine + 10;
     console.log(`  ${index + 1}. ${func.displayName}() in ${func.filePath}:${func.startLine}-${endLine}`);
     console.log(`     Action: General refactoring to improve maintainability`);
@@ -816,6 +876,7 @@ interface HealthMetricsComparison {
   };
   changes: {
     qualityChange: number;
+    riskScoreChange: number;
     complexityChange: number;
     maintainabilityChange: number;
     sizeChange: number;
@@ -956,12 +1017,35 @@ async function compareHealthMetrics(
   const fromQuality = await calculateQualityMetrics(fromFunctions, env.config);
   const toQuality = await calculateQualityMetrics(toFunctions, env.config);
   
-  // Calculate risk distributions
-  const fromRisk = await calculateRiskDistribution(fromFunctions);
-  const toRisk = await calculateRiskDistribution(toFunctions);
+  // Calculate risk distributions using ThresholdEvaluator
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  
+  const fromProjectStats: ProjectStatistics = {
+    totalFunctions: fromFunctions.length,
+    analysisTimestamp: Date.now(),
+    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
+  };
+  
+  const toProjectStats: ProjectStatistics = {
+    totalFunctions: toFunctions.length,
+    analysisTimestamp: Date.now(),
+    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
+  };
+  
+  const fromRiskAssessments = await assessAllFunctions(fromFunctions, fromProjectStats, thresholds);
+  const toRiskAssessments = await assessAllFunctions(toFunctions, toProjectStats, thresholds);
+  
+  const fromRisk = calculateRiskDistribution(fromRiskAssessments);
+  const toRisk = calculateRiskDistribution(toRiskAssessments);
+  
+  // Calculate average risk scores
+  const fromAverageRiskScore = calculateAverageRiskScore(fromRiskAssessments);
+  const toAverageRiskScore = calculateAverageRiskScore(toRiskAssessments);
   
   // Calculate changes
   const qualityChange = toQuality.overallScore - fromQuality.overallScore;
+  const riskScoreChange = toAverageRiskScore - fromAverageRiskScore;
   const complexityChange = toQuality.complexityScore - fromQuality.complexityScore;
   const maintainabilityChange = toQuality.maintainabilityScore - fromQuality.maintainabilityScore;
   const sizeChange = toQuality.sizeScore - fromQuality.sizeScore;
@@ -985,17 +1069,18 @@ async function compareHealthMetrics(
     from: {
       snapshot: fromSnapshot,
       functions: fromFunctions,
-      quality: fromQuality,
+      quality: { ...fromQuality, averageRiskScore: fromAverageRiskScore },
       riskDistribution: fromRisk,
     },
     to: {
       snapshot: toSnapshot,
       functions: toFunctions,
-      quality: toQuality,
+      quality: { ...toQuality, averageRiskScore: toAverageRiskScore },
       riskDistribution: toRisk,
     },
     changes: {
       qualityChange,
+      riskScoreChange,
       complexityChange,
       maintainabilityChange,
       sizeChange,
