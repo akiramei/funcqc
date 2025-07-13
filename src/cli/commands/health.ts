@@ -138,8 +138,9 @@ async function displayHealthOverview(
 
   // Display project overview
   console.log(chalk.yellow('Project Overview:'));
+  console.log(`  Snapshot ID: ${targetSnapshot.id.substring(0, 8)}${targetSnapshot.label ? ` (${targetSnapshot.label})` : ''}`);
   console.log(`  Total Functions: ${functions.length}`);
-  console.log(`  Last Analyzed: ${new Date(targetSnapshot.createdAt).toLocaleDateString()}`);
+  console.log(`  Last Analyzed: ${formatDateTime(targetSnapshot.createdAt)}`);
   console.log(`  Database: ${env.config.storage.path}`);
   console.log('');
 
@@ -604,4 +605,21 @@ function getTrendIcon(trend: string): string {
     case 'degrading': return '📉';
     default: return '📊';
   }
+}
+
+/**
+ * Format date with time for snapshot display
+ * @param date Date to format
+ * @returns Formatted date string with time
+ */
+function formatDateTime(date: Date | string | number): string {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  const seconds = String(d.getSeconds()).padStart(2, '0');
+  
+  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 }
