@@ -110,7 +110,7 @@ function validateBatchInput(
  */
 function checkSourceGuardPermissions(
   env: CommandEnvironment,
-  existingDescription: any,
+  existingDescription: FunctionDescription | null,
   newSource: 'human' | 'ai' | 'jsdoc',
   semanticId: string,
   force: boolean

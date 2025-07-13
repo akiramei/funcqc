@@ -10,6 +10,7 @@ import {
   ConstructorDeclaration,
   Node,
   ModuleDeclaration,
+  VariableStatement,
 } from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -17,6 +18,18 @@ import * as fs from 'fs';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
+
+interface FunctionMetadata {
+  signature: string;
+  functionBody: string;
+  astHash: string;
+  signatureHash: string;
+  returnType: ReturnTypeInfo | undefined;
+  contextPath: string[];
+  modifiers: string[];
+  functionType: 'function' | 'method' | 'arrow' | 'local';
+  nestingLevel: number;
+}
 
 /**
  * TypeScript analyzer using ts-morph for robust AST parsing
@@ -481,7 +494,7 @@ export class TypeScriptAnalyzer {
   /**
    * Extracts function node from variable declaration initializer
    */
-  private extractFunctionNodeFromVariable(initializer: any): ArrowFunction | FunctionExpression | null {
+  private extractFunctionNodeFromVariable(initializer: Node): ArrowFunction | FunctionExpression | null {
     if (initializer.getKind() === SyntaxKind.ArrowFunction) {
       return initializer as ArrowFunction;
     } else if (initializer.getKind() === SyntaxKind.FunctionExpression) {
@@ -497,8 +510,8 @@ export class TypeScriptAnalyzer {
     functionNode: ArrowFunction | FunctionExpression,
     name: string,
     fileContent: string,
-    stmt: any
-  ) {
+    stmt: VariableStatement
+  ): FunctionMetadata {
     const signature = this.getArrowFunctionSignature(name, functionNode);
     const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
     const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
@@ -512,7 +525,7 @@ export class TypeScriptAnalyzer {
     if (functionNode.isAsync()) modifiers.push('async');
     if (stmt.isExported()) modifiers.push('exported');
 
-    const functionType = this.determineFunctionType(functionNode as ArrowFunction);
+    const functionType = this.determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
     const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
 
     return {
@@ -534,10 +547,10 @@ export class TypeScriptAnalyzer {
   private createVariableFunctionInfo(
     functionNode: ArrowFunction | FunctionExpression,
     name: string,
-    metadata: any,
+    metadata: FunctionMetadata,
     relativePath: string,
     fileHash: string,
-    stmt: any
+    stmt: VariableStatement
   ): FunctionInfo {
     const physicalId = this.generatePhysicalId();
     const semanticId = this.generateSemanticId(
