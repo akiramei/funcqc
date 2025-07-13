@@ -1,23 +1,18 @@
 import { ListCommandOptions, FunctionInfo } from '../types';
-import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
+import { CommandEnvironment } from '../types/environment';
+import { DatabaseError } from '../storage/pglite-adapter';
 import { ErrorCode, createErrorHandler } from '../utils/error-handler';
-import { Logger } from '../utils/cli-utils';
 
-export async function listCommand(options: ListCommandOptions): Promise<void> {
-  const logger = new Logger();
-  const errorHandler = createErrorHandler(logger);
+export async function listCommand(
+  env: CommandEnvironment,
+  options: ListCommandOptions
+): Promise<void> {
+  const errorHandler = createErrorHandler(env.commandLogger);
 
   try {
-    const configManager = new ConfigManager();
-    // Use lightweight config loading for read-only operations
-    const config = configManager.loadLightweight();
-
-    const storage = new PGLiteStorageAdapter(config.storage.path);
-    await storage.init();
 
     try {
-      let functions = await storage.queryFunctions({
+      let functions = await env.storage.queryFunctions({
         sort: 'file_path,start_line',
       });
 
@@ -43,7 +38,7 @@ export async function listCommand(options: ListCommandOptions): Promise<void> {
         outputFormatted(limitedFunctions, functions.length, originalCount, options);
       }
     } finally {
-      await storage.close();
+      // Storage is managed by the application environment
     }
   } catch (error) {
     if (error instanceof DatabaseError) {

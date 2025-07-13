@@ -53,7 +53,7 @@ async function setupHealthCommand(_options: HealthCommandOptions, logger: Logger
     process.exit(1);
   }
 
-  const storage = new PGLiteStorageAdapter(config.storage.path);
+  const storage = new PGLiteStorageAdapter(config.storage.path, logger);
   await storage.init();
 
   return { storage, config };

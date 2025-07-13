@@ -17,6 +17,7 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import { QualityScorer } from '../utils/quality-scorer';
 import { ParallelFileProcessor, ParallelProcessingResult } from '../utils/parallel-processor';
 import { RealTimeQualityGate, QualityAssessment } from '../core/realtime-quality-gate.js';
+import { Logger } from '../utils/cli-utils';
 
 export async function scanCommand(options: ScanCommandOptions): Promise<void> {
   const spinner = ora();
@@ -66,7 +67,8 @@ async function checkConfigurationChanges(
   const currentConfigHash = configManager.generateScanConfigHash(config);
 
   // Initialize storage to check previous config
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  const logger = new Logger();
+  const storage = new PGLiteStorageAdapter(config.storage.path!, logger);
   await storage.init();
 
   try {
@@ -121,7 +123,8 @@ async function initializeComponents(
   const hasIncreasedMemory = /--max-old-space-size[= ](\d+)/.test(nodeOptions);
   const maxSourceFilesInMemory = hasIncreasedMemory ? 100 : 50;
   const analyzer = new TypeScriptAnalyzer(maxSourceFilesInMemory);
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
+  const logger = new Logger();
+  const storage = new PGLiteStorageAdapter(config.storage.path!, logger);
   const qualityCalculator = new QualityCalculator();
 
   await storage.init();
@@ -548,7 +551,8 @@ async function runRealtimeGateMode(
 }
 
 async function initializeQualityGate(config: FuncqcConfig, spinner: typeof ora.prototype) {
-  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
+  const logger = new Logger();
+  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db', logger);
   await storage.init();
 
   const allHistoricalFunctions = await loadHistoricalFunctions(storage);

@@ -365,6 +365,8 @@ export interface ScanCommandOptions extends CommandOptions {
   label?: string;
   comment?: string;
   realtimeGate?: boolean; // Enable real-time quality gate with adaptive thresholds
+  json?: boolean;
+  force?: boolean;
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -399,6 +401,19 @@ export interface HealthCommandOptions extends CommandOptions {
   json?: boolean; // JSON output for jq/script processing
   period?: string;
   aiOptimized?: boolean; // Deprecated: use json instead
+}
+
+export interface HistoryCommandOptions extends CommandOptions {
+  verbose?: boolean;
+  since?: string;
+  until?: string;
+  limit?: string;
+  author?: string;
+  branch?: string;
+  label?: string;
+  id?: string;
+  all?: boolean;
+  json?: boolean;
 }
 
 export interface EvaluateCommandOptions extends CommandOptions {

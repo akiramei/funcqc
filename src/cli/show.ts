@@ -1,6 +1,7 @@
 import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo, FuncqcConfig, QualityMetrics } from '../types';
 import { ConfigManager } from '../core/config';
+import { getStorage } from '../core/storage-provider';
 import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
 import { calculateFileHash, fileExists } from '../utils/file-utils';
 import { ErrorCode, createErrorHandler } from '../utils/error-handler';
@@ -49,9 +50,9 @@ async function initializeShowCommand(): Promise<{
 }> {
   const configManager = new ConfigManager();
   const config = await configManager.load();
+  const logger = new Logger();
 
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
-  await storage.init();
+  const storage = await getStorage({ config, logger });
 
   return { storage, config };
 }
