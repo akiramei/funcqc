@@ -98,14 +98,36 @@ function outputJSON(func: FunctionInfo): void {
   console.log(JSON.stringify(func, null, 2));
 }
 
+interface DisplayConfig {
+  showParameters: boolean;
+  showQuality: boolean;
+  showTechnical: boolean;
+  showUsage: boolean;
+  showExamples: boolean;
+  showSource: boolean;
+}
+
+function createDisplayConfig(options: ShowCommandOptions): DisplayConfig {
+  const showAll = options.full;
+  const showForUsers = options.forUsers;
+  const showForMaintainers = options.forMaintainers;
+
+  return {
+    showParameters: showAll || options.details || showForMaintainers,
+    showQuality: showAll || options.quality || showForMaintainers,
+    showTechnical: showAll || options.technical || showForMaintainers,
+    showUsage: showAll || options.usage || showForUsers,
+    showExamples: showAll || options.examples || showForUsers,
+    showSource: showAll || options.source
+  };
+}
+
 async function outputFriendly(
   func: FunctionInfo,
   env: CommandEnvironment,
   options: ShowCommandOptions
 ): Promise<void> {
-  const showAll = options.full;
-  const showForUsers = options.forUsers;
-  const showForMaintainers = options.forMaintainers;
+  const config = createDisplayConfig(options);
 
   // Header
   console.log(chalk.blue.bold(`\n📍 Function: ${func.displayName}`));
@@ -114,28 +136,28 @@ async function outputFriendly(
   // Basic information (always shown)
   await displayBasicInfo(func, env);
 
-  // Conditional sections based on options
-  if (showAll || options.details || showForMaintainers) {
+  // Conditional sections based on configuration
+  if (config.showParameters) {
     displayParametersAndReturn(func);
   }
 
-  if (showAll || options.quality || showForMaintainers) {
+  if (config.showQuality) {
     displayQualityMetrics(func);
   }
 
-  if (showAll || options.technical || showForMaintainers) {
+  if (config.showTechnical) {
     displayTechnicalInfo(func);
   }
 
-  if (showAll || options.usage || showForUsers) {
+  if (config.showUsage) {
     await displayUsageInfo(func, env);
   }
 
-  if (showAll || options.examples || showForUsers) {
+  if (config.showExamples) {
     displayExamples(func);
   }
 
-  if (showAll || options.source) {
+  if (config.showSource) {
     displaySourceCode(func, options.syntax);
   }
 
