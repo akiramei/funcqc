@@ -113,12 +113,12 @@ function createDisplayConfig(options: ShowCommandOptions): DisplayConfig {
   const showForMaintainers = options.forMaintainers;
 
   return {
-    showParameters: showAll || options.details || showForMaintainers,
-    showQuality: showAll || options.quality || showForMaintainers,
-    showTechnical: showAll || options.technical || showForMaintainers,
-    showUsage: showAll || options.usage || showForUsers,
-    showExamples: showAll || options.examples || showForUsers,
-    showSource: showAll || options.source
+    showParameters: !!(showAll || options.details || showForMaintainers),
+    showQuality: !!(showAll || options.quality || showForMaintainers),
+    showTechnical: !!(showAll || options.technical || showForMaintainers),
+    showUsage: !!(showAll || options.usage || showForUsers),
+    showExamples: !!(showAll || options.examples || showForUsers),
+    showSource: !!(showAll || options.source)
   };
 }
 
