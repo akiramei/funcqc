@@ -403,6 +403,7 @@ export interface HealthCommandOptions extends CommandOptions {
   period?: string;
   aiOptimized?: boolean; // Deprecated: use json instead
   snapshot?: string; // Snapshot ID/identifier for historical health analysis
+  diff?: string | boolean; // Compare snapshots: true (latest-prev), string (snapshot ID), or "id1 id2"
 }
 
 export interface HistoryCommandOptions extends CommandOptions {
