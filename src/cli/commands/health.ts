@@ -38,7 +38,7 @@ const RISK_CALCULATION_WEIGHTS = {
 
 const RISK_THRESHOLDS = {
   MIN_COMPLEXITY: 10,
-  MIN_LOC: 50,
+  MIN_LOC: 40, // Consistent with project-wide LOC threshold
   MAX_RESULTS: 10,
 } as const;
 
@@ -461,7 +461,7 @@ function generateSpecificSuggestions(metrics?: FunctionQualityMetrics): string[]
   if (metrics?.cyclomaticComplexity && metrics.cyclomaticComplexity > 10) {
     suggestions.push("Reduce cyclomatic complexity by extracting methods");
   }
-  if (metrics?.linesOfCode && metrics.linesOfCode > 50) {
+  if (metrics?.linesOfCode && metrics.linesOfCode > 40) {
     suggestions.push("Break down into smaller functions");
   }
   if (metrics?.maxNestingLevel && metrics.maxNestingLevel > 3) {
@@ -566,14 +566,22 @@ async function calculateRiskDistribution(functions: FunctionInfo[]) {
 }
 
 async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo[]): Promise<void> {
-  // Simplified high-risk function identification
+  // Simplified high-risk function identification using consistent thresholds
   const risks = functions
-    .filter(f => f.metrics)
+    .filter((f): f is FunctionInfo & { metrics: FunctionQualityMetrics } => 
+      f.metrics !== undefined && 
+      typeof f.metrics.cyclomaticComplexity === 'number' && 
+      typeof f.metrics.linesOfCode === 'number'
+    )
     .map(f => ({ 
       function: f, 
-      score: f.metrics!.cyclomaticComplexity * 10 + f.metrics!.linesOfCode
+      score: f.metrics.cyclomaticComplexity * RISK_CALCULATION_WEIGHTS.COMPLEXITY_WEIGHT + 
+             f.metrics.linesOfCode * RISK_CALCULATION_WEIGHTS.LOC_WEIGHT
     }))
-    .filter(item => item.function.metrics!.cyclomaticComplexity >= 10 || item.function.metrics!.linesOfCode >= 50)
+    .filter(item => 
+      item.function.metrics.cyclomaticComplexity >= RISK_THRESHOLDS.MIN_COMPLEXITY || 
+      item.function.metrics.linesOfCode >= RISK_THRESHOLDS.MIN_LOC
+    )
     .sort((a, b) => b.score - a.score)
     .slice(0, 3);
 
