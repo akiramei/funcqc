@@ -4,7 +4,7 @@ import {
   calculateHighRiskCount, 
   formatFunctionCountWithDiff, 
   formatHighRiskCount 
-} from '../src/cli/history';
+} from '../src/cli/commands/history';
 
 describe('History Metrics Calculations', () => {
   describe('calculateP95Complexity', () => {

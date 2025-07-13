@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { lineageDeleteCommand, lineageCleanCommand } from '../../src/cli/lineage';
+import { lineageDeleteCommand, lineageCleanCommand } from '../../src/cli/commands/lineage';
 import { Logger } from '../../src/utils/cli-utils';
 import { ConfigManager } from '../../src/core/config';
 import { PGLiteStorageAdapter } from '../../src/storage/pglite-adapter';
@@ -16,6 +16,7 @@ describe('lineage delete command', () => {
   let mockStorage: any;
   let mockLogger: any;
   let mockReadline: any;
+  let mockEnv: any;
 
   beforeEach(() => {
     mockStorage = {
@@ -38,6 +39,12 @@ describe('lineage delete command', () => {
       close: vi.fn(),
     };
 
+    mockEnv = {
+      storage: mockStorage,
+      commandLogger: mockLogger,
+      config: {},
+    };
+
     vi.mocked(ConfigManager).mockImplementation(() => ({
       load: vi.fn().mockResolvedValue({ storage: { path: '/test/path' } }),
     } as any));
@@ -58,7 +65,7 @@ describe('lineage delete command', () => {
         throw new Error(`Process exited with code ${code}`);
       });
 
-      await expect(lineageDeleteCommand('test-id', {})).rejects.toThrow('Process exited with code 1');
+      await expect(lineageDeleteCommand('test-id', {}, mockEnv)).rejects.toThrow('Process exited with code 1');
       
       expect(mockLogger.error).toHaveBeenCalledWith('Lineage not found: test-id');
       mockExit.mockRestore();
@@ -82,7 +89,7 @@ describe('lineage delete command', () => {
         callback('y');
       });
 
-      await lineageDeleteCommand('test-id', {});
+      await lineageDeleteCommand('test-id', {}, mockEnv);
 
       expect(mockStorage.deleteLineage).toHaveBeenCalledWith('test-id');
       expect(mockLogger.success).toHaveBeenCalledWith('Lineage test-id has been deleted.');
@@ -107,7 +114,7 @@ describe('lineage delete command', () => {
         callback('yes');
       });
 
-      await lineageDeleteCommand('test-id', {});
+      await lineageDeleteCommand('test-id', {}, mockEnv);
 
       expect(mockReadline.question).toHaveBeenCalledWith(
         expect.stringContaining('Type "yes" to confirm'),
@@ -132,7 +139,7 @@ describe('lineage delete command', () => {
         callback('n');
       });
 
-      await lineageDeleteCommand('test-id', {});
+      await lineageDeleteCommand('test-id', {}, mockEnv);
 
       expect(mockStorage.deleteLineage).not.toHaveBeenCalled();
       expect(mockLogger.info).toHaveBeenCalledWith('Deletion cancelled.');
@@ -170,7 +177,7 @@ describe('lineage delete command', () => {
         callback('y');
       });
 
-      await lineageCleanCommand({});
+      await lineageCleanCommand({}, mockEnv);
 
       expect(mockStorage.getLineages).toHaveBeenCalledWith({ status: 'draft' });
       expect(mockStorage.deleteLineage).toHaveBeenCalledTimes(2);
@@ -193,7 +200,7 @@ describe('lineage delete command', () => {
 
       mockStorage.getLineages.mockResolvedValue(mockLineages);
 
-      await lineageCleanCommand({ dryRun: true });
+      await lineageCleanCommand({ dryRun: true }, mockEnv);
 
       expect(mockStorage.deleteLineage).not.toHaveBeenCalled();
     });
@@ -231,7 +238,7 @@ describe('lineage delete command', () => {
         callback('y');
       });
 
-      await lineageCleanCommand({ olderThan: '30' });
+      await lineageCleanCommand({ olderThan: '30' }, mockEnv);
 
       expect(mockStorage.deleteLineage).toHaveBeenCalledTimes(1);
       expect(mockStorage.deleteLineage).toHaveBeenCalledWith('old');
@@ -242,7 +249,7 @@ describe('lineage delete command', () => {
         throw new Error(`Process exited with code ${code}`);
       });
 
-      await expect(lineageCleanCommand({ includeApproved: true })).rejects.toThrow('Process exited with code 1');
+      await expect(lineageCleanCommand({ includeApproved: true }, mockEnv)).rejects.toThrow('Process exited with code 1');
       
       expect(mockLogger.error).toHaveBeenCalledWith('--include-approved requires --force flag for safety');
       mockExit.mockRestore();
@@ -265,7 +272,7 @@ describe('lineage delete command', () => {
       mockStorage.getLineages.mockResolvedValue(mockLineages);
       mockStorage.deleteLineage.mockResolvedValue(true);
 
-      await lineageCleanCommand({ yes: true });
+      await lineageCleanCommand({ yes: true }, mockEnv);
 
       expect(mockReadline.question).not.toHaveBeenCalled();
       expect(mockStorage.deleteLineage).toHaveBeenCalledWith('draft1');

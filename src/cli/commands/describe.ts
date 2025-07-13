@@ -1,9 +1,8 @@
 import chalk from 'chalk';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
-import { ConfigManager } from '../core/config';
-import { Logger } from '../utils/cli-utils';
-import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { DescribeCommandOptions, FunctionDescription, FunctionInfo } from '../types';
+import { DescribeCommandOptions, FunctionDescription, FunctionInfo } from '../../types';
+import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
 import fs from 'fs';
 
 interface DescribeBatchInput {
@@ -19,67 +18,56 @@ interface DescribeBatchInput {
   errorConditions?: string;
 }
 
-interface DescribeContext {
-  storage: PGLiteStorageAdapter;
-  logger: Logger;
-  options: DescribeCommandOptions;
-}
+/**
+ * Describe command as a Reader function
+ * Uses shared storage from environment
+ */
+export const describeCommand = (functionIdOrPattern: string = '') => 
+  (options: DescribeCommandOptions) => 
+    async (env: CommandEnvironment): Promise<void> => {
+      const errorHandler = createErrorHandler(env.commandLogger);
 
-export async function describeCommand(
-  functionIdOrPattern: string,
-  options: DescribeCommandOptions
-): Promise<void> {
-  const logger = new Logger(options.verbose, options.quiet);
-  const errorHandler = createErrorHandler(logger);
-
-  try {
-    // Load configuration
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-
-    // Initialize storage
-    const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-    await storage.init();
-
-    const context: DescribeContext = { storage, logger, options };
-
-    try {
-      if (options.generateTemplate) {
-        await handleGenerateTemplate(context, functionIdOrPattern);
-      } else if (options.input) {
-        await handleBatchDescribe(context);
-      } else if (options.listUndocumented || options.needsDescription) {
-        await handleListFunctions(context);
-      } else {
-        await handleSingleDescribe(context, functionIdOrPattern);
+      try {
+        if (options.generateTemplate) {
+          await handleGenerateTemplate(env, functionIdOrPattern, options);
+        } else if (options.input) {
+          await handleBatchDescribe(env, options);
+        } else if (options.listUndocumented || options.needsDescription) {
+          await handleListFunctions(env, options);
+        } else {
+          await handleSingleDescribe(env, functionIdOrPattern, options);
+        }
+      } catch (error) {
+        if (error instanceof DatabaseError) {
+          const funcqcError = errorHandler.createError(
+            error.code,
+            error.message,
+            { functionId: functionIdOrPattern, options },
+            error.originalError
+          );
+          errorHandler.handleError(funcqcError);
+        } else {
+          const funcqcError = errorHandler.createError(
+            ErrorCode.UNKNOWN_ERROR,
+            'Failed to execute describe command',
+            { functionId: functionIdOrPattern, options },
+            error instanceof Error ? error : undefined
+          );
+          errorHandler.handleError(funcqcError);
+        }
       }
-    } finally {
-      await storage.close();
-    }
-  } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.UNKNOWN_ERROR,
-      'Failed to execute describe command',
-      { functionId: functionIdOrPattern, options },
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
-    process.exit(1);
-  }
-}
+    };
 
-async function handleBatchDescribe(context: DescribeContext): Promise<void> {
-  const { storage, logger, options } = context;
-
+async function handleBatchDescribe(env: CommandEnvironment, options: DescribeCommandOptions): Promise<void> {
   const descriptions = await loadBatchDescriptions(options.input!);
 
-  logger.info(`Processing ${descriptions.length} function descriptions...`);
+  env.commandLogger.info(`Processing ${descriptions.length} function descriptions...`);
 
   for (const desc of descriptions) {
-    await processBatchDescription(storage, desc, options, logger);
+    await processBatchDescription(env, desc, options);
   }
 
-  logger.info(chalk.green(`Successfully processed ${descriptions.length} function descriptions`));
+  env.commandLogger.info(chalk.green(`Successfully processed ${descriptions.length} function descriptions`));
 }
 
 async function loadBatchDescriptions(inputPath: string): Promise<DescribeBatchInput[]> {
@@ -104,27 +92,26 @@ async function loadBatchDescriptions(inputPath: string): Promise<DescribeBatchIn
 }
 
 async function processBatchDescription(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   desc: DescribeBatchInput,
-  options: DescribeCommandOptions,
-  logger: Logger
+  options: DescribeCommandOptions
 ): Promise<void> {
   if (!desc.semanticId || !desc.description) {
-    logger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
+    env.commandLogger.warn(`Skipping invalid description entry: ${JSON.stringify(desc)}`);
     return;
   }
 
-  const validatedForContentId = await findContentIdBySemanticId(storage, desc.semanticId, logger);
+  const validatedForContentId = await findContentIdBySemanticId(env, desc.semanticId);
 
   // Check for existing description and validate source guard for batch operations
-  const existingDescription = await storage.getFunctionDescription(desc.semanticId);
+  const existingDescription = await env.storage.getFunctionDescription(desc.semanticId);
   const newSource = desc.source || options.source || 'human';
 
   if (existingDescription && !options.force) {
     const sourceGuardWarning = validateSourceGuard(existingDescription.source, newSource);
     if (sourceGuardWarning) {
-      logger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning}`);
-      logger.info(
+      env.commandLogger.warn(`⚠️  Skipping ${desc.semanticId}: ${sourceGuardWarning}`);
+      env.commandLogger.info(
         `    → Use "source": "${existingDescription.source}" in JSON or --force to override`
       );
       return;
@@ -143,17 +130,16 @@ async function processBatchDescription(
     errorConditions: desc.errorConditions || options.errorConditions,
   });
 
-  await storage.saveFunctionDescription(description);
-  logger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
+  await env.storage.saveFunctionDescription(description);
+  env.commandLogger.info(`✓ Saved description for semantic ID: ${desc.semanticId}`);
 }
 
 async function findContentIdBySemanticId(
-  storage: PGLiteStorageAdapter,
-  semanticId: string,
-  logger: Logger
+  env: CommandEnvironment,
+  semanticId: string
 ): Promise<string | undefined> {
   try {
-    const functions = await storage.queryFunctions({
+    const functions = await env.storage.queryFunctions({
       filters: [
         {
           field: 'semantic_id',
@@ -166,7 +152,7 @@ async function findContentIdBySemanticId(
 
     return functions.length > 0 ? functions[0].contentId : undefined;
   } catch (error) {
-    logger.warn(
+    env.commandLogger.warn(
       `Could not find function with semantic ID ${semanticId}: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
     return undefined;
@@ -174,45 +160,43 @@ async function findContentIdBySemanticId(
 }
 
 async function handleSingleDescribe(
-  context: DescribeContext,
-  functionIdOrPattern: string
+  env: CommandEnvironment,
+  functionIdOrPattern: string,
+  options: DescribeCommandOptions
 ): Promise<void> {
-  const { storage, logger, options } = context;
-
-  const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
+  const targetFunction = await findTargetFunction(env, functionIdOrPattern);
 
   if (!targetFunction) {
     return;
   }
 
   if (options.text || options.usageExample || options.sideEffects || options.errorConditions) {
-    await saveDescription(context, targetFunction, options.text);
+    await saveDescription(env, targetFunction, options);
   } else {
-    await showExistingDescription(context, targetFunction);
+    await showExistingDescription(env, targetFunction);
   }
 }
 
 async function findTargetFunction(
-  storage: PGLiteStorageAdapter,
-  functionIdOrPattern: string,
-  logger: Logger
+  env: CommandEnvironment,
+  functionIdOrPattern: string
 ): Promise<FunctionInfo | null> {
   // Try exact ID match first
-  let functions = await findFunctionById(storage, functionIdOrPattern);
+  let functions = await findFunctionById(env, functionIdOrPattern);
 
   // Try partial ID match
   if (functions.length === 0) {
-    functions = await findFunctionByPartialId(storage, functionIdOrPattern);
+    functions = await findFunctionByPartialId(env, functionIdOrPattern);
   }
 
   // Try name pattern match
   if (functions.length === 0) {
-    const result = await findFunctionByName(storage, functionIdOrPattern, logger);
+    const result = await findFunctionByName(env, functionIdOrPattern);
     if (!result) return null;
 
     if (typeof result === 'string') {
       // Single match, use its ID
-      functions = await findFunctionById(storage, result);
+      functions = await findFunctionById(env, result);
     } else {
       // Multiple matches were displayed
       return null;
@@ -220,7 +204,7 @@ async function findTargetFunction(
   }
 
   if (functions.length === 0) {
-    showFunctionNotFound(logger, functionIdOrPattern);
+    showFunctionNotFound(env.commandLogger, functionIdOrPattern);
     return null;
   }
 
@@ -228,10 +212,10 @@ async function findTargetFunction(
 }
 
 async function findFunctionById(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   functionId: string
 ): Promise<FunctionInfo[]> {
-  return await storage.queryFunctions({
+  return await env.storage.queryFunctions({
     filters: [
       {
         field: 'id',
@@ -243,10 +227,10 @@ async function findFunctionById(
 }
 
 async function findFunctionByPartialId(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   partialId: string
 ): Promise<FunctionInfo[]> {
-  return await storage.queryFunctions({
+  return await env.storage.queryFunctions({
     filters: [
       {
         field: 'id',
@@ -258,11 +242,10 @@ async function findFunctionByPartialId(
 }
 
 async function findFunctionByName(
-  storage: PGLiteStorageAdapter,
-  namePattern: string,
-  logger: Logger
+  env: CommandEnvironment,
+  namePattern: string
 ): Promise<string | boolean | null> {
-  const functions = await storage.queryFunctions({
+  const functions = await env.storage.queryFunctions({
     filters: [
       {
         field: 'name',
@@ -273,19 +256,19 @@ async function findFunctionByName(
   });
 
   if (functions.length === 0) {
-    showFunctionNotFound(logger, namePattern);
+    showFunctionNotFound(env.commandLogger, namePattern);
     return null;
   }
 
   if (functions.length > 1) {
-    showMultipleMatches(logger, functions, namePattern);
+    showMultipleMatches(env.commandLogger, functions, namePattern);
     return false;
   }
 
   return functions[0].id;
 }
 
-function showFunctionNotFound(logger: Logger, pattern: string): void {
+function showFunctionNotFound(logger: any, pattern: string): void {
   logger.info(chalk.red(`❌ Function not found: ${pattern}`));
   logger.info(chalk.blue('💡 Tips:'));
   logger.info('  • Use `funcqc list` to see all available functions with their IDs');
@@ -293,7 +276,7 @@ function showFunctionNotFound(logger: Logger, pattern: string): void {
   logger.info('  • Function IDs are shown in the first column of list/search results');
 }
 
-function showMultipleMatches(logger: Logger, functions: FunctionInfo[], pattern: string): void {
+function showMultipleMatches(logger: any, functions: FunctionInfo[], pattern: string): void {
   logger.info(
     chalk.yellow(`Multiple functions found matching "${pattern}". Please specify a function ID:`)
   );
@@ -325,7 +308,7 @@ function handleSourceGuardValidation(
   existingDescription: FunctionDescription | null,
   newSource: 'human' | 'ai' | 'jsdoc',
   targetFunction: FunctionInfo,
-  logger: Logger,
+  logger: any,
   force: boolean
 ): void {
   if (existingDescription && !force) {
@@ -380,7 +363,7 @@ function displaySaveConfirmation(
   description: FunctionDescription,
   text: string | undefined,
   options: DescribeCommandOptions,
-  logger: Logger
+  logger: any
 ): void {
   logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
   logger.info(`  Function ID: ${targetFunction.id}`);
@@ -407,48 +390,44 @@ function displaySaveConfirmation(
 }
 
 async function saveDescription(
-  context: DescribeContext,
+  env: CommandEnvironment,
   targetFunction: FunctionInfo,
-  text: string | undefined
+  options: DescribeCommandOptions
 ): Promise<void> {
-  const { storage, logger, options } = context;
-
-  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
+  const existingDescription = await env.storage.getFunctionDescription(targetFunction.semanticId);
   const newSource = options.source || 'human';
 
   handleSourceGuardValidation(
     existingDescription,
     newSource,
     targetFunction,
-    logger,
+    env.commandLogger,
     options.force || false
   );
 
-  const descriptionText = text || existingDescription?.description || '';
+  const descriptionText = options.text || existingDescription?.description || '';
   const description = buildFunctionDescription(targetFunction, descriptionText, options);
 
-  await storage.saveFunctionDescription(description);
+  await env.storage.saveFunctionDescription(description);
 
-  displaySaveConfirmation(targetFunction, description, text, options, logger);
+  displaySaveConfirmation(targetFunction, description, options.text, options, env.commandLogger);
 }
 
 async function showExistingDescription(
-  context: DescribeContext,
+  env: CommandEnvironment,
   targetFunction: FunctionInfo
 ): Promise<void> {
-  const { storage, logger } = context;
-
-  const existingDescription = await storage.getFunctionDescription(targetFunction.semanticId);
+  const existingDescription = await env.storage.getFunctionDescription(targetFunction.semanticId);
 
   if (existingDescription) {
-    displayDescription(logger, targetFunction, existingDescription);
+    displayDescription(env.commandLogger, targetFunction, existingDescription);
   } else {
-    showNoDescription(logger, targetFunction);
+    showNoDescription(env.commandLogger, targetFunction);
   }
 }
 
 function displayDescription(
-  logger: Logger,
+  logger: any,
   func: FunctionInfo,
   description: FunctionDescription
 ): void {
@@ -490,7 +469,7 @@ function displayDescription(
   }
 }
 
-function showNoDescription(logger: Logger, func: FunctionInfo): void {
+function showNoDescription(logger: any, func: FunctionInfo): void {
   logger.info(chalk.yellow(`No description found for function: ${func.name}`));
   logger.info(`  Function ID: ${func.id}`);
   logger.info(`  File: ${func.filePath}:${func.startLine}`);
@@ -577,13 +556,11 @@ function getRiskIcon(func: FunctionInfo): string {
   return isHighRisk ? chalk.red('⚠️') : chalk.green('✅');
 }
 
-async function handleListFunctions(context: DescribeContext): Promise<void> {
-  const { storage, logger, options } = context;
-
+async function handleListFunctions(env: CommandEnvironment, options: DescribeCommandOptions): Promise<void> {
   // Get the latest snapshot ID
-  const snapshots = await storage.getSnapshots({ limit: 1 });
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
   if (snapshots.length === 0) {
-    logger.warn('No snapshots found. Please run `funcqc scan` first.');
+    env.commandLogger.warn('No snapshots found. Please run `funcqc scan` first.');
     return;
   }
   const latestSnapshotId = snapshots[0].id;
@@ -592,27 +569,27 @@ async function handleListFunctions(context: DescribeContext): Promise<void> {
   let title: string;
 
   if (options.listUndocumented) {
-    functions = await storage.getFunctionsWithoutDescriptions(latestSnapshotId);
+    functions = await env.storage.getFunctionsWithoutDescriptions(latestSnapshotId);
     title = 'Functions without descriptions';
-    logger.debug(`Found ${functions.length} functions without descriptions`);
+    env.commandLogger.debug(`Found ${functions.length} functions without descriptions`);
   } else if (options.needsDescription) {
-    functions = await storage.getFunctionsNeedingDescriptions(latestSnapshotId);
+    functions = await env.storage.getFunctionsNeedingDescriptions(latestSnapshotId);
     title = 'Functions needing description updates';
-    logger.debug(`Found ${functions.length} functions needing description updates`);
+    env.commandLogger.debug(`Found ${functions.length} functions needing description updates`);
   } else {
-    logger.warn('No list option specified');
+    env.commandLogger.warn('No list option specified');
     return;
   }
 
   if (functions.length === 0) {
-    logger.info(chalk.green(`✓ No functions found for: ${title.toLowerCase()}`));
+    env.commandLogger.info(chalk.green(`✓ No functions found for: ${title.toLowerCase()}`));
     return;
   }
 
   // Get descriptions for functions that have them
   const functionsWithDescriptions = await Promise.all(
     functions.map(async func => {
-      const description = await storage.getFunctionDescription(func.semanticId);
+      const description = await env.storage.getFunctionDescription(func.semanticId);
       return {
         ...func,
         currentDescription: description?.description || undefined,
@@ -687,16 +664,15 @@ function displayFunctionTable(
 }
 
 async function handleGenerateTemplate(
-  context: DescribeContext,
-  functionIdOrPattern: string
+  env: CommandEnvironment,
+  functionIdOrPattern: string,
+  options: DescribeCommandOptions
 ): Promise<void> {
-  const { storage, logger, options } = context;
-
   if (!functionIdOrPattern) {
     throw new Error('Function ID or name pattern is required for template generation');
   }
 
-  const targetFunction = await findTargetFunction(storage, functionIdOrPattern, logger);
+  const targetFunction = await findTargetFunction(env, functionIdOrPattern);
 
   if (!targetFunction) {
     return;
@@ -738,12 +714,12 @@ async function handleGenerateTemplate(
   if (options.aiMode) {
     // AI-optimized output with context
     console.log(JSON.stringify(contextInfo, null, 2));
-    logger.info(chalk.blue('💡 AI Mode: Complete context provided for analysis'));
-    logger.info(chalk.blue('💡 Extract the "template" array for batch processing'));
+    env.commandLogger.info(chalk.blue('💡 AI Mode: Complete context provided for analysis'));
+    env.commandLogger.info(chalk.blue('💡 Extract the "template" array for batch processing'));
   } else {
     // Human-friendly template output
     console.log(JSON.stringify([template], null, 2));
-    logger.info(chalk.blue('💡 Template generated successfully'));
-    logger.info(chalk.blue('💡 Edit the template and use: funcqc describe --input template.json'));
+    env.commandLogger.info(chalk.blue('💡 Template generated successfully'));
+    env.commandLogger.info(chalk.blue('💡 Edit the template and use: funcqc describe --input template.json'));
   }
 }

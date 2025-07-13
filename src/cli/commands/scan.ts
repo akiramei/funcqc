@@ -9,33 +9,71 @@ import {
   CliComponents,
   FuncqcConfig,
   SpinnerInterface,
-} from '../types';
-import { ConfigManager } from '../core/config';
-import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
-import { QualityCalculator } from '../metrics/quality-calculator';
-import { QualityScorer } from '../utils/quality-scorer';
-import { ParallelFileProcessor, ParallelProcessingResult } from '../utils/parallel-processor';
-import { RealTimeQualityGate, QualityAssessment } from '../core/realtime-quality-gate.js';
+} from '../../types';
+import { ConfigManager } from '../../core/config';
+import { TypeScriptAnalyzer } from '../../analyzers/typescript-analyzer';
+import { QualityCalculator } from '../../metrics/quality-calculator';
+import { QualityScorer } from '../../utils/quality-scorer';
+import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/parallel-processor';
+import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
+import { Logger } from '../../utils/cli-utils';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
 
-export async function scanCommand(options: ScanCommandOptions): Promise<void> {
-  const spinner = ora();
+/**
+ * Scan command as a Reader function
+ * Uses shared storage and config from environment
+ */
+export const scanCommand: VoidCommand<ScanCommandOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    const spinner = ora();
 
+    try {
+      env.commandLogger.log('🔍 Starting function analysis...');
+      
+      await executeScanCommand(env, options, spinner);
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        const funcqcError = errorHandler.createError(
+          error.code,
+          error.message,
+          {},
+          error.originalError
+        );
+        errorHandler.handleError(funcqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Scan failed: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+async function executeScanCommand(
+  env: CommandEnvironment, 
+  options: ScanCommandOptions,
+  spinner: SpinnerInterface
+): Promise<void> {
   try {
-    const config = await initializeScan();
-
     // Handle realtime gate mode
     if (options.realtimeGate) {
-      await runRealtimeGateMode(config, options, spinner);
+      await runRealtimeGateMode(env.config, options, spinner);
       return;
     }
 
     // Check for configuration changes and enforce comment requirement
-    await checkConfigurationChanges(config, options, spinner);
+    await checkConfigurationChanges(env, options, spinner);
 
-    const scanPaths = determineScanPaths(config);
-    const components = await initializeComponents(config, spinner);
-    const files = await discoverFiles(scanPaths, config, spinner);
+    const scanPaths = determineScanPaths(env.config);
+    const components = await initializeComponents(env, spinner);
+    const files = await discoverFiles(scanPaths, env.config, spinner);
 
     if (files.length === 0) {
       console.log(chalk.yellow('No TypeScript files found to analyze.'));
@@ -45,32 +83,23 @@ export async function scanCommand(options: ScanCommandOptions): Promise<void> {
     const allFunctions = await performAnalysis(files, components, spinner);
     showAnalysisSummary(allFunctions);
 
-    await saveResults(allFunctions, components.storage, options, spinner);
+    await saveResults(allFunctions, env.storage, options, spinner);
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
   }
 }
 
-async function initializeScan(): Promise<FuncqcConfig> {
-  const configManager = new ConfigManager();
-  return await configManager.load();
-}
-
 async function checkConfigurationChanges(
-  config: FuncqcConfig,
+  env: CommandEnvironment,
   options: ScanCommandOptions,
   spinner: SpinnerInterface
 ): Promise<void> {
   const configManager = new ConfigManager();
-  const currentConfigHash = configManager.generateScanConfigHash(config);
-
-  // Initialize storage to check previous config
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
-  await storage.init();
+  const currentConfigHash = configManager.generateScanConfigHash(env.config);
 
   try {
-    const lastConfigHash = await storage.getLastConfigHash();
+    const lastConfigHash = await env.storage.getLastConfigHash();
 
     if (lastConfigHash && lastConfigHash !== currentConfigHash && lastConfigHash !== 'unknown') {
       // Configuration has changed
@@ -100,8 +129,9 @@ async function checkConfigurationChanges(
       console.log(chalk.gray(`   "${options.comment}"`));
       console.log();
     }
-  } finally {
-    await storage.close();
+  } catch (error) {
+    // Handle storage errors gracefully - continue with scan
+    env.commandLogger.warn(`Warning: Could not check configuration hash: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -110,7 +140,7 @@ function determineScanPaths(config: FuncqcConfig): string[] {
 }
 
 async function initializeComponents(
-  config: FuncqcConfig,
+  env: CommandEnvironment,
   spinner: SpinnerInterface
 ): Promise<CliComponents> {
   spinner.start('Initializing funcqc scan...');
@@ -121,13 +151,15 @@ async function initializeComponents(
   const hasIncreasedMemory = /--max-old-space-size[= ](\d+)/.test(nodeOptions);
   const maxSourceFilesInMemory = hasIncreasedMemory ? 100 : 50;
   const analyzer = new TypeScriptAnalyzer(maxSourceFilesInMemory);
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
   const qualityCalculator = new QualityCalculator();
 
-  await storage.init();
   spinner.succeed('Components initialized');
 
-  return { analyzer, storage, qualityCalculator };
+  return { 
+    analyzer, 
+    storage: env.storage, 
+    qualityCalculator 
+  };
 }
 
 async function discoverFiles(
@@ -521,11 +553,16 @@ async function runRealtimeGateMode(
 ): Promise<void> {
   spinner.start('Initializing real-time quality gate...');
 
-  let storage: PGLiteStorageAdapter | null = null;
-  
   try {
-    const initResult = await initializeQualityGate(config, spinner);
-    storage = initResult.storage;
+    // Create temporary storage for real-time analysis
+    const logger = new Logger();
+    const storage = new (await import('../../storage/pglite-adapter')).PGLiteStorageAdapter(
+      config.storage.path || '.funcqc/funcqc.db', 
+      logger
+    );
+    await storage.init();
+    
+    const initResult = await initializeQualityGate(config, spinner, storage);
     
     const analysisResult = await performRealTimeAnalysis(config, initResult.qualityGate);
     
@@ -535,29 +572,28 @@ async function runRealtimeGateMode(
     }
 
     displayAnalysisResults(analysisResult);
+    
+    await storage.close();
   } catch (error) {
     spinner.fail(
       `Real-time quality gate failed: ${error instanceof Error ? error.message : String(error)}`
     );
     throw error;
-  } finally {
-    if (storage) {
-      await storage.close();
-    }
   }
 }
 
-async function initializeQualityGate(config: FuncqcConfig, spinner: typeof ora.prototype) {
-  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-  await storage.init();
-
+async function initializeQualityGate(
+  _config: FuncqcConfig, 
+  spinner: typeof ora.prototype,
+  storage: any
+) {
   const allHistoricalFunctions = await loadHistoricalFunctions(storage);
   const qualityGate = createQualityGate(allHistoricalFunctions, spinner);
 
   return { storage, qualityGate };
 }
 
-async function loadHistoricalFunctions(storage: PGLiteStorageAdapter): Promise<FunctionInfo[]> {
+async function loadHistoricalFunctions(storage: any): Promise<FunctionInfo[]> {
   const recentSnapshots = await storage.getSnapshots({ limit: 5 });
   const allHistoricalFunctions: FunctionInfo[] = [];
 

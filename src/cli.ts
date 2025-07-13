@@ -90,9 +90,10 @@ program
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
-  .action(async (options: OptionValues) => {
-    const { scanCommand } = await import('./cli/scan');
-    return scanCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { scanCommand } = await import('./cli/commands/scan');
+    return withEnvironment(scanCommand)(options, command);
   });
 
 program
@@ -105,9 +106,10 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
-  .action(async (options: OptionValues) => {
-    const { listCommand } = await import('./cli/list');
-    return listCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { listCommand } = await import('./cli/commands/list');
+    return withEnvironment(listCommand)(options, command);
   });
 
 program
@@ -126,9 +128,10 @@ program
   .option('--source', 'show function source code')
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .action(async (namePattern: string | undefined, options: OptionValues) => {
-    const { showCommand } = await import('./cli/show');
-    return showCommand(namePattern, options);
+  .action(async (namePattern: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { showCommand } = await import('./cli/commands/show');
+    return withEnvironment(showCommand(namePattern || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -169,13 +172,12 @@ program
   .option('--verbose', 'show detailed information')
   .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
+  .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--ai-optimized', 'deprecated: use --json instead')
-  .action(async (options, cmd) => {
-    // グローバルオプションをマージ
-    const globalOpts = cmd.parent.opts();
-    const mergedOptions = { ...globalOpts, ...options };
-    const { healthCommand } = await import('./cli/health');
-    await healthCommand(mergedOptions);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { healthCommand } = await import('./cli/commands/health');
+    return withEnvironment(healthCommand)(options, command);
   });
 
 program
@@ -191,12 +193,10 @@ program
   .option('--id <function-id>', 'track history of specific function by ID')
   .option('--all', 'show all snapshots including where function is absent (with --id)')
   .option('--json', 'output as JSON')
-  .action(async (options, cmd) => {
-    // グローバルオプションをマージ
-    const globalOpts = cmd.parent.opts();
-    const mergedOptions = { ...globalOpts, ...options };
-    const { historyCommand } = await import('./cli/history');
-    await historyCommand(mergedOptions);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { historyCommand } = await import('./cli/commands/history');
+    return withEnvironment(historyCommand)(options, command);
   });
 
 program
@@ -216,9 +216,10 @@ program
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
-  .action(async (from: string, to: string, options: OptionValues) => {
-    const { diffCommand } = await import('./cli/diff');
-    return diffCommand(from, to, options);
+  .action(async (from: string, to: string, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { diffCommand } = await import('./cli/commands/diff');
+    return withEnvironment(diffCommand(from, to))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -264,9 +265,10 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
-  .action(async (options: OptionValues, cmd: Command) => {
-    const { similarCommand } = await import('./cli/similar');
-    await similarCommand(options, cmd);
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { similarCommand } = await import('./cli/commands/similar');
+    return withEnvironment(similarCommand)(options, command);
   });
 
 program
@@ -289,9 +291,10 @@ program
   .option('--error-conditions <conditions>', 'document error conditions and handling')
   .option('--generate-template', 'generate JSON template for the specified function')
   .option('--ai-mode', 'enable AI-optimized batch processing')
-  .action(async (functionId: string | undefined, options: OptionValues) => {
-    const { describeCommand } = await import('./cli/describe');
-    await describeCommand(functionId || '', options);
+  .action(async (functionId: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { describeCommand } = await import('./cli/commands/describe');
+    return withEnvironment(describeCommand(functionId || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -358,9 +361,10 @@ program
   .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
   .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
   .option('--intermediate', 'output intermediate results for AI analysis')
-  .action(async (keyword: string, options: OptionValues) => {
-    const { searchCommand } = await import('./cli/search');
-    await searchCommand(keyword, options);
+  .action(async (keyword: string, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { searchCommand } = await import('./cli/commands/search');
+    return withEnvironment(searchCommand(keyword))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -384,16 +388,32 @@ Hybrid Search:
   Optimal for comprehensive code exploration
 `);
 
-// Add vectorize command - loaded dynamically
-program.addCommand(
-  new Command('vectorize')
-    .description('Vectorize functions for semantic search')
-    .action(async () => {
-      const { createVectorizeCommand } = await import('./cli/vectorize');
-      const vectorizeCommand = createVectorizeCommand();
-      await vectorizeCommand.parseAsync(process.argv.slice(2));
-    })
-);
+program
+  .command('vectorize')
+  .description('Generate and manage embeddings for function descriptions')
+  .option('--all', 'vectorize all functions with descriptions')
+  .option('--recent', 'vectorize only functions without embeddings (default)')
+  .option('--status', 'show vectorization status')
+  .option('--rebuild-index', 'rebuild ANN index for faster search')
+  .option(
+    '--index-algorithm <algorithm>',
+    'ANN algorithm (hierarchical, lsh, hybrid)',
+    'hierarchical'
+  )
+  .option('--index-config <config>', 'JSON config for ANN index (clusters, hash bits, etc.)')
+  .option('--benchmark', 'benchmark ANN index performance')
+  .option('--index-stats', 'show ANN index statistics')
+  .option('--api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env var)')
+  .option('--model <model>', 'embedding model to use', 'text-embedding-3-small')
+  .option('--batch-size <size>', 'batch size for processing', '100')
+  .option('--limit <n>', 'limit number of functions to process')
+  .option('--output <format>', 'output format (console, json)', 'console')
+  .option('--force', 'skip confirmation prompts')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { vectorizeCommand } = await import('./cli/commands/vectorize');
+    return withEnvironment(vectorizeCommand)(options, command);
+  });
 
 // Add evaluate command (v1.6 enhancement) - loaded dynamically
 program.addCommand(
@@ -415,9 +435,10 @@ program
   .option('--ai-generated', 'code is AI-generated (affects exit codes)')
   .option('--strict', 'strict mode for critical violations')
   .option('-j, --json', 'output as JSON for integration')
-  .action(async (input: string | undefined, options: OptionValues) => {
-    const { evaluateCommand } = await import('./cli/evaluate.js');
-    return evaluateCommand(input || '', options);
+  .action(async (input: string | undefined, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { evaluateCommand } = await import('./cli/commands/evaluate');
+    return withEnvironment(evaluateCommand(input || ''))(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -456,9 +477,10 @@ program
       .option('--from-function <pattern>', 'filter by source function name pattern')
       .option('--to-function <pattern>', 'filter by target function name pattern')
       .option('--confidence <threshold>', 'filter by minimum confidence (0-1)')
-      .action(async (options: OptionValues) => {
-        const { lineageListCommand } = await import('./cli/lineage');
-        await lineageListCommand(options);
+      .action(async (options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('list'))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -473,9 +495,10 @@ Examples:
     new Command('show')
       .description('Show detailed lineage information')
       .argument('<lineage-id>', 'lineage ID to display')
-      .action(async (lineageId: string, options: OptionValues) => {
-        const { lineageShowCommand } = await import('./cli/lineage');
-        await lineageShowCommand(lineageId, options);
+      .action(async (lineageId: string, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('show', [lineageId]))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -490,9 +513,10 @@ Examples:
       .option('--reject', 'reject the lineage')
       .option('--note <text>', 'add review note')
       .option('--all', 'review all draft lineages')
-      .action(async (lineageId: string | undefined, options: OptionValues) => {
-        const { lineageReviewCommand } = await import('./cli/lineage');
-        await lineageReviewCommand(lineageId || '', options);
+      .action(async (lineageId: string | undefined, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('review', lineageId ? [lineageId] : []))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -505,9 +529,10 @@ Examples:
     new Command('delete')
       .description('Delete a specific lineage')
       .argument('<lineage-id>', 'lineage ID to delete')
-      .action(async (lineageId: string, options: OptionValues) => {
-        const { lineageDeleteCommand } = await import('./cli/lineage');
-        await lineageDeleteCommand(lineageId, options);
+      .action(async (lineageId: string, options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('delete', [lineageId]))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -524,9 +549,10 @@ Examples:
       .option('-y, --yes', 'skip confirmation prompt')
       .option('--include-approved', 'include approved lineages (requires --force)')
       .option('--force', 'required flag when deleting approved lineages')
-      .action(async (options: OptionValues) => {
-        const { lineageCleanCommand } = await import('./cli/lineage');
-        await lineageCleanCommand(options);
+      .action(async (options: OptionValues, command) => {
+        const { withEnvironment } = await import('./cli/cli-wrapper');
+        const { lineageCommand } = await import('./cli/commands/lineage');
+        return withEnvironment(lineageCommand('clean'))(options, command);
       })
       .addHelpText('after', `
 Examples:
@@ -589,9 +615,10 @@ refactorCommand.addCommand(
     .option('--output <file>', 'save report to file')
     .option('--format <type>', 'output format (summary|detailed|json)', 'summary')
     .option('--patterns <list>', 'comma-separated list of patterns to detect')
-    .action(async (options: OptionValues) => {
-      const { refactorAnalyzeCommand } = await import('./cli/refactor/analyze.js');
-      await refactorAnalyzeCommand(options);
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('analyze'))(options, command);
     })
     .addHelpText('after', `
 Examples:
@@ -612,53 +639,152 @@ Supported Patterns:
 `)
 );
 
-// Add detect subcommand - loaded dynamically
+// Add detect subcommand
 refactorCommand.addCommand(
   new Command('detect')
-    .description('Detect refactoring opportunities')
-    .action(async () => {
-      const { refactorDetectCommand } = await import('./cli/refactor/detect.js');
-      await refactorDetectCommand.parseAsync(process.argv.slice(2));
+    .description('Detect specific refactoring patterns in the codebase')
+    .option('-p, --pattern <pattern>', 'Specific pattern to detect (extract-method, split-function, etc.)')
+    .option('-f, --file <file>', 'Target file pattern to analyze')
+    .option('--complexity-threshold <number>', 'Minimum complexity threshold', '5')
+    .option('--size-threshold <number>', 'Minimum size threshold (lines)', '20')
+    .option('-s, --session <id>', 'Link results to an existing session')
+    .option('--create-session', 'Create a new session for detected opportunities')
+    .option('-i, --interactive', 'Interactive mode for reviewing opportunities')
+    .option('--limit <number>', 'Maximum number of opportunities to detect', '20')
+    .option('--json', 'Output results as JSON')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('detect'))(options, command);
     })
 );
 
-// Add track subcommand - loaded dynamically
+// Add track subcommand
 refactorCommand.addCommand(
   new Command('track')
-    .description('Track refactoring progress')
-    .action(async () => {
-      const { refactorTrackCommand } = await import('./cli/refactor/track.js');
-      await refactorTrackCommand.parseAsync(process.argv.slice(2));
-    })
+    .description('Track refactoring sessions and progress')
+    .addCommand(
+      new Command('list')
+        .description('List active refactoring sessions')
+        .option('--all', 'Show all sessions including completed and cancelled')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['list']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('show')
+        .description('Show details of a refactoring session')
+        .argument('<sessionId>', 'Session ID to show')
+        .option('--json', 'Output as JSON')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['show', sessionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('create')
+        .description('Create a new refactoring session')
+        .option('-n, --name <name>', 'Session name')
+        .option('-d, --description <desc>', 'Session description')
+        .option('-b, --branch <branch>', 'Target Git branch')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['create']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('update')
+        .description('Update function status in a refactoring session')
+        .argument('<sessionId>', 'Session ID')
+        .argument('<functionId>', 'Function ID')
+        .option('-s, --status <status>', 'New status (pending, in_progress, completed, skipped)')
+        .option('-n, --notes <notes>', 'Add notes about the update')
+        .option('--interactive', 'Interactive mode to update multiple functions')
+        .action(async (sessionId: string, functionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['update', sessionId, functionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('complete')
+        .description('Complete a refactoring session')
+        .argument('<sessionId>', 'Session ID to complete')
+        .option('-s, --summary <summary>', 'Completion summary')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['complete', sessionId]))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('cancel')
+        .description('Cancel a refactoring session')
+        .argument('<sessionId>', 'Session ID to cancel')
+        .option('-r, --reason <reason>', 'Cancellation reason')
+        .action(async (sessionId: string, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('track', ['cancel', sessionId]))(options, command);
+        })
+    )
 );
 
-// Add interactive subcommand (Phase 3 Week 3) - loaded dynamically
+// Add interactive subcommand
 refactorCommand.addCommand(
   new Command('interactive')
-    .description('Interactive refactoring session')
-    .action(async () => {
-      const { refactorInteractiveCommand } = await import('./cli/refactor/interactive.js');
-      await refactorInteractiveCommand.parseAsync(process.argv.slice(2));
+    .description('Interactive refactoring wizard for guided code improvements')
+    .option('-s, --session <id>', 'Continue from existing session')
+    .option('-p, --pattern <pattern>', 'Focus on specific pattern')
+    .option('--complexity-threshold <number>', 'Minimum complexity threshold', '5')
+    .option('--size-threshold <number>', 'Minimum size threshold (lines)', '20')
+    .option('--limit <number>', 'Maximum opportunities to process', '10')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('interactive'))(options, command);
     })
 );
 
-// Add status subcommand (Phase 3 Week 3) - loaded dynamically
+// Add status subcommand
 refactorCommand.addCommand(
   new Command('status')
-    .description('Show refactoring status')
-    .action(async () => {
-      const { refactorStatusCommand } = await import('./cli/refactor/status.js');
-      await refactorStatusCommand.parseAsync(process.argv.slice(2));
+    .description('Display project refactoring status and health dashboard')
+    .option('-s, --session <id>', 'Show status for specific session')
+    .option('--all-sessions', 'Show status for all sessions')
+    .option('--complexity-threshold <number>', 'Complexity threshold for analysis', '5')
+    .option('--size-threshold <number>', 'Size threshold for analysis', '20')
+    .option('--json', 'Output as JSON')
+    .option('--detailed', 'Show detailed information')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('status'))(options, command);
     })
 );
 
-// Add plan subcommand (Phase 3 Week 3) - loaded dynamically
+// Add plan subcommand
 refactorCommand.addCommand(
   new Command('plan')
-    .description('Create refactoring plan')
-    .action(async () => {
-      const { refactorPlanCommand } = await import('./cli/refactor/plan.js');
-      await refactorPlanCommand.parseAsync(process.argv.slice(2));
+    .description('Generate comprehensive refactoring plan for project improvement')
+    .option('-s, --session <id>', 'Generate plan for specific session')
+    .option('-p, --pattern <pattern>', 'Focus plan on specific pattern')
+    .option('--complexity-threshold <number>', 'Complexity threshold for analysis', '5')
+    .option('--size-threshold <number>', 'Size threshold for analysis', '20')
+    .option('--output <file>', 'Save plan to file')
+    .option('--format <format>', 'Output format (markdown, json)', 'markdown')
+    .option('--timeline <weeks>', 'Target timeline in weeks', '4')
+    .option('--effort <hours>', 'Available effort per week in hours', '8')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('plan'))(options, command);
     })
 );
 

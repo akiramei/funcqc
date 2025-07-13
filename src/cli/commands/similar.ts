@@ -1,15 +1,15 @@
-import { Command } from 'commander';
 import ora from 'ora';
 import chalk from 'chalk';
 import fs from 'fs';
-import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
-import { SimilarityManager } from '../similarity/similarity-manager';
-import { FunctionInfo, SimilarityResult, ConsensusStrategy } from '../types';
-import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { Logger } from '../utils/cli-utils';
+import { SimilarityManager } from '../../similarity/similarity-manager';
+import { FunctionInfo, SimilarityResult, ConsensusStrategy } from '../../types';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
+import { BaseCommandOptions } from '../../types/command';
 
-interface SimilarCommandOptions {
+export interface SimilarCommandOptions extends BaseCommandOptions {
   threshold?: string;
   json?: boolean;
   jsonl?: boolean; // JSON Lines format
@@ -22,12 +22,6 @@ interface SimilarCommandOptions {
   limit?: string;
 }
 
-interface CommandContext {
-  logger: Logger;
-  errorHandler: ReturnType<typeof createErrorHandler>;
-  parentOpts: Record<string, unknown>;
-}
-
 interface DetectionConfig {
   threshold: number;
   minLines: number;
@@ -37,69 +31,47 @@ interface DetectionConfig {
   crossFile: boolean;
 }
 
-export async function similarCommand(options: SimilarCommandOptions, cmd: Command): Promise<void> {
-  const context = initializeCommand(options, cmd);
-  const spinner = ora();
-
-  try {
-    const storage = await initializeStorage();
+/**
+ * Similar command as a Reader function
+ * Uses shared storage from environment to detect similar functions
+ */
+export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    const spinner = ora();
 
     try {
-      const functions = await loadFunctions(storage, options, spinner);
+      const functions = await loadFunctions(env, options, spinner);
       const detectionConfig = parseDetectionOptions(options);
-      const results = await detectSimilarities(functions, detectionConfig, spinner, storage);
+      const results = await detectSimilarities(functions, detectionConfig, spinner, env);
       const limitedResults = applyLimit(results, detectionConfig.limit);
 
-      outputResults(limitedResults, options, context.logger);
-      showSummaryIfNeeded(results, limitedResults, options, context);
-    } finally {
-      await storage.close();
+      outputResults(limitedResults, options, env);
+      showSummaryIfNeeded(results, limitedResults, options, env);
+    } catch (error) {
+      spinner.fail();
+      if (error instanceof DatabaseError) {
+        const funcqcError = errorHandler.createError(
+          error.code,
+          error.message,
+          {},
+          error.originalError
+        );
+        errorHandler.handleError(funcqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze similar functions: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
     }
-  } catch (error) {
-    spinner.fail();
-    if (error instanceof DatabaseError) {
-      const funcqcError = context.errorHandler.createError(
-        error.code,
-        error.message,
-        {},
-        error.originalError
-      );
-      context.errorHandler.handleError(funcqcError);
-    } else {
-      const funcqcError = context.errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Failed to analyze similar functions: ${error instanceof Error ? error.message : String(error)}`,
-        {},
-        error instanceof Error ? error : undefined
-      );
-      context.errorHandler.handleError(funcqcError);
-    }
-  }
-}
-
-function initializeCommand(_options: SimilarCommandOptions, cmd: Command): CommandContext {
-  const parentOpts = cmd.parent?.opts() || {};
-  const logger = new Logger(parentOpts['verbose'], parentOpts['quiet']);
-  const errorHandler = createErrorHandler(logger);
-
-  return {
-    logger,
-    errorHandler,
-    parentOpts,
   };
-}
-
-async function initializeStorage(): Promise<PGLiteStorageAdapter> {
-  const configManager = new ConfigManager();
-  const config = await configManager.load();
-  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-
-  await storage.init();
-  return storage;
-}
 
 async function loadFunctions(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   options: SimilarCommandOptions,
   spinner: ReturnType<typeof ora>
 ): Promise<FunctionInfo[]> {
@@ -107,13 +79,13 @@ async function loadFunctions(
 
   let functions: FunctionInfo[];
   if (options.snapshot) {
-    functions = await storage.getFunctions(options.snapshot);
+    functions = await env.storage.getFunctions(options.snapshot);
   } else {
-    const snapshots = await storage.getSnapshots({ limit: 1 });
+    const snapshots = await env.storage.getSnapshots({ limit: 1 });
     if (snapshots.length === 0) {
       throw new Error('No snapshots found. Run "funcqc scan" first.');
     }
-    functions = await storage.getFunctions(snapshots[0].id);
+    functions = await env.storage.getFunctions(snapshots[0].id);
   }
 
   spinner.succeed(`Loaded ${functions.length} functions`);
@@ -144,9 +116,9 @@ async function detectSimilarities(
   functions: FunctionInfo[],
   config: DetectionConfig,
   spinner: ReturnType<typeof ora>,
-  storage: PGLiteStorageAdapter
+  env: CommandEnvironment
 ): Promise<SimilarityResult[]> {
-  const similarityManager = new SimilarityManager(undefined, storage);
+  const similarityManager = new SimilarityManager(undefined, env.storage);
 
   spinner.start('Detecting similar functions...');
 
@@ -178,12 +150,12 @@ function applyLimit(results: SimilarityResult[], limit: number | undefined): Sim
 function outputResults(
   results: SimilarityResult[],
   options: SimilarCommandOptions,
-  logger: Logger
+  env: CommandEnvironment
 ): void {
   if (options.json || options.jsonl) {
     outputJSON(results, options.output, options.jsonl);
   } else {
-    displayResults(results, logger);
+    displayResults(results, env.commandLogger);
   }
 }
 
@@ -191,10 +163,10 @@ function showSummaryIfNeeded(
   allResults: SimilarityResult[],
   displayedResults: SimilarityResult[],
   options: SimilarCommandOptions,
-  context: CommandContext
+  env: CommandEnvironment
 ): void {
-  if (!options.json && !context.parentOpts['quiet']) {
-    displaySummary(allResults, displayedResults, context.logger);
+  if (!options.json && !options.quiet) {
+    displaySummary(allResults, displayedResults, env.commandLogger);
   }
 }
 
@@ -348,7 +320,7 @@ function outputJSONLines(
   }
 }
 
-function displayResults(results: SimilarityResult[], logger: Logger): void {
+function displayResults(results: SimilarityResult[], logger: any): void {
   if (results.length === 0) {
     logger.info('No similar functions found with the given criteria.');
     return;
@@ -395,7 +367,7 @@ function displayResults(results: SimilarityResult[], logger: Logger): void {
 function displaySummary(
   allResults: SimilarityResult[],
   displayedResults: SimilarityResult[],
-  _logger: Logger
+  _logger: any
 ): void {
   const totalFunctions = new Set<string>();
   allResults.forEach(result => {

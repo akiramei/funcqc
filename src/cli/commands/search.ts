@@ -1,35 +1,64 @@
 import chalk from 'chalk';
-import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
-import { ConfigManager } from '../core/config';
-import { Logger } from '../utils/cli-utils';
-import { createErrorHandler, ErrorCode } from '../utils/error-handler';
-import { SearchCommandOptions, FunctionInfo, FuncqcConfig } from '../types';
-import { LocalSimilarityService } from '../services/local-similarity-service';
-import { SimilarityManager } from '../similarity/similarity-manager';
+import { SearchCommandOptions, FunctionInfo } from '../../types';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
+import { LocalSimilarityService } from '../../services/local-similarity-service';
+import { SimilarityManager } from '../../similarity/similarity-manager';
 import path from 'path';
 
 /**
- * Initialize storage with configuration
+ * Search command as a Reader function with keyword argument
+ * Uses shared storage from environment
  */
-async function initializeStorage(config: FuncqcConfig): Promise<PGLiteStorageAdapter> {
-  const storage = new PGLiteStorageAdapter(config.storage.path || '.funcqc/funcqc.db');
-  await storage.init();
-  return storage;
+export function searchCommand(keyword: string): VoidCommand<SearchCommandOptions> {
+  return (options) => async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+
+    try {
+      const functions = await performSearch(env, keyword, options);
+
+      if (functions.length === 0) {
+        await handleEmptyResults(env, keyword, options);
+        return;
+      }
+
+      handleSearchResults(functions, keyword, options);
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        const funcqcError = errorHandler.createError(
+          error.code,
+          error.message,
+          {},
+          error.originalError
+        );
+        errorHandler.handleError(funcqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to execute search command: ${error instanceof Error ? error.message : String(error)}`,
+          { keyword, options },
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
 }
 
 /**
  * Perform search based on options
  */
 async function performSearch(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   keyword: string,
-  options: SearchCommandOptions,
-  logger: Logger
+  options: SearchCommandOptions
 ): Promise<FunctionInfo[]> {
   if (options.semantic || options.hybrid) {
-    return await performSemanticSearch(storage, keyword, options, logger);
+    return await performSemanticSearch(env, keyword, options);
   } else {
-    return await storage.searchFunctionsByDescription(keyword, {
+    return await env.storage.searchFunctionsByDescription(keyword, {
       limit: options.limit ? parseInt(options.limit, 10) : 50,
     });
   }
@@ -39,30 +68,29 @@ async function performSearch(
  * Handle empty search results with helpful suggestions
  */
 async function handleEmptyResults(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   keyword: string,
-  options: SearchCommandOptions,
-  logger: Logger
+  options: SearchCommandOptions
 ): Promise<void> {
-  logger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
+  env.commandLogger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
 
-  const stats = await storage.getEmbeddingStats();
+  const stats = await env.storage.getEmbeddingStats();
 
   if (stats.total === 0) {
-    logger.info(
+    env.commandLogger.info(
       chalk.gray(
         `💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`
       )
     );
   } else {
     const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
-    logger.info(
+    env.commandLogger.info(
       chalk.gray(
         `💡 No results for ${searchType} search. Try different keywords or: ${chalk.cyan('funcqc list --name "*pattern*"')}`
       )
     );
     if (options.semantic || options.hybrid) {
-      logger.info(
+      env.commandLogger.info(
         chalk.gray(
           `💡 Local semantic search uses TF-IDF and n-gram matching. Try broader terms or reduce --threshold.`
         )
@@ -77,77 +105,33 @@ async function handleEmptyResults(
 function handleSearchResults(
   functions: FunctionInfo[],
   keyword: string,
-  options: SearchCommandOptions,
-  logger: Logger
+  options: SearchCommandOptions
 ): void {
   if (options.json) {
     console.log(JSON.stringify(functions, null, 2));
     return;
   }
 
-  displaySearchResults(functions, keyword, logger, options);
-}
-
-export async function searchCommand(keyword: string, options: SearchCommandOptions): Promise<void> {
-  const logger = new Logger(options.verbose, options.quiet);
-  const errorHandler = createErrorHandler(logger);
-
-  try {
-    const configManager = new ConfigManager();
-    const config = await configManager.load();
-    const storage = await initializeStorage(config);
-
-    try {
-      const functions = await performSearch(storage, keyword, options, logger);
-
-      if (functions.length === 0) {
-        await handleEmptyResults(storage, keyword, options, logger);
-        return;
-      }
-
-      handleSearchResults(functions, keyword, options, logger);
-    } finally {
-      await storage.close();
-    }
-  } catch (error) {
-    if (error instanceof DatabaseError) {
-      const funcqcError = errorHandler.createError(
-        error.code,
-        error.message,
-        {},
-        error.originalError
-      );
-      errorHandler.handleError(funcqcError);
-    } else {
-      const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
-        `Failed to execute search command: ${error instanceof Error ? error.message : String(error)}`,
-        { keyword, options },
-        error instanceof Error ? error : undefined
-      );
-      errorHandler.handleError(funcqcError);
-    }
-  }
+  displaySearchResults(functions, keyword, options);
 }
 
 function displaySearchResults(
   functions: FunctionInfo[],
   keyword: string,
-  logger: Logger,
   options: SearchCommandOptions
 ): void {
   const format = options.format || 'table';
 
-  logger.info(chalk.blue(`Search results for "${keyword}" (${functions.length} functions found)`));
-  logger.info('');
+  console.log(chalk.blue(`Search results for "${keyword}" (${functions.length} functions found)`));
+  console.log('');
 
   if (format === 'table') {
-    displayTable(functions, logger);
+    displayTable(functions);
   } else if (format === 'friendly') {
-    displayFriendly(functions, logger);
+    displayFriendly(functions);
   } else {
     // Default to table format
-    displayTable(functions, logger);
+    displayTable(functions);
   }
 }
 
@@ -166,7 +150,7 @@ interface FunctionWithSimilarityDetails extends FunctionInfo {
   _astScore?: number;
 }
 
-function displayTable(functions: FunctionInfo[], logger: Logger): void {
+function displayTable(functions: FunctionInfo[]): void {
   // Check if any function has similarity scores
   const hasScores = functions.some(
     func =>
@@ -176,19 +160,19 @@ function displayTable(functions: FunctionInfo[], logger: Logger): void {
 
   // Print table header
   if (hasScores) {
-    logger.info(
+    console.log(
       chalk.bold(
         'ID        Similarity   Complexity   Function                  File:Line                                Exported Async'
       )
     );
-    logger.info(chalk.gray('─'.repeat(115)));
+    console.log(chalk.gray('─'.repeat(115)));
   } else {
-    logger.info(
+    console.log(
       chalk.bold(
         'ID        Complexity   Function                  File:Line                                Exported Async'
       )
     );
-    logger.info(chalk.gray('─'.repeat(105)));
+    console.log(chalk.gray('─'.repeat(105)));
   }
 
   // Print function rows
@@ -219,39 +203,39 @@ function displayTable(functions: FunctionInfo[], logger: Logger): void {
     }
 
     row += `${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`;
-    logger.info(row);
+    console.log(row);
   });
 }
 
-function displayFriendly(functions: FunctionInfo[], logger: Logger): void {
+function displayFriendly(functions: FunctionInfo[]): void {
   functions.forEach((func, index) => {
-    displayFunctionHeader(func, index, logger);
-    displayFunctionLocation(func, logger);
-    displayMetricsLine(func, logger);
-    displaySimilarityDetails(func, logger);
-    displayDocumentation(func, logger);
-    logger.info('');
+    displayFunctionHeader(func, index);
+    displayFunctionLocation(func);
+    displayMetricsLine(func);
+    displaySimilarityDetails(func);
+    displayDocumentation(func);
+    console.log('');
   });
 }
 
-function displayFunctionHeader(func: FunctionInfo, index: number, logger: Logger): void {
-  logger.info(
+function displayFunctionHeader(func: FunctionInfo, index: number): void {
+  console.log(
     `${chalk.bold(`${index + 1}.`)} ${chalk.cyan(func.name)} ${chalk.gray(`[ID: ${func.id.substring(0, 8)}]`)}`
   );
 }
 
-function displayFunctionLocation(func: FunctionInfo, logger: Logger): void {
-  logger.info(`   File: ${func.filePath}:${func.startLine}`);
+function displayFunctionLocation(func: FunctionInfo): void {
+  console.log(`   File: ${func.filePath}:${func.startLine}`);
 }
 
-function displayMetricsLine(func: FunctionInfo, logger: Logger): void {
+function displayMetricsLine(func: FunctionInfo): void {
   const complexity = func.metrics?.cyclomaticComplexity || 1;
   const complexityColor = getComplexityColor(complexity);
 
   let metricLine = buildBasicMetricsLine(func, complexity, complexityColor);
   metricLine = addSimilarityToMetricLine(metricLine, func);
 
-  logger.info(metricLine);
+  console.log(metricLine);
 }
 
 function buildBasicMetricsLine(
@@ -290,52 +274,52 @@ function addHybridScore(metricLine: string, hybridScore: number): string {
   return metricLine + ` | Hybrid Score: ${scoreColor(hybridScore.toFixed(3))}`;
 }
 
-function displaySimilarityDetails(func: FunctionInfo, logger: Logger): void {
+function displaySimilarityDetails(func: FunctionInfo): void {
   const funcWithDetails = func as FunctionWithSimilarityDetails;
 
-  displaySimilarityBreakdown(funcWithDetails, logger);
-  displayMatchedTerms(funcWithDetails, logger);
-  displaySimilarityExplanation(funcWithDetails, logger);
+  displaySimilarityBreakdown(funcWithDetails);
+  displayMatchedTerms(funcWithDetails);
+  displaySimilarityExplanation(funcWithDetails);
 }
 
-function displaySimilarityBreakdown(func: FunctionWithSimilarityDetails, logger: Logger): void {
+function displaySimilarityBreakdown(func: FunctionWithSimilarityDetails): void {
   if (func._semanticScore === undefined) return;
 
   const semanticScore = func._semanticScore;
   const keywordScore = func._keywordScore || 0;
   const astScore = func._astScore || 0;
 
-  logger.info(
+  console.log(
     `   ${chalk.gray('Breakdown:')} Semantic: ${chalk.cyan(semanticScore.toFixed(3))} | ` +
       `Keyword: ${chalk.blue(keywordScore.toFixed(3))} | AST: ${chalk.magenta(astScore.toFixed(3))}`
   );
 }
 
-function displayMatchedTerms(func: FunctionWithSimilarityDetails, logger: Logger): void {
+function displayMatchedTerms(func: FunctionWithSimilarityDetails): void {
   const matchedTerms = func._matchedTerms;
   if (!matchedTerms || matchedTerms.length === 0) return;
 
   const terms = matchedTerms.slice(0, 5).join(', ');
-  logger.info(
+  console.log(
     `   ${chalk.gray('Matched terms:')} ${chalk.yellow(terms)}${matchedTerms.length > 5 ? '...' : ''}`
   );
 }
 
-function displaySimilarityExplanation(func: FunctionWithSimilarityDetails, logger: Logger): void {
+function displaySimilarityExplanation(func: FunctionWithSimilarityDetails): void {
   if (func._explanation) {
-    logger.info(`   ${chalk.gray('Metrics:')} ${func._explanation}`);
+    console.log(`   ${chalk.gray('Metrics:')} ${func._explanation}`);
   }
 }
 
-function displayDocumentation(func: FunctionInfo, logger: Logger): void {
+function displayDocumentation(func: FunctionInfo): void {
   if (func.jsDoc) {
     const jsDocPreview = truncate(func.jsDoc.replace(/\n/g, ' '), 80);
-    logger.info(`   JSDoc: ${chalk.gray(jsDocPreview)}`);
+    console.log(`   JSDoc: ${chalk.gray(jsDocPreview)}`);
   }
 
   if (func.description) {
     const descPreview = truncate(func.description, 80);
-    logger.info(`   Description: ${chalk.gray(descPreview)}`);
+    console.log(`   Description: ${chalk.gray(descPreview)}`);
   }
 }
 
@@ -372,22 +356,21 @@ function parseSearchOptions(options: SearchCommandOptions): {
 }
 
 async function getFunctionsWithDescriptions(
-  storage: PGLiteStorageAdapter,
-  logger: Logger
+  env: CommandEnvironment
 ): Promise<FunctionInfo[]> {
-  const snapshots = await storage.getSnapshots({ limit: 1 });
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
   if (snapshots.length === 0) {
-    logger.info(chalk.yellow('No snapshots found. Run "funcqc scan" first.'));
+    env.commandLogger.info(chalk.yellow('No snapshots found. Run "funcqc scan" first.'));
     return [];
   }
 
-  const allFunctions = await storage.getFunctions(snapshots[0].id);
+  const allFunctions = await env.storage.getFunctions(snapshots[0].id);
   const functionsWithDescriptions = allFunctions.filter(
     (f: FunctionInfo) => f.description && f.description.trim().length > 0
   );
 
   if (functionsWithDescriptions.length === 0) {
-    logger.info(chalk.yellow('No functions with descriptions found for semantic search'));
+    env.commandLogger.info(chalk.yellow('No functions with descriptions found for semantic search'));
     return [];
   }
 
@@ -433,7 +416,7 @@ interface SimilarityWeights {
 
 function parseOptionsJson(
   options: SearchCommandOptions,
-  logger: Logger
+  env: CommandEnvironment
 ): {
   aiHints: AIHints | undefined;
   similarityWeights: SimilarityWeights | undefined;
@@ -442,7 +425,7 @@ function parseOptionsJson(
   try {
     aiHints = options.aiHints ? JSON.parse(options.aiHints) : undefined;
   } catch (error) {
-    logger.warn(
+    env.commandLogger.warn(
       `Invalid AI hints JSON format, ignoring: ${error instanceof Error ? error.message : String(error)}`
     );
   }
@@ -453,7 +436,7 @@ function parseOptionsJson(
       ? JSON.parse(options.similarityWeights)
       : undefined;
   } catch (error) {
-    logger.warn(
+    env.commandLogger.warn(
       `Invalid similarity weights JSON format, using defaults: ${error instanceof Error ? error.message : String(error)}`
     );
   }
@@ -512,14 +495,13 @@ function convertResultsToFunctions(
 }
 
 async function performSemanticSearch(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   keyword: string,
-  options: SearchCommandOptions,
-  logger: Logger
+  options: SearchCommandOptions
 ): Promise<FunctionInfo[]> {
   const { limit, threshold, minSimilarity } = parseSearchOptions(options);
 
-  const functionsWithDescriptions = await getFunctionsWithDescriptions(storage, logger);
+  const functionsWithDescriptions = await getFunctionsWithDescriptions(env);
   if (functionsWithDescriptions.length === 0) {
     return [];
   }
@@ -528,7 +510,7 @@ async function performSemanticSearch(
   const documents = prepareDocumentsForIndexing(functionsWithDescriptions);
   await similarityService.indexDocuments(documents);
 
-  const { aiHints, similarityWeights } = parseOptionsJson(options, logger);
+  const { aiHints, similarityWeights } = parseOptionsJson(options, env);
 
   const searchConfig: {
     limit: number;
@@ -561,7 +543,7 @@ async function performSemanticSearch(
   );
 
   if (options.hybrid) {
-    return performHybridSearch(storage, matchedFunctions, keyword, options, logger);
+    return performHybridSearch(env, matchedFunctions, keyword, options);
   }
 
   return matchedFunctions;
@@ -571,32 +553,31 @@ async function performSemanticSearch(
  * Perform hybrid search combining semantic, keyword, and AST similarity
  */
 async function performHybridSearch(
-  storage: PGLiteStorageAdapter,
+  env: CommandEnvironment,
   semanticResults: FunctionInfo[],
   keyword: string,
-  options: SearchCommandOptions,
-  logger: Logger
+  options: SearchCommandOptions
 ): Promise<FunctionInfo[]> {
   const hybridWeight = options.hybridWeight ? parseFloat(options.hybridWeight) : 0.5;
   const limit = options.limit ? parseInt(options.limit, 10) : 50;
 
   // Get keyword search results
-  const keywordResults = await storage.searchFunctionsByDescription(keyword, {
+  const keywordResults = await env.storage.searchFunctionsByDescription(keyword, {
     limit: limit * 2,
   });
 
   // Get latest snapshot for AST similarity
-  const snapshots = await storage.getSnapshots({ limit: 1 });
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
   if (snapshots.length === 0) {
-    logger.warn('No snapshots found for AST similarity search');
+    env.commandLogger.warn('No snapshots found for AST similarity search');
     return semanticResults;
   }
 
   // Get all functions for AST similarity
-  const allFunctions = await storage.getFunctions(snapshots[0].id);
+  const allFunctions = await env.storage.getFunctions(snapshots[0].id);
 
   // Initialize similarity manager for AST analysis
-  const similarityManager = new SimilarityManager(undefined, storage);
+  const similarityManager = new SimilarityManager(undefined, env.storage);
 
   // Find structurally similar functions if we have context functions
   let astResults: FunctionInfo[] = [];
@@ -622,7 +603,7 @@ async function performHybridSearch(
 
         astResults = allFunctions.filter((f: FunctionInfo) => similarFunctionIds.has(f.id));
       } catch {
-        logger.warn('AST similarity search failed, using semantic + keyword only');
+        env.commandLogger.warn('AST similarity search failed, using semantic + keyword only');
       }
     }
   }

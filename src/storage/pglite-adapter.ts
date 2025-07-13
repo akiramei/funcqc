@@ -80,14 +80,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private transactionDepth: number = 0;
   private dbPath: string;
   private originalDbPath: string;
+  private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void } | undefined;
 
   // Static cache to avoid redundant schema checks across instances
   private static schemaCache = new Map<string, boolean>();
   private isInitialized: boolean = false;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, logger?: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }) {
     // Validate input path
     this.validateDbPath(dbPath);
+    this.logger = logger;
 
     // Store original path for directory check logic
     this.originalDbPath = dbPath;
@@ -175,7 +177,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Allow special paths like :memory: for testing purposes (they will fail at filesystem level if problematic)
     if (filePath.startsWith(':')) {
       // Log warning but allow it - the error will manifest during actual filesystem operations
-      console.warn(`Warning: Path '${filePath}' may not be supported on Windows due to colon character`);
+      this.logger?.warn(`Warning: Path '${filePath}' may not be supported on Windows due to colon character`);
       return;
     }
     
@@ -2493,15 +2495,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       `);
       
       if (result.rows.length > 0) {
-        console.log('✅ Database schema already exists, skipping creation');
+        // Database schema already exists - skip creation without logging
+        // to avoid stdout contamination in JSON output
         return;
       }
       
       const schemaContent = readFileSync(schemaPath, 'utf-8');
       await this.db.exec(schemaContent);
-      console.log('✅ Database schema created directly from database.sql');
+      // Database schema creation completed - no logging to avoid stdout contamination
     } catch (error) {
-      console.error('❌ Failed to create database schema:', error);
+      this.logger?.error(`❌ Failed to create database schema: ${error}`);
       throw new Error(`Database schema creation failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -2556,7 +2559,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         await this.saveFunctionsBatch(snapshotId, batch);
       },
       onError: async (error: Error, _batch: FunctionInfo[]) => {
-        console.warn(`Failed to save batch of ${_batch.length} functions: ${error.message}`);
+        this.logger?.warn(`Failed to save batch of ${_batch.length} functions: ${error.message}`);
       },
       onSuccess: async (_batch: FunctionInfo[]) => {
         // Optional: Log successful batch processing
@@ -2582,14 +2585,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const expectedMetricsCount = functions.filter(f => f.metrics).length;
 
       if (parseInt(actualFunctionCount) !== functions.length) {
-        console.warn(
-          `Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`
-        );
+        this.logger?.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
       }
       if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
-        console.warn(
-          `Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`
-        );
+        this.logger?.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
       }
     }
   }
@@ -3498,7 +3497,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       return JSON.parse(jsonString);
     } catch (error) {
-      console.warn(`Failed to parse JSON: ${jsonString}`, error);
+      this.logger?.warn(`Failed to parse JSON: ${jsonString} - ${error}`);
       return fallback;
     }
   }

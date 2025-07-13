@@ -1,7 +1,4 @@
 import chalk from 'chalk';
-import { ConfigManager } from '../core/config';
-import { PGLiteStorageAdapter, DatabaseError } from '../storage/pglite-adapter';
-import { Logger } from '../utils/cli-utils';
 import {
   CommandOptions,
   SnapshotDiff,
@@ -13,20 +10,21 @@ import {
   LineageKind,
   SimilarityResult,
   SimilarFunction,
-} from '../types';
-import { SimilarityManager } from '../similarity/similarity-manager';
+} from '../../types';
+import { SimilarityManager } from '../../similarity/similarity-manager';
 import { v4 as uuidv4 } from 'uuid';
-import simpleGit, { SimpleGit } from 'simple-git';
-import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
-import { QualityCalculator } from '../metrics/quality-calculator';
-import * as fs from 'fs';
-import * as path from 'path';
+import simpleGit from 'simple-git';
 import {
   ChangeSignificanceDetector,
   ChangeDetectorConfig,
   DEFAULT_CHANGE_DETECTOR_CONFIG,
-} from './diff/changeDetector';
-import { ErrorCode, ErrorHandler, createErrorHandler } from '../utils/error-handler';
+} from '../diff/changeDetector';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { resolveSnapshotId } from '../../utils/snapshot-resolver';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
+import { ConfigManager } from '../../core/config';
 
 export interface DiffCommandOptions extends CommandOptions {
   summary?: boolean;
@@ -43,91 +41,104 @@ export interface DiffCommandOptions extends CommandOptions {
   changeDetectionMinScore?: number; // Override minimum score for lineage suggestion
 }
 
-export async function diffCommand(
-  fromSnapshot: string,
-  toSnapshot: string,
-  options: DiffCommandOptions
-): Promise<void> {
-  const logger = new Logger(options.verbose, options.quiet);
-  const errorHandler = createErrorHandler(logger);
+/**
+ * Diff command for comparing two snapshots
+ * Note: This command has a unique signature with (from, to) arguments
+ */
+export function diffCommand(fromSnapshot: string, toSnapshot: string): VoidCommand<DiffCommandOptions> {
+  return (options) => async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
 
-  try {
-    const { storage, fromId, toId } = await setupDiffCommand(fromSnapshot, toSnapshot, options, logger);
+    try {
+      const { fromId, toId } = await setupDiffCommand(fromSnapshot, toSnapshot, options, env);
 
-    if (fromId === toId) {
-      displayIdenticalSnapshots(fromId, toId);
-      return;
+      if (fromId === toId) {
+        displayIdenticalSnapshots(fromId, toId, options);
+        return;
+      }
+
+      const diff = await calculateDiff(env, fromId, toId);
+      await processDiffResults(diff, env, options);
+    } catch (error) {
+      handleDiffError(error, errorHandler);
     }
-
-    const diff = await calculateDiff(storage, fromId, toId, logger);
-    await processDiffResults(diff, storage, options, logger);
-    await storage.close();
-  } catch (error) {
-    handleDiffError(error, errorHandler);
-  }
+  };
 }
 
 async function setupDiffCommand(
   fromSnapshot: string,
   toSnapshot: string,
   _options: DiffCommandOptions,
-  logger: Logger
+  env: CommandEnvironment
 ) {
-  const configManager = new ConfigManager();
-  const config = await configManager.load();
-
-  const storage = new PGLiteStorageAdapter(config.storage.path!);
-  await storage.init();
-
-  const fromId = await resolveSnapshotId(storage, fromSnapshot);
-  const toId = await resolveSnapshotId(storage, toSnapshot);
+  const fromId = await resolveSnapshotId(env, fromSnapshot);
+  const toId = await resolveSnapshotId(env, toSnapshot);
 
   if (!fromId || !toId) {
-    logger.error(`Snapshot not found: ${!fromId ? fromSnapshot : toSnapshot}`);
+    env.commandLogger.error(`Snapshot not found: ${!fromId ? fromSnapshot : toSnapshot}`);
     process.exit(1);
   }
 
-  return { storage, fromId, toId };
+  return { fromId, toId };
 }
 
-function displayIdenticalSnapshots(fromId: string, toId: string): void {
-  console.log('\n📊 Diff Summary\n');
-  console.log(`From: ${fromId.substring(0, 8)} (same snapshot)`);
-  console.log(`To: ${toId.substring(0, 8)} (same snapshot)`);
-  console.log('\nChanges:');
-  console.log('  + 0 functions added');
-  console.log('  - 0 functions removed');
-  console.log('  ~ 0 functions modified');
-  console.log('  = No changes (identical snapshots)');
+function displayIdenticalSnapshots(fromId: string, toId: string, options: DiffCommandOptions): void {
+  if (options.json) {
+    const identicalDiff = {
+      from: { id: fromId, label: null, createdAt: Date.now() },
+      to: { id: toId, label: null, createdAt: Date.now() },
+      added: [],
+      removed: [],
+      modified: [],
+      unchanged: [],
+      statistics: {
+        addedCount: 0,
+        removedCount: 0,
+        modifiedCount: 0,
+        complexityChange: 0,
+        linesChange: 0,
+      },
+    };
+    console.log(JSON.stringify(identicalDiff, null, 2));
+  } else {
+    console.log('\n📊 Diff Summary\n');
+    console.log(`From: ${fromId.substring(0, 8)} (same snapshot)`);
+    console.log(`To: ${toId.substring(0, 8)} (same snapshot)`);
+    console.log('\nChanges:');
+    console.log('  + 0 functions added');
+    console.log('  - 0 functions removed');
+    console.log('  ~ 0 functions modified');
+    console.log('  = No changes (identical snapshots)');
+  }
 }
 
-async function calculateDiff(storage: PGLiteStorageAdapter, fromId: string, toId: string, logger: Logger) {
-  logger.info('Calculating differences...');
-  return await storage.diffSnapshots(fromId, toId);
+async function calculateDiff(env: CommandEnvironment, fromId: string, toId: string) {
+  env.commandLogger.info('Calculating differences...');
+  return await env.storage.diffSnapshots(fromId, toId);
 }
 
-async function processDiffResults(diff: SnapshotDiff, storage: PGLiteStorageAdapter, options: DiffCommandOptions, logger: Logger) {
+async function processDiffResults(diff: SnapshotDiff, env: CommandEnvironment, options: DiffCommandOptions) {
   if (options.lineage && diff.removed.length > 0) {
-    await handleLineageDetection(diff, storage, options, logger);
+    await handleLineageDetection(diff, env, options);
   } else {
     displayDiffResults(diff, options);
   }
 }
 
-async function handleLineageDetection(diff: SnapshotDiff, storage: PGLiteStorageAdapter, options: DiffCommandOptions, logger: Logger) {
-  const lineageCandidates = await detectLineageCandidates(diff, storage, options, logger);
+async function handleLineageDetection(diff: SnapshotDiff, env: CommandEnvironment, options: DiffCommandOptions) {
+  const lineageCandidates = await detectLineageCandidates(diff, env, options);
 
   if (lineageCandidates.length > 0) {
     if (options.json) {
       console.log(JSON.stringify({ diff, lineageCandidates }, null, 2));
     } else {
-      displayLineageCandidates(lineageCandidates, options, logger);
+      displayLineageCandidates(lineageCandidates, options, env.commandLogger);
       if (options.lineageAutoSave) {
-        await saveLineageCandidates(lineageCandidates, storage, logger);
+        await saveLineageCandidates(lineageCandidates, env);
       }
     }
   } else {
-    logger.info('No lineage candidates found for removed functions.');
+    env.commandLogger.info('No lineage candidates found for removed functions.');
   }
 }
 
@@ -141,7 +152,7 @@ function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOptions): vo
   }
 }
 
-function handleDiffError(error: unknown, errorHandler: ErrorHandler): void {
+function handleDiffError(error: unknown, errorHandler: any): void {
   if (error instanceof DatabaseError) {
     const funcqcError = errorHandler.createError(
       error.code,
@@ -161,202 +172,6 @@ function handleDiffError(error: unknown, errorHandler: ErrorHandler): void {
   }
 }
 
-async function resolveSnapshotId(
-  storage: PGLiteStorageAdapter,
-  identifier: string
-): Promise<string | null> {
-  // Try exact match first
-  const exact = await storage.getSnapshot(identifier);
-  if (exact) return identifier;
-
-  // Try partial ID match with collision detection
-  const snapshots = await storage.getSnapshots();
-  const partialMatches = snapshots.filter(s => s.id.startsWith(identifier));
-
-  if (partialMatches.length === 1) {
-    return partialMatches[0].id;
-  } else if (partialMatches.length > 1) {
-    const matchList = partialMatches.map(s => s.id.substring(0, 8)).join(', ');
-    throw new Error(
-      `Ambiguous snapshot ID '${identifier}' matches ${partialMatches.length} snapshots: ${matchList}. Please provide more characters.`
-    );
-  }
-
-  // Try label match
-  const labeled = snapshots.find(s => s.label === identifier);
-  if (labeled) return labeled.id;
-
-  // Try special keywords
-  if (identifier === 'latest' || identifier === 'HEAD') {
-    const latest = snapshots[0]; // snapshots are ordered by created_at DESC
-    return latest ? latest.id : null;
-  }
-
-  if (identifier.startsWith('HEAD~')) {
-    const offset = parseInt(identifier.slice(5)) || 1;
-    const target = snapshots[offset];
-    return target ? target.id : null;
-  }
-
-  // Try git commit reference - NEW FUNCTIONALITY
-  const gitCommitId = await resolveGitCommitReference(storage, identifier);
-  if (gitCommitId) return gitCommitId;
-
-  return null;
-}
-
-async function resolveGitCommitReference(
-  storage: PGLiteStorageAdapter,
-  identifier: string
-): Promise<string | null> {
-  try {
-    const git = simpleGit();
-
-    // Check if identifier looks like a git reference
-    const isGitReference = await isValidGitReference(git, identifier);
-    if (!isGitReference) return null;
-
-    // Get actual commit hash
-    const commitHash = await git.revparse([identifier]);
-
-    // Check if we already have a snapshot for this commit
-    const existingSnapshot = await findSnapshotByGitCommit(storage, commitHash);
-    if (existingSnapshot) {
-      return existingSnapshot.id;
-    }
-
-    // Create snapshot for this commit
-    const snapshotId = await createSnapshotForGitCommit(storage, git, identifier, commitHash);
-    return snapshotId;
-  } catch {
-    // Not a valid git reference, return null to continue with other resolution methods
-    return null;
-  }
-}
-
-async function isValidGitReference(git: SimpleGit, identifier: string): Promise<boolean> {
-  try {
-    // Check for commit hash pattern (7-40 hex chars)
-    if (/^[0-9a-f]{7,40}$/i.test(identifier)) {
-      return true;
-    }
-
-    // Check for git references (HEAD~N, branch names, tag names)
-    if (identifier.startsWith('HEAD~') || identifier.startsWith('HEAD^')) {
-      return true;
-    }
-
-    // Check if it's a valid branch/tag name
-    const branches = await git.branchLocal();
-    if (branches.all.includes(identifier)) {
-      return true;
-    }
-
-    const tags = await git.tags();
-    if (tags.all.includes(identifier)) {
-      return true;
-    }
-
-    // Try to resolve as git reference
-    await git.revparse([identifier]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function findSnapshotByGitCommit(
-  storage: PGLiteStorageAdapter,
-  commitHash: string
-): Promise<{ id: string } | null> {
-  const snapshots = await storage.getSnapshots();
-  return snapshots.find(s => s.gitCommit === commitHash) || null;
-}
-
-async function createSnapshotForGitCommit(
-  storage: PGLiteStorageAdapter,
-  git: SimpleGit,
-  identifier: string,
-  commitHash: string
-): Promise<string> {
-  const tempDir = path.join(process.cwd(), '.funcqc-temp', `snapshot-${uuidv4()}`);
-
-  try {
-    // Create worktree for the specific commit
-    await fs.promises.mkdir(tempDir, { recursive: true });
-    await git.raw(['worktree', 'add', tempDir, commitHash]);
-
-    // Get commit info for labeling
-    const commitInfo = await git.show([commitHash, '--no-patch', '--format=%s']);
-    const commitMessage = commitInfo.split('\n')[0] || 'Unknown commit';
-
-    // Create label for the snapshot
-    const label = `${identifier}@${commitHash.substring(0, 8)}`;
-    const description = `Auto-created snapshot for ${identifier}: ${commitMessage}`;
-
-    // Analyze functions in the worktree
-    const analyzer = new TypeScriptAnalyzer();
-    const calculator = new QualityCalculator();
-
-    // Find TypeScript files in the worktree
-    const tsFiles = await findTypeScriptFiles(tempDir);
-
-    // Analyze all files and collect functions
-    const allFunctions: FunctionInfo[] = [];
-    for (const filePath of tsFiles) {
-      const functions = await analyzer.analyzeFile(filePath);
-      allFunctions.push(...functions);
-    }
-
-    // Add metrics to functions
-    const functionsWithMetrics = await Promise.all(
-      allFunctions.map(async (func: FunctionInfo) => ({
-        ...func,
-        metrics: await calculator.calculate(func),
-      }))
-    );
-
-    // Create snapshot using existing saveSnapshot method
-    const snapshotId = await storage.saveSnapshot(functionsWithMetrics, label, description);
-
-    return snapshotId;
-  } finally {
-    // Clean up worktree
-    try {
-      await git.raw(['worktree', 'remove', tempDir, '--force']);
-    } catch {
-      // Ignore cleanup errors
-    }
-  }
-}
-
-async function findTypeScriptFiles(dir: string): Promise<string[]> {
-  const files: string[] = [];
-
-  async function walk(currentDir: string): Promise<void> {
-    const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip common non-source directories
-        if (['node_modules', '.git', 'dist', 'build', 'coverage'].includes(entry.name)) {
-          continue;
-        }
-        await walk(fullPath);
-      } else if (entry.isFile()) {
-        // Include TypeScript files
-        if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
-          files.push(fullPath);
-        }
-      }
-    }
-  }
-
-  await walk(dir);
-  return files;
-}
 
 function displaySummary(diff: SnapshotDiff): void {
   const stats = diff.statistics;
@@ -611,18 +426,17 @@ function formatDate(timestamp: number): string {
 
 async function detectLineageCandidates(
   diff: SnapshotDiff,
-  storage: PGLiteStorageAdapter,
-  options: DiffCommandOptions,
-  logger: Logger
+  env: CommandEnvironment,
+  options: DiffCommandOptions
 ): Promise<LineageCandidate[]> {
   const candidates: LineageCandidate[] = [];
-  const validationResult = validateLineageOptions(options, logger);
+  const validationResult = validateLineageOptions(options, env.commandLogger);
 
   if (!validationResult.isValid) {
     return [];
   }
 
-  const similarityManager = new SimilarityManager(undefined, storage);
+  const similarityManager = new SimilarityManager(undefined, env.storage);
   // Only consider functions that actually changed between snapshots
   // This prevents false lineage matches with unrelated similar functions that existed in both snapshots
   const changedFunctions = [...diff.added, ...diff.modified.map(m => m.after)];
@@ -634,12 +448,12 @@ async function detectLineageCandidates(
     similarityManager,
     validationResult,
     options,
-    logger
+    env.commandLogger
   );
   candidates.push(...removedCandidates);
 
   // 2. Process significantly modified functions (new Phase 2 logic)
-  const modifiedCandidates = await processModifiedFunctions(diff, options, logger);
+  const modifiedCandidates = await processModifiedFunctions(diff, env, options);
   candidates.push(...modifiedCandidates);
 
   const deduplicatedCandidates = deduplicateCandidates(candidates);
@@ -652,7 +466,7 @@ async function processRemovedFunctions(
   similarityManager: SimilarityManager,
   validationResult: ValidationResult,
   options: DiffCommandOptions,
-  logger: Logger
+  logger: any
 ): Promise<LineageCandidate[]> {
   if (removedFunctions.length === 0) {
     return [];
@@ -682,14 +496,14 @@ async function processRemovedFunctions(
 
 async function processModifiedFunctions(
   diff: SnapshotDiff,
-  options: DiffCommandOptions,
-  logger: Logger
+  env: CommandEnvironment,
+  options: DiffCommandOptions
 ): Promise<LineageCandidate[]> {
   if (diff.modified.length === 0 || options.disableChangeDetection) {
     return [];
   }
 
-  logger.info('Analyzing significantly modified functions...');
+  env.commandLogger.info('Analyzing significantly modified functions...');
 
   // Load change detection config
   const configManager = new ConfigManager();
@@ -713,7 +527,7 @@ async function processModifiedFunctions(
     changeDetector,
     changeDetectorConfig,
     options,
-    logger
+    env.commandLogger
   );
   candidates.push(...modificationCandidates);
 
@@ -724,7 +538,7 @@ async function processModifiedFunctions(
     changeDetector,
     changeDetectorConfig,
     options,
-    logger
+    env.commandLogger
   );
   candidates.push(...splitCandidates);
 
@@ -736,7 +550,7 @@ async function processSignificantModifications(
   changeDetector: ChangeSignificanceDetector,
   config: ChangeDetectorConfig,
   options: DiffCommandOptions,
-  logger: Logger
+  logger: any
 ): Promise<LineageCandidate[]> {
   const minScore = config.minScoreForLineage ?? 50;
   const significantChanges = changeDetector.filterSignificantChanges(modifiedFunctions, minScore);
@@ -776,7 +590,7 @@ async function processFunctionSplits(
   changeDetector: ChangeSignificanceDetector,
   config: ChangeDetectorConfig,
   options: DiffCommandOptions,
-  logger: Logger
+  logger: any
 ): Promise<LineageCandidate[]> {
   if (
     config.enableFunctionSplitDetection === false ||
@@ -816,7 +630,7 @@ interface ValidationResult {
   detectors: string[];
 }
 
-function validateLineageOptions(options: DiffCommandOptions, logger: Logger): ValidationResult {
+function validateLineageOptions(options: DiffCommandOptions, logger: any): ValidationResult {
   // Validate threshold
   const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
 
@@ -936,7 +750,7 @@ function deduplicateCandidates(candidates: LineageCandidate[]): LineageCandidate
 function displayLineageCandidates(
   candidates: LineageCandidate[],
   options: DiffCommandOptions,
-  logger: Logger
+  logger: any
 ): void {
   console.log(chalk.cyan.bold('\n🔗 Function Lineage Candidates\n'));
 
@@ -990,8 +804,7 @@ function getLineageKindIcon(kind: LineageKind): string {
 
 async function saveLineageCandidates(
   candidates: LineageCandidate[],
-  storage: PGLiteStorageAdapter,
-  logger: Logger
+  env: CommandEnvironment
 ): Promise<void> {
   const git = simpleGit();
   let gitCommit = 'unknown';
@@ -1000,10 +813,10 @@ async function saveLineageCandidates(
     const log = await git.log({ n: 1 });
     gitCommit = log.latest?.hash || 'unknown';
   } catch {
-    logger.warn('Could not get git commit hash');
+    env.commandLogger.warn('Could not get git commit hash');
   }
 
-  logger.info('Saving lineage candidates as draft...');
+  env.commandLogger.info('Saving lineage candidates as draft...');
 
   let savedCount = 0;
   for (const candidate of candidates) {
@@ -1020,12 +833,12 @@ async function saveLineageCandidates(
     };
 
     try {
-      await storage.saveLineage(lineage);
+      await env.storage.saveLineage(lineage);
       savedCount++;
     } catch (error) {
-      logger.error(`Failed to save lineage for ${candidate.fromFunction.name}:`, error);
+      env.commandLogger.error(`Failed to save lineage for ${candidate.fromFunction.name}:`, error);
     }
   }
 
-  logger.success(`Saved ${savedCount} lineage candidates as draft.`);
+  env.commandLogger.success(`Saved ${savedCount} lineage candidates as draft.`);
 }

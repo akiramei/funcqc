@@ -365,6 +365,8 @@ export interface ScanCommandOptions extends CommandOptions {
   label?: string;
   comment?: string;
   realtimeGate?: boolean; // Enable real-time quality gate with adaptive thresholds
+  json?: boolean;
+  force?: boolean;
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -397,8 +399,23 @@ export interface HealthCommandOptions extends CommandOptions {
   showConfig?: boolean;
   verbose?: boolean;
   json?: boolean; // JSON output for jq/script processing
+  quiet?: boolean;  // Ensure BaseCommandOptions compatibility
   period?: string;
   aiOptimized?: boolean; // Deprecated: use json instead
+  snapshot?: string; // Snapshot ID/identifier for historical health analysis
+}
+
+export interface HistoryCommandOptions extends CommandOptions {
+  verbose?: boolean;
+  since?: string;
+  until?: string;
+  limit?: string;
+  author?: string;
+  branch?: string;
+  label?: string;
+  id?: string;
+  all?: boolean;
+  json?: boolean;
 }
 
 export interface EvaluateCommandOptions extends CommandOptions {
@@ -968,6 +985,23 @@ export interface SearchCommandOptions extends CommandOptions {
   similarityWeights?: string; // JSON string with similarity algorithm weights
   contextFunctions?: string; // Comma-separated list of context function IDs
   intermediate?: boolean; // Output intermediate results for AI analysis
+}
+
+export interface VectorizeCommandOptions extends CommandOptions {
+  all?: boolean;
+  recent?: boolean;
+  status?: boolean;
+  rebuildIndex?: boolean;
+  benchmark?: boolean;
+  indexStats?: boolean;
+  apiKey?: string;
+  model?: string;
+  batchSize?: string;
+  limit?: string;
+  indexAlgorithm?: string;
+  indexConfig?: string;
+  output?: string;
+  force?: boolean;
 }
 
 // ========================================
