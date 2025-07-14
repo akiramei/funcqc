@@ -635,7 +635,7 @@ export class DefaultLineageManager implements LineageManager {
       kind: operation.type as any,
       status: 'approved' as const,
       confidence: 0.95,
-      gitCommit: operation.context.afterSnapshot,
+      gitCommit: operation.context.afterSnapshot || '',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
