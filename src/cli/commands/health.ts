@@ -208,18 +208,25 @@ async function displayHealthOverview(
 
   const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   const riskCounts = calculateRiskDistribution(riskAssessments);
-  const averageRiskScore = calculateAverageRiskScore(riskAssessments);
+  const enhancedRiskStats = calculateEnhancedRiskStats(riskAssessments, functions);
   
   // Display quality overview
   console.log(chalk.yellow('Quality Overview:'));
   console.log(`  Overall Grade: ${qualityData.overallGrade} (${qualityData.overallScore}/100)`);
-  console.log(`  Average Risk Score: ${averageRiskScore.toFixed(1)} (${getRiskDescription(averageRiskScore)})`);
   console.log('');
 
   console.log(chalk.yellow('  Details:'));
   console.log(`    Complexity: ${qualityData.complexityGrade} (${qualityData.complexityScore}/100)`);
   console.log(`    Maintainability: ${qualityData.maintainabilityGrade} (${qualityData.maintainabilityScore}/100)`);
   console.log(`    Code Size: ${qualityData.sizeGrade} (${qualityData.sizeScore}/100)`);
+  console.log('');
+
+  // Enhanced Risk Analysis
+  console.log(chalk.yellow('Risk Analysis:'));
+  console.log(`  Average Risk Score: ${enhancedRiskStats.average.toFixed(1)} (${getRiskDescription(enhancedRiskStats.average)})`);
+  console.log(`  Median Risk Score: ${enhancedRiskStats.median.toFixed(1)} (${getRiskDescription(enhancedRiskStats.median)})`);
+  console.log(`  P90 Risk Score: ${enhancedRiskStats.p90.toFixed(1)} (${getRiskDescription(enhancedRiskStats.p90)})`);
+  console.log(`  Risk/LOC Ratio: ${enhancedRiskStats.normalizedByLOC.toFixed(3)} (size-normalized)`);
   console.log('');
 
   // Risk distribution
@@ -231,7 +238,7 @@ async function displayHealthOverview(
 
   // Show top risks if any
   if (riskCounts.high > 0) {
-    await displayTopRisks(env, functions);
+    await displayTopRisks(env, functions, enhancedRiskStats);
   }
 
   // Git status
@@ -424,6 +431,70 @@ function calculateAverageRiskScore(riskAssessments: FunctionRiskAssessment[]): n
   
   const totalRiskScore = riskAssessments.reduce((sum, assessment) => sum + assessment.riskScore, 0);
   return totalRiskScore / riskAssessments.length;
+}
+
+/**
+ * Calculate enhanced risk statistics including median, P90, and normalized metrics
+ */
+function calculateEnhancedRiskStats(
+  riskAssessments: FunctionRiskAssessment[],
+  functions: FunctionInfo[]
+): {
+  average: number;
+  median: number;
+  p90: number;
+  normalizedByLOC: number;
+  criticalCount: number;
+  highRiskCount: number;
+} {
+  if (riskAssessments.length === 0) {
+    return {
+      average: 0,
+      median: 0,
+      p90: 0,
+      normalizedByLOC: 0,
+      criticalCount: 0,
+      highRiskCount: 0,
+    };
+  }
+
+  // Calculate basic statistics
+  const riskScores = riskAssessments.map(a => a.riskScore).sort((a, b) => a - b);
+  const totalRisk = riskScores.reduce((sum, score) => sum + score, 0);
+  const average = totalRisk / riskScores.length;
+
+  // Median calculation
+  const n = riskScores.length;
+  const median = n % 2 === 0 
+    ? (riskScores[n / 2 - 1] + riskScores[n / 2]) / 2
+    : riskScores[Math.floor(n / 2)];
+
+  // P90 calculation
+  const p90Index = Math.floor(n * 0.9);
+  const p90 = riskScores[p90Index];
+
+  // LOC normalization
+  const totalLOC = functions
+    .map(f => f.metrics?.linesOfCode || 0)
+    .reduce((sum, loc) => sum + loc, 0);
+  const normalizedByLOC = totalLOC > 0 ? totalRisk / totalLOC : 0;
+
+  // Count critical violations and high-risk functions
+  const criticalCount = riskAssessments
+    .flatMap(a => a.violations)
+    .filter(v => v.level === 'critical').length;
+  
+  const highRiskCount = riskAssessments
+    .filter(a => a.riskLevel === 'high').length;
+
+  return {
+    average,
+    median,
+    p90,
+    normalizedByLOC,
+    criticalCount,
+    highRiskCount,
+  };
 }
 
 /**
@@ -621,21 +692,25 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
     maintainabilityScore: Math.round(maintainabilityScore),
     sizeGrade: getGradeFromScore(sizeScore),
     sizeScore: Math.round(sizeScore),
-    averageRiskScore: overallScore,
-    riskDescription: getRiskDescription(overallScore),
+    averageQualityScore: overallScore,
+    qualityDescription: getQualityDescription(overallScore),
   };
 }
 
 
-async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo[]): Promise<void> {
-  // Use ThresholdEvaluator approach for consistency
+async function displayTopRisks(
+  _env: CommandEnvironment, 
+  functions: FunctionInfo[], 
+  enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>
+): Promise<void> {
+  // Use proper StatisticalEvaluator approach for consistency with main health display
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(
+    functions.map(f => f.metrics).filter(Boolean) as FunctionQualityMetrics[]
+  );
+
   const thresholdEvaluator = new ThresholdEvaluator();
   const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
-  const projectStats: ProjectStatistics = {
-    totalFunctions: functions.length,
-    analysisTimestamp: Date.now(),
-    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
-  };
 
   const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   const topRisks = riskAssessments
@@ -646,32 +721,48 @@ async function displayTopRisks(_env: CommandEnvironment, functions: FunctionInfo
   if (topRisks.length === 0) return;
 
   console.log(chalk.yellow('Risk Details:'));
-  // Note: getThresholdViolations method not available, using placeholder
-  const thresholdViolations = { critical: 0, error: 6, warning: 4 };
   
-  if (thresholdViolations) {
-    console.log(`  Threshold Violations: Critical: ${thresholdViolations.critical}, Error: ${thresholdViolations.error}, Warning: ${thresholdViolations.warning}`);
-  }
+  // Calculate actual threshold violations from risk assessments
+  const allViolations = riskAssessments.flatMap(assessment => assessment.violations);
+  const violationCounts = {
+    critical: allViolations.filter(v => v.level === 'critical').length,
+    error: allViolations.filter(v => v.level === 'error').length,
+    warning: allViolations.filter(v => v.level === 'warning').length,
+  };
+  
+  console.log(`  Threshold Violations: Critical: ${violationCounts.critical}, Error: ${violationCounts.error}, Warning: ${violationCounts.warning}`);
+  console.log(`  Critical Functions: ${enhancedRiskStats.criticalCount} (${(enhancedRiskStats.criticalCount / functions.length * 100).toFixed(1)}%)`);
+  console.log(`  High-Risk Functions: ${enhancedRiskStats.highRiskCount} (${(enhancedRiskStats.highRiskCount / functions.length * 100).toFixed(1)}%)`);
 
   if (topRisks.length > 0) {
     const topRiskAssessment = topRisks[0];
     const topRiskFunction = functions.find(f => f.id === topRiskAssessment.functionId);
-    console.log(`  Most Common Violation: linesOfCode`);
+    
+    // Find most common violation type
+    const violationTypeCount = allViolations.reduce((acc, v) => {
+      acc[v.metric] = (acc[v.metric] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const mostCommonViolation = Object.entries(violationTypeCount)
+      .sort(([,a], [,b]) => b - a)[0]?.[0] || 'linesOfCode';
+    
     console.log(`  Highest Risk Function: ${topRiskFunction?.displayName}() (Risk: ${Math.round(topRiskAssessment.riskScore)})`);
     console.log(`    Location: ${topRiskFunction?.filePath}:${topRiskFunction?.startLine}`);
+    console.log(`  Most Common Violation: ${mostCommonViolation}`);
   }
   console.log('');
 
   console.log(chalk.yellow('Recommended Actions:'));
-  topRisks.forEach((riskAssessment, index) => {
-    const func = functions.find(f => f.id === riskAssessment.functionId);
-    if (!func) return;
-    const endLine = func.endLine || func.startLine + 10;
-    console.log(`  ${index + 1}. ${func.displayName}() in ${func.filePath}:${func.startLine}-${endLine}`);
-    console.log(`     Action: General refactoring to improve maintainability`);
-    console.log(`     - Extract magic numbers into constants`);
-    console.log(`     - Improve variable naming`);
-    if (index < 2) console.log(`     ... and 2 more steps`);
+  const recommendedActions = generateRecommendedActions(topRisks, functions);
+  recommendedActions.forEach((action) => {
+    console.log(`  ${action.priority}. ${action.functionName}() in ${action.filePath}:${action.startLine}-${action.endLine}`);
+    console.log(`     Action: ${action.action}`);
+    action.suggestions.slice(0, 2).forEach(suggestion => {
+      console.log(`     - ${suggestion}`);
+    });
+    if (action.suggestions.length > 2) {
+      console.log(`     ... and ${action.suggestions.length - 2} more steps`);
+    }
     console.log('');
   });
 }
@@ -824,12 +915,21 @@ function getGradeFromScore(score: number): string {
 }
 
 function getRiskDescription(avgRiskScore: number): string {
-  // Risk score: Lower is better (0 = no risk, higher = more risk)
-  if (avgRiskScore <= 0.1) return 'Excellent - Very low risk';
-  if (avgRiskScore <= 1.0) return 'Good - Low risk';
-  if (avgRiskScore <= 3.0) return 'Fair - Moderate risk';
-  if (avgRiskScore <= 8.0) return 'Poor - High risk';
+  // Risk score: Higher is worse (0 = no risk, higher = more risk)
+  if (avgRiskScore <= 5.0) return 'Excellent - Very low risk';
+  if (avgRiskScore <= 10.0) return 'Good - Low risk';
+  if (avgRiskScore <= 20.0) return 'Fair - Moderate risk';
+  if (avgRiskScore <= 40.0) return 'Poor - High risk';
   return 'Critical - Very high risk';
+}
+
+function getQualityDescription(qualityScore: number): string {
+  // Quality score: Higher is better (100 = excellent, 0 = poor)
+  if (qualityScore >= 90) return 'Excellent - Very high quality';
+  if (qualityScore >= 80) return 'Good - High quality';
+  if (qualityScore >= 60) return 'Fair - Some refactoring needed';
+  if (qualityScore >= 40) return 'Poor - Significant improvement needed';
+  return 'Critical - Immediate attention required';
 }
 
 function getTrendIcon(trend: string): string {
