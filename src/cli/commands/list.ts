@@ -147,9 +147,26 @@ function outputFormatted(
     return;
   }
 
-  // Unix-style simple output: ID function-name file-path:line
+  // Table format with headers including ID column
+  console.log('ID       Name                            CC LOC File                                     Location');
+  console.log('-------- ------------------------------- -- --- ---------------------------------------- --------');
+
   functions.forEach(func => {
-    console.log(`${func.id} ${func.displayName} ${func.filePath}:${func.startLine}`);
+    const id = func.id.substring(0, 8);
+    const name = truncateString(func.displayName, 31).padEnd(31);
+    const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
+    const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
+    const file = truncateString(func.filePath, 40).padEnd(40);
+    const location = `${func.startLine}-${func.endLine}`;
+    
+    console.log(`${id} ${name} ${cc} ${loc} ${file} ${location}`);
   });
+}
+
+function truncateString(str: string, maxLength: number): string {
+  if (str.length <= maxLength) {
+    return str;
+  }
+  return str.substring(0, maxLength - 3) + '...';
 }
 
