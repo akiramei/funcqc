@@ -581,58 +581,94 @@ function displayCompactFunctionHistory(
   }
 }
 
+/**
+ * Displays function presence status and location
+ */
+function displayFunctionPresence(func: FunctionInfo): void {
+  console.log(chalk.green(`   ✓ Present in ${func.filePath}:${func.startLine}`));
+}
+
+/**
+ * Displays function metrics if available
+ */
+function displayFunctionMetrics(metrics: any): void {
+  console.log(
+    `   📈 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`
+  );
+  
+  if (metrics.maintainabilityIndex) {
+    console.log(`   🔧 Maintainability: ${metrics.maintainabilityIndex.toFixed(1)}`);
+  }
+}
+
+/**
+ * Displays signature changes between versions
+ */
+function displaySignatureChange(
+  currentFunc: FunctionInfo,
+  prevFunc: FunctionInfo | null
+): void {
+  if (!prevFunc || prevFunc.signature === currentFunc.signature) return;
+  
+  console.log(chalk.blue(`   🔄 Signature changed from: ${prevFunc.signature}`));
+  console.log(chalk.blue(`   🔄                     to: ${currentFunc.signature}`));
+}
+
+/**
+ * Displays git and snapshot information
+ */
+function displaySnapshotInfo(snapshot: SnapshotInfo): void {
+  if (snapshot.gitBranch) {
+    console.log(
+      chalk.gray(
+        `   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`
+      )
+    );
+  }
+  if (snapshot.label) {
+    console.log(chalk.gray(`   Label: ${snapshot.label}`));
+  }
+}
+
+/**
+ * Displays detailed information for a single history entry
+ */
+function displayHistoryEntry(
+  entry: { snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean },
+  index: number,
+  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>
+): void {
+  const { snapshot, function: func, isPresent } = entry;
+  const number = (index + 1).toString().padStart(2, '0');
+
+  console.log(
+    chalk.yellow(`[${number}] ${formatDate(snapshot.createdAt)} - ${snapshot.id.substring(0, 8)}`)
+  );
+
+  if (isPresent && func) {
+    displayFunctionPresence(func);
+    
+    if (func.metrics) {
+      displayFunctionMetrics(func.metrics);
+    }
+
+    // Show signature changes
+    const prevEntry = history[index + 1];
+    displaySignatureChange(func, prevEntry?.function || null);
+  } else {
+    console.log(chalk.red(`   ✗ Not present (deleted or not analyzed)`));
+  }
+
+  displaySnapshotInfo(snapshot);
+  console.log(); // Empty line
+}
+
 function displayDetailedFunctionHistory(
   history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
   _functionName: string
 ): void {
   history.forEach((entry, index) => {
-    const snapshot = entry.snapshot;
-    const func = entry.function;
-    const number = (index + 1).toString().padStart(2, '0');
-
-    console.log(
-      chalk.yellow(`[${number}] ${formatDate(snapshot.createdAt)} - ${snapshot.id.substring(0, 8)}`)
-    );
-
-    if (entry.isPresent && func) {
-      console.log(chalk.green(`   ✓ Present in ${func.filePath}:${func.startLine}`));
-
-      if (func.metrics) {
-        const metrics = func.metrics;
-        console.log(
-          `   📈 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`
-        );
-
-        if (metrics.maintainabilityIndex) {
-          console.log(`   🔧 Maintainability: ${metrics.maintainabilityIndex.toFixed(1)}`);
-        }
-      }
-
-      // Show signature if it's different from previous
-      if (index < history.length - 1) {
-        const prevEntry = history[index + 1];
-        if (prevEntry.function && prevEntry.function.signature !== func.signature) {
-          console.log(chalk.blue(`   🔄 Signature changed from: ${prevEntry.function.signature}`));
-          console.log(chalk.blue(`   🔄                     to: ${func.signature}`));
-        }
-      }
-    } else {
-      console.log(chalk.red(`   ✗ Not present (deleted or not analyzed)`));
-    }
-
-    // Git info
-    if (snapshot.gitBranch) {
-      console.log(
-        chalk.gray(
-          `   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`
-        )
-      );
-    }
-    if (snapshot.label) {
-      console.log(chalk.gray(`   Label: ${snapshot.label}`));
-    }
-
-    console.log(); // Empty line
+    displayHistoryEntry(entry, index, history);
   });
 }
 
