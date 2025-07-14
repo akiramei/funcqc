@@ -51,6 +51,7 @@ interface RefactorTrackOptions extends CommandOptions {
   summary?: string;
   reason?: string;
   json?: boolean;
+  session?: string; // For specifying session ID in lineage operations
 }
 
 // ========================================
@@ -84,6 +85,9 @@ export const refactorCommand = (subcommand: string, args: string[] = []): VoidCo
             break;
           case 'track':
             await refactorTrackCommandImpl(args[0] || '', args.slice(1), options as RefactorTrackOptions, env);
+            break;
+          case 'assess':
+            await refactorAssessCommandImpl(args[0] || '', options as RefactorTrackOptions, env);
             break;
           default:
             throw new Error(`Unknown refactor subcommand: ${subcommand}`);
@@ -2442,6 +2446,18 @@ async function refactorTrackCommandImpl(
       }
       await trackCancelCommand(sessionManager, args[0], options);
       break;
+    case 'split':
+      if (args.length < 2) {
+        throw new Error('Parent function ID and at least one child function ID are required for split command');
+      }
+      await trackSplitCommand(sessionManager, args[0], args.slice(1), options, env);
+      break;
+    case 'extract':
+      if (args.length < 2) {
+        throw new Error('Parent function ID and extracted function ID are required for extract command');
+      }
+      await trackExtractCommand(sessionManager, args[0], args[1], options, env);
+      break;
     default:
       throw new Error(`Unknown track subcommand: ${subcommand}`);
   }
@@ -2750,4 +2766,238 @@ function groupFunctionsByStatus(functions: Array<SessionFunction & { functionNam
   });
   
   return groups;
+}
+
+// ========================================
+// PHASE 2: LINEAGE INTEGRATION COMMANDS
+// ========================================
+
+/**
+ * Track a function split operation using LineageManager
+ */
+async function trackSplitCommand(
+  sessionManager: SessionManager, 
+  parentId: string, 
+  childIds: string[], 
+  options: RefactorTrackOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  // Import LineageManager - using dynamic import to avoid circular dependencies
+  const { LineageManagerImpl } = await import('../../utils/lineage-manager.js');
+  const lineageManager = new LineageManagerImpl(env.storage);
+
+  // Get or create active session
+  let sessionId = options.session;
+  if (!sessionId) {
+    const activeSessions = await sessionManager.getActiveSessions();
+    if (activeSessions.length === 0) {
+      throw new Error('No active session found. Create a session first with: funcqc refactor track create');
+    }
+    sessionId = activeSessions[0].id;
+  }
+
+  // Validate that the session exists
+  const session = await sessionManager.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  console.log(chalk.blue('🔄 Tracking function split operation...'));
+
+  try {
+    // Create refactoring operation
+    const operation = {
+      type: 'split' as const,
+      parentFunction: parentId,
+      childFunctions: childIds,
+      context: {
+        sessionId,
+        description: options.description || `Split function ${parentId} into ${childIds.length} functions`,
+        targetBranch: session.target_branch || 'main'
+        // beforeSnapshot and afterSnapshot will be set when snapshots are created
+      }
+    };
+
+    // Track the operation using LineageManager
+    await lineageManager.trackRefactoringOperation(operation);
+
+    // Display success message
+    console.log(chalk.green('✅ Function split operation tracked successfully!'));
+    console.log(`   Parent: ${chalk.cyan(parentId)}`);
+    console.log(`   Children: ${chalk.cyan(childIds.join(', '))}`);
+    console.log(`   Session: ${chalk.cyan(sessionId)}`);
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        success: true,
+        operation: 'split',
+        parentId,
+        childIds,
+        sessionId,
+        timestamp: new Date().toISOString()
+      }, null, 2));
+    }
+
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to track split operation:'), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+/**
+ * Track a function extract operation using LineageManager
+ */
+async function trackExtractCommand(
+  sessionManager: SessionManager,
+  parentId: string,
+  extractedId: string,
+  options: RefactorTrackOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  // Import LineageManager - using dynamic import to avoid circular dependencies
+  const { LineageManagerImpl } = await import('../../utils/lineage-manager.js');
+  const lineageManager = new LineageManagerImpl(env.storage);
+
+  // Get or create active session
+  let sessionId = options.session;
+  if (!sessionId) {
+    const activeSessions = await sessionManager.getActiveSessions();
+    if (activeSessions.length === 0) {
+      throw new Error('No active session found. Create a session first with: funcqc refactor track create');
+    }
+    sessionId = activeSessions[0].id;
+  }
+
+  // Validate that the session exists
+  const session = await sessionManager.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  console.log(chalk.blue('🔄 Tracking function extract operation...'));
+
+  try {
+    // Create refactoring operation
+    const operation = {
+      type: 'extract' as const,
+      parentFunction: parentId,
+      childFunctions: [extractedId],
+      context: {
+        sessionId,
+        description: options.description || `Extract function ${extractedId} from ${parentId}`,
+        targetBranch: session.target_branch || 'main'
+        // beforeSnapshot and afterSnapshot will be set when snapshots are created
+      }
+    };
+
+    // Track the operation using LineageManager
+    await lineageManager.trackRefactoringOperation(operation);
+
+    // Display success message
+    console.log(chalk.green('✅ Function extract operation tracked successfully!'));
+    console.log(`   Parent: ${chalk.cyan(parentId)}`);
+    console.log(`   Extracted: ${chalk.cyan(extractedId)}`);
+    console.log(`   Session: ${chalk.cyan(sessionId)}`);
+
+    if (options.json) {
+      console.log(JSON.stringify({
+        success: true,
+        operation: 'extract',
+        parentId,
+        extractedId,
+        sessionId,
+        timestamp: new Date().toISOString()
+      }, null, 2));
+    }
+
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to track extract operation:'), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+/**
+ * Assess refactoring session using RefactoringHealthEngine
+ */
+async function refactorAssessCommandImpl(
+  sessionId: string,
+  options: RefactorTrackOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  // Import required components
+  const { RefactoringHealthEngine } = await import('../../utils/refactoring-health-engine.js');
+  const { LineageManagerImpl } = await import('../../utils/lineage-manager.js');
+  
+  const lineageManager = new LineageManagerImpl(env.storage);
+  const healthEngine = new RefactoringHealthEngine(env.storage, lineageManager);
+  const sessionManager = new SessionManager(env.storage);
+
+  // Get session ID if not provided
+  if (!sessionId) {
+    const activeSessions = await sessionManager.getActiveSessions();
+    if (activeSessions.length === 0) {
+      throw new Error('No active session found. Provide a session ID or create an active session.');
+    }
+    sessionId = activeSessions[0].id;
+  }
+
+  // Validate session exists
+  const session = await sessionManager.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  console.log(chalk.blue('🔍 Assessing refactoring session with health engine...'));
+
+  try {
+    // Get changesets for this session
+    const changesets = await env.storage.getRefactoringChangesetsBySession(sessionId);
+    
+    if (changesets.length === 0) {
+      console.log(chalk.yellow('⚠️ No changesets found for this session.'));
+      console.log('Use split/extract commands to track refactoring operations first.');
+      return;
+    }
+
+    console.log(`Found ${changesets.length} changeset(s) to assess:`);
+
+    // Assess each changeset
+    for (const changeset of changesets) {
+      if (!changeset.beforeSnapshotId || !changeset.afterSnapshotId) {
+        console.log(chalk.yellow(`⚠️ Skipping changeset ${changeset.id} - missing snapshot IDs`));
+        continue;
+      }
+
+      console.log(`\n${chalk.cyan('Assessing changeset:')} ${changeset.id}`);
+      console.log(`Operation: ${changeset.operationType}`);
+      console.log(`Parent: ${changeset.parentFunctionId || 'N/A'}`);
+      console.log(`Children: ${changeset.childFunctionIds.join(', ')}`);
+
+      try {
+        const assessment = await healthEngine.evaluateChangeset(changeset);
+        
+        // Display assessment results
+        console.log(`\n${chalk.green('Assessment Results:')}`);
+        console.log(`Overall Grade: ${assessment.improvement.overallGrade}`);
+        console.log(`Genuine Improvement: ${assessment.improvement.isGenuine ? chalk.green('Yes') : chalk.red('No')}`);
+        console.log(`Complexity Reduction: ${assessment.improvement.complexityReduction.toFixed(1)}%`);
+        console.log(`Function Explosion Score: ${assessment.improvement.functionExplosionScore.toFixed(3)}`);
+
+        if (options.json) {
+          console.log('\nDetailed Assessment (JSON):');
+          console.log(JSON.stringify(assessment, null, 2));
+        }
+
+      } catch (error) {
+        console.error(chalk.red(`❌ Failed to assess changeset ${changeset.id}:`), 
+          error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    console.log(chalk.green('\n✅ Assessment completed!'));
+
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to assess session:'), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }

@@ -54,10 +54,11 @@ CREATE INDEX idx_snapshots_git_branch ON snapshots(git_branch);
 -- -----------------------------------------------------------------------------
 CREATE TABLE refactoring_sessions (
   id TEXT PRIMARY KEY,                                                      -- セッションID
+  name TEXT NOT NULL,                                                       -- セッション名
   description TEXT NOT NULL,                                                -- セッション説明
   start_time TIMESTAMPTZ NOT NULL,                                          -- 開始時刻
   end_time TIMESTAMPTZ,                                                     -- 終了時刻
-  git_branch TEXT,                                                          -- 作業ブランチ
+  target_branch TEXT,                                                       -- 作業ブランチ
   initial_commit TEXT,                                                      -- 開始時commit
   final_commit TEXT,                                                        -- 終了時commit
   status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active', -- セッション状態
@@ -73,7 +74,7 @@ CREATE TABLE refactoring_sessions (
 );
 
 CREATE INDEX idx_refactoring_sessions_status ON refactoring_sessions(status);
-CREATE INDEX idx_refactoring_sessions_git_branch ON refactoring_sessions(git_branch);
+CREATE INDEX idx_refactoring_sessions_target_branch ON refactoring_sessions(target_branch);
 CREATE INDEX idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
 CREATE INDEX idx_refactoring_sessions_created_at ON refactoring_sessions(created_at);
 

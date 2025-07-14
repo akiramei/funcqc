@@ -62,7 +62,7 @@ export class SessionManager {
     // Create new session with cryptographically secure random ID
     const sessionId = crypto.randomBytes(16).toString('hex');
     const now = new Date();
-    const startTime = Date.now();
+    const startTime = now;
 
     await db.query(
       `

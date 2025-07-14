@@ -1270,8 +1270,8 @@ export interface RefactoringContext {
   sessionId: string;
   description: string;
   targetBranch: string;
-  beforeSnapshot: string;
-  afterSnapshot: string;
+  beforeSnapshot?: string;
+  afterSnapshot?: string;
 }
 
 export interface LineageManager {

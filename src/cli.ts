@@ -737,6 +737,51 @@ refactorCommand.addCommand(
     )
 );
 
+// Add lineage tracking commands for Phase 2: Lineage Integration
+refactorCommand.addCommand(
+  new Command('split')
+    .description('Track function split operation (short form)')
+    .argument('<parent-id>', 'Parent function ID')
+    .argument('<child-ids...>', 'Child function IDs (space-separated)')
+    .option('-s, --session <id>', 'Session ID to track in')
+    .option('-d, --description <desc>', 'Description of the split operation')
+    .action(async (parentId: string, childIds: string[], options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('track', ['split', parentId, ...childIds]))(options, command);
+    })
+);
+
+refactorCommand.addCommand(
+  new Command('extract')
+    .description('Track function extract operation (short form)')
+    .argument('<parent-id>', 'Parent function ID')
+    .argument('<extracted-id>', 'Extracted function ID')
+    .option('-s, --session <id>', 'Session ID to track in')
+    .option('-d, --description <desc>', 'Description of the extract operation')
+    .action(async (parentId: string, extractedId: string, options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('track', ['extract', parentId, extractedId]))(options, command);
+    })
+);
+
+// Add assessment command for health integration
+refactorCommand.addCommand(
+  new Command('assess')
+    .description('Assess refactoring session with health engine integration')
+    .argument('[session-id]', 'Session ID to assess (optional, uses active session if not provided)')
+    .option('--comprehensive', 'Perform comprehensive assessment including explosion detection')
+    .option('--json', 'Output as JSON')
+    .option('--before-snapshot <id>', 'Before snapshot ID for comparison')
+    .option('--after-snapshot <id>', 'After snapshot ID for comparison')
+    .action(async (sessionId: string | undefined, options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('assess', sessionId ? [sessionId] : []))(options, command);
+    })
+);
+
 // Add interactive subcommand
 refactorCommand.addCommand(
   new Command('interactive')

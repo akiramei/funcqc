@@ -37,7 +37,7 @@ export class RefactoringHealthEngine {
 
   constructor(
     private storage: StorageAdapter,
-    _lineageManager: LineageManager
+    private lineageManager: LineageManager
   ) {
     this.thresholdEvaluator = new ThresholdEvaluator();
   }
@@ -54,11 +54,17 @@ export class RefactoringHealthEngine {
     const beforeAssessment = await this.calculateHealthAssessment(beforeFunctions);
     const afterAssessment = await this.calculateHealthAssessment(afterFunctions);
 
+    // Calculate changeset metrics using LineageManager
+    const beforeMetrics = await this.lineageManager.calculateChangesetMetrics(beforeFunctions);
+    const afterMetrics = await this.lineageManager.calculateChangesetMetrics(afterFunctions);
+
     // Calculate improvement metrics
     const improvementMetrics = await this.calculateImprovementMetrics(
       beforeAssessment,
       afterAssessment,
-      changeset
+      changeset,
+      beforeMetrics,
+      afterMetrics
     );
 
     // Create assessment result
@@ -128,7 +134,9 @@ export class RefactoringHealthEngine {
   private async calculateImprovementMetrics(
     before: HealthAssessment,
     after: HealthAssessment,
-    changeset: RefactoringChangeset
+    changeset: RefactoringChangeset,
+    _beforeMetrics?: ChangesetMetrics,
+    _afterMetrics?: ChangesetMetrics
   ): Promise<ImprovementMetrics> {
     const complexityReduction = before.totalComplexity - after.totalComplexity;
     const riskImprovement = before.averageRiskScore - after.averageRiskScore;
