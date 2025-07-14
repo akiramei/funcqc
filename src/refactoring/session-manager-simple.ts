@@ -138,7 +138,7 @@ export class SessionManager {
    * Optimized to use database index for single-record retrieval
    */
   async getSession(sessionId: string): Promise<RefactoringSession | null> {
-    return await this.storage.getRefactoringSessionById(sessionId);
+    return await this.storage.getRefactoringSession(sessionId);
   }
 
   /**

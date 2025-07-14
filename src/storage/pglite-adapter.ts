@@ -72,6 +72,25 @@ function isTestTrackingFunction(value: unknown): value is (connection: { close()
 }
 
 /**
+ * Database row types for refactoring health engine
+ */
+interface RefactoringChangesetRow {
+  id: string;
+  session_id: string;
+  operation_type: string;
+  parent_function_id: string | null;
+  child_function_ids: string | string[];
+  before_snapshot_id: string;
+  after_snapshot_id: string;
+  health_assessment: string | null;
+  improvement_metrics: string | null;
+  is_genuine_improvement: boolean | null;
+  function_explosion_score: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
  * Clean PGLite storage adapter implementation
  * Focuses on type safety, proper error handling, and clean architecture
  */
@@ -3536,38 +3555,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Get refactoring session by ID
-   * Optimized single-record retrieval using database index
-   */
-  async getRefactoringSessionById(id: string): Promise<RefactoringSession | null> {
-    try {
-      const result = await this.db.query('SELECT * FROM refactoring_sessions WHERE id = $1', [id]);
-
-      if (result.rows.length === 0) {
-        return null;
-      }
-
-      return this.mapRowToRefactoringSession(
-        result.rows[0] as {
-          id: string;
-          name: string;
-          description: string;
-          status: 'active' | 'completed' | 'cancelled';
-          target_branch: string;
-          start_time: string;
-          end_time?: string;
-          metadata: string;
-          created_at: string;
-          updated_at: string;
-        }
-      );
-    } catch (error) {
-      throw new Error(
-        `Failed to get refactoring session by ID: ${error instanceof Error ? error.message : String(error)}`
-      );
-    }
-  }
 
   /**
    * Map database row to RefactoringSession type
@@ -3604,49 +3591,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return session;
   }
 
-  /**
-   * Save a refactoring session
-   */
-  async saveRefactoringSession(session: RefactoringSession): Promise<void> {
-    // Use existing method or implement a basic one
-    const query = `
-      INSERT INTO refactoring_sessions 
-      (id, description, start_time, end_time, git_branch, initial_commit, final_commit, status, metadata, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-    `;
-    
-    await this.db.query(query, [
-      session.id,
-      session.description,
-      new Date(session.start_time).toISOString(),
-      session.end_time ? new Date(session.end_time).toISOString() : null,
-      session.target_branch,
-      null, // initial_commit
-      null, // final_commit
-      session.status,
-      JSON.stringify(session.metadata),
-      session.created_at.toISOString(),
-      session.updated_at.toISOString(),
-    ]);
-  }
-
-  /**
-   * Get a refactoring session by ID
-   */
-  async getRefactoringSession(id: string): Promise<RefactoringSession | null> {
-    const result = await this.db.query(`
-      SELECT id, description, start_time, end_time, git_branch, initial_commit,
-             final_commit, status, metadata, created_at, updated_at
-      FROM refactoring_sessions
-      WHERE id = $1
-    `, [id]);
-
-    if (result.rows.length === 0) {
-      return null;
-    }
-
-    return this.mapRowToRefactoringSession(result.rows[0] as any);
-  }
 
   // ========================================
   // REFACTORING HEALTH ENGINE METHODS
@@ -3711,7 +3655,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return null;
     }
 
-    return this.mapRowToRefactoringChangeset(result.rows[0] as any);
+    return this.mapRowToRefactoringChangeset(result.rows[0] as RefactoringChangesetRow);
   }
 
   /**
@@ -3727,7 +3671,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ORDER BY created_at DESC
     `, [sessionId]);
 
-    return result.rows.map(row => this.mapRowToRefactoringChangeset(row as any));
+    return result.rows.map(row => this.mapRowToRefactoringChangeset(row as RefactoringChangesetRow));
   }
 
   /**
@@ -3847,35 +3791,107 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const offset = query?.offset ?? 0;
 
     const result = await this.db.query(`
-      SELECT id, description, start_time, end_time, git_branch, initial_commit,
-             final_commit, status, metadata, created_at, updated_at
+      SELECT id, name, description, status, target_branch, start_time,
+             end_time, metadata, created_at, updated_at
       FROM refactoring_sessions
       ORDER BY created_at DESC
       LIMIT $1 OFFSET $2
-    `, [limit.toString(), offset.toString()]);
+    `, [limit, offset]);
 
     return result.rows.map(row => this.mapRowToRefactoringSession(row as any));
   }
 
   /**
-   * Map database row to RefactoringChangeset
+   * Map database row to RefactoringChangeset object
    */
-  private mapRowToRefactoringChangeset(row: any): RefactoringChangeset {
-    return {
+  private mapRowToRefactoringChangeset(row: RefactoringChangesetRow): RefactoringChangeset {
+    const parsePostgresArray = (pgArray: string | string[]): string[] => {
+      if (Array.isArray(pgArray)) return pgArray;
+      if (!pgArray || pgArray === '{}') return [];
+      // PostgreSQL array format: {item1,item2,item3} or {"item1","item2","item3"}
+      return pgArray.slice(1, -1).split(',').map(id => id.replace(/^"(.*)"$/, '$1'));
+    };
+
+    const changeset: RefactoringChangeset = {
       id: row.id,
       sessionId: row.session_id,
-      operationType: row.operation_type,
-      parentFunctionId: row.parent_function_id,
-      childFunctionIds: row.child_function_ids || [],
+      operationType: row.operation_type as 'split' | 'extract' | 'merge' | 'rename',
+      childFunctionIds: parsePostgresArray(row.child_function_ids),
       beforeSnapshotId: row.before_snapshot_id,
       afterSnapshotId: row.after_snapshot_id,
-      healthAssessment: row.health_assessment ? JSON.parse(row.health_assessment) : undefined,
-      improvementMetrics: row.improvement_metrics ? JSON.parse(row.improvement_metrics) : undefined,
-      isGenuineImprovement: row.is_genuine_improvement,
-      functionExplosionScore: row.function_explosion_score,
       createdAt: new Date(row.created_at),
       updatedAt: new Date(row.updated_at),
     };
+
+    // Only set optional properties if they have values
+    if (row.parent_function_id) {
+      changeset.parentFunctionId = row.parent_function_id;
+    }
+    if (row.health_assessment) {
+      changeset.healthAssessment = JSON.parse(row.health_assessment);
+    }
+    if (row.improvement_metrics) {
+      changeset.improvementMetrics = JSON.parse(row.improvement_metrics);
+    }
+    if (row.is_genuine_improvement !== null) {
+      changeset.isGenuineImprovement = row.is_genuine_improvement;
+    }
+    if (row.function_explosion_score !== null) {
+      changeset.functionExplosionScore = row.function_explosion_score;
+    }
+
+    return changeset;
+  }
+
+  /**
+   * Save a refactoring session
+   */
+  async saveRefactoringSession(session: RefactoringSession): Promise<void> {
+    await this.db.query(`
+      INSERT INTO refactoring_sessions (
+        id, name, description, status, target_branch, start_time,
+        end_time, metadata, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        status = EXCLUDED.status,
+        target_branch = EXCLUDED.target_branch,
+        start_time = EXCLUDED.start_time,
+        end_time = EXCLUDED.end_time,
+        metadata = EXCLUDED.metadata,
+        updated_at = EXCLUDED.updated_at
+    `, [
+      session.id,
+      session.name,
+      session.description,
+      session.status,
+      session.target_branch,
+      new Date(session.start_time).toISOString(),
+      session.end_time ? new Date(session.end_time).toISOString() : null,
+      JSON.stringify(session.metadata || {}),
+      session.created_at.toISOString(),
+      session.updated_at.toISOString(),
+    ]);
+  }
+
+  /**
+   * Get a refactoring session by ID
+   */
+  async getRefactoringSession(id: string): Promise<RefactoringSession | null> {
+    const result = await this.db.query(`
+      SELECT id, name, description, status, target_branch, start_time,
+             end_time, metadata, created_at, updated_at
+      FROM refactoring_sessions
+      WHERE id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToRefactoringSession(result.rows[0] as any);
   }
 
   /**

@@ -1299,8 +1299,8 @@ export interface ChangesetMetrics {
 }
 
 export interface RiskDistribution {
-  high: number;
-  medium: number;
   low: number;
+  medium: number;
+  high: number;
   critical: number;
 }
