@@ -28,6 +28,7 @@ import {
   LineageStatus,
   LineageQuery,
   RefactoringSession,
+  RefactoringChangeset,
 } from '../types';
 import {
   BatchProcessor,
@@ -3601,6 +3602,257 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
 
     return session;
+  }
+
+  // ========================================
+  // REFACTORING HEALTH ENGINE METHODS
+  // ========================================
+
+  /**
+   * Save a refactoring changeset
+   */
+  async saveRefactoringChangeset(changeset: RefactoringChangeset): Promise<void> {
+    const result = await this.db.query(`
+      INSERT INTO refactoring_changesets (
+        id, session_id, operation_type, parent_function_id, child_function_ids,
+        before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
+        is_genuine_improvement, function_explosion_score, created_at, updated_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      ON CONFLICT (id) DO UPDATE SET
+        session_id = EXCLUDED.session_id,
+        operation_type = EXCLUDED.operation_type,
+        parent_function_id = EXCLUDED.parent_function_id,
+        child_function_ids = EXCLUDED.child_function_ids,
+        before_snapshot_id = EXCLUDED.before_snapshot_id,
+        after_snapshot_id = EXCLUDED.after_snapshot_id,
+        health_assessment = EXCLUDED.health_assessment,
+        improvement_metrics = EXCLUDED.improvement_metrics,
+        is_genuine_improvement = EXCLUDED.is_genuine_improvement,
+        function_explosion_score = EXCLUDED.function_explosion_score,
+        updated_at = EXCLUDED.updated_at
+    `, [
+      changeset.id,
+      changeset.sessionId,
+      changeset.operationType,
+      changeset.parentFunctionId || null,
+      changeset.childFunctionIds,
+      changeset.beforeSnapshotId,
+      changeset.afterSnapshotId,
+      changeset.healthAssessment ? JSON.stringify(changeset.healthAssessment) : null,
+      changeset.improvementMetrics ? JSON.stringify(changeset.improvementMetrics) : null,
+      changeset.isGenuineImprovement,
+      changeset.functionExplosionScore,
+      changeset.createdAt.toISOString(),
+      changeset.updatedAt.toISOString(),
+    ]);
+
+    if (result.affectedRows === 0) {
+      throw new DatabaseError(ErrorCode.STORAGE_ERROR, 'Failed to save refactoring changeset');
+    }
+  }
+
+  /**
+   * Get a refactoring changeset by ID
+   */
+  async getRefactoringChangeset(id: string): Promise<RefactoringChangeset | null> {
+    const result = await this.db.query(`
+      SELECT id, session_id, operation_type, parent_function_id, child_function_ids,
+             before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
+             is_genuine_improvement, function_explosion_score, created_at, updated_at
+      FROM refactoring_changesets
+      WHERE id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToRefactoringChangeset(result.rows[0] as any);
+  }
+
+  /**
+   * Get refactoring changesets by session ID
+   */
+  async getRefactoringChangesetsBySession(sessionId: string): Promise<RefactoringChangeset[]> {
+    const result = await this.db.query(`
+      SELECT id, session_id, operation_type, parent_function_id, child_function_ids,
+             before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
+             is_genuine_improvement, function_explosion_score, created_at, updated_at
+      FROM refactoring_changesets
+      WHERE session_id = $1
+      ORDER BY created_at DESC
+    `, [sessionId]);
+
+    return result.rows.map(row => this.mapRowToRefactoringChangeset(row as any));
+  }
+
+  /**
+   * Update a refactoring changeset
+   */
+  async updateRefactoringChangeset(id: string, updates: Partial<RefactoringChangeset>): Promise<void> {
+    const setParts: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.healthAssessment !== undefined) {
+      setParts.push(`health_assessment = $${paramIndex++}`);
+      params.push(updates.healthAssessment ? JSON.stringify(updates.healthAssessment) : null);
+    }
+
+    if (updates.improvementMetrics !== undefined) {
+      setParts.push(`improvement_metrics = $${paramIndex++}`);
+      params.push(updates.improvementMetrics ? JSON.stringify(updates.improvementMetrics) : null);
+    }
+
+    if (updates.isGenuineImprovement !== undefined) {
+      setParts.push(`is_genuine_improvement = $${paramIndex++}`);
+      params.push(updates.isGenuineImprovement);
+    }
+
+    if (updates.functionExplosionScore !== undefined) {
+      setParts.push(`function_explosion_score = $${paramIndex++}`);
+      params.push(updates.functionExplosionScore);
+    }
+
+    if (setParts.length === 0) {
+      return; // No updates to make
+    }
+
+    setParts.push(`updated_at = $${paramIndex++}`);
+    params.push(new Date().toISOString());
+
+    params.push(id); // WHERE clause parameter
+
+    const result = await this.db.exec({
+      query: `
+        UPDATE refactoring_changesets
+        SET ${setParts.join(', ')}
+        WHERE id = $${paramIndex}
+      `,
+      params,
+    });
+
+    if (result.affectedRows === 0) {
+      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'Failed to update refactoring changeset');
+    }
+  }
+
+  /**
+   * Get functions by snapshot ID (helper method for RefactoringHealthEngine)
+   */
+  async getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]> {
+    return await this.getFunctions(snapshotId);
+  }
+
+  /**
+   * Get lineages by function ID (helper method for LineageManager)
+   */
+  async getLineagesByFunctionId(functionId: string): Promise<Lineage[]> {
+    const result = await this.db.exec({
+      query: `
+        SELECT id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
+        FROM lineages
+        WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
+        ORDER BY created_at DESC
+      `,
+      params: [functionId],
+    });
+
+    return result.rows.map(row => this.mapRowToLineage(row as any));
+  }
+
+  /**
+   * Update refactoring session
+   */
+  async updateRefactoringSession(id: string, updates: Partial<RefactoringSession>): Promise<void> {
+    const setParts: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (updates.description !== undefined) {
+      setParts.push(`description = $${paramIndex++}`);
+      params.push(updates.description);
+    }
+
+    if (updates.status !== undefined) {
+      setParts.push(`status = $${paramIndex++}`);
+      params.push(updates.status);
+    }
+
+    if (updates.end_time !== undefined) {
+      setParts.push(`end_time = $${paramIndex++}`);
+      params.push(updates.end_time ? new Date(updates.end_time).toISOString() : null);
+    }
+
+    if (updates.metadata !== undefined) {
+      setParts.push(`metadata = $${paramIndex++}`);
+      params.push(JSON.stringify(updates.metadata));
+    }
+
+    if (setParts.length === 0) {
+      return; // No updates to make
+    }
+
+    setParts.push(`updated_at = $${paramIndex++}`);
+    params.push(new Date().toISOString());
+
+    params.push(id); // WHERE clause parameter
+
+    const result = await this.db.exec({
+      query: `
+        UPDATE refactoring_sessions
+        SET ${setParts.join(', ')}
+        WHERE id = $${paramIndex}
+      `,
+      params,
+    });
+
+    if (result.affectedRows === 0) {
+      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'Failed to update refactoring session');
+    }
+  }
+
+  /**
+   * Get refactoring sessions
+   */
+  async getRefactoringSessions(query?: QueryOptions): Promise<RefactoringSession[]> {
+    const limit = query?.limit ? parseInt(query.limit) : 100;
+    const offset = query?.offset ? parseInt(query.offset) : 0;
+
+    const result = await this.db.exec({
+      query: `
+        SELECT id, description, start_time, end_time, git_branch, initial_commit,
+               final_commit, status, metadata, created_at, updated_at
+        FROM refactoring_sessions
+        ORDER BY created_at DESC
+        LIMIT $1 OFFSET $2
+      `,
+      params: [limit, offset],
+    });
+
+    return result.rows.map(row => this.mapRowToRefactoringSession(row as any));
+  }
+
+  /**
+   * Map database row to RefactoringChangeset
+   */
+  private mapRowToRefactoringChangeset(row: any): RefactoringChangeset {
+    return {
+      id: row.id,
+      sessionId: row.session_id,
+      operationType: row.operation_type,
+      parentFunctionId: row.parent_function_id,
+      childFunctionIds: row.child_function_ids || [],
+      beforeSnapshotId: row.before_snapshot_id,
+      afterSnapshotId: row.after_snapshot_id,
+      healthAssessment: row.health_assessment ? JSON.parse(row.health_assessment) : undefined,
+      improvementMetrics: row.improvement_metrics ? JSON.parse(row.improvement_metrics) : undefined,
+      isGenuineImprovement: row.is_genuine_improvement,
+      functionExplosionScore: row.function_explosion_score,
+      createdAt: new Date(row.created_at),
+      updatedAt: new Date(row.updated_at),
+    };
   }
 
   /**

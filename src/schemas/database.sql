@@ -62,6 +62,12 @@ CREATE TABLE refactoring_sessions (
   final_commit TEXT,                                                        -- 終了時commit
   status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active', -- セッション状態
   metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
+  health_baseline JSONB DEFAULT '{}',                                       -- healthエンジンベースライン
+  final_assessment JSONB DEFAULT '{}',                                      -- 最終評価結果
+  improvement_verified BOOLEAN DEFAULT FALSE,                               -- 改善検証済みフラグ
+  total_complexity_before INTEGER,                                          -- 変更前総複雑度
+  total_complexity_after INTEGER,                                           -- 変更後総複雑度
+  genuine_improvement_score REAL,                                           -- 真の改善度スコア
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,               -- 作成日時
   updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP                -- 更新日時
 );
@@ -327,6 +333,35 @@ CREATE INDEX idx_refactoring_opportunities_severity ON refactoring_opportunities
 CREATE INDEX idx_refactoring_opportunities_function_id ON refactoring_opportunities(function_id);
 CREATE INDEX idx_refactoring_opportunities_resolved ON refactoring_opportunities(resolved_at) WHERE resolved_at IS NULL;
 
+-- -----------------------------------------------------------------------------
+-- Refactoring Changesets: 変更セット管理とhealth評価統合
+-- -----------------------------------------------------------------------------
+CREATE TABLE refactoring_changesets (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,                                                 -- セッションID参照
+  operation_type TEXT NOT NULL CHECK (operation_type IN ('split', 'extract', 'merge', 'rename')), -- 操作種別
+  parent_function_id TEXT,                                                  -- 親関数ID
+  child_function_ids TEXT[],                                                -- 子関数IDの配列
+  before_snapshot_id TEXT NOT NULL,                                         -- 変更前スナップショット
+  after_snapshot_id TEXT NOT NULL,                                          -- 変更後スナップショット
+  health_assessment JSONB DEFAULT '{}',                                     -- ThresholdEvaluator結果
+  improvement_metrics JSONB DEFAULT '{}',                                   -- 改善度データ
+  is_genuine_improvement BOOLEAN,                                           -- 真の改善かどうか
+  function_explosion_score REAL,                                            -- 関数爆発係数
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 更新日時
+  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
+  FOREIGN KEY (parent_function_id) REFERENCES functions(id) ON DELETE SET NULL,
+  FOREIGN KEY (before_snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (after_snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_changesets_session ON refactoring_changesets(session_id);
+CREATE INDEX idx_changesets_parent ON refactoring_changesets(parent_function_id);
+CREATE INDEX idx_changesets_operation ON refactoring_changesets(operation_type);
+CREATE INDEX idx_changesets_genuine ON refactoring_changesets(is_genuine_improvement);
+CREATE INDEX idx_changesets_created_at ON refactoring_changesets(created_at);
+
 -- =============================================================================
 -- LEVEL 4: INDEPENDENT TABLES
 -- =============================================================================
@@ -438,6 +473,9 @@ CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_e
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_refactoring_changesets_updated_at BEFORE UPDATE ON refactoring_changesets
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- -----------------------------------------------------------------------------
