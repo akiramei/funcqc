@@ -115,8 +115,8 @@ async function initializeQualityGate(
   });
 
   try {
-    // Get recent snapshots to build baseline
-    const recentSnapshots = await env.storage.getSnapshots({ limit: 3 });
+    // Get most recent snapshot to build baseline
+    const recentSnapshots = await env.storage.getSnapshots({ limit: 1 });
     const allHistoricalFunctions: FunctionInfo[] = [];
 
     for (const snapshot of recentSnapshots) {
