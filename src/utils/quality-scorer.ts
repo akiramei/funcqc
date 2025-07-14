@@ -51,16 +51,19 @@ export interface QualityWeights {
 
 /**
  * Metric-specific steepness configuration for optimal sensitivity
+ * Values adjusted based on expert review for practical use
  */
 const STEEPNESS_CONFIG = {
-  // For ratio metrics (0.05 → 0.10 changes should be visible)
-  ratio: 12.0,
-  // For average values (complexity, size)
-  average: 0.3,
-  // For count metrics (parameters, violations)
+  // For ratio metrics (reduced from 12.0 to avoid overly sensitive "cliff" effects)
+  // 0.05 → 0.10 changes now produce more gradual score transitions
+  ratio: 8.0,
+  // For average values (increased from 0.3 for better main indicator sensitivity)
+  // CC threshold 8→12 now shows more noticeable score changes
+  average: 0.6,
+  // For count metrics (parameters, violations) - unchanged
   count: 1.0,
-  // Default fallback
-  default: 0.5,
+  // Default fallback - slightly increased for better general sensitivity
+  default: 0.7,
 } as const;
 
 export interface ProjectQualityScore {

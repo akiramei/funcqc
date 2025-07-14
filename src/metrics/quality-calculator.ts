@@ -317,6 +317,7 @@ export class QualityCalculator {
 
   /**
    * Check for intentional fall-through comments
+   * Enhanced to check comments before the next case clause
    */
   private hasIntentionalFallThroughComment(caseNode: ts.CaseClause): boolean {
     const sourceFile = caseNode.getSourceFile();
@@ -336,10 +337,18 @@ export class QualityCalculator {
       internalComments = this.getCommentsInRange(text, startPos, endPos);
     }
     
+    // Enhanced: Check comments before the next case clause
+    let nextCaseComments: ts.CommentRange[] = [];
+    const nextCaseNode = this.getNextCaseNode(caseNode);
+    if (nextCaseNode) {
+      nextCaseComments = ts.getLeadingCommentRanges(text, nextCaseNode.getFullStart()) || [];
+    }
+    
     const allComments = [
       ...(leadingComments || []),
       ...(trailingComments || []),
-      ...internalComments
+      ...internalComments,
+      ...nextCaseComments
     ];
     
     // Check if any comment indicates intentional fall-through
@@ -347,6 +356,7 @@ export class QualityCalculator {
       /fall\s*through/i,
       /fallthrough/i,
       /fall\s*thru/i,
+      /falls?\s*thru/i,  // Enhanced: matches "falls thru" and "fall thru" with optional space
       /intended\s*fall/i,
       /no\s*break/i
     ];
@@ -355,6 +365,25 @@ export class QualityCalculator {
       const commentText = text.substring(comment.pos, comment.end);
       return fallThroughPatterns.some(pattern => pattern.test(commentText));
     });
+  }
+
+  /**
+   * Get the next case clause node for fall-through comment detection
+   */
+  private getNextCaseNode(currentCase: ts.CaseClause): ts.CaseClause | ts.DefaultClause | null {
+    const parent = currentCase.parent;
+    if (!ts.isCaseBlock(parent)) {
+      return null;
+    }
+    
+    const clauses = parent.clauses;
+    const currentIndex = clauses.indexOf(currentCase);
+    
+    if (currentIndex === -1 || currentIndex >= clauses.length - 1) {
+      return null;
+    }
+    
+    return clauses[currentIndex + 1];
   }
 
   /**
