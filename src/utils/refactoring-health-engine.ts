@@ -146,7 +146,8 @@ export class RefactoringHealthEngine {
       complexityReduction,
       riskImprovement,
       maintainabilityGain,
-      functionExplosionScore
+      functionExplosionScore,
+      before.totalComplexity
     );
 
     // Calculate overall improvement grade
@@ -199,7 +200,8 @@ export class RefactoringHealthEngine {
     complexityReduction: number,
     riskImprovement: number,
     maintainabilityGain: number,
-    functionExplosionScore: number
+    functionExplosionScore: number,
+    beforeComplexity: number
   ): boolean {
     // Genuine improvement criteria:
     // 1. Meaningful complexity reduction (>= 5%)
@@ -207,7 +209,8 @@ export class RefactoringHealthEngine {
     // 3. Maintainability gain or at least not worse
     // 4. Function explosion score within reasonable bounds (<= 0.3)
     
-    const meaningfulComplexityReduction = complexityReduction >= 5;
+    const complexityReductionPercentage = beforeComplexity > 0 ? (complexityReduction / beforeComplexity) * 100 : 0;
+    const meaningfulComplexityReduction = complexityReductionPercentage >= 5;
     const riskNotWorse = riskImprovement >= 0;
     const maintainabilityNotWorse = maintainabilityGain >= 0;
     const explosionWithinBounds = functionExplosionScore <= 0.3;
@@ -373,6 +376,9 @@ export class RefactoringHealthEngine {
     }
 
     // Calculate average metrics
+    if (functionsWithMetrics.length === 0) {
+      throw new Error('No functions with metrics available for quality breakdown calculation');
+    }
     const avgComplexity = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.cyclomaticComplexity, 0) / functionsWithMetrics.length;
     const avgSize = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.linesOfCode, 0) / functionsWithMetrics.length;
     const avgMaintainability = functionsWithMetrics.reduce((sum, f) => sum + (f.metrics!.maintainabilityIndex || 50), 0) / functionsWithMetrics.length;
