@@ -102,6 +102,7 @@ async function validateInitialSchema(db: Kysely<Record<string, unknown>>): Promi
     'refactoring_sessions',
     'session_functions',
     'refactoring_opportunities',
+    'refactoring_changesets',
     'function_documentation'
   ];
 

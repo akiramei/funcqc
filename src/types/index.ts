@@ -563,7 +563,23 @@ export interface StorageAdapter {
   deleteLineage(id: string): Promise<boolean>;
   getLineagesByCommit(gitCommit: string): Promise<Lineage[]>;
   getFunctionLineageHistory(functionId: string): Promise<Lineage[]>;
+  getLineagesByFunctionId(functionId: string): Promise<Lineage[]>;
   pruneDraftLineages(olderThanDays: number): Promise<number>;
+
+  // Refactoring operations
+  saveRefactoringSession(session: RefactoringSession): Promise<void>;
+  getRefactoringSession(id: string): Promise<RefactoringSession | null>;
+  updateRefactoringSession(id: string, updates: Partial<RefactoringSession>): Promise<void>;
+  getRefactoringSessions(query?: QueryOptions): Promise<RefactoringSession[]>;
+  
+  // Refactoring changeset operations
+  saveRefactoringChangeset(changeset: RefactoringChangeset): Promise<void>;
+  getRefactoringChangeset(id: string): Promise<RefactoringChangeset | null>;
+  getRefactoringChangesetsBySession(sessionId: string): Promise<RefactoringChangeset[]>;
+  updateRefactoringChangeset(id: string, updates: Partial<RefactoringChangeset>): Promise<void>;
+
+  // Helper methods for RefactoringHealthEngine
+  getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
 
   // Maintenance operations
   cleanup(retentionDays: number): Promise<number>;
@@ -880,6 +896,13 @@ export interface ProjectStatistics {
   metrics: Record<keyof QualityMetrics, MetricStatistics>;
   totalFunctions: number;
   analysisTimestamp: number;
+  averageComplexity: number;
+  averageSize: number;
+  medianComplexity: number;
+  p90Complexity: number;
+  complexityDistribution: MetricStatistics;
+  sizeDistribution: MetricStatistics;
+  riskDistribution: RiskDistribution;
 }
 
 export interface MetricStatistics {
@@ -889,6 +912,8 @@ export interface MetricStatistics {
   variance: number;
   min: number;
   max: number;
+  p90: number;
+  p95: number;
   percentiles: {
     p25: number;
     p50: number;
@@ -918,11 +943,16 @@ export interface ThresholdViolation {
 
 export interface FunctionRiskAssessment {
   functionId: string;
+  functionName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
   violations: ThresholdViolation[];
   totalViolations: number;
-  riskLevel: 'low' | 'medium' | 'high';
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
   riskScore: number;
   violationsByLevel: Record<ViolationLevel, number>;
+  metrics: QualityMetrics;
 }
 
 export interface ProjectRiskAssessment {
@@ -1174,4 +1204,103 @@ export interface RefactorPlanOptions extends CommandOptions {
   format?: string;
   timeline?: string;
   effort?: string;
+}
+
+// ========================================
+// REFACTORING HEALTH ENGINE TYPES
+// ========================================
+
+export interface RefactoringChangeset {
+  id: string;
+  sessionId: string;
+  operationType: 'split' | 'extract' | 'merge' | 'rename';
+  parentFunctionId?: string;
+  childFunctionIds: string[];
+  beforeSnapshotId: string;
+  afterSnapshotId: string;
+  healthAssessment?: HealthAssessment;
+  improvementMetrics?: ImprovementMetrics;
+  isGenuineImprovement?: boolean;
+  functionExplosionScore?: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface HealthAssessment {
+  totalFunctions: number;
+  totalComplexity: number;
+  riskDistribution: RiskDistribution;
+  averageRiskScore: number;
+  highRiskFunctions: FunctionRiskAssessment[];
+  overallGrade: string;
+  overallScore: number;
+  qualityBreakdown: {
+    complexity: { grade: string; score: number };
+    maintainability: { grade: string; score: number };
+    size: { grade: string; score: number };
+  };
+}
+
+export interface ImprovementMetrics {
+  complexityReduction: number;
+  riskImprovement: number;
+  maintainabilityGain: number;
+  functionExplosionScore: number;
+  overallGrade: 'A+' | 'A' | 'B' | 'C' | 'D' | 'F';
+  isGenuine: boolean;
+}
+
+export interface ChangesetAssessment {
+  before: HealthAssessment;
+  after: HealthAssessment;
+  improvement: ImprovementMetrics;
+  sessionId: string;
+  changesetId: string;
+  evaluatedAt: Date;
+}
+
+export interface RefactoringOperation {
+  type: 'split' | 'extract' | 'merge' | 'rename';
+  parentFunction: string;
+  childFunctions: string[];
+  context: RefactoringContext;
+}
+
+export interface RefactoringContext {
+  sessionId: string;
+  description: string;
+  targetBranch: string;
+  beforeSnapshot: string;
+  afterSnapshot: string;
+}
+
+export interface LineageManager {
+  trackRefactoringOperation(operation: RefactoringOperation): Promise<void>;
+  getRelatedFunctions(functionId: string): Promise<FunctionLineage>;
+  calculateChangesetMetrics(functions: FunctionInfo[]): Promise<ChangesetMetrics>;
+}
+
+export interface FunctionLineage {
+  functionId: string;
+  parentFunctions: string[];
+  childFunctions: string[];
+  relatedFunctions: string[];
+  lineageType: 'split' | 'extract' | 'merge' | 'rename';
+  createdAt: Date;
+}
+
+export interface ChangesetMetrics {
+  totalComplexity: number;
+  totalLinesOfCode: number;
+  averageComplexity: number;
+  highRiskCount: number;
+  functionCount: number;
+  riskDistribution: RiskDistribution;
+}
+
+export interface RiskDistribution {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
 }

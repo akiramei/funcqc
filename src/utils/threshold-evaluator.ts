@@ -241,6 +241,11 @@ export class ThresholdEvaluator {
    */
   assessFunctionRisk(
     functionId: string,
+    functionName: string,
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    metrics: QualityMetrics,
     violations: ThresholdViolation[],
     assessmentConfig?: RiskAssessmentConfig
   ): FunctionRiskAssessment {
@@ -265,11 +270,16 @@ export class ThresholdEvaluator {
 
     return {
       functionId,
+      functionName,
+      filePath,
+      startLine,
+      endLine,
       violations,
       totalViolations: violations.length,
       riskLevel,
       riskScore,
       violationsByLevel,
+      metrics,
     };
   }
 
@@ -411,7 +421,7 @@ export class ThresholdEvaluator {
         dist[assessment.riskLevel]++;
         return dist;
       },
-      { low: 0, medium: 0, high: 0 }
+      { low: 0, medium: 0, high: 0, critical: 0 }
     );
 
     // Find top violations across all functions
