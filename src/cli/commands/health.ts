@@ -692,8 +692,8 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
     maintainabilityScore: Math.round(maintainabilityScore),
     sizeGrade: getGradeFromScore(sizeScore),
     sizeScore: Math.round(sizeScore),
-    averageQualityScore: overallScore,
-    qualityDescription: getQualityDescription(overallScore),
+    averageRiskScore: 0, // Placeholder value for compatibility
+    riskDescription: 'Not applicable',
   };
 }
 
@@ -923,14 +923,6 @@ function getRiskDescription(avgRiskScore: number): string {
   return 'Critical - Very high risk';
 }
 
-function getQualityDescription(qualityScore: number): string {
-  // Quality score: Higher is better (100 = excellent, 0 = poor)
-  if (qualityScore >= 90) return 'Excellent - Very high quality';
-  if (qualityScore >= 80) return 'Good - High quality';
-  if (qualityScore >= 60) return 'Fair - Some refactoring needed';
-  if (qualityScore >= 40) return 'Poor - Significant improvement needed';
-  return 'Critical - Immediate attention required';
-}
 
 function getTrendIcon(trend: string): string {
   switch (trend) {
@@ -968,16 +960,17 @@ interface HealthMetricsComparison {
     functions: FunctionInfo[];
     quality: QualityMetrics;
     riskDistribution: RiskDistribution;
+    enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>;
   };
   to: {
     snapshot: SnapshotInfo;
     functions: FunctionInfo[];
     quality: QualityMetrics;
     riskDistribution: RiskDistribution;
+    enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>;
   };
   changes: {
     qualityChange: number;
-    riskScoreChange: number;
     complexityChange: number;
     maintainabilityChange: number;
     sizeChange: number;
@@ -986,6 +979,14 @@ interface HealthMetricsComparison {
       high: number;
       medium: number;
       low: number;
+    };
+    riskChanges: {
+      average: number;
+      median: number;
+      p90: number;
+      normalizedByLOC: number;
+      criticalCount: number;
+      highRiskCount: number;
     };
     trend: 'improving' | 'stable' | 'degrading';
   };
@@ -1118,21 +1119,22 @@ async function compareHealthMetrics(
   const fromQuality = await calculateQualityMetrics(fromFunctions, env.config);
   const toQuality = await calculateQualityMetrics(toFunctions, env.config);
   
-  // Calculate risk distributions using ThresholdEvaluator
+  // Calculate risk distributions using proper StatisticalEvaluator
+  const statisticalEvaluator = new StatisticalEvaluator();
   const thresholdEvaluator = new ThresholdEvaluator();
   const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
   
-  const fromProjectStats: ProjectStatistics = {
-    totalFunctions: fromFunctions.length,
-    analysisTimestamp: Date.now(),
-    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
-  };
+  // Generate proper project statistics for both snapshots
+  const fromAllMetrics = fromFunctions.map(f => f.metrics).filter(Boolean) as FunctionQualityMetrics[];
+  const toAllMetrics = toFunctions.map(f => f.metrics).filter(Boolean) as FunctionQualityMetrics[];
   
-  const toProjectStats: ProjectStatistics = {
-    totalFunctions: toFunctions.length,
-    analysisTimestamp: Date.now(),
-    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
-  };
+  const fromProjectStats = fromAllMetrics.length > 0 
+    ? statisticalEvaluator.calculateProjectStatistics(fromAllMetrics)
+    : { totalFunctions: fromFunctions.length, analysisTimestamp: Date.now(), metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics> };
+  
+  const toProjectStats = toAllMetrics.length > 0
+    ? statisticalEvaluator.calculateProjectStatistics(toAllMetrics) 
+    : { totalFunctions: toFunctions.length, analysisTimestamp: Date.now(), metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics> };
   
   const fromRiskAssessments = await assessAllFunctions(fromFunctions, fromProjectStats, thresholds);
   const toRiskAssessments = await assessAllFunctions(toFunctions, toProjectStats, thresholds);
@@ -1140,17 +1142,26 @@ async function compareHealthMetrics(
   const fromRisk = calculateRiskDistribution(fromRiskAssessments);
   const toRisk = calculateRiskDistribution(toRiskAssessments);
   
-  // Calculate average risk scores
-  const fromAverageRiskScore = calculateAverageRiskScore(fromRiskAssessments);
-  const toAverageRiskScore = calculateAverageRiskScore(toRiskAssessments);
+  // Calculate enhanced risk statistics for both snapshots
+  const fromEnhancedRiskStats = calculateEnhancedRiskStats(fromRiskAssessments, fromFunctions);
+  const toEnhancedRiskStats = calculateEnhancedRiskStats(toRiskAssessments, toFunctions);
   
   // Calculate changes
   const qualityChange = toQuality.overallScore - fromQuality.overallScore;
-  const riskScoreChange = toAverageRiskScore - fromAverageRiskScore;
   const complexityChange = toQuality.complexityScore - fromQuality.complexityScore;
   const maintainabilityChange = toQuality.maintainabilityScore - fromQuality.maintainabilityScore;
   const sizeChange = toQuality.sizeScore - fromQuality.sizeScore;
   const functionCountChange = toFunctions.length - fromFunctions.length;
+  
+  // Enhanced risk changes
+  const riskChanges = {
+    average: toEnhancedRiskStats.average - fromEnhancedRiskStats.average,
+    median: toEnhancedRiskStats.median - fromEnhancedRiskStats.median,
+    p90: toEnhancedRiskStats.p90 - fromEnhancedRiskStats.p90,
+    normalizedByLOC: toEnhancedRiskStats.normalizedByLOC - fromEnhancedRiskStats.normalizedByLOC,
+    criticalCount: toEnhancedRiskStats.criticalCount - fromEnhancedRiskStats.criticalCount,
+    highRiskCount: toEnhancedRiskStats.highRiskCount - fromEnhancedRiskStats.highRiskCount,
+  };
   
   const riskDistributionChange = {
     high: toRisk.high - fromRisk.high,
@@ -1170,23 +1181,25 @@ async function compareHealthMetrics(
     from: {
       snapshot: fromSnapshot,
       functions: fromFunctions,
-      quality: { ...fromQuality, averageRiskScore: fromAverageRiskScore },
+      quality: fromQuality,
       riskDistribution: fromRisk,
+      enhancedRiskStats: fromEnhancedRiskStats,
     },
     to: {
       snapshot: toSnapshot,
       functions: toFunctions,
-      quality: { ...toQuality, averageRiskScore: toAverageRiskScore },
+      quality: toQuality,
       riskDistribution: toRisk,
+      enhancedRiskStats: toEnhancedRiskStats,
     },
     changes: {
       qualityChange,
-      riskScoreChange,
       complexityChange,
       maintainabilityChange,
       sizeChange,
       functionCountChange,
       riskDistributionChange,
+      riskChanges,
       trend,
     },
   };
@@ -1213,12 +1226,6 @@ function displayHealthComparison(comparison: HealthMetricsComparison): void {
   // Quality metrics comparison
   console.log(chalk.yellow('Quality Metrics:'));
   displayMetricChange('Overall', from.quality.overallGrade, from.quality.overallScore, to.quality.overallGrade, to.quality.overallScore);
-  
-  // Average Risk Score comparison (following Overall, matching original health display order)
-  const riskChange = to.quality.averageRiskScore - from.quality.averageRiskScore;
-  const riskChangeStr = formatChange(Number(riskChange.toFixed(1))); // Round change to 1 decimal place
-  const riskChangeColor = riskChange < 0 ? chalk.green : riskChange > 0 ? chalk.red : chalk.gray; // Lower risk is better
-  console.log(`  Average Risk Score: ${from.quality.averageRiskScore.toFixed(1)} → ${to.quality.averageRiskScore.toFixed(1)} ${riskChangeColor(riskChangeStr)}`);
   console.log('');
   
   // Details section
@@ -1226,6 +1233,16 @@ function displayHealthComparison(comparison: HealthMetricsComparison): void {
   displayMetricChange('    Complexity', from.quality.complexityGrade, from.quality.complexityScore, to.quality.complexityGrade, to.quality.complexityScore);
   displayMetricChange('    Maintainability', from.quality.maintainabilityGrade, from.quality.maintainabilityScore, to.quality.maintainabilityGrade, to.quality.maintainabilityScore);
   displayMetricChange('    Size', from.quality.sizeGrade, from.quality.sizeScore, to.quality.sizeGrade, to.quality.sizeScore);
+  console.log('');
+  
+  // Enhanced Risk Analysis comparison
+  console.log(chalk.yellow('Risk Analysis Changes:'));
+  displayRiskMetricChange('Average Risk Score', from.enhancedRiskStats.average, to.enhancedRiskStats.average, changes.riskChanges.average);
+  displayRiskMetricChange('Median Risk Score', from.enhancedRiskStats.median, to.enhancedRiskStats.median, changes.riskChanges.median);
+  displayRiskMetricChange('P90 Risk Score', from.enhancedRiskStats.p90, to.enhancedRiskStats.p90, changes.riskChanges.p90);
+  displayRiskMetricChange('Risk/LOC Ratio', from.enhancedRiskStats.normalizedByLOC, to.enhancedRiskStats.normalizedByLOC, changes.riskChanges.normalizedByLOC, 3);
+  displayCountChange('Critical Functions', from.enhancedRiskStats.criticalCount, to.enhancedRiskStats.criticalCount, changes.riskChanges.criticalCount);
+  displayCountChange('High-Risk Functions', from.enhancedRiskStats.highRiskCount, to.enhancedRiskStats.highRiskCount, changes.riskChanges.highRiskCount);
   console.log('');
   
   // Function count change
@@ -1272,6 +1289,21 @@ function displayRiskChange(
 function formatChange(change: number): string {
   if (change === 0) return '(no change)';
   return change > 0 ? `(+${change})` : `(${change})`;
+}
+
+function displayRiskMetricChange(label: string, fromValue: number, toValue: number, change: number, decimals: number = 1): void {
+  const icon = change > 0 ? '📈' : change < 0 ? '📉' : '📊';
+  const color = change > 0 ? chalk.red : change < 0 ? chalk.green : chalk.gray; // Higher risk is bad
+  const fromStr = fromValue.toFixed(decimals);
+  const toStr = toValue.toFixed(decimals);
+  const changeStr = formatChange(Number(change.toFixed(decimals)));
+  console.log(`  ${label}: ${fromStr} → ${toStr} ${icon} ${color(changeStr)}`);
+}
+
+function displayCountChange(label: string, fromValue: number, toValue: number, change: number): void {
+  const icon = change > 0 ? '📈' : change < 0 ? '📉' : '📊';
+  const color = change > 0 ? chalk.red : change < 0 ? chalk.green : chalk.gray; // Higher count is bad
+  console.log(`  ${label}: ${fromValue} → ${toValue} ${icon} ${color(formatChange(change))}`);
 }
 
 function generateHealthComparisonData(comparison: HealthMetricsComparison): unknown {
