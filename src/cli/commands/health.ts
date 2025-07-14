@@ -17,6 +17,7 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { ThresholdEvaluator } from '../../utils/threshold-evaluator';
+import { StatisticalEvaluator } from '../../utils/statistical-evaluator';
 
 interface TrendData {
   period: string;
@@ -197,11 +198,13 @@ async function displayHealthOverview(
   // Use new ThresholdEvaluator approach
   const thresholdEvaluator = new ThresholdEvaluator();
   const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
-  const projectStats: ProjectStatistics = {
-    totalFunctions: functions.length,
-    analysisTimestamp: Date.now(),
-    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
-  };
+  
+  // Calculate project statistics from function metrics
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  const allMetrics = functionsWithMetrics.map(f => f.metrics!);
+  
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
 
   const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   const riskCounts = calculateRiskDistribution(riskAssessments);
@@ -341,14 +344,16 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
     };
   }
 
-  // ThresholdEvaluatorベースのリスク評価を実行
+  // ThresholdEvaluatorベースのリスク評価を実行（JSON用でも正しい統計を使用）
   const thresholdEvaluator = new ThresholdEvaluator();
   const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
-  const projectStats: ProjectStatistics = {
-    totalFunctions: functions.length,
-    analysisTimestamp: Date.now(),
-    metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics>,
-  };
+  
+  // Calculate project statistics from function metrics
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  const allMetrics = functionsWithMetrics.map(f => f.metrics!);
+  
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
 
   const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   const qualityData = await calculateQualityMetrics(functions, env.config);
@@ -819,11 +824,12 @@ function getGradeFromScore(score: number): string {
 }
 
 function getRiskDescription(avgRiskScore: number): string {
-  if (avgRiskScore >= 90) return 'Excellent - Well structured code';
-  if (avgRiskScore >= 80) return 'Good - Minor improvements needed';
-  if (avgRiskScore >= 70) return 'Fair - Some refactoring needed';
-  if (avgRiskScore >= 60) return 'Poor - Significant improvements required';
-  return 'Critical - Immediate attention required';
+  // Risk score: Lower is better (0 = no risk, higher = more risk)
+  if (avgRiskScore <= 0.1) return 'Excellent - Very low risk';
+  if (avgRiskScore <= 1.0) return 'Good - Low risk';
+  if (avgRiskScore <= 3.0) return 'Fair - Moderate risk';
+  if (avgRiskScore <= 8.0) return 'Poor - High risk';
+  return 'Critical - Very high risk';
 }
 
 function getTrendIcon(trend: string): string {

@@ -318,17 +318,17 @@ describe('ThresholdEvaluator', () => {
     it('should provide sensible default thresholds', () => {
       const defaults = evaluator.getDefaultQualityThresholds();
 
-      expect(defaults.complexity?.warning).toBe(8);
-      expect(defaults.complexity?.error).toBe(12);
-      expect(defaults.complexity?.critical).toBe(20);
+      expect(defaults.complexity?.warning).toBe(5);
+      expect(defaults.complexity?.error).toBe(8);
+      expect(defaults.complexity?.critical).toBe(10);
 
-      expect(defaults.lines?.warning).toBe(30);
-      expect(defaults.lines?.error).toBe(50);
-      expect(defaults.lines?.critical).toBe(100);
+      expect(defaults.lines?.warning).toBe(25);
+      expect(defaults.lines?.error).toBe(40);
+      expect(defaults.lines?.critical).toBe(50);
 
-      expect(defaults.parameters?.warning).toBe(4);
-      expect(defaults.parameters?.error).toBe(6);
-      expect(defaults.parameters?.critical).toBe(8);
+      expect(defaults.parameters?.warning).toBe(3);
+      expect(defaults.parameters?.error).toBe(4);
+      expect(defaults.parameters?.critical).toBe(5);
     });
   });
 
@@ -348,14 +348,14 @@ describe('ThresholdEvaluator', () => {
       const merged = evaluator.mergeWithDefaults(userThresholds);
 
       expect(merged.complexity?.warning).toBe(12); // User override
-      expect(merged.complexity?.error).toBe(12); // Default from getDefaultQualityThresholds
-      expect(merged.complexity?.critical).toBe(20); // Default
+      expect(merged.complexity?.error).toBe(8); // Default from getDefaultQualityThresholds
+      expect(merged.complexity?.critical).toBe(10); // Default
 
-      expect(merged.lines?.warning).toBe(30); // Default
-      expect(merged.lines?.error).toBe(50); // Default
+      expect(merged.lines?.warning).toBe(25); // Default
+      expect(merged.lines?.error).toBe(40); // Default
       expect(merged.lines?.critical).toBe(200); // User override
 
-      expect(merged.parameters?.warning).toBe(4); // All defaults
+      expect(merged.parameters?.warning).toBe(3); // All defaults
     });
 
     it('should return defaults when no user thresholds provided', () => {

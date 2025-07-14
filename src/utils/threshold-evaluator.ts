@@ -495,34 +495,34 @@ export class ThresholdEvaluator {
   getDefaultQualityThresholds(): QualityThresholds {
     return {
       complexity: {
-        warning: 8,
-        error: 12,
-        critical: 20,
+        warning: 5,
+        error: 8,
+        critical: 10,
       },
       cognitiveComplexity: {
-        warning: 10,
-        error: 15,
-        critical: 25,
+        warning: 8,
+        error: 12,
+        critical: 15,
       },
       lines: {
-        warning: 30,
-        error: 50,
-        critical: 100,
+        warning: 25,
+        error: 40,
+        critical: 50,
       },
       parameters: {
-        warning: 4,
-        error: 6,
-        critical: 8,
-      },
-      nestingLevel: {
         warning: 3,
         error: 4,
-        critical: 6,
+        critical: 5,
+      },
+      nestingLevel: {
+        warning: 2,
+        error: 3,
+        critical: 4,
       },
       maintainability: {
-        warning: 60,
-        error: 40,
-        critical: 20,
+        warning: 70,
+        error: 50,
+        critical: 30,
       },
     };
   }
