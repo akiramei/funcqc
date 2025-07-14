@@ -309,8 +309,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async close(): Promise<void> {
     try {
-      // Check if database is already closed
-      if (!this.db.closed) {
+      // Check if database exists and is not already closed
+      if (this.db && typeof this.db.close === 'function' && !this.db.closed) {
         await this.db.close();
       }
       
