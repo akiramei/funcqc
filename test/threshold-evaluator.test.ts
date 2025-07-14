@@ -310,7 +310,7 @@ describe('ThresholdEvaluator', () => {
       const assessment = evaluator.assessFunctionRisk('func-4', violations, config);
 
       expect(assessment.riskLevel).toBe('medium'); // Only warning, but meets minViolations so escalated
-      expect(assessment.riskScore).toBe(10); // 5 weight * 2 excess
+      expect(assessment.riskScore).toBe(1); // 5 weight * (2 excess / 10 threshold) = 5 * 0.2 = 1
     });
   });
 
@@ -320,13 +320,13 @@ describe('ThresholdEvaluator', () => {
 
       expect(defaults.complexity?.warning).toBe(8);
       expect(defaults.complexity?.error).toBe(12);
-      expect(defaults.complexity?.critical).toBe(20);
+      expect(defaults.complexity?.critical).toBe(15);
 
-      expect(defaults.lines?.warning).toBe(30);
-      expect(defaults.lines?.error).toBe(50);
-      expect(defaults.lines?.critical).toBe(100);
+      expect(defaults.lines?.warning).toBe(40);
+      expect(defaults.lines?.error).toBe(60);
+      expect(defaults.lines?.critical).toBe(80);
 
-      expect(defaults.parameters?.warning).toBe(4);
+      expect(defaults.parameters?.warning).toBe(5);
       expect(defaults.parameters?.error).toBe(6);
       expect(defaults.parameters?.critical).toBe(8);
     });
@@ -349,13 +349,13 @@ describe('ThresholdEvaluator', () => {
 
       expect(merged.complexity?.warning).toBe(12); // User override
       expect(merged.complexity?.error).toBe(12); // Default from getDefaultQualityThresholds
-      expect(merged.complexity?.critical).toBe(20); // Default
+      expect(merged.complexity?.critical).toBe(15); // Default
 
-      expect(merged.lines?.warning).toBe(30); // Default
-      expect(merged.lines?.error).toBe(50); // Default
+      expect(merged.lines?.warning).toBe(40); // Default
+      expect(merged.lines?.error).toBe(60); // Default
       expect(merged.lines?.critical).toBe(200); // User override
 
-      expect(merged.parameters?.warning).toBe(4); // All defaults
+      expect(merged.parameters?.warning).toBe(5); // All defaults
     });
 
     it('should return defaults when no user thresholds provided', () => {

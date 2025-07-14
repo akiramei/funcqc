@@ -75,18 +75,28 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 export function withEnvironment<TOptions extends BaseCommandOptions>(
   commandReader: (options: TOptions) => AsyncReader<CommandEnvironment, void>
 ) {
-  return async (options: TOptions, parentCommand?: { opts(): OptionValues }): Promise<void> => {
-    const parentOpts = parentCommand?.opts() || {};
+  return async (options: TOptions, parentCommand?: { opts(): OptionValues; parent?: { opts(): OptionValues } }): Promise<void> => {
+    // Extract parent options correctly - check if parentCommand is the command itself or has a parent
+    const parentOpts = parentCommand?.parent?.opts?.() || parentCommand?.opts?.() || {};
     let appEnv: AppEnvironment | null = null;
+    
+    // Merge parent options into command options for global options like --verbose
+    const mergedOptions: TOptions = { ...options };
+    for (const [key, value] of Object.entries(parentOpts)) {
+      if (!(key in mergedOptions) || mergedOptions[key as keyof TOptions] === undefined) {
+        (mergedOptions as Record<string, unknown>)[key] = value;
+      }
+    }
+    
     
     try {
       performSystemCheck(parentOpts);
       
-      const isJsonOutput = isJsonOutputMode(options);
+      const isJsonOutput = isJsonOutputMode(mergedOptions);
       appEnv = await createAppEnv(parentOpts, isJsonOutput);
-      const commandEnv = createCmdEnv(appEnv, options, parentOpts, isJsonOutput);
+      const commandEnv = createCmdEnv(appEnv, mergedOptions, parentOpts, isJsonOutput);
 
-      const readerFn = commandReader(options);
+      const readerFn = commandReader(mergedOptions);
       await readerFn(commandEnv);
 
     } catch (error) {

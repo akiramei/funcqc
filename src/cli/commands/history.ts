@@ -48,46 +48,60 @@ export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) =>
     }
   };
 
+interface ParsedHistoryOptions {
+  limit: number;
+  since: Date | undefined;
+  until: Date | undefined;
+}
+
+function parseHistoryOptions(options: HistoryCommandOptions): ParsedHistoryOptions {
+  return {
+    limit: options.limit ? parseInt(options.limit) : 20,
+    since: options.since ? new Date(options.since) : undefined,
+    until: options.until ? new Date(options.until) : undefined
+  };
+}
+
+function applySnapshotFilters(
+  snapshots: SnapshotInfo[],
+  options: HistoryCommandOptions,
+  parsed: ParsedHistoryOptions
+): SnapshotInfo[] {
+  let filtered = snapshots;
+
+  if (parsed.since) {
+    filtered = filtered.filter(s => s.createdAt >= parsed.since!.getTime());
+  }
+
+  if (parsed.until) {
+    filtered = filtered.filter(s => s.createdAt <= parsed.until!.getTime());
+  }
+
+  if (options.branch) {
+    filtered = filtered.filter(s => s.gitBranch === options.branch);
+  }
+
+  if (options.label) {
+    filtered = filtered.filter(s => s.label?.includes(options.label!));
+  }
+
+  return filtered;
+}
+
 async function displaySnapshotHistory(
   options: HistoryCommandOptions,
   env: CommandEnvironment
 ): Promise<void> {
-  // Parse options
-  const limit = options.limit ? parseInt(options.limit) : 20;
-  const since = options.since ? new Date(options.since) : undefined;
-  const until = options.until ? new Date(options.until) : undefined;
-
-  // Get snapshots with filters
-  const snapshots = await env.storage.getSnapshots({
-    limit,
-    // Note: More advanced filtering would be implemented here
-  });
-
+  const parsed = parseHistoryOptions(options);
+  
+  const snapshots = await env.storage.getSnapshots({ limit: parsed.limit });
+  
   if (snapshots.length === 0) {
     env.commandLogger.info('No snapshots found. Run `funcqc scan` to create your first snapshot.');
     return;
   }
 
-  // Apply client-side filters (for now)
-  let filteredSnapshots = snapshots;
-
-  if (since) {
-    filteredSnapshots = filteredSnapshots.filter(s => s.createdAt >= since.getTime());
-  }
-
-  if (until) {
-    filteredSnapshots = filteredSnapshots.filter(s => s.createdAt <= until.getTime());
-  }
-
-  if (options.branch) {
-    filteredSnapshots = filteredSnapshots.filter(s => s.gitBranch === options.branch);
-  }
-
-  if (options.label) {
-    filteredSnapshots = filteredSnapshots.filter(s => s.label && s.label.includes(options.label!));
-  }
-
-  // Check for JSON output
+  const filteredSnapshots = applySnapshotFilters(snapshots, options, parsed);
   const isJsonMode = options.json || process.argv.includes('--json');
   
   if (isJsonMode) {
@@ -95,7 +109,6 @@ async function displaySnapshotHistory(
     return;
   }
 
-  // Display results
   console.log(chalk.cyan.bold(`\n📈 Snapshot History (${filteredSnapshots.length} snapshots)\n`));
 
   const isVerboseMode = options.verbose || process.argv.includes('--verbose');
@@ -106,7 +119,6 @@ async function displaySnapshotHistory(
     displayCompactHistory(filteredSnapshots);
   }
 
-  // Display summary statistics
   displayHistorySummary(filteredSnapshots);
 }
 

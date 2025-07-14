@@ -274,28 +274,41 @@ export class ThresholdEvaluator {
   }
 
   /**
-   * Calculate numerical risk score
+   * Calculate numerical risk score with normalized metrics
    */
   private calculateRiskScore(
     violations: ThresholdViolation[],
     config: RiskAssessmentConfig
   ): number {
-    const weights = config.violationWeights ?? { warning: 1, error: 3, critical: 10 };
+    // Extract weights once for efficiency
+    const { warning = 1, error = 5, critical = 25 } = config.violationWeights ?? {};
+    const weights = { warning, error, critical };
 
     switch (config.compositeScoringMethod) {
       case 'weighted':
+        // Normalized: weight × (excess / threshold) for metric-agnostic comparison
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
-          return score + weight * violation.excess;
+          // Protect against near-zero division with epsilon
+          const epsilon = 1e-9;
+          const normalizedExcess = violation.excess / Math.max(violation.threshold, epsilon);
+          return score + weight * normalizedExcess;
         }, 0);
 
       case 'severity':
         return violations.reduce((score, violation) => {
           const weight = weights[violation.level] ?? 1;
-          // Protect against zero division
-          const severityMultiplier =
-            violation.threshold !== 0 ? violation.excess / violation.threshold : 0;
+          // Protect against near-zero division with epsilon
+          const epsilon = 1e-9;
+          const severityMultiplier = violation.excess / Math.max(violation.threshold, epsilon);
           return score + weight * severityMultiplier;
+        }, 0);
+
+      case 'absolute':
+        // Legacy: weight × excess (for backward compatibility)
+        return violations.reduce((score, violation) => {
+          const weight = weights[violation.level] ?? 1;
+          return score + weight * violation.excess;
         }, 0);
 
       default:
@@ -482,7 +495,7 @@ export class ThresholdEvaluator {
   private getDefaultRiskAssessmentConfig(config?: RiskAssessmentConfig): RiskAssessmentConfig {
     return {
       minViolations: 2,
-      violationWeights: { warning: 1, error: 3, critical: 10 },
+      violationWeights: { warning: 1, error: 5, critical: 25 },
       compositeScoringMethod: 'weighted',
       highRiskConditions: [],
       ...config,
@@ -497,32 +510,32 @@ export class ThresholdEvaluator {
       complexity: {
         warning: 8,
         error: 12,
-        critical: 20,
+        critical: 15,
       },
       cognitiveComplexity: {
-        warning: 10,
-        error: 15,
+        warning: 12,
+        error: 18,
         critical: 25,
       },
       lines: {
-        warning: 30,
-        error: 50,
-        critical: 100,
+        warning: 40,
+        error: 60,
+        critical: 80,
       },
       parameters: {
-        warning: 4,
+        warning: 5,
         error: 6,
         critical: 8,
       },
       nestingLevel: {
         warning: 3,
         error: 4,
-        critical: 6,
+        critical: 5,
       },
       maintainability: {
-        warning: 60,
-        error: 40,
-        critical: 20,
+        warning: 65,
+        error: 50,
+        critical: 30,
       },
     };
   }

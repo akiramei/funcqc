@@ -435,6 +435,126 @@ function displayNextSteps(summary: ProjectRefactoringSummary, outputPath?: strin
 // DETECT COMMAND IMPLEMENTATION
 // ========================================
 
+interface ParsedAnalysisOptions {
+  analysisOptions: {
+    patterns?: RefactoringPattern[];
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    includePatterns?: string[];
+  };
+  selectedPattern: RefactoringPattern | undefined;
+}
+
+function parseDetectionOptions(options: RefactorDetectOptions, spinner: any): ParsedAnalysisOptions {
+  const analysisOptions: {
+    patterns?: RefactoringPattern[];
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    includePatterns?: string[];
+  } = {};
+  
+  let selectedPattern: RefactoringPattern | undefined;
+  if (options.pattern) {
+    selectedPattern = parsePattern(options.pattern);
+    if (!selectedPattern) {
+      spinner.fail();
+      console.error(chalk.red(`Invalid pattern: ${options.pattern}`));
+      console.log(chalk.yellow('Valid patterns: extract-method, split-function, reduce-parameters, extract-class, inline-function, rename-function'));
+      process.exit(1);
+    }
+    analysisOptions.patterns = [selectedPattern];
+  }
+  
+  analysisOptions.complexityThreshold = parseInt(options.complexityThreshold);
+  analysisOptions.sizeThreshold = parseInt(options.sizeThreshold);
+  
+  if (options.file) {
+    analysisOptions.includePatterns = [options.file];
+  }
+  
+  return { analysisOptions, selectedPattern };
+}
+
+function filterOpportunities(
+  opportunities: RefactoringOpportunity[],
+  selectedPattern: RefactoringPattern | undefined,
+  limit: string
+): RefactoringOpportunity[] {
+  let filtered = opportunities;
+  
+  if (selectedPattern) {
+    filtered = filtered.filter(opp => opp.pattern === selectedPattern);
+  }
+  
+  const limitNum = parseInt(limit);
+  if (filtered.length > limitNum) {
+    filtered = filtered.slice(0, limitNum);
+  }
+  
+  return filtered;
+}
+
+async function handleSessionCreation(
+  options: RefactorDetectOptions,
+  opportunities: RefactoringOpportunity[],
+  sessionManager: SessionManager,
+  selectedPattern: RefactoringPattern | undefined,
+  spinner: any
+): Promise<string | undefined> {
+  if (!options.createSession || opportunities.length === 0) {
+    return options.session;
+  }
+  
+  spinner.start('Creating refactoring session...');
+  
+  const sessionName = await prompts.input({
+    message: 'Session name:',
+    default: `Refactor ${selectedPattern || 'multiple patterns'} - ${new Date().toLocaleDateString()}`
+  });
+  
+  const sessionDescription = await prompts.input({
+    message: 'Session description:',
+    default: `Detected ${opportunities.length} refactoring opportunities`
+  });
+  
+  const session = await sessionManager.createSession(sessionName, sessionDescription);
+  
+  const opportunityIds = opportunities.map(opp => opp.id);
+  await sessionManager.linkOpportunitiesToSession(session.id, opportunityIds);
+  
+  const functionIds = [...new Set(opportunities.map(opp => opp.function_id))];
+  await sessionManager.addFunctionsToSession(session.id, functionIds);
+  
+  spinner.succeed(`Created session: ${session.name} (${session.id})`);
+  return session.id;
+}
+
+function displayResults(
+  opportunities: RefactoringOpportunity[],
+  selectedPattern: RefactoringPattern | undefined,
+  sessionId: string | undefined,
+  options: RefactorDetectOptions
+): void {
+  if (options.json) {
+    console.log(JSON.stringify({
+      pattern: selectedPattern,
+      opportunitiesFound: opportunities.length,
+      sessionId,
+      opportunities: opportunities.map(opp => ({
+        id: opp.id,
+        pattern: opp.pattern,
+        severity: opp.severity,
+        impact_score: opp.impact_score,
+        function_id: opp.function_id,
+        description: opp.description,
+        metadata: opp.metadata
+      }))
+    }, null, 2));
+  } else {
+    displayDetectionResults(opportunities, selectedPattern, sessionId);
+  }
+}
+
 async function refactorDetectCommandImpl(
   options: RefactorDetectOptions,
   env: CommandEnvironment
@@ -449,104 +569,18 @@ async function refactorDetectCommandImpl(
     
     spinner.text = 'Detecting refactoring opportunities...';
     
-    // Prepare detection options
-    const analysisOptions: {
-      patterns?: RefactoringPattern[];
-      complexityThreshold?: number;
-      sizeThreshold?: number;
-      includePatterns?: string[];
-    } = {};
-    
-    // Handle pattern selection
-    let selectedPattern: RefactoringPattern | undefined;
-    if (options.pattern) {
-      selectedPattern = parsePattern(options.pattern);
-      if (!selectedPattern) {
-        spinner.fail();
-        console.error(chalk.red(`Invalid pattern: ${options.pattern}`));
-        console.log(chalk.yellow('Valid patterns: extract-method, split-function, reduce-parameters, extract-class, inline-function, rename-function'));
-        process.exit(1);
-      }
-      analysisOptions.patterns = [selectedPattern];
-    }
-    
-    // Set thresholds
-    analysisOptions.complexityThreshold = parseInt(options.complexityThreshold);
-    analysisOptions.sizeThreshold = parseInt(options.sizeThreshold);
-    
-    if (options.file) {
-      analysisOptions.includePatterns = [options.file];
-    }
-    
-    // Perform analysis
+    const { analysisOptions, selectedPattern } = parseDetectionOptions(options, spinner);
     const report = await analyzer.analyzeProject(analysisOptions);
     
     spinner.succeed('Detection complete');
     
-    // Filter opportunities based on pattern and limit
-    let opportunities = report.opportunities;
-    if (selectedPattern) {
-      opportunities = opportunities.filter(opp => opp.pattern === selectedPattern);
-    }
+    const opportunities = filterOpportunities(report.opportunities, selectedPattern, options.limit);
+    const sessionId = await handleSessionCreation(options, opportunities, sessionManager, selectedPattern, spinner);
     
-    const limit = parseInt(options.limit);
-    if (opportunities.length > limit) {
-      opportunities = opportunities.slice(0, limit);
-    }
-    
-    // Handle session management
-    let sessionId = options.session;
-    
-    if (options.createSession && opportunities.length > 0) {
-      spinner.start('Creating refactoring session...');
-      
-      const sessionName = await prompts.input({
-        message: 'Session name:',
-        default: `Refactor ${selectedPattern || 'multiple patterns'} - ${new Date().toLocaleDateString()}`
-      });
-      
-      const sessionDescription = await prompts.input({
-        message: 'Session description:',
-        default: `Detected ${opportunities.length} refactoring opportunities`
-      });
-      
-      const session = await sessionManager.createSession(sessionName, sessionDescription);
-      sessionId = session.id;
-      
-      // Link opportunities to session
-      const opportunityIds = opportunities.map(opp => opp.id);
-      await sessionManager.linkOpportunitiesToSession(sessionId, opportunityIds);
-      
-      // Add functions to session
-      const functionIds = [...new Set(opportunities.map(opp => opp.function_id))];
-      await sessionManager.addFunctionsToSession(sessionId, functionIds);
-      
-      spinner.succeed(`Created session: ${session.name} (${session.id})`);
-    }
-    
-    // Interactive mode
     if (options.interactive && opportunities.length > 0) {
       await runInteractiveDetection(opportunities, sessionManager, sessionId);
     } else {
-      // Display results
-      if (options.json) {
-        console.log(JSON.stringify({
-          pattern: selectedPattern,
-          opportunitiesFound: opportunities.length,
-          sessionId,
-          opportunities: opportunities.map(opp => ({
-            id: opp.id,
-            pattern: opp.pattern,
-            severity: opp.severity,
-            impact_score: opp.impact_score,
-            function_id: opp.function_id,
-            description: opp.description,
-            metadata: opp.metadata
-          }))
-        }, null, 2));
-      } else {
-        displayDetectionResults(opportunities, selectedPattern, sessionId);
-      }
+      displayResults(opportunities, selectedPattern, sessionId, options);
     }
     
   } catch (error) {
@@ -1738,23 +1772,26 @@ async function savePlanToFile(
   await fs.promises.writeFile(outputPath, content, 'utf8');
 }
 
-function generateMarkdownPlan(plan: RefactoringPlan): string {
-  const lines: string[] = [];
-  
-  lines.push('# Refactoring Plan');
-  lines.push('');
-  lines.push(`Generated: ${new Date(plan.metadata.generated).toLocaleString()}`);
-  lines.push(`Timeline: ${plan.metadata.timeline} weeks`);
-  lines.push(`Effort: ${plan.metadata.effortPerWeek} hours/week`);
-  lines.push('');
-  
-  // Summary
-  lines.push('## 📊 Summary');
-  lines.push('');
-  lines.push(`- **Total Opportunities**: ${plan.summary.totalOpportunities}`);
-  lines.push(`- **Estimated Impact**: ${plan.summary.estimatedImpact}`);
-  lines.push(`- **Risk Level**: ${plan.summary.riskLevel}`);
-  lines.push('');
+function generatePlanHeader(plan: RefactoringPlan): string[] {
+  return [
+    '# Refactoring Plan',
+    '',
+    `Generated: ${new Date(plan.metadata.generated).toLocaleString()}`,
+    `Timeline: ${plan.metadata.timeline} weeks`,
+    `Effort: ${plan.metadata.effortPerWeek} hours/week`,
+    ''
+  ];
+}
+
+function generatePlanSummary(plan: RefactoringPlan): string[] {
+  const lines = [
+    '## 📊 Summary',
+    '',
+    `- **Total Opportunities**: ${plan.summary.totalOpportunities}`,
+    `- **Estimated Impact**: ${plan.summary.estimatedImpact}`,
+    `- **Risk Level**: ${plan.summary.riskLevel}`,
+    ''
+  ];
   
   if (Object.keys(plan.summary.priorityDistribution).length > 0) {
     lines.push('**Priority Distribution**:');
@@ -1764,90 +1801,84 @@ function generateMarkdownPlan(plan: RefactoringPlan): string {
     lines.push('');
   }
   
-  // Phases
-  lines.push('## 🗓️ Refactoring Phases');
-  lines.push('');
+  return lines;
+}
+
+function generatePhaseDetails(phase: RefactoringPhase): string[] {
+  const lines = [
+    `### Phase ${phase.phase}: ${phase.title}`,
+    '',
+    `**Duration**: ${phase.duration} | **Effort**: ${phase.effort} hours`,
+    '',
+    `**Description**: ${phase.description}`,
+    ''
+  ];
   
-  plan.phases.forEach(phase => {
-    lines.push(`### Phase ${phase.phase}: ${phase.title}`);
+  // Handle opportunities separately due to different type
+  if (phase.opportunities.length > 0) {
+    lines.push('**Opportunities**:');
+    phase.opportunities.forEach(opp => {
+      lines.push(`- ${getSeverityIcon(opp.severity)} ${formatPatternName(opp.pattern)} (${opp.function_id})`);
+    });
     lines.push('');
-    lines.push(`**Duration**: ${phase.duration} | **Effort**: ${phase.effort} hours`);
-    lines.push('');
-    lines.push(`**Description**: ${phase.description}`);
-    lines.push('');
-    
-    if (phase.opportunities.length > 0) {
-      lines.push('**Opportunities**:');
-      phase.opportunities.forEach(opp => {
-        lines.push(`- ${getSeverityIcon(opp.severity)} ${formatPatternName(opp.pattern)} (${opp.function_id})`);
-      });
-      lines.push('');
-    }
-    
-    if (phase.deliverables.length > 0) {
-      lines.push('**Deliverables**:');
-      phase.deliverables.forEach(deliverable => {
-        lines.push(`- ${deliverable}`);
-      });
-      lines.push('');
-    }
-    
-    if (phase.dependencies.length > 0) {
-      lines.push('**Dependencies**:');
-      phase.dependencies.forEach(dependency => {
-        lines.push(`- ${dependency}`);
-      });
-      lines.push('');
-    }
-    
-    if (phase.risks.length > 0) {
-      lines.push('**Risks**:');
-      phase.risks.forEach(risk => {
-        lines.push(`- ${risk}`);
-      });
-      lines.push('');
-    }
-    
-    if (phase.successCriteria.length > 0) {
-      lines.push('**Success Criteria**:');
-      phase.successCriteria.forEach(criteria => {
-        lines.push(`- ${criteria}`);
-      });
+  }
+  
+  // Handle string arrays
+  const stringSections = [
+    { items: phase.deliverables, title: '**Deliverables**:' },
+    { items: phase.dependencies, title: '**Dependencies**:' },
+    { items: phase.risks, title: '**Risks**:' },
+    { items: phase.successCriteria, title: '**Success Criteria**:' }
+  ];
+  
+  stringSections.forEach(section => {
+    if (section.items.length > 0) {
+      lines.push(section.title);
+      section.items.forEach(item => lines.push(`- ${item}`));
       lines.push('');
     }
   });
   
-  // Recommendations
-  if (plan.recommendations.length > 0) {
-    lines.push('## 💡 Recommendations');
-    lines.push('');
-    plan.recommendations.forEach(rec => {
-      lines.push(`- ${rec}`);
-    });
-    lines.push('');
-  }
+  return lines;
+}
+
+function generatePlanPhases(plan: RefactoringPlan): string[] {
+  const lines = ['## 🗓️ Refactoring Phases', ''];
+  plan.phases.forEach(phase => {
+    lines.push(...generatePhaseDetails(phase));
+  });
+  return lines;
+}
+
+function generatePlanSections(plan: RefactoringPlan): string[] {
+  const lines: string[] = [];
   
-  // Risks
-  if (plan.risks.length > 0) {
-    lines.push('## ⚠️ Risks');
-    lines.push('');
-    plan.risks.forEach(risk => {
-      lines.push(`- ${risk}`);
-    });
-    lines.push('');
-  }
+  const sections = [
+    { items: plan.recommendations, title: '## 💡 Recommendations', icon: '💡' },
+    { items: plan.risks, title: '## ⚠️ Risks', icon: '⚠️' },
+    { items: plan.successMetrics, title: '## 📈 Success Metrics', icon: '📈' }
+  ];
   
-  // Success metrics
-  if (plan.successMetrics.length > 0) {
-    lines.push('## 📈 Success Metrics');
-    lines.push('');
-    plan.successMetrics.forEach(metric => {
-      lines.push(`- ${metric}`);
-    });
-    lines.push('');
-  }
+  sections.forEach(section => {
+    if (section.items.length > 0) {
+      lines.push(section.title, '');
+      section.items.forEach(item => lines.push(`- ${item}`));
+      lines.push('');
+    }
+  });
   
-  return lines.join('\n');
+  return lines;
+}
+
+function generateMarkdownPlan(plan: RefactoringPlan): string {
+  const sections = [
+    generatePlanHeader(plan),
+    generatePlanSummary(plan),
+    generatePlanPhases(plan),
+    generatePlanSections(plan)
+  ];
+  
+  return sections.flat().join('\n');
 }
 
 function displayRefactoringPlan(plan: RefactoringPlan): void {

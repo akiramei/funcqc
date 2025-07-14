@@ -268,8 +268,11 @@ describe('StatisticalEvaluator', () => {
         multiplier: 1
       };
       
+      // Calculate mean+sigma for cyclomaticComplexity: [3, 8, 15, 25, 5]
+      // mean = 11.2, std ≈ 8.95, so mean+sigma ≈ 20.15
+      // Value 21 should exceed this threshold
       const level = evaluator.determineViolationLevel(
-        20, // value
+        21, // value - exceeds mean+sigma threshold
         statisticalThreshold, // warning
         undefined, // error
         undefined, // critical

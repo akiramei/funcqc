@@ -48,10 +48,10 @@ export class StatisticalEvaluator {
     for (const key of metricKeys) {
       const values = functionMetrics
         .map(m => m[key])
-        .filter((v): v is number => v !== undefined && v !== null && !isNaN(v))
-        .sort((a, b) => a - b);
+        .filter((v): v is number => v !== undefined && v !== null && !isNaN(v));
 
       if (values.length > 0) {
+        // Pass unsorted values - sorting will be done once in calculateMetricStatistics
         statistics[key] = this.calculateMetricStatistics(values);
       }
     }
@@ -64,7 +64,7 @@ export class StatisticalEvaluator {
   }
 
   /**
-   * Calculate statistical measures for a single metric
+   * Calculate statistical measures for a single metric with unbiased variance
    */
   private calculateMetricStatistics(values: number[]): MetricStatistics {
     const sorted = [...values].sort((a, b) => a - b);
@@ -80,8 +80,9 @@ export class StatisticalEvaluator {
     const median =
       n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
 
-    // Variance and standard deviation
-    const variance = sorted.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / n;
+    // Unbiased variance and standard deviation for small samples
+    const varianceSum = sorted.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0);
+    const variance = n > 1 ? varianceSum / (n - 1) : 0; // Unbiased estimator (n-1)
     const standardDeviation = Math.sqrt(variance);
 
     // Percentiles
@@ -245,8 +246,8 @@ export class StatisticalEvaluator {
       case 99:
         return percentiles.p99;
       default:
-        // For other percentiles, we'd need the raw data to calculate precisely
-        // For now, interpolate between known percentiles or use closest
+        // Interpolation between known percentiles with extrapolation protection
+        if (percentile <= 1) return percentiles.p25; // Avoid extrapolation below P1
         if (percentile < 25) return percentiles.p25;
         if (percentile < 50)
           return percentiles.p25 + ((percentiles.p50 - percentiles.p25) * (percentile - 25)) / 25;
@@ -258,6 +259,7 @@ export class StatisticalEvaluator {
           return percentiles.p90 + ((percentiles.p95 - percentiles.p90) * (percentile - 90)) / 5;
         if (percentile < 99)
           return percentiles.p95 + ((percentiles.p99 - percentiles.p95) * (percentile - 95)) / 4;
+        // For P99+ avoid extrapolation, use max value directly
         return percentiles.p99;
     }
   }
@@ -340,12 +342,20 @@ export class StatisticalEvaluator {
   ): ThresholdViolation {
     const evaluation = this.evaluateThreshold(value, threshold, statistics);
 
+    // Calculate excess based on metric type
+    // For maintainability (lower is worse), excess = threshold - value
+    // For others (higher is worse), excess = value - threshold
+    const isLowerIsBetter = metric === 'maintainabilityIndex';
+    const excess = isLowerIsBetter 
+      ? Math.max(0, evaluation.threshold - value)
+      : Math.max(0, value - evaluation.threshold);
+
     const violation: ThresholdViolation = {
       metric,
       value,
       threshold: evaluation.threshold,
       level,
-      excess: value - evaluation.threshold,
+      excess,
       method: evaluation.method,
     };
 
