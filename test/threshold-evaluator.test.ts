@@ -310,7 +310,7 @@ describe('ThresholdEvaluator', () => {
       const assessment = evaluator.assessFunctionRisk('func-4', violations, config);
 
       expect(assessment.riskLevel).toBe('medium'); // Only warning, but meets minViolations so escalated
-      expect(assessment.riskScore).toBe(10); // 5 weight * 2 excess
+      expect(assessment.riskScore).toBe(1); // 5 weight * (2 excess / 10 threshold) = 5 * 0.2 = 1
     });
   });
 

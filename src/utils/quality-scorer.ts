@@ -49,6 +49,20 @@ export interface QualityWeights {
   codeQuality: number;
 }
 
+/**
+ * Metric-specific steepness configuration for optimal sensitivity
+ */
+const STEEPNESS_CONFIG = {
+  // For ratio metrics (0.05 → 0.10 changes should be visible)
+  ratio: 12.0,
+  // For average values (complexity, size)
+  average: 0.3,
+  // For count metrics (parameters, violations)
+  count: 1.0,
+  // Default fallback
+  default: 0.5,
+} as const;
+
 export interface ProjectQualityScore {
   overallGrade: 'A' | 'B' | 'C' | 'D' | 'F';
   score: number;
@@ -105,16 +119,22 @@ export class QualityScorer {
     this.configuredWeights = weights;
   }
   /**
-   * Logistic function for smooth 0-100 scoring with proper boundary handling
+   * Enhanced logistic function with metric-specific steepness
    * score = 100 / (1 + e^(k(x-x0)))
    * @param value Current metric value
    * @param threshold Target threshold (x0)
    * @param steepness Steepness parameter (k) - higher = sharper transition
+   * @param metricType Type of metric for automatic steepness selection
    * @returns Score between 0-100
    */
-  private logisticScore(value: number, threshold: number, steepness: number = 0.1): number {
+  private logisticScore(
+    value: number, 
+    threshold: number, 
+    steepness?: number,
+    metricType?: 'ratio' | 'average' | 'count'
+  ): number {
     // Handle edge cases and boundary conditions
-    if (!Number.isFinite(value) || !Number.isFinite(threshold) || !Number.isFinite(steepness)) {
+    if (!Number.isFinite(value) || !Number.isFinite(threshold)) {
       return 50; // Default score for invalid inputs
     }
     
@@ -122,18 +142,21 @@ export class QualityScorer {
       return 100; // Perfect score for zero or negative values when threshold is positive
     }
     
-    if (steepness <= 0) {
-      steepness = 0.1; // Ensure positive steepness
+    // Use metric-specific steepness if not provided
+    const finalSteepness = steepness ?? (metricType ? STEEPNESS_CONFIG[metricType] : STEEPNESS_CONFIG.default);
+    
+    if (finalSteepness <= 0) {
+      return 50; // Fallback for invalid steepness
     }
     
     // Prevent extreme exponential values that could cause numerical instability
-    const exponent = steepness * (value - threshold);
+    const exponent = finalSteepness * (value - threshold);
     const clampedExponent = Math.max(-50, Math.min(50, exponent));
     
     const score = 100 / (1 + Math.exp(clampedExponent));
     
-    // Ensure score stays within 0-100 bounds with precision handling
-    return Math.round(Math.max(0.01, Math.min(99.99, score)) * 100) / 100;
+    // Allow true 0/100 scores while maintaining precision
+    return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
   }
 
   /**
@@ -144,26 +167,34 @@ export class QualityScorer {
    * @param steepness Steepness parameter (k) - higher = sharper transition
    * @returns Score between 0-100
    */
-  private invertedLogisticScore(value: number, threshold: number, steepness: number = 0.1): number {
+  private invertedLogisticScore(
+    value: number, 
+    threshold: number, 
+    steepness?: number,
+    metricType?: 'ratio' | 'average' | 'count'
+  ): number {
     // Handle edge cases
-    if (!Number.isFinite(value) || !Number.isFinite(threshold) || !Number.isFinite(steepness)) {
+    if (!Number.isFinite(value) || !Number.isFinite(threshold)) {
       return 50; // Default score for invalid inputs
     }
     
-    if (steepness <= 0) {
-      steepness = 0.1; // Ensure positive steepness
+    // Use metric-specific steepness if not provided
+    const finalSteepness = steepness ?? (metricType ? STEEPNESS_CONFIG[metricType] : STEEPNESS_CONFIG.default);
+    
+    if (finalSteepness <= 0) {
+      return 50; // Fallback for invalid steepness
     }
     
     // For inverted scoring, we want high scores when value >= threshold
     // Use logistic function but invert the result
     const normalizedValue = threshold - value; // Flip the relationship
-    const exponent = steepness * normalizedValue;
+    const exponent = finalSteepness * normalizedValue;
     const clampedExponent = Math.max(-50, Math.min(50, exponent));
     
     const score = 100 / (1 + Math.exp(clampedExponent));
     
     // Ensure score stays within 0-100 bounds
-    return Math.round(Math.max(0.01, Math.min(99.99, score)) * 100) / 100;
+    return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
   }
 
   /**
@@ -278,14 +309,16 @@ export class QualityScorer {
     const primaryScore = this.logisticScore(
       highComplexityRatio, 
       QUALITY_THRESHOLDS.complexity.ratioThreshold, 
-      10 // Steepness for ratio-based penalty
+      undefined, // Use default steepness for ratio type
+      'ratio' // Ratio metric type
     );
 
     // Secondary penalty for high average complexity using logistic function
     const avgComplexityScore = this.logisticScore(
       avgComplexity, 
       8, // Average complexity threshold
-      0.3 // Gentler steepness for average penalty
+      undefined, // Use default steepness for average type
+      'average' // Average metric type
     );
 
     // Weighted combination: primary score (80%) + average penalty (20%)
@@ -331,7 +364,8 @@ export class QualityScorer {
     const penaltyScore = this.logisticScore(
       lowMaintainabilityRatio,
       QUALITY_THRESHOLDS.maintainability.ratioThreshold,
-      8 // Steepness for maintainability ratio penalty
+      undefined, // Use default steepness for ratio type
+      'ratio' // Ratio metric type
     );
 
     // Combine base score (70%) with penalty (30%) for balanced assessment
@@ -365,14 +399,16 @@ export class QualityScorer {
     const ratioScore = this.logisticScore(
       largeFunctionRatio,
       QUALITY_THRESHOLDS.size.ratioThreshold,
-      12 // Steepness for size ratio penalty
+      undefined, // Use default steepness for ratio type
+      'ratio' // Ratio metric type
     );
 
     // Secondary penalty for high average size using logistic function
     const avgSizeScore = this.logisticScore(
       avgLines,
       30, // Average size threshold
-      0.1 // Gentle steepness for average size penalty
+      undefined, // Use default steepness for average type
+      'average' // Average metric type
     );
 
     // Weighted combination: ratio score (75%) + average size (25%)
@@ -421,7 +457,8 @@ export class QualityScorer {
       parameterScore = this.logisticScore(
         highParamRatio,
         QUALITY_THRESHOLDS.codeQuality.parameterRatioThreshold,
-        20 // Steepness for parameter ratio
+        undefined, // Use default steepness for ratio type
+        'ratio' // Ratio metric type
       );
     }
 

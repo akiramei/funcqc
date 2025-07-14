@@ -742,7 +742,7 @@ export interface RiskAssessmentConfig {
   highRiskConditions?: RiskCondition[];
   minViolations?: number; // Minimum violations to be considered high risk
   violationWeights?: Record<ViolationLevel, number>;
-  compositeScoringMethod?: 'count' | 'weighted' | 'severity';
+  compositeScoringMethod?: 'count' | 'weighted' | 'severity' | 'absolute';
 }
 
 export interface RiskCondition {

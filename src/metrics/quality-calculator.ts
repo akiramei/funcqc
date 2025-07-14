@@ -288,23 +288,93 @@ export class QualityCalculator {
   }
 
   /**
-   * Detect if a case clause has fall-through behavior
+   * Detect if a case clause has fall-through behavior (excluding intentional)
    */
   private caseHasFallThrough(caseNode: ts.CaseClause): boolean {
     if (!caseNode.statements || caseNode.statements.length === 0) {
-      return true; // Empty case always falls through
+      // Check for intentional fall-through comment in empty case
+      return !this.hasIntentionalFallThroughComment(caseNode);
     }
 
     const lastStatement = caseNode.statements[caseNode.statements.length - 1];
     
     // Check for explicit break/return/throw/continue statements
-    return !(
+    const hasControlFlow = (
       ts.isBreakStatement(lastStatement) ||
       ts.isReturnStatement(lastStatement) ||
       ts.isThrowStatement(lastStatement) ||
       ts.isContinueStatement(lastStatement) ||
       this.endsWithControlFlow(lastStatement)
     );
+
+    if (hasControlFlow) {
+      return false; // Has proper control flow
+    }
+
+    // Check for intentional fall-through comment
+    return !this.hasIntentionalFallThroughComment(caseNode);
+  }
+
+  /**
+   * Check for intentional fall-through comments
+   */
+  private hasIntentionalFallThroughComment(caseNode: ts.CaseClause): boolean {
+    const sourceFile = caseNode.getSourceFile();
+    const text = sourceFile.text;
+    
+    // Get leading comments for the case node
+    const leadingComments = ts.getLeadingCommentRanges(text, caseNode.getFullStart());
+    
+    // Get trailing comments for the case node (more common for fall-through)
+    const trailingComments = ts.getTrailingCommentRanges(text, caseNode.getEnd());
+    
+    // Check comments within the case statements
+    let internalComments: ts.CommentRange[] = [];
+    if (caseNode.statements && caseNode.statements.length > 0) {
+      const startPos = caseNode.statements[0].getFullStart();
+      const endPos = caseNode.statements[caseNode.statements.length - 1].getEnd();
+      internalComments = this.getCommentsInRange(text, startPos, endPos);
+    }
+    
+    const allComments = [
+      ...(leadingComments || []),
+      ...(trailingComments || []),
+      ...internalComments
+    ];
+    
+    // Check if any comment indicates intentional fall-through
+    const fallThroughPatterns = [
+      /fall\s*through/i,
+      /fallthrough/i,
+      /fall\s*thru/i,
+      /intended\s*fall/i,
+      /no\s*break/i
+    ];
+    
+    return allComments.some(comment => {
+      const commentText = text.substring(comment.pos, comment.end);
+      return fallThroughPatterns.some(pattern => pattern.test(commentText));
+    });
+  }
+
+  /**
+   * Get all comments within a text range
+   */
+  private getCommentsInRange(text: string, start: number, end: number): ts.CommentRange[] {
+    const comments: ts.CommentRange[] = [];
+    let pos = start;
+    
+    while (pos < end) {
+      const leadingComments = ts.getLeadingCommentRanges(text, pos);
+      if (leadingComments) {
+        comments.push(...leadingComments.filter(c => c.pos >= start && c.end <= end));
+        pos = leadingComments[leadingComments.length - 1].end;
+      } else {
+        pos++;
+      }
+    }
+    
+    return comments;
   }
 
   /**
