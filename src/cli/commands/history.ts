@@ -591,7 +591,9 @@ function displayFunctionPresence(func: FunctionInfo): void {
 /**
  * Displays function metrics if available
  */
-function displayFunctionMetrics(metrics: any): void {
+function displayFunctionMetrics(metrics: FunctionInfo['metrics']): void {
+  if (!metrics) return;
+  
   console.log(
     `   📈 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`
   );
@@ -615,9 +617,9 @@ function displaySignatureChange(
 }
 
 /**
- * Displays git and snapshot information
+ * Displays git and snapshot information for history entries
  */
-function displaySnapshotInfo(snapshot: SnapshotInfo): void {
+function displayHistorySnapshotInfo(snapshot: SnapshotInfo): void {
   if (snapshot.gitBranch) {
     console.log(
       chalk.gray(
@@ -659,7 +661,7 @@ function displayHistoryEntry(
     console.log(chalk.red(`   ✗ Not present (deleted or not analyzed)`));
   }
 
-  displaySnapshotInfo(snapshot);
+  displayHistorySnapshotInfo(snapshot);
   console.log(); // Empty line
 }
 
