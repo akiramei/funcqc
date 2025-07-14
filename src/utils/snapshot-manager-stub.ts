@@ -28,6 +28,8 @@ export const DefaultAutomaticSnapshotConfig: AutomaticSnapshotConfig = {
 export class SnapshotManager {
   private readonly logger: Logger;
 
+  // TODO: Implement full snapshot functionality in Phase 4
+  // This stub is a temporary placeholder for the snapshot management system
   constructor(
     _storage: StorageAdapter,
     _funcqcConfig: FuncqcConfig,

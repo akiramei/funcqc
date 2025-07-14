@@ -14,6 +14,11 @@ import { createErrorHandler } from './error-handler.js';
 import { Logger } from './cli-utils.js';
 
 /**
+ * Current evaluation version for tracking algorithm changes
+ */
+const EVALUATION_VERSION = '3.0.0';
+
+/**
  * GenuineImprovementCriteria
  * 
  * Comprehensive criteria for determining if a refactoring represents genuine improvement
@@ -239,7 +244,7 @@ export class ChangesetEvaluator {
         recommendations,
         metadata: {
           evaluatedAt: new Date(),
-          evaluationVersion: '3.0.0',
+          evaluationVersion: EVALUATION_VERSION,
           criteriaUsed: this.criteria,
           functionCount: {
             before: beforeFunctions.length,
@@ -332,7 +337,7 @@ export class ChangesetEvaluator {
         recommendations: explosionResult.recommendations,
         metadata: {
           evaluatedAt: new Date(),
-          evaluationVersion: '3.0.0',
+          evaluationVersion: EVALUATION_VERSION,
           criteriaUsed: this.criteria,
           functionCount: {
             before: 1,
@@ -636,6 +641,8 @@ export class ChangesetEvaluator {
   private createMockHealthAssessment(functions: FunctionInfo[]): HealthAssessment {
     const functionsWithMetrics = functions.filter(f => f.metrics);
     const totalComplexity = functionsWithMetrics.reduce((sum, f) => sum + (f.metrics?.cyclomaticComplexity || 0), 0);
+    // Risk score is calculated based on complexity with a multiplier of 5
+    // This maps complexity (0-20) to risk score (0-100) where complexity of 20 equals risk score of 100
     const averageRiskScore = functionsWithMetrics.length > 0 ? totalComplexity / functionsWithMetrics.length * 5 : 0;
     
     return {

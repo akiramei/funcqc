@@ -83,6 +83,9 @@ export interface ExplosionDetectionConfig {
   /** Penalty multiplier for excessive function creation */
   explosionPenaltyMultiplier: number;
   
+  /** Minimum average function size before fragmentation penalty */
+  minimumAverageFunctionSize: number;
+  
   /** Enable strict mode (more conservative thresholds) */
   strictMode: boolean;
 }
@@ -98,6 +101,7 @@ export const DefaultExplosionDetectionConfig: ExplosionDetectionConfig = {
   minimumComplexityReduction: 5, // At least 5% complexity reduction required
   maximumExplosionScore: 0.3,    // Maximum acceptable explosion score
   explosionPenaltyMultiplier: 2, // Penalty multiplier for explosion
+  minimumAverageFunctionSize: 5, // Functions smaller than 5 lines are considered fragmented
   strictMode: false,             // Default to lenient mode
 };
 
@@ -295,7 +299,7 @@ export class FunctionExplosionDetector {
 
     // Factor 4: Excessive fragmentation (many small functions)
     const averageChildSize = metrics.resultingLinesOfCode / metrics.resultingFunctionCount;
-    if (averageChildSize < 5) { // Very small functions
+    if (averageChildSize < this.config.minimumAverageFunctionSize) {
       score += 0.1 * metrics.resultingFunctionCount; // Penalty increases with number of tiny functions
     }
 
