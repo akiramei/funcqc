@@ -199,6 +199,44 @@ async function createSnapshotForGitCommit(
   }
 }
 
+// Constants for file filtering
+const EXCLUDED_DIRECTORIES = ['node_modules', '.git', 'dist', 'build', 'coverage'];
+const TYPESCRIPT_EXTENSIONS = ['.ts', '.tsx'];
+
+/**
+ * Checks if directory should be excluded from scanning
+ */
+function shouldExcludeDirectory(dirName: string): boolean {
+  return EXCLUDED_DIRECTORIES.includes(dirName);
+}
+
+/**
+ * Checks if file is a TypeScript file
+ */
+function isTypeScriptFile(fileName: string): boolean {
+  return TYPESCRIPT_EXTENSIONS.some(ext => fileName.endsWith(ext));
+}
+
+/**
+ * Processes a single directory entry during file walking
+ */
+async function processDirectoryEntry(
+  entry: fs.Dirent, 
+  currentDir: string, 
+  files: string[], 
+  walk: (dir: string) => Promise<void>
+): Promise<void> {
+  const fullPath = path.join(currentDir, entry.name);
+  
+  if (entry.isDirectory()) {
+    if (!shouldExcludeDirectory(entry.name)) {
+      await walk(fullPath);
+    }
+  } else if (entry.isFile() && isTypeScriptFile(entry.name)) {
+    files.push(fullPath);
+  }
+}
+
 /**
  * Recursively finds all TypeScript files in the given directory.
  */
@@ -209,20 +247,7 @@ async function findTypeScriptFiles(dir: string): Promise<string[]> {
     const entries = await fs.promises.readdir(currentDir, { withFileTypes: true });
 
     for (const entry of entries) {
-      const fullPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        // Skip common non-source directories
-        if (['node_modules', '.git', 'dist', 'build', 'coverage'].includes(entry.name)) {
-          continue;
-        }
-        await walk(fullPath);
-      } else if (entry.isFile()) {
-        // Include TypeScript files
-        if (entry.name.endsWith('.ts') || entry.name.endsWith('.tsx')) {
-          files.push(fullPath);
-        }
-      }
+      await processDirectoryEntry(entry, currentDir, files, walk);
     }
   }
 

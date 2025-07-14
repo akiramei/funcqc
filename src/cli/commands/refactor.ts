@@ -590,6 +590,111 @@ async function refactorDetectCommandImpl(
   }
 }
 
+/**
+ * Displays opportunity details to the user
+ */
+function displayOpportunityDetails(opp: RefactoringOpportunity, index: number, total: number): void {
+  console.log(chalk.blue.bold(`\n[${index + 1}/${total}] ${formatPatternName(opp.pattern)}`));
+  console.log(chalk.yellow(`Function: ${opp.function_id}`));
+  console.log(`Severity: ${getSeverityDisplay(opp.severity)}`);
+  console.log(`Impact Score: ${chalk.yellow(opp.impact_score)}`);
+  console.log(`Description: ${chalk.gray(opp.description)}`);
+  
+  if (opp.metadata) {
+    console.log('\nDetails:');
+    Object.entries(opp.metadata).forEach(([key, value]) => {
+      console.log(`  ${key}: ${chalk.gray(String(value))}`);
+    });
+  }
+}
+
+/**
+ * Prompts user for action on an opportunity
+ */
+async function promptUserAction(): Promise<string> {
+  return await prompts.select({
+    message: 'What would you like to do?',
+    choices: [
+      { name: 'Select for refactoring', value: 'select' },
+      { name: 'Skip this opportunity', value: 'skip' },
+      { name: 'View code context', value: 'view' },
+      { name: 'Stop reviewing', value: 'stop' }
+    ]
+  });
+}
+
+/**
+ * Handles user action for an opportunity
+ */
+function handleUserAction(
+  action: string,
+  opp: RefactoringOpportunity,
+  selectedOpportunities: RefactoringOpportunity[],
+  opportunities: RefactoringOpportunity[],
+  index: number
+): boolean {
+  if (action === 'select') {
+    selectedOpportunities.push(opp);
+    console.log(chalk.green('✓ Selected for refactoring'));
+    return false;
+  } else if (action === 'skip') {
+    console.log(chalk.gray('→ Skipped'));
+    return false;
+  } else if (action === 'view') {
+    console.log(chalk.yellow('Code viewing not yet implemented'));
+    opportunities.splice(index + 1, 0, opp);
+    return false;
+  } else if (action === 'stop') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Creates a refactoring session if requested
+ */
+async function createRefactoringSession(
+  selectedOpportunities: RefactoringOpportunity[],
+  sessionManager: SessionManager,
+  sessionId?: string
+): Promise<void> {
+  if (selectedOpportunities.length === 0 || sessionId) return;
+  
+  const createSession = await prompts.confirm({
+    message: 'Create a refactoring session for selected opportunities?',
+    default: true
+  });
+  
+  if (!createSession) return;
+  
+  const sessionName = await prompts.input({
+    message: 'Session name:',
+    default: `Interactive Refactoring - ${new Date().toLocaleDateString()}`
+  });
+  
+  const session = await sessionManager.createSession(
+    sessionName,
+    `Selected ${selectedOpportunities.length} opportunities through interactive detection`
+  );
+  
+  const opportunityIds = selectedOpportunities.map(opp => opp.id);
+  await sessionManager.linkOpportunitiesToSession(session.id, opportunityIds);
+  
+  const functionIds = [...new Set(selectedOpportunities.map(opp => opp.function_id))];
+  await sessionManager.addFunctionsToSession(session.id, functionIds);
+  
+  console.log(chalk.green(`\n✅ Created session: ${session.name} (${session.id})`));
+}
+
+/**
+ * Displays selection summary
+ */
+function displaySelectionSummary(selectedOpportunities: RefactoringOpportunity[], totalOpportunities: number): void {
+  console.log(chalk.cyan.bold('\n📊 Selection Summary\n'));
+  console.log(`Selected: ${chalk.green(selectedOpportunities.length)} opportunities`);
+  console.log(`Skipped: ${chalk.gray(totalOpportunities - selectedOpportunities.length)} opportunities`);
+}
+
 async function runInteractiveDetection(
   opportunities: RefactoringOpportunity[],
   sessionManager: SessionManager,
@@ -601,77 +706,16 @@ async function runInteractiveDetection(
   const selectedOpportunities: RefactoringOpportunity[] = [];
   
   for (const [index, opp] of opportunities.entries()) {
-    console.log(chalk.blue.bold(`\n[${index + 1}/${opportunities.length}] ${formatPatternName(opp.pattern)}`));
-    console.log(chalk.yellow(`Function: ${opp.function_id}`));
-    console.log(`Severity: ${getSeverityDisplay(opp.severity)}`);
-    console.log(`Impact Score: ${chalk.yellow(opp.impact_score)}`);
-    console.log(`Description: ${chalk.gray(opp.description)}`);
+    displayOpportunityDetails(opp, index, opportunities.length);
     
-    if (opp.metadata) {
-      console.log('\nDetails:');
-      Object.entries(opp.metadata).forEach(([key, value]) => {
-        console.log(`  ${key}: ${chalk.gray(String(value))}`);
-      });
-    }
+    const action = await promptUserAction();
+    const shouldStop = handleUserAction(action, opp, selectedOpportunities, opportunities, index);
     
-    const action = await prompts.select({
-      message: 'What would you like to do?',
-      choices: [
-        { name: 'Select for refactoring', value: 'select' },
-        { name: 'Skip this opportunity', value: 'skip' },
-        { name: 'View code context', value: 'view' },
-        { name: 'Stop reviewing', value: 'stop' }
-      ]
-    });
-    
-    if (action === 'select') {
-      selectedOpportunities.push(opp);
-      console.log(chalk.green('✓ Selected for refactoring'));
-    } else if (action === 'skip') {
-      console.log(chalk.gray('→ Skipped'));
-    } else if (action === 'view') {
-      // TODO: Implement code viewing functionality
-      console.log(chalk.yellow('Code viewing not yet implemented'));
-      // Re-ask for the same opportunity
-      opportunities.splice(index + 1, 0, opp);
-    } else if (action === 'stop') {
-      break;
-    }
+    if (shouldStop) break;
   }
   
-  // Summary
-  console.log(chalk.cyan.bold('\n📊 Selection Summary\n'));
-  console.log(`Selected: ${chalk.green(selectedOpportunities.length)} opportunities`);
-  console.log(`Skipped: ${chalk.gray(opportunities.length - selectedOpportunities.length)} opportunities`);
-  
-  if (selectedOpportunities.length > 0 && !sessionId) {
-    const createSession = await prompts.confirm({
-      message: 'Create a refactoring session for selected opportunities?',
-      default: true
-    });
-    
-    if (createSession) {
-      const sessionName = await prompts.input({
-        message: 'Session name:',
-        default: `Interactive Refactoring - ${new Date().toLocaleDateString()}`
-      });
-      
-      const session = await sessionManager.createSession(
-        sessionName,
-        `Selected ${selectedOpportunities.length} opportunities through interactive detection`
-      );
-      
-      // Link selected opportunities
-      const opportunityIds = selectedOpportunities.map(opp => opp.id);
-      await sessionManager.linkOpportunitiesToSession(session.id, opportunityIds);
-      
-      // Add functions
-      const functionIds = [...new Set(selectedOpportunities.map(opp => opp.function_id))];
-      await sessionManager.addFunctionsToSession(session.id, functionIds);
-      
-      console.log(chalk.green(`\n✅ Created session: ${session.name} (${session.id})`));
-    }
-  }
+  displaySelectionSummary(selectedOpportunities, opportunities.length);
+  await createRefactoringSession(selectedOpportunities, sessionManager, sessionId);
 }
 
 function displayDetectionResults(
