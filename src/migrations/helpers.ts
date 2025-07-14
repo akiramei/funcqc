@@ -154,8 +154,6 @@ export async function checkColumnExists(
  */
 // Constants for better maintainability
 const DEFAULT_CLEANUP_DAYS = 30;
-const BACKUP_TABLE_PREFIX = 'OLD_';
-const DATE_PATTERN = /(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/;
 
 export async function cleanupOldBackups(db: Kysely<Record<string, unknown>>, daysOld: number = DEFAULT_CLEANUP_DAYS): Promise<void> {
   console.log(`🧹 Cleaning up backup tables older than ${daysOld} days...`);
@@ -269,7 +267,7 @@ function extractCreationDate(tableName: string): Date | undefined {
 /**
  * Transforms database row to backup table info
  */
-function transformBackupRow(row: unknown): { name: string; created?: Date; size?: number } {
+function transformBackupRow(row: unknown): { name: string; created?: Date | undefined; size?: number | undefined } {
   const backupRow = row as Record<string, unknown>;
   const tableName = backupRow['tablename'] as string;
   
