@@ -742,6 +742,20 @@ function getLineNumber(sourceCode: string, position: number): number {
   return lines.length;
 }
 
+// Thresholds for quality metrics
+const THRESHOLDS = {
+  complexity: { high: 10, critical: 15 },
+  linesOfCode: { large: 40, veryLarge: 80 },
+  nesting: { high: 3, deep: 5 },
+  parameters: { many: 4, tooMany: 6 },
+  cognitive: { high: 15, veryHigh: 25 },
+  branches: { many: 8 },
+  loops: { multiple: 3 },
+  maintainability: { veryLow: 30 },
+  totalLines: { needsComments: 20 },
+  estimatedBlockSize: 25
+} as const;
+
 /**
  * Generate enhanced specific suggestions with contextual information
  */
@@ -753,89 +767,143 @@ function generateEnhancedSuggestions(
   const funcName = functionInfo.displayName;
   const totalLines = functionInfo.endLine - functionInfo.startLine + 1;
   
-  // Enhanced complexity analysis
-  if (metrics?.cyclomaticComplexity && metrics.cyclomaticComplexity > 10) {
-    const complexity = metrics.cyclomaticComplexity;
-    if (complexity > 15) {
-      suggestions.push(`Critical complexity (${complexity}): Extract multiple methods from ${funcName} to reduce branching logic`);
-    } else {
-      suggestions.push(`High complexity (${complexity}): Extract 2-3 helper methods from conditional blocks in ${funcName}`);
-    }
-  }
-  
-  // Enhanced size analysis
-  if (metrics?.linesOfCode && metrics.linesOfCode > 40) {
-    const loc = metrics.linesOfCode;
-    const estimatedBlocks = Math.ceil(loc / 25); // Estimate reasonable function size
-    if (loc > 80) {
-      suggestions.push(`Very large function (${loc} lines): Split ${funcName} into ${estimatedBlocks} focused functions`);
-    } else {
-      suggestions.push(`Large function (${loc} lines): Extract validation and processing logic into separate methods`);
-    }
-  }
-  
-  // Enhanced nesting analysis
-  if (metrics?.maxNestingLevel && metrics.maxNestingLevel > 3) {
-    const nesting = metrics.maxNestingLevel;
-    if (nesting > 5) {
-      suggestions.push(`Deep nesting (${nesting} levels): Refactor nested conditions in ${funcName} using early returns and guard clauses`);
-    } else {
-      suggestions.push(`High nesting (${nesting} levels): Convert nested if-statements to early return pattern in ${funcName}`);
-    }
-  }
-  
-  // Enhanced parameter analysis
-  if (metrics?.parameterCount && metrics.parameterCount > 4) {
-    const params = metrics.parameterCount;
-    if (params > 6) {
-      suggestions.push(`Too many parameters (${params}): Create configuration object for ${funcName} parameters`);
-    } else {
-      suggestions.push(`Many parameters (${params}): Group related parameters into options object in ${funcName}`);
-    }
-  }
-  
-  // Enhanced cognitive complexity analysis
-  if (metrics?.cognitiveComplexity && metrics.cognitiveComplexity > 15) {
-    const cognitive = metrics.cognitiveComplexity;
-    if (cognitive > 25) {
-      suggestions.push(`Very high cognitive load (${cognitive}): Major refactoring needed for ${funcName} control flow`);
-    } else {
-      suggestions.push(`High cognitive load (${cognitive}): Simplify switch/case statements and conditional logic in ${funcName}`);
-    }
-  }
-  
-  // Additional specific analysis
-  if (metrics?.branchCount && metrics.branchCount > 8) {
-    suggestions.push(`Many branches (${metrics.branchCount}): Consider strategy pattern or lookup table for ${funcName}`);
-  }
-  
-  if (metrics?.loopCount && metrics.loopCount > 3) {
-    suggestions.push(`Multiple loops (${metrics.loopCount}): Extract loop logic into separate methods in ${funcName}`);
-  }
-  
-  // Enhanced maintainability analysis
-  if (metrics?.maintainabilityIndex && metrics.maintainabilityIndex < 30) {
-    suggestions.push(`Very low maintainability (${metrics.maintainabilityIndex.toFixed(1)}): ${funcName} needs comprehensive refactoring`);
-  }
+  // Analyze all metric types
+  suggestions.push(...analyzeComplexity(funcName, metrics));
+  suggestions.push(...analyzeSize(funcName, metrics));
+  suggestions.push(...analyzeNesting(funcName, metrics));
+  suggestions.push(...analyzeParameters(funcName, metrics));
+  suggestions.push(...analyzeCognitiveComplexity(funcName, metrics));
+  suggestions.push(...analyzeAdditionalMetrics(funcName, metrics));
   
   // Add AST-based specific suggestions
   const astSuggestions = analyzeSourceCodeForSuggestions(functionInfo);
   suggestions.push(...astSuggestions);
   
-  // Fallback suggestions with context
+  // Add fallback suggestions if needed
   if (suggestions.length === 0) {
-    suggestions.push(`General refactoring to improve maintainability`);
-    if (totalLines > 20) {
-      suggestions.push(`Add inline comments to explain complex logic in ${funcName}`);
-    }
-    if (metrics?.commentLines === 0) {
-      suggestions.push(`Add documentation comments for ${funcName} function`);
-    }
+    suggestions.push(...generateFallbackSuggestions(funcName, totalLines, metrics));
   }
   
   // Limit suggestions to most important ones and remove duplicates
   const uniqueSuggestions = [...new Set(suggestions)];
   return uniqueSuggestions.slice(0, 5); // Top 5 most important suggestions
+}
+
+/**
+ * Analyze cyclomatic complexity
+ */
+function analyzeComplexity(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  if (!metrics?.cyclomaticComplexity || metrics.cyclomaticComplexity <= THRESHOLDS.complexity.high) {
+    return [];
+  }
+  
+  const complexity = metrics.cyclomaticComplexity;
+  if (complexity > THRESHOLDS.complexity.critical) {
+    return [`Critical complexity (${complexity}): Extract multiple methods from ${funcName} to reduce branching logic`];
+  }
+  return [`High complexity (${complexity}): Extract 2-3 helper methods from conditional blocks in ${funcName}`];
+}
+
+/**
+ * Analyze function size
+ */
+function analyzeSize(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  if (!metrics?.linesOfCode || metrics.linesOfCode <= THRESHOLDS.linesOfCode.large) {
+    return [];
+  }
+  
+  const loc = metrics.linesOfCode;
+  const estimatedBlocks = Math.ceil(loc / THRESHOLDS.estimatedBlockSize);
+  
+  if (loc > THRESHOLDS.linesOfCode.veryLarge) {
+    return [`Very large function (${loc} lines): Split ${funcName} into ${estimatedBlocks} focused functions`];
+  }
+  return [`Large function (${loc} lines): Extract validation and processing logic into separate methods`];
+}
+
+/**
+ * Analyze nesting level
+ */
+function analyzeNesting(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  if (!metrics?.maxNestingLevel || metrics.maxNestingLevel <= THRESHOLDS.nesting.high) {
+    return [];
+  }
+  
+  const nesting = metrics.maxNestingLevel;
+  if (nesting > THRESHOLDS.nesting.deep) {
+    return [`Deep nesting (${nesting} levels): Refactor nested conditions in ${funcName} using early returns and guard clauses`];
+  }
+  return [`High nesting (${nesting} levels): Convert nested if-statements to early return pattern in ${funcName}`];
+}
+
+/**
+ * Analyze parameter count
+ */
+function analyzeParameters(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  if (!metrics?.parameterCount || metrics.parameterCount <= THRESHOLDS.parameters.many) {
+    return [];
+  }
+  
+  const params = metrics.parameterCount;
+  if (params > THRESHOLDS.parameters.tooMany) {
+    return [`Too many parameters (${params}): Create configuration object for ${funcName} parameters`];
+  }
+  return [`Many parameters (${params}): Group related parameters into options object in ${funcName}`];
+}
+
+/**
+ * Analyze cognitive complexity
+ */
+function analyzeCognitiveComplexity(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  if (!metrics?.cognitiveComplexity || metrics.cognitiveComplexity <= THRESHOLDS.cognitive.high) {
+    return [];
+  }
+  
+  const cognitive = metrics.cognitiveComplexity;
+  if (cognitive > THRESHOLDS.cognitive.veryHigh) {
+    return [`Very high cognitive load (${cognitive}): Major refactoring needed for ${funcName} control flow`];
+  }
+  return [`High cognitive load (${cognitive}): Simplify switch/case statements and conditional logic in ${funcName}`];
+}
+
+/**
+ * Analyze additional metrics (branches, loops, maintainability)
+ */
+function analyzeAdditionalMetrics(funcName: string, metrics?: FunctionQualityMetrics): string[] {
+  const suggestions: string[] = [];
+  
+  if (metrics?.branchCount && metrics.branchCount > THRESHOLDS.branches.many) {
+    suggestions.push(`Many branches (${metrics.branchCount}): Consider strategy pattern or lookup table for ${funcName}`);
+  }
+  
+  if (metrics?.loopCount && metrics.loopCount > THRESHOLDS.loops.multiple) {
+    suggestions.push(`Multiple loops (${metrics.loopCount}): Extract loop logic into separate methods in ${funcName}`);
+  }
+  
+  if (metrics?.maintainabilityIndex && metrics.maintainabilityIndex < THRESHOLDS.maintainability.veryLow) {
+    suggestions.push(`Very low maintainability (${metrics.maintainabilityIndex.toFixed(1)}): ${funcName} needs comprehensive refactoring`);
+  }
+  
+  return suggestions;
+}
+
+/**
+ * Generate fallback suggestions when no specific issues found
+ */
+function generateFallbackSuggestions(funcName: string, totalLines: number, metrics?: FunctionQualityMetrics): string[] {
+  const suggestions: string[] = [];
+  
+  suggestions.push(`General refactoring to improve maintainability`);
+  
+  if (totalLines > THRESHOLDS.totalLines.needsComments) {
+    suggestions.push(`Add inline comments to explain complex logic in ${funcName}`);
+  }
+  
+  if (metrics?.commentLines === 0) {
+    suggestions.push(`Add documentation comments for ${funcName} function`);
+  }
+  
+  return suggestions;
 }
 
 
