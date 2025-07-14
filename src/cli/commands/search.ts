@@ -549,6 +549,12 @@ async function performSemanticSearch(
   return matchedFunctions;
 }
 
+// Constants for search configuration
+const DEFAULT_HYBRID_WEIGHT = 0.5;
+const DEFAULT_SEARCH_LIMIT = 50;
+const KEYWORD_SEARCH_MULTIPLIER = 2;
+const AST_SIMILARITY_THRESHOLD = 0.7;
+
 /**
  * Perform hybrid search combining semantic, keyword, and AST similarity
  */
@@ -558,55 +564,14 @@ async function performHybridSearch(
   keyword: string,
   options: SearchCommandOptions
 ): Promise<FunctionInfo[]> {
-  const hybridWeight = options.hybridWeight ? parseFloat(options.hybridWeight) : 0.5;
-  const limit = options.limit ? parseInt(options.limit, 10) : 50;
+  const hybridWeight = parseHybridWeight(options);
+  const limit = parseSearchLimit(options);
 
   // Get keyword search results
-  const keywordResults = await env.storage.searchFunctionsByDescription(keyword, {
-    limit: limit * 2,
-  });
+  const keywordResults = await fetchKeywordResults(env, keyword, limit);
 
-  // Get latest snapshot for AST similarity
-  const snapshots = await env.storage.getSnapshots({ limit: 1 });
-  if (snapshots.length === 0) {
-    env.commandLogger.warn('No snapshots found for AST similarity search');
-    return semanticResults;
-  }
-
-  // Get all functions for AST similarity
-  const allFunctions = await env.storage.getFunctions(snapshots[0].id);
-
-  // Initialize similarity manager for AST analysis
-  const similarityManager = new SimilarityManager(undefined, env.storage);
-
-  // Find structurally similar functions if we have context functions
-  let astResults: FunctionInfo[] = [];
-  if (options.contextFunctions) {
-    const contextIds = options.contextFunctions.split(',').map(id => id.trim());
-    const contextFunctions = allFunctions.filter((f: FunctionInfo) => contextIds.includes(f.id));
-
-    if (contextFunctions.length > 0) {
-      try {
-        const similarities = await similarityManager.detectSimilarities(
-          allFunctions,
-          { threshold: 0.7 },
-          ['advanced-structural'] // Use advanced detector for better results
-        );
-
-        // Extract functions from similarity results
-        const similarFunctionIds = new Set<string>();
-        for (const similarity of similarities) {
-          for (const func of similarity.functions) {
-            similarFunctionIds.add(func.functionId);
-          }
-        }
-
-        astResults = allFunctions.filter((f: FunctionInfo) => similarFunctionIds.has(f.id));
-      } catch {
-        env.commandLogger.warn('AST similarity search failed, using semantic + keyword only');
-      }
-    }
-  }
+  // Get AST similarity results
+  const astResults = await fetchAstSimilarityResults(env, options);
 
   // Merge and rank results
   const mergedResults = mergeHybridResults(
@@ -618,6 +583,146 @@ async function performHybridSearch(
   );
 
   return mergedResults.slice(0, limit);
+}
+
+/**
+ * Parse hybrid weight from options
+ */
+function parseHybridWeight(options: SearchCommandOptions): number {
+  return options.hybridWeight ? parseFloat(options.hybridWeight) : DEFAULT_HYBRID_WEIGHT;
+}
+
+/**
+ * Parse search limit from options
+ */
+function parseSearchLimit(options: SearchCommandOptions): number {
+  return options.limit ? parseInt(options.limit, 10) : DEFAULT_SEARCH_LIMIT;
+}
+
+/**
+ * Fetch keyword search results
+ */
+async function fetchKeywordResults(
+  env: CommandEnvironment,
+  keyword: string,
+  limit: number
+): Promise<FunctionInfo[]> {
+  return env.storage.searchFunctionsByDescription(keyword, {
+    limit: limit * KEYWORD_SEARCH_MULTIPLIER,
+  });
+}
+
+/**
+ * Fetch AST similarity results
+ */
+async function fetchAstSimilarityResults(
+  env: CommandEnvironment,
+  options: SearchCommandOptions
+): Promise<FunctionInfo[]> {
+  // Early return if no context functions
+  if (!options.contextFunctions) {
+    return [];
+  }
+
+  // Get latest snapshot
+  const snapshot = await getLatestSnapshot(env);
+  if (!snapshot) {
+    return [];
+  }
+
+  // Get all functions for AST similarity
+  const allFunctions = await env.storage.getFunctions(snapshot.id);
+  
+  // Process AST similarity
+  return processAstSimilarity(env, allFunctions, options.contextFunctions);
+}
+
+/**
+ * Get the latest snapshot or null if none exists
+ */
+async function getLatestSnapshot(env: CommandEnvironment): Promise<{ id: string } | null> {
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  
+  if (snapshots.length === 0) {
+    env.commandLogger.warn('No snapshots found for AST similarity search');
+    return null;
+  }
+  
+  return snapshots[0];
+}
+
+/**
+ * Process AST similarity search
+ */
+async function processAstSimilarity(
+  env: CommandEnvironment,
+  allFunctions: FunctionInfo[],
+  contextFunctionsStr: string
+): Promise<FunctionInfo[]> {
+  const contextIds = parseContextFunctionIds(contextFunctionsStr);
+  const contextFunctions = filterContextFunctions(allFunctions, contextIds);
+
+  if (contextFunctions.length === 0) {
+    return [];
+  }
+
+  try {
+    return await findSimilarFunctions(allFunctions, env);
+  } catch {
+    env.commandLogger.warn('AST similarity search failed, using semantic + keyword only');
+    return [];
+  }
+}
+
+/**
+ * Parse context function IDs from string
+ */
+function parseContextFunctionIds(contextFunctionsStr: string): string[] {
+  return contextFunctionsStr.split(',').map(id => id.trim());
+}
+
+/**
+ * Filter functions by context IDs
+ */
+function filterContextFunctions(allFunctions: FunctionInfo[], contextIds: string[]): FunctionInfo[] {
+  return allFunctions.filter((f: FunctionInfo) => contextIds.includes(f.id));
+}
+
+/**
+ * Find structurally similar functions
+ */
+async function findSimilarFunctions(
+  allFunctions: FunctionInfo[],
+  env: CommandEnvironment
+): Promise<FunctionInfo[]> {
+  const similarityManager = new SimilarityManager(undefined, env.storage);
+  
+  const similarities = await similarityManager.detectSimilarities(
+    allFunctions,
+    { threshold: AST_SIMILARITY_THRESHOLD },
+    ['advanced-structural']
+  );
+
+  // Extract unique function IDs from similarity results
+  const similarFunctionIds = extractSimilarFunctionIds(similarities);
+  
+  // Filter functions by similarity IDs
+  return allFunctions.filter((f: FunctionInfo) => similarFunctionIds.has(f.id));
+}
+
+/**
+ * Extract function IDs from similarity results
+ */
+function extractSimilarFunctionIds(similarities: any[]): Set<string> {
+  const similarFunctionIds = new Set<string>();
+  
+  for (const similarity of similarities) {
+    for (const func of similarity.functions) {
+      similarFunctionIds.add(func.functionId);
+    }
+  }
+  
+  return similarFunctionIds;
 }
 
 /**

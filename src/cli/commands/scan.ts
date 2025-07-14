@@ -243,57 +243,130 @@ async function performParallelAnalysis(
 ): Promise<ParallelProcessingResult> {
   const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
 
-  let completedFiles = 0;
   try {
-    const result = await processor.processFiles(files, {
-      onProgress: completed => {
-        completedFiles = completed;
-        spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
-      },
-    });
-    return result;
+    return await runParallelProcessing(processor, files, spinner);
   } catch (error) {
-    spinner.text = `Parallel processing failed, falling back to sequential analysis...`;
-    console.warn(
-      `Parallel processing error: ${error instanceof Error ? error.message : String(error)}`
-    );
-
-    // Fallback to sequential processing
-    const analyzer = new TypeScriptAnalyzer();
-    const qualityCalculator = new QualityCalculator();
-    const allFunctions: FunctionInfo[] = [];
-    const startTime = Date.now();
-
-    for (let i = 0; i < files.length; i++) {
-      const filePath = files[i];
-      try {
-        const functions = await analyzer.analyzeFile(filePath);
-        for (const func of functions) {
-          func.metrics = await qualityCalculator.calculate(func);
-        }
-        allFunctions.push(...functions);
-      } catch (fileError) {
-        console.warn(
-          `Failed to analyze ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`
-        );
-      }
-
-      spinner.text = `Sequential analysis: ${i + 1}/${files.length} files processed...`;
-    }
-
-    await analyzer.cleanup();
-
-    return {
-      functions: allFunctions,
-      stats: {
-        totalFiles: files.length,
-        totalFunctions: allFunctions.length,
-        avgFunctionsPerFile: files.length > 0 ? allFunctions.length / files.length : 0,
-        totalProcessingTime: Date.now() - startTime,
-        workersUsed: 0, // Sequential processing uses 0 workers
-      },
-    };
+    logParallelProcessingError(error, spinner);
+    return await fallbackToSequentialProcessing(files, spinner);
   }
+}
+
+/**
+ * Run parallel processing with progress tracking
+ */
+async function runParallelProcessing(
+  processor: ParallelFileProcessor,
+  files: string[],
+  spinner: SpinnerInterface
+): Promise<ParallelProcessingResult> {
+  let completedFiles = 0;
+  
+  return processor.processFiles(files, {
+    onProgress: completed => {
+      completedFiles = completed;
+      spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
+    },
+  });
+}
+
+/**
+ * Log parallel processing error
+ */
+function logParallelProcessingError(error: unknown, spinner: SpinnerInterface): void {
+  spinner.text = `Parallel processing failed, falling back to sequential analysis...`;
+  console.warn(
+    `Parallel processing error: ${error instanceof Error ? error.message : String(error)}`
+  );
+}
+
+/**
+ * Fallback to sequential processing when parallel processing fails
+ */
+async function fallbackToSequentialProcessing(
+  files: string[],
+  spinner: SpinnerInterface
+): Promise<ParallelProcessingResult> {
+  const analyzer = new TypeScriptAnalyzer();
+  const qualityCalculator = new QualityCalculator();
+  const allFunctions: FunctionInfo[] = [];
+  const startTime = Date.now();
+
+  // Process files sequentially
+  await processFilesSequentially(files, analyzer, qualityCalculator, allFunctions, spinner);
+  
+  // Cleanup analyzer
+  await analyzer.cleanup();
+
+  return createSequentialResult(files, allFunctions, startTime);
+}
+
+/**
+ * Process files sequentially
+ */
+async function processFilesSequentially(
+  files: string[],
+  analyzer: TypeScriptAnalyzer,
+  qualityCalculator: QualityCalculator,
+  allFunctions: FunctionInfo[],
+  spinner: SpinnerInterface
+): Promise<void> {
+  for (let i = 0; i < files.length; i++) {
+    const filePath = files[i];
+    await analyzeFileWithFallback(filePath, analyzer, qualityCalculator, allFunctions);
+    spinner.text = `Sequential analysis: ${i + 1}/${files.length} files processed...`;
+  }
+}
+
+/**
+ * Analyze a single file with error handling
+ */
+async function analyzeFileWithFallback(
+  filePath: string,
+  analyzer: TypeScriptAnalyzer,
+  qualityCalculator: QualityCalculator,
+  allFunctions: FunctionInfo[]
+): Promise<void> {
+  try {
+    const functions = await analyzer.analyzeFile(filePath);
+    await calculateMetricsForFunctions(functions, qualityCalculator);
+    allFunctions.push(...functions);
+  } catch (fileError) {
+    console.warn(
+      `Failed to analyze ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`
+    );
+  }
+}
+
+/**
+ * Calculate metrics for all functions
+ */
+async function calculateMetricsForFunctions(
+  functions: FunctionInfo[],
+  qualityCalculator: QualityCalculator
+): Promise<void> {
+  for (const func of functions) {
+    func.metrics = await qualityCalculator.calculate(func);
+  }
+}
+
+/**
+ * Create result object for sequential processing
+ */
+function createSequentialResult(
+  files: string[],
+  allFunctions: FunctionInfo[],
+  startTime: number
+): ParallelProcessingResult {
+  return {
+    functions: allFunctions,
+    stats: {
+      totalFiles: files.length,
+      totalFunctions: allFunctions.length,
+      avgFunctionsPerFile: files.length > 0 ? allFunctions.length / files.length : 0,
+      totalProcessingTime: Date.now() - startTime,
+      workersUsed: 0, // Sequential processing uses 0 workers
+    },
+  };
 }
 
 async function performStreamingAnalysis(

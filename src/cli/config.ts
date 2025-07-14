@@ -56,6 +56,10 @@ export async function configCommand(action: string, options: ConfigCommandOption
   }
 }
 
+// Constants for formatting
+const SEPARATOR_LENGTH = 50;
+const INDENT_SPACES = 2;
+
 async function handleListPresets(
   presetManager: PresetManager,
   options: ConfigCommandOptions
@@ -63,48 +67,130 @@ async function handleListPresets(
   const presets = await presetManager.listAllPresets();
 
   if (options.json) {
-    console.log(JSON.stringify(presets, null, 2));
+    outputJsonPresets(presets);
     return;
   }
 
-  console.log(chalk.blue('Available Configuration Presets'));
-  console.log('-'.repeat(50));
-  console.log();
+  displayPresetsInTerminal(presets);
+}
 
-  // Group by category
+/**
+ * Output presets as JSON
+ */
+function outputJsonPresets(presets: ProjectPreset[]): void {
+  console.log(JSON.stringify(presets, null, 2));
+}
+
+/**
+ * Display presets in terminal format
+ */
+function displayPresetsInTerminal(presets: ProjectPreset[]): void {
+  displayHeader();
+  const categories = groupPresetsByCategory(presets);
+  displayCategorizedPresets(categories);
+  displayFooter();
+}
+
+/**
+ * Display header for preset list
+ */
+function displayHeader(): void {
+  console.log(chalk.blue('Available Configuration Presets'));
+  console.log('-'.repeat(SEPARATOR_LENGTH));
+  console.log();
+}
+
+/**
+ * Display footer with usage instructions
+ */
+function displayFooter(): void {
+  console.log(chalk.gray('Use "funcqc config show <preset-id>" to see details'));
+  console.log(chalk.gray('Use "funcqc config apply <preset-id>" to apply a preset'));
+}
+
+/**
+ * Group presets by category
+ */
+function groupPresetsByCategory(presets: ProjectPreset[]): Record<string, ProjectPreset[]> {
   const categories: Record<string, ProjectPreset[]> = {};
+  
   for (const preset of presets) {
     if (!categories[preset.category]) {
       categories[preset.category] = [];
     }
     categories[preset.category].push(preset);
   }
+  
+  return categories;
+}
 
+/**
+ * Display all categorized presets
+ */
+function displayCategorizedPresets(categories: Record<string, ProjectPreset[]>): void {
   for (const [category, categoryPresets] of Object.entries(categories)) {
-    console.log(chalk.yellow(`${category.charAt(0).toUpperCase() + category.slice(1)} Presets:`));
+    displayCategoryHeader(category);
+    displayPresetsInCategory(categoryPresets);
+  }
+}
 
-    for (const preset of categoryPresets) {
-      console.log(`  ${chalk.green(preset.id)}: ${preset.name}`);
-      console.log(`    ${chalk.gray(preset.description)}`);
+/**
+ * Display category header
+ */
+function displayCategoryHeader(category: string): void {
+  const formattedCategory = category.charAt(0).toUpperCase() + category.slice(1);
+  console.log(chalk.yellow(`${formattedCategory} Presets:`));
+}
 
-      if (preset.context) {
-        const contextParts = [];
-        if (preset.context.domain) contextParts.push(`Domain: ${preset.context.domain}`);
-        if (preset.context.experienceLevel)
-          contextParts.push(`Level: ${preset.context.experienceLevel}`);
-        if (preset.context.codebaseSize) contextParts.push(`Size: ${preset.context.codebaseSize}`);
+/**
+ * Display all presets in a category
+ */
+function displayPresetsInCategory(presets: ProjectPreset[]): void {
+  for (const preset of presets) {
+    displaySinglePreset(preset);
+  }
+}
 
-        if (contextParts.length > 0) {
-          console.log(`    ${chalk.cyan(contextParts.join(', '))}`);
-        }
-      }
-
-      console.log();
+/**
+ * Display a single preset
+ */
+function displaySinglePreset(preset: ProjectPreset): void {
+  const indent = ' '.repeat(INDENT_SPACES);
+  
+  // Display preset name and description
+  console.log(`${indent}${chalk.green(preset.id)}: ${preset.name}`);
+  console.log(`${indent}${indent}${chalk.gray(preset.description)}`);
+  
+  // Display context if available
+  if (preset.context) {
+    const contextString = formatPresetContext(preset.context);
+    if (contextString) {
+      console.log(`${indent}${indent}${chalk.cyan(contextString)}`);
     }
   }
+  
+  console.log();
+}
 
-  console.log(chalk.gray('Use "funcqc config show <preset-id>" to see details'));
-  console.log(chalk.gray('Use "funcqc config apply <preset-id>" to apply a preset'));
+/**
+ * Format preset context information
+ */
+function formatPresetContext(context: any): string {
+  const contextParts = [];
+  
+  if (context.domain) {
+    contextParts.push(`Domain: ${context.domain}`);
+  }
+  
+  if (context.experienceLevel) {
+    contextParts.push(`Level: ${context.experienceLevel}`);
+  }
+  
+  if (context.codebaseSize) {
+    contextParts.push(`Size: ${context.codebaseSize}`);
+  }
+  
+  return contextParts.join(', ');
 }
 
 async function handleShowPreset(
