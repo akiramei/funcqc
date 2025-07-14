@@ -154,8 +154,6 @@ export async function checkColumnExists(
  */
 // Constants for better maintainability
 const DEFAULT_CLEANUP_DAYS = 30;
-const BACKUP_TABLE_PREFIX = 'OLD_';
-const DATE_PATTERN = /(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/;
 
 export async function cleanupOldBackups(db: Kysely<Record<string, unknown>>, daysOld: number = DEFAULT_CLEANUP_DAYS): Promise<void> {
   console.log(`🧹 Cleaning up backup tables older than ${daysOld} days...`);
@@ -246,6 +244,40 @@ async function tryDeleteTable(db: Kysely<Record<string, unknown>>, tableName: st
   }
 }
 
+// Constants for date parsing
+const DATE_STRING_LENGTH = 19;
+const BACKUP_TABLE_PREFIX = 'OLD_';
+const DATE_PATTERN = /(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/;
+
+/**
+ * Extracts and parses creation date from backup table name
+ */
+function extractCreationDate(tableName: string): Date | undefined {
+  const dateMatch = tableName.match(DATE_PATTERN);
+  if (!dateMatch) return undefined;
+  
+  const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, DATE_STRING_LENGTH);
+  try {
+    return new Date(dateStr.replace(/_/g, '-'));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Transforms database row to backup table info
+ */
+function transformBackupRow(row: unknown): { name: string; created?: Date | undefined; size?: number | undefined } {
+  const backupRow = row as Record<string, unknown>;
+  const tableName = backupRow['tablename'] as string;
+  
+  return {
+    name: tableName,
+    created: extractCreationDate(tableName),
+    size: backupRow['size'] ? parseInt(backupRow['size'] as string) : undefined
+  };
+}
+
 /**
  * バックアップテーブル一覧を取得
  */
@@ -257,32 +289,11 @@ export async function listBackupTables(db: Kysely<Record<string, unknown>>): Pro
         pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
       FROM pg_tables 
       WHERE schemaname = 'public' 
-      AND tablename LIKE 'OLD_%'
+      AND tablename LIKE '${BACKUP_TABLE_PREFIX}%'
       ORDER BY tablename
     `).execute(db);
     
-    return result.rows.map((row: unknown) => {
-      const backupRow = row as Record<string, unknown>;
-      // テーブル名から作成日時を推測
-      const tableName = backupRow['tablename'] as string;
-      const dateMatch = tableName.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
-      let created: Date | undefined;
-      
-      if (dateMatch) {
-        const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
-        try {
-          created = new Date(dateStr.replace(/_/g, '-'));
-        } catch {
-          // 日時パースに失敗した場合はundefined
-        }
-      }
-      
-      return {
-        name: tableName,
-        created,
-        size: backupRow['size'] ? parseInt(backupRow['size'] as string) : undefined
-      };
-    });
+    return result.rows.map(transformBackupRow);
     
   } catch (error) {
     console.error('Failed to list backup tables:', error);
