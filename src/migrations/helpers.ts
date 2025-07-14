@@ -152,50 +152,97 @@ export async function checkColumnExists(
  * @param db Kyselyデータベースインスタンス
  * @param daysOld 削除対象の日数（デフォルト30日）
  */
-export async function cleanupOldBackups(db: Kysely<Record<string, unknown>>, daysOld: number = 30): Promise<void> {
+// Constants for better maintainability
+const DEFAULT_CLEANUP_DAYS = 30;
+const BACKUP_TABLE_PREFIX = 'OLD_';
+const DATE_PATTERN = /(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/;
+
+export async function cleanupOldBackups(db: Kysely<Record<string, unknown>>, daysOld: number = DEFAULT_CLEANUP_DAYS): Promise<void> {
   console.log(`🧹 Cleaning up backup tables older than ${daysOld} days...`);
   
   try {
-    // OLD_で始まるテーブル一覧を取得
-    const result = await sql.raw(`
-      SELECT tablename 
-      FROM pg_tables 
-      WHERE schemaname = 'public' 
-      AND tablename LIKE 'OLD_%'
-    `).execute(db);
-    
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - daysOld);
-    
-    let deletedCount = 0;
-    
-    for (const row of result.rows) {
-      const tableRow = row as Record<string, unknown>;
-      const tableName = tableRow['tablename'] as string;
-      
-      // テーブル名から日時を抽出（例: OLD_functions_2025_01_12T14_30_00）
-      const dateMatch = tableName.match(/(\d{4}_\d{2}_\d{2}T\d{2}_\d{2}_\d{2})/);
-      if (dateMatch) {
-        const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
-        const tableDate = new Date(dateStr.replace(/_/g, '-'));
-        
-        if (tableDate < cutoffDate) {
-          try {
-            await sql.raw(`DROP TABLE ${tableName}`).execute(db);
-            console.log(`   Deleted old backup: ${tableName}`);
-            deletedCount++;
-          } catch (error) {
-            console.warn(`   Could not delete ${tableName}:`, error);
-          }
-        }
-      }
-    }
+    const backupTables = await getBackupTables(db);
+    const cutoffDate = calculateCutoffDate(daysOld);
+    const deletedCount = await deleteOldBackupTables(db, backupTables, cutoffDate);
     
     console.log(`✅ Cleaned up ${deletedCount} old backup tables`);
-    
   } catch (error) {
     console.error('Failed to cleanup old backups:', error);
     throw error;
+  }
+}
+
+/**
+ * Get all backup tables from the database
+ */
+async function getBackupTables(db: Kysely<Record<string, unknown>>): Promise<Array<Record<string, unknown>>> {
+  const result = await sql.raw(`
+    SELECT tablename 
+    FROM pg_tables 
+    WHERE schemaname = 'public' 
+    AND tablename LIKE '${BACKUP_TABLE_PREFIX}%'
+  `).execute(db);
+  
+  return result.rows;
+}
+
+/**
+ * Calculate the cutoff date for cleanup
+ */
+function calculateCutoffDate(daysOld: number): Date {
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - daysOld);
+  return cutoffDate;
+}
+
+/**
+ * Delete backup tables older than the cutoff date
+ */
+async function deleteOldBackupTables(
+  db: Kysely<Record<string, unknown>>, 
+  tables: Array<Record<string, unknown>>, 
+  cutoffDate: Date
+): Promise<number> {
+  let deletedCount = 0;
+  
+  for (const row of tables) {
+    const tableName = row['tablename'] as string;
+    const tableDate = extractTableDate(tableName);
+    
+    if (!tableDate) continue;
+    if (tableDate >= cutoffDate) continue;
+    
+    const deleted = await tryDeleteTable(db, tableName);
+    if (deleted) deletedCount++;
+  }
+  
+  return deletedCount;
+}
+
+/**
+ * Extract date from backup table name
+ */
+function extractTableDate(tableName: string): Date | null {
+  const dateMatch = tableName.match(DATE_PATTERN);
+  if (!dateMatch) return null;
+  
+  const dateStr = dateMatch[1].replace(/_/g, ':').substring(0, 19);
+  const tableDate = new Date(dateStr.replace(/_/g, '-'));
+  
+  return isNaN(tableDate.getTime()) ? null : tableDate;
+}
+
+/**
+ * Try to delete a single table, handling errors gracefully
+ */
+async function tryDeleteTable(db: Kysely<Record<string, unknown>>, tableName: string): Promise<boolean> {
+  try {
+    await sql.raw(`DROP TABLE ${tableName}`).execute(db);
+    console.log(`   Deleted old backup: ${tableName}`);
+    return true;
+  } catch (error) {
+    console.warn(`   Could not delete ${tableName}:`, error);
+    return false;
   }
 }
 
