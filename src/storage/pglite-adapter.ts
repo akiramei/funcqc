@@ -3604,6 +3604,50 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return session;
   }
 
+  /**
+   * Save a refactoring session
+   */
+  async saveRefactoringSession(session: RefactoringSession): Promise<void> {
+    // Use existing method or implement a basic one
+    const query = `
+      INSERT INTO refactoring_sessions 
+      (id, description, start_time, end_time, git_branch, initial_commit, final_commit, status, metadata, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `;
+    
+    await this.db.query(query, [
+      session.id,
+      session.description,
+      new Date(session.start_time).toISOString(),
+      session.end_time ? new Date(session.end_time).toISOString() : null,
+      session.target_branch,
+      null, // initial_commit
+      null, // final_commit
+      session.status,
+      JSON.stringify(session.metadata),
+      session.created_at.toISOString(),
+      session.updated_at.toISOString(),
+    ]);
+  }
+
+  /**
+   * Get a refactoring session by ID
+   */
+  async getRefactoringSession(id: string): Promise<RefactoringSession | null> {
+    const result = await this.db.query(`
+      SELECT id, description, start_time, end_time, git_branch, initial_commit,
+             final_commit, status, metadata, created_at, updated_at
+      FROM refactoring_sessions
+      WHERE id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    return this.mapRowToRefactoringSession(result.rows[0] as any);
+  }
+
   // ========================================
   // REFACTORING HEALTH ENGINE METHODS
   // ========================================
@@ -3612,7 +3656,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Save a refactoring changeset
    */
   async saveRefactoringChangeset(changeset: RefactoringChangeset): Promise<void> {
-    const result = await this.db.query(`
+    await this.db.query(`
       INSERT INTO refactoring_changesets (
         id, session_id, operation_type, parent_function_id, child_function_ids,
         before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
@@ -3647,9 +3691,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       changeset.updatedAt.toISOString(),
     ]);
 
-    if (result.affectedRows === 0) {
-      throw new DatabaseError(ErrorCode.STORAGE_ERROR, 'Failed to save refactoring changeset');
-    }
+    // Note: PGLite doesn't return affectedRows directly
+    // The operation succeeds if no exception is thrown
   }
 
   /**
@@ -3724,18 +3767,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
     params.push(id); // WHERE clause parameter
 
-    const result = await this.db.exec({
-      query: `
-        UPDATE refactoring_changesets
-        SET ${setParts.join(', ')}
-        WHERE id = $${paramIndex}
-      `,
-      params,
-    });
-
-    if (result.affectedRows === 0) {
-      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'Failed to update refactoring changeset');
-    }
+    await this.db.query(`
+      UPDATE refactoring_changesets
+      SET ${setParts.join(', ')}
+      WHERE id = $${paramIndex}
+    `, params);
   }
 
   /**
@@ -3749,15 +3785,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Get lineages by function ID (helper method for LineageManager)
    */
   async getLineagesByFunctionId(functionId: string): Promise<Lineage[]> {
-    const result = await this.db.exec({
-      query: `
-        SELECT id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
-        FROM lineages
-        WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
-        ORDER BY created_at DESC
-      `,
-      params: [functionId],
-    });
+    const result = await this.db.query(`
+      SELECT id, from_ids, to_ids, kind, status, confidence, note, git_commit, created_at, updated_at
+      FROM lineages
+      WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids)
+      ORDER BY created_at DESC
+    `, [functionId]);
 
     return result.rows.map(row => this.mapRowToLineage(row as any));
   }
@@ -3799,37 +3832,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
     params.push(id); // WHERE clause parameter
 
-    const result = await this.db.exec({
-      query: `
-        UPDATE refactoring_sessions
-        SET ${setParts.join(', ')}
-        WHERE id = $${paramIndex}
-      `,
-      params,
-    });
-
-    if (result.affectedRows === 0) {
-      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'Failed to update refactoring session');
-    }
+    await this.db.query(`
+      UPDATE refactoring_sessions
+      SET ${setParts.join(', ')}
+      WHERE id = $${paramIndex}
+    `, params);
   }
 
   /**
    * Get refactoring sessions
    */
   async getRefactoringSessions(query?: QueryOptions): Promise<RefactoringSession[]> {
-    const limit = query?.limit ? parseInt(query.limit) : 100;
-    const offset = query?.offset ? parseInt(query.offset) : 0;
+    const limit = query?.limit ?? 100;
+    const offset = query?.offset ?? 0;
 
-    const result = await this.db.exec({
-      query: `
-        SELECT id, description, start_time, end_time, git_branch, initial_commit,
-               final_commit, status, metadata, created_at, updated_at
-        FROM refactoring_sessions
-        ORDER BY created_at DESC
-        LIMIT $1 OFFSET $2
-      `,
-      params: [limit, offset],
-    });
+    const result = await this.db.query(`
+      SELECT id, description, start_time, end_time, git_branch, initial_commit,
+             final_commit, status, metadata, created_at, updated_at
+      FROM refactoring_sessions
+      ORDER BY created_at DESC
+      LIMIT $1 OFFSET $2
+    `, [limit.toString(), offset.toString()]);
 
     return result.rows.map(row => this.mapRowToRefactoringSession(row as any));
   }

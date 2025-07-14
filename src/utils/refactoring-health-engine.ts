@@ -13,11 +13,10 @@ import {
   MetricStatistics,
   ChangesetMetrics,
   FunctionLineage,
-  RefactoringContext,
   StorageAdapter,
+  Lineage,
 } from '../types/index.js';
 import { ThresholdEvaluator } from './threshold-evaluator.js';
-import { StatisticalEvaluator } from './statistical-evaluator.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -35,16 +34,12 @@ import { v4 as uuidv4 } from 'uuid';
  */
 export class RefactoringHealthEngine {
   private thresholdEvaluator: ThresholdEvaluator;
-  private statisticalEvaluator: StatisticalEvaluator;
-  private lineageManager: LineageManager;
 
   constructor(
     private storage: StorageAdapter,
-    lineageManager: LineageManager
+    _lineageManager: LineageManager
   ) {
     this.thresholdEvaluator = new ThresholdEvaluator();
-    this.statisticalEvaluator = new StatisticalEvaluator();
-    this.lineageManager = lineageManager;
   }
 
   /**
@@ -96,6 +91,8 @@ export class RefactoringHealthEngine {
     let totalRiskScore = 0;
 
     for (const func of functions) {
+      if (!func.metrics) continue; // Skip functions without metrics
+      
       const riskAssessment = await this.evaluateFunctionRisk(func, projectStats);
       functionRiskAssessments.push(riskAssessment);
       totalComplexity += func.metrics.cyclomaticComplexity;
@@ -258,6 +255,10 @@ export class RefactoringHealthEngine {
     func: FunctionInfo,
     projectStats: ProjectStatistics
   ): Promise<FunctionRiskAssessment> {
+    if (!func.metrics) {
+      throw new Error(`Function ${func.id} has no metrics`);
+    }
+
     // Use the existing threshold configuration
     const thresholds = {
       cyclomaticComplexity: { warning: 10, error: 15, critical: 20 },
@@ -279,6 +280,12 @@ export class RefactoringHealthEngine {
       return total + (weights[violation.level] || 0);
     }, 0);
 
+    // Calculate violation counts by level
+    const violationsByLevel = violations.reduce((counts, violation) => {
+      counts[violation.level] = (counts[violation.level] || 0) + 1;
+      return counts;
+    }, {} as Record<string, number>);
+
     return {
       functionId: func.id,
       functionName: func.name,
@@ -287,6 +294,8 @@ export class RefactoringHealthEngine {
       endLine: func.endLine,
       riskScore,
       violations,
+      totalViolations: violations.length,
+      violationsByLevel: violationsByLevel as any,
       riskLevel: this.calculateRiskLevel(riskScore),
       metrics: func.metrics,
     };
@@ -352,10 +361,21 @@ export class RefactoringHealthEngine {
     maintainability: { grade: string; score: number };
     size: { grade: string; score: number };
   } {
+    // Filter functions with metrics
+    const functionsWithMetrics = functions.filter(f => f.metrics);
+    
+    if (functionsWithMetrics.length === 0) {
+      return {
+        complexity: { score: 100, grade: 'A' },
+        maintainability: { score: 100, grade: 'A' },
+        size: { score: 100, grade: 'A' },
+      };
+    }
+
     // Calculate average metrics
-    const avgComplexity = functions.reduce((sum, f) => sum + f.metrics.cyclomaticComplexity, 0) / functions.length;
-    const avgSize = functions.reduce((sum, f) => sum + f.metrics.linesOfCode, 0) / functions.length;
-    const avgMaintainability = functions.reduce((sum, f) => sum + (f.metrics.maintainabilityIndex || 50), 0) / functions.length;
+    const avgComplexity = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.cyclomaticComplexity, 0) / functionsWithMetrics.length;
+    const avgSize = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.linesOfCode, 0) / functionsWithMetrics.length;
+    const avgMaintainability = functionsWithMetrics.reduce((sum, f) => sum + (f.metrics!.maintainabilityIndex || 50), 0) / functionsWithMetrics.length;
 
     return {
       complexity: {
@@ -377,10 +397,27 @@ export class RefactoringHealthEngine {
    * Get project statistics for threshold evaluation
    */
   private async getProjectStatistics(functions: FunctionInfo[]): Promise<ProjectStatistics> {
-    const metrics = functions.map(f => f.metrics);
+    const metrics = functions.map(f => f.metrics).filter(m => m !== undefined) as QualityMetrics[];
+    
+    if (metrics.length === 0) {
+      // Return default statistics for empty metrics
+      return {
+        totalFunctions: 0,
+        analysisTimestamp: Date.now(),
+        averageComplexity: 0,
+        averageSize: 0,
+        medianComplexity: 0,
+        p90Complexity: 0,
+        complexityDistribution: this.createEmptyMetricStatistics(),
+        sizeDistribution: this.createEmptyMetricStatistics(),
+        riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+        metrics: {} as Record<keyof QualityMetrics, MetricStatistics>,
+      };
+    }
     
     return {
       totalFunctions: functions.length,
+      analysisTimestamp: Date.now(),
       averageComplexity: metrics.reduce((sum, m) => sum + m.cyclomaticComplexity, 0) / metrics.length,
       averageSize: metrics.reduce((sum, m) => sum + m.linesOfCode, 0) / metrics.length,
       medianComplexity: this.calculateMedian(metrics.map(m => m.cyclomaticComplexity)),
@@ -388,6 +425,7 @@ export class RefactoringHealthEngine {
       complexityDistribution: this.calculateComplexityDistribution(metrics),
       sizeDistribution: this.calculateSizeDistribution(metrics),
       riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 }, // Will be calculated
+      metrics: {} as Record<keyof QualityMetrics, MetricStatistics>, // Simplified for now
     };
   }
 
@@ -414,14 +452,27 @@ export class RefactoringHealthEngine {
    */
   private calculateComplexityDistribution(metrics: QualityMetrics[]): MetricStatistics {
     const complexities = metrics.map(m => m.cyclomaticComplexity);
+    const mean = complexities.reduce((sum, c) => sum + c, 0) / complexities.length;
+    const variance = complexities.reduce((sum, c) => sum + Math.pow(c - mean, 2), 0) / complexities.length;
+    
     return {
       min: Math.min(...complexities),
       max: Math.max(...complexities),
-      mean: complexities.reduce((sum, c) => sum + c, 0) / complexities.length,
+      mean,
       median: this.calculateMedian(complexities),
+      standardDeviation: Math.sqrt(variance),
+      variance,
       p90: this.calculatePercentile(complexities, 0.9),
       p95: this.calculatePercentile(complexities, 0.95),
-      standardDeviation: this.calculateStandardDeviation(complexities),
+      percentiles: {
+        p25: this.calculatePercentile(complexities, 0.25),
+        p50: this.calculateMedian(complexities),
+        p75: this.calculatePercentile(complexities, 0.75),
+        p90: this.calculatePercentile(complexities, 0.9),
+        p95: this.calculatePercentile(complexities, 0.95),
+        p99: this.calculatePercentile(complexities, 0.99),
+      },
+      mad: 0, // Simplified for now
     };
   }
 
@@ -430,24 +481,54 @@ export class RefactoringHealthEngine {
    */
   private calculateSizeDistribution(metrics: QualityMetrics[]): MetricStatistics {
     const sizes = metrics.map(m => m.linesOfCode);
+    const mean = sizes.reduce((sum, s) => sum + s, 0) / sizes.length;
+    const variance = sizes.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / sizes.length;
+    
     return {
       min: Math.min(...sizes),
       max: Math.max(...sizes),
-      mean: sizes.reduce((sum, s) => sum + s, 0) / sizes.length,
+      mean,
       median: this.calculateMedian(sizes),
+      standardDeviation: Math.sqrt(variance),
+      variance,
       p90: this.calculatePercentile(sizes, 0.9),
       p95: this.calculatePercentile(sizes, 0.95),
-      standardDeviation: this.calculateStandardDeviation(sizes),
+      percentiles: {
+        p25: this.calculatePercentile(sizes, 0.25),
+        p50: this.calculateMedian(sizes),
+        p75: this.calculatePercentile(sizes, 0.75),
+        p90: this.calculatePercentile(sizes, 0.9),
+        p95: this.calculatePercentile(sizes, 0.95),
+        p99: this.calculatePercentile(sizes, 0.99),
+      },
+      mad: 0, // Simplified for now
     };
   }
 
+
   /**
-   * Calculate standard deviation
+   * Create empty metric statistics
    */
-  private calculateStandardDeviation(values: number[]): number {
-    const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
-    const variance = values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / values.length;
-    return Math.sqrt(variance);
+  private createEmptyMetricStatistics(): MetricStatistics {
+    return {
+      min: 0,
+      max: 0,
+      mean: 0,
+      median: 0,
+      standardDeviation: 0,
+      variance: 0,
+      p90: 0,
+      p95: 0,
+      percentiles: {
+        p25: 0,
+        p50: 0,
+        p75: 0,
+        p90: 0,
+        p95: 0,
+        p99: 0,
+      },
+      mad: 0,
+    };
   }
 
   /**
@@ -533,16 +614,16 @@ export class DefaultLineageManager implements LineageManager {
 
   async trackRefactoringOperation(operation: RefactoringOperation): Promise<void> {
     // Track the refactoring operation in the lineages table
-    const lineageData = {
+    const lineageData: Lineage = {
       id: uuidv4(),
-      from_ids: [operation.parentFunction],
-      to_ids: operation.childFunctions,
-      kind: operation.type,
+      fromIds: [operation.parentFunction],
+      toIds: operation.childFunctions,
+      kind: operation.type as any,
       status: 'approved' as const,
       confidence: 0.95,
-      git_commit: operation.context.afterSnapshot,
-      created_at: new Date(),
-      updated_at: new Date(),
+      gitCommit: operation.context.afterSnapshot,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
     await this.storage.saveLineage(lineageData);
@@ -556,12 +637,12 @@ export class DefaultLineageManager implements LineageManager {
     let lineageType: 'split' | 'extract' | 'merge' | 'rename' = 'split';
 
     for (const lineage of lineages) {
-      if (lineage.from_ids.includes(functionId)) {
-        childFunctions.push(...lineage.to_ids);
+      if (lineage.fromIds.includes(functionId)) {
+        childFunctions.push(...lineage.toIds);
         lineageType = lineage.kind as 'split' | 'extract' | 'merge' | 'rename';
       }
-      if (lineage.to_ids.includes(functionId)) {
-        parentFunctions.push(...lineage.from_ids);
+      if (lineage.toIds.includes(functionId)) {
+        parentFunctions.push(...lineage.fromIds);
         lineageType = lineage.kind as 'split' | 'extract' | 'merge' | 'rename';
       }
     }
@@ -577,13 +658,26 @@ export class DefaultLineageManager implements LineageManager {
   }
 
   async calculateChangesetMetrics(functions: FunctionInfo[]): Promise<ChangesetMetrics> {
-    const totalComplexity = functions.reduce((sum, f) => sum + f.metrics.cyclomaticComplexity, 0);
-    const totalLinesOfCode = functions.reduce((sum, f) => sum + f.metrics.linesOfCode, 0);
-    const averageComplexity = totalComplexity / functions.length;
-    const highRiskCount = functions.filter(f => f.metrics.cyclomaticComplexity > 10).length;
+    const functionsWithMetrics = functions.filter(f => f.metrics);
+    
+    if (functionsWithMetrics.length === 0) {
+      return {
+        totalComplexity: 0,
+        totalLinesOfCode: 0,
+        averageComplexity: 0,
+        highRiskCount: 0,
+        functionCount: 0,
+        riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+      };
+    }
 
-    const riskDistribution = functions.reduce((dist, f) => {
-      const complexity = f.metrics.cyclomaticComplexity;
+    const totalComplexity = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.cyclomaticComplexity, 0);
+    const totalLinesOfCode = functionsWithMetrics.reduce((sum, f) => sum + f.metrics!.linesOfCode, 0);
+    const averageComplexity = totalComplexity / functionsWithMetrics.length;
+    const highRiskCount = functionsWithMetrics.filter(f => f.metrics!.cyclomaticComplexity > 10).length;
+
+    const riskDistribution = functionsWithMetrics.reduce((dist, f) => {
+      const complexity = f.metrics!.cyclomaticComplexity;
       if (complexity >= 20) dist.critical++;
       else if (complexity >= 15) dist.high++;
       else if (complexity >= 10) dist.medium++;

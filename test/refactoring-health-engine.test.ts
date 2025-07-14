@@ -70,7 +70,6 @@ class MockStorageAdapter {
   async batchSaveEvaluations(): Promise<void> {}
   async getEvaluationStatistics(): Promise<any> { return { total: 0, withEvaluations: 0, needingEvaluation: 0, averageRating: 0, ratingDistribution: {} }; }
   async diffSnapshots(): Promise<any> { return { changes: [] }; }
-  async saveLineage(): Promise<void> {}
   async getLineage(): Promise<any> { return null; }
   async getLineages(): Promise<any[]> { return []; }
   async getLineagesWithFunctionFilter(): Promise<any[]> { return []; }
@@ -195,8 +194,7 @@ describe('RefactoringHealthEngine', () => {
       };
 
       // Mock storage data
-      mockStorage.setMockFunctions([beforeFunction]);
-      mockStorage.setMockFunctions([afterFunction1, afterFunction2]);
+      mockStorage.setMockFunctions([beforeFunction, afterFunction1, afterFunction2]);
 
       // Create changeset
       const changeset: RefactoringChangeset = {
@@ -295,8 +293,7 @@ describe('RefactoringHealthEngine', () => {
         },
       }));
 
-      mockStorage.setMockFunctions([beforeFunction]);
-      mockStorage.setMockFunctions(afterFunctions);
+      mockStorage.setMockFunctions([beforeFunction, ...afterFunctions]);
 
       const changeset: RefactoringChangeset = {
         id: 'changeset-fake',

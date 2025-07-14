@@ -420,7 +420,16 @@ async function assessAllFunctions(
         thresholds,
         projectStats
       );
-      return thresholdEvaluator.assessFunctionRisk(fn.id, violations, DEFAULT_RISK_CONFIG);
+      return thresholdEvaluator.assessFunctionRisk(
+        fn.id,
+        fn.name,
+        fn.filePath,
+        fn.startLine,
+        fn.endLine,
+        fn.metrics,
+        violations,
+        DEFAULT_RISK_CONFIG
+      );
     });
 }
 
@@ -505,14 +514,98 @@ function calculateRiskDistribution(riskAssessments: FunctionRiskAssessment[]): {
   high: number;
   medium: number; 
   low: number;
+  critical: number;
 } {
   return riskAssessments.reduce(
     (acc, assessment) => {
       acc[assessment.riskLevel] += 1;
       return acc;
     },
-    { low: 0, medium: 0, high: 0 }
+    { low: 0, medium: 0, high: 0, critical: 0 }
   );
+}
+
+/**
+ * Create empty metrics record
+ */
+function createEmptyMetricsRecord(): Record<keyof FunctionQualityMetrics, MetricStatistics> {
+  const emptyMetricStats: MetricStatistics = {
+    min: 0,
+    max: 0,
+    mean: 0,
+    median: 0,
+    standardDeviation: 0,
+    variance: 0,
+    p90: 0,
+    p95: 0,
+    percentiles: {
+      p25: 0,
+      p50: 0,
+      p75: 0,
+      p90: 0,
+      p95: 0,
+      p99: 0,
+    },
+    mad: 0,
+  };
+
+  return {
+    linesOfCode: emptyMetricStats,
+    totalLines: emptyMetricStats,
+    cyclomaticComplexity: emptyMetricStats,
+    cognitiveComplexity: emptyMetricStats,
+    maxNestingLevel: emptyMetricStats,
+    parameterCount: emptyMetricStats,
+    returnStatementCount: emptyMetricStats,
+    branchCount: emptyMetricStats,
+    loopCount: emptyMetricStats,
+    tryCatchCount: emptyMetricStats,
+    asyncAwaitCount: emptyMetricStats,
+    callbackCount: emptyMetricStats,
+    commentLines: emptyMetricStats,
+    codeToCommentRatio: emptyMetricStats,
+    halsteadVolume: emptyMetricStats,
+    halsteadDifficulty: emptyMetricStats,
+    maintainabilityIndex: emptyMetricStats,
+  };
+}
+
+/**
+ * Create empty ProjectStatistics for cases with no metrics
+ */
+function createEmptyProjectStatistics(functionCount: number): ProjectStatistics {
+  const emptyMetricStats: MetricStatistics = {
+    min: 0,
+    max: 0,
+    mean: 0,
+    median: 0,
+    standardDeviation: 0,
+    variance: 0,
+    p90: 0,
+    p95: 0,
+    percentiles: {
+      p25: 0,
+      p50: 0,
+      p75: 0,
+      p90: 0,
+      p95: 0,
+      p99: 0,
+    },
+    mad: 0,
+  };
+
+  return {
+    totalFunctions: functionCount,
+    analysisTimestamp: Date.now(),
+    averageComplexity: 0,
+    averageSize: 0,
+    medianComplexity: 0,
+    p90Complexity: 0,
+    complexityDistribution: emptyMetricStats,
+    sizeDistribution: emptyMetricStats,
+    riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+    metrics: createEmptyMetricsRecord(),
+  };
 }
 
 /**
@@ -1413,11 +1506,11 @@ async function compareHealthMetrics(
   
   const fromProjectStats = fromAllMetrics.length > 0 
     ? statisticalEvaluator.calculateProjectStatistics(fromAllMetrics)
-    : { totalFunctions: fromFunctions.length, analysisTimestamp: Date.now(), metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics> };
+    : createEmptyProjectStatistics(fromFunctions.length);
   
   const toProjectStats = toAllMetrics.length > 0
     ? statisticalEvaluator.calculateProjectStatistics(toAllMetrics) 
-    : { totalFunctions: toFunctions.length, analysisTimestamp: Date.now(), metrics: {} as Record<keyof FunctionQualityMetrics, MetricStatistics> };
+    : createEmptyProjectStatistics(toFunctions.length);
   
   const fromRiskAssessments = await assessAllFunctions(fromFunctions, fromProjectStats, thresholds);
   const toRiskAssessments = await assessAllFunctions(toFunctions, toProjectStats, thresholds);

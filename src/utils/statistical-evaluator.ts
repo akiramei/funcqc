@@ -56,10 +56,28 @@ export class StatisticalEvaluator {
       }
     }
 
+    // Calculate derived metrics
+    const complexities = functionMetrics.map(m => m.cyclomaticComplexity);
+    const sizes = functionMetrics.map(m => m.linesOfCode);
+    
+    const averageComplexity = complexities.length > 0 
+      ? complexities.reduce((sum, c) => sum + c, 0) / complexities.length
+      : 0;
+    const averageSize = sizes.length > 0
+      ? sizes.reduce((sum, s) => sum + s, 0) / sizes.length
+      : 0;
+
     return {
       metrics: statistics,
       totalFunctions: functionMetrics.length,
       analysisTimestamp: Date.now(),
+      averageComplexity,
+      averageSize,
+      medianComplexity: statistics.cyclomaticComplexity?.median ?? 0,
+      p90Complexity: statistics.cyclomaticComplexity?.p90 ?? 0,
+      complexityDistribution: statistics.cyclomaticComplexity ?? this.createEmptyMetricStatistics(),
+      sizeDistribution: statistics.linesOfCode ?? this.createEmptyMetricStatistics(),
+      riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
     };
   }
 
@@ -111,6 +129,8 @@ export class StatisticalEvaluator {
       variance,
       min,
       max,
+      p90: percentiles.p90,
+      p95: percentiles.p95,
       percentiles,
       mad,
     };
@@ -369,6 +389,31 @@ export class StatisticalEvaluator {
     }
 
     return violation;
+  }
+
+  /**
+   * Create empty metric statistics
+   */
+  private createEmptyMetricStatistics(): MetricStatistics {
+    return {
+      min: 0,
+      max: 0,
+      mean: 0,
+      median: 0,
+      standardDeviation: 0,
+      variance: 0,
+      p90: 0,
+      p95: 0,
+      percentiles: {
+        p25: 0,
+        p50: 0,
+        p75: 0,
+        p90: 0,
+        p95: 0,
+        p99: 0,
+      },
+      mad: 0,
+    };
   }
 }
 

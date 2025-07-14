@@ -66,7 +66,16 @@ export class RiskAssessor {
         );
       }
 
-      let assessment = thresholdEvaluator.assessFunctionRisk(func.id, violations, assessmentConfig);
+      let assessment = thresholdEvaluator.assessFunctionRisk(
+        func.id,
+        func.name,
+        func.filePath,
+        func.startLine,
+        func.endLine,
+        func.metrics,
+        violations,
+        assessmentConfig
+      );
 
       // Override risk level if custom conditions are met
       if (customRiskMet && assessment.riskLevel !== 'high') {
@@ -109,7 +118,16 @@ export class RiskAssessor {
       projectStatistics
     );
 
-    return thresholdEvaluator.assessFunctionRisk(functionInfo.id, violations, assessmentConfig);
+    return thresholdEvaluator.assessFunctionRisk(
+      functionInfo.id,
+      functionInfo.name,
+      functionInfo.filePath,
+      functionInfo.startLine,
+      functionInfo.endLine,
+      functionInfo.metrics,
+      violations,
+      assessmentConfig
+    );
   }
 
   /**

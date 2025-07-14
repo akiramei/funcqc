@@ -244,7 +244,15 @@ describe('ThresholdEvaluator', () => {
         }
       ];
 
-      const assessment = evaluator.assessFunctionRisk('func-1', violations);
+      const assessment = evaluator.assessFunctionRisk(
+        'func-1', 
+        'testFunction', 
+        '/test/file.ts', 
+        1, 
+        50,
+        sampleMetrics,
+        violations
+      );
 
       expect(assessment.functionId).toBe('func-1');
       expect(assessment.violations).toHaveLength(2);
@@ -267,7 +275,15 @@ describe('ThresholdEvaluator', () => {
         }
       ];
 
-      const assessment = evaluator.assessFunctionRisk('func-2', violations);
+      const assessment = evaluator.assessFunctionRisk(
+        'func-2', 
+        'testFunction2', 
+        '/test/file2.ts', 
+        1, 
+        30,
+        sampleMetrics,
+        violations
+      );
 
       expect(assessment.riskLevel).toBe('medium');
     });
@@ -284,7 +300,15 @@ describe('ThresholdEvaluator', () => {
         }
       ];
 
-      const assessment = evaluator.assessFunctionRisk('func-3', violations);
+      const assessment = evaluator.assessFunctionRisk(
+        'func-3', 
+        'testFunction3', 
+        '/test/file3.ts', 
+        1, 
+        20,
+        sampleMetrics,
+        violations
+      );
 
       expect(assessment.riskLevel).toBe('low');
     });
@@ -307,7 +331,16 @@ describe('ThresholdEvaluator', () => {
         compositeScoringMethod: 'weighted'
       };
 
-      const assessment = evaluator.assessFunctionRisk('func-4', violations, config);
+      const assessment = evaluator.assessFunctionRisk(
+        'func-4', 
+        'testFunction4', 
+        '/test/file4.ts', 
+        1, 
+        25,
+        sampleMetrics,
+        violations, 
+        config
+      );
 
       expect(assessment.riskLevel).toBe('medium'); // Only warning, but meets minViolations so escalated
       expect(assessment.riskScore).toBe(1); // 5 weight * (2 excess / 10 threshold) = 5 * 0.2 = 1
@@ -415,7 +448,15 @@ describe('ThresholdEvaluator', () => {
 
   describe('edge cases and error handling', () => {
     it('should handle empty violations list', () => {
-      const assessment = evaluator.assessFunctionRisk('func-empty', []);
+      const assessment = evaluator.assessFunctionRisk(
+        'func-empty', 
+        'emptyFunction', 
+        '/test/empty.ts', 
+        1, 
+        5,
+        sampleMetrics,
+        []
+      );
 
       expect(assessment.totalViolations).toBe(0);
       expect(assessment.riskLevel).toBe('low');
