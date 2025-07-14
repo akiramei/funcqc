@@ -24,6 +24,70 @@ export interface WorkerOutput {
   };
 }
 
+/**
+ * Processes a single file and returns its functions with quality metrics
+ */
+async function processFile(
+  filePath: string,
+  analyzer: TypeScriptAnalyzer,
+  qualityCalculator: QualityCalculator
+): Promise<{ functions: FunctionInfo[]; failed: boolean }> {
+  try {
+    const fileFunctions = await analyzer.analyzeFile(filePath);
+
+    // Calculate quality metrics for each function
+    for (const func of fileFunctions) {
+      func.metrics = await qualityCalculator.calculate(func);
+    }
+
+    return { functions: fileFunctions, failed: false };
+  } catch (error) {
+    // Log error but continue processing other files
+    console.warn(
+      `Worker: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+    );
+    return { functions: [], failed: true };
+  }
+}
+
+/**
+ * Creates success response for worker output
+ */
+function createSuccessResponse(
+  allFunctions: FunctionInfo[],
+  totalFiles: number,
+  failedFiles: number,
+  processingTime: number
+): WorkerOutput {
+  return {
+    success: true,
+    functions: allFunctions,
+    stats: {
+      filesProcessed: totalFiles,
+      failedFiles,
+      functionsFound: allFunctions.length,
+      processingTime,
+    },
+  };
+}
+
+/**
+ * Creates error response for worker output
+ */
+function createErrorResponse(error: unknown, processingTime: number): WorkerOutput {
+  return {
+    success: false,
+    functions: [],
+    error: error instanceof Error ? error.message : String(error),
+    stats: {
+      filesProcessed: 0,
+      failedFiles: 0,
+      functionsFound: 0,
+      processingTime,
+    },
+  };
+}
+
 async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
   const startTime = Date.now();
 
@@ -34,21 +98,12 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
     let failedFiles = 0;
 
     for (const filePath of input.filePaths) {
-      try {
-        const fileFunctions = await analyzer.analyzeFile(filePath);
-
-        // Calculate quality metrics for each function
-        for (const func of fileFunctions) {
-          func.metrics = await qualityCalculator.calculate(func);
-        }
-
-        allFunctions.push(...fileFunctions);
-      } catch (error) {
+      const result = await processFile(filePath, analyzer, qualityCalculator);
+      
+      if (result.failed) {
         failedFiles++;
-        // Log error but continue processing other files
-        console.warn(
-          `Worker: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-        );
+      } else {
+        allFunctions.push(...result.functions);
       }
     }
 
@@ -56,29 +111,10 @@ async function processFiles(input: WorkerInput): Promise<WorkerOutput> {
     await analyzer.cleanup();
 
     const processingTime = Date.now() - startTime;
-
-    return {
-      success: true,
-      functions: allFunctions,
-      stats: {
-        filesProcessed: input.filePaths.length,
-        failedFiles,
-        functionsFound: allFunctions.length,
-        processingTime,
-      },
-    };
+    return createSuccessResponse(allFunctions, input.filePaths.length, failedFiles, processingTime);
   } catch (error) {
-    return {
-      success: false,
-      functions: [],
-      error: error instanceof Error ? error.message : String(error),
-      stats: {
-        filesProcessed: 0,
-        failedFiles: 0,
-        functionsFound: 0,
-        processingTime: Date.now() - startTime,
-      },
-    };
+    const processingTime = Date.now() - startTime;
+    return createErrorResponse(error, processingTime);
   }
 }
 
