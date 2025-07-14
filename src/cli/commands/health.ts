@@ -239,7 +239,7 @@ async function displayHealthOverview(
 
   // Show top risks if any
   if (riskCounts.high > 0) {
-    await displayTopRisks(env, functions, enhancedRiskStats);
+    await displayTopRisks(env, functions, enhancedRiskStats, Boolean(options.verbose));
   }
 
   // Git status
@@ -903,7 +903,8 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
 async function displayTopRisks(
   _env: CommandEnvironment, 
   functions: FunctionInfo[], 
-  enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>
+  enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
+  verbose: boolean = false
 ): Promise<void> {
   // Use proper StatisticalEvaluator approach for consistency with main health display
   const statisticalEvaluator = new StatisticalEvaluator();
@@ -959,11 +960,23 @@ async function displayTopRisks(
   recommendedActions.forEach((action) => {
     console.log(`  ${action.priority}. ${action.functionName}() in ${action.filePath}:${action.startLine}-${action.endLine}`);
     console.log(`     Action: ${action.action}`);
-    action.suggestions.slice(0, 2).forEach(suggestion => {
-      console.log(`     - ${suggestion}`);
-    });
-    if (action.suggestions.length > 2) {
+    
+    
+    if (verbose || action.suggestions.length <= 2) {
+      // Show all suggestions in verbose mode or when there are only 2 or fewer
+      action.suggestions.forEach(suggestion => {
+        console.log(`     - ${suggestion}`);
+      });
+      if (verbose && action.suggestions.length > 2) {
+        console.log(`     [Verbose mode: showing all ${action.suggestions.length} recommendations]`);
+      }
+    } else {
+      // Show first 2 suggestions with truncation message
+      action.suggestions.slice(0, 2).forEach(suggestion => {
+        console.log(`     - ${suggestion}`);
+      });
       console.log(`     ... and ${action.suggestions.length - 2} more steps`);
+      console.log(`     (Use --verbose to see all ${action.suggestions.length} recommendations)`);
     }
     console.log('');
   });
