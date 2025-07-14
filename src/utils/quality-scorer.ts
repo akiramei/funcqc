@@ -102,10 +102,17 @@ export class QualityScorer {
    * Validate and set custom quality weights
    */
   private validateAndSetWeights(weights: QualityWeights): void {
-    // Validate all weights are positive and finite
-    for (const [key, weight] of Object.entries(weights)) {
-      if (!Number.isFinite(weight) || weight < 0 || weight > 1) {
-        throw new Error(`Invalid weight for ${key}: ${weight}. Must be between 0 and 1.`);
+    // Validate each weight individually with proper type safety
+    const weightValidations: Array<{ key: keyof QualityWeights; value: number }> = [
+      { key: 'complexity', value: weights.complexity },
+      { key: 'maintainability', value: weights.maintainability },
+      { key: 'size', value: weights.size },
+      { key: 'codeQuality', value: weights.codeQuality },
+    ];
+
+    for (const { key, value } of weightValidations) {
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(`Invalid weight for ${key}: ${value}. Must be between 0 and 1.`);
       }
     }
     
@@ -122,6 +129,46 @@ export class QualityScorer {
     this.configuredWeights = weights;
   }
   /**
+   * Handle edge cases common to all logistic scoring functions
+   * @param value Current metric value
+   * @param threshold Target threshold
+   * @returns Score if edge case detected, null if normal processing should continue
+   */
+  private handleLogisticEdgeCases(value: number, threshold: number): number | null {
+    if (!Number.isFinite(value) || !Number.isFinite(threshold)) {
+      return 50; // Default score for invalid inputs
+    }
+    
+    if (value <= 0 && threshold > 0) {
+      return 100; // Perfect score for zero or negative values when threshold is positive
+    }
+    
+    return null; // No edge case, continue with normal processing
+  }
+
+  /**
+   * Core logistic function computation
+   * @param normalizedValue The input to the logistic function (value - threshold)
+   * @param centerPoint The center point of the logistic function (typically 0)
+   * @param steepness Steepness parameter (k) - higher = sharper transition
+   * @returns Score between 0-100
+   */
+  private computeLogisticScore(
+    normalizedValue: number,
+    centerPoint: number,
+    steepness: number
+  ): number {
+    // Prevent extreme exponential values that could cause numerical instability
+    const exponent = steepness * (normalizedValue - centerPoint);
+    const clampedExponent = Math.max(-50, Math.min(50, exponent));
+    
+    const score = 100 / (1 + Math.exp(clampedExponent));
+    
+    // Allow true 0/100 scores while maintaining precision
+    return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
+  }
+
+  /**
    * Enhanced logistic function with metric-specific steepness
    * score = 100 / (1 + e^(k(x-x0)))
    * @param value Current metric value
@@ -136,13 +183,10 @@ export class QualityScorer {
     steepness?: number,
     metricType?: 'ratio' | 'average' | 'count'
   ): number {
-    // Handle edge cases and boundary conditions
-    if (!Number.isFinite(value) || !Number.isFinite(threshold)) {
-      return 50; // Default score for invalid inputs
-    }
-    
-    if (value <= 0 && threshold > 0) {
-      return 100; // Perfect score for zero or negative values when threshold is positive
+    // Handle edge cases early
+    const edgeCaseScore = this.handleLogisticEdgeCases(value, threshold);
+    if (edgeCaseScore !== null) {
+      return edgeCaseScore;
     }
     
     // Use metric-specific steepness if not provided
@@ -152,14 +196,7 @@ export class QualityScorer {
       return 50; // Fallback for invalid steepness
     }
     
-    // Prevent extreme exponential values that could cause numerical instability
-    const exponent = finalSteepness * (value - threshold);
-    const clampedExponent = Math.max(-50, Math.min(50, exponent));
-    
-    const score = 100 / (1 + Math.exp(clampedExponent));
-    
-    // Allow true 0/100 scores while maintaining precision
-    return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
+    return this.computeLogisticScore(value, threshold, finalSteepness);
   }
 
   /**
@@ -176,9 +213,10 @@ export class QualityScorer {
     steepness?: number,
     metricType?: 'ratio' | 'average' | 'count'
   ): number {
-    // Handle edge cases
-    if (!Number.isFinite(value) || !Number.isFinite(threshold)) {
-      return 50; // Default score for invalid inputs
+    // Handle edge cases early
+    const edgeCaseScore = this.handleLogisticEdgeCases(value, threshold);
+    if (edgeCaseScore !== null) {
+      return edgeCaseScore;
     }
     
     // Use metric-specific steepness if not provided
@@ -189,15 +227,9 @@ export class QualityScorer {
     }
     
     // For inverted scoring, we want high scores when value >= threshold
-    // Use logistic function but invert the result
+    // Use logistic function but invert the relationship
     const normalizedValue = threshold - value; // Flip the relationship
-    const exponent = finalSteepness * normalizedValue;
-    const clampedExponent = Math.max(-50, Math.min(50, exponent));
-    
-    const score = 100 / (1 + Math.exp(clampedExponent));
-    
-    // Ensure score stays within 0-100 bounds
-    return Math.round(Math.max(0, Math.min(100, score)) * 100) / 100;
+    return this.computeLogisticScore(normalizedValue, 0, finalSteepness);
   }
 
   /**
