@@ -388,6 +388,60 @@ export async function restoreCommand(_options: OptionValues): Promise<void> {
 }
 
 /**
+ * Displays basic system information
+ */
+function displaySystemInfo(config: FuncqcConfig): void {
+  console.log(chalk.bold('\n📊 Migration System Information\n'));
+  console.log(chalk.cyan('Database Path:'), config.storage.path!);
+  console.log(chalk.cyan('Migration System:'), 'KyselyMigrationManager (PGLite + Kysely)');
+  console.log(chalk.cyan('Migration Folder:'), path.join(process.cwd(), 'migrations'));
+  console.log(chalk.cyan('Schema Source:'), 'TypeScript migration files (.ts)');
+}
+
+/**
+ * Displays migration statistics
+ */
+function displayMigrationStats(migrations: any[], backupTables: any[]): void {
+  const appliedCount = migrations.filter(m => m.executedAt).length;
+  const pendingCount = migrations.filter(m => !m.executedAt).length;
+  
+  console.log(chalk.cyan('Applied Migrations:'), appliedCount);
+  console.log(chalk.cyan('Pending Migrations:'), pendingCount);
+  console.log(chalk.cyan('Backup Tables:'), backupTables.length);
+}
+
+/**
+ * Displays backup table information
+ */
+function displayBackupInfo(backupTables: any[]): void {
+  if (backupTables.length === 0) return;
+  
+  const sortedBackups = backupTables.sort((a, b) => {
+    if (!a.created || !b.created) return 0;
+    return a.created.getTime() - b.created.getTime();
+  });
+  
+  const oldestBackup = sortedBackups[0];
+  if (oldestBackup?.created) {
+    console.log(chalk.cyan('Oldest Backup:'), `${oldestBackup.name} (${oldestBackup.created.toLocaleString()})`);
+  }
+  
+  const latestBackup = sortedBackups[sortedBackups.length - 1];
+  if (latestBackup?.created) {
+    console.log(chalk.cyan('Latest Backup:'), `${latestBackup.name} (${latestBackup.created.toLocaleString()})`);
+  }
+}
+
+/**
+ * Displays completion message
+ */
+function displayCompletionMessage(): void {
+  console.log(chalk.green('\n✅ Migration system is operational'));
+  console.log(chalk.blue('ℹ️  Use "funcqc migrate status" for detailed information'));
+  console.log('');
+}
+
+/**
  * Migration info command
  */
 export async function infoCommand(_options: OptionValues): Promise<void> {
@@ -400,43 +454,14 @@ export async function infoCommand(_options: OptionValues): Promise<void> {
     const { migrationManager, cleanup } = await createMigrationComponents(config);
     
     try {
-      console.log(chalk.bold('\n📊 Migration System Information\n'));
-      
-      console.log(chalk.cyan('Database Path:'), config.storage.path!);
-      console.log(chalk.cyan('Migration System:'), 'KyselyMigrationManager (PGLite + Kysely)');
-      console.log(chalk.cyan('Migration Folder:'), path.join(process.cwd(), 'migrations'));
-      console.log(chalk.cyan('Schema Source:'), 'TypeScript migration files (.ts)');
+      displaySystemInfo(config);
       
       const migrations = await migrationManager.getMigrationStatus();
       const backupTables = await migrationManager.listBackupTables();
       
-      const appliedCount = migrations.filter(m => m.executedAt).length;
-      const pendingCount = migrations.filter(m => !m.executedAt).length;
-      
-      console.log(chalk.cyan('Applied Migrations:'), appliedCount);
-      console.log(chalk.cyan('Pending Migrations:'), pendingCount);
-      console.log(chalk.cyan('Backup Tables:'), backupTables.length);
-      
-      if (backupTables.length > 0) {
-        const sortedBackups = backupTables.sort((a, b) => {
-          if (!a.created || !b.created) return 0;
-          return a.created.getTime() - b.created.getTime();
-        });
-        
-        const oldestBackup = sortedBackups[0];
-        if (oldestBackup?.created) {
-          console.log(chalk.cyan('Oldest Backup:'), `${oldestBackup.name} (${oldestBackup.created.toLocaleString()})`);
-        }
-        
-        const latestBackup = sortedBackups[sortedBackups.length - 1];
-        if (latestBackup?.created) {
-          console.log(chalk.cyan('Latest Backup:'), `${latestBackup.name} (${latestBackup.created.toLocaleString()})`);
-        }
-      }
-      
-      console.log(chalk.green('\n✅ Migration system is operational'));
-      console.log(chalk.blue('ℹ️  Use "funcqc migrate status" for detailed information'));
-      console.log('');
+      displayMigrationStats(migrations, backupTables);
+      displayBackupInfo(backupTables);
+      displayCompletionMessage();
     } finally {
       await cleanup();
     }
