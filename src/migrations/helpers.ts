@@ -183,7 +183,7 @@ async function getBackupTables(db: Kysely<Record<string, unknown>>): Promise<Arr
     AND tablename LIKE '${BACKUP_TABLE_PREFIX}%'
   `).execute(db);
   
-  return result.rows;
+  return result.rows as Array<Record<string, unknown>>;
 }
 
 /**
