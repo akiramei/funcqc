@@ -39,11 +39,6 @@ interface TrendAnalysis {
 const DEFAULT_RISK_CONFIG = {
   violationWeights: { warning: 1, error: 5, critical: 25 },
   compositeScoringMethod: 'weighted' as const,
-  riskLevelConfig: {
-    high: { criticalViolations: true, multipleErrorViolations: true },
-    medium: { errorViolations: true, multipleViolations: 2 },
-    low: {}
-  }
 };
 
 interface RecommendedAction {

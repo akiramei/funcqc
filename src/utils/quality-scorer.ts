@@ -87,7 +87,7 @@ export class QualityScorer {
   private validateAndSetWeights(weights: QualityWeights): void {
     // Validate all weights are positive and finite
     for (const [key, weight] of Object.entries(weights)) {
-      if (!isFinite(weight) || weight < 0 || weight > 1) {
+      if (!Number.isFinite(weight) || weight < 0 || weight > 1) {
         throw new Error(`Invalid weight for ${key}: ${weight}. Must be between 0 and 1.`);
       }
     }
@@ -114,7 +114,7 @@ export class QualityScorer {
    */
   private logisticScore(value: number, threshold: number, steepness: number = 0.1): number {
     // Handle edge cases and boundary conditions
-    if (!isFinite(value) || !isFinite(threshold) || !isFinite(steepness)) {
+    if (!Number.isFinite(value) || !Number.isFinite(threshold) || !Number.isFinite(steepness)) {
       return 50; // Default score for invalid inputs
     }
     
@@ -146,7 +146,7 @@ export class QualityScorer {
    */
   private invertedLogisticScore(value: number, threshold: number, steepness: number = 0.1): number {
     // Handle edge cases
-    if (!isFinite(value) || !isFinite(threshold) || !isFinite(steepness)) {
+    if (!Number.isFinite(value) || !Number.isFinite(threshold) || !Number.isFinite(steepness)) {
       return 50; // Default score for invalid inputs
     }
     
@@ -230,7 +230,7 @@ export class QualityScorer {
     // Validate all scores are within expected bounds
     const scoreEntries = Object.entries(scores);
     for (const [key, score] of scoreEntries) {
-      if (!isFinite(score) || score < 0 || score > 100) {
+      if (!Number.isFinite(score) || score < 0 || score > 100) {
         console.warn(`Invalid ${key} score: ${score}. Clamping to valid range.`);
         scores[key as keyof typeof scores] = Math.max(0, Math.min(100, score || 0));
       }

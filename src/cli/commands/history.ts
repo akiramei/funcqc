@@ -82,7 +82,7 @@ function applySnapshotFilters(
   }
 
   if (options.label) {
-    filtered = filtered.filter(s => s.label && s.label.includes(options.label!));
+    filtered = filtered.filter(s => s.label?.includes(options.label!));
   }
 
   return filtered;
