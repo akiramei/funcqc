@@ -1,4 +1,3 @@
-import chalk from 'chalk';
 import { ListCommandOptions, FunctionInfo } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
@@ -139,8 +138,8 @@ function outputJSON(functions: FunctionInfo[]): void {
 
 function outputFormatted(
   functions: FunctionInfo[],
-  filteredCount: number,
-  totalCount: number,
+  _filteredCount: number,
+  _totalCount: number,
   _options: ListCommandOptions
 ): void {
   if (functions.length === 0) {
@@ -148,49 +147,9 @@ function outputFormatted(
     return;
   }
 
-  // Header
-  console.log(chalk.blue(`\nFunctions List (${functions.length} of ${filteredCount} filtered, ${totalCount} total):`));
-  console.log('─'.repeat(80));
-
-  // Table header
-  const headers = ['Name', 'File', 'Lines', 'CC', 'Params'];
-  const colWidths = [30, 35, 7, 5, 8];
-
-  console.log(
-    headers.map((h, i) => chalk.bold(h.padEnd(colWidths[i]))).join(' ')
-  );
-  console.log('─'.repeat(80));
-
-  // Table rows
+  // Unix-style simple output: ID function-name file-path:line
   functions.forEach(func => {
-    const name = truncate(func.displayName, colWidths[0]);
-    const file = truncate(`${func.filePath}:${func.startLine}`, colWidths[1]);
-    const lines = (func.metrics?.linesOfCode || 0).toString().padEnd(colWidths[2]);
-    const cc = (func.metrics?.cyclomaticComplexity || 0).toString().padEnd(colWidths[3]);
-    const params = (func.metrics?.parameterCount || 0).toString().padEnd(colWidths[4]);
-
-    // Color code based on complexity
-    let ccColor = chalk.green;
-    if (func.metrics?.cyclomaticComplexity) {
-      if (func.metrics.cyclomaticComplexity >= 10) ccColor = chalk.red;
-      else if (func.metrics.cyclomaticComplexity >= 5) ccColor = chalk.yellow;
-    }
-
-    console.log(
-      `${name.padEnd(colWidths[0])} ${file.padEnd(colWidths[1])} ${lines} ${ccColor(cc)} ${params}`
-    );
+    console.log(`${func.id} ${func.displayName} ${func.filePath}:${func.startLine}`);
   });
-
-  // Footer
-  if (filteredCount < totalCount) {
-    console.log('─'.repeat(80));
-    console.log(chalk.gray(`Filtered ${totalCount - filteredCount} functions`));
-  }
 }
 
-function truncate(str: string, maxLength: number): string {
-  if (str.length <= maxLength) {
-    return str;
-  }
-  return str.substring(0, maxLength - 3) + '...';
-}
