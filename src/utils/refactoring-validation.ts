@@ -4,7 +4,7 @@
  */
 
 import { RefactoringHealthEngine, DefaultLineageManager } from './refactoring-health-engine.js';
-import { RefactoringIntent, RefactoringOperation } from '../types/index.js';
+import { RefactoringIntent, RefactoringOperation, ImprovementMetrics } from '../types/index.js';
 import { CommandEnvironment } from '../types/environment.js';
 import { v4 as uuidv4 } from 'uuid';
 import chalk from 'chalk';
@@ -132,7 +132,7 @@ export class RefactoringValidator {
   /**
    * Generate human-readable reasons for evaluation result
    */
-  private generateReasons(improvement: any, intent: RefactoringIntent): string[] {
+  private generateReasons(improvement: ImprovementMetrics, intent: RefactoringIntent): string[] {
     const reasons: string[] = [];
 
     // Function explosion analysis
@@ -202,7 +202,7 @@ export class RefactoringValidator {
   /**
    * Get recommendation based on evaluation
    */
-  private getRecommendation(improvement: any, _intent: RefactoringIntent): 'accept' | 'reject' | 'review' {
+  private getRecommendation(improvement: ImprovementMetrics, _intent: RefactoringIntent): 'accept' | 'reject' | 'review' {
     if (!improvement.isGenuine) {
       return 'reject';
     }
