@@ -127,35 +127,43 @@ export class QualityCalculator {
     return node.getFullText().split('\n').length;
   }
 
+  private isBasicControlFlowNode(kind: ts.SyntaxKind): boolean {
+    return [
+      ts.SyntaxKind.IfStatement,
+      ts.SyntaxKind.WhileStatement,
+      ts.SyntaxKind.DoStatement,
+      ts.SyntaxKind.ForStatement,
+      ts.SyntaxKind.ForInStatement,
+      ts.SyntaxKind.ForOfStatement,
+      ts.SyntaxKind.CaseClause,
+      ts.SyntaxKind.CatchClause,
+      ts.SyntaxKind.ConditionalExpression
+    ].includes(kind);
+  }
+
+  private isLogicalBinaryExpression(node: ts.Node): boolean {
+    if (node.kind !== ts.SyntaxKind.BinaryExpression) {
+      return false;
+    }
+    
+    const binExpr = node as ts.BinaryExpression;
+    return (
+      binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+      binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    );
+  }
+
+  private shouldIncrementComplexity(node: ts.Node): boolean {
+    return this.isBasicControlFlowNode(node.kind) || this.isLogicalBinaryExpression(node);
+  }
+
   private calculateCyclomaticComplexity(node: ts.FunctionLikeDeclaration): number {
     let complexity = 1; // Base complexity
 
     const visit = (node: ts.Node) => {
-      switch (node.kind) {
-        case ts.SyntaxKind.IfStatement:
-        case ts.SyntaxKind.WhileStatement:
-        case ts.SyntaxKind.DoStatement:
-        case ts.SyntaxKind.ForStatement:
-        case ts.SyntaxKind.ForInStatement:
-        case ts.SyntaxKind.ForOfStatement:
-        case ts.SyntaxKind.CaseClause:
-        case ts.SyntaxKind.CatchClause:
-        case ts.SyntaxKind.ConditionalExpression:
-          complexity++;
-          break;
-
-        case ts.SyntaxKind.BinaryExpression: {
-          const binExpr = node as ts.BinaryExpression;
-          if (
-            binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-            binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken
-          ) {
-            complexity++;
-          }
-          break;
-        }
+      if (this.shouldIncrementComplexity(node)) {
+        complexity++;
       }
-
       ts.forEachChild(node, visit);
     };
 
