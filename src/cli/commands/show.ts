@@ -50,7 +50,7 @@ async function findTargetFunction(
 ): Promise<FunctionInfo> {
   // Priority 1: Search by ID if provided
   if (functionId) {
-    const func = await env.storage.getFunction(functionId);
+    const func = await findFunctionById(env, functionId);
     if (func) {
       return func;
     }
@@ -92,6 +92,32 @@ async function findTargetFunction(
   }
 
   throw new Error('Please provide either --id <function-id> or a function name pattern');
+}
+
+/**
+ * Find function by ID with support for partial ID matching
+ */
+async function findFunctionById(
+  env: CommandEnvironment,
+  id: string
+): Promise<FunctionInfo | null> {
+  // Get the latest snapshot first
+  const snapshots = await env.storage.getSnapshots({ sort: 'created_at', limit: 1 });
+  if (snapshots.length === 0) {
+    return null;
+  }
+
+  // Try to get function with description first
+  const functionsWithDescriptions = await env.storage.getFunctionsWithDescriptions(snapshots[0].id);
+  const func = functionsWithDescriptions.find(f => f.id === id || f.id.startsWith(id));
+
+  if (func) {
+    return func;
+  }
+
+  // Fallback to regular query if not found in functions with descriptions
+  const functions = await env.storage.queryFunctions();
+  return functions.find(f => f.id === id || f.id.startsWith(id)) || null;
 }
 
 function outputJSON(func: FunctionInfo): void {
