@@ -1207,6 +1207,15 @@ export interface RefactorPlanOptions extends CommandOptions {
   effort?: string;
 }
 
+// Health-guided refactoring options
+export interface RefactorHealthGuidedOptions extends CommandOptions {
+  complexityThreshold?: number;
+  priorityThreshold?: number;
+  limit?: number;
+  format?: 'table' | 'json';
+  verbose?: boolean;
+}
+
 // ========================================
 // REFACTORING HEALTH ENGINE TYPES
 // ========================================

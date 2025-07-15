@@ -13,22 +13,29 @@ import {
   RefactorInteractiveOptions,
   RefactorPlanOptions,
   RefactorStatusOptions,
+  RefactorHealthGuidedOptions,
   RefactoringSession,
   CommandOptions
-} from '../../types/index.js';
-import { RefactoringAnalyzer } from '../../refactoring/refactoring-analyzer.js';
-import { SessionManager } from '../../refactoring/session-manager-simple.js';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler.js';
-import { VoidCommand } from '../../types/command.js';
-import { CommandEnvironment } from '../../types/environment.js';
-import { DatabaseError } from '../../storage/pglite-adapter.js';
+} from '../../types/index';
+import { RefactoringAnalyzer } from '../../refactoring/refactoring-analyzer';
+import { SessionManager } from '../../refactoring/session-manager-simple';
+import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { DatabaseError } from '../../storage/pglite-adapter';
 
 // Import extracted handlers
 import { 
   refactorAnalyzeCommandImpl,
   refactorDetectCommandImpl,
   refactorSnapshotCommandImpl
-} from './refactor/handlers/index.js';
+} from './refactor/handlers/index';
+
+// Import health-guided handlers
+import { 
+  healthGuidedAnalyze,
+  healthGuidedPrompt
+} from './refactor/handlers/health-guided';
 
 // Import utilities
 import { 
@@ -37,7 +44,7 @@ import {
   handleSessionListing,
   handleSessionDeletion,
   linkOpportunitiesToSession
-} from './refactor/utils/session-utils.js';
+} from './refactor/utils/session-utils';
 
 import {
   selectExistingSession,
@@ -45,11 +52,11 @@ import {
   selectOpportunities,
   confirmSessionCreation,
   confirmContinueSession
-} from './refactor/interactive/session-prompts.js';
+} from './refactor/interactive/session-prompts';
 
 import {
   displayAnalysisReport
-} from './refactor/utils/report-generator.js';
+} from './refactor/utils/report-generator';
 
 // ========================================
 // COMMAND OPTIONS TYPES
@@ -77,7 +84,8 @@ type RefactorCommandOptions =
   | RefactorInteractiveOptions
   | RefactorPlanOptions
   | RefactorStatusOptions
-  | RefactorTrackOptions;
+  | RefactorTrackOptions
+  | RefactorHealthGuidedOptions;
 
 // ========================================
 // MAIN COMMAND ROUTER
@@ -139,7 +147,11 @@ function getRefactorCommandHandler(
     verify: async (args, options, env) => 
       await refactorVerifyCommandImpl(args[0] || '', options as RefactorTrackOptions, env),
     snapshot: async (args, options, env) => 
-      await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options as Record<string, unknown>, env)
+      await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options as Record<string, unknown>, env),
+    'health-analyze': async (_args, options, env) => 
+      await healthGuidedAnalyze(options as RefactorHealthGuidedOptions, env),
+    'health-prompt': async (args, options, env) => 
+      await healthGuidedPrompt(args[0] || '', options as RefactorHealthGuidedOptions, env)
   };
   
   return commandMap[subcommand] ?? null;

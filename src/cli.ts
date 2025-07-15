@@ -888,6 +888,63 @@ refactorCommand.addCommand(
     })
 );
 
+// Add health-guided analyze subcommand
+refactorCommand.addCommand(
+  new Command('health-analyze')
+    .description('Analyze functions using health intelligence for smart refactoring')
+    .option('--complexity-threshold <number>', 'Complexity threshold for function targeting', '5')
+    .option('--priority-threshold <number>', 'Minimum priority score for inclusion', '0')
+    .option('--limit <number>', 'Maximum number of functions to analyze', '50')
+    .option('--format <format>', 'Output format (table, json)', 'table')
+    .option('--verbose', 'Show detailed analysis for each function')
+    .action(async (options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('health-analyze'))(options, command);
+    })
+    .addHelpText('after', `
+Examples:
+  $ funcqc refactor health-analyze                        # Basic health-guided analysis
+  $ funcqc refactor health-analyze --complexity-threshold 10  # Focus on complex functions
+  $ funcqc refactor health-analyze --priority-threshold 100   # Show only high-priority functions
+  $ funcqc refactor health-analyze --verbose               # Show detailed suggestions
+  $ funcqc refactor health-analyze --format json          # JSON output for tooling
+  $ funcqc refactor health-analyze --limit 20             # Limit to top 20 functions
+  
+Features:
+  - Integrates health command analysis with refactoring workflow
+  - Prioritizes functions based on complexity, maintainability, and impact
+  - Provides pattern-specific refactoring suggestions
+  - Generates intelligent Claude prompts for guided refactoring
+`)
+);
+
+// Add health-guided prompt subcommand
+refactorCommand.addCommand(
+  new Command('health-prompt')
+    .description('Generate health-guided refactoring prompt for a specific function')
+    .argument('<functionName>', 'Name of the function to generate prompt for')
+    .option('--complexity-threshold <number>', 'Complexity threshold for analysis', '5')
+    .option('--verbose', 'Show detailed health analysis information')
+    .action(async (functionName: string, options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('health-prompt', [functionName]))(options, command);
+    })
+    .addHelpText('after', `
+Examples:
+  $ funcqc refactor health-prompt "parseConfig"           # Generate prompt for parseConfig function
+  $ funcqc refactor health-prompt "handleRequest" --verbose  # Show detailed analysis
+  $ funcqc refactor health-prompt "Complex*" --complexity-threshold 10  # Target complex functions
+  
+Features:
+  - Analyzes function using health command intelligence
+  - Generates context-aware refactoring prompts
+  - Provides specific pattern-based improvement suggestions
+  - Includes current metrics and target goals
+`)
+);
+
 // Migrate command - Database migration management
 program
   .command('migrate')
