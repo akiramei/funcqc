@@ -24,6 +24,28 @@ import {
 
 export class HealthAnalysisService implements IHealthAnalysisService {
   
+  // Priority calculation constants
+  private readonly PRIORITY_WEIGHTS = {
+    BASE_COMPLEXITY_MULTIPLIER: 10,
+    MAX_COMPLEXITY_SCORE: 100,
+    SUGGESTION_SCORE_MULTIPLIER: 5,
+    HIGH_IMPACT_BONUS: 25,
+    MAINTAINABILITY_THRESHOLD: 50,
+    MAX_PRIORITY_SCORE: 200
+  } as const;
+  
+  // Complexity reduction estimates by pattern (in percentage)
+  private readonly REDUCTION_ESTIMATES = {
+    EARLY_RETURN: 30,
+    EXTRACT_METHOD: 40,
+    STRATEGY_PATTERN: 50,
+    OPTIONS_OBJECT: 20,
+    DEEPLY_NESTED: 35,
+    SWITCH_STATEMENT: 25,
+    GENERIC_SUGGESTION: 10,
+    MAX_REDUCTION: 80
+  } as const;
+  
   /**
    * Analyzes a single function using health command intelligence
    * @param functionInfo Function information including metrics and source code
@@ -48,8 +70,11 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     // Only analyze patterns if we have source code
     if (functionInfo.sourceCode) {
       try {
-        // This would require access to the function node, which we'll enhance later
-        // For now, use basic pattern detection from suggestions
+        // TODO: Enhanced AST-based pattern detection
+        // Future enhancement: Direct AST node access for more accurate pattern detection
+        // This would require integration with TypeScript Compiler API to parse
+        // functionInfo.sourceCode and extract actual AST patterns
+        // For now, use suggestion-based pattern detection as a viable alternative
         patterns = this.extractPatternsFromSuggestions(healthSuggestions, astSuggestions);
       } catch (error) {
         console.debug('Pattern analysis failed:', error);
@@ -112,10 +137,13 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     
     // Base score from complexity
     const complexity = functionInfo.metrics?.cyclomaticComplexity || 0;
-    score += Math.min(complexity * 10, 100); // Cap at 100
+    score += Math.min(
+      complexity * this.PRIORITY_WEIGHTS.BASE_COMPLEXITY_MULTIPLIER, 
+      this.PRIORITY_WEIGHTS.MAX_COMPLEXITY_SCORE
+    );
     
     // Additional score from suggestion count and severity
-    score += suggestions.length * 5;
+    score += suggestions.length * this.PRIORITY_WEIGHTS.SUGGESTION_SCORE_MULTIPLIER;
     
     // Bonus for specific high-impact patterns
     const highImpactPatterns = [
@@ -130,16 +158,16 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     );
     
     if (hasHighImpactPattern) {
-      score += 25;
+      score += this.PRIORITY_WEIGHTS.HIGH_IMPACT_BONUS;
     }
     
     // Score from maintainability issues
     const maintainability = functionInfo.metrics?.maintainabilityIndex || 100;
-    if (maintainability < 50) {
-      score += (50 - maintainability);
+    if (maintainability < this.PRIORITY_WEIGHTS.MAINTAINABILITY_THRESHOLD) {
+      score += (this.PRIORITY_WEIGHTS.MAINTAINABILITY_THRESHOLD - maintainability);
     }
     
-    return Math.min(score, 200); // Cap at 200
+    return Math.min(score, this.PRIORITY_WEIGHTS.MAX_PRIORITY_SCORE);
   }
   
   /**
@@ -152,12 +180,12 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     
     // Pattern-specific complexity reduction estimates
     const reductionPatterns = [
-      { pattern: 'early return', reduction: 30 },
-      { pattern: 'extract method', reduction: 40 },
-      { pattern: 'strategy pattern', reduction: 50 },
-      { pattern: 'options object', reduction: 20 },
-      { pattern: 'deeply nested', reduction: 35 },
-      { pattern: 'switch statement', reduction: 25 }
+      { pattern: 'early return', reduction: this.REDUCTION_ESTIMATES.EARLY_RETURN },
+      { pattern: 'extract method', reduction: this.REDUCTION_ESTIMATES.EXTRACT_METHOD },
+      { pattern: 'strategy pattern', reduction: this.REDUCTION_ESTIMATES.STRATEGY_PATTERN },
+      { pattern: 'options object', reduction: this.REDUCTION_ESTIMATES.OPTIONS_OBJECT },
+      { pattern: 'deeply nested', reduction: this.REDUCTION_ESTIMATES.DEEPLY_NESTED },
+      { pattern: 'switch statement', reduction: this.REDUCTION_ESTIMATES.SWITCH_STATEMENT }
     ];
     
     for (const suggestion of suggestions) {
@@ -172,9 +200,9 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     
     // Generic reduction for other suggestions
     const unmatched = suggestions.length - reduction / 25; // Rough estimate
-    reduction += Math.max(0, unmatched) * 10;
+    reduction += Math.max(0, unmatched) * this.REDUCTION_ESTIMATES.GENERIC_SUGGESTION;
     
-    return Math.min(reduction, 80); // Cap at 80% reduction
+    return Math.min(reduction, this.REDUCTION_ESTIMATES.MAX_REDUCTION);
   }
   
   /**
