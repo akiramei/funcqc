@@ -308,7 +308,7 @@ async function findFunctionByName(
   return functions[0].id;
 }
 
-function showFunctionNotFound(logger: any, pattern: string): void {
+function showFunctionNotFound(logger: import('../../utils/cli-utils').Logger, pattern: string): void {
   logger.info(chalk.red(`❌ Function not found: ${pattern}`));
   logger.info(chalk.blue('💡 Tips:'));
   logger.info('  • Use `funcqc list` to see all available functions with their IDs');
@@ -316,7 +316,7 @@ function showFunctionNotFound(logger: any, pattern: string): void {
   logger.info('  • Function IDs are shown in the first column of list/search results');
 }
 
-function showMultipleMatches(logger: any, functions: FunctionInfo[], pattern: string): void {
+function showMultipleMatches(logger: import('../../utils/cli-utils').Logger, functions: FunctionInfo[], pattern: string): void {
   logger.info(
     chalk.yellow(`Multiple functions found matching "${pattern}". Please specify a function ID:`)
   );
@@ -348,7 +348,7 @@ function handleSourceGuardValidation(
   existingDescription: FunctionDescription | null,
   newSource: 'human' | 'ai' | 'jsdoc',
   targetFunction: FunctionInfo,
-  logger: any,
+  logger: import('../../utils/cli-utils').Logger,
   force: boolean
 ): void {
   if (existingDescription && !force) {
@@ -467,7 +467,7 @@ async function showExistingDescription(
 }
 
 function displayDescription(
-  logger: any,
+  logger: import('../../utils/cli-utils').Logger,
   func: FunctionInfo,
   description: FunctionDescription
 ): void {
@@ -509,7 +509,7 @@ function displayDescription(
   }
 }
 
-function showNoDescription(logger: any, func: FunctionInfo): void {
+function showNoDescription(logger: import('../../utils/cli-utils').Logger, func: FunctionInfo): void {
   logger.info(chalk.yellow(`No description found for function: ${func.name}`));
   logger.info(`  Function ID: ${func.id}`);
   logger.info(`  File: ${func.filePath}:${func.startLine}`);

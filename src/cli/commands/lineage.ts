@@ -378,7 +378,7 @@ function applyLimit(lineages: Lineage[], options: LineageCommandOptions): Lineag
 function displayLineageList(
   lineages: Lineage[],
   _options: LineageCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): void {
   if (lineages.length === 0) {
     logger.info('No lineages found.');
@@ -425,7 +425,7 @@ function displayLineageDetails(
   lineage: Lineage,
   fromFunctions: (FunctionInfo | null)[],
   toFunctions: (FunctionInfo | null)[],
-  _logger: any
+  _logger: import('../../utils/cli-utils').Logger
 ): void {
   console.log(chalk.cyan.bold('\n🔗 Lineage Details\n'));
 
@@ -490,10 +490,10 @@ function buildReviewNote(
 }
 
 async function reviewSingleLineage(
-  storage: any,
+  storage: import('../../types').StorageAdapter,
   lineageId: string,
   options: LineageReviewOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): Promise<void> {
   const lineage = await storage.getLineage(lineageId);
 
@@ -527,9 +527,9 @@ async function reviewSingleLineage(
 }
 
 async function reviewAllDraftLineages(
-  storage: any,
+  storage: import('../../types').StorageAdapter,
   options: LineageReviewOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): Promise<void> {
   const draftLineages = await storage.getLineages();
   const drafts = draftLineages.filter((l: Lineage) => l.status === 'draft');
@@ -567,7 +567,7 @@ async function reviewAllDraftLineages(
 // CLEAN COMMAND FUNCTIONS
 // ========================================
 
-async function buildCleanQuery(options: LineageCleanOptions, logger: any): Promise<LineageQuery> {
+async function buildCleanQuery(options: LineageCleanOptions, logger: import('../../utils/cli-utils').Logger): Promise<LineageQuery> {
   const query: LineageQuery = {};
   
   if (!options.includeApproved) {
@@ -584,7 +584,7 @@ async function buildCleanQuery(options: LineageCleanOptions, logger: any): Promi
   return query;
 }
 
-function applyTimeFilter(lineages: Lineage[], options: LineageCleanOptions, logger: any): Lineage[] {
+function applyTimeFilter(lineages: Lineage[], options: LineageCleanOptions, logger: import('../../utils/cli-utils').Logger): Lineage[] {
   if (!options.olderThan) {
     return lineages;
   }
@@ -654,7 +654,7 @@ async function confirmCleanDeletion(options: LineageCleanOptions, statusCounts: 
   });
 }
 
-async function performDeletion(lineages: Lineage[], storage: any, logger: any): Promise<number> {
+async function performDeletion(lineages: Lineage[], storage: import('../../types').StorageAdapter, logger: import('../../utils/cli-utils').Logger): Promise<number> {
   let deletedCount = 0;
   for (const lineage of lineages) {
     try {

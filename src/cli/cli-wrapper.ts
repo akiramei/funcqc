@@ -112,7 +112,7 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
 /**
  * Legacy command wrapper for commands that haven't been refactored yet
  */
-export function withLegacyCommand<TOptions extends Record<string, any>>(
+export function withLegacyCommand<TOptions extends Record<string, unknown>>(
   commandImport: () => Promise<{ [key: string]: (options: TOptions) => Promise<void> }>,
   commandName: string
 ) {

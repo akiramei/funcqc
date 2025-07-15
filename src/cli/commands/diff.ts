@@ -152,7 +152,7 @@ function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOptions): vo
   }
 }
 
-function handleDiffError(error: unknown, errorHandler: any): void {
+function handleDiffError(error: unknown, errorHandler: import('../../utils/error-handler').ErrorHandler): void {
   if (error instanceof DatabaseError) {
     const funcqcError = errorHandler.createError(
       error.code,
@@ -466,7 +466,7 @@ async function processRemovedFunctions(
   similarityManager: SimilarityManager,
   validationResult: ValidationResult,
   options: DiffCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): Promise<LineageCandidate[]> {
   if (removedFunctions.length === 0) {
     return [];
@@ -550,7 +550,7 @@ async function processSignificantModifications(
   changeDetector: ChangeSignificanceDetector,
   config: ChangeDetectorConfig,
   options: DiffCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): Promise<LineageCandidate[]> {
   const minScore = config.minScoreForLineage ?? 50;
   const significantChanges = changeDetector.filterSignificantChanges(modifiedFunctions, minScore);
@@ -590,7 +590,7 @@ async function processFunctionSplits(
   changeDetector: ChangeSignificanceDetector,
   config: ChangeDetectorConfig,
   options: DiffCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): Promise<LineageCandidate[]> {
   if (
     config.enableFunctionSplitDetection === false ||
@@ -630,7 +630,7 @@ interface ValidationResult {
   detectors: string[];
 }
 
-function validateLineageOptions(options: DiffCommandOptions, logger: any): ValidationResult {
+function validateLineageOptions(options: DiffCommandOptions, logger: import('../../utils/cli-utils').Logger): ValidationResult {
   // Validate threshold
   const threshold = options.lineageThreshold ? parseFloat(options.lineageThreshold) : 0.7;
 
@@ -750,7 +750,7 @@ function deduplicateCandidates(candidates: LineageCandidate[]): LineageCandidate
 function displayLineageCandidates(
   candidates: LineageCandidate[],
   options: DiffCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): void {
   console.log(chalk.cyan.bold('\n🔗 Function Lineage Candidates\n'));
 

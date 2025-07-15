@@ -29,7 +29,7 @@ export default [
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_'
       }],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/ban-ts-comment': 'warn', 
       '@typescript-eslint/no-require-imports': 'warn',
       'no-case-declarations': 'error',

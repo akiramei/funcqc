@@ -65,7 +65,7 @@ async function getLatestSnapshot(env: CommandEnvironment, spinner: ReturnType<ty
  */
 async function getComplexFunctions(
   env: CommandEnvironment, 
-  snapshot: any, 
+  snapshot: import('../../../types').SnapshotInfo, 
   options: RefactorHealthGuidedOptions, 
   spinner: ReturnType<typeof ora>
 ) {
@@ -93,7 +93,7 @@ async function getComplexFunctions(
  * Helper function to generate and filter refactoring plans using RefactoringHealthEngine
  */
 async function generateAndFilterPlans(
-  functions: any[], 
+  functions: import('../../../types').FunctionInfo[], 
   options: RefactorHealthGuidedOptions, 
   spinner: ReturnType<typeof ora>,
   _env: CommandEnvironment
@@ -151,9 +151,9 @@ export async function applyRefactoringPlan(
  * Helper function to display analysis results
  */
 function displayAnalysisResults(
-  snapshot: any, 
-  functions: any[], 
-  filteredPlans: any[], 
+  snapshot: import('../../../types').SnapshotInfo, 
+  functions: import('../../../types').FunctionInfo[], 
+  filteredPlans: unknown[], 
   options: RefactorHealthGuidedOptions
 ): void {
   if (options.format === 'json') {
@@ -285,7 +285,7 @@ export async function healthGuidedPrompt(
  */
 async function findTargetFunction(
   env: CommandEnvironment,
-  snapshot: any,
+  snapshot: import('../../../types').SnapshotInfo,
   functionName: string,
   spinner: ReturnType<typeof ora>
 ) {
@@ -318,7 +318,7 @@ async function findTargetFunction(
 /**
  * Helper function to display prompt results
  */
-function displayPromptResults(prompt: string, analysis: any, options: RefactorHealthGuidedOptions): void {
+function displayPromptResults(prompt: string, analysis: unknown, options: RefactorHealthGuidedOptions): void {
   console.log(chalk.cyan('\n🤖 Health-Guided Refactoring Prompt'));
   console.log(chalk.gray('━'.repeat(80)));
   console.log(prompt);
