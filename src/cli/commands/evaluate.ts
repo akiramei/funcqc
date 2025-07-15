@@ -9,7 +9,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { EvaluateCommandOptions, FunctionInfo } from '../../types/index.js';
+import { EvaluateCommandOptions, FunctionInfo, isMultipleAssessment } from '../../types/index.js';
 import {
   RealTimeQualityGate,
   QualityAssessment,
@@ -118,12 +118,7 @@ async function executeEvaluateCommand(
   }
 }
 
-/**
- * Type guard to check if assessment is multiple functions
- */
-function isMultipleAssessment(assessment: QualityAssessment | MultipleQualityAssessment): assessment is MultipleQualityAssessment {
-  return 'allFunctions' in assessment;
-}
+// Type guard imported from centralized location
 
 /**
  * Initialize quality gate with historical baseline using shared storage

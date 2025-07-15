@@ -1,0 +1,64 @@
+63 modules with unused exports
+/mnt/c/Users/akira/source/repos/funcqc/src/index.ts: TypeScriptAnalyzer, PGLiteStorageAdapter, QualityCalculator, ConfigManager, QualityScorerV16, ThresholdConfigManager, DEFAULT_QUALITY_SCORER_THRESHOLDS, RealTimeQualityGate, RefactoringCandidateEvaluator, RefactoringCandidateGenerator, * -> /src/types/common, * -> /src/types/quality-enhancements, isMultipleAssessment, FuncqcConfig, SimilarityDetectorConfig, SimilarityWeights, ConsensusStrategy, FunctionInfo, ParameterInfo, ReturnTypeInfo, QualityMetrics, DependencyInfo, Lineage, LineageKind, LineageStatus, LineageCandidate, LineageReview, LineageQuery, SnapshotInfo, SnapshotMetadata, QueryFilter, QueryOptions, SnapshotDiff, FunctionChange, ChangeDetail, DiffStatistics, FuncqcError, AnalysisResult, CommandOptions, InitCommandOptions, ScanCommandOptions, ListCommandOptions, ShowCommandOptions, HealthCommandOptions, HistoryCommandOptions, EvaluateCommandOptions, QualityAssessment, FunctionAssessment, MultipleQualityAssessment, QualityViolation, RefactoringCandidate, CandidateEvaluation, CandidateComparison, EvaluationConfig, ExplainCommandOptions, CliComponents, FunctionChangeImproved, FunctionChangeDegraded, TopFunctionChanges, TrendDataSnapshot, SpinnerInterface, StorageAdapter, BackupOptions, SimilarityDetector, SimilarityOptions, SimilarityResult, SimilarFunction, QualityThresholds, QualityScorerThresholds, SimilarityThresholds, NamingThresholds, PerformanceThresholds, FuncqcThresholds, MultiLevelThreshold, ThresholdValue, StatisticalThreshold, RiskAssessmentConfig, RiskCondition, ViolationLevel, ProjectContext, ProjectPreset, PresetCategory, PresetRecommendation, PresetMetadata, PresetApplyOptions, PresetApplyResult, ConfigurationChange, ConfigValidationResult, ProjectAnalysisResult, ConfigCommandOptions, ProjectStatistics, MetricStatistics, ThresholdViolation, FunctionRiskAssessment, ProjectRiskAssessment, FunctionDescription, DescribeCommandOptions, SearchCommandOptions, VectorizeCommandOptions, RefactoringSession, SessionFunction, RefactoringOpportunity, RefactoringPattern, RefactoringReport, ProjectRefactoringSummary, QualityHotSpot, QualityIssue, RefactoringTrend, RefactoringRecommendation, RefactorAnalyzeOptions, RefactorDetectOptions, RefactorTrackOptions, RefactorInteractiveOptions, RefactorStatusOptions, RefactorPlanOptions, RefactorHealthGuidedOptions, RefactoringIntent, RefactoringChangeset, HealthAssessment, ImprovementMetrics, ChangesetAssessment, RefactoringOperation, RefactoringContext, LineageManager, FunctionLineage, ChangesetMetrics, RiskDistribution, FunctionAnalyzer, DatabaseError, parseQualityThresholdConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/cli-wrapper.ts: withEnvironment, withLegacyCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/config.ts: configCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/evaluate-naming.ts: createEvaluateCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/explain.ts: explainCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/init.ts: initCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/migrate.ts: upCommand, downCommand, statusCommand, cleanupCommand, resetCommand, createCommand, doctorCommand, restoreCommand, infoCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/describe.ts: describeCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/diff.ts: DiffCommandOptions, diffCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/evaluate.ts: evaluateCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/health.ts: healthCommand, analyzeASTPatterns, generateRecommendedActions
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/history.ts: historyCommand, calculateP95Complexity, calculateHighRiskCount, formatFunctionCountWithDiff, formatHighRiskCount
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/lineage.ts: LineageCommandOptions, LineageReviewOptions, LineageCleanOptions, lineageCommand, lineageDeleteCommand, lineageCleanCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/list.ts: listCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/refactor.ts: refactorCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/scan.ts: scanCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/search.ts: searchCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/show.ts: showCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/similar.ts: SimilarCommandOptions, similarCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/vectorize.ts: vectorizeCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/refactor/interactive/session-prompts.ts: createNewSession
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/refactor/utils/report-generator.ts: calculateTotalEffort
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/commands/refactor/utils/session-utils.ts: filterOpportunities, groupOpportunitiesByPattern, calculateOpportunityStats, isValidSessionStatus, createSessionSummary
+/mnt/c/Users/akira/source/repos/funcqc/src/cli/diff/changeDetector.ts: ChangeSignificance
+/mnt/c/Users/akira/source/repos/funcqc/src/config/presets.ts: PRESET_WEB_FRONTEND, PRESET_API_BACKEND, PRESET_CLI_TOOL, PRESET_LIBRARY, PRESET_JUNIOR_TEAM, PRESET_AI_OPTIMIZED, getPresetsByCategory, getPresetsByContext, listPresets
+/mnt/c/Users/akira/source/repos/funcqc/src/config/refactoring-thresholds.ts: RefactoringThresholds
+/mnt/c/Users/akira/source/repos/funcqc/src/core/realtime-quality-gate.ts: ProjectBaseline, QualityGateConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/core/risk-assessor.ts: RiskAssessor, riskAssessor
+/mnt/c/Users/akira/source/repos/funcqc/src/core/storage-manager.ts: StorageManager
+/mnt/c/Users/akira/source/repos/funcqc/src/core/storage-provider.ts: StorageProvider, getStorage
+/mnt/c/Users/akira/source/repos/funcqc/src/data/metric-explanations.ts: ConceptExplanation, METRIC_EXPLANATIONS, CONCEPT_EXPLANATIONS, getAllMetrics
+/mnt/c/Users/akira/source/repos/funcqc/src/migrations/001_initial_schema.ts: up, down
+/mnt/c/Users/akira/source/repos/funcqc/src/migrations/002_refactoring_health_engine.ts: up, down
+/mnt/c/Users/akira/source/repos/funcqc/src/migrations/helpers.ts: preserveTableData, preserveMultipleTables, checkTableExists, checkColumnExists, cleanupOldBackups, listBackupTables, safeDropTable, getMigrationStats
+/mnt/c/Users/akira/source/repos/funcqc/src/migrations/kysely-migration-manager.ts: KyselyMigrationOptions
+/mnt/c/Users/akira/source/repos/funcqc/src/refactoring/refactoring-analyzer.ts: RefactoringAnalyzerConfig, RefactoringThresholds, PatternConfigs, DEFAULT_REFACTORING_CONFIG, AnalysisOptions, ImpactAssessment, RiskAssessment, BenefitAssessment, EffortEstimate, RefactoringPlan, RefactoringPhase, RefactoringDependency, PatternDetector, PatternDetection, ExtractMethodConfig, SplitFunctionConfig, ReduceParametersConfig, ExtractClassConfig, InlineFunctionConfig, RenameFunctionConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/refactoring/session-manager-simple.ts: SessionConfig, SessionSummary
+/mnt/c/Users/akira/source/repos/funcqc/src/services/ann-index.ts: SearchResult, FunctionCluster, LSHBucket
+/mnt/c/Users/akira/source/repos/funcqc/src/services/embedding-service.ts: EmbeddingModelName, EmbeddingResult, SemanticSearchOptions
+/mnt/c/Users/akira/source/repos/funcqc/src/services/health-analysis-service.ts: HealthAnalysisService
+/mnt/c/Users/akira/source/repos/funcqc/src/services/local-similarity-service.ts: LocalSimilarityConfig, DocumentVector, LocalSimilarityResult, TFIDFMetrics
+/mnt/c/Users/akira/source/repos/funcqc/src/services/embedding/index.ts: OpenAIEmbeddingsClient, EnhancedVectorStore, EnhancedEmbeddingService, EmbeddingService, EmbeddingConfig, EMBEDDING_MODELS, EmbeddingServiceBuilder, EmbeddingServiceFactory, EmbeddingModel, RuntimeOptions, EmbeddingVector, EmbeddingResult, SemanticSearchOptions, SearchResult, EmbeddingsClient, VectorStore, EmbeddingsClientConfig, VectorStoreConfig, EnhancedEmbeddingConfig, IEmbeddingService
+/mnt/c/Users/akira/source/repos/funcqc/src/storage/bulk-insert-utils.ts: BulkInsertData
+/mnt/c/Users/akira/source/repos/funcqc/src/types/command.ts: Command, DataCommand
+/mnt/c/Users/akira/source/repos/funcqc/src/types/health-analysis.ts: RefactoringRecommendation
+/mnt/c/Users/akira/source/repos/funcqc/src/types/reader.ts: Reader, map, mapAsync, flatMap, flatMapAsync, pure, pureAsync, ask, askAsync
+/mnt/c/Users/akira/source/repos/funcqc/src/use-cases/index.ts: VectorizeUseCase, VectorizeResult, VectorizeData, StatusData, IndexData, BenchmarkData, VectorizeUseCaseDependencies, VectorizeOptionsValidator, VectorizeOptions, ANNAlgorithm, EmbeddingModel, OutputFormat, ValidationResult, ParsedIndexConfig, ConfirmationHandler, ConfirmationOptions, ConfirmationResult, OutputFormatter, FormatterOptions
+/mnt/c/Users/akira/source/repos/funcqc/src/use-cases/vectorize-options.ts: ANNAlgorithmSchema, EmbeddingModelSchema, OutputFormatSchema, VectorizeOptionsSchema
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/analysis-cache.ts: CacheEntry
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/changeset-evaluator.ts: GenuineImprovementCriteria, DefaultGenuineImprovementCriteria, ChangesetEvaluationResult, ChangesetEvaluator
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/cli-utils.ts: LogLevel, ProgressBar, formatTable, prompt, confirm, select, displayBanner, formatHelp, exitWithError, setupErrorHandling
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/error-handler.ts: FuncqcError, ErrorHandlerOptions
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/explosion-detector.ts: ExplosionDetectionConfig, DefaultExplosionDetectionConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/file-utils.ts: ensureDir, findFiles, shouldExclude, formatFileSize, debounce, throttle, sleep, retry, percentage, clamp, simpleHash, deepMerge, parseNumericCondition
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/format-helpers.ts: createStableJsonOutput, sanitizeForJson, safeLog, conditionalLog, errorLog
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/lineage-manager.ts: LineageManagerImpl
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/parallel-processor.ts: ParallelProcessingOptions
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/quality-scorer.ts: QualityWeights, ProjectQualityScore
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/refactoring-validation.ts: RefactoringValidationResult, RefactoringValidator
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/snapshot-manager.ts: SnapshotCreationOptions, AutomaticSnapshotConfig, DefaultAutomaticSnapshotConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/streaming-stats.ts: StreamingStatsConfig, StatsSummary, AnomalyResult, MultiMetricStats
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/structural-analyzer.ts: GraphNode, GraphEdge, StructuralAnalysisConfig
+/mnt/c/Users/akira/source/repos/funcqc/src/utils/system-checker.ts: SystemRequirement, SystemCheckResult

@@ -18,4 +18,3 @@ export { ThresholdConfigManager, DEFAULT_QUALITY_SCORER_THRESHOLDS } from './con
 
 // Re-export new quality gate and candidate evaluator classes
 export { RealTimeQualityGate } from './core/realtime-quality-gate';
-export { RefactoringCandidateEvaluator, RefactoringCandidateGenerator } from './utils/refactoring-candidate-evaluator';

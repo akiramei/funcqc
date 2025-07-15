@@ -56,52 +56,66 @@ high-risk-functions.txtとproject-quality-assessment.jsonから以下の情報�
 
 リスクスコアが最も高い関数から順に処理を行います。
 
-### 4. 複数候補リファクタリング（新機能）
+### 4. 実際のリファクタリング実行（必須）
 
-high-risk-functions.txtの上位5-10個の関数に対して、以下の革新的なアプローチを実行：
+**⚠️ CRITICAL: 実際の関数を変更する**
+
+high-risk-functions.txtから**1つの関数を選択**して、実際にリファクタリングを実行：
 
 ```bash
-# 関数の詳細リスクスコア分析
-npm run dev -- show --id "function-id-from-list"
+# Step 1: 対象関数の特定と現状把握
+TARGET_ID=$(head -1 high-risk-functions.txt | cut -d' ' -f1)
+npm run dev -- show --id "$TARGET_ID" > before-function.txt
 
-# 複数関数評価で当該ファイル全体の状況把握
-npm run dev -- eval path/to/file.ts --evaluate-all --json
+# Step 2: 現在のファイルをバックアップ
+TARGET_FILE=$(npm run dev -- show --id "$TARGET_ID" | grep "File:" | cut -d' ' -f2 | cut -d':' -f1)
+cp "$TARGET_FILE" "${TARGET_FILE}.backup"
+
+# Step 3: 実際のリファクタリング実行
+# ここで実際にコードエディタで関数を修正する
+echo "⚠️  手動作業: $TARGET_FILE の関数を実際に分割してください"
+echo "   - Early Return パターンの適用"
+echo "   - Extract Method による関数分割"
+echo "   - ネスト削減、責任分離"
 ```
 
-**RefactoringCandidateEvaluatorの活用（新機能）:**
+**複数パターンによる手動リファクタリング評価:**
 
-各高リスク関数に対して、複数のリファクタリング戦略を同時評価：
+各高リスク関数に対して、複数のリファクタリング戦略を手動で実施し評価：
 
 1. **Early Return Pattern**: ネストレベル削減
 2. **Extract Method Pattern**: 関数分割による複雑度削減  
 3. **Options Object Pattern**: パラメータ数削減
 4. **Strategy Pattern**: 条件分岐の体系化
 
-**実用的な候補作成と評価プロセス:**
+**実用的なパターン適用と評価プロセス:**
 
 ```bash
-# Step 1: 高リスク関数の実装を取得
+# Step 1: 高リスク関数の実装を確認
 npm run dev -- show --id "function-id" > original-function.txt
 
-# Step 2: 複数パターンの候補ファイルを作成
-# candidate-a-early-return.ts (Early Return Pattern適用)
-# candidate-b-extract-method.ts (Extract Method Pattern適用)  
-# candidate-c-options-object.ts (Options Object Pattern適用)
+# Step 2: 複数パターンを実際のコードに適用
+# 実際のファイルを直接編集して各パターンを試行
+# - Early Return Pattern適用版
+# - Extract Method Pattern適用版  
+# - Options Object Pattern適用版
 
-# Step 3: 各候補を個別に評価
-npm run dev -- eval candidate-a-early-return.ts --evaluate-all --json > result-a.json
-npm run dev -- eval candidate-b-extract-method.ts --evaluate-all --json > result-b.json
-npm run dev -- eval candidate-c-options-object.ts --evaluate-all --json > result-c.json
+# Step 3: 各パターン適用後の評価
+npm run dev scan --label "Pattern-EarlyReturn-$(date +%Y%m%d-%H%M)"
+npm run dev -- eval --evaluate-all --json > result-early-return.json
+
+npm run dev scan --label "Pattern-ExtractMethod-$(date +%Y%m%d-%H%M)"
+npm run dev -- eval --evaluate-all --json > result-extract-method.json
 
 # Step 4: 結果比較と最適解選択
+npm run dev health  # 全体的な品質確認
 jq '.aggregatedScore' result-*.json | sort -nr | head -1  # 最高スコア確認
 jq '.summary.totalFunctions' result-*.json  # 関数爆発チェック
-jq '.allFunctions[].violations | length' result-*.json  # 違反数比較
 ```
 
 **期待される評価パターン:**
-- **良い候補**: 集約スコア 95-100、違反数 0-2、適切な関数数
-- **ダメな候補**: 集約スコア <80、関数爆発、複雑性移転
+- **良いパターン**: 集約スコア 95-100、違反数 0-2、適切な関数数
+- **ダメなパターン**: 集約スコア <80、関数爆発、複雑性移転
 
 ### 5. リスクスコアベース・パターン適用指針（改訂）
 
@@ -165,14 +179,35 @@ npm run dev -- eval candidate-c.ts --evaluate-all --json
 - 副作用監視: 他関数への影響を複数関数評価で確認
 - 統合評価: 17種類メトリクスの総合的改善
 
-4. **変更後の即座検証**
+4. **必須：実際の改善検証**
 ```bash
-npm run dev scan --label "After-Pattern-Applied-$(date +%Y%m%d-%H%M)"
-npm run dev health  
-npm run --silent dev -- list --cc-ge 10 --json | jq '.functions | length'
+# 変更後のスキャンと比較
+npm run dev scan --label "After-Refactoring-$(date +%Y%m%d-%H%M)"
+npm run dev health
+
+# 具体的な改善確認（失敗基準付き）
+BEFORE_COUNT=$(cat before-high-risk-count.txt)
+AFTER_COUNT=$(npm run --silent dev -- list --cc-ge 10 --json | jq '.functions | length')
+
+if [ "$AFTER_COUNT" -ge "$BEFORE_COUNT" ]; then
+  echo "🚨 FAILURE: 高リスク関数が減っていません ($BEFORE_COUNT → $AFTER_COUNT)"
+  echo "リファクタリングに失敗しました。元のファイルを復元してください。"
+  exit 1
+fi
+
+echo "✅ SUCCESS: 高リスク関数が削減されました ($BEFORE_COUNT → $AFTER_COUNT)"
+
+# 対象関数の個別確認
+npm run dev -- show --id "$TARGET_ID" > after-function.txt
+echo "Before/Afterの比較:"
+echo "Before: $(cat before-function.txt | grep -E 'CC|LOC')"
+echo "After:  $(cat after-function.txt | grep -E 'CC|LOC')"
 ```
 
-**重要:** 単一メトリクス最適化ではなく、リスクスコア全体の体系的改善に焦点
+**🚨 失敗時の対応:**
+- バックアップからの復元
+- 別のパターンでの再試行
+- 関数選択の見直し
 
 ### 7. 高度な偽リファクタリング検出（改訂）
 
@@ -196,17 +231,24 @@ npm run dev -- eval . --evaluate-all --json | jq '.summary'
 - **メトリクス爆発**: 17種類メトリクスのうち改善が3つ以下
 - **構造的劣化**: 新関数群の相互依存性増加
 - **認知負荷増大**: 分割により理解困難性が向上
+- **🚨 関数重複**: 同一機能の関数が複数ファイルに作成される（実例発生）
+- **🚨 デモ詐欺**: 候補ファイル作成だけで実際のコードを変更しない（実例発生）
+- **🚨 作業評価欠如**: 改善を測定せずに成功を主張（実例発生）
 
-**RefactoringCandidateEvaluatorによる偽装検出:**
+**品質分析による偽装検出:**
 ```bash
-# 候補比較で真の改善を検証
-comparison.winner.scoring.riskScoreReduction < 40% → 要再検討
-comparison.baseline.score > comparison.winner.score → 改悪判定
+# 健康状態の変化で真の改善を検証
+npm run dev health  # リファクタリング前後の比較
+npm run dev -- list --cc-ge 10  # 高リスク関数の増減確認
 
 # 実証済み検出パターン
 jq '.aggregatedScore < 80' result.json → 品質不十分
 jq '.summary.totalFunctions > (original_count * 3)' → 関数爆発
 jq '[.allFunctions[].violations] | add | length > 5' → 違反集積
+
+# 関数重複検出（実例による追加）
+npm run dev -- diff HEAD~2 HEAD --lineage --lineage-auto-save | grep "split" → 重複検出
+grep -r "function functionName" src/ | wc -l → 同名関数カウント
 ```
 
 **実際の警告サイン実例:**
@@ -264,7 +306,7 @@ npm run dev -- eval . --evaluate-all --json > final-assessment.json
 - **リスクスコア削減実績**: Before/Afterの定量比較
 - **適用パターンと効果**: 各パターンのリスクスコア削減寄与度
 - **17メトリクス改善分布**: 包括的品質向上の証拠
-- **複数候補評価結果**: RefactoringCandidateEvaluatorによる客観的選択根拠
+- **複数パターン評価結果**: 手動適用による客観的効果測定
 - **偽リファクタリング検証**: 高度検出による品質保証
 - **複数関数評価サマリー**: プロジェクト全体への影響分析
 - **統計的有意性**: 改善の確実性と持続性の証明
@@ -290,11 +332,35 @@ npm run dev -- eval . --evaluate-all --json > final-assessment.json
 - **拡張性確保**: 新機能追加時の品質劣化耐性
 - **開発効率向上**: リファクタリング後の開発速度改善
 
+## 🚨 必須チェックリスト（詐欺防止）
+
+### 作業前チェック
+- [ ] 対象となる具体的な複雑関数を特定したか？
+- [ ] その関数のファイルパスと行番号を記録したか？
+- [ ] 現在の複雑度とリスクスコアを記録したか？
+
+### 作業中チェック  
+- [ ] 実際に元のファイルを編集しているか？
+- [ ] 新しいファイルを作成していないか？
+- [ ] 候補ファイルではなく実際のコードを変更しているか？
+
+### 作業後チェック
+- [ ] 高リスク関数の総数が減ったか？
+- [ ] 対象関数の複雑度が実際に下がったか？
+- [ ] health コマンドで品質向上が確認できるか？
+- [ ] 変更したファイルで関数が実際に分割されているか？
+
+### ❌ 以下は偽のリファクタリング
+- 候補ファイルの作成のみ
+- 新機能の開発
+- 既存関数の無修正
+- デモ用ファイルでの評価のみ
+
 ## 革新的な注意事項
 
-このワークフローは、**funcqcの最新リスクスコア知能と複数候補比較システム**を活用した、次世代の科学的リファクタリング手法です。従来の経験的・単一メトリクスアプローチを超越し、17種類の品質指標を統合した包括的な品質改善を実現します。
+このワークフローは、**実際のコード変更による確実な品質改善**に特化します。デモや理論ではなく、**測定可能な現実の改善**のみを成果として認めます。
 
-**重要原則**: 表面的なメトリクス操作ではなく、リスクスコア全体の体系的削減による**本質的なコード品質向上**に特化してください。
+**重要原則**: 候補評価ではなく、実際のコード変更による**検証可能な品質向上**に特化してください。
 
 ## 🧹 後処理とクリーンアップ
 
