@@ -1175,6 +1175,7 @@ export interface RefactorTrackOptions extends CommandOptions {
   interactive?: boolean;
   summary?: string;
   reason?: string;
+  force?: boolean;
 }
 
 // Phase 3 Week 3: Interactive and Polish Options

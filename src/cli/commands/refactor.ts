@@ -66,8 +66,18 @@ interface RefactorTrackOptions extends CommandOptions {
   summary?: string;
   reason?: string;
   json?: boolean;
+  force?: boolean;
   session?: string; // For specifying session ID in lineage operations
 }
+
+// Union type for all possible refactor command options
+type RefactorCommandOptions = 
+  | RefactorAnalyzeOptions
+  | RefactorDetectOptions
+  | RefactorInteractiveOptions
+  | RefactorPlanOptions
+  | RefactorStatusOptions
+  | RefactorTrackOptions;
 
 // ========================================
 // MAIN COMMAND ROUTER
@@ -76,63 +86,92 @@ interface RefactorTrackOptions extends CommandOptions {
 /**
  * Main refactor command router that handles all subcommands
  */
-export const refactorCommand = (subcommand: string, args: string[] = []): VoidCommand<any> =>
-  (options: any) =>
+export const refactorCommand = (subcommand: string, args: string[] = []): VoidCommand<RefactorCommandOptions> =>
+  (options: RefactorCommandOptions) =>
     async (env: CommandEnvironment): Promise<void> => {
       const errorHandler = createErrorHandler(env.commandLogger);
 
       try {
-        switch (subcommand) {
-          case 'analyze':
-            await refactorAnalyzeCommandImpl(options as RefactorAnalyzeOptions, env);
-            break;
-          case 'detect':
-            await refactorDetectCommandImpl(options as RefactorDetectOptions, env);
-            break;
-          case 'interactive':
-            await refactorInteractiveCommandImpl(options as RefactorInteractiveOptions, env);
-            break;
-          case 'plan':
-            await refactorPlanCommandImpl(options as RefactorPlanOptions, env);
-            break;
-          case 'status':
-            await refactorStatusCommandImpl(options as RefactorStatusOptions, env);
-            break;
-          case 'track':
-            await refactorTrackCommandImpl(args[0] || '', args.slice(1), options as RefactorTrackOptions, env);
-            break;
-          case 'assess':
-            await refactorAssessCommandImpl(args[0] || '', options as RefactorTrackOptions, env);
-            break;
-          case 'verify':
-            await refactorVerifyCommandImpl(args[0] || '', options as RefactorTrackOptions, env);
-            break;
-          case 'snapshot':
-            await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options, env);
-            break;
-          default:
-            throw new Error(`Unknown refactor subcommand: ${subcommand}`);
-        }
+        await executeRefactorSubcommand(subcommand, args, options, env);
       } catch (error) {
-        if (error instanceof DatabaseError) {
-          const funcqcError = errorHandler.createError(
-            error.code,
-            error.message,
-            {},
-            error.originalError
-          );
-          errorHandler.handleError(funcqcError);
-        } else {
-          const funcqcError = errorHandler.createError(
-            ErrorCode.UNKNOWN_ERROR,
-            `Refactor ${subcommand} command failed: ${error instanceof Error ? error.message : String(error)}`,
-            { subcommand, args },
-            error instanceof Error ? error : undefined
-          );
-          errorHandler.handleError(funcqcError);
-        }
+        handleRefactorError(error, subcommand, args, errorHandler);
       }
     };
+
+/**
+ * Execute the appropriate refactor subcommand
+ */
+async function executeRefactorSubcommand(
+  subcommand: string,
+  args: string[],
+  options: RefactorCommandOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  const commandHandler = getRefactorCommandHandler(subcommand);
+  if (!commandHandler) {
+    throw new Error(`Unknown refactor subcommand: ${subcommand}`);
+  }
+  
+  await commandHandler(args, options, env);
+}
+
+/**
+ * Get the appropriate command handler for a subcommand
+ */
+function getRefactorCommandHandler(
+  subcommand: string
+): ((args: string[], options: RefactorCommandOptions, env: CommandEnvironment) => Promise<void>) | null {
+  const commandMap: Record<string, (args: string[], options: RefactorCommandOptions, env: CommandEnvironment) => Promise<void>> = {
+    analyze: async (_args, options, env) => 
+      await refactorAnalyzeCommandImpl(options as RefactorAnalyzeOptions, env),
+    detect: async (_args, options, env) => 
+      await refactorDetectCommandImpl(options as RefactorDetectOptions, env),
+    interactive: async (_args, options, env) => 
+      await refactorInteractiveCommandImpl(options as RefactorInteractiveOptions, env),
+    plan: async (_args, options, env) => 
+      await refactorPlanCommandImpl(options as RefactorPlanOptions, env),
+    status: async (_args, options, env) => 
+      await refactorStatusCommandImpl(options as RefactorStatusOptions, env),
+    track: async (args, options, env) => 
+      await refactorTrackCommandImpl(args[0] || '', args.slice(1), options as RefactorTrackOptions, env),
+    assess: async (args, options, env) => 
+      await refactorAssessCommandImpl(args[0] || '', options as RefactorTrackOptions, env),
+    verify: async (args, options, env) => 
+      await refactorVerifyCommandImpl(args[0] || '', options as RefactorTrackOptions, env),
+    snapshot: async (args, options, env) => 
+      await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options, env)
+  };
+  
+  return commandMap[subcommand] ?? null;
+}
+
+/**
+ * Handle errors from refactor command execution
+ */
+function handleRefactorError(
+  error: unknown,
+  subcommand: string,
+  args: string[],
+  errorHandler: ReturnType<typeof createErrorHandler>
+): void {
+  if (error instanceof DatabaseError) {
+    const funcqcError = errorHandler.createError(
+      error.code,
+      error.message,
+      {},
+      error.originalError
+    );
+    errorHandler.handleError(funcqcError);
+  } else {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Refactor ${subcommand} command failed: ${error instanceof Error ? error.message : String(error)}`,
+      { subcommand, args },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
+}
 
 // ========================================
 // REMAINING COMMAND IMPLEMENTATIONS

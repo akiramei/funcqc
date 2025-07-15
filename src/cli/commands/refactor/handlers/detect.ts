@@ -58,7 +58,7 @@ export async function refactorDetectCommandImpl(
     
     spinner.succeed('Detection complete');
     
-    const opportunities = filterOpportunities(report.opportunities, selectedPattern, options.limit);
+    const opportunities = filterOpportunities(report.opportunities, selectedPattern, options.limit ? Number(options.limit) : undefined);
     const sessionId = await handleSessionCreation(options, opportunities, sessionManager, selectedPattern, spinner);
     
     if (options.interactive && opportunities.length > 0) {
@@ -83,10 +83,10 @@ export async function refactorDetectCommandImpl(
  */
 function parseDetectionOptions(options: RefactorDetectOptions, spinner: any): {
   analysisOptions: ParsedAnalysisOptions;
-  selectedPattern?: RefactoringPattern;
+  selectedPattern: RefactoringPattern | undefined;
 } {
   const analysisOptions: ParsedAnalysisOptions = {};
-  let selectedPattern: RefactoringPattern | undefined;
+  let selectedPattern: RefactoringPattern | undefined = undefined;
   
   // Set thresholds
   if (options.complexityThreshold !== undefined) {

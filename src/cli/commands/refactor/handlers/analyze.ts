@@ -15,7 +15,7 @@ import {
 } from '../../../../types/index.js';
 import { CommandEnvironment } from '../../../../types/environment.js';
 import { RefactoringAnalyzer } from '../../../../refactoring/refactoring-analyzer.js';
-import { generateMarkdownReport, displayAnalysisReport, calculateTotalEffort } from '../utils/report-generator.js';
+import { generateMarkdownReport, displayAnalysisReport } from '../utils/report-generator.js';
 
 // ============================================
 // CONSTANTS
@@ -49,51 +49,77 @@ export async function refactorAnalyzeCommandImpl(
     env.commandLogger.info('🔍 Analyzing project for refactoring opportunities...');
     
     const analyzer = new RefactoringAnalyzer(env.storage);
-    
-    // Prepare analysis options
-    const analysisOptions: {
-      complexityThreshold?: number;
-      sizeThreshold?: number;
-      since?: string;
-      patterns?: RefactoringPattern[];
-    } = {};
-    
-    if (options.complexityThreshold !== undefined) {
-      analysisOptions.complexityThreshold = options.complexityThreshold;
-    }
-    if (options.sizeThreshold !== undefined) {
-      analysisOptions.sizeThreshold = options.sizeThreshold;
-    }
-    if (options.since !== undefined) {
-      analysisOptions.since = options.since;
-    }
-    const patterns = parsePatterns(options.patterns);
-    if (patterns !== undefined) {
-      analysisOptions.patterns = patterns;
-    }
-
-    // Perform comprehensive analysis
+    const analysisOptions = buildAnalysisOptions(options);
     const report = await analyzer.analyzeProject(analysisOptions);
     
-    // Update project summary with actual opportunity count
-    report.projectSummary.opportunitiesFound = report.opportunities.length;
-    report.projectSummary.estimatedEffort = calculateTotalEffortFromOpportunities(report.opportunities);
-
-    // Output results
-    if (options.output) {
-      await saveReportToFile(report, options.output, options.format || 'detailed');
-      env.commandLogger.success(`📄 Report saved to: ${options.output}`);
-    }
-
-    if (options.format === 'json') {
-      console.log(JSON.stringify(report, null, 2));
-    } else {
-      displayAnalysisReport(report, options.format || 'summary', options.output);
-    }
-
+    updateReportSummary(report);
+    await handleReportOutput(report, options, env);
+    
   } catch (error) {
     env.commandLogger.error('Failed to analyze project for refactoring', error);
     process.exit(1);
+  }
+}
+
+/**
+ * Build analysis options from command options
+ */
+function buildAnalysisOptions(options: RefactorAnalyzeOptions): {
+  complexityThreshold?: number;
+  sizeThreshold?: number;
+  since?: string;
+  patterns?: RefactoringPattern[];
+} {
+  const analysisOptions: {
+    complexityThreshold?: number;
+    sizeThreshold?: number;
+    since?: string;
+    patterns?: RefactoringPattern[];
+  } = {};
+  
+  if (options.complexityThreshold !== undefined) {
+    analysisOptions.complexityThreshold = options.complexityThreshold;
+  }
+  if (options.sizeThreshold !== undefined) {
+    analysisOptions.sizeThreshold = options.sizeThreshold;
+  }
+  if (options.since !== undefined) {
+    analysisOptions.since = options.since;
+  }
+  
+  const patterns = parsePatterns(options.patterns);
+  if (patterns !== undefined) {
+    analysisOptions.patterns = patterns;
+  }
+  
+  return analysisOptions;
+}
+
+/**
+ * Update report summary with calculated values
+ */
+function updateReportSummary(report: any): void {
+  report.projectSummary.opportunitiesFound = report.opportunities.length;
+  report.projectSummary.estimatedEffort = calculateTotalEffortFromOpportunities(report.opportunities);
+}
+
+/**
+ * Handle report output to file and console
+ */
+async function handleReportOutput(
+  report: any,
+  options: RefactorAnalyzeOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  if (options.output) {
+    await saveReportToFile(report, options.output, options.format || 'detailed');
+    env.commandLogger.success(`📄 Report saved to: ${options.output}`);
+  }
+
+  if (options.format === 'json') {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    displayAnalysisReport(report, options.format || 'summary', options.output);
   }
 }
 

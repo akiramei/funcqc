@@ -65,6 +65,20 @@ export async function handleSessionUpdate(
   sessionId: string,
   options: RefactorTrackOptions
 ): Promise<void> {
+  const updates = buildSessionUpdates(options);
+  handleSessionNotes(options.notes, sessionId);
+  
+  if (Object.keys(updates).length > 0) {
+    await applySessionUpdates(sessionManager, sessionId, updates, options);
+  } else {
+    console.log('⚠️  No updates specified');
+  }
+}
+
+/**
+ * Build session updates object from options
+ */
+function buildSessionUpdates(options: RefactorTrackOptions): Partial<RefactoringSession> {
   const updates: Partial<RefactoringSession> = {};
   
   if (options.name) {
@@ -76,29 +90,53 @@ export async function handleSessionUpdate(
   }
   
   if (options.status) {
-    updates.status = options.status as 'planning' | 'active' | 'completed' | 'paused';
+    updates.status = normalizeSessionStatus(options.status);
   }
   
-  if (options.notes) {
+  return updates;
+}
+
+/**
+ * Normalize session status to valid values
+ */
+function normalizeSessionStatus(status: string): 'active' | 'completed' | 'cancelled' {
+  // Map planning/paused to active, others as is
+  return status === 'planning' || status === 'paused' 
+    ? 'active' 
+    : status as 'active' | 'completed' | 'cancelled';
+}
+
+/**
+ * Handle session notes output
+ */
+function handleSessionNotes(notes: string | undefined, sessionId: string): void {
+  if (notes) {
     // In a real implementation, you'd handle notes differently
-    console.log(`Notes for session ${sessionId}: ${options.notes}`);
+    console.log(`Notes for session ${sessionId}: ${notes}`);
   }
-  
-  if (Object.keys(updates).length > 0) {
-    try {
-      await sessionManager.updateSession(sessionId, updates);
-      console.log(`✅ Updated session: ${sessionId}`);
-      
-      if (options.json) {
-        const updatedSession = await sessionManager.getSession(sessionId);
-        console.log(JSON.stringify(updatedSession, null, 2));
-      }
-    } catch (error) {
-      console.error(`❌ Failed to update session: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
+}
+
+/**
+ * Apply session updates via SessionManager
+ */
+async function applySessionUpdates(
+  sessionManager: SessionManager,
+  sessionId: string,
+  updates: Partial<RefactoringSession>,
+  options: RefactorTrackOptions
+): Promise<void> {
+  try {
+    // TODO: Implement updateSession method in SessionManager
+    console.log(`⚠️  Session update not yet implemented. Would update: ${JSON.stringify(updates)}`);
+    console.log(`Session: ${sessionId}`);
+    
+    if (options.json) {
+      const currentSession = await sessionManager.getSession(sessionId);
+      console.log(JSON.stringify(currentSession, null, 2));
     }
-  } else {
-    console.log('⚠️  No updates specified');
+  } catch (error) {
+    console.error(`❌ Failed to update session: ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
 }
 
@@ -180,8 +218,10 @@ export async function handleSessionDeletion(
       return;
     }
     
-    await sessionManager.deleteSession(sessionId);
-    console.log(`✅ Deleted session: ${sessionId}`);
+    // TODO: Implement deleteSession method in SessionManager
+    // For now, use cancelSession as alternative
+    await sessionManager.cancelSession(sessionId, 'Deleted via CLI');
+    console.log(`✅ Cancelled session: ${sessionId}`);
     
     if (options.json) {
       console.log(JSON.stringify({ deleted: sessionId }, null, 2));

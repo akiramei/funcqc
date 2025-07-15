@@ -19,7 +19,6 @@ import {
   getPriorityDisplay, 
   getSeverityIcon, 
   formatPatternName,
-  getSeverityDisplay,
   groupOpportunitiesByPattern
 } from '../../../../utils/refactoring-utils.js';
 
