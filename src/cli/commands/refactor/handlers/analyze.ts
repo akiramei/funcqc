@@ -98,7 +98,7 @@ function buildAnalysisOptions(options: RefactorAnalyzeOptions): {
 /**
  * Update report summary with calculated values
  */
-function updateReportSummary(report: any): void {
+function updateReportSummary(report: RefactoringReport): void {
   report.projectSummary.opportunitiesFound = report.opportunities.length;
   report.projectSummary.estimatedEffort = calculateTotalEffortFromOpportunities(report.opportunities);
 }
@@ -107,7 +107,7 @@ function updateReportSummary(report: any): void {
  * Handle report output to file and console
  */
 async function handleReportOutput(
-  report: any,
+  report: RefactoringReport,
   options: RefactorAnalyzeOptions,
   env: CommandEnvironment
 ): Promise<void> {

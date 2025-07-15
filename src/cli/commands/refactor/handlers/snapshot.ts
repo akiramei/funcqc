@@ -16,7 +16,7 @@ import { CommandEnvironment } from '../../../../types/environment.js';
 export async function refactorSnapshotCommandImpl(
   action: string,
   args: string[],
-  options: any,
+  options: Record<string, unknown>,
   env: CommandEnvironment
 ): Promise<void> {
   try {

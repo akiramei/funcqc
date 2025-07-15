@@ -6,7 +6,7 @@
  */
 
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import * as prompts from '@inquirer/prompts';
 import { 
   RefactorDetectOptions, 
@@ -81,7 +81,7 @@ export async function refactorDetectCommandImpl(
 /**
  * Parse detection options and prepare analysis parameters
  */
-function parseDetectionOptions(options: RefactorDetectOptions, spinner: any): {
+function parseDetectionOptions(options: RefactorDetectOptions, spinner: Ora): {
   analysisOptions: ParsedAnalysisOptions;
   selectedPattern: RefactoringPattern | undefined;
 } {
@@ -150,7 +150,7 @@ async function handleSessionCreation(
   opportunities: RefactoringOpportunity[],
   sessionManager: SessionManager,
   pattern?: RefactoringPattern,
-  spinner?: any
+  spinner?: Ora
 ): Promise<string | null> {
   if (!options.session) return null;
   
@@ -263,8 +263,8 @@ function handleUserAction(
   action: string,
   opp: RefactoringOpportunity,
   selectedOpportunities: RefactoringOpportunity[],
-  opportunities: RefactoringOpportunity[],
-  index: number
+  _opportunities: RefactoringOpportunity[],
+  _index: number
 ): boolean {
   if (action === 'select') {
     selectedOpportunities.push(opp);
@@ -275,7 +275,7 @@ function handleUserAction(
     return false;
   } else if (action === 'view') {
     console.log(chalk.yellow('Code viewing not yet implemented'));
-    opportunities.splice(index + 1, 0, opp);
+    // Note: Code viewing functionality to be implemented
     return false;
   } else if (action === 'stop') {
     return true;

@@ -321,23 +321,24 @@ export class SnapshotManager {
   private async getGitInfo(): Promise<GitInfo> {
     try {
       const gitInfo: GitInfo = {};
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
       
       try {
-        gitInfo.commit = execSync('git rev-parse HEAD', { 
-          cwd: this.projectRoot, 
-          encoding: 'utf8',
+        gitInfo.commit = (await execAsync('git rev-parse HEAD', { 
+          cwd: this.projectRoot,
           timeout: 5000,
-        }).trim();
+        })).stdout.trim();
       } catch {
         // Git commit not available
       }
       
       try {
-        gitInfo.branch = execSync('git rev-parse --abbrev-ref HEAD', { 
-          cwd: this.projectRoot, 
-          encoding: 'utf8',
+        gitInfo.branch = (await execAsync('git rev-parse --abbrev-ref HEAD', { 
+          cwd: this.projectRoot,
           timeout: 5000,
-        }).trim();
+        })).stdout.trim();
       } catch {
         // Git branch not available
       }

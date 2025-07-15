@@ -139,7 +139,7 @@ function getRefactorCommandHandler(
     verify: async (args, options, env) => 
       await refactorVerifyCommandImpl(args[0] || '', options as RefactorTrackOptions, env),
     snapshot: async (args, options, env) => 
-      await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options, env)
+      await refactorSnapshotCommandImpl(args[0] || 'create', args.slice(1), options as Record<string, unknown>, env)
   };
   
   return commandMap[subcommand] ?? null;
