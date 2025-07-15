@@ -805,6 +805,7 @@ refactorCommand.addCommand(
         .argument('[label]', 'Optional label for the snapshot')
         .option('-c, --comment <comment>', 'Comment describing the snapshot')
         .option('-f, --force', 'Force creation even if no changes detected')
+        .option('--session-id <sessionId>', 'Associate snapshot with refactoring session')
         .option('--json', 'Output as JSON')
         .action(async (label: string | undefined, options: OptionValues, command) => {
           const { withEnvironment } = await import('./cli/cli-wrapper');
