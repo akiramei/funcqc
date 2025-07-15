@@ -11,8 +11,8 @@ Advanced Risk Score-Based Refactoring - リスクスコア評価と複数候補�
 ### 1. 初期分析とリスク評価
 
 ```bash
-# 現在の状態を記録
-npm run dev scan
+# 現在の状態を記録（ラベル付きで履歴管理）
+npm run dev scan --label "Before-RiskReduction-$(date +%Y%m%d-%H%M)"
 
 # リスクスコアベースの高優先度関数特定（新機能）
 npm run --silent dev -- list --cc-ge 10 --json | jq -r '.functions[] | "\(.id) \(.name) \(.filePath):\(.startLine)"' > high-risk-functions.txt
@@ -33,8 +33,9 @@ npm run dev -- refactor track create "Risk-Score-Based Reduction $(date +%Y%m%d-
 # 新しいブランチを作成
 git checkout -b "refactor/health-guided-$(date +%Y%m%d-%H%M%S)"
 
-# beforeスナップショットを作成
-npm run dev -- refactor snapshot create "Before health-guided refactoring"
+# beforeスナップショットを作成（リファクタリング専用ラベル）
+npm run dev scan --label "Before-Refactoring-$(whoami)-$(date +%Y%m%d-%H%M)"
+npm run dev -- refactor snapshot create "Before risk-score-based refactoring"
 ```
 
 ### 3. リスクスコア分析結果の確認
@@ -76,18 +77,31 @@ npm run dev -- eval path/to/file.ts --evaluate-all --json
 3. **Options Object Pattern**: パラメータ数削減
 4. **Strategy Pattern**: 条件分岐の体系化
 
-```typescript
-// 例: 複数候補の科学的評価
-const candidates = [
-  earlyReturnCandidate,
-  extractMethodCandidate, 
-  optionsObjectCandidate
-];
+**実用的な候補作成と評価プロセス:**
 
-const comparison = await evaluator.evaluateAndSelectBest(originalCode, candidates);
-console.log(`最適解: ${comparison.winner.candidate.name}`);
-console.log(`リスクスコア削減: ${comparison.winner.scoring.riskScoreReduction}%`);
+```bash
+# Step 1: 高リスク関数の実装を取得
+npm run dev -- show --id "function-id" > original-function.txt
+
+# Step 2: 複数パターンの候補ファイルを作成
+# candidate-a-early-return.ts (Early Return Pattern適用)
+# candidate-b-extract-method.ts (Extract Method Pattern適用)  
+# candidate-c-options-object.ts (Options Object Pattern適用)
+
+# Step 3: 各候補を個別に評価
+npm run dev -- eval candidate-a-early-return.ts --evaluate-all --json > result-a.json
+npm run dev -- eval candidate-b-extract-method.ts --evaluate-all --json > result-b.json
+npm run dev -- eval candidate-c-options-object.ts --evaluate-all --json > result-c.json
+
+# Step 4: 結果比較と最適解選択
+jq '.aggregatedScore' result-*.json | sort -nr | head -1  # 最高スコア確認
+jq '.summary.totalFunctions' result-*.json  # 関数爆発チェック
+jq '.allFunctions[].violations | length' result-*.json  # 違反数比較
 ```
+
+**期待される評価パターン:**
+- **良い候補**: 集約スコア 95-100、違反数 0-2、適切な関数数
+- **ダメな候補**: 集約スコア <80、関数爆発、複雑性移転
 
 ### 5. リスクスコアベース・パターン適用指針（改訂）
 
@@ -153,7 +167,7 @@ npm run dev -- eval candidate-c.ts --evaluate-all --json
 
 4. **変更後の即座検証**
 ```bash
-npm run dev scan
+npm run dev scan --label "After-Pattern-Applied-$(date +%Y%m%d-%H%M)"
 npm run dev health  
 npm run --silent dev -- list --cc-ge 10 --json | jq '.functions | length'
 ```
@@ -188,13 +202,42 @@ npm run dev -- eval . --evaluate-all --json | jq '.summary'
 # 候補比較で真の改善を検証
 comparison.winner.scoring.riskScoreReduction < 40% → 要再検討
 comparison.baseline.score > comparison.winner.score → 改悪判定
+
+# 実証済み検出パターン
+jq '.aggregatedScore < 80' result.json → 品質不十分
+jq '.summary.totalFunctions > (original_count * 3)' → 関数爆発
+jq '[.allFunctions[].violations] | add | length > 5' → 違反集積
+```
+
+**実際の警告サイン実例:**
+```json
+// ❌ ダメな候補の特徴
+{
+  "aggregatedScore": 65.4,           // 低品質スコア
+  "summary": {
+    "totalFunctions": 25,            // 関数爆発 (元1個→25個)
+    "acceptableFunctions": 15        // 不合格関数多数
+  },
+  "violations": [...15個の違反...]   // 問題未解決
+}
+
+// ✅ 良い候補の特徴  
+{
+  "aggregatedScore": 99.6,           // 高品質スコア
+  "summary": {
+    "totalFunctions": 8,             // 適切な分割
+    "acceptableFunctions": 8         // 全関数合格
+  },
+  "violations": [...]                // 最小限の軽微違反
+}
 ```
 
 ### 8. afterスナップショットとレポート作成
 
 ```bash
-# afterスナップショットを作成
-npm run dev -- refactor snapshot create "After health-guided refactoring"
+# afterスナップショットを作成（成果記録）
+npm run dev scan --label "After-RiskReduction-Success-$(date +%Y%m%d-%H%M)"
+npm run dev -- refactor snapshot create "After risk-score-based refactoring"
 
 # 改善レポートの確認
 npm run dev health
@@ -228,11 +271,12 @@ npm run dev -- eval . --evaluate-all --json > final-assessment.json
 
 ## リスクスコアベース成功基準（改訂）
 
-### 定量的成功指標
-- **リスクスコア削減率**: 対象関数で40%以上
-- **17メトリクス改善**: 5種類以上のメトリクスで測定可能な向上
-- **複数候補評価**: 最適解選択での70ポイント以上獲得
-- **複雑性移転防止**: 新関数群のリスクスコア総和が元の80%以下
+### 定量的成功指標（実証済み基準）
+- **集約スコア**: 95-100ポイント獲得（実証: 99.6-100達成）
+- **リスクスコア削減率**: 対象関数で40%以上（実証: 90%以上削減）
+- **関数分割適正性**: 元関数×2-3倍以内（実証: 1→8個、1→21個）
+- **違反数**: 0-2個の軽微違反のみ（実証: 1-2個達成）
+- **全関数合格率**: 100%（実証: 8/8、21/21達成）
 - **偽リファクタリング検出**: ゼロ件（高度検出システムによる）
 
 ### 質的成功指標
@@ -251,3 +295,52 @@ npm run dev -- eval . --evaluate-all --json > final-assessment.json
 このワークフローは、**funcqcの最新リスクスコア知能と複数候補比較システム**を活用した、次世代の科学的リファクタリング手法です。従来の経験的・単一メトリクスアプローチを超越し、17種類の品質指標を統合した包括的な品質改善を実現します。
 
 **重要原則**: 表面的なメトリクス操作ではなく、リスクスコア全体の体系的削減による**本質的なコード品質向上**に特化してください。
+
+## 🧹 後処理とクリーンアップ
+
+### 候補ファイルのクリーンアップ
+```bash
+# 評価完了後、候補ファイルとレポートを削除
+rm candidate-*.ts result-*.json original-function.txt
+
+# または、記録保持のためアーカイブディレクトリに移動
+mkdir -p refactoring-archive/$(date +%Y%m%d)
+mv candidate-*.ts result-*.json refactoring-archive/$(date +%Y%m%d)/
+```
+
+### 作業効率化のエイリアス
+```bash
+# .bashrc または .zshrc に追加
+alias funcqc-scan='npm run dev scan'
+alias funcqc-health='npm run dev health'  
+alias funcqc-eval='npm run dev -- eval --evaluate-all --json'
+alias funcqc-risks='npm run --silent dev -- list --cc-ge 10 --json | jq -r ".functions[] | \"\(.id) \(.name)\""'
+
+# ラベル付きスキャン関数
+funcqc-scan-labeled() {
+  local label="${1:-Manual-Scan}"
+  npm run dev scan --label "${label}-$(whoami)-$(date +%Y%m%d-%H%M)"
+}
+
+# リファクタリング段階別スキャン
+alias funcqc-before='funcqc-scan-labeled "Before-Refactoring"'
+alias funcqc-after='funcqc-scan-labeled "After-Refactoring"'
+alias funcqc-pattern='funcqc-scan-labeled "Pattern-Applied"'
+```
+
+### ラベリング命名規則
+```bash
+# 推奨されるラベル形式:
+# {段階}-{目的}-{開発者}-{日時}
+
+# 例:
+Before-RiskReduction-alice-20250716-1430
+After-EarlyReturn-bob-20250716-1445  
+Pattern-ExtractMethod-charlie-20250716-1500
+Success-OptimizationComplete-alice-20250716-1530
+
+# 履歴検索での活用:
+npm run dev history | grep "Before-"     # 開始時点の記録
+npm run dev history | grep "Success-"    # 成功した改善
+npm run dev history | grep "alice"       # 特定開発者の作業
+```
