@@ -8,6 +8,19 @@
 import chalk from 'chalk';
 import ora from 'ora';
 import { CommandEnvironment } from '../../../../types/environment.js';
+import { SnapshotManager } from '../../../../utils/snapshot-manager.js';
+import { SnapshotInfo } from '../../../../types/index.js';
+
+// Snapshot command options interface
+interface SnapshotCommandOptions {
+  label?: string;
+  comment?: string;
+  force?: boolean;
+  json?: boolean;
+  dryRun?: boolean;
+  limit?: number;
+  days?: number;
+}
 
 /**
  * Refactor snapshot command implementation
@@ -61,9 +74,9 @@ export async function refactorSnapshotCommandImpl(
  * Handle snapshot creation
  */
 async function handleSnapshotCreate(
-  snapshotManager: any,
+  snapshotManager: SnapshotManager,
   args: string[],
-  options: any,
+  options: SnapshotCommandOptions,
   _env: CommandEnvironment
 ): Promise<void> {
   const label = args[0] || options.label;
@@ -72,12 +85,17 @@ async function handleSnapshotCreate(
   const spinner = ora("Creating snapshot...").start();
   
   try {
-    const snapshot = await snapshotManager.createSnapshot({
-      label,
+    const snapshotOptions: Parameters<SnapshotManager['createSnapshot']>[0] = {
       comment,
       includeGitInfo: true,
       force: options.force || false,
-    });
+    };
+    
+    if (label) {
+      snapshotOptions.label = label;
+    }
+    
+    const snapshot = await snapshotManager.createSnapshot(snapshotOptions);
 
     spinner.succeed(`Snapshot created: ${snapshot.id}`);
     
@@ -95,7 +113,7 @@ async function handleSnapshotCreate(
 /**
  * Display snapshot creation result
  */
-function displaySnapshotCreationResult(snapshot: any): void {
+function displaySnapshotCreationResult(snapshot: SnapshotInfo): void {
   console.log();
   console.log(chalk.green("✅ Snapshot Created Successfully"));
   console.log();
@@ -107,7 +125,7 @@ function displaySnapshotCreationResult(snapshot: any): void {
 /**
  * Display basic snapshot information
  */
-function displaySnapshotBasicInfo(snapshot: any): void {
+function displaySnapshotBasicInfo(snapshot: SnapshotInfo): void {
   console.log(`${chalk.bold("ID:")} ${snapshot.id}`);
   console.log(`${chalk.bold("Label:")} ${snapshot.label || "N/A"}`);
   console.log(`${chalk.bold("Comment:")} ${snapshot.comment || "N/A"}`);
@@ -119,7 +137,7 @@ function displaySnapshotBasicInfo(snapshot: any): void {
 /**
  * Display Git information for newly created snapshot
  */
-function displaySnapshotGitInfoForCreation(snapshot: any): void {
+function displaySnapshotGitInfoForCreation(snapshot: SnapshotInfo): void {
   if (snapshot.gitCommit) {
     console.log(`${chalk.bold("Git Commit:")} ${snapshot.gitCommit.substring(0, 8)}`);
   }
@@ -132,9 +150,9 @@ function displaySnapshotGitInfoForCreation(snapshot: any): void {
  * Handle snapshot listing
  */
 async function handleSnapshotList(
-  _snapshotManager: any,
+  _snapshotManager: SnapshotManager,
   _args: string[],
-  options: any,
+  options: SnapshotCommandOptions,
   env: CommandEnvironment
 ): Promise<void> {
   const spinner = ora("Loading snapshots...").start();
@@ -163,7 +181,7 @@ async function handleSnapshotList(
 /**
  * Display formatted snapshot list
  */
-function displaySnapshotList(snapshots: any[]): void {
+function displaySnapshotList(snapshots: SnapshotInfo[]): void {
   console.log();
   console.log(chalk.blue.bold("📸 Snapshots"));
   console.log();
@@ -181,9 +199,13 @@ function displaySnapshotList(snapshots: any[]): void {
 /**
  * Display individual snapshot item
  */
-function displaySnapshotItem(snapshot: any): void {
+function displaySnapshotItem(snapshot: SnapshotInfo): void {
   const date = new Date(snapshot.createdAt).toLocaleString();
-  const isAutomatic = snapshot.label?.includes('Session ') || snapshot.comment?.includes('Automatic');
+  // More robust automatic snapshot identification using metadata
+  const isAutomatic = (snapshot.metadata as any)?.sessionId !== undefined || 
+                     (snapshot.metadata as any)?.operationType !== undefined ||
+                     snapshot.label?.startsWith('Before refactoring') ||
+                     snapshot.label?.startsWith('After refactoring');
   const typeIcon = isAutomatic ? '🤖' : '👤';
   
   console.log(`${typeIcon} ${chalk.bold(snapshot.id)}`);
@@ -200,7 +222,7 @@ function displaySnapshotItem(snapshot: any): void {
 /**
  * Display snapshot Git information
  */
-function displaySnapshotGitInfo(snapshot: any): void {
+function displaySnapshotGitInfo(snapshot: SnapshotInfo): void {
   if (snapshot.gitBranch) {
     console.log(`   ${chalk.dim('Branch:')} ${snapshot.gitBranch}`);
   }
@@ -212,7 +234,7 @@ function displaySnapshotGitInfo(snapshot: any): void {
 /**
  * Display snapshot comment if present
  */
-function displaySnapshotComment(snapshot: any): void {
+function displaySnapshotComment(snapshot: SnapshotInfo): void {
   if (snapshot.comment) {
     console.log(`   ${chalk.dim('Comment:')} ${snapshot.comment}`);
   }
@@ -222,9 +244,9 @@ function displaySnapshotComment(snapshot: any): void {
  * Handle snapshot cleanup
  */
 async function handleSnapshotCleanup(
-  snapshotManager: any,
+  snapshotManager: SnapshotManager,
   _args: string[],
-  options: any,
+  options: SnapshotCommandOptions,
   env: CommandEnvironment
 ): Promise<void> {
   const dryRun = options.dryRun || false;
@@ -283,7 +305,7 @@ async function handleCleanupDryRun(env: CommandEnvironment, spinner: any): Promi
 /**
  * Handle actual cleanup execution
  */
-async function handleCleanupExecution(snapshotManager: any, spinner: any): Promise<void> {
+async function handleCleanupExecution(snapshotManager: SnapshotManager, spinner: ReturnType<typeof ora>): Promise<void> {
   const deletedCount = await snapshotManager.cleanupOldSnapshots();
   spinner.succeed(`Cleaned up ${deletedCount} old snapshots`);
   

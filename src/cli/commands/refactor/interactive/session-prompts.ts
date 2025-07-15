@@ -243,7 +243,6 @@ export async function selectOpportunities(opportunities: RefactoringOpportunity[
       return await selectSpecificOpportunities(opportunities);
     case 'top':
       return opportunities.slice(0, 5);
-    case 'skip':
     default:
       return [];
   }

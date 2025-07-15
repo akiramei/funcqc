@@ -12,10 +12,10 @@ import {
   RefactoringSession,
   RefactoringOperation,
   SnapshotMetadata,
+  FunctionInfo,
 } from '../types/index.js';
 import { Logger } from './cli-utils.js';
 import { v4 as uuidv4 } from 'uuid';
-import { execSync } from 'child_process';
 
 /**
  * Snapshot Creation Options
@@ -344,11 +344,10 @@ export class SnapshotManager {
       }
       
       try {
-        gitInfo.tag = execSync('git describe --tags --exact-match HEAD', { 
-          cwd: this.projectRoot, 
-          encoding: 'utf8',
+        gitInfo.tag = (await execAsync('git describe --tags --exact-match HEAD', { 
+          cwd: this.projectRoot,
           timeout: 5000,
-        }).trim();
+        })).stdout.trim();
       } catch {
         // Git tag not available (this is normal)
       }
@@ -401,15 +400,15 @@ export class SnapshotManager {
       }
       
       // Calculate statistics
-      const functionsWithMetrics = functions.filter((f: any) => f.metrics);
-      const complexities = functionsWithMetrics.map((f: any) => f.metrics!.cyclomaticComplexity);
+      const functionsWithMetrics = functions.filter((f: FunctionInfo) => f.metrics);
+      const complexities = functionsWithMetrics.map((f: FunctionInfo) => f.metrics!.cyclomaticComplexity);
       const avgComplexity = complexities.length > 0 ? 
         complexities.reduce((sum: number, c: number) => sum + c, 0) / complexities.length : 0;
       const maxComplexity = complexities.length > 0 ? Math.max(...complexities) : 0;
       
       // Count exported and async functions
-      const exportedFunctions = functions.filter((f: any) => f.isExported).length;
-      const asyncFunctions = functions.filter((f: any) => f.isAsync).length;
+      const exportedFunctions = functions.filter((f: FunctionInfo) => f.isExported).length;
+      const asyncFunctions = functions.filter((f: FunctionInfo) => f.isAsync).length;
       
       // Build complexity distribution
       const complexityDistribution: Record<number, number> = {};
@@ -419,11 +418,11 @@ export class SnapshotManager {
       });
       
       // Count unique files and file extensions
-      const uniqueFiles = new Set(functions.map((f: any) => f.filePath)).size;
+      const uniqueFiles = new Set(functions.map((f: FunctionInfo) => f.filePath)).size;
       
       // Build file extensions distribution
       const fileExtensions: Record<string, number> = {};
-      functions.forEach((f: any) => {
+      functions.forEach((f: FunctionInfo) => {
         const ext = f.filePath.split('.').pop() || 'unknown';
         fileExtensions[ext] = (fileExtensions[ext] || 0) + 1;
       });
@@ -468,15 +467,12 @@ export class SnapshotManager {
         include: this.funcqcConfig.include?.sort(),
       });
       
-      // Simple hash function (for demonstration - in production use crypto)
-      let hash = 0;
-      for (let i = 0; i < configString.length; i++) {
-        const char = configString.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32-bit integer
-      }
-      
-      return Math.abs(hash).toString(16);
+      // Use crypto for production-grade hashing
+      const { createHash } = await import('crypto');
+      return createHash('sha256')
+        .update(configString)
+        .digest('hex')
+        .substring(0, 8);
     } catch (error) {
       this.logger.warn('Failed to calculate config hash', {
         error: error instanceof Error ? error.message : String(error),

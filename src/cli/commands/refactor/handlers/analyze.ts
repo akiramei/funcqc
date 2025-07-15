@@ -30,7 +30,6 @@ const REFACTORING_EFFORT_MAP: Record<string, number> = {
   [RefactoringPattern.RenameFunction]: 1
 };
 
-type OpportunityInfo = RefactoringOpportunity[];
 
 // ============================================
 // MAIN COMMAND HANDLER
@@ -152,8 +151,8 @@ function parsePatterns(patternsString?: string): RefactoringPattern[] | undefine
 /**
  * Calculate total effort from opportunities using pattern-based mapping
  */
-function calculateTotalEffortFromOpportunities(opportunities: OpportunityInfo): number {
-  return opportunities.reduce((total, opp) => total + (REFACTORING_EFFORT_MAP[opp.pattern] || 2), 0);
+function calculateTotalEffortFromOpportunities(opportunities: RefactoringOpportunity[]): number {
+  return opportunities.reduce((total: number, opp: RefactoringOpportunity) => total + (REFACTORING_EFFORT_MAP[opp.pattern] || 2), 0);
 }
 
 /**
