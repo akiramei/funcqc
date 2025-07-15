@@ -1220,10 +1220,21 @@ export interface RefactorHealthGuidedOptions extends CommandOptions {
 // REFACTORING HEALTH ENGINE TYPES
 // ========================================
 
+/**
+ * Refactoring intent defines the purpose and expected outcomes of a refactoring operation
+ */
+export type RefactoringIntent = 
+  | 'cleanup'   // Complexity/size reduction - requires meaningful improvement
+  | 'split'     // Function division - allows moderate complexity redistribution
+  | 'extend'    // Feature addition - tolerates slight complexity increase
+  | 'rename'    // Naming improvement - no complexity change expected
+  | 'extract';  // Code reuse - focuses on maintainability over complexity
+
 export interface RefactoringChangeset {
   id: string;
   sessionId: string;
   operationType: 'split' | 'extract' | 'merge' | 'rename';
+  intent: RefactoringIntent;
   parentFunctionId?: string;
   childFunctionIds: string[];
   beforeSnapshotId: string;
@@ -1271,6 +1282,7 @@ export interface ChangesetAssessment {
 
 export interface RefactoringOperation {
   type: 'split' | 'extract' | 'merge' | 'rename';
+  intent: RefactoringIntent;
   parentFunction: string;
   childFunctions: string[];
   context: RefactoringContext;

@@ -585,6 +585,7 @@ export class RefactoringHealthEngine {
       id: uuidv4(),
       sessionId,
       operationType: operation.type,
+      intent: operation.intent,
       parentFunctionId: operation.parentFunction,
       childFunctionIds: operation.childFunctions,
       beforeSnapshotId,

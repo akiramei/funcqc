@@ -1,0 +1,45 @@
+# RefactoringHealthEngine Thresholds Configuration
+# This file contains configurable thresholds for refactoring evaluation
+# Values can be adjusted per project to optimize fake improvement detection
+
+# Risk and maintainability score tolerance (±N points)
+# Accounts for measurement errors and minor variations
+riskDiffTolerance: 2
+maintainDiffTolerance: 2
+
+# Complexity reduction requirements by intent
+complexityReduction:
+  cleanup: 5        # cleanup requires 5%+ complexity reduction
+  split: 0          # split allows neutral complexity (may redistribute)
+  extend: -5        # extend tolerates 5% complexity increase for new features
+  rename: 0         # rename expects no complexity change
+  extract: 0        # extract focuses on maintainability over complexity
+
+# Function explosion scoring
+functionExplosion:
+  baseThreshold: 0.1      # Base explosion threshold (10%)
+  slopeCoefficient: 0.05  # Adjustment factor for function size: 0.05 * log10(LOC)
+  maxThreshold: 0.5       # Maximum allowed explosion threshold
+
+# Maintainability improvement requirements by intent
+maintainabilityImprovement:
+  cleanup: 10       # cleanup should improve maintainability by 10+ points
+  split: 0          # split neutral on maintainability
+  extend: -5        # extend can reduce maintainability slightly
+  rename: 5         # rename should improve maintainability
+  extract: 15       # extract should significantly improve maintainability
+
+# Risk score improvement requirements by intent
+riskImprovement:
+  cleanup: 10       # cleanup should reduce risk by 10+ points
+  split: 0          # split neutral on risk
+  extend: -10       # extend can increase risk slightly
+  rename: 0         # rename should not affect risk
+  extract: 5        # extract should reduce risk moderately
+
+# Evaluation modes
+evaluation:
+  useLocalMode: true          # Use local evaluation for target functions
+  useGlobalMode: false        # Use global evaluation for entire project
+  requireSignificantChange: true  # Require statistically significant changes
+  statisticalThreshold: 0.05  # p-value threshold for significance testing
