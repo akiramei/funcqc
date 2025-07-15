@@ -1,0 +1,210 @@
+{
+  "snapshot": {
+    "id": "3ca69d03-3745-4ac1-ba32-544ecd3149fc",
+    "createdAt": 1752578671791,
+    "totalFunctions": 1616
+  },
+  "analysis": {
+    "functionsAnalyzed": 10,
+    "plansGenerated": 10,
+    "complexityThreshold": "10",
+    "priorityThreshold": "100"
+  },
+  "plans": [
+    {
+      "functionId": "1fd6a631-27ee-4d63-9ccf-f281683a012a",
+      "functionName": "displayTable",
+      "filePath": "src/cli/commands/search.ts",
+      "complexity": 12,
+      "healthSuggestions": [
+        "High complexity (12): Extract 2-3 helper methods from conditional blocks in displayTable",
+        "Large function (46 lines): Extract validation and processing logic into separate methods",
+        "High nesting (4 levels): Convert nested if-statements to early return pattern in displayTable",
+        "High cognitive load (16): Simplify switch/case statements and conditional logic in displayTable",
+        "Very low maintainability (22.9): displayTable needs comprehensive refactoring"
+      ],
+      "astSuggestions": [
+        "Extract magic numbers (115, 105, 8) into named constants"
+      ],
+      "priority": 182.07,
+      "estimatedImpact": 78,
+      "claudePrompt": "\nRefactor the function `displayTable` in `src/cli/commands/search.ts` (lines 153–208).\n\nCurrent metrics:\n- Cyclomatic Complexity: 12\n- Lines of Code: 46\n- Nesting Level: 4\n- Maintainability Index: 22.9\n\nHealth Analysis Recommendations:\n- High complexity (12): Extract 2-3 helper methods from conditional blocks in displayTable\n- Large function (46 lines): Extract validation and processing logic into separate methods\n- High nesting (4 levels): Convert nested if-statements to early return pattern in displayTable\n- High cognitive load (16): Simplify switch/case statements and conditional logic in displayTable\n- Very low maintainability (22.9): displayTable needs comprehensive refactoring\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return",
+        "extract-constants"
+      ]
+    },
+    {
+      "functionId": "92c87cb8-ec42-49d8-baac-20c90d3513d0",
+      "functionName": "displayRefactoringPlans",
+      "filePath": "src/cli/commands/refactor/handlers/health-guided.ts",
+      "complexity": 10,
+      "healthSuggestions": [
+        "Large function (45 lines): Extract validation and processing logic into separate methods",
+        "Deep nesting (6 levels): Refactor nested conditions in displayRefactoringPlans using early returns and guard clauses",
+        "Very low maintainability (21.9): displayRefactoringPlans needs comprehensive refactoring",
+        "Extract magic numbers (80, 150, 50) into named constants"
+      ],
+      "astSuggestions": [
+        "Extract magic numbers (80, 150, 50) into named constants"
+      ],
+      "priority": 178.09,
+      "estimatedImpact": 68,
+      "claudePrompt": "\nRefactor the function `displayRefactoringPlans` in `src/cli/commands/refactor/handlers/health-guided.ts` (lines 142–199).\n\nCurrent metrics:\n- Cyclomatic Complexity: 10\n- Lines of Code: 45\n- Nesting Level: 6\n- Maintainability Index: 21.9\n\nHealth Analysis Recommendations:\n- Large function (45 lines): Extract validation and processing logic into separate methods\n- Deep nesting (6 levels): Refactor nested conditions in displayRefactoringPlans using early returns and guard clauses\n- Very low maintainability (21.9): displayRefactoringPlans needs comprehensive refactoring\n- Extract magic numbers (80, 150, 50) into named constants\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return",
+        "extract-constants"
+      ]
+    },
+    {
+      "functionId": "5d51d69b-5a9b-4570-ba86-e7b458407d2e",
+      "functionName": "validateInitialSchema",
+      "filePath": "src/migrations/001_initial_schema.ts",
+      "complexity": 10,
+      "healthSuggestions": [
+        "Large function (79 lines): Extract validation and processing logic into separate methods",
+        "Deep nesting (7 levels): Refactor nested conditions in validateInitialSchema using early returns and guard clauses",
+        "Very low maintainability (14.3): validateInitialSchema needs comprehensive refactoring"
+      ],
+      "astSuggestions": [],
+      "priority": 175.66,
+      "estimatedImpact": 48,
+      "claudePrompt": "\nRefactor the function `validateInitialSchema` in `src/migrations/001_initial_schema.ts` (lines 88–180).\n\nCurrent metrics:\n- Cyclomatic Complexity: 10\n- Lines of Code: 79\n- Nesting Level: 7\n- Maintainability Index: 14.3\n\nHealth Analysis Recommendations:\n- Large function (79 lines): Extract validation and processing logic into separate methods\n- Deep nesting (7 levels): Refactor nested conditions in validateInitialSchema using early returns and guard clauses\n- Very low maintainability (14.3): validateInitialSchema needs comprehensive refactoring\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return"
+      ]
+    },
+    {
+      "functionId": "a9bb3fc6-04ab-493c-a40e-f4e6caf8bc73",
+      "functionName": "configCommand",
+      "filePath": "src/cli/config.ts",
+      "complexity": 11,
+      "healthSuggestions": [
+        "High complexity (11): Extract 2-3 helper methods from conditional blocks in configCommand",
+        "Large function (42 lines): Extract validation and processing logic into separate methods",
+        "High nesting (4 levels): Convert nested if-statements to early return pattern in configCommand",
+        "High cognitive load (22): Simplify switch/case statements and conditional logic in configCommand",
+        "Consider strategy pattern for switch statement at line 9"
+      ],
+      "astSuggestions": [
+        "Consider strategy pattern for switch statement at line 9"
+      ],
+      "priority": 172.02,
+      "estimatedImpact": 80,
+      "claudePrompt": "\nRefactor the function `configCommand` in `src/cli/config.ts` (lines 14–57).\n\nCurrent metrics:\n- Cyclomatic Complexity: 11\n- Lines of Code: 42\n- Nesting Level: 4\n- Maintainability Index: 33.0\n\nHealth Analysis Recommendations:\n- High complexity (11): Extract 2-3 helper methods from conditional blocks in configCommand\n- Large function (42 lines): Extract validation and processing logic into separate methods\n- High nesting (4 levels): Convert nested if-statements to early return pattern in configCommand\n- High cognitive load (22): Simplify switch/case statements and conditional logic in configCommand\n- Consider strategy pattern for switch statement at line 9\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return",
+        "strategy-pattern"
+      ]
+    },
+    {
+      "functionId": "718fbe2e-6a8f-4431-8f86-51c0e38390bb",
+      "functionName": "resolveSnapshotId",
+      "filePath": "src/utils/snapshot-resolver.ts",
+      "complexity": 12,
+      "healthSuggestions": [
+        "High complexity (12): Extract 2-3 helper methods from conditional blocks in resolveSnapshotId",
+        "High nesting (4 levels): Convert nested if-statements to early return pattern in resolveSnapshotId",
+        "High cognitive load (16): Simplify switch/case statements and conditional logic in resolveSnapshotId",
+        "Extract magic numbers (8, 5) into named constants"
+      ],
+      "astSuggestions": [
+        "Extract magic numbers (8, 5) into named constants"
+      ],
+      "priority": 162.57,
+      "estimatedImpact": 68,
+      "claudePrompt": "\nRefactor the function `resolveSnapshotId` in `src/utils/snapshot-resolver.ts` (lines 20–62).\n\nCurrent metrics:\n- Cyclomatic Complexity: 12\n- Lines of Code: 31\n- Nesting Level: 4\n- Maintainability Index: 37.4\n\nHealth Analysis Recommendations:\n- High complexity (12): Extract 2-3 helper methods from conditional blocks in resolveSnapshotId\n- High nesting (4 levels): Convert nested if-statements to early return pattern in resolveSnapshotId\n- High cognitive load (16): Simplify switch/case statements and conditional logic in resolveSnapshotId\n- Extract magic numbers (8, 5) into named constants\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return",
+        "extract-constants"
+      ]
+    },
+    {
+      "functionId": "8c907c65-3783-4869-99f1-63279cd4fe10",
+      "functionName": "findTargetFunction",
+      "filePath": "src/cli/commands/show.ts",
+      "complexity": 10,
+      "healthSuggestions": [
+        "High nesting (5 levels): Convert nested if-statements to early return pattern in findTargetFunction",
+        "High cognitive load (17): Simplify switch/case statements and conditional logic in findTargetFunction",
+        "Extract magic numbers (10, 10, 10) into named constants"
+      ],
+      "astSuggestions": [
+        "Extract magic numbers (10, 10, 10) into named constants"
+      ],
+      "priority": 161.65,
+      "estimatedImpact": 58,
+      "claudePrompt": "\nRefactor the function `findTargetFunction` in `src/cli/commands/show.ts` (lines 46–95).\n\nCurrent metrics:\n- Cyclomatic Complexity: 10\n- Lines of Code: 36\n- Nesting Level: 5\n- Maintainability Index: 33.4\n\nHealth Analysis Recommendations:\n- High nesting (5 levels): Convert nested if-statements to early return pattern in findTargetFunction\n- High cognitive load (17): Simplify switch/case statements and conditional logic in findTargetFunction\n- Extract magic numbers (10, 10, 10) into named constants\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return",
+        "extract-constants"
+      ]
+    },
+    {
+      "functionId": "d6e071d1-0445-499b-b163-2065accbacb7",
+      "functionName": "calculateTFIDF",
+      "filePath": "src/services/local-similarity-service.ts",
+      "complexity": 10,
+      "healthSuggestions": [
+        "High nesting (5 levels): Convert nested if-statements to early return pattern in calculateTFIDF",
+        "High cognitive load (16): Simplify switch/case statements and conditional logic in calculateTFIDF"
+      ],
+      "astSuggestions": [],
+      "priority": 142.04,
+      "estimatedImpact": 38,
+      "claudePrompt": "\nRefactor the function `calculateTFIDF` in `src/services/local-similarity-service.ts` (lines 113–148).\n\nCurrent metrics:\n- Cyclomatic Complexity: 10\n- Lines of Code: 27\n- Nesting Level: 5\n- Maintainability Index: 43.0\n\nHealth Analysis Recommendations:\n- High nesting (5 levels): Convert nested if-statements to early return pattern in calculateTFIDF\n- High cognitive load (16): Simplify switch/case statements and conditional logic in calculateTFIDF\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "early-return"
+      ]
+    },
+    {
+      "functionId": "066b80c0-7259-4bee-a871-dd79009e1853",
+      "functionName": "displaySummary",
+      "filePath": "src/cli/commands/diff.ts",
+      "complexity": 11,
+      "healthSuggestions": [
+        "High complexity (11): Extract 2-3 helper methods from conditional blocks in displaySummary",
+        "High cognitive load (16): Simplify switch/case statements and conditional logic in displaySummary",
+        "Extract magic numbers (8, 8) into named constants"
+      ],
+      "astSuggestions": [
+        "Extract magic numbers (8, 8) into named constants"
+      ],
+      "priority": 137.26,
+      "estimatedImpact": 40,
+      "claudePrompt": "\nRefactor the function `displaySummary` in `src/cli/commands/diff.ts` (lines 176–214).\n\nCurrent metrics:\n- Cyclomatic Complexity: 11\n- Lines of Code: 31\n- Nesting Level: 3\n- Maintainability Index: 32.7\n\nHealth Analysis Recommendations:\n- High complexity (11): Extract 2-3 helper methods from conditional blocks in displaySummary\n- High cognitive load (16): Simplify switch/case statements and conditional logic in displaySummary\n- Extract magic numbers (8, 8) into named constants\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": [
+        "extract-constants"
+      ]
+    },
+    {
+      "functionId": "9f8e3827-62bd-47df-a2bc-d6f842a038bd",
+      "functionName": "getSortFunction",
+      "filePath": "src/cli/commands/list.ts",
+      "complexity": 11,
+      "healthSuggestions": [
+        "High complexity (11): Extract 2-3 helper methods from conditional blocks in getSortFunction",
+        "High cognitive load (25): Simplify switch/case statements and conditional logic in getSortFunction"
+      ],
+      "astSuggestions": [],
+      "priority": 110,
+      "estimatedImpact": 20,
+      "claudePrompt": "\nRefactor the function `getSortFunction` in `src/cli/commands/list.ts` (lines 105–120).\n\nCurrent metrics:\n- Cyclomatic Complexity: 11\n- Lines of Code: 16\n- Nesting Level: 2\n- Maintainability Index: 60.3\n\nHealth Analysis Recommendations:\n- High complexity (11): Extract 2-3 helper methods from conditional blocks in getSortFunction\n- High cognitive load (25): Simplify switch/case statements and conditional logic in getSortFunction\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": []
+    },
+    {
+      "functionId": "76197b2b-86b5-4c6f-b522-307eac7d3527",
+      "functionName": "createDisplayConfig",
+      "filePath": "src/cli/commands/show.ts",
+      "complexity": 12,
+      "healthSuggestions": [
+        "High complexity (12): Extract 2-3 helper methods from conditional blocks in createDisplayConfig"
+      ],
+      "astSuggestions": [],
+      "priority": 105,
+      "estimatedImpact": 10,
+      "claudePrompt": "\nRefactor the function `createDisplayConfig` in `src/cli/commands/show.ts` (lines 136–149).\n\nCurrent metrics:\n- Cyclomatic Complexity: 12\n- Lines of Code: 13\n- Nesting Level: 1\n- Maintainability Index: 64.5\n\nHealth Analysis Recommendations:\n- High complexity (12): Extract 2-3 helper methods from conditional blocks in createDisplayConfig\n\nRefactoring goals based on health analysis:\n- Apply the specific patterns suggested above\n- Reduce cyclomatic complexity below 10\n- Improve maintainability index above 70\n- Maintain or improve test coverage\n- Preserve all existing functionality\n\nImportant: This is health-guided refactoring. Focus on the specific patterns identified by the health analysis.\nUse Extract Method pattern where appropriate to achieve genuine complexity reduction.\n",
+      "targetPatterns": []
+    }
+  ]
+}
