@@ -220,6 +220,7 @@ class LineageManagerImpl implements LineageManager {
           id: uuidv4(),
           sessionId: operation.context.sessionId,
           operationType: operation.type as 'split' | 'extract' | 'merge' | 'rename',
+          intent: operation.intent,
           parentFunctionId: operation.parentFunction,
           childFunctionIds: operation.childFunctions,
           beforeSnapshotId: '', // Will be updated when snapshots are available
@@ -552,6 +553,7 @@ class LineageManagerImpl implements LineageManager {
         id: uuidv4(),
         sessionId: operation.context.sessionId,
         operationType: operation.type as 'split' | 'extract' | 'merge' | 'rename',
+        intent: operation.intent,
         parentFunctionId: operation.parentFunction,
         childFunctionIds: operation.childFunctions,
         beforeSnapshotId: '',

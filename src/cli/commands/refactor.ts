@@ -34,8 +34,12 @@ import {
 // Import health-guided handlers
 import { 
   healthGuidedAnalyze,
-  healthGuidedPrompt
+  healthGuidedPrompt,
+  applyRefactoringPlan
 } from './refactor/handlers/health-guided';
+
+// Import RefactoringValidator for health engine integration
+import { createRefactoringValidator } from '../../utils/refactoring-validation.js';
 
 // Import utilities
 import { 
@@ -151,7 +155,9 @@ function getRefactorCommandHandler(
     'health-analyze': async (_args, options, env) => 
       await healthGuidedAnalyze(options as RefactorHealthGuidedOptions, env),
     'health-prompt': async (args, options, env) => 
-      await healthGuidedPrompt(args[0] || '', options as RefactorHealthGuidedOptions, env)
+      await healthGuidedPrompt(args[0] || '', options as RefactorHealthGuidedOptions, env),
+    'health-apply': async (args, options, env) => 
+      await applyRefactoringPlan(args[0] || '', options as RefactorHealthGuidedOptions, env)
   };
   
   return commandMap[subcommand] ?? null;
@@ -360,36 +366,251 @@ async function refactorTrackCommandImpl(
 
 async function refactorAssessCommandImpl(
   sessionId: string,
-  _options: RefactorTrackOptions,
+  options: RefactorTrackOptions,
   env: CommandEnvironment
 ): Promise<void> {
+  const errorHandler = createErrorHandler(env.commandLogger);
+  
   try {
     env.commandLogger.info(`Assessing refactoring session: ${sessionId}`);
     
-    // TODO: Import and use ChangesetEvaluator
-    console.log('Assessment functionality is being implemented in separate modules');
-    console.log(`Session ${sessionId} assessment will be available after Phase 3 integration`);
+    const sessionManager = new SessionManager(env.storage);
+    
+    // Get session details
+    const session = await sessionManager.getSession(sessionId);
+    if (!session) {
+      console.log(chalk.red(`❌ Session not found: ${sessionId}`));
+      return;
+    }
+    
+    console.log(chalk.cyan(`\n🔍 Assessing Refactoring Session: ${session.name}`));
+    console.log(chalk.gray(`Session ID: ${sessionId}`));
+    console.log(chalk.gray(`Description: ${session.description || 'No description'}`));
+    
+    // Get session changesets from storage
+    const changesets = await env.storage.getRefactoringChangesetsBySession(sessionId);
+    
+    if (changesets.length === 0) {
+      console.log(chalk.yellow('\n⚠️  No changesets found for this session.'));
+      console.log(chalk.gray('This session may not have been through the health validation process yet.'));
+      return;
+    }
+    
+    console.log(chalk.blue(`\n📊 Found ${changesets.length} changeset(s) to assess:\n`));
+    
+    let genuineCount = 0;
+    let fakeCount = 0;
+    
+    for (let i = 0; i < changesets.length; i++) {
+      const changeset = changesets[i];
+      console.log(chalk.cyan(`--- Changeset ${i + 1}/${changesets.length} ---`));
+      console.log(`Operation: ${changeset.operationType} (${changeset.intent})`);
+      console.log(`Parent Function: ${changeset.parentFunctionId}`);
+      console.log(`Child Functions: ${changeset.childFunctionIds.length}`);
+      
+      if (changeset.improvementMetrics) {
+        const metrics = changeset.improvementMetrics;
+        console.log(`\n📈 Improvement Metrics:`);
+        console.log(`  Complexity Reduction: ${metrics.complexityReduction}`);
+        console.log(`  Risk Improvement: ${metrics.riskImprovement.toFixed(2)}`);
+        console.log(`  Maintainability Gain: ${metrics.maintainabilityGain.toFixed(2)}`);
+        console.log(`  Function Explosion Score: ${metrics.functionExplosionScore.toFixed(2)}`);
+        console.log(`  Overall Grade: ${metrics.overallGrade}`);
+        
+        const genuineIcon = metrics.isGenuine ? '✅' : '❌';
+        const genuineText = metrics.isGenuine ? 'GENUINE' : 'FAKE';
+        const genuineColor = metrics.isGenuine ? chalk.green : chalk.red;
+        console.log(`\n${genuineIcon} Assessment: ${genuineColor(genuineText)} improvement`);
+        
+        if (metrics.isGenuine) {
+          genuineCount++;
+        } else {
+          fakeCount++;
+        }
+      } else {
+        console.log(chalk.yellow('\n⚠️  No metrics available for this changeset'));
+      }
+      
+      console.log(''); // Empty line between changesets
+    }
+    
+    // Summary
+    console.log(chalk.cyan('\n📋 Assessment Summary'));
+    console.log(chalk.gray('='.repeat(40)));
+    console.log(`Session: ${chalk.blue(session.name)}`);
+    console.log(`Total Changesets: ${changesets.length}`);
+    console.log(`Genuine Improvements: ${chalk.green(genuineCount)}`);
+    console.log(`Fake Improvements: ${chalk.red(fakeCount)}`);
+    
+    const successRate = changesets.length > 0 ? ((genuineCount / changesets.length) * 100).toFixed(1) : '0';
+    console.log(`Success Rate: ${successRate}%`);
+    
+    if (options.json) {
+      console.log('\n' + JSON.stringify({
+        sessionId,
+        sessionName: session.name,
+        totalChangesets: changesets.length,
+        genuineImprovements: genuineCount,
+        fakeImprovements: fakeCount,
+        successRate: parseFloat(successRate),
+        changesets: changesets.map(cs => ({
+          id: cs.id,
+          operationType: cs.operationType,
+          intent: cs.intent,
+          isGenuine: cs.improvementMetrics?.isGenuine || false,
+          overallGrade: cs.improvementMetrics?.overallGrade || 'F'
+        }))
+      }, null, 2));
+    }
     
   } catch (error) {
-    env.commandLogger.error('Assessment failed', error);
-    throw error;
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Session assessment failed: ${error instanceof Error ? error.message : String(error)}`,
+      { sessionId },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
 async function refactorVerifyCommandImpl(
   sessionId: string,
-  _options: RefactorTrackOptions,
+  options: RefactorTrackOptions,
   env: CommandEnvironment
 ): Promise<void> {
+  const errorHandler = createErrorHandler(env.commandLogger);
+  
   try {
     env.commandLogger.info(`Verifying refactoring session: ${sessionId}`);
     
-    // TODO: Import and use verification utilities
-    console.log('Verification functionality is being implemented in separate modules');
-    console.log(`Session ${sessionId} verification will be available after Phase 3 integration`);
+    // Create validator for refactoring health verification
+    const validator = createRefactoringValidator(env);
+    const sessionManager = new SessionManager(env.storage);
+    
+    // Get session details
+    const session = await sessionManager.getSession(sessionId);
+    if (!session) {
+      console.log(chalk.red(`❌ Session not found: ${sessionId}`));
+      return;
+    }
+    
+    console.log(chalk.cyan(`\n🔬 Verifying Refactoring Session: ${session.name}`));
+    console.log(chalk.gray(`Session ID: ${sessionId}`));
+    
+    // Get session changesets
+    const changesets = await env.storage.getRefactoringChangesetsBySession(sessionId);
+    
+    if (changesets.length === 0) {
+      console.log(chalk.yellow('\n⚠️  No changesets found for verification.'));
+      console.log(chalk.gray('Run the session through health validation first.'));
+      return;
+    }
+    
+    console.log(chalk.blue(`\n🔍 Verifying ${changesets.length} changeset(s)...\n`));
+    
+    let verificationsPassed = 0;
+    let verificationsFailed = 0;
+    const failedChangesets: string[] = [];
+    
+    for (let i = 0; i < changesets.length; i++) {
+      const changeset = changesets[i];
+      console.log(chalk.cyan(`🧪 Verification ${i + 1}/${changesets.length}: ${changeset.operationType} (${changeset.intent})`));
+      
+      try {
+        // Skip verification if parent function ID is missing
+        if (!changeset.parentFunctionId) {
+          console.log(chalk.yellow(`   ⚠️  Skipped: Missing parent function ID`));
+          continue;
+        }
+        
+        // Re-evaluate the changeset to verify current assessment
+        const operation = {
+          type: changeset.operationType as 'split' | 'extract' | 'merge' | 'rename',
+          intent: changeset.intent,
+          parentFunction: changeset.parentFunctionId,
+          childFunctions: changeset.childFunctionIds,
+          context: {
+            sessionId: changeset.sessionId,
+            description: `Verification of changeset ${changeset.id}`,
+            beforeSnapshot: changeset.beforeSnapshotId,
+            afterSnapshot: changeset.afterSnapshotId,
+            targetBranch: 'main',
+          },
+        };
+        
+        const validationResult = await validator.validateRefactoring(
+          operation,
+          changeset.beforeSnapshotId,
+          changeset.afterSnapshotId
+        );
+        
+        // Compare with stored assessment
+        const storedIsGenuine = changeset.improvementMetrics?.isGenuine || false;
+        const currentIsGenuine = validationResult.isGenuine;
+        
+        if (storedIsGenuine === currentIsGenuine) {
+          console.log(chalk.green(`   ✅ Verified: Assessment consistent (${currentIsGenuine ? 'genuine' : 'fake'})`));
+          verificationsPassed++;
+        } else {
+          console.log(chalk.red(`   ❌ Inconsistent: Stored=${storedIsGenuine}, Current=${currentIsGenuine}`));
+          verificationsFailed++;
+          failedChangesets.push(changeset.id);
+        }
+        
+        if (options.json) {
+          console.log(`   Current metrics: Explosion=${validationResult.functionExplosionScore.toFixed(2)}, Grade=${validationResult.overallGrade}`);
+        }
+        
+      } catch (verifyError) {
+        console.log(chalk.red(`   ❌ Verification error: ${verifyError instanceof Error ? verifyError.message : String(verifyError)}`));
+        verificationsFailed++;
+        failedChangesets.push(changeset.id);
+      }
+    }
+    
+    // Verification summary
+    console.log(chalk.cyan('\n📋 Verification Summary'));
+    console.log(chalk.gray('='.repeat(40)));
+    console.log(`Session: ${chalk.blue(session.name)}`);
+    console.log(`Verifications Passed: ${chalk.green(verificationsPassed)}`);
+    console.log(`Verifications Failed: ${chalk.red(verificationsFailed)}`);
+    
+    if (failedChangesets.length > 0) {
+      console.log(`\nFailed Changesets:`);
+      failedChangesets.forEach(id => console.log(`  • ${id}`));
+    }
+    
+    const verificationRate = changesets.length > 0 ? ((verificationsPassed / changesets.length) * 100).toFixed(1) : '0';
+    console.log(`Verification Rate: ${verificationRate}%`);
+    
+    if (options.json) {
+      console.log('\n' + JSON.stringify({
+        sessionId,
+        sessionName: session.name,
+        totalChangesets: changesets.length,
+        verificationsPassed,
+        verificationsFailed,
+        verificationRate: parseFloat(verificationRate),
+        failedChangesets
+      }, null, 2));
+    }
+    
+    // Recommendations
+    if (verificationsFailed > 0) {
+      console.log(chalk.yellow('\n💡 Recommendations:'));
+      console.log(chalk.gray('  • Review failed changesets for configuration changes'));
+      console.log(chalk.gray('  • Check if thresholds.yaml has been modified'));
+      console.log(chalk.gray('  • Consider re-running health validation for failed changesets'));
+    }
     
   } catch (error) {
-    env.commandLogger.error('Verification failed', error);
-    throw error;
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Session verification failed: ${error instanceof Error ? error.message : String(error)}`,
+      { sessionId },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }

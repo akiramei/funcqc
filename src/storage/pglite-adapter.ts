@@ -29,6 +29,7 @@ import {
   LineageQuery,
   RefactoringSession,
   RefactoringChangeset,
+  RefactoringIntent,
 } from '../types';
 import {
   BatchProcessor,
@@ -78,6 +79,7 @@ interface RefactoringChangesetRow {
   id: string;
   session_id: string;
   operation_type: string;
+  intent: string;
   parent_function_id: string | null;
   child_function_ids: string | string[];
   before_snapshot_id: string;
@@ -3602,14 +3604,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async saveRefactoringChangeset(changeset: RefactoringChangeset): Promise<void> {
     await this.db.query(`
       INSERT INTO refactoring_changesets (
-        id, session_id, operation_type, parent_function_id, child_function_ids,
+        id, session_id, operation_type, intent, parent_function_id, child_function_ids,
         before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
         is_genuine_improvement, function_explosion_score, created_at, updated_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       ON CONFLICT (id) DO UPDATE SET
         session_id = EXCLUDED.session_id,
         operation_type = EXCLUDED.operation_type,
+        intent = EXCLUDED.intent,
         parent_function_id = EXCLUDED.parent_function_id,
         child_function_ids = EXCLUDED.child_function_ids,
         before_snapshot_id = EXCLUDED.before_snapshot_id,
@@ -3623,6 +3626,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       changeset.id,
       changeset.sessionId,
       changeset.operationType,
+      changeset.intent,
       changeset.parentFunctionId || null,
       changeset.childFunctionIds,
       changeset.beforeSnapshotId,
@@ -3663,7 +3667,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   async getRefactoringChangesetsBySession(sessionId: string): Promise<RefactoringChangeset[]> {
     const result = await this.db.query(`
-      SELECT id, session_id, operation_type, parent_function_id, child_function_ids,
+      SELECT id, session_id, operation_type, intent, parent_function_id, child_function_ids,
              before_snapshot_id, after_snapshot_id, health_assessment, improvement_metrics,
              is_genuine_improvement, function_explosion_score, created_at, updated_at
       FROM refactoring_changesets
@@ -3816,6 +3820,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       id: row.id,
       sessionId: row.session_id,
       operationType: row.operation_type as 'split' | 'extract' | 'merge' | 'rename',
+      intent: row.intent as RefactoringIntent,
       childFunctionIds: parsePostgresArray(row.child_function_ids),
       beforeSnapshotId: row.before_snapshot_id,
       afterSnapshotId: row.after_snapshot_id,

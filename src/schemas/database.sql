@@ -341,6 +341,7 @@ CREATE TABLE refactoring_changesets (
   id TEXT PRIMARY KEY,
   session_id TEXT NOT NULL,                                                 -- セッションID参照
   operation_type TEXT NOT NULL CHECK (operation_type IN ('split', 'extract', 'merge', 'rename')), -- 操作種別
+  intent TEXT NOT NULL CHECK (intent IN ('cleanup', 'split', 'extend', 'rename', 'extract')), -- リファクタリング意図
   parent_function_id TEXT,                                                  -- 親関数ID
   child_function_ids TEXT[],                                                -- 子関数IDの配列
   before_snapshot_id TEXT NOT NULL,                                         -- 変更前スナップショット

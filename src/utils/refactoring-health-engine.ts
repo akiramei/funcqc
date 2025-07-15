@@ -15,8 +15,10 @@ import {
   FunctionLineage,
   StorageAdapter,
   Lineage,
+  RefactoringIntent,
 } from '../types/index.js';
 import { ThresholdEvaluator } from './threshold-evaluator.js';
+import { RefactoringThresholdLoader } from '../config/refactoring-thresholds.js';
 import { v4 as uuidv4 } from 'uuid';
 
 /**
@@ -129,7 +131,7 @@ export class RefactoringHealthEngine {
   }
 
   /**
-   * Calculate improvement metrics with function explosion detection
+   * Calculate improvement metrics with intent-aware evaluation
    */
   private async calculateImprovementMetrics(
     before: HealthAssessment,
@@ -142,20 +144,33 @@ export class RefactoringHealthEngine {
     const riskImprovement = before.averageRiskScore - after.averageRiskScore;
     const maintainabilityGain = after.overallScore - before.overallScore;
 
-    // Calculate function explosion score
-    const functionExplosionScore = this.calculateFunctionExplosionScore(
+    // Calculate function explosion score using LOC-based evaluation
+    const functionExplosionScore = await this.calculateFunctionExplosionScore(
       before.totalFunctions,
       after.totalFunctions,
       changeset
     );
 
-    // Determine if improvement is genuine
-    const isGenuine = this.isGenuineImprovement(
+    // Get parent function LOC for evaluation context
+    let parentFunctionLOC: number | undefined;
+    if (changeset.parentFunctionId) {
+      try {
+        const parentFunction = await this.storage.getFunction(changeset.parentFunctionId);
+        parentFunctionLOC = parentFunction?.metrics?.linesOfCode;
+      } catch (error) {
+        console.warn('Failed to get parent function LOC:', error);
+      }
+    }
+
+    // Determine if improvement is genuine using intent-aware criteria
+    const isGenuine = await this.isGenuineImprovement(
       complexityReduction,
       riskImprovement,
       maintainabilityGain,
       functionExplosionScore,
-      before.totalComplexity
+      before.totalComplexity,
+      changeset.intent,
+      parentFunctionLOC
     );
 
     // Calculate overall improvement grade
@@ -178,55 +193,106 @@ export class RefactoringHealthEngine {
   }
 
   /**
-   * Calculate function explosion score to detect excessive splitting
+   * Calculate function explosion score using local LOC-based evaluation
+   * Implements expert recommendation for parent function size-based scoring
    */
-  private calculateFunctionExplosionScore(
+  private async calculateFunctionExplosionScore(
     beforeCount: number,
     afterCount: number,
     changeset: RefactoringChangeset
-  ): number {
+  ): Promise<number> {
     if (beforeCount === 0) return 0;
     
-    const functionIncrease = afterCount - beforeCount;
-    
-    // Function explosion score is the ratio of new functions to original lines of code
-    // Higher values indicate excessive splitting
+    // For split operations, use local LOC-based scoring
     if (changeset.operationType === 'split' && changeset.parentFunctionId) {
-      // For split operations, we calculate based on child functions created
-      const childCount = changeset.childFunctionIds.length;
-      return childCount / Math.max(beforeCount, 1);
+      try {
+        // Get parent function info
+        const parentFunction = await this.storage.getFunction(changeset.parentFunctionId);
+        if (!parentFunction?.metrics?.linesOfCode) {
+          // Fallback to child count if parent function not found
+          return changeset.childFunctionIds.length / Math.max(beforeCount, 1);
+        }
+        
+        // Get child functions and calculate total LOC
+        const childFunctions = await Promise.all(
+          changeset.childFunctionIds.map(id => this.storage.getFunction(id))
+        );
+        
+        const childTotalLOC = childFunctions.reduce((sum, child) => {
+          return sum + (child?.metrics?.linesOfCode || 0);
+        }, 0);
+        
+        // LOC-based explosion score: ratio of child LOC to parent LOC
+        // Values > 1.0 indicate potential code duplication or excessive splitting
+        return childTotalLOC / parentFunction.metrics.linesOfCode;
+      } catch (error) {
+        console.warn('Failed to calculate LOC-based explosion score:', error);
+        // Fallback to simple function count ratio
+        return changeset.childFunctionIds.length / Math.max(beforeCount, 1);
+      }
     }
     
-    // General explosion score
+    // General explosion score for non-split operations
+    const functionIncrease = afterCount - beforeCount;
     return functionIncrease / beforeCount;
   }
 
   /**
-   * Determine if improvement is genuine based on multiple factors
+   * Determine if improvement is genuine based on intent-aware criteria
+   * Implements expert recommendations for configurable, intent-based evaluation
    */
-  private isGenuineImprovement(
+  private async isGenuineImprovement(
     complexityReduction: number,
     riskImprovement: number,
     maintainabilityGain: number,
     functionExplosionScore: number,
-    beforeComplexity: number
-  ): boolean {
-    // Genuine improvement criteria:
-    // 1. Meaningful complexity reduction (>= 5%)
-    // 2. Risk improvement or at least not worse
-    // 3. Maintainability gain or at least not worse
-    // 4. Function explosion score within reasonable bounds (<= 0.3)
+    beforeComplexity: number,
+    intent: RefactoringIntent,
+    parentFunctionLOC?: number
+  ): Promise<boolean> {
+    // Load configurable thresholds
+    const thresholds = await RefactoringThresholdLoader.loadThresholds();
     
+    // 1. Intent-based complexity evaluation
     const complexityReductionPercentage = beforeComplexity > 0 ? (complexityReduction / beforeComplexity) * 100 : 0;
-    const meaningfulComplexityReduction = complexityReductionPercentage >= 5;
-    const riskNotWorse = riskImprovement >= 0;
-    const maintainabilityNotWorse = maintainabilityGain >= 0;
-    const explosionWithinBounds = functionExplosionScore <= 0.3;
-
-    return meaningfulComplexityReduction && 
-           riskNotWorse && 
-           maintainabilityNotWorse && 
-           explosionWithinBounds;
+    const requiredComplexityReduction = thresholds.complexityReduction[intent];
+    const complexityOK = complexityReductionPercentage >= requiredComplexityReduction;
+    
+    // 2. Risk improvement with tolerance
+    const requiredRiskImprovement = thresholds.riskImprovement[intent];
+    const riskTolerance = thresholds.riskDiffTolerance;
+    const riskOK = riskImprovement >= (requiredRiskImprovement - riskTolerance);
+    
+    // 3. Maintainability improvement with tolerance
+    const requiredMaintainabilityImprovement = thresholds.maintainabilityImprovement[intent];
+    const maintainabilityTolerance = thresholds.maintainDiffTolerance;
+    const maintainabilityOK = maintainabilityGain >= (requiredMaintainabilityImprovement - maintainabilityTolerance);
+    
+    // 4. Dynamic function explosion threshold
+    const explosionThreshold = await RefactoringThresholdLoader.getFunctionExplosionThreshold(
+      parentFunctionLOC || 10
+    );
+    const explosionOK = functionExplosionScore <= explosionThreshold;
+    
+    // Debug logging for evaluation rationale
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log(`Genuine improvement evaluation for intent '${intent}':`, {
+        complexityReductionPercentage,
+        requiredComplexityReduction,
+        complexityOK,
+        riskImprovement,
+        requiredRiskImprovement,
+        riskOK,
+        maintainabilityGain,
+        requiredMaintainabilityImprovement,
+        maintainabilityOK,
+        functionExplosionScore,
+        explosionThreshold,
+        explosionOK,
+      });
+    }
+    
+    return complexityOK && riskOK && maintainabilityOK && explosionOK;
   }
 
   /**
@@ -585,6 +651,7 @@ export class RefactoringHealthEngine {
       id: uuidv4(),
       sessionId,
       operationType: operation.type,
+      intent: operation.intent,
       parentFunctionId: operation.parentFunction,
       childFunctionIds: operation.childFunctions,
       beforeSnapshotId,

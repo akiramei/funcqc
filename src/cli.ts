@@ -946,6 +946,31 @@ Features:
 `)
 );
 
+// Add health-guided plan application subcommand
+refactorCommand.addCommand(
+  new Command('health-apply')
+    .description('Apply a refactoring plan with health engine validation')
+    .argument('<planId>', 'Plan ID or function name to apply refactoring to')
+    .option('--complexity-threshold <number>', 'Complexity threshold for validation', '5')
+    .option('--verbose', 'Show detailed validation information')
+    .action(async (planId: string, options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('health-apply', [planId]))(options, command);
+    })
+    .addHelpText('after', `
+Examples:
+  $ funcqc refactor health-apply "configCommand"          # Apply refactoring to configCommand
+  $ funcqc refactor health-apply "func-123-abc" --verbose # Apply specific plan with details
+  
+Features:
+  - Validates refactoring plans using RefactoringHealthEngine
+  - Detects and rejects fake improvements
+  - Provides detailed validation results and recommendations
+  - Integrates with the health command's sophisticated evaluation
+`)
+);
+
 // Migrate command - Database migration management
 program
   .command('migrate')

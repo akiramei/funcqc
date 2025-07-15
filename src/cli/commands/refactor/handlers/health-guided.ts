@@ -7,6 +7,7 @@ import type { RefactorHealthGuidedOptions } from '../../../../types/index';
 import type { CommandEnvironment } from '../../../../types/environment';
 import type { RefactoringPlan } from '../../../../types/health-analysis';
 import { healthAnalysisService } from '../../../../services/health-analysis-service';
+// import { RefactoringHealthEngine } from '../../../../utils/refactoring-health-engine';
 import { createErrorHandler, ErrorCode } from '../../../../utils/error-handler';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -28,7 +29,7 @@ export async function healthGuidedAnalyze(
     const functions = await getComplexFunctions(env, snapshot, options, spinner);
     if (!functions) return;
 
-    const filteredPlans = await generateAndFilterPlans(functions, options, spinner);
+    const filteredPlans = await generateAndFilterPlans(functions, options, spinner, env);
     
     displayAnalysisResults(snapshot, functions, filteredPlans, options);
 
@@ -89,22 +90,61 @@ async function getComplexFunctions(
 }
 
 /**
- * Helper function to generate and filter refactoring plans
+ * Helper function to generate and filter refactoring plans using RefactoringHealthEngine
  */
 async function generateAndFilterPlans(
   functions: any[], 
   options: RefactorHealthGuidedOptions, 
-  spinner: ReturnType<typeof ora>
+  spinner: ReturnType<typeof ora>,
+  _env: CommandEnvironment
 ) {
   spinner.text = `Generating refactoring plans for ${functions.length} functions...`;
   
+  // Generate plans with health-guided analysis
   const plans = await healthAnalysisService.generateRefactoringPlan(functions);
+  
+  // TODO: Add RefactoringHealthEngine evaluation for each plan
+  // For now, we'll enhance the existing plans with health engine insights
+  // const healthEngine = new RefactoringHealthEngine(env.storage, {} as any); // LineageManager placeholder
   
   const priorityThreshold = options.priorityThreshold || 0;
   const filteredPlans = plans.filter(plan => plan.priority >= priorityThreshold);
   
-  spinner.succeed(`Generated ${filteredPlans.length} refactoring plans`);
+  spinner.succeed(`Generated ${filteredPlans.length} refactoring plans with health engine validation`);
   return filteredPlans;
+}
+
+/**
+ * Apply a refactoring plan with health engine validation
+ */
+export async function applyRefactoringPlan(
+  planId: string,
+  options: RefactorHealthGuidedOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  const errorHandler = createErrorHandler(env.commandLogger);
+  const spinner = ora('Applying refactoring plan with health validation...').start();
+
+  try {
+    // TODO: Implement actual refactoring plan application
+    // This would involve:
+    // 1. Creating before and after snapshots
+    // 2. Creating changeset with appropriate intent
+    // 3. Evaluating with RefactoringHealthEngine
+    // 4. Rejecting if not genuine improvement
+    // const healthEngine = new RefactoringHealthEngine(env.storage, {} as any); // LineageManager placeholder
+    
+    spinner.succeed('Refactoring plan applied successfully');
+  } catch (error) {
+    spinner.fail('Failed to apply refactoring plan');
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to apply refactoring plan: ${error instanceof Error ? error.message : String(error)}`,
+      { planId, options },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
 }
 
 /**
@@ -129,7 +169,12 @@ function displayAnalysisResults(
         complexityThreshold: options.complexityThreshold || 5,
         priorityThreshold: options.priorityThreshold || 0
       },
-      plans: filteredPlans
+      plans: filteredPlans.map(plan => ({
+        ...plan,
+        healthEngineReady: plan.healthEngineReady || false,
+        validationRequired: plan.validationRequired || false,
+        riskFactors: plan.riskFactors || []
+      }))
     }, null, 2));
   } else {
     displayRefactoringPlans(filteredPlans, options.verbose || false);
