@@ -150,61 +150,143 @@ interface FunctionWithSimilarityDetails extends FunctionInfo {
   _astScore?: number;
 }
 
+// Constants for table display
+const TABLE_CONSTANTS = {
+  SIMILARITY_HEADER_WIDTH: 115,
+  STANDARD_HEADER_WIDTH: 105,
+  FUNCTION_ID_LENGTH: 8,
+  FUNCTION_NAME_WIDTH: 25,
+  FILE_LOCATION_WIDTH: 40,
+  SIMILARITY_THRESHOLD_HIGH: 0.8,
+  SIMILARITY_THRESHOLD_MEDIUM: 0.5,
+  SIMILARITY_DECIMAL_PLACES: 3
+} as const;
+
+const TABLE_HEADERS = {
+  WITH_SIMILARITY: 'ID        Similarity   Complexity   Function                  File:Line                                Exported Async',
+  WITHOUT_SIMILARITY: 'ID        Complexity   Function                  File:Line                                Exported Async'
+} as const;
+
 function displayTable(functions: FunctionInfo[]): void {
-  // Check if any function has similarity scores
-  const hasScores = functions.some(
+  const hasScores = checkForSimilarityScores(functions);
+  
+  displayTableHeader(hasScores);
+  displayTableRows(functions, hasScores);
+}
+
+/**
+ * Check if functions have similarity scores
+ */
+function checkForSimilarityScores(functions: FunctionInfo[]): boolean {
+  return functions.some(
     func =>
       (func as FunctionWithSimilarity)._similarity !== undefined ||
       (func as FunctionWithSimilarity)._hybridScore !== undefined
   );
+}
 
-  // Print table header
-  if (hasScores) {
-    console.log(
-      chalk.bold(
-        'ID        Similarity   Complexity   Function                  File:Line                                Exported Async'
-      )
-    );
-    console.log(chalk.gray('─'.repeat(115)));
-  } else {
-    console.log(
-      chalk.bold(
-        'ID        Complexity   Function                  File:Line                                Exported Async'
-      )
-    );
-    console.log(chalk.gray('─'.repeat(105)));
-  }
+/**
+ * Display table header based on whether similarity scores are present
+ */
+function displayTableHeader(hasScores: boolean): void {
+  const header = hasScores ? TABLE_HEADERS.WITH_SIMILARITY : TABLE_HEADERS.WITHOUT_SIMILARITY;
+  const width = hasScores ? TABLE_CONSTANTS.SIMILARITY_HEADER_WIDTH : TABLE_CONSTANTS.STANDARD_HEADER_WIDTH;
+  
+  console.log(chalk.bold(header));
+  console.log(chalk.gray('─'.repeat(width)));
+}
 
-  // Print function rows
+/**
+ * Display table rows for each function
+ */
+function displayTableRows(functions: FunctionInfo[], hasScores: boolean): void {
   functions.forEach(func => {
-    const complexity = func.metrics?.cyclomaticComplexity || 1;
-    const complexityColor = getComplexityColor(complexity);
-
-    const functionId = chalk.gray(func.id.substring(0, 8));
-    const functionName = truncate(func.name, 25).padEnd(25);
-    const fileLocation = truncate(`${path.basename(func.filePath)}:${func.startLine}`, 40).padEnd(
-      40
-    );
-    const exported = func.isExported ? chalk.green('✓') : chalk.gray('✗');
-    const async = func.isAsync ? chalk.blue('✓') : chalk.gray('✗');
-    const complexityStr = complexityColor(complexity.toString()).padEnd(12);
-
-    // Add similarity score if available
-    let row = `${functionId} `;
-
-    if (hasScores) {
-      const funcWithScore = func as FunctionWithSimilarity;
-      const similarity = funcWithScore._similarity || funcWithScore._hybridScore || 0;
-      const similarityColor =
-        similarity > 0.8 ? chalk.green : similarity > 0.5 ? chalk.yellow : chalk.gray;
-      const similarityStr =
-        similarity > 0 ? similarityColor(similarity.toFixed(3)) : chalk.gray('---');
-      row += `${similarityStr.padEnd(12)} `;
-    }
-
-    row += `${complexityStr} ${functionName} ${fileLocation} ${exported}        ${async}`;
+    const row = createTableRow(func, hasScores);
     console.log(row);
   });
+}
+
+/**
+ * Create a formatted table row for a function
+ */
+function createTableRow(func: FunctionInfo, hasScores: boolean): string {
+  const basicColumns = createBasicColumns(func);
+  const similarityColumn = hasScores ? createSimilarityColumn(func) : '';
+  
+  return `${basicColumns.functionId} ${similarityColumn}${basicColumns.complexity} ${basicColumns.functionName} ${basicColumns.fileLocation} ${basicColumns.exported}        ${basicColumns.async}`;
+}
+
+/**
+ * Create basic columns for function display
+ */
+function createBasicColumns(func: FunctionInfo) {
+  const complexity = func.metrics?.cyclomaticComplexity || 1;
+  const complexityColor = getComplexityColor(complexity);
+
+  return {
+    functionId: formatFunctionId(func.id),
+    functionName: formatFunctionName(func.name),
+    fileLocation: formatFileLocation(func.filePath, func.startLine),
+    exported: formatBooleanColumn(func.isExported, 'green'),
+    async: formatBooleanColumn(func.isAsync, 'blue'),
+    complexity: complexityColor(complexity.toString()).padEnd(12)
+  };
+}
+
+/**
+ * Format function ID for display
+ */
+function formatFunctionId(id: string): string {
+  return chalk.gray(id.substring(0, TABLE_CONSTANTS.FUNCTION_ID_LENGTH));
+}
+
+/**
+ * Format function name for display
+ */
+function formatFunctionName(name: string): string {
+  return truncate(name, TABLE_CONSTANTS.FUNCTION_NAME_WIDTH).padEnd(TABLE_CONSTANTS.FUNCTION_NAME_WIDTH);
+}
+
+/**
+ * Format file location for display
+ */
+function formatFileLocation(filePath: string, startLine: number): string {
+  const location = `${path.basename(filePath)}:${startLine}`;
+  return truncate(location, TABLE_CONSTANTS.FILE_LOCATION_WIDTH).padEnd(TABLE_CONSTANTS.FILE_LOCATION_WIDTH);
+}
+
+/**
+ * Format boolean column for display
+ */
+function formatBooleanColumn(value: boolean, color: 'green' | 'blue'): string {
+  if (value) {
+    return color === 'green' ? chalk.green('✓') : chalk.blue('✓');
+  }
+  return chalk.gray('✗');
+}
+
+/**
+ * Create similarity column for function with similarity scores
+ */
+function createSimilarityColumn(func: FunctionInfo): string {
+  const funcWithScore = func as FunctionWithSimilarity;
+  const similarity = funcWithScore._similarity || funcWithScore._hybridScore || 0;
+  
+  const similarityColor = getSimilarityColorFromThreshold(similarity);
+  const similarityStr = similarity > 0 
+    ? similarityColor(similarity.toFixed(TABLE_CONSTANTS.SIMILARITY_DECIMAL_PLACES))
+    : chalk.gray('---');
+  
+  return `${similarityStr.padEnd(12)} `;
+}
+
+/**
+ * Get color for similarity score based on threshold
+ */
+function getSimilarityColorFromThreshold(similarity: number) {
+  if (similarity > TABLE_CONSTANTS.SIMILARITY_THRESHOLD_HIGH) return chalk.green;
+  if (similarity > TABLE_CONSTANTS.SIMILARITY_THRESHOLD_MEDIUM) return chalk.yellow;
+  return chalk.gray;
 }
 
 function displayFriendly(functions: FunctionInfo[]): void {

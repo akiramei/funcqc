@@ -247,7 +247,7 @@ async function findTargetFunction(
   const functions = await env.storage.getFunctions(snapshot.id, {
     filters: [
       {
-        field: 'displayName',
+        field: 'display_name',
         operator: 'LIKE',
         value: `%${functionName}%`
       }
@@ -255,10 +255,10 @@ async function findTargetFunction(
   });
 
   const targetFunction = functions.find(f => 
-    f.displayName === functionName || 
+    (f as any)['display_name'] === functionName || 
     f.name === functionName
   ) || functions.find(f => 
-    f.displayName.includes(functionName) || 
+    (f as any)['display_name'].includes(functionName) || 
     f.name.includes(functionName)
   );
 
