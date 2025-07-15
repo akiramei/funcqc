@@ -12,6 +12,7 @@ import {
   RealTimeQualityGate,
   MultipleQualityAssessment,
   QualityAssessment,
+  QualityViolation,
 } from '../core/realtime-quality-gate.js';
 import { FunctionInfo } from '../types/index.js';
 
@@ -31,9 +32,10 @@ export interface RefactoringCandidate {
   description: string;
   /** Metadata about the refactoring */
   metadata: {
-    originalComplexity?: number;
-    targetComplexity?: number;
-    estimatedReduction?: number;
+    originalRiskScore?: number;
+    targetRiskScore?: number;
+    estimatedRiskReduction?: number;
+    originalComplexity?: number;  // Kept for backward compatibility
     patterns?: string[];
   };
 }
@@ -55,13 +57,13 @@ export interface CandidateEvaluation {
     qualityScore: number;
     improvementScore: number;
     structuralScore: number;
-    complexityReduction: number;
+    riskScoreReduction: number;
   };
   /** Performance metrics */
   metrics: {
     evaluationTime: number;
     functionCount: number;
-    avgComplexity: number;
+    riskScore: number;
   };
 }
 
@@ -232,12 +234,12 @@ export class RefactoringCandidateEvaluator {
           qualityScore: 0,
           improvementScore: 0,
           structuralScore: 0,
-          complexityReduction: 0,
+          riskScoreReduction: 0,
         },
         metrics: {
           evaluationTime,
           functionCount: 0,
-          avgComplexity: 0,
+          riskScore: 0,
         },
       };
     }
@@ -248,19 +250,17 @@ export class RefactoringCandidateEvaluator {
    */
   private calculateMetrics(assessment: QualityAssessment | MultipleQualityAssessment): {
     functionCount: number;
-    avgComplexity: number;
+    riskScore: number;
   } {
     if (this.isMultipleAssessment(assessment)) {
       const functionCount = assessment.allFunctions.length;
-      const avgComplexity = assessment.allFunctions.reduce((sum, f) => 
-        sum + (f.functionInfo.metrics?.cyclomaticComplexity || 0), 0
-      ) / functionCount;
+      const riskScore = this.calculateRiskScore(assessment);
       
-      return { functionCount, avgComplexity };
+      return { functionCount, riskScore };
     } else {
       return {
         functionCount: 1,
-        avgComplexity: this.getAverageComplexity(assessment),
+        riskScore: this.calculateRiskScore(assessment),
       };
     }
   }
@@ -275,7 +275,7 @@ export class RefactoringCandidateEvaluator {
     qualityScore: number;
     improvementScore: number;
     structuralScore: number;
-    complexityReduction: number;
+    riskScoreReduction: number;
   } {
     let qualityScore: number;
     let structuralScore: number;
@@ -290,23 +290,27 @@ export class RefactoringCandidateEvaluator {
       structuralScore = assessment.structuralScore;
     }
 
-    // Calculate improvement score based on expected vs actual
-    const expectedReduction = candidate.metadata.estimatedReduction || 0;
-    const actualReduction = Math.max(0, (candidate.metadata.originalComplexity || 0) - 
-      (this.getAverageComplexity(assessment)));
-    const improvementScore = Math.min(100, (actualReduction / Math.max(1, expectedReduction)) * 100);
+    // Calculate current risk score
+    const currentRiskScore = this.calculateRiskScore(assessment);
+    
+    // Calculate improvement score based on expected vs actual risk reduction
+    const expectedRiskReduction = candidate.metadata.estimatedRiskReduction || 0;
+    const originalRiskScore = candidate.metadata.originalRiskScore || 0;
+    const actualRiskReduction = Math.max(0, originalRiskScore - currentRiskScore);
+    const improvementScore = expectedRiskReduction > 0 
+      ? Math.min(100, (actualRiskReduction / expectedRiskReduction) * 100)
+      : (actualRiskReduction > 0 ? 100 : 50); // Bonus for unexpected improvement
 
-    // Calculate complexity reduction percentage
-    const complexityReduction = candidate.metadata.originalComplexity 
-      ? Math.max(0, ((candidate.metadata.originalComplexity - this.getAverageComplexity(assessment)) / 
-        candidate.metadata.originalComplexity) * 100)
+    // Calculate risk score reduction percentage
+    const riskScoreReduction = originalRiskScore > 0 
+      ? Math.max(0, (actualRiskReduction / originalRiskScore) * 100)
       : 0;
 
     return {
       qualityScore,
       improvementScore,
       structuralScore,
-      complexityReduction,
+      riskScoreReduction,
     };
   }
 
@@ -317,14 +321,16 @@ export class RefactoringCandidateEvaluator {
     qualityScore: number;
     improvementScore: number;
     structuralScore: number;
-    complexityReduction: number;
+    riskScoreReduction: number;
   }): number {
     const { qualityWeight, improvementWeight, structuralWeight } = this.config;
+    const riskReductionWeight = 0.2; // Add weight for risk reduction
     
     return (
       scoring.qualityScore * qualityWeight +
       scoring.improvementScore * improvementWeight +
-      scoring.structuralScore * structuralWeight
+      scoring.structuralScore * structuralWeight +
+      scoring.riskScoreReduction * riskReductionWeight
     );
   }
 
@@ -345,23 +351,38 @@ export class RefactoringCandidateEvaluator {
   }
 
   /**
-   * Get average complexity from assessment
+   * Calculate risk score from assessment
+   * Using the same logic as ThresholdEvaluator for consistency
    */
-  private getAverageComplexity(assessment: QualityAssessment | MultipleQualityAssessment): number {
+  private calculateRiskScore(assessment: QualityAssessment | MultipleQualityAssessment): number {
     if (this.isMultipleAssessment(assessment)) {
+      // For multiple assessments, calculate total risk score
       return assessment.allFunctions.reduce((sum, f) => 
-        sum + (f.functionInfo.metrics?.cyclomaticComplexity || 0), 0
-      ) / assessment.allFunctions.length;
+        sum + this.calculateRiskScoreFromViolations(f.assessment.violations), 0
+      );
     } else {
-      // For single assessment, try to extract cyclomatic complexity from violations
-      const complexityViolation = assessment.violations.find(v => v.metric === 'cyclomaticComplexity');
-      if (complexityViolation) {
-        return complexityViolation.value;
-      }
-      
-      // Fallback: return 1 as minimum complexity (better than using fanOut)
-      return 1;
+      // For single assessment, calculate from violations
+      return this.calculateRiskScoreFromViolations(assessment.violations);
     }
+  }
+
+  /**
+   * Calculate risk score from violations using weighted approach
+   * This mirrors the logic in ThresholdEvaluator.calculateRiskScore
+   */
+  private calculateRiskScoreFromViolations(violations: QualityViolation[]): number {
+    const weights: Record<string, number> = {
+      critical: 25,
+      error: 5,
+      warning: 1
+    };
+
+    return violations.reduce((score, violation) => {
+      const weight = weights[violation.severity] || 1;
+      // Normalize by threshold to make it metric-agnostic
+      const normalizedExcess = (violation.value - violation.threshold) / Math.max(violation.threshold, 1);
+      return score + weight * Math.max(0, normalizedExcess);
+    }, 0);
   }
 
   /**
@@ -435,8 +456,9 @@ export class RefactoringCandidateGenerator {
           description: 'Reduce nesting with early returns',
           metadata: {
             originalComplexity,
-            targetComplexity: Math.max(1, originalComplexity - 3),
-            estimatedReduction: 30,
+            originalRiskScore: originalComplexity * 2, // Rough approximation
+            targetRiskScore: Math.max(1, originalComplexity - 3) * 2,
+            estimatedRiskReduction: 6,
             patterns: ['early-return', 'reduce-nesting'],
           },
         };
@@ -450,8 +472,9 @@ export class RefactoringCandidateGenerator {
           description: 'Split function into smaller methods',
           metadata: {
             originalComplexity,
-            targetComplexity: Math.max(1, originalComplexity - 5),
-            estimatedReduction: 40,
+            originalRiskScore: originalComplexity * 2, // Rough approximation
+            targetRiskScore: Math.max(1, originalComplexity - 5) * 2,
+            estimatedRiskReduction: 10,
             patterns: ['extract-method', 'split-function'],
           },
         };
@@ -465,8 +488,9 @@ export class RefactoringCandidateGenerator {
           description: 'Replace multiple parameters with options object',
           metadata: {
             originalComplexity,
-            targetComplexity: Math.max(1, originalComplexity - 1),
-            estimatedReduction: 20,
+            originalRiskScore: originalComplexity * 2, // Rough approximation
+            targetRiskScore: Math.max(1, originalComplexity - 1) * 2,
+            estimatedRiskReduction: 2,
             patterns: ['options-object', 'parameter-object'],
           },
         };
