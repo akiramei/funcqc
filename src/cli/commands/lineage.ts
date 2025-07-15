@@ -52,55 +52,75 @@ export interface LineageCleanOptions extends CommandOptions {
 /**
  * Main lineage command router that handles subcommands
  */
+function validateRequiredArgs(subcommand: string, args: string[]): void {
+  if ((subcommand === 'show' || subcommand === 'delete') && args.length === 0) {
+    throw new Error(`Lineage ID is required for ${subcommand} command`);
+  }
+}
+
+async function executeLineageSubcommand(
+  subcommand: string,
+  args: string[],
+  options: LineageCommandOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  validateRequiredArgs(subcommand, args);
+
+  switch (subcommand) {
+    case 'list':
+      await lineageListCommandImpl(options, env);
+      break;
+    case 'show':
+      await lineageShowCommandImpl(args[0], options, env);
+      break;
+    case 'review':
+      await lineageReviewCommandImpl(args[0] || '', options as LineageReviewOptions, env);
+      break;
+    case 'delete':
+      await lineageDeleteCommand(args[0], options, env);
+      break;
+    case 'clean':
+      await lineageCleanCommand(options as LineageCleanOptions, env);
+      break;
+    default:
+      throw new Error(`Unknown lineage subcommand: ${subcommand}`);
+  }
+}
+
+function handleLineageError(
+  error: unknown,
+  subcommand: string,
+  args: string[],
+  errorHandler: ReturnType<typeof createErrorHandler>
+): void {
+  if (error instanceof DatabaseError) {
+    const funcqcError = errorHandler.createError(
+      error.code,
+      error.message,
+      {},
+      error.originalError
+    );
+    errorHandler.handleError(funcqcError);
+  } else {
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Lineage ${subcommand} command failed: ${error instanceof Error ? error.message : String(error)}`,
+      { subcommand, args },
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
+  }
+}
+
 export const lineageCommand = (subcommand: string, args: string[] = []): VoidCommand<LineageCommandOptions> =>
   (options: LineageCommandOptions) =>
     async (env: CommandEnvironment): Promise<void> => {
       const errorHandler = createErrorHandler(env.commandLogger);
 
       try {
-        switch (subcommand) {
-          case 'list':
-            await lineageListCommandImpl(options, env);
-            break;
-          case 'show':
-            if (args.length === 0) {
-              throw new Error('Lineage ID is required for show command');
-            }
-            await lineageShowCommandImpl(args[0], options, env);
-            break;
-          case 'review':
-            await lineageReviewCommandImpl(args[0] || '', options as LineageReviewOptions, env);
-            break;
-          case 'delete':
-            if (args.length === 0) {
-              throw new Error('Lineage ID is required for delete command');
-            }
-            await lineageDeleteCommand(args[0], options, env);
-            break;
-          case 'clean':
-            await lineageCleanCommand(options as LineageCleanOptions, env);
-            break;
-          default:
-            throw new Error(`Unknown lineage subcommand: ${subcommand}`);
-        }
+        await executeLineageSubcommand(subcommand, args, options, env);
       } catch (error) {
-        if (error instanceof DatabaseError) {
-          const funcqcError = errorHandler.createError(
-            error.code,
-            error.message,
-            {},
-            error.originalError
-          );
-          errorHandler.handleError(funcqcError);
-        } else {
-          const funcqcError = errorHandler.createError(
-            ErrorCode.UNKNOWN_ERROR,
-            `Lineage ${subcommand} command failed: ${error instanceof Error ? error.message : String(error)}`,
-            { subcommand, args },
-            error instanceof Error ? error : undefined
-          );
-          errorHandler.handleError(funcqcError);
-        }
+        handleLineageError(error, subcommand, args, errorHandler);
       }
     };
 
