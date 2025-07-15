@@ -15,6 +15,3 @@ export { QualityCalculator } from './metrics/quality-calculator';
 export { ConfigManager } from './core/config';
 export { QualityScorerV16 } from './utils/quality-scorer-v16';
 export { ThresholdConfigManager, DEFAULT_QUALITY_SCORER_THRESHOLDS } from './config/thresholds-simple';
-
-// Re-export new quality gate and candidate evaluator classes
-export { RealTimeQualityGate } from './core/realtime-quality-gate';
