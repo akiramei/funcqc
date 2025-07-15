@@ -97,10 +97,13 @@ function buildSessionUpdates(options: RefactorTrackOptions): Partial<Refactoring
 }
 
 /**
- * Normalize session status to valid values
+ * Normalize session status to database-valid values
+ * Note: This maps user-input statuses to actual database enum values
+ * - 'planning' and 'paused' are convenience aliases for 'active'
+ * - Other statuses are passed through as-is
  */
 function normalizeSessionStatus(status: string): 'active' | 'completed' | 'cancelled' {
-  // Map planning/paused to active, others as is
+  // Map planning/paused to active for database storage
   return status === 'planning' || status === 'paused' 
     ? 'active' 
     : status as 'active' | 'completed' | 'cancelled';
@@ -333,10 +336,11 @@ function getStatusIcon(status: string): string {
 }
 
 /**
- * Validate session status
+ * Validate session status - accepts both input and normalized statuses
  */
 export function isValidSessionStatus(status: string): boolean {
-  return ['planning', 'active', 'completed', 'paused'].includes(status);
+  // Accept input statuses (including planning/paused) and final statuses
+  return ['planning', 'active', 'completed', 'paused', 'cancelled'].includes(status);
 }
 
 /**
