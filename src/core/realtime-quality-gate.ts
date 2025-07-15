@@ -36,6 +36,44 @@ export interface QualityAssessment {
 }
 
 /**
+ * Assessment result for individual function within multi-function evaluation
+ */
+export interface FunctionAssessment {
+  /** Function name */
+  functionName: string;
+  /** Function index in the file */
+  index: number;
+  /** Quality assessment for this function */
+  assessment: QualityAssessment;
+  /** Function information */
+  functionInfo: FunctionInfo;
+}
+
+/**
+ * Quality assessment result for multiple functions
+ */
+export interface MultipleQualityAssessment {
+  /** Primary function assessment (first function or best scoring) */
+  mainFunction: FunctionAssessment;
+  /** All function assessments */
+  allFunctions: FunctionAssessment[];
+  /** Overall acceptability (all functions must be acceptable) */
+  overallAcceptable: boolean;
+  /** Aggregated quality score */
+  aggregatedScore: number;
+  /** Total response time */
+  responseTime: number;
+  /** Summary statistics */
+  summary: {
+    totalFunctions: number;
+    acceptableFunctions: number;
+    averageScore: number;
+    bestFunction: string;
+    worstFunction: string;
+  };
+}
+
+/**
  * Individual quality violation
  */
 export interface QualityViolation {
@@ -184,6 +222,79 @@ export class RealTimeQualityGate {
         structuralMetrics: undefined,
         improvementInstruction: 'Unable to analyze code - check for syntax errors',
         responseTime,
+      };
+    }
+  }
+
+  /**
+   * Evaluate all functions in the given code
+   *
+   * @param code TypeScript code to evaluate
+   * @param context Optional context from existing analysis
+   * @returns Multiple quality assessment with all functions
+   */
+  async evaluateAllFunctions(
+    code: string,
+    context?: { filename?: string; existingBaseline?: ProjectBaseline }
+  ): Promise<MultipleQualityAssessment> {
+    const startTime = performance.now();
+
+    try {
+      // Set timeout for analysis
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Analysis timeout')), this.config.maxAnalysisTime);
+      });
+
+      // Perform multi-function analysis with timeout
+      const analysisPromise = this.performMultiAnalysis(code, context?.filename || 'generated.ts');
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+
+      const responseTime = performance.now() - startTime;
+      return { ...result, responseTime };
+    } catch {
+      const responseTime = performance.now() - startTime;
+
+      // Return safe fallback on timeout or error
+      const fallbackAssessment: QualityAssessment = {
+        acceptable: false,
+        qualityScore: 0,
+        violations: [
+          {
+            metric: 'linesOfCode',
+            value: 0,
+            threshold: 0,
+            zScore: 0,
+            severity: 'critical',
+            suggestion: 'Analysis failed - please check code syntax',
+          },
+        ],
+        structuralScore: 0,
+        structuralAnomalies: [],
+        structuralMetrics: undefined,
+        improvementInstruction: 'Unable to analyze code - check for syntax errors',
+        responseTime: 0,
+      };
+
+      const fallbackFunction: FunctionAssessment = {
+        functionName: 'unknown',
+        index: 0,
+        assessment: fallbackAssessment,
+        functionInfo: {} as FunctionInfo,
+      };
+
+      return {
+        mainFunction: fallbackFunction,
+        allFunctions: [fallbackFunction],
+        overallAcceptable: false,
+        aggregatedScore: 0,
+        responseTime,
+        summary: {
+          totalFunctions: 0,
+          acceptableFunctions: 0,
+          averageScore: 0,
+          bestFunction: 'unknown',
+          worstFunction: 'unknown',
+        },
       };
     }
   }
@@ -372,6 +483,162 @@ export class RealTimeQualityGate {
       structuralAnomalies,
       structuralMetrics,
       improvementInstruction,
+    };
+  }
+
+  /**
+   * Perform multi-function analysis
+   */
+  private async performMultiAnalysis(
+    code: string,
+    filename: string
+  ): Promise<Omit<MultipleQualityAssessment, 'responseTime'>> {
+    let functions: FunctionInfo[];
+
+    // Check if we're analyzing a file or code string
+    if (filename === 'stdin.ts' || filename === 'generated.ts') {
+      // Write code to a temporary file for analysis
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const os = await import('os');
+
+      const tempFile = path.join(os.tmpdir(), `funcqc-temp-${Date.now()}.ts`);
+      await fs.writeFile(tempFile, code, 'utf-8');
+
+      try {
+        functions = await this.analyzer.analyzeFile(tempFile);
+      } finally {
+        // Clean up temp file
+        await fs.unlink(tempFile).catch(() => {}); // Ignore cleanup errors
+      }
+    } else {
+      // Analyze existing file
+      functions = await this.analyzer.analyzeFile(filename);
+    }
+
+    if (functions.length === 0) {
+      // Return empty assessment
+      const emptyAssessment: QualityAssessment = {
+        acceptable: true,
+        qualityScore: 100,
+        violations: [],
+        structuralScore: 100,
+        structuralAnomalies: [],
+        structuralMetrics: undefined,
+        improvementInstruction: undefined,
+        responseTime: 0,
+      };
+
+      const emptyFunction: FunctionAssessment = {
+        functionName: 'no-functions',
+        index: 0,
+        assessment: emptyAssessment,
+        functionInfo: {} as FunctionInfo,
+      };
+
+      return {
+        mainFunction: emptyFunction,
+        allFunctions: [],
+        overallAcceptable: true,
+        aggregatedScore: 100,
+        summary: {
+          totalFunctions: 0,
+          acceptableFunctions: 0,
+          averageScore: 100,
+          bestFunction: 'no-functions',
+          worstFunction: 'no-functions',
+        },
+      };
+    }
+
+    // Analyze all functions
+    const functionAssessments: FunctionAssessment[] = [];
+    
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      
+      // Calculate quality metrics if not present
+      let completeMetrics: QualityMetrics;
+      if (func.metrics) {
+        completeMetrics = func.metrics;
+      } else {
+        completeMetrics = await this.qualityCalculator.calculate(func);
+      }
+
+      // Detect violations using adaptive thresholds
+      const violations = this.detectViolations(completeMetrics);
+
+      // Perform structural analysis
+      const structuralMetrics = this.structuralAnalyzer.analyzeFunction(func.id) || undefined;
+      const structuralAnomalies = structuralMetrics
+        ? this.structuralAnalyzer.detectAnomalies(func.id)
+        : [];
+
+      // Calculate scores
+      const qualityScore = this.calculateQualityScore(completeMetrics, violations);
+      const structuralScore = this.calculateStructuralScore(completeMetrics, structuralMetrics);
+
+      // Generate improvement instruction
+      const improvementInstruction =
+        violations.length > 0 || structuralAnomalies.length > 0
+          ? this.generateImprovementInstruction(violations, structuralAnomalies)
+          : undefined;
+
+      const assessment: QualityAssessment = {
+        acceptable:
+          violations.filter(v => v.severity === 'critical').length === 0 &&
+          structuralAnomalies.filter(a => a.severity === 'critical').length === 0,
+        qualityScore,
+        violations,
+        structuralScore,
+        structuralAnomalies,
+        structuralMetrics,
+        improvementInstruction,
+        responseTime: 0, // Will be set by caller
+      };
+
+      functionAssessments.push({
+        functionName: func.name,
+        index: i,
+        assessment,
+        functionInfo: func,
+      });
+    }
+
+    // Calculate summary statistics
+    const totalFunctions = functionAssessments.length;
+    const acceptableFunctions = functionAssessments.filter(f => f.assessment.acceptable).length;
+    const averageScore = functionAssessments.reduce((sum, f) => sum + f.assessment.qualityScore, 0) / totalFunctions;
+    
+    const bestFunction = functionAssessments.reduce((best, current) => 
+      current.assessment.qualityScore > best.assessment.qualityScore ? current : best
+    );
+    
+    const worstFunction = functionAssessments.reduce((worst, current) => 
+      current.assessment.qualityScore < worst.assessment.qualityScore ? current : worst
+    );
+
+    // Select main function (first function or best scoring)
+    const mainFunction = functionAssessments[0];
+
+    // Calculate aggregated score (weighted average)
+    const aggregatedScore = functionAssessments.reduce((sum, f, index) => {
+      const weight = index === 0 ? 0.5 : 0.5 / (totalFunctions - 1); // First function gets 50% weight
+      return sum + (f.assessment.qualityScore * weight);
+    }, 0);
+
+    return {
+      mainFunction,
+      allFunctions: functionAssessments,
+      overallAcceptable: acceptableFunctions === totalFunctions,
+      aggregatedScore,
+      summary: {
+        totalFunctions,
+        acceptableFunctions,
+        averageScore,
+        bestFunction: bestFunction.functionName,
+        worstFunction: worstFunction.functionName,
+      },
     };
   }
 

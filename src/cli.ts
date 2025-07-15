@@ -436,6 +436,7 @@ program
   .option('--ai-generated', 'code is AI-generated (affects exit codes)')
   .option('--strict', 'strict mode for critical violations')
   .option('-j, --json', 'output as JSON for integration')
+  .option('--evaluate-all', 'evaluate all functions in the file/code')
   .action(async (input: string | undefined, options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { evaluateCommand } = await import('./cli/commands/evaluate');
@@ -449,8 +450,14 @@ Examples:
   # Evaluate from stdin (AI workflow)
   $ echo "function test() { return 42; }" | funcqc eval --stdin --ai-generated
   
+  # Evaluate all functions in a file
+  $ funcqc eval myModule.ts --evaluate-all
+  
   # JSON output for integration
   $ funcqc eval code.ts --json
+  
+  # Evaluate all functions with JSON output
+  $ funcqc eval code.ts --evaluate-all --json
   
   # Strict mode (exit 1 on any critical violation)
   $ funcqc eval code.ts --strict
@@ -458,6 +465,7 @@ Examples:
 AI Integration:
   - Use --ai-generated for proper exit codes (0=acceptable, 1=needs improvement)
   - Use --json for structured output with improvement suggestions
+  - Use --evaluate-all to assess all functions in the code
   - Sub-20ms response time for real-time feedback
   - Adaptive thresholds based on project baseline
 `);

@@ -425,7 +425,24 @@ export interface EvaluateCommandOptions extends CommandOptions {
   aiGenerated?: boolean; // Code is AI-generated (affects exit codes)
   strict?: boolean; // Strict mode for critical violations
   json?: boolean; // JSON output for integration
+  evaluateAll?: boolean; // Evaluate all functions in the file/code
 }
+
+// Re-export types from realtime-quality-gate for external use
+export type {
+  QualityAssessment,
+  FunctionAssessment,
+  MultipleQualityAssessment,
+  QualityViolation,
+} from '../core/realtime-quality-gate.js';
+
+// Re-export types from refactoring-candidate-evaluator for external use
+export type {
+  RefactoringCandidate,
+  CandidateEvaluation,
+  CandidateComparison,
+  EvaluationConfig,
+} from '../utils/refactoring-candidate-evaluator.js';
 
 export interface ExplainCommandOptions extends CommandOptions {
   metric?: string;
