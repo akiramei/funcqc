@@ -10,7 +10,6 @@ import {
 } from '../types/index.js';
 import { RefactoringHealthEngine } from './refactoring-health-engine.js';
 import { FunctionExplosionDetector, ExplosionDetectionResult } from './explosion-detector.js';
-import { createErrorHandler } from './error-handler.js';
 import { Logger } from './cli-utils.js';
 
 /**
@@ -163,13 +162,11 @@ export class ChangesetEvaluator {
 
   constructor(
     private storage: StorageAdapter,
-    lineageManager: LineageManager, // Will be used in future phases
+    lineageManager: LineageManager,
     criteria: Partial<GenuineImprovementCriteria> = {},
     logger?: Logger
   ) {
     this.logger = logger || new Logger(false, false);
-    // Initialize error handler if needed
-    createErrorHandler(this.logger);
     this.criteria = { ...DefaultGenuineImprovementCriteria, ...criteria };
     
     // Initialize health engine and explosion detector
@@ -208,7 +205,7 @@ export class ChangesetEvaluator {
       );
       
       // 4. Determine if improvement is genuine
-      const isGenuineImprovement = this.determineGenuineImprovement(scores, explosionResult);
+      const isGenuineImprovement = this.determineGenuineImprovement(scores, explosionResult, healthAssessment.improvement);
       
       // 5. Calculate overall grade
       const grade = this.calculateOverallGrade(scores.overall, isGenuineImprovement);
@@ -315,7 +312,7 @@ export class ChangesetEvaluator {
       
       // Calculate scores and determine improvement
       const scores = this.calculateComprehensiveScores(changesetAssessment, explosionResult, null);
-      const isGenuineImprovement = this.determineGenuineImprovement(scores, explosionResult);
+      const isGenuineImprovement = this.determineGenuineImprovement(scores, explosionResult, changesetAssessment.improvement);
       const grade = this.calculateOverallGrade(scores.overall, isGenuineImprovement);
       
       const evaluationId = `op_eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -478,7 +475,8 @@ export class ChangesetEvaluator {
    */
   private determineGenuineImprovement(
     scores: ChangesetEvaluationResult['scores'],
-    explosion: ExplosionDetectionResult
+    explosion: ExplosionDetectionResult,
+    improvement: ImprovementMetrics
   ): boolean {
     // Critical failure conditions
     if (explosion.isExplosion && explosion.severity === 'critical') {
@@ -489,15 +487,10 @@ export class ChangesetEvaluator {
       return false;
     }
     
-    // Individual criteria checks
-    const complexityCheck = scores.complexity >= this.calculateComplexityScore(
-      this.criteria.minimumComplexityReduction, 100
-    );
-    
-    const riskCheck = scores.risk >= this.calculateRiskScore(this.criteria.minimumRiskImprovement);
-    const maintainabilityCheck = scores.maintainability >= this.calculateMaintainabilityScore(
-      this.criteria.minimumMaintainabilityGain
-    );
+    // Individual criteria checks using actual improvement metrics
+    const complexityCheck = improvement.complexityReduction >= this.criteria.minimumComplexityReduction;
+    const riskCheck = improvement.riskImprovement >= this.criteria.minimumRiskImprovement;
+    const maintainabilityCheck = improvement.maintainabilityGain >= this.criteria.minimumMaintainabilityGain;
     
     const explosionCheck = !explosion.isExplosion || explosion.explosionScore <= this.criteria.maximumExplosionScore;
     
