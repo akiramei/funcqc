@@ -1,6 +1,12 @@
 /**
  * Health Analysis Service for intelligent refactoring
  * Integrates health command analysis with refactor workflows
+ * 
+ * This service provides:
+ * - Function-level health analysis using existing health command intelligence
+ * - Priority-based refactoring planning
+ * - Pattern-specific improvement recommendations
+ * - Health-guided Claude prompt generation
  */
 
 import type { FunctionInfo } from '../types/index';
@@ -18,6 +24,11 @@ import {
 
 export class HealthAnalysisService implements IHealthAnalysisService {
   
+  /**
+   * Analyzes a single function using health command intelligence
+   * @param functionInfo Function information including metrics and source code
+   * @returns Comprehensive analysis including suggestions, patterns, and priorities
+   */
   async analyzeFunction(functionInfo: FunctionInfo): Promise<HealthAnalysisResult> {
     // Get health-based suggestions
     const healthSuggestions = generateEnhancedSuggestions(functionInfo, functionInfo.metrics);
@@ -59,6 +70,11 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     };
   }
   
+  /**
+   * Generates comprehensive refactoring plans for multiple functions
+   * @param functions Array of function information to analyze
+   * @returns Sorted refactoring plans (highest priority first)
+   */
   async generateRefactoringPlan(functions: FunctionInfo[]): Promise<RefactoringPlan[]> {
     const plans: RefactoringPlan[] = [];
     
@@ -85,6 +101,12 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     return plans.sort((a, b) => b.priority - a.priority);
   }
   
+  /**
+   * Calculates intelligent refactoring priority based on multiple factors
+   * @param functionInfo Function information including complexity metrics
+   * @param suggestions Array of improvement suggestions from health analysis
+   * @returns Priority score (0-200, higher means more important)
+   */
   calculateRefactoringPriority(functionInfo: FunctionInfo, suggestions: string[]): number {
     let score = 0;
     
@@ -120,6 +142,11 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     return Math.min(score, 200); // Cap at 200
   }
   
+  /**
+   * Estimates potential complexity reduction from applying suggestions
+   * @param suggestions Array of improvement suggestions
+   * @returns Estimated complexity reduction percentage (0-80)
+   */
   estimateComplexityReduction(suggestions: string[]): number {
     let reduction = 0;
     
@@ -150,6 +177,12 @@ export class HealthAnalysisService implements IHealthAnalysisService {
     return Math.min(reduction, 80); // Cap at 80% reduction
   }
   
+  /**
+   * Generates intelligent Claude prompts based on health analysis
+   * @param functionInfo Function information including metrics and location
+   * @param healthSuggestions Specific improvement suggestions from health analysis
+   * @returns Formatted prompt with context, metrics, and specific guidance
+   */
   generateSmartPrompt(functionInfo: FunctionInfo, healthSuggestions: string[]): string {
     const suggestions = healthSuggestions.map(s => `- ${s}`).join('\n');
     
@@ -177,34 +210,71 @@ Use Extract Method pattern where appropriate to achieve genuine complexity reduc
 `;
   }
   
+  /**
+   * Extracts pattern information from health and AST suggestions
+   * Uses more robust pattern matching compared to simple string includes
+   * @param healthSuggestions Suggestions from health analysis
+   * @param astSuggestions Suggestions from AST analysis  
+   * @returns Structured pattern analysis results
+   */
   private extractPatternsFromSuggestions(healthSuggestions: string[], astSuggestions: string[]): PatternAnalysisResults {
     const allSuggestions = [...healthSuggestions, ...astSuggestions];
     
+    // More robust pattern detection using regex and multiple keyword matching
+    const patterns = {
+      nestedIf: /nested\s+if|deeply\s+nested|if\s+statement.*nested/i,
+      parameter: /parameter.*object|long\s+parameter|many\s+parameter|\d+\s+parameter/i,
+      magicNumber: /magic\s+number|hardcoded\s+value|literal\s+number/i,
+      switchStatement: /switch\s+statement|long\s+switch|strategy\s+pattern/i,
+      extraction: /extract\s+method|duplicated\s+logic|repeated\s+code/i
+    };
+    
     return {
-      deeplyNestedIf: allSuggestions.some(s => s.includes('nested if')) ? [1] : [],
-      longParameterList: allSuggestions.some(s => s.includes('parameter')) ? ['multiple'] : [],
-      magicNumbers: allSuggestions.some(s => s.includes('magic number')) ? [1] : [],
-      longSwitchStatement: allSuggestions.some(s => s.includes('switch')) ? 1 : null,
-      duplicatedLogic: allSuggestions.some(s => s.includes('duplicated') || s.includes('extract')) ? [1] : []
+      deeplyNestedIf: allSuggestions.some(s => patterns.nestedIf.test(s)) ? [1] : [],
+      longParameterList: allSuggestions.some(s => patterns.parameter.test(s)) ? ['multiple'] : [],
+      magicNumbers: allSuggestions.some(s => patterns.magicNumber.test(s)) ? [1] : [],
+      longSwitchStatement: allSuggestions.some(s => patterns.switchStatement.test(s)) ? 1 : null,
+      duplicatedLogic: allSuggestions.some(s => patterns.extraction.test(s)) ? [1] : []
     };
   }
   
+  /**
+   * Extracts target refactoring patterns from suggestions
+   * Uses improved pattern matching for more accurate detection
+   * @param healthSuggestions Suggestions from health analysis
+   * @param astSuggestions Suggestions from AST analysis
+   * @returns Array of detected refactoring patterns
+   */
   private extractTargetPatterns(healthSuggestions: string[], astSuggestions: string[]): string[] {
     const allSuggestions = [...healthSuggestions, ...astSuggestions];
     const patterns: string[] = [];
     
+    // Improved pattern mapping with regex for better accuracy
     const patternMapping = [
-      { keywords: ['early return', 'nested if'], pattern: 'early-return' },
-      { keywords: ['options object', 'parameter'], pattern: 'options-object' },
-      { keywords: ['strategy pattern', 'switch'], pattern: 'strategy-pattern' },
-      { keywords: ['extract method', 'duplicated'], pattern: 'extract-method' },
-      { keywords: ['magic number', 'constant'], pattern: 'extract-constants' }
+      { 
+        regex: /early\s+return|nested\s+if|deeply\s+nested/i, 
+        pattern: 'early-return' 
+      },
+      { 
+        regex: /options\s+object|parameter.*object|\d+\s+parameter/i, 
+        pattern: 'options-object' 
+      },
+      { 
+        regex: /strategy\s+pattern|long\s+switch|switch\s+statement/i, 
+        pattern: 'strategy-pattern' 
+      },
+      { 
+        regex: /extract\s+method|duplicated\s+logic|repeated\s+code/i, 
+        pattern: 'extract-method' 
+      },
+      { 
+        regex: /magic\s+number|hardcoded\s+value|literal\s+number/i, 
+        pattern: 'extract-constants' 
+      }
     ];
     
-    for (const { keywords, pattern } of patternMapping) {
-      const hasPattern = allSuggestions.some(suggestion => 
-        keywords.some(keyword => suggestion.toLowerCase().includes(keyword))
-      );
+    for (const { regex, pattern } of patternMapping) {
+      const hasPattern = allSuggestions.some(suggestion => regex.test(suggestion));
       
       if (hasPattern) {
         patterns.push(pattern);
