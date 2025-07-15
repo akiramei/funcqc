@@ -3,10 +3,11 @@
  * Integrates health analysis intelligence with refactor workflows
  */
 
-import type { CommandEnvironment, RefactorHealthGuidedOptions } from '../../../../types/index';
+import type { RefactorHealthGuidedOptions, FunctionInfo } from '../../../../types/index';
+import type { CommandEnvironment } from '../../../../types/environment';
 import type { RefactoringPlan } from '../../../../types/health-analysis';
 import { healthAnalysisService } from '../../../../services/health-analysis-service';
-import { createErrorHandler } from '../../../../utils/error-handler';
+import { createErrorHandler, ErrorCode } from '../../../../utils/error-handler';
 import chalk from 'chalk';
 import ora from 'ora';
 
@@ -33,8 +34,7 @@ export async function healthGuidedAnalyze(
 
     // Get functions with complexity filter
     const complexityThreshold = options.complexityThreshold || 5;
-    const functions = await env.storage.queryFunctions({
-      snapshotId: snapshot.id,
+    const functions = await env.storage.getFunctions(snapshot.id, {
       filters: [
         {
           field: 'cyclomatic_complexity',
@@ -67,7 +67,7 @@ export async function healthGuidedAnalyze(
         snapshot: {
           id: snapshot.id,
           createdAt: snapshot.createdAt,
-          totalFunctions: snapshot.totalFunctions
+          totalFunctions: snapshot.metadata.totalFunctions
         },
         analysis: {
           functionsAnalyzed: functions.length,
@@ -84,7 +84,7 @@ export async function healthGuidedAnalyze(
   } catch (error) {
     spinner.fail('Health-guided analysis failed');
     const funcqcError = errorHandler.createError(
-      'ANALYSIS_ERROR',
+      ErrorCode.ANALYSIS_TIMEOUT,
       `Health-guided analysis failed: ${error instanceof Error ? error.message : String(error)}`,
       { options },
       error instanceof Error ? error : undefined
@@ -123,7 +123,7 @@ function displayRefactoringPlans(plans: RefactoringPlan[], verbose: boolean): vo
     console.log(`   Complexity: ${plan.complexity} → Target: <10`);
     
     if (verbose) {
-      console.log(`   Patterns: ${plan.targetPatterns.join(', ') || 'None detected'}`);
+      console.log(`   Patterns: ${plan.targetPatterns?.join(', ') || 'None detected'}`);
       console.log(`   Health Suggestions:`);
       plan.healthSuggestions.slice(0, 3).forEach(suggestion => {
         console.log(`     • ${suggestion}`);
@@ -175,12 +175,17 @@ export async function healthGuidedPrompt(
     }
 
     // Find the function
-    const functions = await env.storage.queryFunctions({
-      snapshotId: snapshots[0].id,
-      searchTerm: functionName
+    const functions = await env.storage.getFunctions(snapshots[0].id, {
+      filters: [
+        {
+          field: 'displayName',
+          operator: 'LIKE',
+          value: `%${functionName}%`
+        }
+      ]
     });
 
-    const targetFunction = functions.find(f => 
+    const targetFunction = functions.find((f: FunctionInfo) => 
       f.displayName === functionName || 
       f.displayName.includes(functionName)
     );
@@ -207,7 +212,7 @@ export async function healthGuidedPrompt(
       console.log(chalk.gray('━'.repeat(40)));
       console.log(`Priority Score: ${analysis.priority}`);
       console.log(`Estimated Impact: ${analysis.estimatedImpact}%`);
-      console.log(`Target Patterns: ${analysis.targetPatterns.join(', ') || 'None'}`);
+      console.log(`Target Patterns: ${analysis.patterns ? Object.keys(analysis.patterns).join(', ') : 'None'}`);
       console.log(`Health Suggestions: ${analysis.healthSuggestions.length}`);
       console.log(`AST Suggestions: ${analysis.astSuggestions.length}`);
     }
@@ -215,7 +220,7 @@ export async function healthGuidedPrompt(
   } catch (error) {
     spinner.fail('Prompt generation failed');
     const funcqcError = errorHandler.createError(
-      'PROMPT_ERROR',
+      ErrorCode.UNKNOWN_ERROR,
       `Prompt generation failed: ${error instanceof Error ? error.message : String(error)}`,
       { functionName, options },
       error instanceof Error ? error : undefined
