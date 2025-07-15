@@ -162,6 +162,11 @@ const TABLE_CONSTANTS = {
   SIMILARITY_DECIMAL_PLACES: 3
 } as const;
 
+const TABLE_HEADERS = {
+  WITH_SIMILARITY: 'ID        Similarity   Complexity   Function                  File:Line                                Exported Async',
+  WITHOUT_SIMILARITY: 'ID        Complexity   Function                  File:Line                                Exported Async'
+} as const;
+
 function displayTable(functions: FunctionInfo[]): void {
   const hasScores = checkForSimilarityScores(functions);
   
@@ -184,21 +189,11 @@ function checkForSimilarityScores(functions: FunctionInfo[]): boolean {
  * Display table header based on whether similarity scores are present
  */
 function displayTableHeader(hasScores: boolean): void {
-  if (hasScores) {
-    console.log(
-      chalk.bold(
-        'ID        Similarity   Complexity   Function                  File:Line                                Exported Async'
-      )
-    );
-    console.log(chalk.gray('─'.repeat(TABLE_CONSTANTS.SIMILARITY_HEADER_WIDTH)));
-  } else {
-    console.log(
-      chalk.bold(
-        'ID        Complexity   Function                  File:Line                                Exported Async'
-      )
-    );
-    console.log(chalk.gray('─'.repeat(TABLE_CONSTANTS.STANDARD_HEADER_WIDTH)));
-  }
+  const header = hasScores ? TABLE_HEADERS.WITH_SIMILARITY : TABLE_HEADERS.WITHOUT_SIMILARITY;
+  const width = hasScores ? TABLE_CONSTANTS.SIMILARITY_HEADER_WIDTH : TABLE_CONSTANTS.STANDARD_HEADER_WIDTH;
+  
+  console.log(chalk.bold(header));
+  console.log(chalk.gray('─'.repeat(width)));
 }
 
 /**
@@ -229,13 +224,45 @@ function createBasicColumns(func: FunctionInfo) {
   const complexityColor = getComplexityColor(complexity);
 
   return {
-    functionId: chalk.gray(func.id.substring(0, TABLE_CONSTANTS.FUNCTION_ID_LENGTH)),
-    functionName: truncate(func.name, TABLE_CONSTANTS.FUNCTION_NAME_WIDTH).padEnd(TABLE_CONSTANTS.FUNCTION_NAME_WIDTH),
-    fileLocation: truncate(`${path.basename(func.filePath)}:${func.startLine}`, TABLE_CONSTANTS.FILE_LOCATION_WIDTH).padEnd(TABLE_CONSTANTS.FILE_LOCATION_WIDTH),
-    exported: func.isExported ? chalk.green('✓') : chalk.gray('✗'),
-    async: func.isAsync ? chalk.blue('✓') : chalk.gray('✗'),
+    functionId: formatFunctionId(func.id),
+    functionName: formatFunctionName(func.name),
+    fileLocation: formatFileLocation(func.filePath, func.startLine),
+    exported: formatBooleanColumn(func.isExported, 'green'),
+    async: formatBooleanColumn(func.isAsync, 'blue'),
     complexity: complexityColor(complexity.toString()).padEnd(12)
   };
+}
+
+/**
+ * Format function ID for display
+ */
+function formatFunctionId(id: string): string {
+  return chalk.gray(id.substring(0, TABLE_CONSTANTS.FUNCTION_ID_LENGTH));
+}
+
+/**
+ * Format function name for display
+ */
+function formatFunctionName(name: string): string {
+  return truncate(name, TABLE_CONSTANTS.FUNCTION_NAME_WIDTH).padEnd(TABLE_CONSTANTS.FUNCTION_NAME_WIDTH);
+}
+
+/**
+ * Format file location for display
+ */
+function formatFileLocation(filePath: string, startLine: number): string {
+  const location = `${path.basename(filePath)}:${startLine}`;
+  return truncate(location, TABLE_CONSTANTS.FILE_LOCATION_WIDTH).padEnd(TABLE_CONSTANTS.FILE_LOCATION_WIDTH);
+}
+
+/**
+ * Format boolean column for display
+ */
+function formatBooleanColumn(value: boolean, color: 'green' | 'blue'): string {
+  if (value) {
+    return color === 'green' ? chalk.green('✓') : chalk.blue('✓');
+  }
+  return chalk.gray('✗');
 }
 
 /**
