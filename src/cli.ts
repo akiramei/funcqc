@@ -795,6 +795,47 @@ refactorCommand.addCommand(
     })
 );
 
+// Add snapshot subcommand for Phase 4
+refactorCommand.addCommand(
+  new Command('snapshot')
+    .description('Snapshot management for refactoring operations')
+    .addCommand(
+      new Command('create')
+        .description('Create a new snapshot of the current codebase')
+        .argument('[label]', 'Optional label for the snapshot')
+        .option('-c, --comment <comment>', 'Comment describing the snapshot')
+        .option('-f, --force', 'Force creation even if no changes detected')
+        .option('--json', 'Output as JSON')
+        .action(async (label: string | undefined, options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('snapshot', label ? ['create', label] : ['create']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('list')
+        .description('List all snapshots')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('snapshot', ['list']))(options, command);
+        })
+    )
+    .addCommand(
+      new Command('cleanup')
+        .description('Clean up old automatic snapshots')
+        .option('--dry-run', 'Preview what would be deleted without making changes')
+        .option('--force', 'Force cleanup without confirmation')
+        .option('--json', 'Output as JSON')
+        .action(async (options: OptionValues, command) => {
+          const { withEnvironment } = await import('./cli/cli-wrapper');
+          const { refactorCommand } = await import('./cli/commands/refactor');
+          return withEnvironment(refactorCommand('snapshot', ['cleanup']))(options, command);
+        })
+    )
+);
+
 // Add interactive subcommand
 refactorCommand.addCommand(
   new Command('interactive')
