@@ -1717,3 +1717,11 @@ function generateHealthComparisonData(comparison: HealthMetricsComparison): unkn
     },
   };
 }
+
+// Export analysis functions for refactor command integration
+export { 
+  generateEnhancedSuggestions,
+  analyzeSourceCodeForSuggestions, 
+  analyzeASTPatterns,
+  generateRecommendedActions
+};
