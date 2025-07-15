@@ -395,6 +395,101 @@ export class SessionManager {
   }
 
   /**
+   * Update session metadata
+   */
+  async updateSession(sessionId: string, updates: Partial<RefactoringSession>): Promise<void> {
+    const db = this.storage.getDb();
+    
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+    
+    // Merge existing metadata with updates
+    const currentMetadata = session.metadata || {};
+    const updatedMetadata = { ...currentMetadata, ...updates.metadata };
+    
+    const updateFields: string[] = [];
+    const values: unknown[] = [];
+    let paramIndex = 1;
+    
+    if (updates.name !== undefined) {
+      updateFields.push(`name = $${paramIndex++}`);
+      values.push(updates.name);
+    }
+    
+    if (updates.description !== undefined) {
+      updateFields.push(`description = $${paramIndex++}`);
+      values.push(updates.description);
+    }
+    
+    if (updates.status !== undefined) {
+      updateFields.push(`status = $${paramIndex++}`);
+      values.push(updates.status);
+    }
+    
+    if (updates.target_branch !== undefined) {
+      updateFields.push(`target_branch = $${paramIndex++}`);
+      values.push(updates.target_branch);
+    }
+    
+    // Always update metadata and updated_at
+    updateFields.push(`metadata = $${paramIndex++}`);
+    values.push(JSON.stringify(updatedMetadata));
+    
+    updateFields.push(`updated_at = $${paramIndex++}`);
+    values.push(new Date());
+    
+    values.push(sessionId); // WHERE clause parameter
+    
+    await db.query(
+      `UPDATE refactoring_sessions 
+       SET ${updateFields.join(', ')}
+       WHERE id = $${paramIndex}`,
+      values
+    );
+  }
+  
+  /**
+   * Associate snapshot with session
+   */
+  async associateSnapshotWithSession(snapshotId: string, sessionId: string): Promise<void> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      throw new Error(`Session ${sessionId} not found`);
+    }
+    
+    const currentMetadata = session.metadata || {};
+    const snapshots = (currentMetadata['snapshots'] as string[]) || [];
+    
+    // Add snapshot ID if not already present
+    if (!snapshots.includes(snapshotId)) {
+      snapshots.push(snapshotId);
+      
+      await this.updateSession(sessionId, {
+        metadata: {
+          ...currentMetadata,
+          snapshots,
+          lastSnapshotAt: new Date().toISOString()
+        }
+      });
+    }
+  }
+  
+  /**
+   * Get snapshots associated with session
+   */
+  async getSessionSnapshots(sessionId: string): Promise<string[]> {
+    const session = await this.getSession(sessionId);
+    if (!session) {
+      return [];
+    }
+    
+    const metadata = session.metadata || {};
+    return (metadata['snapshots'] as string[]) || [];
+  }
+
+  /**
    * Link opportunities to session
    */
   async linkOpportunitiesToSession(sessionId: string, opportunityIds: string[]): Promise<void> {

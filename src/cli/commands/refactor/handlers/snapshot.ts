@@ -10,6 +10,7 @@ import ora from 'ora';
 import { CommandEnvironment } from '../../../../types/environment.js';
 import { SnapshotManager } from '../../../../utils/snapshot-manager.js';
 import { SnapshotInfo } from '../../../../types/index.js';
+import { SessionManager } from '../../../../refactoring/session-manager-simple.js';
 
 // Snapshot command options interface
 interface SnapshotCommandOptions {
@@ -20,6 +21,7 @@ interface SnapshotCommandOptions {
   dryRun?: boolean;
   limit?: number;
   days?: number;
+  sessionId?: string;
 }
 
 /**
@@ -77,7 +79,7 @@ async function handleSnapshotCreate(
   snapshotManager: SnapshotManager,
   args: string[],
   options: SnapshotCommandOptions,
-  _env: CommandEnvironment
+  env: CommandEnvironment
 ): Promise<void> {
   const label = args[0] || options.label;
   const comment = options.comment || "";
@@ -97,12 +99,18 @@ async function handleSnapshotCreate(
     
     const snapshot = await snapshotManager.createSnapshot(snapshotOptions);
 
-    spinner.succeed(`Snapshot created: ${snapshot.id}`);
+    // Associate snapshot with refactoring session if session-id is provided
+    if (options.sessionId) {
+      await associateSnapshotWithSession(snapshot.id, options.sessionId, env);
+      spinner.succeed(`Snapshot created: ${snapshot.id} (linked to session: ${options.sessionId})`);
+    } else {
+      spinner.succeed(`Snapshot created: ${snapshot.id}`);
+    }
     
     if (options.json) {
       console.log(JSON.stringify(snapshot, null, 2));
     } else {
-      displaySnapshotCreationResult(snapshot);
+      displaySnapshotCreationResult(snapshot, options.sessionId);
     }
   } catch (error) {
     spinner.fail("Failed to create snapshot");
@@ -111,27 +119,57 @@ async function handleSnapshotCreate(
 }
 
 /**
+ * Associate snapshot with refactoring session
+ */
+async function associateSnapshotWithSession(
+  snapshotId: string,
+  sessionId: string,
+  env: CommandEnvironment
+): Promise<void> {
+  try {
+    const sessionManager = new SessionManager(env.storage);
+    const session = await sessionManager.getSession(sessionId);
+    
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    
+    // Associate snapshot with session using the session manager
+    await sessionManager.associateSnapshotWithSession(snapshotId, sessionId);
+    env.commandLogger.info(`Snapshot ${snapshotId} successfully associated with session ${sessionId}`);
+    
+  } catch (error) {
+    // Log warning but don't fail the snapshot creation
+    env.commandLogger.warn(`Failed to associate snapshot with session: ${error}`);
+  }
+}
+
+/**
  * Display snapshot creation result
  */
-function displaySnapshotCreationResult(snapshot: SnapshotInfo): void {
+function displaySnapshotCreationResult(snapshot: SnapshotInfo, sessionId?: string): void {
   console.log();
   console.log(chalk.green("✅ Snapshot Created Successfully"));
   console.log();
   
-  displaySnapshotBasicInfo(snapshot);
+  displaySnapshotBasicInfo(snapshot, sessionId);
   displaySnapshotGitInfoForCreation(snapshot);
 }
 
 /**
  * Display basic snapshot information
  */
-function displaySnapshotBasicInfo(snapshot: SnapshotInfo): void {
+function displaySnapshotBasicInfo(snapshot: SnapshotInfo, sessionId?: string): void {
   console.log(`${chalk.bold("ID:")} ${snapshot.id}`);
   console.log(`${chalk.bold("Label:")} ${snapshot.label || "N/A"}`);
   console.log(`${chalk.bold("Comment:")} ${snapshot.comment || "N/A"}`);
   console.log(`${chalk.bold("Functions:")} ${snapshot.metadata.totalFunctions}`);
   console.log(`${chalk.bold("Files:")} ${snapshot.metadata.totalFiles}`);
   console.log(`${chalk.bold("Avg Complexity:")} ${snapshot.metadata.avgComplexity}`);
+  
+  if (sessionId) {
+    console.log(`${chalk.bold("Session:")} ${sessionId}`);
+  }
 }
 
 /**
