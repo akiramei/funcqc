@@ -102,7 +102,7 @@ export class RefactoringValidator {
    */
   displayValidationResults(result: RefactoringValidationResult): void {
     console.log(chalk.cyan('\n🔍 Refactoring Validation Results'));
-    console.log(chalk.gray('=' .repeat(40)));
+    console.log(chalk.gray('='.repeat(40)));
     
     // Main verdict
     const verdictColor = result.isGenuine ? chalk.green : chalk.red;
@@ -126,7 +126,7 @@ export class RefactoringValidator {
     // Recommendation
     console.log(`\n💡 Recommendation: ${this.getRecommendationColor(result.recommendation)(result.recommendation.toUpperCase())}`);
     
-    console.log(chalk.gray('=' .repeat(40)));
+    console.log(chalk.gray('='.repeat(40)));
   }
 
   /**

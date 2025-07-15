@@ -201,7 +201,9 @@ export class RefactoringThresholdLoader {
     const thresholds = await this.loadThresholds(projectRoot);
     const { baseThreshold, slopeCoefficient, maxThreshold } = thresholds.functionExplosion;
     
-    const dynamicThreshold = baseThreshold + slopeCoefficient * Math.log10(functionLOC || 10);
+    // Validate function LOC input - ensure positive value for log calculation
+    const validFunctionLOC = Math.max(1, functionLOC || 10);
+    const dynamicThreshold = baseThreshold + slopeCoefficient * Math.log10(validFunctionLOC);
     return Math.min(dynamicThreshold, maxThreshold);
   }
 
