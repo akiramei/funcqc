@@ -201,11 +201,13 @@ function displaySnapshotList(snapshots: SnapshotInfo[]): void {
  */
 function displaySnapshotItem(snapshot: SnapshotInfo): void {
   const date = new Date(snapshot.createdAt).toLocaleString();
-  // More robust automatic snapshot identification using metadata
-  const isAutomatic = (snapshot.metadata as any)?.sessionId !== undefined || 
-                     (snapshot.metadata as any)?.operationType !== undefined ||
-                     snapshot.label?.startsWith('Before refactoring') ||
-                     snapshot.label?.startsWith('After refactoring');
+  // More robust automatic snapshot identification using label patterns
+  // Since sessionId and operationType are not in SnapshotMetadata type,
+  // we rely on label and comment patterns for identification
+  const isAutomatic = snapshot.label?.startsWith('Before refactoring') ||
+                     snapshot.label?.startsWith('After refactoring') ||
+                     snapshot.label?.includes('Session ') ||
+                     snapshot.comment?.includes('Automatic snapshot');
   const typeIcon = isAutomatic ? '🤖' : '👤';
   
   console.log(`${typeIcon} ${chalk.bold(snapshot.id)}`);
@@ -282,7 +284,7 @@ function displayCleanupWarning(): void {
 /**
  * Handle dry run cleanup analysis
  */
-async function handleCleanupDryRun(env: CommandEnvironment, spinner: any): Promise<void> {
+async function handleCleanupDryRun(env: CommandEnvironment, spinner: ReturnType<typeof ora>): Promise<void> {
   const snapshots = await env.storage.getSnapshots();
   const automaticSnapshots = getAutomaticSnapshots(snapshots);
   
@@ -319,7 +321,7 @@ async function handleCleanupExecution(snapshotManager: SnapshotManager, spinner:
 /**
  * Filter automatic snapshots
  */
-function getAutomaticSnapshots(snapshots: any[]): any[] {
+function getAutomaticSnapshots(snapshots: SnapshotInfo[]): SnapshotInfo[] {
   return snapshots.filter(s => 
     s.label?.includes('Session ') || 
     s.comment?.includes('Automatic snapshot')
@@ -337,7 +339,7 @@ function displayNoCleanupNeeded(currentCount: number, retentionCount: number): v
 /**
  * Display cleanup preview information
  */
-function displayCleanupPreview(automaticSnapshots: any[], excessCount: number): void {
+function displayCleanupPreview(automaticSnapshots: SnapshotInfo[], excessCount: number): void {
   console.log();
   console.log(chalk.yellow(`🗑️  Would delete ${excessCount} old snapshots:`));
   console.log();
