@@ -89,7 +89,7 @@ export class SessionManager {
       description,
       status: 'active',
       target_branch: targetBranch || '',
-      start_time: startTime,
+      start_time: startTime.getTime(),
       metadata: {},
       created_at: now,
       updated_at: now,

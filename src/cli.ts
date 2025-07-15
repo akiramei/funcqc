@@ -782,6 +782,19 @@ refactorCommand.addCommand(
     })
 );
 
+// Add verify subcommand
+refactorCommand.addCommand(
+  new Command('verify')
+    .description('Verify refactoring improvements using comprehensive evaluation')
+    .argument('[session-id]', 'Session ID to verify (or use active session)')
+    .option('--json', 'Output detailed results as JSON')
+    .action(async (sessionId: string, options: OptionValues, command) => {
+      const { withEnvironment } = await import('./cli/cli-wrapper');
+      const { refactorCommand } = await import('./cli/commands/refactor');
+      return withEnvironment(refactorCommand('verify', sessionId ? [sessionId] : []))(options, command);
+    })
+);
+
 // Add interactive subcommand
 refactorCommand.addCommand(
   new Command('interactive')

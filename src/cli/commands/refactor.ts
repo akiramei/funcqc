@@ -89,6 +89,9 @@ export const refactorCommand = (subcommand: string, args: string[] = []): VoidCo
           case 'assess':
             await refactorAssessCommandImpl(args[0] || '', options as RefactorTrackOptions, env);
             break;
+          case 'verify':
+            await refactorVerifyCommandImpl(args[0] || '', options as RefactorTrackOptions, env);
+            break;
           default:
             throw new Error(`Unknown refactor subcommand: ${subcommand}`);
         }
@@ -3000,4 +3003,298 @@ async function refactorAssessCommandImpl(
     console.error(chalk.red('❌ Failed to assess session:'), error instanceof Error ? error.message : String(error));
     throw error;
   }
+}
+
+/**
+ * Verify refactoring improvements using comprehensive evaluation
+ */
+async function refactorVerifyCommandImpl(
+  sessionId: string,
+  options: RefactorTrackOptions,
+  env: CommandEnvironment
+): Promise<void> {
+  // Import required components
+  const { ChangesetEvaluator } = await import('../../utils/changeset-evaluator.js');
+  const { LineageManagerImpl } = await import('../../utils/lineage-manager.js');
+  
+  const lineageManager = new LineageManagerImpl(env.storage);
+  const sessionManager = new SessionManager(env.storage);
+  const evaluator = new ChangesetEvaluator(env.storage, lineageManager);
+
+  // Get session ID if not provided
+  if (!sessionId) {
+    const activeSessions = await sessionManager.getActiveSessions();
+    if (activeSessions.length === 0) {
+      throw new Error('No active session found. Provide a session ID or create an active session.');
+    }
+    sessionId = activeSessions[0].id;
+  }
+
+  // Validate session exists
+  const session = await sessionManager.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found`);
+  }
+
+  console.log(chalk.blue('🔍 Verifying refactoring improvements...'));
+  console.log(`Session: ${chalk.cyan(session.name)} (${chalk.gray(sessionId)})`);
+  console.log(`Description: ${chalk.gray(session.description)}`);
+
+  try {
+    // Get all changesets for this session
+    const changesets = await env.storage.getRefactoringChangesetsBySession(sessionId);
+    
+    if (changesets.length === 0) {
+      console.log(chalk.yellow('\n⚠️  No changesets found for this session.'));
+      console.log('To track refactoring operations, use:');
+      console.log(chalk.cyan('  funcqc refactor split <parent-id> <child-ids...>'));
+      console.log(chalk.cyan('  funcqc refactor extract <parent-id> <extracted-id>'));
+      return;
+    }
+
+    console.log(`\nFound ${chalk.yellow(changesets.length)} changeset(s) to verify.`);
+
+    let overallGenuineCount = 0;
+    let overallTotalScore = 0;
+    const evaluationResults = [];
+
+    // Evaluate each changeset
+    for (let i = 0; i < changesets.length; i++) {
+      const changeset = changesets[i];
+      console.log(`\n${chalk.blue.bold(`[${i + 1}/${changesets.length}] Evaluating Changeset`)}`);  
+      console.log(`Operation: ${chalk.cyan(changeset.operationType)}`);
+      console.log(`Parent: ${chalk.cyan(changeset.parentFunctionId || 'N/A')}`);
+      console.log(`Children: ${chalk.cyan(changeset.childFunctionIds.join(', '))}`);
+
+      try {
+        // Evaluate the changeset
+        const evaluation = await evaluator.evaluateChangeset(changeset);
+        evaluationResults.push(evaluation);
+
+        // Display results
+        console.log(`\n📊 Evaluation Results:`);
+        console.log(`   Overall Score: ${getScoreColor(evaluation.scores.overall)}${evaluation.scores.overall.toFixed(1)}/100${chalk.reset}`);
+        console.log(`   Grade: ${getGradeColor(evaluation.grade)}${evaluation.grade}${chalk.reset}`);
+        console.log(`   Genuine Improvement: ${evaluation.isGenuineImprovement ? chalk.green('✅ Yes') : chalk.red('❌ No')}`);
+
+        // Score breakdown
+        console.log(`\n🎯 Score Breakdown:`);
+        console.log(`   Complexity: ${getScoreColor(evaluation.scores.complexity)}${evaluation.scores.complexity.toFixed(1)}${chalk.reset}`);
+        console.log(`   Risk Reduction: ${getScoreColor(evaluation.scores.risk)}${evaluation.scores.risk.toFixed(1)}${chalk.reset}`);
+        console.log(`   Maintainability: ${getScoreColor(evaluation.scores.maintainability)}${evaluation.scores.maintainability.toFixed(1)}${chalk.reset}`);
+        console.log(`   Code Quality: ${getScoreColor(evaluation.scores.codeQuality)}${evaluation.scores.codeQuality.toFixed(1)}${chalk.reset}`);
+        if (evaluation.scores.explosionPenalty < 0) {
+          console.log(`   Explosion Penalty: ${chalk.red(evaluation.scores.explosionPenalty.toFixed(1))}`);
+        }
+
+        // Function explosion analysis
+        if (evaluation.explosion.isExplosion) {
+          console.log(`\n💥 Function Explosion Detected:`);
+          console.log(`   Severity: ${getExplosionSeverityColor(evaluation.explosion.severity)}${evaluation.explosion.severity}${chalk.reset}`);
+          console.log(`   Score: ${chalk.red(evaluation.explosion.explosionScore.toFixed(3))}`);
+        }
+
+        // Critical issues
+        if (evaluation.criticalIssues.length > 0) {
+          console.log(`\n🚨 Critical Issues:`);
+          evaluation.criticalIssues.forEach(issue => {
+            console.log(`   ${chalk.red('•')} ${issue}`);
+          });
+        }
+
+        // Warnings
+        if (evaluation.warnings.length > 0) {
+          console.log(`\n⚠️  Warnings:`);
+          evaluation.warnings.forEach(warning => {
+            console.log(`   ${chalk.yellow('•')} ${warning}`);
+          });
+        }
+
+        // Recommendations
+        if (evaluation.recommendations.length > 0) {
+          console.log(`\n💡 Recommendations:`);
+          evaluation.recommendations.slice(0, 3).forEach(rec => {
+            console.log(`   ${chalk.cyan('•')} ${rec}`);
+          });
+          if (evaluation.recommendations.length > 3) {
+            console.log(`   ${chalk.gray('• ...')} ${chalk.gray(`and ${evaluation.recommendations.length - 3} more recommendations`)}`);
+          }
+        }
+
+        // Update counters
+        if (evaluation.isGenuineImprovement) {
+          overallGenuineCount++;
+        }
+        overallTotalScore += evaluation.scores.overall;
+
+      } catch (error) {
+        console.error(chalk.red('❌ Failed to evaluate changeset:'), error instanceof Error ? error.message : String(error));
+        console.log(chalk.gray('Continuing with next changeset...'));
+      }
+    }
+
+    // Overall session summary
+    console.log(`\n${chalk.blue.bold('📈 Session Summary')}`);
+    console.log(`─────────────────────────────────────────────────────────────`);
+    console.log(`Total Changesets: ${chalk.yellow(changesets.length)}`);
+    console.log(`Genuine Improvements: ${chalk.green(overallGenuineCount)} / ${changesets.length}`);
+    
+    if (evaluationResults.length > 0) {
+      const averageScore = overallTotalScore / evaluationResults.length;
+      const overallGrade = calculateOverallSessionGrade(averageScore, overallGenuineCount, changesets.length);
+      console.log(`Average Score: ${getScoreColor(averageScore)}${averageScore.toFixed(1)}/100${chalk.reset}`);
+      console.log(`Session Grade: ${getGradeColor(overallGrade)}${overallGrade}${chalk.reset}`);
+      
+      const genuinePercentage = (overallGenuineCount / changesets.length) * 100;
+      console.log(`Success Rate: ${getSuccessRateColor(genuinePercentage)}${genuinePercentage.toFixed(1)}%${chalk.reset}`);
+    }
+
+    // Session recommendations
+    const sessionRecommendations = generateSessionRecommendations(
+      evaluationResults, 
+      overallGenuineCount, 
+      changesets.length
+    );
+    
+    if (sessionRecommendations.length > 0) {
+      console.log(`\n🎯 Session Recommendations:`);
+      sessionRecommendations.forEach(rec => {
+        console.log(`   ${chalk.cyan('•')} ${rec}`);
+      });
+    }
+
+    // JSON output if requested
+    if (options.json) {
+      const jsonOutput = {
+        sessionId,
+        sessionName: session.name,
+        totalChangesets: changesets.length,
+        genuineImprovements: overallGenuineCount,
+        averageScore: evaluationResults.length > 0 ? overallTotalScore / evaluationResults.length : 0,
+        successRate: (overallGenuineCount / changesets.length) * 100,
+        evaluations: evaluationResults.map(evaluation => ({
+          evaluationId: evaluation.evaluationId,
+          changesetId: evaluation.changesetId,
+          isGenuineImprovement: evaluation.isGenuineImprovement,
+          grade: evaluation.grade,
+          scores: evaluation.scores,
+          explosion: {
+            isExplosion: evaluation.explosion.isExplosion,
+            severity: evaluation.explosion.severity,
+            score: evaluation.explosion.explosionScore,
+          },
+          criticalIssues: evaluation.criticalIssues,
+          warnings: evaluation.warnings,
+          recommendations: evaluation.recommendations,
+        })),
+        sessionRecommendations,
+        verifiedAt: new Date().toISOString(),
+      };
+      
+      console.log(`\n${chalk.gray('JSON Output:')}`);
+      console.log(JSON.stringify(jsonOutput, null, 2));
+    }
+
+    console.log(chalk.green('\n✅ Verification completed!'));
+
+  } catch (error) {
+    console.error(chalk.red('❌ Failed to verify session:'), error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+}
+
+// Helper functions for verification command
+function getScoreColor(score: number): typeof chalk {
+  if (score >= 90) return chalk.green.bold;
+  if (score >= 80) return chalk.green;
+  if (score >= 70) return chalk.yellow;
+  if (score >= 60) return chalk.yellow.dim;
+  return chalk.red;
+}
+
+function getGradeColor(grade: string): typeof chalk {
+  switch (grade) {
+    case 'A+':
+    case 'A': return chalk.green.bold;
+    case 'B': return chalk.green;
+    case 'C': return chalk.yellow;
+    case 'D': return chalk.yellow.dim;
+    case 'F': return chalk.red;
+    default: return chalk.gray;
+  }
+}
+
+function getExplosionSeverityColor(severity: string): typeof chalk {
+  switch (severity) {
+    case 'none': return chalk.green;
+    case 'minor': return chalk.yellow;
+    case 'moderate': return chalk.yellow.bold;
+    case 'severe': return chalk.red;
+    case 'critical': return chalk.red.bold;
+    default: return chalk.gray;
+  }
+}
+
+function getSuccessRateColor(rate: number): typeof chalk {
+  if (rate >= 80) return chalk.green.bold;
+  if (rate >= 60) return chalk.green;
+  if (rate >= 40) return chalk.yellow;
+  if (rate >= 20) return chalk.yellow.dim;
+  return chalk.red;
+}
+
+function calculateOverallSessionGrade(
+  averageScore: number, 
+  genuineCount: number, 
+  totalCount: number
+): string {
+  const successRate = (genuineCount / totalCount) * 100;
+  
+  // Adjust grade based on both score and success rate
+  let adjustedScore = averageScore;
+  
+  // Penalty for low success rate
+  if (successRate < 50) {
+    adjustedScore *= 0.5; // 50% penalty for low success rate
+  } else if (successRate < 75) {
+    adjustedScore *= 0.8; // 20% penalty for moderate success rate
+  }
+  
+  if (adjustedScore >= 95) return 'A+';
+  if (adjustedScore >= 90) return 'A';
+  if (adjustedScore >= 80) return 'B';
+  if (adjustedScore >= 70) return 'C';
+  if (adjustedScore >= 60) return 'D';
+  return 'F';
+}
+
+function generateSessionRecommendations(
+  evaluations: any[],
+  genuineCount: number,
+  totalCount: number
+): string[] {
+  const recommendations: string[] = [];
+  const successRate = (genuineCount / totalCount) * 100;
+  
+  if (successRate < 50) {
+    recommendations.push('🚨 Low success rate - review refactoring strategy and explosion thresholds');
+    recommendations.push('📚 Consider focusing on functions with highest complexity first');
+  } else if (successRate < 75) {
+    recommendations.push('⚡ Moderate success rate - fine-tune approach for better results');
+  } else if (successRate >= 90) {
+    recommendations.push('🎉 Excellent success rate - consider applying similar techniques to other projects');
+  }
+  
+  // Check for common issues across evaluations
+  const explosionCount = evaluations.filter(e => e.explosion.isExplosion).length;
+  if (explosionCount > totalCount * 0.3) {
+    recommendations.push('💥 Multiple function explosions detected - consider more conservative splitting');
+  }
+  
+  const lowComplexityCount = evaluations.filter(e => e.scores.complexity < 50).length;
+  if (lowComplexityCount > totalCount * 0.5) {
+    recommendations.push('🎯 Focus on higher complexity functions for better improvement impact');
+  }
+  
+  return recommendations;
 }

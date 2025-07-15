@@ -1,0 +1,644 @@
+// Filesystem operations (imports available if needed)
+import { execSync } from 'child_process';
+import {
+  SnapshotInfo,
+  FuncqcConfig,
+  StorageAdapter,
+  RefactoringSession,
+  RefactoringOperation,
+} from '../types/index.js';
+import { CoreAnalyzer } from '../core/analyzer.js';
+import { ErrorHandler, ErrorCode, createErrorHandler } from './error-handler.js';
+import { Logger } from './cli-utils.js';
+import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * SnapshotCreationOptions
+ * 
+ * Configuration options for snapshot creation
+ */
+export interface SnapshotCreationOptions {
+  /** Custom label for the snapshot */
+  label?: string;
+  
+  /** Additional comment describing the snapshot */
+  comment?: string;
+  
+  /** Whether to include Git information */
+  includeGitInfo?: boolean;
+  
+  /** Force snapshot creation even if no changes detected */
+  force?: boolean;
+  
+  /** Custom metadata to include with snapshot */
+  metadata?: Record<string, unknown>;
+  
+  /** Exclude patterns for this specific snapshot */
+  exclude?: string[];
+  
+  /** Include patterns for this specific snapshot */
+  include?: string[];
+}
+
+/**
+ * AutomaticSnapshotConfig
+ * 
+ * Configuration for automatic snapshot creation
+ */
+export interface AutomaticSnapshotConfig {
+  /** Enable automatic snapshots */
+  enabled: boolean;
+  
+  /** Create snapshots before refactoring operations */
+  beforeRefactoring: boolean;
+  
+  /** Create snapshots after refactoring operations */
+  afterRefactoring: boolean;
+  
+  /** Minimum time between automatic snapshots (in milliseconds) */
+  minimumInterval: number;
+  
+  /** Maximum number of automatic snapshots to retain */
+  maxRetentionCount: number;
+  
+  /** Automatically detect significant changes */
+  autoDetectChanges: boolean;
+  
+  /** Threshold for significant change detection (percentage of functions changed) */
+  changeThreshold: number;
+  
+  /** Custom naming pattern for automatic snapshots */
+  namingPattern: string;
+}
+
+/**
+ * Default configuration for automatic snapshots
+ */
+export const DefaultAutomaticSnapshotConfig: AutomaticSnapshotConfig = {
+  enabled: true,
+  beforeRefactoring: true,
+  afterRefactoring: true,
+  minimumInterval: 5 * 60 * 1000, // 5 minutes
+  maxRetentionCount: 50,
+  autoDetectChanges: true,
+  changeThreshold: 10, // 10% of functions changed
+  namingPattern: 'auto_{timestamp}_{type}',
+};
+
+/**
+ * SnapshotComparisonResult
+ * 
+ * Result of comparing two snapshots
+ */
+export interface SnapshotComparisonResult {
+  /** Functions added in the new snapshot */
+  added: string[];
+  
+  /** Functions removed from the old snapshot */
+  removed: string[];
+  
+  /** Functions modified between snapshots */
+  modified: string[];
+  
+  /** Functions unchanged between snapshots */
+  unchanged: string[];
+  
+  /** Percentage of functions that changed */
+  changePercentage: number;
+  
+  /** Summary statistics */
+  statistics: {
+    totalBefore: number;
+    totalAfter: number;
+    netChange: number;
+    significantChange: boolean;
+  };
+}
+
+/**
+ * SnapshotManager
+ * 
+ * Manages automatic creation and comparison of code snapshots for refactoring operations.
+ * Provides before/after comparison capabilities and integrates with the existing
+ * funcqc analysis pipeline.
+ * 
+ * Key features:
+ * - Automatic snapshot creation before/after refactoring
+ * - Git integration for commit-based snapshots
+ * - Change detection and significant change identification
+ * - Snapshot comparison and diff analysis
+ * - Retention management for automatic snapshots
+ */
+export class SnapshotManager {
+  private readonly analyzer: CoreAnalyzer;
+  private readonly errorHandler: ErrorHandler;
+  private readonly logger: Logger;
+  private readonly config: AutomaticSnapshotConfig;
+  private readonly projectRoot: string;
+  
+  constructor(
+    private storage: StorageAdapter,
+    private funcqcConfig: FuncqcConfig,
+    config: Partial<AutomaticSnapshotConfig> = {},
+    logger?: Logger
+  ) {
+    this.logger = logger || new Logger(false, false);
+    this.errorHandler = createErrorHandler(this.logger);
+    this.config = { ...DefaultAutomaticSnapshotConfig, ...config };
+    this.projectRoot = funcqcConfig.roots[0] || process.cwd();
+    
+    // Initialize core analyzer for snapshot creation
+    this.analyzer = new CoreAnalyzer(this.funcqcConfig, this.storage, this.logger);
+  }
+
+  /**
+   * Create a snapshot of the current codebase state
+   */
+  async createSnapshot(options: SnapshotCreationOptions = {}): Promise<SnapshotInfo> {
+    try {
+      this.logger.info('Creating snapshot', { options });
+      
+      // Generate snapshot ID and basic metadata
+      const snapshotId = this.generateSnapshotId();
+      const timestamp = new Date();
+      
+      // Get Git information if requested
+      const gitInfo = options.includeGitInfo !== false ? await this.getGitInfo() : {};
+      
+      // Create snapshot record
+      const snapshot: SnapshotInfo = {
+        id: snapshotId,
+        createdAt: timestamp,
+        label: options.label || '',
+        comment: options.comment || '',
+        gitCommit: gitInfo.commit || '',
+        gitBranch: gitInfo.branch || '',
+        gitTag: gitInfo.tag || '',
+        projectRoot: this.projectRoot,
+        configHash: await this.calculateConfigHash(),
+        metadata: {
+          automatic: false,
+          creationOptions: options,
+          ...options.metadata,
+        },
+      };
+      
+      // Save snapshot to storage
+      await this.storage.saveSnapshot(snapshot);
+      this.logger.info(`Snapshot created: ${snapshotId}`);
+      
+      // Perform analysis for this snapshot
+      await this.analyzeForSnapshot(snapshotId, options);
+      
+      return snapshot;
+      
+    } catch (error) {
+      this.logger.error('Failed to create snapshot', {
+        options,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      
+      throw this.errorHandler.createError(
+        ErrorCode.STORAGE_ERROR,
+        'Snapshot creation failed',
+        { options },
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Create automatic snapshot before refactoring operation
+   */
+  async createBeforeSnapshot(
+    session: RefactoringSession,
+    operation?: RefactoringOperation
+  ): Promise<SnapshotInfo | null> {
+    if (!this.config.enabled || !this.config.beforeRefactoring) {
+      return null;
+    }
+    
+    try {
+      // Check if enough time has passed since last automatic snapshot
+      if (!(await this.shouldCreateAutomaticSnapshot())) {
+        this.logger.debug('Skipping automatic before snapshot - too recent');
+        return null;
+      }
+      
+      const options: SnapshotCreationOptions = {
+        label: this.generateAutomaticLabel('before', session),
+        comment: `Before refactoring: ${session.description}`,
+        includeGitInfo: true,
+        metadata: {
+          automatic: true,
+          type: 'before',
+          sessionId: session.id,
+          operationType: operation?.type,
+        },
+      };
+      
+      const snapshot = await this.createSnapshot(options);
+      this.logger.info(`Before snapshot created for session ${session.id}: ${snapshot.id}`);
+      
+      return snapshot;
+      
+    } catch (error) {
+      this.logger.warn('Failed to create before snapshot', {
+        sessionId: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null; // Don't fail the operation if snapshot creation fails
+    }
+  }
+
+  /**
+   * Create automatic snapshot after refactoring operation
+   */
+  async createAfterSnapshot(
+    session: RefactoringSession,
+    beforeSnapshotId?: string,
+    operation?: RefactoringOperation
+  ): Promise<Snapshot | null> {
+    if (!this.config.enabled || !this.config.afterRefactoring) {
+      return null;
+    }
+    
+    try {
+      // Check for significant changes if auto-detection is enabled
+      if (this.config.autoDetectChanges && beforeSnapshotId) {
+        const hasSignificantChanges = await this.detectSignificantChanges(beforeSnapshotId);
+        if (!hasSignificantChanges) {
+          this.logger.debug('Skipping automatic after snapshot - no significant changes');
+          return null;
+        }
+      }
+      
+      const options: SnapshotCreationOptions = {
+        label: this.generateAutomaticLabel('after', session),
+        comment: `After refactoring: ${session.description}`,
+        includeGitInfo: true,
+        metadata: {
+          automatic: true,
+          type: 'after',
+          sessionId: session.id,
+          beforeSnapshotId,
+          operationType: operation?.type,
+        },
+      };
+      
+      const snapshot = await this.createSnapshot(options);
+      this.logger.info(`After snapshot created for session ${session.id}: ${snapshot.id}`);
+      
+      // Clean up old automatic snapshots
+      await this.cleanupOldSnapshots();
+      
+      return snapshot;
+      
+    } catch (error) {
+      this.logger.warn('Failed to create after snapshot', {
+        sessionId: session.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null; // Don't fail the operation if snapshot creation fails
+    }
+  }
+
+  /**
+   * Compare two snapshots and return detailed differences
+   */
+  async compareSnapshots(
+    beforeSnapshotId: string,
+    afterSnapshotId: string
+  ): Promise<SnapshotComparisonResult> {
+    try {
+      this.logger.info(`Comparing snapshots: ${beforeSnapshotId} vs ${afterSnapshotId}`);
+      
+      // Get functions from both snapshots
+      const beforeFunctions = await this.storage.getFunctionsBySnapshotId(beforeSnapshotId);
+      const afterFunctions = await this.storage.getFunctionsBySnapshotId(afterSnapshotId);
+      
+      // Create maps for efficient lookup
+      const beforeMap = new Map(beforeFunctions.map(f => [f.semanticId, f]));
+      const afterMap = new Map(afterFunctions.map(f => [f.semanticId, f]));
+      
+      // Analyze differences
+      const added: string[] = [];
+      const removed: string[] = [];
+      const modified: string[] = [];
+      const unchanged: string[] = [];
+      
+      // Check for added and modified functions
+      for (const [semanticId, afterFunc] of afterMap) {
+        const beforeFunc = beforeMap.get(semanticId);
+        
+        if (!beforeFunc) {
+          added.push(semanticId);
+        } else if (beforeFunc.contentId !== afterFunc.contentId) {
+          modified.push(semanticId);
+        } else {
+          unchanged.push(semanticId);
+        }
+      }
+      
+      // Check for removed functions
+      for (const [semanticId] of beforeMap) {
+        if (!afterMap.has(semanticId)) {
+          removed.push(semanticId);
+        }
+      }
+      
+      // Calculate statistics
+      const totalBefore = beforeFunctions.length;
+      const totalAfter = afterFunctions.length;
+      const totalChanged = added.length + removed.length + modified.length;
+      const changePercentage = totalBefore > 0 ? (totalChanged / totalBefore) * 100 : 0;
+      const significantChange = changePercentage >= this.config.changeThreshold;
+      
+      const result: SnapshotComparisonResult = {
+        added,
+        removed,
+        modified,
+        unchanged,
+        changePercentage,
+        statistics: {
+          totalBefore,
+          totalAfter,
+          netChange: totalAfter - totalBefore,
+          significantChange,
+        },
+      };
+      
+      this.logger.info(`Snapshot comparison completed`, {
+        changePercentage,
+        significantChange,
+        totalChanged,
+      });
+      
+      return result;
+      
+    } catch (error) {
+      this.logger.error('Failed to compare snapshots', {
+        beforeSnapshotId,
+        afterSnapshotId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      
+      throw this.errorHandler.createError(
+        ErrorCode.STORAGE_ERROR,
+        'Snapshot comparison failed',
+        { beforeSnapshotId, afterSnapshotId },
+        error instanceof Error ? error : new Error(String(error))
+      );
+    }
+  }
+
+  /**
+   * Get the most recent snapshot
+   */
+  async getLatestSnapshot(): Promise<Snapshot | null> {
+    try {
+      const snapshots = await this.storage.getAllSnapshots();
+      if (snapshots.length === 0) {
+        return null;
+      }
+      
+      // Sort by creation date and return the most recent
+      snapshots.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return snapshots[0];
+      
+    } catch (error) {
+      this.logger.error('Failed to get latest snapshot', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Clean up old automatic snapshots based on retention policy
+   */
+  async cleanupOldSnapshots(): Promise<void> {
+    try {
+      const allSnapshots = await this.storage.getAllSnapshots();
+      
+      // Filter automatic snapshots only
+      const automaticSnapshots = allSnapshots.filter(s => 
+        s.metadata && typeof s.metadata === 'object' && 
+        'automatic' in s.metadata && s.metadata.automatic === true
+      );
+      
+      if (automaticSnapshots.length <= this.config.maxRetentionCount) {
+        return; // No cleanup needed
+      }
+      
+      // Sort by creation date (newest first)
+      automaticSnapshots.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      
+      // Remove excess snapshots
+      const snapshotsToDelete = automaticSnapshots.slice(this.config.maxRetentionCount);
+      
+      for (const snapshot of snapshotsToDelete) {
+        await this.storage.deleteSnapshot(snapshot.id);
+        this.logger.info(`Deleted old automatic snapshot: ${snapshot.id}`);
+      }
+      
+      this.logger.info(`Cleaned up ${snapshotsToDelete.length} old automatic snapshots`);
+      
+    } catch (error) {
+      this.logger.warn('Failed to cleanup old snapshots', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
+   * Check if enough time has passed to create another automatic snapshot
+   */
+  private async shouldCreateAutomaticSnapshot(): Promise<boolean> {
+    try {
+      const latestSnapshot = await this.getLatestSnapshot();
+      
+      if (!latestSnapshot) {
+        return true; // No snapshots exist, so create one
+      }
+      
+      // Check if the latest snapshot is automatic
+      const isAutomatic = latestSnapshot.metadata && 
+        typeof latestSnapshot.metadata === 'object' &&
+        'automatic' in latestSnapshot.metadata &&
+        latestSnapshot.metadata.automatic === true;
+      
+      if (!isAutomatic) {
+        return true; // Latest snapshot is manual, so we can create automatic one
+      }
+      
+      // Check time interval
+      const timeSinceLastSnapshot = Date.now() - latestSnapshot.createdAt.getTime();
+      return timeSinceLastSnapshot >= this.config.minimumInterval;
+      
+    } catch (error) {
+      this.logger.warn('Error checking snapshot creation eligibility', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return true; // Default to allowing snapshot creation
+    }
+  }
+
+  /**
+   * Detect if significant changes have occurred since the given snapshot
+   */
+  private async detectSignificantChanges(beforeSnapshotId: string): Promise<boolean> {
+    try {
+      // Create a temporary snapshot to compare against
+      const tempSnapshot = await this.createSnapshot({
+        label: 'temp_for_change_detection',
+        comment: 'Temporary snapshot for change detection',
+        includeGitInfo: false,
+        metadata: { temporary: true },
+      });
+      
+      try {
+        // Compare snapshots
+        const comparison = await this.compareSnapshots(beforeSnapshotId, tempSnapshot.id);
+        
+        // Clean up temporary snapshot
+        await this.storage.deleteSnapshot(tempSnapshot.id);
+        
+        return comparison.statistics.significantChange;
+        
+      } catch (error) {
+        // Clean up temporary snapshot on error
+        await this.storage.deleteSnapshot(tempSnapshot.id);
+        throw error;
+      }
+      
+    } catch (error) {
+      this.logger.warn('Failed to detect significant changes', {
+        beforeSnapshotId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return true; // Default to assuming significant changes
+    }
+  }
+
+  /**
+   * Generate a unique snapshot ID
+   */
+  private generateSnapshotId(): string {
+    const timestamp = Date.now();
+    const uuid = uuidv4().split('-')[0]; // Use first part of UUID for brevity
+    return `snap_${timestamp}_${uuid}`;
+  }
+
+  /**
+   * Generate automatic snapshot label based on pattern
+   */
+  private generateAutomaticLabel(type: 'before' | 'after', session: RefactoringSession): string {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    return this.config.namingPattern
+      .replace('{timestamp}', timestamp)
+      .replace('{type}', type)
+      .replace('{session}', session.id.substring(0, 8));
+  }
+
+  /**
+   * Get Git information for snapshot metadata
+   */
+  private async getGitInfo(): Promise<{ commit?: string; branch?: string; tag?: string }> {
+    try {
+      const commit = execSync('git rev-parse HEAD', { 
+        cwd: this.projectRoot, 
+        encoding: 'utf8' 
+      }).trim();
+      
+      const branch = execSync('git rev-parse --abbrev-ref HEAD', { 
+        cwd: this.projectRoot, 
+        encoding: 'utf8' 
+      }).trim();
+      
+      let tag = '';
+      try {
+        tag = execSync('git describe --tags --exact-match HEAD', { 
+          cwd: this.projectRoot, 
+          encoding: 'utf8' 
+        }).trim();
+      } catch {
+        // No tag on current commit, which is fine
+      }
+      
+      return { commit, branch, tag };
+      
+    } catch (error) {
+      this.logger.debug('Git information not available', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {};
+    }
+  }
+
+  /**
+   * Calculate configuration hash for snapshot metadata
+   */
+  private async calculateConfigHash(): Promise<string> {
+    try {
+      const configString = JSON.stringify(this.funcqcConfig, null, 0);
+      
+      // Simple hash calculation (could be enhanced with crypto)
+      let hash = 0;
+      for (let i = 0; i < configString.length; i++) {
+        const char = configString.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32-bit integer
+      }
+      
+      return Math.abs(hash).toString(16);
+      
+    } catch (error) {
+      this.logger.warn('Failed to calculate config hash', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Perform analysis for the given snapshot
+   */
+  private async analyzeForSnapshot(
+    snapshotId: string,
+    options: SnapshotCreationOptions
+  ): Promise<void> {
+    try {
+      // Override include/exclude patterns if specified in options
+      const originalInclude = this.funcqcConfig.include;
+      const originalExclude = this.funcqcConfig.exclude;
+      
+      if (options.include) {
+        this.funcqcConfig.include = options.include;
+      }
+      
+      if (options.exclude) {
+        this.funcqcConfig.exclude = [...this.funcqcConfig.exclude, ...options.exclude];
+      }
+      
+      try {
+        // Run analysis with the snapshot ID
+        await this.analyzer.analyze(snapshotId);
+        this.logger.info(`Analysis completed for snapshot: ${snapshotId}`);
+        
+      } finally {
+        // Restore original configuration
+        this.funcqcConfig.include = originalInclude;
+        this.funcqcConfig.exclude = originalExclude;
+      }
+      
+    } catch (error) {
+      this.logger.error(`Analysis failed for snapshot ${snapshotId}`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      
+      // Don't throw - snapshot creation should succeed even if analysis fails
+    }
+  }
+}
