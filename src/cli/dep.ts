@@ -272,20 +272,31 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
   console.log();
 }
 
+interface DependencyTreeNode {
+  id: string;
+  name: string;
+  depth: number;
+  dependencies: Array<{
+    direction: 'in' | 'out';
+    edge: CallEdge;
+    subtree: DependencyTreeNode | null;
+  }>;
+}
+
 /**
  * Build dependency tree with specified depth
  */
 function buildDependencyTree(
   functionId: string,
   edges: CallEdge[],
-  functions: any[],
+  functions: Array<{ id: string; name: string }>,
   direction: 'in' | 'out' | 'both',
   maxDepth: number,
   includeExternal: boolean
-): any {
+): DependencyTreeNode {
   const visited = new Set<string>();
   
-  function buildTree(currentId: string, depth: number, dir: 'in' | 'out'): any {
+  function buildTree(currentId: string, depth: number, dir: 'in' | 'out'): DependencyTreeNode | null {
     if (depth > maxDepth || visited.has(currentId)) {
       return null;
     }
@@ -293,7 +304,7 @@ function buildDependencyTree(
     visited.add(currentId);
     
     const currentFunction = functions.find(f => f.id === currentId);
-    const result: any = {
+    const result: DependencyTreeNode = {
       id: currentId,
       name: currentFunction?.name || 'unknown',
       depth,
@@ -308,7 +319,7 @@ function buildDependencyTree(
       );
       
       result.dependencies.push(...incoming.map(edge => ({
-        direction: 'in',
+        direction: 'in' as const,
         edge,
         subtree: buildTree(edge.callerFunctionId || '', depth + 1, 'in'),
       })).filter(dep => dep.subtree));
@@ -322,7 +333,7 @@ function buildDependencyTree(
       );
       
       result.dependencies.push(...outgoing.map(edge => ({
-        direction: 'out',
+        direction: 'out' as const,
         edge,
         subtree: buildTree(edge.calleeFunctionId || '', depth + 1, 'out'),
       })).filter(dep => dep.subtree));
@@ -331,13 +342,18 @@ function buildDependencyTree(
     return result;
   }
   
-  return buildTree(functionId, 0, direction === 'both' ? 'out' : direction);
+  return buildTree(functionId, 0, direction === 'both' ? 'out' : direction) || {
+    id: functionId,
+    name: 'unknown',
+    depth: 0,
+    dependencies: [],
+  };
 }
 
 /**
  * Output dependency show as JSON
  */
-function outputDepShowJSON(func: any, dependencies: any): void {
+function outputDepShowJSON(func: { id: string; name: string; file_path?: string; start_line?: number }, dependencies: DependencyTreeNode): void {
   const result = {
     function: func,
     dependencies,
@@ -348,13 +364,13 @@ function outputDepShowJSON(func: any, dependencies: any): void {
 /**
  * Output dependency show in formatted tree
  */
-function outputDepShowFormatted(func: any, dependencies: any, _options: DepShowOptions): void {
+function outputDepShowFormatted(func: { id: string; name: string; file_path?: string; start_line?: number }, dependencies: DependencyTreeNode, _options: DepShowOptions): void {
   console.log(chalk.bold(`\nDependency Analysis for: ${chalk.cyan(func.name)}`));
   console.log(chalk.gray(`ID: ${func.id}`));
   console.log(chalk.gray(`File: ${func.file_path}:${func.start_line}`));
   console.log();
 
-  function printTree(node: any, prefix: string = '', isLast: boolean = true): void {
+  function printTree(node: DependencyTreeNode | null, prefix: string = '', isLast: boolean = true): void {
     if (!node) return;
 
     const connector = isLast ? '└── ' : '├── ';
@@ -365,7 +381,7 @@ function outputDepShowFormatted(func: any, dependencies: any, _options: DepShowO
     if (node.dependencies && node.dependencies.length > 0) {
       const newPrefix = prefix + (isLast ? '    ' : '│   ');
       
-      node.dependencies.forEach((dep: any, index: number) => {
+      node.dependencies.forEach((dep, index: number) => {
         const isLastDep = index === node.dependencies.length - 1;
         const arrow = dep.direction === 'in' ? '→' : '←';
         const typeColor = getCallTypeColor(dep.edge.callType);
