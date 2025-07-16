@@ -65,7 +65,7 @@ async function getLatestSnapshot(env: CommandEnvironment, spinner: ReturnType<ty
  */
 async function getComplexFunctions(
   env: CommandEnvironment, 
-  snapshot: import('../../../types').SnapshotInfo, 
+  snapshot: import('../../../../types').SnapshotInfo, 
   options: RefactorHealthGuidedOptions, 
   spinner: ReturnType<typeof ora>
 ) {
@@ -93,7 +93,7 @@ async function getComplexFunctions(
  * Helper function to generate and filter refactoring plans using RefactoringHealthEngine
  */
 async function generateAndFilterPlans(
-  functions: import('../../../types').FunctionInfo[], 
+  functions: import('../../../../types').FunctionInfo[], 
   options: RefactorHealthGuidedOptions, 
   spinner: ReturnType<typeof ora>,
   _env: CommandEnvironment
@@ -151,8 +151,8 @@ export async function applyRefactoringPlan(
  * Helper function to display analysis results
  */
 function displayAnalysisResults(
-  snapshot: import('../../../types').SnapshotInfo, 
-  functions: import('../../../types').FunctionInfo[], 
+  snapshot: import('../../../../types').SnapshotInfo, 
+  functions: import('../../../../types').FunctionInfo[], 
   filteredPlans: unknown[], 
   options: RefactorHealthGuidedOptions
 ): void {
@@ -169,15 +169,18 @@ function displayAnalysisResults(
         complexityThreshold: options.complexityThreshold || 5,
         priorityThreshold: options.priorityThreshold || 0
       },
-      plans: filteredPlans.map(plan => ({
-        ...plan,
-        healthEngineReady: plan.healthEngineReady || false,
-        validationRequired: plan.validationRequired || false,
-        riskFactors: plan.riskFactors || []
-      }))
+      plans: filteredPlans.map(plan => {
+        const planObj = plan as Record<string, unknown>;
+        return {
+          ...planObj,
+          healthEngineReady: planObj['healthEngineReady'] || false,
+          validationRequired: planObj['validationRequired'] || false,
+          riskFactors: planObj['riskFactors'] || []
+        };
+      })
     }, null, 2));
   } else {
-    displayRefactoringPlans(filteredPlans, options.verbose || false);
+    displayRefactoringPlans(filteredPlans as RefactoringPlan[], options.verbose || false);
   }
 }
 
@@ -285,7 +288,7 @@ export async function healthGuidedPrompt(
  */
 async function findTargetFunction(
   env: CommandEnvironment,
-  snapshot: import('../../../types').SnapshotInfo,
+  snapshot: import('../../../../types').SnapshotInfo,
   functionName: string,
   spinner: ReturnType<typeof ora>
 ) {
@@ -299,13 +302,15 @@ async function findTargetFunction(
     ]
   });
 
-  const targetFunction = functions.find(f => 
-    (f as unknown as Record<string, unknown>)['display_name'] === functionName || 
-    f.name === functionName
-  ) || functions.find(f => 
-    (f as unknown as Record<string, unknown>)['display_name']?.toString().includes(functionName) || 
-    f.name.includes(functionName)
-  );
+  const targetFunction = functions.find(f => {
+    const funcObj = f as unknown as Record<string, unknown>;
+    return funcObj['display_name'] === functionName || f.name === functionName;
+  }) || functions.find(f => {
+    const funcObj = f as unknown as Record<string, unknown>;
+    const displayName = funcObj['display_name'];
+    return (displayName && displayName.toString().includes(functionName)) || 
+           f.name.includes(functionName);
+  });
 
   if (!targetFunction) {
     spinner.fail(`Function "${functionName}" not found`);
@@ -325,12 +330,13 @@ function displayPromptResults(prompt: string, analysis: unknown, options: Refact
   console.log(chalk.gray('━'.repeat(80)));
 
   if (options.verbose) {
+    const analysisObj = analysis as Record<string, unknown>;
     console.log(chalk.cyan('\n📊 Health Analysis Details'));
     console.log(chalk.gray('━'.repeat(40)));
-    console.log(`Priority Score: ${analysis.priority}`);
-    console.log(`Estimated Impact: ${analysis.estimatedImpact}%`);
-    console.log(`Target Patterns: ${analysis.patterns ? Object.keys(analysis.patterns).join(', ') : 'None'}`);
-    console.log(`Health Suggestions: ${analysis.healthSuggestions.length}`);
-    console.log(`AST Suggestions: ${analysis.astSuggestions.length}`);
+    console.log(`Priority Score: ${analysisObj['priority']}`);
+    console.log(`Estimated Impact: ${analysisObj['estimatedImpact']}%`);
+    console.log(`Target Patterns: ${analysisObj['patterns'] ? Object.keys(analysisObj['patterns'] as Record<string, unknown>).join(', ') : 'None'}`);
+    console.log(`Health Suggestions: ${Array.isArray(analysisObj['healthSuggestions']) ? (analysisObj['healthSuggestions'] as unknown[]).length : 0}`);
+    console.log(`AST Suggestions: ${Array.isArray(analysisObj['astSuggestions']) ? (analysisObj['astSuggestions'] as unknown[]).length : 0}`);
   }
 }

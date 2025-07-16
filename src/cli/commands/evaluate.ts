@@ -9,12 +9,11 @@ import chalk from 'chalk';
 import ora from 'ora';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { EvaluateCommandOptions, FunctionInfo, isMultipleAssessment } from '../../types/index.js';
+import { EvaluateCommandOptions, FunctionInfo } from '../../types/index.js';
 import {
   RealTimeQualityGate,
   QualityAssessment,
   QualityViolation,
-  MultipleQualityAssessment,
 } from '../../core/realtime-quality-gate.js';
 import { StructuralAnomaly } from '../../utils/structural-analyzer.js';
 import { outputJson, isJsonOutput } from '../../utils/format-helpers.js';
@@ -70,13 +69,7 @@ async function executeEvaluateCommand(
   spinner.start('Evaluating code quality...');
 
   // Perform evaluation
-  let assessment: QualityAssessment | MultipleQualityAssessment;
-  
-  if (options.evaluateAll) {
-    assessment = await qualityGate.evaluateAllFunctions(code, { filename });
-  } else {
-    assessment = await qualityGate.evaluateCode(code, { filename });
-  }
+  const assessment: QualityAssessment = await qualityGate.evaluateCode(code, { filename });
 
   spinner.stop();
 
@@ -90,27 +83,11 @@ async function executeEvaluateCommand(
   // Exit with appropriate code
   if (options.aiGenerated) {
     // For AI generation: exit 1 if not acceptable, 0 otherwise
-    const isAcceptable = isMultipleAssessment(assessment) 
-      ? assessment.overallAcceptable 
-      : assessment.acceptable;
-    process.exit(isAcceptable ? 0 : 1);
+    process.exit(assessment.acceptable ? 0 : 1);
   } else {
     // For normal evaluation: always exit 0 unless critical errors
-    let criticalViolations = 0;
-    let criticalAnomalies = 0;
-    
-    if (isMultipleAssessment(assessment)) {
-      // Count critical violations across all functions
-      criticalViolations = assessment.allFunctions.reduce((total, func) => 
-        total + func.assessment.violations.filter(v => v.severity === 'critical').length, 0
-      );
-      criticalAnomalies = assessment.allFunctions.reduce((total, func) => 
-        total + func.assessment.structuralAnomalies.filter(a => a.severity === 'critical').length, 0
-      );
-    } else {
-      criticalViolations = assessment.violations.filter(v => v.severity === 'critical').length;
-      criticalAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'critical').length;
-    }
+    const criticalViolations = assessment.violations.filter(v => v.severity === 'critical').length;
+    const criticalAnomalies = assessment.structuralAnomalies.filter(a => a.severity === 'critical').length;
     
     if ((criticalViolations > 0 || criticalAnomalies > 0) && options.strict) {
       process.exit(1);
@@ -118,7 +95,6 @@ async function executeEvaluateCommand(
   }
 }
 
-// Type guard imported from centralized location
 
 /**
  * Initialize quality gate with historical baseline using shared storage
@@ -196,125 +172,54 @@ async function readFromStdin(): Promise<string> {
  * Output results in JSON format
  */
 async function outputJsonResults(
-  assessment: QualityAssessment | MultipleQualityAssessment,
+  assessment: QualityAssessment,
   options: EvaluateCommandOptions
 ): Promise<void> {
-  if (isMultipleAssessment(assessment)) {
-    // Multiple functions assessment
-    const result = {
-      evaluationMode: 'multiple-functions',
-      overallAcceptable: assessment.overallAcceptable,
-      aggregatedScore: assessment.aggregatedScore,
-      responseTime: assessment.responseTime,
-      summary: assessment.summary,
-      mainFunction: {
-        name: assessment.mainFunction.functionName,
-        index: assessment.mainFunction.index,
-        acceptable: assessment.mainFunction.assessment.acceptable,
-        qualityScore: assessment.mainFunction.assessment.qualityScore,
-        structuralScore: assessment.mainFunction.assessment.structuralScore,
-        violations: assessment.mainFunction.assessment.violations.map(v => ({
-          metric: v.metric,
-          value: v.value,
-          threshold: v.threshold,
-          zScore: v.zScore,
-          severity: v.severity,
-          suggestion: v.suggestion,
-        })),
-        structuralAnomalies: assessment.mainFunction.assessment.structuralAnomalies.map(a => ({
-          metric: a.metric,
-          value: a.value,
-          expectedRange: a.expectedRange,
-          severity: a.severity,
-          description: a.description,
-          suggestion: a.suggestion,
-        })),
-        improvementInstruction: assessment.mainFunction.assessment.improvementInstruction,
-      },
-      allFunctions: assessment.allFunctions.map(func => ({
-        name: func.functionName,
-        index: func.index,
-        acceptable: func.assessment.acceptable,
-        qualityScore: func.assessment.qualityScore,
-        structuralScore: func.assessment.structuralScore,
-        violations: func.assessment.violations.map(v => ({
-          metric: v.metric,
-          value: v.value,
-          threshold: v.threshold,
-          zScore: v.zScore,
-          severity: v.severity,
-          suggestion: v.suggestion,
-        })),
-        structuralAnomalies: func.assessment.structuralAnomalies.map(a => ({
-          metric: a.metric,
-          value: a.value,
-          expectedRange: a.expectedRange,
-          severity: a.severity,
-          description: a.description,
-          suggestion: a.suggestion,
-        })),
-        improvementInstruction: func.assessment.improvementInstruction,
-      })),
-      metadata: {
-        evaluationTime: new Date().toISOString(),
-        mode: options.aiGenerated ? 'ai-generation' : 'evaluation',
-        baseline: 'adaptive',
-        evaluateAll: true,
-      },
-    };
-    
-    outputJson(result, options);
-  } else {
-    // Single function assessment (existing behavior)
-    const result = {
-      evaluationMode: 'single-function',
-      acceptable: assessment.acceptable,
-      qualityScore: assessment.qualityScore,
-      structuralScore: assessment.structuralScore,
-      responseTime: assessment.responseTime,
-      violations: assessment.violations.map(v => ({
-        metric: v.metric,
-        value: v.value,
-        threshold: v.threshold,
-        zScore: v.zScore,
-        severity: v.severity,
-        suggestion: v.suggestion,
-      })),
-      structuralAnomalies: assessment.structuralAnomalies.map(a => ({
-        metric: a.metric,
-        value: a.value,
-        expectedRange: a.expectedRange,
-        severity: a.severity,
-        description: a.description,
-        suggestion: a.suggestion,
-      })),
-      structuralMetrics: assessment.structuralMetrics,
-      improvementInstruction: assessment.improvementInstruction || null,
-      metadata: {
-        evaluationTime: new Date().toISOString(),
-        mode: options.aiGenerated ? 'ai-generation' : 'evaluation',
-        baseline: 'adaptive',
-        evaluateAll: false,
-      },
-    };
+  // Single function assessment
+  const result = {
+    evaluationMode: 'single-function',
+    acceptable: assessment.acceptable,
+    qualityScore: assessment.qualityScore,
+    structuralScore: assessment.structuralScore,
+    responseTime: assessment.responseTime,
+    violations: assessment.violations.map(v => ({
+      metric: v.metric,
+      value: v.value,
+      threshold: v.threshold,
+      zScore: v.zScore,
+      severity: v.severity,
+      suggestion: v.suggestion,
+    })),
+    structuralAnomalies: assessment.structuralAnomalies.map(a => ({
+      metric: a.metric,
+      value: a.value,
+      expectedRange: a.expectedRange,
+      severity: a.severity,
+      description: a.description,
+      suggestion: a.suggestion,
+    })),
+    structuralMetrics: assessment.structuralMetrics,
+    improvementInstruction: assessment.improvementInstruction || null,
+    metadata: {
+      evaluationTime: new Date().toISOString(),
+      mode: options.aiGenerated ? 'ai-generation' : 'evaluation',
+      baseline: 'adaptive',
+      evaluateAll: false,
+    },
+  };
 
-    outputJson(result, options);
-  }
+  outputJson(result, options);
 }
 
 /**
  * Display results in human-readable format
  */
 async function displayHumanResults(
-  assessment: QualityAssessment | MultipleQualityAssessment,
+  assessment: QualityAssessment,
   filename: string,
   options: EvaluateCommandOptions
 ): Promise<void> {
-  if (isMultipleAssessment(assessment)) {
-    displayMultipleAssessmentResults(assessment, filename, options);
-  } else {
-    displaySingleAssessmentResults(assessment, filename, options);
-  }
+  displaySingleAssessmentResults(assessment, filename, options);
 }
 
 /**
@@ -334,69 +239,6 @@ function displaySingleAssessmentResults(
   console.log(); // Empty line for spacing
 }
 
-/**
- * Display multiple functions assessment results
- */
-function displayMultipleAssessmentResults(
-  assessment: MultipleQualityAssessment,
-  filename: string,
-  options: EvaluateCommandOptions
-): void {
-  const relativePath = path.relative(process.cwd(), filename);
-  
-  // Header
-  console.log(chalk.cyan('\n🎯 Multi-Function Code Quality Evaluation\n'));
-  console.log(`📁 File: ${chalk.bold(relativePath)}`);
-  console.log(`⚡ Response Time: ${chalk.green(assessment.responseTime.toFixed(1))}ms`);
-  console.log(`📊 Aggregated Score: ${getScoreColor(assessment.aggregatedScore)(`${assessment.aggregatedScore.toFixed(1)}/100`)}`);
-  
-  // Summary
-  console.log(chalk.cyan('\n📈 Summary'));
-  console.log(`   Total Functions: ${assessment.summary.totalFunctions}`);
-  console.log(`   Acceptable Functions: ${assessment.summary.acceptableFunctions}/${assessment.summary.totalFunctions}`);
-  console.log(`   Average Score: ${getScoreColor(assessment.summary.averageScore)(`${assessment.summary.averageScore.toFixed(1)}/100`)}`);
-  console.log(`   Best Function: ${chalk.green(assessment.summary.bestFunction)}`);
-  console.log(`   Worst Function: ${chalk.red(assessment.summary.worstFunction)}`);
-  
-  // Overall status
-  if (assessment.overallAcceptable) {
-    console.log(chalk.green('\n✅ Overall code quality: ACCEPTABLE'));
-  } else {
-    console.log(chalk.red('\n❌ Overall code quality: NEEDS IMPROVEMENT'));
-  }
-  
-  // Main function details
-  console.log(chalk.cyan('\n🎯 Main Function Details'));
-  console.log(`   Function: ${chalk.bold(assessment.mainFunction.functionName)}`);
-  console.log(`   Quality Score: ${getScoreColor(assessment.mainFunction.assessment.qualityScore)(`${assessment.mainFunction.assessment.qualityScore}/100`)}`);
-  console.log(`   Structural Score: ${getScoreColor(assessment.mainFunction.assessment.structuralScore)(`${assessment.mainFunction.assessment.structuralScore}/100`)}`);
-  
-  displayViolations(assessment.mainFunction.assessment.violations);
-  displayStructuralAnomalies(assessment.mainFunction.assessment.structuralAnomalies);
-  
-  // All functions summary
-  console.log(chalk.cyan('\n📋 All Functions'));
-  assessment.allFunctions.forEach((func) => {
-    const status = func.assessment.acceptable ? '✅' : '❌';
-    const score = getScoreColor(func.assessment.qualityScore)(`${func.assessment.qualityScore}/100`);
-    console.log(`   ${status} ${chalk.bold(func.functionName)} - Score: ${score}`);
-    
-    if (func.assessment.violations.length > 0) {
-      const criticalCount = func.assessment.violations.filter(v => v.severity === 'critical').length;
-      const warningCount = func.assessment.violations.filter(v => v.severity === 'warning').length;
-      console.log(`      🔴 ${criticalCount} critical, 🟡 ${warningCount} warnings`);
-    }
-  });
-  
-  // Improvement suggestions
-  if (assessment.mainFunction.assessment.improvementInstruction) {
-    console.log(chalk.blue('\n💡 Suggested Improvements (Main Function):'));
-    console.log(`   ${assessment.mainFunction.assessment.improvementInstruction}`);
-  }
-  
-  displayAIFeedback(assessment.mainFunction.assessment, options);
-  console.log(); // Empty line for spacing
-}
 
 function displayAssessmentHeader(assessment: QualityAssessment, filename: string): void {
   const relativePath = path.relative(process.cwd(), filename);

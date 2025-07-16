@@ -511,13 +511,7 @@ async function reviewSingleLineage(
     const newStatus = validateReviewOptions(options);
     const updatedNote = buildReviewNote(lineage.note, options.note, 'Review');
 
-    const updatedLineage: Lineage = {
-      ...lineage,
-      status: newStatus,
-      ...(updatedNote ? { note: updatedNote } : {}),
-    };
-
-    await storage.updateLineage(updatedLineage);
+    await storage.updateLineageStatus(lineage.id, newStatus, updatedNote || undefined);
 
     const statusColor = newStatus === 'approved' ? chalk.green : chalk.red;
     logger.success(`Lineage ${lineageId} has been ${statusColor(newStatus)}`);
@@ -546,13 +540,7 @@ async function reviewAllDraftLineages(
     for (const lineage of drafts) {
       const updatedNote = buildReviewNote(lineage.note, options.note, 'Bulk review');
 
-      const updatedLineage: Lineage = {
-        ...lineage,
-        status: newStatus,
-        ...(updatedNote ? { note: updatedNote } : {}),
-      };
-
-      await storage.updateLineage(updatedLineage);
+      await storage.updateLineageStatus(lineage.id, newStatus, updatedNote || undefined);
       processedCount++;
     }
 

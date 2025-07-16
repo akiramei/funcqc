@@ -4,18 +4,6 @@ export * from './common';
 // Re-export quality enhancement types
 export * from './quality-enhancements';
 
-// Import required types for type guards
-import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
-
-/**
- * Type guard to check if assessment is multiple functions
- * Centralized to prevent duplication across modules
- */
-export function isMultipleAssessment(
-  assessment: QualityAssessment | MultipleQualityAssessment
-): assessment is MultipleQualityAssessment {
-  return 'allFunctions' in assessment;
-}
 import { NamingEvaluation } from './quality-enhancements';
 
 // Core configuration types

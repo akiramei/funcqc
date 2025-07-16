@@ -3802,7 +3802,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       LIMIT $1 OFFSET $2
     `, [limit, offset]);
 
-    return result.rows.map(row => this.mapRowToRefactoringSession(row as Record<string, unknown>));
+    return result.rows.map(row => this.mapRowToRefactoringSession(row as {
+      id: string;
+      name: string;
+      description: string;
+      status: 'active' | 'completed' | 'cancelled';
+      target_branch: string;
+      start_time: string;
+      end_time?: string;
+      metadata: string;
+      created_at: string;
+      updated_at: string;
+    }));
   }
 
   /**
@@ -3896,7 +3907,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return null;
     }
 
-    return this.mapRowToRefactoringSession(result.rows[0] as Record<string, unknown>);
+    return this.mapRowToRefactoringSession(result.rows[0] as {
+      id: string;
+      name: string;
+      description: string;
+      status: 'active' | 'completed' | 'cancelled';
+      target_branch: string;
+      start_time: string;
+      end_time?: string;
+      metadata: string;
+      created_at: string;
+      updated_at: string;
+    });
   }
 
   /**

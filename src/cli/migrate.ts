@@ -402,8 +402,8 @@ function displaySystemInfo(config: FuncqcConfig): void {
  * Displays migration statistics
  */
 function displayMigrationStats(migrations: Record<string, unknown>[], backupTables: Record<string, unknown>[]): void {
-  const appliedCount = migrations.filter(m => m.executedAt).length;
-  const pendingCount = migrations.filter(m => !m.executedAt).length;
+  const appliedCount = migrations.filter(m => m['executedAt']).length;
+  const pendingCount = migrations.filter(m => !m['executedAt']).length;
   
   console.log(chalk.cyan('Applied Migrations:'), appliedCount);
   console.log(chalk.cyan('Pending Migrations:'), pendingCount);
@@ -417,18 +417,22 @@ function displayBackupInfo(backupTables: Record<string, unknown>[]): void {
   if (backupTables.length === 0) return;
   
   const sortedBackups = backupTables.sort((a, b) => {
-    if (!a.created || !b.created) return 0;
-    return a.created.getTime() - b.created.getTime();
+    const aCreated = a['created'] as Date | undefined;
+    const bCreated = b['created'] as Date | undefined;
+    if (!aCreated || !bCreated) return 0;
+    return aCreated.getTime() - bCreated.getTime();
   });
   
   const oldestBackup = sortedBackups[0];
-  if (oldestBackup?.created) {
-    console.log(chalk.cyan('Oldest Backup:'), `${oldestBackup.name} (${oldestBackup.created.toLocaleString()})`);
+  const oldestCreated = oldestBackup?.['created'] as Date | undefined;
+  if (oldestCreated) {
+    console.log(chalk.cyan('Oldest Backup:'), `${oldestBackup['name']} (${oldestCreated.toLocaleString()})`);
   }
   
   const latestBackup = sortedBackups[sortedBackups.length - 1];
-  if (latestBackup?.created) {
-    console.log(chalk.cyan('Latest Backup:'), `${latestBackup.name} (${latestBackup.created.toLocaleString()})`);
+  const latestCreated = latestBackup?.['created'] as Date | undefined;
+  if (latestCreated) {
+    console.log(chalk.cyan('Latest Backup:'), `${latestBackup['name']} (${latestCreated.toLocaleString()})`);
   }
 }
 
@@ -459,7 +463,7 @@ export async function infoCommand(_options: OptionValues): Promise<void> {
       const migrations = await migrationManager.getMigrationStatus();
       const backupTables = await migrationManager.listBackupTables();
       
-      displayMigrationStats(migrations, backupTables);
+      displayMigrationStats(migrations as unknown as Record<string, unknown>[], backupTables);
       displayBackupInfo(backupTables);
       displayCompletionMessage();
     } finally {

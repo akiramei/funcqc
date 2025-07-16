@@ -163,7 +163,7 @@ function displaySinglePreset(preset: ProjectPreset): void {
   
   // Display context if available
   if (preset.context) {
-    const contextString = formatPresetContext(preset.context);
+    const contextString = formatPresetContext(preset.context as Record<string, unknown>);
     if (contextString) {
       console.log(`${indent}${indent}${chalk.cyan(contextString)}`);
     }
@@ -178,16 +178,16 @@ function displaySinglePreset(preset: ProjectPreset): void {
 function formatPresetContext(context: Record<string, unknown>): string {
   const contextParts = [];
   
-  if (context.domain) {
-    contextParts.push(`Domain: ${context.domain}`);
+  if (context['domain']) {
+    contextParts.push(`Domain: ${context['domain']}`);
   }
   
-  if (context.experienceLevel) {
-    contextParts.push(`Level: ${context.experienceLevel}`);
+  if (context['experienceLevel']) {
+    contextParts.push(`Level: ${context['experienceLevel']}`);
   }
   
-  if (context.codebaseSize) {
-    contextParts.push(`Size: ${context.codebaseSize}`);
+  if (context['codebaseSize']) {
+    contextParts.push(`Size: ${context['codebaseSize']}`);
   }
   
   return contextParts.join(', ');
@@ -516,7 +516,8 @@ type ValidationIssue = {
 function validateConfigFields(config: Record<string, unknown>): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  if (!config.storage?.path) {
+  const storage = config['storage'] as Record<string, unknown> | undefined;
+  if (!storage?.['path']) {
     issues.push({
       level: 'error',
       field: 'storage.path',
@@ -524,7 +525,8 @@ function validateConfigFields(config: Record<string, unknown>): ValidationIssue[
     });
   }
 
-  if (config.metrics?.complexityThreshold !== undefined && config.metrics.complexityThreshold < 1) {
+  const metrics = config['metrics'] as Record<string, unknown> | undefined;
+  if (metrics?.['complexityThreshold'] !== undefined && (metrics['complexityThreshold'] as number) < 1) {
     issues.push({
       level: 'error',
       field: 'metrics.complexityThreshold',
@@ -532,7 +534,7 @@ function validateConfigFields(config: Record<string, unknown>): ValidationIssue[
     });
   }
 
-  if (config.metrics?.linesOfCodeThreshold !== undefined && config.metrics.linesOfCodeThreshold < 5) {
+  if (metrics?.['linesOfCodeThreshold'] !== undefined && (metrics['linesOfCodeThreshold'] as number) < 5) {
     issues.push({
       level: 'warning',
       field: 'metrics.linesOfCodeThreshold',
@@ -602,7 +604,7 @@ async function handleValidateConfig(
   options: ConfigCommandOptions
 ): Promise<void> {
   const config = await configManager.load();
-  const issues = validateConfigFields(config);
+  const issues = validateConfigFields(config as unknown as Record<string, unknown>);
 
   if (options.json) {
     outputValidationJson(issues);
