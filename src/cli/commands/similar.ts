@@ -118,7 +118,12 @@ async function detectSimilarities(
   spinner: ReturnType<typeof ora>,
   env: CommandEnvironment
 ): Promise<SimilarityResult[]> {
-  const similarityManager = new SimilarityManager(undefined, env.storage);
+  const similarityOptions = {
+    threshold: config.threshold,
+    minLines: config.minLines,
+    crossFile: config.crossFile,
+  };
+  const similarityManager = new SimilarityManager(undefined, env.storage, similarityOptions);
 
   spinner.start('Detecting similar functions...');
 

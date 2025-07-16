@@ -645,6 +645,17 @@ export interface SimilarityOptions {
   minLines?: number;
   crossFile?: boolean;
   printCode?: boolean;
+  
+  // Advanced similarity detector options
+  kGramSize?: number;
+  winnowingWindow?: number;
+  lshBits?: number;
+  maxLshBucketSize?: number;
+  singleStageThreshold?: number;
+  cacheSize?: number;
+  maxFunctionSize?: number;
+  useParallelProcessing?: boolean;
+  useTwoStageHierarchicalLsh?: boolean;
 }
 
 export interface SimilarityResult {
