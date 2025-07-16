@@ -355,7 +355,7 @@ async function calculateMetricsForFunctions(
   qualityCalculator: QualityCalculator
 ): Promise<void> {
   for (const func of functions) {
-    func.metrics = await qualityCalculator.calculate(func);
+    func.metrics = qualityCalculator.calculate(func);
   }
 }
 
@@ -506,7 +506,7 @@ async function analyzeBatch(
         
         // Calculate quality metrics for each function
         for (const func of result.functions) {
-          func.metrics = await qualityCalculator.calculate(func);
+          func.metrics = qualityCalculator.calculate(func);
         }
         
         functions.push(...result.functions);
@@ -517,7 +517,7 @@ async function analyzeBatch(
         
         // Calculate quality metrics for each function
         for (const func of fileFunctions) {
-          func.metrics = await qualityCalculator.calculate(func);
+          func.metrics = qualityCalculator.calculate(func);
         }
         
         functions.push(...fileFunctions);

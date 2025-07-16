@@ -6,7 +6,7 @@ import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
 import { CallEdge } from '../types';
-import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats } from '../analyzers/dependency-metrics';
+import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats, DependencyOptions } from '../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 
@@ -36,6 +36,10 @@ interface DepStatsOptions extends OptionValues {
   showHubs?: boolean;
   showUtility?: boolean;
   showIsolated?: boolean;
+  hubThreshold?: string;
+  utilityThreshold?: string;
+  maxHubFunctions?: string;
+  maxUtilityFunctions?: string;
   json?: boolean;
   snapshot?: string;
 }
@@ -77,7 +81,15 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       filteredEdges = applyDepSorting(filteredEdges, options);
 
       // Apply limit
-      const limit = options.limit ? parseInt(options.limit) : 20;
+      let limit = 20;
+      if (options.limit) {
+        const parsed = parseInt(options.limit, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          console.log(chalk.red(`Invalid limit: ${options.limit}`));
+          return;
+        }
+        limit = parsed;
+      }
       const limitedEdges = filteredEdges.slice(0, limit);
 
       // Output results
@@ -139,7 +151,15 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
       // Dependencies will be built by buildDependencyTree function
 
       // Apply depth filtering if needed
-      const maxDepth = options.depth ? parseInt(options.depth) : 2;
+      let maxDepth = 2;
+      if (options.depth) {
+        const parsed = parseInt(options.depth, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          console.log(chalk.red(`Invalid depth: ${options.depth}`));
+          return;
+        }
+        maxDepth = parsed;
+      }
       const dependencies = buildDependencyTree(
         targetFunction.id,
         callEdges,
@@ -494,7 +514,42 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
         cyclicFunctions
       );
 
-      const stats = metricsCalculator.generateStats(metrics);
+      // Create dependency options from CLI arguments
+      const dependencyOptions: DependencyOptions = {};
+      if (options.hubThreshold) {
+        const parsed = parseInt(options.hubThreshold, 10);
+        if (isNaN(parsed) || parsed < 0) {
+          spinner.fail(`Invalid hub threshold: ${options.hubThreshold}`);
+          return;
+        }
+        dependencyOptions.hubThreshold = parsed;
+      }
+      if (options.utilityThreshold) {
+        const parsed = parseInt(options.utilityThreshold, 10);
+        if (isNaN(parsed) || parsed < 0) {
+          spinner.fail(`Invalid utility threshold: ${options.utilityThreshold}`);
+          return;
+        }
+        dependencyOptions.utilityThreshold = parsed;
+      }
+      if (options.maxHubFunctions) {
+        const parsed = parseInt(options.maxHubFunctions, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          spinner.fail(`Invalid max hub functions: ${options.maxHubFunctions}`);
+          return;
+        }
+        dependencyOptions.maxHubFunctions = parsed;
+      }
+      if (options.maxUtilityFunctions) {
+        const parsed = parseInt(options.maxUtilityFunctions, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          spinner.fail(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
+          return;
+        }
+        dependencyOptions.maxUtilityFunctions = parsed;
+      }
+      
+      const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
 
       spinner.succeed('Dependency metrics calculated');
 
@@ -524,7 +579,13 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
  * Output dependency stats as JSON
  */
 function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
-  const limit = options.limit ? parseInt(options.limit) : 20;
+  let limit = 20;
+  if (options.limit) {
+    const parsed = parseInt(options.limit, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      limit = parsed;
+    }
+  }
   const sortField = options.sort || 'fanin';
   
   // Sort metrics
@@ -597,7 +658,13 @@ function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStat
   }
 
   // Top functions by sort criteria
-  const limit = options.limit ? parseInt(options.limit) : 20;
+  let limit = 20;
+  if (options.limit) {
+    const parsed = parseInt(options.limit, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      limit = parsed;
+    }
+  }
   const sortField = options.sort || 'fanin';
   
   const sortedMetrics = [...metrics].sort((a, b) => {

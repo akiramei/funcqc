@@ -1,5 +1,15 @@
 import { FunctionInfo, CallEdge } from '../types';
 
+/**
+ * Configuration options for dependency analysis
+ */
+export interface DependencyOptions {
+  hubThreshold?: number;      // Minimum fan-in for hub functions (default: 5)
+  utilityThreshold?: number;  // Minimum fan-out for utility functions (default: 5)
+  maxHubFunctions?: number;   // Maximum number of hub functions to return (default: 10)
+  maxUtilityFunctions?: number; // Maximum number of utility functions to return (default: 10)
+}
+
 export interface DependencyMetrics {
   functionId: string;
   functionName: string;
@@ -11,8 +21,10 @@ export interface DependencyMetrics {
   isCyclic: boolean;      // Part of a circular dependency
   totalCallers: number;   // Total number of call sites (including multiple calls from same function)
   totalCalls: number;     // Total number of calls this function makes
-  uniqueCallers: number;  // Number of unique functions that call this
-  uniqueCallees: number;  // Number of unique functions this calls
+  uniqueCallers: number;  // Number of unique functions that call this (same as fanIn)
+  uniqueCallees: number;  // Number of unique functions this calls (same as fanOut)
+  cycleLength?: number;   // Length of the cycle if isCyclic is true
+  isRecursive?: boolean;  // True if function calls itself directly or indirectly
 }
 
 export interface DependencyStats {
@@ -30,6 +42,9 @@ export interface DependencyStats {
  * Calculates dependency metrics for functions
  */
 export class DependencyMetricsCalculator {
+  private memoizedCallChains = new Map<string, number>();
+  private callCountCache = new Map<string, { incoming: number; outgoing: number }>();
+  
   /**
    * Calculate dependency metrics for all functions
    */
@@ -41,9 +56,15 @@ export class DependencyMetricsCalculator {
   ): DependencyMetrics[] {
     const metrics: DependencyMetrics[] = [];
     
-    // Build reverse index for efficient lookups
-    const callGraph = this.buildCallGraph(callEdges);
-    const reverseCallGraph = this.buildReverseCallGraph(callEdges);
+    // Clear memoization cache for each calculation
+    this.memoizedCallChains.clear();
+    this.callCountCache.clear();
+    
+    // Build call graphs efficiently in single pass
+    const { callGraph, reverseCallGraph } = this.buildCallGraphs(callEdges);
+    
+    // Pre-aggregate call counts for O(1) lookup
+    this.preAggregateCallCounts(callEdges);
     
     // Calculate depth from entry points
     const depths = this.calculateDepthFromEntries(callGraph, entryPoints);
@@ -53,24 +74,39 @@ export class DependencyMetricsCalculator {
       const incoming = reverseCallGraph.get(func.id) || new Set();
       const outgoing = callGraph.get(func.id) || new Set();
       
-      // Count total calls (including multiple calls from same function)
-      const totalCallers = this.countTotalCalls(func.id, callEdges, 'callee');
-      const totalCalls = this.countTotalCalls(func.id, callEdges, 'caller');
+      // Get pre-aggregated call counts
+      const callCounts = this.callCountCache.get(func.id) || { incoming: 0, outgoing: 0 };
+      const totalCallers = callCounts.incoming;
+      const totalCalls = callCounts.outgoing;
       
-      metrics.push({
+      const isCyclic = cyclicFunctions.has(func.id);
+      const isRecursive = this.isRecursiveFunction(func.id, callGraph);
+      const cycleLength = isCyclic ? this.calculateCycleLength(func.id, callGraph) : undefined;
+      
+      const metric: DependencyMetrics = {
         functionId: func.id,
         functionName: func.name,
         filePath: func.filePath,
         fanIn: incoming.size,
         fanOut: outgoing.size,
         depthFromEntry: depths.get(func.id) ?? -1,
-        maxCallChain: this.calculateMaxCallChain(func.id, callGraph, new Set()),
-        isCyclic: cyclicFunctions.has(func.id),
+        maxCallChain: this.calculateMaxCallChainMemoized(func.id, callGraph, cyclicFunctions),
+        isCyclic,
         totalCallers,
         totalCalls,
         uniqueCallers: incoming.size,
         uniqueCallees: outgoing.size,
-      });
+      };
+      
+      // Add optional properties only if they have values
+      if (cycleLength !== undefined) {
+        metric.cycleLength = cycleLength;
+      }
+      if (isRecursive) {
+        metric.isRecursive = isRecursive;
+      }
+      
+      metrics.push(metric);
     }
     
     return metrics;
@@ -79,23 +115,28 @@ export class DependencyMetricsCalculator {
   /**
    * Generate dependency statistics summary
    */
-  generateStats(metrics: DependencyMetrics[]): DependencyStats {
+  generateStats(metrics: DependencyMetrics[], options?: DependencyOptions): DependencyStats {
     const totalFunctions = metrics.length;
     const avgFanIn = totalFunctions > 0 ? metrics.reduce((sum, m) => sum + m.fanIn, 0) / totalFunctions : 0;
     const avgFanOut = totalFunctions > 0 ? metrics.reduce((sum, m) => sum + m.fanOut, 0) / totalFunctions : 0;
     const maxFanIn = metrics.length > 0 ? Math.max(...metrics.map(m => m.fanIn)) : 0;
     const maxFanOut = metrics.length > 0 ? Math.max(...metrics.map(m => m.fanOut)) : 0;
     
-    // Identify special categories
+    // Identify special categories with configurable thresholds
+    const hubThreshold = options?.hubThreshold ?? 5;
+    const utilityThreshold = options?.utilityThreshold ?? 5;
+    const maxHubFunctions = options?.maxHubFunctions ?? 10;
+    const maxUtilityFunctions = options?.maxUtilityFunctions ?? 10;
+    
     const hubFunctions = metrics
-      .filter(m => m.fanIn >= 5) // Called by 5+ functions
+      .filter(m => m.fanIn >= hubThreshold)
       .sort((a, b) => b.fanIn - a.fanIn)
-      .slice(0, 10);
+      .slice(0, maxHubFunctions);
     
     const utilityFunctions = metrics
-      .filter(m => m.fanOut >= 5) // Calls 5+ functions
+      .filter(m => m.fanOut >= utilityThreshold)
       .sort((a, b) => b.fanOut - a.fanOut)
-      .slice(0, 10);
+      .slice(0, maxUtilityFunctions);
     
     const isolatedFunctions = metrics
       .filter(m => m.fanIn === 0 && m.fanOut === 0);
@@ -113,40 +154,192 @@ export class DependencyMetricsCalculator {
   }
 
   /**
-   * Build call graph adjacency list
+   * Build both call graphs efficiently in single pass
    */
-  private buildCallGraph(callEdges: CallEdge[]): Map<string, Set<string>> {
-    const graph = new Map<string, Set<string>>();
+  private buildCallGraphs(callEdges: CallEdge[]): {
+    callGraph: Map<string, Set<string>>;
+    reverseCallGraph: Map<string, Set<string>>;
+  } {
+    const callGraph = new Map<string, Set<string>>();
+    const reverseCallGraph = new Map<string, Set<string>>();
     
     for (const edge of callEdges) {
-      if (!graph.has(edge.callerFunctionId)) {
-        graph.set(edge.callerFunctionId, new Set());
+      // Add null check for safety
+      if (!edge.calleeFunctionId) {
+        continue;
       }
       
-      if (edge.calleeFunctionId) {
-        graph.get(edge.callerFunctionId)!.add(edge.calleeFunctionId);
+      // Build forward graph
+      if (!callGraph.has(edge.callerFunctionId)) {
+        callGraph.set(edge.callerFunctionId, new Set());
       }
+      callGraph.get(edge.callerFunctionId)!.add(edge.calleeFunctionId);
+      
+      // Build reverse graph in same loop
+      if (!reverseCallGraph.has(edge.calleeFunctionId)) {
+        reverseCallGraph.set(edge.calleeFunctionId, new Set());
+      }
+      reverseCallGraph.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
     }
     
-    return graph;
+    return { callGraph, reverseCallGraph };
   }
 
   /**
-   * Build reverse call graph (callee -> callers)
+   * Pre-aggregate call counts for O(1) lookup
    */
-  private buildReverseCallGraph(callEdges: CallEdge[]): Map<string, Set<string>> {
-    const reverseGraph = new Map<string, Set<string>>();
+  private preAggregateCallCounts(callEdges: CallEdge[]): void {
+    const countMap = new Map<string, { incoming: number; outgoing: number }>();
     
     for (const edge of callEdges) {
-      if (edge.calleeFunctionId) {
-        if (!reverseGraph.has(edge.calleeFunctionId)) {
-          reverseGraph.set(edge.calleeFunctionId, new Set());
-        }
-        reverseGraph.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
+      if (!edge.calleeFunctionId) {
+        continue;
       }
+      
+      // Count outgoing calls
+      const callerCounts = countMap.get(edge.callerFunctionId) || { incoming: 0, outgoing: 0 };
+      callerCounts.outgoing++;
+      countMap.set(edge.callerFunctionId, callerCounts);
+      
+      // Count incoming calls
+      const calleeCounts = countMap.get(edge.calleeFunctionId) || { incoming: 0, outgoing: 0 };
+      calleeCounts.incoming++;
+      countMap.set(edge.calleeFunctionId, calleeCounts);
     }
     
-    return reverseGraph;
+    this.callCountCache = countMap;
+  }
+
+  /**
+   * Calculate maximum call chain length with memoization
+   */
+  private calculateMaxCallChainMemoized(
+    functionId: string,
+    callGraph: Map<string, Set<string>>,
+    cyclicFunctions: Set<string>
+  ): number {
+    // Return 0 for cyclic functions to avoid infinite recursion
+    if (cyclicFunctions.has(functionId)) {
+      return 0;
+    }
+    
+    // Check memoization cache
+    const cached = this.memoizedCallChains.get(functionId);
+    if (cached !== undefined) {
+      return cached;
+    }
+    
+    const result = this.calculateMaxCallChainRecursive(functionId, callGraph, new Set(), cyclicFunctions);
+    this.memoizedCallChains.set(functionId, result);
+    return result;
+  }
+
+  /**
+   * Recursive helper for max call chain calculation
+   */
+  private calculateMaxCallChainRecursive(
+    functionId: string,
+    callGraph: Map<string, Set<string>>,
+    visited: Set<string>,
+    cyclicFunctions: Set<string>
+  ): number {
+    if (visited.has(functionId) || cyclicFunctions.has(functionId)) {
+      return 0;
+    }
+    
+    visited.add(functionId);
+    
+    const callees = callGraph.get(functionId) || new Set();
+    if (callees.size === 0) {
+      visited.delete(functionId);
+      return 1;
+    }
+    
+    let maxChain = 0;
+    for (const calleeId of callees) {
+      const chainLength = this.calculateMaxCallChainRecursive(calleeId, callGraph, visited, cyclicFunctions);
+      maxChain = Math.max(maxChain, chainLength);
+    }
+    
+    visited.delete(functionId);
+    return maxChain + 1;
+  }
+
+  /**
+   * Calculate cycle length for a function in a cycle
+   */
+  private calculateCycleLength(
+    functionId: string,
+    callGraph: Map<string, Set<string>>
+  ): number | undefined {
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    
+    const dfs = (currentId: string, path: string[]): number | undefined => {
+      if (recursionStack.has(currentId)) {
+        // Found a cycle, calculate its length
+        const cycleStartIndex = path.indexOf(currentId);
+        return cycleStartIndex >= 0 ? path.length - cycleStartIndex : undefined;
+      }
+      
+      if (visited.has(currentId)) {
+        return undefined;
+      }
+      
+      visited.add(currentId);
+      recursionStack.add(currentId);
+      path.push(currentId);
+      
+      const callees = callGraph.get(currentId) || new Set();
+      for (const calleeId of callees) {
+        const cycleLength = dfs(calleeId, path);
+        if (cycleLength !== undefined) {
+          return cycleLength;
+        }
+      }
+      
+      recursionStack.delete(currentId);
+      path.pop();
+      return undefined;
+    };
+    
+    return dfs(functionId, []);
+  }
+
+  /**
+   * Check if a function is recursive (calls itself directly or indirectly)
+   */
+  private isRecursiveFunction(
+    functionId: string,
+    callGraph: Map<string, Set<string>>
+  ): boolean {
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    
+    const dfs = (currentId: string): boolean => {
+      if (recursionStack.has(currentId)) {
+        return currentId === functionId;
+      }
+      
+      if (visited.has(currentId)) {
+        return false;
+      }
+      
+      visited.add(currentId);
+      recursionStack.add(currentId);
+      
+      const callees = callGraph.get(currentId) || new Set();
+      for (const calleeId of callees) {
+        if (dfs(calleeId)) {
+          return true;
+        }
+      }
+      
+      recursionStack.delete(currentId);
+      return false;
+    };
+    
+    return dfs(functionId);
   }
 
   /**
@@ -182,48 +375,4 @@ export class DependencyMetricsCalculator {
     return depths;
   }
 
-  /**
-   * Calculate maximum call chain length through a function
-   */
-  private calculateMaxCallChain(
-    functionId: string,
-    callGraph: Map<string, Set<string>>,
-    visited: Set<string>
-  ): number {
-    if (visited.has(functionId)) {
-      return 0; // Avoid infinite recursion
-    }
-    
-    visited.add(functionId);
-    
-    const callees = callGraph.get(functionId) || new Set();
-    if (callees.size === 0) {
-      visited.delete(functionId);
-      return 1;
-    }
-    
-    let maxChain = 0;
-    for (const calleeId of callees) {
-      const chainLength = this.calculateMaxCallChain(calleeId, callGraph, visited);
-      maxChain = Math.max(maxChain, chainLength);
-    }
-    
-    visited.delete(functionId);
-    return maxChain + 1;
-  }
-
-  /**
-   * Count total number of calls (including multiple calls from same function)
-   */
-  private countTotalCalls(
-    functionId: string,
-    callEdges: CallEdge[],
-    direction: 'caller' | 'callee'
-  ): number {
-    if (direction === 'caller') {
-      return callEdges.filter(edge => edge.callerFunctionId === functionId).length;
-    } else {
-      return callEdges.filter(edge => edge.calleeFunctionId === functionId).length;
-    }
-  }
 }

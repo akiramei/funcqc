@@ -5,7 +5,7 @@ export class QualityCalculator {
   /**
    * Calculate quality metrics for a function
    */
-  async calculate(functionInfo: FunctionInfo): Promise<QualityMetrics> {
+  calculate(functionInfo: FunctionInfo): QualityMetrics {
     // Parse the source code to get AST
     const sourceFile = ts.createSourceFile(
       'temp.ts',
