@@ -42,7 +42,6 @@ export class DependencyMetricsCalculator {
     const metrics: DependencyMetrics[] = [];
     
     // Build reverse index for efficient lookups
-    const functionMap = new Map(functions.map(f => [f.id, f]));
     const callGraph = this.buildCallGraph(callEdges);
     const reverseCallGraph = this.buildReverseCallGraph(callEdges);
     

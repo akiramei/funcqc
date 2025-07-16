@@ -90,7 +90,7 @@ function outputCyclesJSON(cycles: string[][], options: CyclesOptions): void {
 /**
  * Output cycles as DOT format for Graphviz
  */
-function outputCyclesDOT(cycles: string[][], callEdges: any[]): void {
+function outputCyclesDOT(cycles: string[][], _callEdges: any[]): void {
   console.log('digraph CircularDependencies {');
   console.log('  rankdir=LR;');
   console.log('  node [shape=box, style=filled, fillcolor=lightblue];');
@@ -124,7 +124,7 @@ function outputCyclesDOT(cycles: string[][], callEdges: any[]): void {
 /**
  * Output cycles as formatted table
  */
-function outputCyclesTable(cycles: string[][], callEdges: any[], options: CyclesOptions): void {
+function outputCyclesTable(cycles: string[][], _callEdges: any[], options: CyclesOptions): void {
   console.log(chalk.bold('\n🔄 Circular Dependency Analysis\n'));
 
   if (cycles.length === 0) {
