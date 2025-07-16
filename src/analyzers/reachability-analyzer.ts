@@ -4,6 +4,7 @@ import { EntryPoint } from './entry-point-detector';
 export interface ReachabilityResult {
   reachable: Set<string>;
   unreachable: Set<string>;
+  unusedExports: Set<string>;  // Export functions that are not reachable
   entryPoints: Set<string>;
 }
 
@@ -49,17 +50,25 @@ export class ReachabilityAnalyzer {
       reachable.add(entryPointId);
     }
 
-    // Identify unreachable functions
+    // Identify unreachable and unused export functions
     const unreachable = new Set<string>();
+    const unusedExports = new Set<string>();
+    
     for (const func of allFunctions) {
       if (!reachable.has(func.id)) {
         unreachable.add(func.id);
+        
+        // Separate unused export functions for special handling
+        if (func.isExported) {
+          unusedExports.add(func.id);
+        }
       }
     }
 
     return {
       reachable,
       unreachable,
+      unusedExports,
       entryPoints: entryPointIds,
     };
   }

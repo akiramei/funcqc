@@ -86,12 +86,25 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
         }
       );
 
+      // Get unused export functions information
+      const unusedExportInfo = reachabilityAnalyzer.getDeadCodeInfo(
+        reachabilityResult.unusedExports,
+        functions,
+        callEdges,
+        {
+          excludeTests: false,
+          excludeSmallFunctions: false,
+          minFunctionSize: 1,
+        }
+      );
+
       spinner.succeed('Dead code analysis complete');
 
       // Output results
       if (options.format === 'json') {
         outputDeadCodeJSON(
           deadCodeInfo,
+          unusedExportInfo,
           reachabilityResult,
           functions.length,
           options
@@ -99,6 +112,7 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
       } else {
         outputDeadCodeTable(
           deadCodeInfo,
+          unusedExportInfo,
           reachabilityResult,
           functions.length,
           options
@@ -115,6 +129,7 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
  */
 function outputDeadCodeJSON(
   deadCodeInfo: any[],
+  unusedExportInfo: any[],
   reachabilityResult: any,
   totalFunctions: number,
   options: DeadCodeOptions
@@ -124,11 +139,13 @@ function outputDeadCodeJSON(
       totalFunctions,
       reachableFunctions: reachabilityResult.reachable.size,
       unreachableFunctions: reachabilityResult.unreachable.size,
+      unusedExports: reachabilityResult.unusedExports.size,
       entryPoints: reachabilityResult.entryPoints.size,
       deadCodeCount: deadCodeInfo.length,
       coverage: ((reachabilityResult.reachable.size / totalFunctions) * 100).toFixed(2) + '%',
     },
     deadCode: deadCodeInfo,
+    unusedExports: unusedExportInfo,
     filters: {
       excludeTests: options.excludeTests || false,
       excludeExports: options.excludeExports || false,
@@ -145,6 +162,7 @@ function outputDeadCodeJSON(
  */
 function outputDeadCodeTable(
   deadCodeInfo: any[],
+  unusedExportInfo: any[],
   reachabilityResult: any,
   totalFunctions: number,
   options: DeadCodeOptions
@@ -157,7 +175,8 @@ function outputDeadCodeTable(
   console.log(`Entry points:         ${chalk.green(reachabilityResult.entryPoints.size)}`);
   console.log(`Reachable functions:  ${chalk.green(reachabilityResult.reachable.size)} (${coverage.toFixed(1)}%)`);
   console.log(`Unreachable functions: ${chalk.red(reachabilityResult.unreachable.size)} (${(100 - coverage).toFixed(1)}%)`);
-  console.log(`Dead code found:      ${chalk.yellow(deadCodeInfo.length)} functions\n`);
+  console.log(`Dead code found:      ${chalk.yellow(deadCodeInfo.length)} functions`);
+  console.log(`Unused exports:       ${chalk.yellow(unusedExportInfo.length)} functions\n`);
 
   if (deadCodeInfo.length === 0) {
     console.log(chalk.green('✅ No dead code found with current filters!'));
@@ -212,10 +231,45 @@ function outputDeadCodeTable(
     console.log(); // Empty line between files
   }
 
+  // Display unused export functions
+  if (unusedExportInfo.length > 0) {
+    console.log(chalk.bold('⚠️  Unused Export Functions (Review Required)\n'));
+    
+    // Group unused exports by file
+    const unusedExportsByFile = new Map<string, typeof unusedExportInfo>();
+    for (const info of unusedExportInfo) {
+      if (!unusedExportsByFile.has(info.filePath)) {
+        unusedExportsByFile.set(info.filePath, []);
+      }
+      unusedExportsByFile.get(info.filePath)!.push(info);
+    }
+    
+    for (const [filePath, functions] of unusedExportsByFile) {
+      console.log(chalk.underline(filePath));
+      
+      for (const func of functions) {
+        const location = `${func.startLine}-${func.endLine}`;
+        const size = `${func.size} lines`;
+        
+        console.log(`  📦 ${chalk.yellow(func.functionName)} (${chalk.gray(location)}, ${chalk.gray(size)})`);
+      }
+      
+      console.log(); // Empty line between files
+    }
+    
+    console.log(chalk.dim('💡 These export functions are not used internally but may be public APIs.'));
+    console.log(chalk.dim('💡 Review manually to determine if they should be removed or kept.\n'));
+  }
+
   // Summary statistics
   const totalLines = deadCodeInfo.reduce((sum, info) => sum + info.size, 0);
   console.log(chalk.dim('─'.repeat(50)));
   console.log(chalk.bold(`Total dead code: ${deadCodeInfo.length} functions, ${totalLines} lines`));
+  
+  if (unusedExportInfo.length > 0) {
+    const unusedExportLines = unusedExportInfo.reduce((sum, info) => sum + info.size, 0);
+    console.log(chalk.bold(`Unused exports: ${unusedExportInfo.length} functions, ${unusedExportLines} lines`));
+  }
 
   // Suggestions
   if (!options.excludeTests && deadCodeInfo.some(info => info.reason === 'test-only')) {

@@ -43,7 +43,7 @@ describe('Dead Code Detection - Simple Tests', () => {
       expect(entryPoints[0].reason).toBe('test');
     });
 
-    it('should detect exported functions correctly', () => {
+    it('should NOT detect exported functions as entry points automatically', () => {
       const detector = new EntryPointDetector();
       
       const func = {
@@ -72,8 +72,8 @@ describe('Dead Code Detection - Simple Tests', () => {
       };
 
       const entryPoints = detector.detectEntryPoints([func]);
-      expect(entryPoints).toHaveLength(1);
-      expect(entryPoints[0].reason).toBe('exported');
+      // Export functions should NOT be automatically considered entry points
+      expect(entryPoints).toHaveLength(0);
     });
   });
 
@@ -89,6 +89,7 @@ describe('Dead Code Detection - Simple Tests', () => {
       const result = analyzer.analyzeReachability([], [], []);
       expect(result.reachable).toBeDefined();
       expect(result.unreachable).toBeDefined();
+      expect(result.unusedExports).toBeDefined();
       expect(result.entryPoints).toBeDefined();
     });
 
@@ -128,6 +129,104 @@ describe('Dead Code Detection - Simple Tests', () => {
 
       const cycles = analyzer.findCircularDependencies(callEdges);
       expect(cycles).toHaveLength(1);
+    });
+
+    it('should detect unused export functions', () => {
+      const analyzer = new ReachabilityAnalyzer();
+      
+      const functions = [
+        {
+          id: 'func1',
+          name: 'usedFunction',
+          isExported: true,
+          filePath: '/src/api.ts',
+          startLine: 1,
+          endLine: 10,
+          startColumn: 1,
+          endColumn: 1,
+          displayName: 'usedFunction',
+          signature: 'usedFunction(): void',
+          semanticId: 'semantic1',
+          contentId: 'content1',
+          astHash: 'ast1',
+          signatureHash: 'sig1',
+          fileHash: 'file1',
+          isAsync: false,
+          isGenerator: false,
+          isArrowFunction: false,
+          isMethod: false,
+          isConstructor: false,
+          isStatic: false,
+          parameters: [],
+        },
+        {
+          id: 'func2',
+          name: 'unusedExportFunction',
+          isExported: true,
+          filePath: '/src/old-api.ts',
+          startLine: 1,
+          endLine: 10,
+          startColumn: 1,
+          endColumn: 1,
+          displayName: 'unusedExportFunction',
+          signature: 'unusedExportFunction(): void',
+          semanticId: 'semantic2',
+          contentId: 'content2',
+          astHash: 'ast2',
+          signatureHash: 'sig2',
+          fileHash: 'file2',
+          isAsync: false,
+          isGenerator: false,
+          isArrowFunction: false,
+          isMethod: false,
+          isConstructor: false,
+          isStatic: false,
+          parameters: [],
+        },
+        {
+          id: 'func3',
+          name: 'internalFunction',
+          isExported: false,
+          filePath: '/src/internal.ts',
+          startLine: 1,
+          endLine: 10,
+          startColumn: 1,
+          endColumn: 1,
+          displayName: 'internalFunction',
+          signature: 'internalFunction(): void',
+          semanticId: 'semantic3',
+          contentId: 'content3',
+          astHash: 'ast3',
+          signatureHash: 'sig3',
+          fileHash: 'file3',
+          isAsync: false,
+          isGenerator: false,
+          isArrowFunction: false,
+          isMethod: false,
+          isConstructor: false,
+          isStatic: false,
+          parameters: [],
+        }
+      ];
+
+      const callEdges = [
+        // No calls to any function - all are unreachable
+      ];
+
+      const entryPoints = [
+        // No entry points - simulating scenario where exports are not automatically entry points
+      ];
+
+      const result = analyzer.analyzeReachability(functions, callEdges, entryPoints);
+      
+      // All functions should be unreachable
+      expect(result.unreachable.size).toBe(3);
+      
+      // Only exported functions should be in unusedExports
+      expect(result.unusedExports.size).toBe(2);
+      expect(result.unusedExports.has('func1')).toBe(true);  // usedFunction (exported)
+      expect(result.unusedExports.has('func2')).toBe(true);  // unusedExportFunction (exported)
+      expect(result.unusedExports.has('func3')).toBe(false); // internalFunction (not exported)
     });
   });
 });

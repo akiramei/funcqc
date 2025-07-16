@@ -65,10 +65,9 @@ export class EntryPointDetector {
   private getEntryPointReasons(func: FunctionInfo): EntryPoint['reason'][] {
     const reasons: EntryPoint['reason'][] = [];
 
-    // Check if exported
-    if (func.isExported) {
-      reasons.push('exported');
-    }
+    // Note: Export functions are NOT automatically considered entry points
+    // They need to be explicitly used or fall into other categories
+    // This allows detection of unused export functions
 
     // Check file patterns
     const filePath = func.filePath;
