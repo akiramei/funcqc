@@ -52,8 +52,12 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         return;
       }
 
+      // Get function map for filtering
+      const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
+      const functionMap = new Map(functions.map(f => [f.id, { id: f.id, name: f.name }]));
+
       // Apply filters
-      let filteredEdges = applyDepFilters(callEdges, options);
+      let filteredEdges = applyDepFilters(callEdges, options, functionMap);
 
       // Apply sorting
       filteredEdges = applyDepSorting(filteredEdges, options);
@@ -155,15 +159,16 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
 /**
  * Apply filters to call edges
  */
-function applyDepFilters(edges: CallEdge[], options: DepListOptions): CallEdge[] {
+function applyDepFilters(edges: CallEdge[], options: DepListOptions, functionMap?: Map<string, { id: string; name: string }>): CallEdge[] {
   let filtered = edges;
 
-  if (options.caller) {
+  if (options.caller && functionMap) {
     const pattern = new RegExp(options.caller.replace(/\*/g, '.*'), 'i');
     filtered = filtered.filter(edge => {
-      // Note: We would need to look up the function name from the ID
-      // For now, filter by callee name which is already available
-      return pattern.test(edge.calleeName || '');
+      // Look up the caller function name from the function map
+      const callerFunction = Array.from(functionMap.values()).find(f => f.id === edge.callerFunctionId);
+      const callerName = callerFunction?.name || '';
+      return pattern.test(callerName);
     });
   }
 
