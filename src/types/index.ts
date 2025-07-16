@@ -5,6 +5,7 @@ export * from './common';
 export * from './quality-enhancements';
 
 import { NamingEvaluation } from './quality-enhancements';
+import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
 
 // Core configuration types
 export interface FuncqcConfig {
@@ -426,6 +427,7 @@ export interface EvaluateCommandOptions extends CommandOptions {
   aiGenerated?: boolean; // Code is AI-generated (affects exit codes)
   strict?: boolean; // Strict mode for critical violations
   json?: boolean; // JSON output for integration
+  evaluateAll?: boolean; // Evaluate all functions in the file/code
 }
 
 export interface ExplainCommandOptions extends CommandOptions {
@@ -1326,4 +1328,14 @@ export interface RiskDistribution {
   medium: number;
   high: number;
   critical: number;
+}
+
+/**
+ * Type guard to check if assessment is multiple functions
+ * Centralized to prevent duplication across modules
+ */
+export function isMultipleAssessment(
+  assessment: QualityAssessment | MultipleQualityAssessment
+): assessment is MultipleQualityAssessment {
+  return 'allFunctions' in assessment;
 }

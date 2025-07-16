@@ -211,6 +211,99 @@ export class RealTimeQualityGate {
   }
 
   /**
+   * Evaluate all functions in the provided code
+   *
+   * @param code TypeScript code to evaluate
+   * @param context Optional context from existing analysis
+   * @returns Multiple function quality assessment
+   */
+  async evaluateAllFunctions(
+    code: string,
+    context?: { filename?: string; existingBaseline?: ProjectBaseline }
+  ): Promise<MultipleQualityAssessment> {
+    const startTime = performance.now();
+
+    try {
+      // Set timeout for analysis
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Analysis timeout')), this.config.maxAnalysisTime);
+      });
+
+      // Perform analysis with timeout
+      const analysisPromise = this.performMultiAnalysis(code, context?.filename || 'generated.ts');
+      const result = await Promise.race([analysisPromise, timeoutPromise]);
+
+      const responseTime = performance.now() - startTime;
+      return { ...result, responseTime };
+    } catch {
+      const responseTime = performance.now() - startTime;
+
+      // Return safe fallback on timeout or error
+      return {
+        mainFunction: {
+          functionName: 'unknown',
+          index: 0,
+          assessment: {
+            acceptable: false,
+            qualityScore: 0,
+            violations: [
+              {
+                metric: 'linesOfCode',
+                value: 0,
+                threshold: 0,
+                zScore: 0,
+                severity: 'critical',
+                suggestion: 'Analysis failed - please check code syntax',
+              },
+            ],
+            structuralScore: 0,
+            structuralAnomalies: [],
+            structuralMetrics: undefined,
+            improvementInstruction: 'Unable to analyze code - check for syntax errors',
+            responseTime: 0,
+          },
+          functionInfo: {
+            id: 'error',
+            name: 'unknown',
+            startLine: 0,
+            endLine: 0,
+            startColumn: 0,
+            endColumn: 0,
+            filePath: context?.filename || 'generated.ts',
+            semanticId: 'error',
+            displayName: 'unknown',
+            signature: 'unknown',
+            isExported: false,
+            isAsync: false,
+            isGenerator: false,
+            isArrowFunction: false,
+            isMethod: false,
+            isConstructor: false,
+            isStatic: false,
+            contentId: 'error',
+            astHash: 'error',
+            signatureHash: 'error',
+            fileHash: 'error',
+            parameters: [],
+            returnType: { type: 'unknown', typeSimple: 'unknown', isPromise: false },
+          },
+        },
+        allFunctions: [],
+        overallAcceptable: false,
+        aggregatedScore: 0,
+        responseTime,
+        summary: {
+          totalFunctions: 0,
+          acceptableFunctions: 0,
+          averageScore: 0,
+          bestFunction: 'none',
+          worstFunction: 'none',
+        },
+      };
+    }
+  }
+
+  /**
    * Get current project baseline
    */
   getBaseline(): ProjectBaseline {
@@ -570,6 +663,179 @@ export class RealTimeQualityGate {
   }
 
   /**
+   * Perform multi-function analysis
+   */
+  private async performMultiAnalysis(
+    code: string,
+    filename: string
+  ): Promise<Omit<MultipleQualityAssessment, 'responseTime'>> {
+    let functions: FunctionInfo[];
+
+    // Check if we're analyzing a file or code string
+    if (filename === 'stdin.ts' || filename === 'generated.ts') {
+      // Write code to a temporary file for analysis
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const os = await import('os');
+
+      const tempFile = path.join(os.tmpdir(), `funcqc-temp-${Date.now()}.ts`);
+      await fs.writeFile(tempFile, code, 'utf-8');
+
+      try {
+        functions = await this.analyzer.analyzeFile(tempFile);
+      } finally {
+        // Clean up temp file
+        await fs.unlink(tempFile).catch(() => {}); // Ignore cleanup errors
+      }
+    } else {
+      // Analyze existing file
+      functions = await this.analyzer.analyzeFile(filename);
+    }
+
+    if (functions.length === 0) {
+      return {
+        mainFunction: {
+          functionName: 'none',
+          index: 0,
+          assessment: {
+            acceptable: true,
+            qualityScore: 100,
+            violations: [],
+            structuralScore: 100,
+            structuralAnomalies: [],
+            structuralMetrics: undefined,
+            improvementInstruction: undefined,
+            responseTime: 0,
+          },
+          functionInfo: {
+            id: 'empty',
+            name: 'none',
+            startLine: 0,
+            endLine: 0,
+            startColumn: 0,
+            endColumn: 0,
+            filePath: filename,
+            semanticId: 'empty',
+            displayName: 'none',
+            signature: 'none',
+            isExported: false,
+            isAsync: false,
+            isGenerator: false,
+            isArrowFunction: false,
+            isMethod: false,
+            isConstructor: false,
+            isStatic: false,
+            contentId: 'empty',
+            astHash: 'empty',
+            signatureHash: 'empty',
+            fileHash: 'empty',
+            parameters: [],
+            returnType: { type: 'void', typeSimple: 'void', isPromise: false },
+          },
+        },
+        allFunctions: [],
+        overallAcceptable: true,
+        aggregatedScore: 100,
+        summary: {
+          totalFunctions: 0,
+          acceptableFunctions: 0,
+          averageScore: 100,
+          bestFunction: 'none',
+          worstFunction: 'none',
+        },
+      };
+    }
+
+    // Analyze each function
+    const functionAssessments: FunctionAssessment[] = [];
+    
+    for (let i = 0; i < functions.length; i++) {
+      const func = functions[i];
+      
+      // Calculate quality metrics if not present
+      let completeMetrics: QualityMetrics;
+      if (func.metrics) {
+        completeMetrics = func.metrics;
+      } else {
+        completeMetrics = await this.qualityCalculator.calculate(func);
+      }
+
+      // Detect violations using adaptive thresholds
+      const violations = this.detectViolations(completeMetrics);
+
+      // Perform structural analysis
+      const structuralMetrics = this.structuralAnalyzer.analyzeFunction(func.id) || undefined;
+      const structuralAnomalies = structuralMetrics
+        ? this.structuralAnalyzer.detectAnomalies(func.id)
+        : [];
+
+      // Calculate scores
+      const qualityScore = this.calculateQualityScore(completeMetrics, violations);
+      const structuralScore = this.calculateStructuralScore(completeMetrics, structuralMetrics);
+
+      // Generate improvement instruction
+      const improvementInstruction =
+        violations.length > 0 || structuralAnomalies.length > 0
+          ? this.generateImprovementInstruction(violations, structuralAnomalies)
+          : undefined;
+
+      const assessment: QualityAssessment = {
+        acceptable:
+          violations.filter(v => v.severity === 'critical').length === 0 &&
+          structuralAnomalies.filter(a => a.severity === 'critical').length === 0,
+        qualityScore,
+        violations,
+        structuralScore,
+        structuralAnomalies,
+        structuralMetrics,
+        improvementInstruction,
+        responseTime: 0, // Will be set by parent
+      };
+
+      functionAssessments.push({
+        functionName: func.name,
+        index: i,
+        assessment,
+        functionInfo: func,
+      });
+    }
+
+    // Calculate summary statistics
+    const totalFunctions = functionAssessments.length;
+    const acceptableFunctions = functionAssessments.filter(f => f.assessment.acceptable).length;
+    const averageScore = functionAssessments.reduce((sum, f) => sum + f.assessment.qualityScore, 0) / totalFunctions;
+    
+    const sortedByScore = [...functionAssessments].sort((a, b) => b.assessment.qualityScore - a.assessment.qualityScore);
+    const bestFunction = sortedByScore[0]?.functionName || 'none';
+    const worstFunction = sortedByScore[sortedByScore.length - 1]?.functionName || 'none';
+
+    // Calculate aggregated score (weighted average with penalty for unacceptable functions)
+    const baseScore = averageScore;
+    const acceptableRatio = acceptableFunctions / totalFunctions;
+    const aggregatedScore = Math.round(baseScore * acceptableRatio);
+
+    // Overall acceptability (all functions must be acceptable)
+    const overallAcceptable = acceptableFunctions === totalFunctions;
+
+    // Main function is the first function or the best scoring one
+    const mainFunction = functionAssessments[0] || functionAssessments.find(f => f.functionName === bestFunction);
+
+    return {
+      mainFunction: mainFunction!,
+      allFunctions: functionAssessments,
+      overallAcceptable,
+      aggregatedScore,
+      summary: {
+        totalFunctions,
+        acceptableFunctions,
+        averageScore: Math.round(averageScore * 10) / 10,
+        bestFunction,
+        worstFunction,
+      },
+    };
+  }
+
+  /**
    * Initialize empty baseline
    */
   private initializeBaseline(): ProjectBaseline {
@@ -585,4 +851,42 @@ export class RealTimeQualityGate {
       isReliable: false,
     };
   }
+}
+
+/**
+ * Assessment result for individual function within multi-function evaluation
+ */
+export interface FunctionAssessment {
+  /** Function name */
+  functionName: string;
+  /** Function index in the file */
+  index: number;
+  /** Quality assessment for this function */
+  assessment: QualityAssessment;
+  /** Function information */
+  functionInfo: FunctionInfo;
+}
+
+/**
+ * Assessment result for multiple functions evaluation
+ */
+export interface MultipleQualityAssessment {
+  /** Primary function assessment (first function or best scoring) */
+  mainFunction: FunctionAssessment;
+  /** All function assessments */
+  allFunctions: FunctionAssessment[];
+  /** Overall acceptability (all functions must be acceptable) */
+  overallAcceptable: boolean;
+  /** Aggregated quality score */
+  aggregatedScore: number;
+  /** Total response time */
+  responseTime: number;
+  /** Summary statistics */
+  summary: {
+    totalFunctions: number;
+    acceptableFunctions: number;
+    averageScore: number;
+    bestFunction: string;
+    worstFunction: string;
+  };
 }
