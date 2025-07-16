@@ -169,6 +169,23 @@ export interface ParameterInfo {
   description?: string;
 }
 
+export interface CallEdge {
+  id: string;
+  callerFunctionId: string;
+  calleeFunctionId?: string;
+  calleeName: string;
+  calleeSignature?: string;
+  callType: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
+  callContext?: string;
+  lineNumber: number;
+  columnNumber: number;
+  isAsync: boolean;
+  isChained: boolean;
+  confidenceScore: number;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface ReturnTypeInfo {
   type: string;
   typeSimple: string;

@@ -19,7 +19,7 @@
 --
 -- Level 1: snapshots, refactoring_sessions (independent base tables)
 -- Level 2: functions, function_descriptions (core entities)
--- Level 3: function_parameters, quality_metrics, function_embeddings, 
+-- Level 3: function_parameters, quality_metrics, call_edges, function_embeddings, 
 --          naming_evaluations, session_functions, refactoring_opportunities
 -- Level 4: lineages, ann_index_metadata (independent)
 --
@@ -253,6 +253,43 @@ CREATE INDEX idx_quality_metrics_complexity ON quality_metrics(cyclomatic_comple
 CREATE INDEX idx_quality_metrics_cognitive ON quality_metrics(cognitive_complexity);
 CREATE INDEX idx_quality_metrics_lines ON quality_metrics(lines_of_code);
 CREATE INDEX idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
+
+-- -----------------------------------------------------------------------------
+-- Call Edges: Function call relationships for dependency analysis
+-- -----------------------------------------------------------------------------
+CREATE TABLE call_edges (
+  id TEXT PRIMARY KEY,                          -- Edge ID (UUID)
+  caller_function_id TEXT NOT NULL,             -- Physical ID of calling function
+  callee_function_id TEXT,                      -- Physical ID of called function (NULL for external)
+  callee_name TEXT NOT NULL,                    -- Function/method name being called
+  callee_signature TEXT,                        -- Full signature if resolvable
+  call_type TEXT NOT NULL CHECK (              -- Type of call relationship
+    call_type IN ('direct', 'conditional', 'async', 'external', 'dynamic')
+  ),
+  call_context TEXT,                            -- Context: 'normal', 'conditional', 'loop', 'try', 'catch'
+  line_number INTEGER NOT NULL,                 -- Line where call occurs
+  column_number INTEGER DEFAULT 0,              -- Column position
+  is_async BOOLEAN DEFAULT FALSE,               -- Is it an await call
+  is_chained BOOLEAN DEFAULT FALSE,             -- Part of method chain
+  confidence_score REAL DEFAULT 1.0,           -- Analysis confidence (0-1)
+  metadata JSONB DEFAULT '{}',                  -- Additional call metadata
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (caller_function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (callee_function_id) REFERENCES functions(id) ON DELETE SET NULL
+);
+
+-- Indexes for call graph traversal and analysis
+CREATE INDEX idx_call_edges_caller ON call_edges(caller_function_id);
+CREATE INDEX idx_call_edges_callee ON call_edges(callee_function_id);
+CREATE INDEX idx_call_edges_callee_name ON call_edges(callee_name);
+CREATE INDEX idx_call_edges_call_type ON call_edges(call_type);
+CREATE INDEX idx_call_edges_line_number ON call_edges(caller_function_id, line_number);
+CREATE INDEX idx_call_edges_confidence ON call_edges(confidence_score);
+
+-- Performance indexes for graph analysis
+CREATE INDEX idx_call_edges_is_async ON call_edges(is_async) WHERE is_async = TRUE;
+CREATE INDEX idx_call_edges_external ON call_edges(call_type) WHERE call_type = 'external';
+CREATE INDEX idx_call_edges_context ON call_edges(call_context);
 
 -- -----------------------------------------------------------------------------
 -- Function Embeddings: Vector embeddings for similarity search

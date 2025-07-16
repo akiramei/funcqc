@@ -122,6 +122,23 @@ export interface MetricsRow {
   maintainability_index?: number;
 }
 
+export interface CallEdgeRow {
+  id: string;
+  caller_function_id: string;
+  callee_function_id?: string;
+  callee_name: string;
+  callee_signature?: string;
+  call_type: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
+  call_context?: string;
+  line_number: number;
+  column_number: number;
+  is_async: boolean;
+  is_chained: boolean;
+  confidence_score: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
 // Diff/History related types
 export interface DiffFunction {
   id: string;
