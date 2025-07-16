@@ -84,13 +84,16 @@ export class CallGraphAnalyzer {
         if (functionNode) {
           const calls = this.extractCallsFromFunction(
             functionNode,
-            functionId,
+            functionInfo.id,
             functionInfo.name
           );
           
           for (const call of calls) {
-            const callEdge = this.createCallEdge(call, functionMap);
-            callEdges.push(callEdge);
+            // Enhanced validation before creating call edge
+            if (call.calleeName && call.calleeName.trim().length > 0) {
+              const callEdge = this.createCallEdge(call, functionMap);
+              callEdges.push(callEdge);
+            }
           }
         }
       }
@@ -152,7 +155,7 @@ export class CallGraphAnalyzer {
     try {
       const expression = callExpr.getExpression();
       const lineNumber = callExpr.getStartLineNumber();
-      const columnNumber = callExpr.getStartLinePos() - callExpr.getStartLineNumber();
+      const columnNumber = callExpr.getStart() - callExpr.getStartLinePos();
       
       // Check if this is an await expression
       const isAsync = Node.isAwaitExpression(callExpr.getParent());
@@ -328,13 +331,28 @@ export class CallGraphAnalyzer {
     call: DetectedCall,
     functionMap: Map<string, { id: string; name: string }>
   ): CallEdge {
-    // Try to find the callee function in the same file
+    // Try to find the callee function in the same file with improved matching
     let calleeFunctionId: string | undefined;
+    let bestMatch: { id: string; score: number } | undefined;
+    
     for (const [id, info] of functionMap.entries()) {
       if (info.name === call.calleeName) {
+        // Exact name match - highest priority
         calleeFunctionId = id;
         break;
+      } else if (info.name.includes(call.calleeName) || call.calleeName.includes(info.name)) {
+        // Partial match - consider as fallback
+        const score = Math.max(info.name.length, call.calleeName.length) - 
+                     Math.abs(info.name.length - call.calleeName.length);
+        if (!bestMatch || score > bestMatch.score) {
+          bestMatch = { id, score };
+        }
       }
+    }
+    
+    // Use best match if no exact match found
+    if (!calleeFunctionId && bestMatch) {
+      calleeFunctionId = bestMatch.id;
     }
 
     // Determine call type

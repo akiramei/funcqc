@@ -7,11 +7,13 @@ describe('CallGraphAnalyzer Integration Tests', () => {
     const analyzer = new CallGraphAnalyzer(false);
     const testFilePath = path.join(__dirname, 'fixtures/call-graph-test.ts');
     
-    // Create a mock function map
+    // Create function map matching the actual fixture file
     const functionMap = new Map([
       ['func1', { id: 'func1', name: 'testFunction1', startLine: 2, endLine: 5 }],
       ['func2', { id: 'func2', name: 'testFunction2', startLine: 7, endLine: 10 }],
       ['func3', { id: 'func3', name: 'testFunction3', startLine: 12, endLine: 14 }],
+      ['func4', { id: 'func4', name: 'externalCall', startLine: 17, endLine: 20 }],
+      ['func5', { id: 'func5', name: 'asyncFunction', startLine: 23, endLine: 26 }],
     ]);
 
     const callEdges = await analyzer.analyzeFile(testFilePath, functionMap);
@@ -23,15 +25,30 @@ describe('CallGraphAnalyzer Integration Tests', () => {
     // Should have some call edges (at least testFunction1 -> testFunction2)
     expect(callEdges.length).toBeGreaterThan(0);
     
+    // Verify specific call relationships from the fixture
+    const testFunction1ToTestFunction2 = callEdges.find(
+      edge => edge.callerFunctionId === 'func1' && edge.calleeName === 'testFunction2'
+    );
+    expect(testFunction1ToTestFunction2).toBeDefined();
+    expect(testFunction1ToTestFunction2?.callType).toBe('direct');
+    expect(testFunction1ToTestFunction2?.lineNumber).toBe(3);
+    
+    const testFunction2ToTestFunction3 = callEdges.find(
+      edge => edge.callerFunctionId === 'func2' && edge.calleeName === 'testFunction3'
+    );
+    expect(testFunction2ToTestFunction3).toBeDefined();
+    expect(testFunction2ToTestFunction3?.callType).toBe('direct');
+    expect(testFunction2ToTestFunction3?.lineNumber).toBe(8);
+    
     // Check that call edges have required properties
-    if (callEdges.length > 0) {
-      const edge = callEdges[0];
+    for (const edge of callEdges) {
       expect(edge).toHaveProperty('id');
       expect(edge).toHaveProperty('callerFunctionId');
       expect(edge).toHaveProperty('calleeName');
       expect(edge).toHaveProperty('callType');
       expect(edge).toHaveProperty('lineNumber');
       expect(edge).toHaveProperty('confidenceScore');
+      expect(edge.confidenceScore).toBeGreaterThan(0);
     }
   });
 
@@ -43,7 +60,7 @@ describe('CallGraphAnalyzer Integration Tests', () => {
       ['simple', { id: 'simple', name: 'simpleFunction', startLine: 1, endLine: 3 }],
     ]);
 
-    const callEdges = await analyzer.analyzeFile('test/fixtures/sample.ts', functionMap);
+    const callEdges = await analyzer.analyzeFile(path.join(__dirname, 'fixtures/sample.ts'), functionMap);
     
     expect(callEdges).toBeDefined();
     expect(Array.isArray(callEdges)).toBe(true);
