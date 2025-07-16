@@ -76,7 +76,7 @@ export class CallGraphAnalyzer {
       // Get all function nodes in the file
       const functionNodes = this.getAllFunctionNodes(sourceFile);
 
-      for (const [functionId, functionInfo] of functionMap.entries()) {
+      for (const [, functionInfo] of functionMap.entries()) {
         const functionNode = functionNodes.find(node =>
           node.getStartLineNumber() === functionInfo.startLine
         );
