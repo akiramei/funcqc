@@ -72,9 +72,19 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   }
 
   private calculateOptimalCacheSize(): number {
-    // Dynamic cache sizing based on available memory
-    const memoryMB = process.memoryUsage().heapUsed / 1024 / 1024;
-    return Math.max(this.DEFAULT_CACHE_SIZE, Math.min(10000, Math.floor(memoryMB * 10)));
+    // Dynamic cache sizing based on available memory with improved scaling
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
+    const heapTotalMB = memoryUsage.heapTotal / 1024 / 1024;
+    
+    // Use a more conservative approach: 2% of heap used, capped by total heap
+    const memoryBasedSize = Math.floor(heapUsedMB * 20); // 2% of heap used * 10 for cache items
+    const maxSize = Math.floor(heapTotalMB * 50); // 5% of total heap
+    
+    return Math.max(
+      this.DEFAULT_CACHE_SIZE, 
+      Math.min(maxSize, memoryBasedSize)
+    );
   }
 
   async isAvailable(): Promise<boolean> {
@@ -202,7 +212,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const lshBuckets = new Map<string, string[]>();
     for (const [funcId, hashes] of functionHashes) {
       for (const hash of hashes) {
-        const bucketKey = this.getLSHBucketKey(hash, this.DEFAULT_LSH_BITS);
+        const bucketKey = this.getLSHBucketKey(hash, config.lshBits);
         if (!lshBuckets.has(bucketKey)) {
           lshBuckets.set(bucketKey, []);
         }
@@ -247,7 +257,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const candidates = new Set<string>();
     
     // Stage 1: Use higher bit count for finer bucketing (more selective)
-    const higherBits = this.config.lshBits + 8; // Increase bits for finer granularity
+    const hierarchicalBitIncrease = 8; // Make this configurable in future
+    const higherBits = this.config.lshBits + hierarchicalBitIncrease; // Increase bits for finer granularity
     const fineBuckets = new Map<string, string[]>();
     
     for (const func of bucketFunctionInfos) {
