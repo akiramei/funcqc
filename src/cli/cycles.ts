@@ -55,9 +55,9 @@ export const cyclesCommand: VoidCommand<CyclesOptions> = (options) =>
       if (options.format === 'json') {
         outputCyclesJSON(filteredCycles, options);
       } else if (options.format === 'dot') {
-        outputCyclesDOT(filteredCycles, callEdges);
+        outputCyclesDOT(filteredCycles);
       } else {
-        outputCyclesTable(filteredCycles, callEdges, options);
+        outputCyclesTable(filteredCycles, options);
       }
     } catch (error) {
       spinner.fail('Failed to analyze circular dependencies');
@@ -91,7 +91,7 @@ function outputCyclesJSON(cycles: string[][], options: CyclesOptions): void {
 /**
  * Output cycles as DOT format for Graphviz
  */
-function outputCyclesDOT(cycles: string[][], _callEdges: CallEdge[]): void {
+function outputCyclesDOT(cycles: string[][]): void {
   console.log('digraph CircularDependencies {');
   console.log('  rankdir=LR;');
   console.log('  node [shape=box, style=filled, fillcolor=lightblue];');
@@ -125,7 +125,7 @@ function outputCyclesDOT(cycles: string[][], _callEdges: CallEdge[]): void {
 /**
  * Output cycles as formatted table
  */
-function outputCyclesTable(cycles: string[][], _callEdges: CallEdge[], options: CyclesOptions): void {
+function outputCyclesTable(cycles: string[][], options: CyclesOptions): void {
   console.log(chalk.bold('\n🔄 Circular Dependency Analysis\n'));
 
   if (cycles.length === 0) {

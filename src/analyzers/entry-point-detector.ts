@@ -151,6 +151,7 @@ export class EntryPointDetector {
         // Check for common patterns like addEventListener, app.get, etc.
         if (Node.isPropertyAccessExpression(expression)) {
           const propertyName = expression.getName();
+          if (!propertyName) continue;
           const objectName = expression.getExpression().getText();
 
           // Event listeners
