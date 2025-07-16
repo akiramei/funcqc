@@ -5,7 +5,7 @@ import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
-import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
+import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
 // import { formatFileSize } from '../utils/format-utils';
 
 interface DeadCodeOptions extends OptionValues {
@@ -128,9 +128,9 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
  * Output dead code results as JSON
  */
 function outputDeadCodeJSON(
-  deadCodeInfo: any[],
-  unusedExportInfo: any[],
-  reachabilityResult: any,
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  reachabilityResult: ReachabilityResult,
   totalFunctions: number,
   options: DeadCodeOptions
 ): void {
@@ -161,9 +161,9 @@ function outputDeadCodeJSON(
  * Output dead code results as a formatted table
  */
 function outputDeadCodeTable(
-  deadCodeInfo: any[],
-  unusedExportInfo: any[],
-  reachabilityResult: any,
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  reachabilityResult: ReachabilityResult,
   totalFunctions: number,
   options: DeadCodeOptions
 ): void {

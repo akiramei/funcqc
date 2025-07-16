@@ -6,7 +6,7 @@ import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
 import { CallEdge } from '../types';
-import { DependencyMetricsCalculator } from '../analyzers/dependency-metrics';
+import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats } from '../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 
@@ -523,7 +523,7 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
 /**
  * Output dependency stats as JSON
  */
-function outputDepStatsJSON(metrics: any[], stats: any, options: DepStatsOptions): void {
+function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
   const limit = options.limit ? parseInt(options.limit) : 20;
   const sortField = options.sort || 'fanin';
   
@@ -558,7 +558,7 @@ function outputDepStatsJSON(metrics: any[], stats: any, options: DepStatsOptions
 /**
  * Output dependency stats as formatted table
  */
-function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOptions): void {
+function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
   console.log(chalk.bold('\n📊 Dependency Statistics\n'));
   
   // Summary
@@ -572,7 +572,7 @@ function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOption
   // Hub functions (high fan-in)
   if (options.showHubs && stats.hubFunctions.length > 0) {
     console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
-    stats.hubFunctions.forEach((func: any, index: number) => {
+    stats.hubFunctions.forEach((func: DependencyMetrics, index: number) => {
       console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
     });
     console.log();
@@ -581,7 +581,7 @@ function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOption
   // Utility functions (high fan-out)
   if (options.showUtility && stats.utilityFunctions.length > 0) {
     console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
-    stats.utilityFunctions.forEach((func: any, index: number) => {
+    stats.utilityFunctions.forEach((func: DependencyMetrics, index: number) => {
       console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
     });
     console.log();
@@ -590,7 +590,7 @@ function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOption
   // Isolated functions
   if (options.showIsolated && stats.isolatedFunctions.length > 0) {
     console.log(chalk.bold('🏝️ Isolated Functions:'));
-    stats.isolatedFunctions.forEach((func: any, index: number) => {
+    stats.isolatedFunctions.forEach((func: DependencyMetrics, index: number) => {
       console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
     });
     console.log();
@@ -619,7 +619,7 @@ function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOption
   console.log(chalk.bold('Name                     Fan-In  Fan-Out  Depth  Cyclic'));
   console.log('─'.repeat(60));
 
-  sortedMetrics.slice(0, limit).forEach((metric: any) => {
+  sortedMetrics.slice(0, limit).forEach((metric: DependencyMetrics) => {
     const name = metric.functionName.padEnd(25).substring(0, 25);
     const fanIn = metric.fanIn.toString().padStart(6);
     const fanOut = metric.fanOut.toString().padStart(8);
