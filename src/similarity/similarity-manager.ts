@@ -16,10 +16,10 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
-  constructor(weights?: SimilarityWeights, storage?: PGLiteStorageAdapter) {
+  constructor(weights?: SimilarityWeights, storage?: PGLiteStorageAdapter, similarityOptions?: SimilarityOptions) {
     // Register detectors in priority order:
     // 1. Advanced detector with AST canonicalization, Merkle hashing, and SimHash (O(n))
-    this.registerDetector(new AdvancedSimilarityDetector());
+    this.registerDetector(new AdvancedSimilarityDetector(similarityOptions));
 
     // 2. ANN detector for semantic similarity (if storage available)
     if (storage) {

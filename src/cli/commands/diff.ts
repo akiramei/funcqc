@@ -436,7 +436,8 @@ async function detectLineageCandidates(
     return [];
   }
 
-  const similarityManager = new SimilarityManager(undefined, env.storage);
+  const similarityOptions = { threshold: 0.7 };
+  const similarityManager = new SimilarityManager(undefined, env.storage, similarityOptions);
   // Only consider functions that actually changed between snapshots
   // This prevents false lineage matches with unrelated similar functions that existed in both snapshots
   const changedFunctions = [...diff.added, ...diff.modified.map(m => m.after)];

@@ -12,6 +12,21 @@ import { winnowHashes, extractKGrams } from '../utils/hash-winnowing-utility';
 import { findConnectedComponents, buildItemToGroupsMapping } from '../utils/graph-algorithms';
 
 /**
+ * Configuration interface for advanced similarity detector
+ */
+interface SimilarityConfig {
+  kGramSize: number;
+  winnowingWindow: number;
+  lshBits: number;
+  maxLshBucketSize: number;
+  singleStageThreshold: number;
+  cacheSize: number;
+  maxFunctionSize: number;
+  useParallelProcessing: boolean;
+  useTwoStageHierarchicalLsh: boolean;
+}
+
+/**
  * Advanced similarity detector using AST canonicalization, Merkle hashing,
  * k-gram SimHash fingerprinting, and LSH bucketing for optimal performance
  * and detection accuracy
@@ -22,16 +37,55 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   supportedLanguages = ['typescript', 'javascript'];
 
   private project: Project | null = null;
-  private merkleCache = new LRUCache<string, bigint>({ max: 1000 });
-  private canonicalCache = new LRUCache<string, string>({ max: 1000 });
+  private merkleCache: LRUCache<string, bigint>;
+  private canonicalCache: LRUCache<string, string>;
+  private config: SimilarityConfig;
 
   // Configuration - optimized LSH parameters for O(n) performance
   private readonly DEFAULT_K_GRAM_SIZE = 12; // Optimized for short functions and performance
   private readonly DEFAULT_WINNOWING_WINDOW = 6; // Optimized for lightweight processing
   private readonly DEFAULT_LSH_BITS = 24; // Increased for better distribution (16.7M buckets)
   private readonly SIMHASH_BITS = 64;
-  private readonly MAX_LSH_BUCKET_SIZE = 10; // Maximum bucket size for O(n) performance guarantee
-  private readonly SINGLE_STAGE_THRESHOLD = 1000; // Function count threshold for single-stage analysis
+  private readonly DEFAULT_MAX_LSH_BUCKET_SIZE = 10; // Maximum bucket size for O(n) performance guarantee
+  private readonly DEFAULT_SINGLE_STAGE_THRESHOLD = 1000; // Function count threshold for single-stage analysis
+  private readonly DEFAULT_CACHE_SIZE = 1000; // Default cache size - used in calculateOptimalCacheSize
+  private readonly DEFAULT_MAX_FUNCTION_SIZE = 300; // Default maximum function size
+
+  constructor(options: SimilarityOptions = {}) {
+    this.config = this.createConfig(options);
+    this.merkleCache = new LRUCache<string, bigint>({ max: this.config.cacheSize });
+    this.canonicalCache = new LRUCache<string, string>({ max: this.config.cacheSize });
+  }
+
+  private createConfig(options: SimilarityOptions): SimilarityConfig {
+    return {
+      kGramSize: options.kGramSize || this.DEFAULT_K_GRAM_SIZE,
+      winnowingWindow: options.winnowingWindow || this.DEFAULT_WINNOWING_WINDOW,
+      lshBits: options.lshBits || this.DEFAULT_LSH_BITS,
+      maxLshBucketSize: options.maxLshBucketSize || this.DEFAULT_MAX_LSH_BUCKET_SIZE,
+      singleStageThreshold: options.singleStageThreshold || this.DEFAULT_SINGLE_STAGE_THRESHOLD,
+      cacheSize: options.cacheSize || this.calculateOptimalCacheSize(),
+      maxFunctionSize: options.maxFunctionSize || this.DEFAULT_MAX_FUNCTION_SIZE,
+      useParallelProcessing: options.useParallelProcessing !== false,
+      useTwoStageHierarchicalLsh: options.useTwoStageHierarchicalLsh !== false,
+    };
+  }
+
+  private calculateOptimalCacheSize(): number {
+    // Dynamic cache sizing based on available memory with improved scaling
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
+    const heapTotalMB = memoryUsage.heapTotal / 1024 / 1024;
+    
+    // Use a more conservative approach: 2% of heap used, capped by total heap
+    const memoryBasedSize = Math.floor(heapUsedMB * 20); // 2% of heap used * 10 for cache items
+    const maxSize = Math.floor(heapTotalMB * 50); // 5% of total heap
+    
+    return Math.max(
+      this.DEFAULT_CACHE_SIZE, 
+      Math.min(maxSize, memoryBasedSize)
+    );
+  }
 
   async isAvailable(): Promise<boolean> {
     return true; // Always available since it only uses ts-morph
@@ -47,7 +101,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     console.log(`Advanced detector processing ${validFunctions.length} functions...`);
 
     // For small datasets, use direct advanced analysis
-    if (validFunctions.length <= this.SINGLE_STAGE_THRESHOLD) {
+    if (validFunctions.length <= this.config.singleStageThreshold) {
       console.log('🎯 Direct O(n) advanced analysis (testing single-stage performance)');
       return this.detectAdvancedMode(validFunctions, config);
     }
@@ -158,7 +212,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const lshBuckets = new Map<string, string[]>();
     for (const [funcId, hashes] of functionHashes) {
       for (const hash of hashes) {
-        const bucketKey = this.getLSHBucketKey(hash, this.DEFAULT_LSH_BITS);
+        const bucketKey = this.getLSHBucketKey(hash, config.lshBits);
         if (!lshBuckets.has(bucketKey)) {
           lshBuckets.set(bucketKey, []);
         }
@@ -168,10 +222,17 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     // Add functions from LSH buckets with 2-10 functions (sweet spot)
     for (const [bucketKey, bucketFunctions] of lshBuckets) {
-      if (bucketFunctions.length >= 2 && bucketFunctions.length <= this.MAX_LSH_BUCKET_SIZE) {
+      if (bucketFunctions.length >= 2 && bucketFunctions.length <= this.config.maxLshBucketSize) {
         bucketFunctions.forEach(funcId => candidateIds.add(funcId));
         console.log(
           `LSH bucket ${bucketKey.slice(0, 8)}... has ${bucketFunctions.length} candidates`
+        );
+      } else if (bucketFunctions.length > this.config.maxLshBucketSize && this.config.useTwoStageHierarchicalLsh) {
+        // Apply hierarchical LSH for large buckets
+        const hierarchicalCandidates = this.applyHierarchicalLSH(bucketFunctions, allFunctions);
+        hierarchicalCandidates.forEach(funcId => candidateIds.add(funcId));
+        console.log(
+          `Hierarchical LSH applied to large bucket ${bucketKey.slice(0, 8)}... (${bucketFunctions.length} → ${hierarchicalCandidates.length} candidates)`
         );
       }
     }
@@ -180,6 +241,96 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     // Apply post-filtering to remove obvious non-duplicates
     return this.postFilterCandidates(candidates);
+  }
+
+  /**
+   * Apply hierarchical LSH to large buckets to prevent missing utility functions
+   */
+  private applyHierarchicalLSH(bucketFunctions: string[], allFunctions: FunctionInfo[]): string[] {
+    const functionMap = new Map(allFunctions.map(f => [f.id, f]));
+    const bucketFunctionInfos = bucketFunctions.map(id => functionMap.get(id)).filter(Boolean) as FunctionInfo[];
+    
+    if (bucketFunctionInfos.length <= this.config.maxLshBucketSize) {
+      return bucketFunctions; // No need for hierarchical processing
+    }
+
+    const candidates = new Set<string>();
+    
+    // Stage 1: Use higher bit count for finer bucketing (more selective)
+    const hierarchicalBitIncrease = 8; // Make this configurable in future
+    const higherBits = this.config.lshBits + hierarchicalBitIncrease; // Increase bits for finer granularity
+    const fineBuckets = new Map<string, string[]>();
+    
+    for (const func of bucketFunctionInfos) {
+      if (func.sourceCode) {
+        const tokens = this.tokenizeSourceCode(func.sourceCode);
+        const canonical = this.canonicalizeTokens(tokens);
+        const config = this.parseDetectionOptions({});
+        const simHashes = this.generateSimHashFingerprints(canonical, config);
+        
+        for (const hash of simHashes) {
+          const fineBucketKey = this.getLSHBucketKey(hash, higherBits);
+          if (!fineBuckets.has(fineBucketKey)) {
+            fineBuckets.set(fineBucketKey, []);
+          }
+          fineBuckets.get(fineBucketKey)!.push(func.id);
+        }
+      }
+    }
+    
+    // Stage 2: Select functions from appropriately sized fine buckets
+    for (const [, fineBucketFunctions] of fineBuckets) {
+      if (fineBucketFunctions.length >= 2 && fineBucketFunctions.length <= this.config.maxLshBucketSize) {
+        fineBucketFunctions.forEach(funcId => candidates.add(funcId));
+      }
+    }
+    
+    // Stage 3: If still too many, use probabilistic sampling
+    const candidateArray = Array.from(candidates);
+    if (candidateArray.length > this.config.maxLshBucketSize * 5) {
+      // Sample a subset while ensuring we don't miss important duplicates
+      const sampleSize = Math.min(candidateArray.length, this.config.maxLshBucketSize * 3);
+      const sampledCandidates = this.stratifiedSample(candidateArray, sampleSize, bucketFunctionInfos);
+      return sampledCandidates;
+    }
+    
+    return candidateArray;
+  }
+
+  /**
+   * Stratified sampling to ensure we don't miss important duplicates
+   */
+  private stratifiedSample(candidates: string[], sampleSize: number, allFunctions: FunctionInfo[]): string[] {
+    const functionMap = new Map(allFunctions.map(f => [f.id, f]));
+    
+    // Group by function size (likely duplicates have similar sizes)
+    const sizeGroups = new Map<number, string[]>();
+    for (const candidateId of candidates) {
+      const func = functionMap.get(candidateId);
+      if (func) {
+        const size = func.metrics?.linesOfCode || 0;
+        const sizeGroup = Math.floor(size / 10) * 10; // Group by 10-line intervals
+        if (!sizeGroups.has(sizeGroup)) {
+          sizeGroups.set(sizeGroup, []);
+        }
+        sizeGroups.get(sizeGroup)!.push(candidateId);
+      }
+    }
+    
+    // Sample proportionally from each size group
+    const sampledCandidates: string[] = [];
+    const groupEntries = Array.from(sizeGroups.entries());
+    
+    for (const [, groupCandidates] of groupEntries) {
+      const groupProportion = groupCandidates.length / candidates.length;
+      const groupSampleSize = Math.max(1, Math.floor(sampleSize * groupProportion));
+      
+      // Simple random sampling within each group
+      const shuffled = [...groupCandidates].sort(() => Math.random() - 0.5);
+      sampledCandidates.push(...shuffled.slice(0, Math.min(groupSampleSize, groupCandidates.length)));
+    }
+    
+    return sampledCandidates;
   }
 
   /**
@@ -195,8 +346,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       if (metrics.cyclomaticComplexity > 20) return false;
 
       // Filter out extremely large functions (unlikely to be exact duplicates)
-      // Increased to 300 lines as large functions often contain copy-paste duplicates
-      if (metrics.linesOfCode > 300) return false;
+      // Use configurable threshold as large functions often contain copy-paste duplicates
+      if (metrics.linesOfCode > this.config.maxFunctionSize) return false;
 
       return true;
     });
@@ -303,9 +454,9 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       threshold: options.threshold || 0.65,
       minLines: options.minLines || 3,
       crossFile: options.crossFile !== false,
-      kGramSize: this.DEFAULT_K_GRAM_SIZE,
-      winnowingWindow: this.DEFAULT_WINNOWING_WINDOW,
-      lshBits: this.DEFAULT_LSH_BITS,
+      kGramSize: this.config.kGramSize,
+      winnowingWindow: this.config.winnowingWindow,
+      lshBits: this.config.lshBits,
     };
   }
 
@@ -417,7 +568,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     // Use parallel processing for large datasets to utilize multiple CPU cores
     const batchSize = 50;
-    const useParallelProcessing = functions.length > 200; // Threshold for parallel processing
+    const useParallelProcessing = this.config.useParallelProcessing && functions.length > 200; // Threshold for parallel processing
 
     if (useParallelProcessing) {
       console.log(`🚀 Using parallel fingerprint generation for ${functions.length} functions`);
@@ -934,19 +1085,61 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     // Check candidates within each bucket - ONLY small buckets for O(n) performance
     for (const [bucketKey, candidates] of lshBuckets) {
-      if (candidates.length >= 2 && candidates.length <= this.MAX_LSH_BUCKET_SIZE) {
+      if (candidates.length >= 2 && candidates.length <= this.config.maxLshBucketSize) {
         console.log(
           `Processing LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions`
         );
         const bucketResults = this.checkSmallBucketCandidates(candidates, config, excludedPairs);
         results.push(...bucketResults);
-      } else if (candidates.length > this.MAX_LSH_BUCKET_SIZE) {
-        console.log(
-          `Skipping large LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions (too large for O(n) guarantee)`
-        );
+      } else if (candidates.length > this.config.maxLshBucketSize) {
+        if (this.config.useTwoStageHierarchicalLsh) {
+          console.log(
+            `Applying hierarchical LSH to large bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions`
+          );
+          const hierarchicalResults = this.applyHierarchicalLSHToLargeBucket(candidates, config, excludedPairs);
+          results.push(...hierarchicalResults);
+        } else {
+          console.log(
+            `Skipping large LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions (too large for O(n) guarantee)`
+          );
+        }
       }
     }
 
+    return results;
+  }
+
+  /**
+   * Apply hierarchical LSH to large buckets during near-duplicate detection
+   */
+  private applyHierarchicalLSHToLargeBucket(
+    candidates: FunctionFingerprint[],
+    config: ReturnType<typeof this.parseDetectionOptions>,
+    excludedPairs: Set<string>
+  ): SimilarityResult[] {
+    const results: SimilarityResult[] = [];
+    
+    // Use higher bit count for sub-bucketing
+    const fineBuckets = new Map<string, FunctionFingerprint[]>();
+    
+    for (const candidate of candidates) {
+      for (const simHash of candidate.simHashFingerprints) {
+        const fineBucketKey = this.getLSHBucketKey(simHash, config.lshBits + 8);
+        if (!fineBuckets.has(fineBucketKey)) {
+          fineBuckets.set(fineBucketKey, []);
+        }
+        fineBuckets.get(fineBucketKey)!.push(candidate);
+      }
+    }
+    
+    // Process fine buckets that are appropriately sized
+    for (const [, fineBucketCandidates] of fineBuckets) {
+      if (fineBucketCandidates.length >= 2 && fineBucketCandidates.length <= this.config.maxLshBucketSize) {
+        const bucketResults = this.checkSmallBucketCandidates(fineBucketCandidates, config, excludedPairs);
+        results.push(...bucketResults);
+      }
+    }
+    
     return results;
   }
 
@@ -972,22 +1165,23 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
 
     // Generate histogram bins
-    const emptyBuckets = Math.max(0, (1 << this.DEFAULT_LSH_BITS) - lshBuckets.size);
+    const emptyBuckets = Math.max(0, (1 << this.config.lshBits) - lshBuckets.size);
     const singleBuckets = sizeDistribution.get(1) ?? 0;
     const optimalBuckets = Array.from(sizeDistribution.entries())
-      .filter(([size]) => size >= 2 && size <= this.MAX_LSH_BUCKET_SIZE)
+      .filter(([size]) => size >= 2 && size <= this.config.maxLshBucketSize)
       .reduce((sum, [, count]) => sum + count, 0);
     const oversizedBuckets = Array.from(sizeDistribution.entries())
-      .filter(([size]) => size > this.MAX_LSH_BUCKET_SIZE)
+      .filter(([size]) => size > this.config.maxLshBucketSize)
       .reduce((sum, [, count]) => sum + count, 0);
 
     // Log one-line histogram for easy monitoring
     console.log(
       `📊 LSH Distribution (${totalFunctions} funcs): ` +
         `Empty=${emptyBuckets} Single=${singleBuckets} ` +
-        `Optimal(2-${this.MAX_LSH_BUCKET_SIZE})=${optimalBuckets} ` +
-        `Oversized(>${this.MAX_LSH_BUCKET_SIZE})=${oversizedBuckets} ` +
-        `bits=${this.DEFAULT_LSH_BITS}`
+        `Optimal(2-${this.config.maxLshBucketSize})=${optimalBuckets} ` +
+        `Oversized(>${this.config.maxLshBucketSize})=${oversizedBuckets} ` +
+        `bits=${this.config.lshBits} ` +
+        `hierarchical=${this.config.useTwoStageHierarchicalLsh ? 'ON' : 'OFF'}`
     );
   }
 

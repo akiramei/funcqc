@@ -777,7 +777,8 @@ async function findSimilarFunctions(
   allFunctions: FunctionInfo[],
   env: CommandEnvironment
 ): Promise<FunctionInfo[]> {
-  const similarityManager = new SimilarityManager(undefined, env.storage);
+  const similarityOptions = { threshold: AST_SIMILARITY_THRESHOLD };
+  const similarityManager = new SimilarityManager(undefined, env.storage, similarityOptions);
   
   const similarities = await similarityManager.detectSimilarities(
     allFunctions,
