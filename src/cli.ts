@@ -1109,6 +1109,51 @@ depCommand.command('show')
     return withEnvironment(depShowCommand(functionRef))(options);
   });
 
+depCommand.command('stats')
+  .description('Show dependency statistics and metrics')
+  .option('--sort <field>', 'sort by field (fanin, fanout, depth, name)', 'fanin')
+  .option('--limit <num>', 'limit number of results', '20')
+  .option('--show-hubs', 'show hub functions (high fan-in)')
+  .option('--show-utility', 'show utility functions (high fan-out)')
+  .option('--show-isolated', 'show isolated functions')
+  .option('--json', 'output as JSON')
+  .option('--snapshot <id>', 'use specific snapshot (default: latest)')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depStatsCommand } = await import('./cli/dep');
+    return withEnvironment(depStatsCommand)(options);
+  });
+
+// Dead code detection command
+program
+  .command('dead')
+  .description('Detect dead code (unreachable functions)')
+  .option('--exclude-tests', 'exclude test functions from analysis')
+  .option('--exclude-exports', 'exclude exported functions from entry points')
+  .option('--exclude-small', 'exclude small functions from results')
+  .option('--threshold <num>', 'minimum function size to report', '3')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--show-reasons', 'show detailed reasons for dead code')
+  .option('--verbose', 'show verbose output')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { deadCommand } = await import('./cli/dead');
+    return withEnvironment(deadCommand)(options);
+  });
+
+// Circular dependency detection command
+program
+  .command('cycles')
+  .description('Detect circular dependencies in the call graph')
+  .option('--min-size <num>', 'minimum cycle size to report', '2')
+  .option('--format <format>', 'output format (table, json, dot)', 'table')
+  .option('--verbose', 'show verbose output')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { cyclesCommand } = await import('./cli/cycles');
+    return withEnvironment(cyclesCommand)(options);
+  });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));
@@ -1145,7 +1190,7 @@ function performLightweightSystemCheck(logger: Logger, skipCheck: boolean = fals
   return systemChecker.basicSystemCheck();
 }
 
-const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain'] as const;
+const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain', 'dead'] as const;
 
 function isReadOnlyCommand(): boolean {
   const command = process.argv[2];

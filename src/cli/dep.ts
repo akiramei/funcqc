@@ -1,10 +1,14 @@
 import { OptionValues } from 'commander';
 import chalk from 'chalk';
+import ora from 'ora';
 import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
 import { CallEdge } from '../types';
+import { DependencyMetricsCalculator } from '../analyzers/dependency-metrics';
+import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
+import { EntryPointDetector } from '../analyzers/entry-point-detector';
 
 interface DepListOptions extends OptionValues {
   caller?: string;
@@ -22,6 +26,16 @@ interface DepShowOptions extends OptionValues {
   direction?: 'in' | 'out' | 'both';
   depth?: string;
   includeExternal?: boolean;
+  json?: boolean;
+  snapshot?: string;
+}
+
+interface DepStatsOptions extends OptionValues {
+  sort?: 'fanin' | 'fanout' | 'depth' | 'name';
+  limit?: string;
+  showHubs?: boolean;
+  showUtility?: boolean;
+  showIsolated?: boolean;
   json?: boolean;
   snapshot?: string;
 }
@@ -420,4 +434,198 @@ function getCallTypeColor(type: string): (text: string) => string {
     default:
       return chalk.white;
   }
+}
+
+/**
+ * Show dependency statistics and metrics
+ */
+export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    const spinner = ora('Calculating dependency metrics...').start();
+
+    try {
+      // Get the latest snapshot
+      const snapshot = options.snapshot ? 
+        await env.storage.getSnapshot(options.snapshot) :
+        await env.storage.getLatestSnapshot();
+
+      if (!snapshot) {
+        spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+        return;
+      }
+
+      spinner.text = 'Loading functions and call graph...';
+
+      // Get all functions and call edges
+      const [functions, callEdges] = await Promise.all([
+        env.storage.getFunctionsBySnapshot(snapshot.id),
+        env.storage.getCallEdgesBySnapshot(snapshot.id),
+      ]);
+
+      if (functions.length === 0) {
+        spinner.fail(chalk.yellow('No functions found in the snapshot.'));
+        return;
+      }
+
+      spinner.text = 'Detecting entry points...';
+
+      // Detect entry points
+      const entryPointDetector = new EntryPointDetector();
+      const entryPoints = entryPointDetector.detectEntryPoints(functions);
+      const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
+
+      spinner.text = 'Detecting circular dependencies...';
+
+      // Detect circular dependencies
+      const reachabilityAnalyzer = new ReachabilityAnalyzer();
+      const cycles = reachabilityAnalyzer.findCircularDependencies(callEdges);
+      const cyclicFunctions = new Set<string>();
+      cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
+
+      spinner.text = 'Calculating dependency metrics...';
+
+      // Calculate dependency metrics
+      const metricsCalculator = new DependencyMetricsCalculator();
+      const metrics = metricsCalculator.calculateMetrics(
+        functions,
+        callEdges,
+        entryPointIds,
+        cyclicFunctions
+      );
+
+      const stats = metricsCalculator.generateStats(metrics);
+
+      spinner.succeed('Dependency metrics calculated');
+
+      // Output results
+      if (options.json) {
+        outputDepStatsJSON(metrics, stats, options);
+      } else {
+        outputDepStatsTable(metrics, stats, options);
+      }
+    } catch (error) {
+      spinner.fail('Failed to calculate dependency metrics');
+      if (error instanceof DatabaseError) {
+        const funcqcError = errorHandler.createError(
+          error.code,
+          error.message,
+          {},
+          error.originalError
+        );
+        errorHandler.handleError(funcqcError);
+      } else {
+        errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  };
+
+/**
+ * Output dependency stats as JSON
+ */
+function outputDepStatsJSON(metrics: any[], stats: any, options: DepStatsOptions): void {
+  const limit = options.limit ? parseInt(options.limit) : 20;
+  const sortField = options.sort || 'fanin';
+  
+  // Sort metrics
+  const sortedMetrics = [...metrics].sort((a, b) => {
+    switch (sortField) {
+      case 'fanin':
+        return b.fanIn - a.fanIn;
+      case 'fanout':
+        return b.fanOut - a.fanOut;
+      case 'depth':
+        return b.depthFromEntry - a.depthFromEntry;
+      case 'name':
+        return a.functionName.localeCompare(b.functionName);
+      default:
+        return 0;
+    }
+  });
+
+  const result = {
+    summary: stats,
+    metrics: sortedMetrics.slice(0, limit),
+    filters: {
+      sort: sortField,
+      limit,
+    },
+  };
+
+  console.log(JSON.stringify(result, null, 2));
+}
+
+/**
+ * Output dependency stats as formatted table
+ */
+function outputDepStatsTable(metrics: any[], stats: any, options: DepStatsOptions): void {
+  console.log(chalk.bold('\n📊 Dependency Statistics\n'));
+  
+  // Summary
+  console.log(`Total functions: ${chalk.cyan(stats.totalFunctions)}`);
+  console.log(`Average fan-in: ${chalk.yellow(stats.avgFanIn.toFixed(1))}`);
+  console.log(`Average fan-out: ${chalk.yellow(stats.avgFanOut.toFixed(1))}`);
+  console.log(`Maximum fan-in: ${chalk.red(stats.maxFanIn)}`);
+  console.log(`Maximum fan-out: ${chalk.red(stats.maxFanOut)}`);
+  console.log();
+
+  // Hub functions (high fan-in)
+  if (options.showHubs && stats.hubFunctions.length > 0) {
+    console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
+    stats.hubFunctions.forEach((func: any, index: number) => {
+      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
+    });
+    console.log();
+  }
+
+  // Utility functions (high fan-out)
+  if (options.showUtility && stats.utilityFunctions.length > 0) {
+    console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
+    stats.utilityFunctions.forEach((func: any, index: number) => {
+      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
+    });
+    console.log();
+  }
+
+  // Isolated functions
+  if (options.showIsolated && stats.isolatedFunctions.length > 0) {
+    console.log(chalk.bold('🏝️ Isolated Functions:'));
+    stats.isolatedFunctions.forEach((func: any, index: number) => {
+      console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
+    });
+    console.log();
+  }
+
+  // Top functions by sort criteria
+  const limit = options.limit ? parseInt(options.limit) : 20;
+  const sortField = options.sort || 'fanin';
+  
+  const sortedMetrics = [...metrics].sort((a, b) => {
+    switch (sortField) {
+      case 'fanin':
+        return b.fanIn - a.fanIn;
+      case 'fanout':
+        return b.fanOut - a.fanOut;
+      case 'depth':
+        return b.depthFromEntry - a.depthFromEntry;
+      case 'name':
+        return a.functionName.localeCompare(b.functionName);
+      default:
+        return 0;
+    }
+  });
+
+  console.log(chalk.bold(`📈 Top ${limit} Functions (by ${sortField}):`));
+  console.log(chalk.bold('Name                     Fan-In  Fan-Out  Depth  Cyclic'));
+  console.log('─'.repeat(60));
+
+  sortedMetrics.slice(0, limit).forEach((metric: any) => {
+    const name = metric.functionName.padEnd(25).substring(0, 25);
+    const fanIn = metric.fanIn.toString().padStart(6);
+    const fanOut = metric.fanOut.toString().padStart(8);
+    const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
+    const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
+
+    console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
+  });
 }
