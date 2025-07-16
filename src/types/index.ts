@@ -463,7 +463,7 @@ export interface CliComponents {
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
   };
   storage: StorageAdapter;
-  qualityCalculator: { calculate(func: FunctionInfo): Promise<QualityMetrics> };
+  qualityCalculator: { calculate(func: FunctionInfo): QualityMetrics };
 }
 
 export interface FunctionChangeImproved {
