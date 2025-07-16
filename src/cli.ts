@@ -1064,6 +1064,51 @@ migrateCommand.command('info')
     return infoCommand(options);
   });
 
+// Dep command - Function dependency analysis
+program
+  .command('dep')
+  .description('Function dependency analysis')
+  .action(() => {
+    console.log(chalk.yellow('Please specify a dep subcommand:'));
+    console.log('  list     - List function dependencies');
+    console.log('  show     - Show detailed dependency information');
+    console.log('\nExample: funcqc dep list');
+  });
+
+// Add dep subcommands
+const depCommand = program.commands.find(cmd => cmd.name() === 'dep')!;
+
+depCommand.command('list')
+  .description('List function dependencies')
+  .option('--caller <pattern>', 'filter by caller function pattern')
+  .option('--callee <pattern>', 'filter by callee function pattern')
+  .option('--file <pattern>', 'filter by file path pattern')
+  .option('--type <type>', 'filter by call type (direct, async, conditional, external)')
+  .option('--limit <num>', 'limit number of results', '20')
+  .option('--sort <field>', 'sort by field (caller, callee, file, line)', 'caller')
+  .option('--desc', 'sort in descending order')
+  .option('--json', 'output as JSON')
+  .option('--snapshot <id>', 'use specific snapshot (default: latest)')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depListCommand } = await import('./cli/dep');
+    return withEnvironment(depListCommand)(options);
+  });
+
+depCommand.command('show')
+  .description('Show detailed dependency information for a function')
+  .argument('<function>', 'function name or ID')
+  .option('--direction <dir>', 'dependency direction (in, out, both)', 'both')
+  .option('--depth <num>', 'maximum depth for dependency traversal', '2')
+  .option('--include-external', 'include external dependencies')
+  .option('--json', 'output as JSON')
+  .option('--snapshot <id>', 'use specific snapshot (default: latest)')
+  .action(async (functionRef: string, options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depShowCommand } = await import('./cli/dep');
+    return withEnvironment(depShowCommand(functionRef))(options);
+  });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));

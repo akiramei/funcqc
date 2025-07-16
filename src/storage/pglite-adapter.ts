@@ -452,6 +452,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Get the latest snapshot
+   */
+  async getLatestSnapshot(): Promise<SnapshotInfo | null> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM snapshots 
+        ORDER BY created_at DESC 
+        LIMIT 1
+      `);
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      return this.mapRowToSnapshotInfo(result.rows[0] as SnapshotRow);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get latest snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
    * Get the config hash from the most recent snapshot
    * Returns null if no snapshots exist
    */
@@ -4082,6 +4106,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
         `Failed to get call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get call edges for a specific snapshot
+   */
+  async getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT DISTINCT ce.*
+        FROM call_edges ce
+        JOIN functions f ON ce.caller_function_id = f.id
+        WHERE f.snapshot_id = $1
+        ORDER BY ce.caller_function_id, ce.line_number
+      `, [snapshotId]);
+
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get call edges for snapshot: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
