@@ -55,12 +55,12 @@ describe('CallGraphAnalyzer Integration Tests', () => {
   it('should handle files with no function calls', async () => {
     const analyzer = new CallGraphAnalyzer(false);
     
-    // Use a simple file with no calls
+    // Use the same fixture file but with a simpler function map
     const functionMap = new Map([
-      ['simple', { id: 'simple', name: 'simpleFunction', startLine: 1, endLine: 3 }],
+      ['func3', { id: 'func3', name: 'testFunction3', startLine: 12, endLine: 14 }],
     ]);
 
-    const callEdges = await analyzer.analyzeFile(path.join(__dirname, 'fixtures/sample.ts'), functionMap);
+    const callEdges = await analyzer.analyzeFile(path.join(__dirname, 'fixtures/call-graph-test.ts'), functionMap);
     
     expect(callEdges).toBeDefined();
     expect(Array.isArray(callEdges)).toBe(true);

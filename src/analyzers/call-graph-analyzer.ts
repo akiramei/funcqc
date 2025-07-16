@@ -78,7 +78,8 @@ export class CallGraphAnalyzer {
 
       for (const [, functionInfo] of functionMap.entries()) {
         const functionNode = functionNodes.find(node =>
-          node.getStartLineNumber() === functionInfo.startLine
+          node.getStartLineNumber() === functionInfo.startLine &&
+          node.getEndLineNumber() === functionInfo.endLine
         );
 
         if (functionNode) {
