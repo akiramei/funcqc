@@ -320,7 +320,7 @@ function outputJSONLines(
   }
 }
 
-function displayResults(results: SimilarityResult[], logger: any): void {
+function displayResults(results: SimilarityResult[], logger: import('../../utils/cli-utils').Logger): void {
   if (results.length === 0) {
     logger.info('No similar functions found with the given criteria.');
     return;
@@ -367,7 +367,7 @@ function displayResults(results: SimilarityResult[], logger: any): void {
 function displaySummary(
   allResults: SimilarityResult[],
   displayedResults: SimilarityResult[],
-  _logger: any
+  _logger: import('../../utils/cli-utils').Logger
 ): void {
   const totalFunctions = new Set<string>();
   allResults.forEach(result => {

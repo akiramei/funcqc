@@ -658,7 +658,7 @@ async function runRealtimeGateMode(
 async function initializeQualityGate(
   _config: FuncqcConfig, 
   spinner: typeof ora.prototype,
-  storage: any
+  storage: import('../../types').StorageAdapter
 ) {
   const allHistoricalFunctions = await loadHistoricalFunctions(storage);
   const qualityGate = createQualityGate(allHistoricalFunctions, spinner);
@@ -666,7 +666,7 @@ async function initializeQualityGate(
   return { storage, qualityGate };
 }
 
-async function loadHistoricalFunctions(storage: any): Promise<FunctionInfo[]> {
+async function loadHistoricalFunctions(storage: import('../../types').StorageAdapter): Promise<FunctionInfo[]> {
   const recentSnapshots = await storage.getSnapshots({ limit: 5 });
   const allHistoricalFunctions: FunctionInfo[] = [];
 

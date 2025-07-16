@@ -403,7 +403,7 @@ function displaySaveConfirmation(
   description: FunctionDescription,
   text: string | undefined,
   options: DescribeCommandOptions,
-  logger: any
+  logger: import('../../utils/cli-utils').Logger
 ): void {
   logger.info(chalk.green(`✓ Description saved for function: ${targetFunction.name}`));
   logger.info(`  Function ID: ${targetFunction.id}`);

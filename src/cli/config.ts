@@ -175,7 +175,7 @@ function displaySinglePreset(preset: ProjectPreset): void {
 /**
  * Format preset context information
  */
-function formatPresetContext(context: any): string {
+function formatPresetContext(context: Record<string, unknown>): string {
   const contextParts = [];
   
   if (context.domain) {
@@ -513,7 +513,7 @@ type ValidationIssue = {
   field?: string;
 };
 
-function validateConfigFields(config: any): ValidationIssue[] {
+function validateConfigFields(config: Record<string, unknown>): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   if (!config.storage?.path) {

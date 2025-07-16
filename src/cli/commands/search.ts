@@ -795,7 +795,7 @@ async function findSimilarFunctions(
 /**
  * Extract function IDs from similarity results
  */
-function extractSimilarFunctionIds(similarities: any[]): Set<string> {
+function extractSimilarFunctionIds(similarities: import('../../types').SimilarityResult[]): Set<string> {
   const similarFunctionIds = new Set<string>();
   
   for (const similarity of similarities) {

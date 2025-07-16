@@ -401,7 +401,7 @@ function displaySystemInfo(config: FuncqcConfig): void {
 /**
  * Displays migration statistics
  */
-function displayMigrationStats(migrations: any[], backupTables: any[]): void {
+function displayMigrationStats(migrations: Record<string, unknown>[], backupTables: Record<string, unknown>[]): void {
   const appliedCount = migrations.filter(m => m.executedAt).length;
   const pendingCount = migrations.filter(m => !m.executedAt).length;
   
@@ -413,7 +413,7 @@ function displayMigrationStats(migrations: any[], backupTables: any[]): void {
 /**
  * Displays backup table information
  */
-function displayBackupInfo(backupTables: any[]): void {
+function displayBackupInfo(backupTables: Record<string, unknown>[]): void {
   if (backupTables.length === 0) return;
   
   const sortedBackups = backupTables.sort((a, b) => {

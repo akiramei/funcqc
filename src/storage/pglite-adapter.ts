@@ -3683,7 +3683,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   async updateRefactoringChangeset(id: string, updates: Partial<RefactoringChangeset>): Promise<void> {
     const setParts: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     let paramIndex = 1;
 
     if (updates.healthAssessment !== undefined) {
@@ -3740,7 +3740,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ORDER BY created_at DESC
     `, [functionId]);
 
-    return result.rows.map(row => this.mapRowToLineage(row as any));
+    return result.rows.map(row => this.mapRowToLineage(row as Record<string, unknown>));
   }
 
   /**
@@ -3748,7 +3748,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   async updateRefactoringSession(id: string, updates: Partial<RefactoringSession>): Promise<void> {
     const setParts: string[] = [];
-    const params: any[] = [];
+    const params: unknown[] = [];
     let paramIndex = 1;
 
     if (updates.description !== undefined) {
@@ -3802,7 +3802,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       LIMIT $1 OFFSET $2
     `, [limit, offset]);
 
-    return result.rows.map(row => this.mapRowToRefactoringSession(row as any));
+    return result.rows.map(row => this.mapRowToRefactoringSession(row as Record<string, unknown>));
   }
 
   /**
@@ -3896,7 +3896,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       return null;
     }
 
-    return this.mapRowToRefactoringSession(result.rows[0] as any);
+    return this.mapRowToRefactoringSession(result.rows[0] as Record<string, unknown>);
   }
 
   /**

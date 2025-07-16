@@ -372,7 +372,7 @@ export class RefactoringHealthEngine {
       riskScore,
       violations,
       totalViolations: violations.length,
-      violationsByLevel: violationsByLevel as any,
+      violationsByLevel: violationsByLevel as Record<string, number>,
       riskLevel: this.calculateRiskLevel(riskScore),
       metrics: func.metrics,
     };
@@ -699,7 +699,7 @@ export class DefaultLineageManager implements LineageManager {
       id: uuidv4(),
       fromIds: [operation.parentFunction],
       toIds: operation.childFunctions,
-      kind: operation.type as any,
+      kind: operation.type as import('../types').LineageKind,
       status: 'approved' as const,
       confidence: 0.95,
       gitCommit: operation.context.afterSnapshot || '',

@@ -300,10 +300,10 @@ async function findTargetFunction(
   });
 
   const targetFunction = functions.find(f => 
-    (f as any)['display_name'] === functionName || 
+    (f as unknown as Record<string, unknown>)['display_name'] === functionName || 
     f.name === functionName
   ) || functions.find(f => 
-    (f as any)['display_name'].includes(functionName) || 
+    (f as unknown as Record<string, unknown>)['display_name']?.toString().includes(functionName) || 
     f.name.includes(functionName)
   );
 
