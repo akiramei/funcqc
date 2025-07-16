@@ -30,6 +30,8 @@ import {
   RefactoringSession,
   RefactoringChangeset,
   RefactoringIntent,
+  CallEdge,
+  CallEdgeRow,
 } from '../types';
 import {
   BatchProcessor,
@@ -3919,6 +3921,235 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       created_at: string;
       updated_at: string;
     });
+  }
+
+  // =============================================================================
+  // CALL EDGES OPERATIONS
+  // =============================================================================
+
+  /**
+   * Insert call edges in batch for efficient storage
+   */
+  async insertCallEdges(edges: CallEdge[]): Promise<void> {
+    if (edges.length === 0) return;
+
+    try {
+      const batchSize = calculateOptimalBatchSize(edges.length);
+      const batches = splitIntoBatches(edges, batchSize);
+
+      for (const batch of batches) {
+        const callEdgeRows: CallEdgeRow[] = batch.map(edge => ({
+          id: edge.id,
+          caller_function_id: edge.callerFunctionId,
+          callee_function_id: edge.calleeFunctionId || null,
+          callee_name: edge.calleeName,
+          callee_signature: edge.calleeSignature || null,
+          call_type: edge.callType,
+          call_context: edge.callContext || null,
+          line_number: edge.lineNumber,
+          column_number: edge.columnNumber,
+          is_async: edge.isAsync,
+          is_chained: edge.isChained,
+          confidence_score: edge.confidenceScore,
+          metadata: edge.metadata,
+          created_at: edge.createdAt,
+        }));
+
+        for (const row of callEdgeRows) {
+          await this.db.query(`
+            INSERT INTO call_edges (
+              id, caller_function_id, callee_function_id, callee_name, 
+              callee_signature, call_type, call_context, line_number, 
+              column_number, is_async, is_chained, confidence_score, 
+              metadata, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          `, [
+            row.id, row.caller_function_id, row.callee_function_id, row.callee_name,
+            row.callee_signature, row.call_type, row.call_context, row.line_number,
+            row.column_number, row.is_async, row.is_chained, row.confidence_score,
+            JSON.stringify(row.metadata), row.created_at
+          ]);
+        }
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to insert call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get call edges for a specific caller function
+   */
+  async getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM call_edges 
+        WHERE caller_function_id = $1 
+        ORDER BY line_number
+      `, [callerFunctionId]);
+
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get call edges by caller: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get call edges for a specific callee function
+   */
+  async getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM call_edges 
+        WHERE callee_function_id = $1 
+        ORDER BY line_number
+      `, [calleeFunctionId]);
+
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get call edges by callee: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get all call edges with optional filtering
+   */
+  async getCallEdges(options: {
+    callType?: CallEdge['callType'];
+    isAsync?: boolean;
+    isExternal?: boolean;
+    minConfidence?: number;
+    limit?: number;
+    offset?: number;
+  } = {}): Promise<CallEdge[]> {
+    try {
+      const conditions: string[] = [];
+      const params: unknown[] = [];
+      let paramIndex = 1;
+
+      if (options.callType) {
+        conditions.push(`call_type = $${paramIndex++}`);
+        params.push(options.callType);
+      }
+
+      if (options.isAsync !== undefined) {
+        conditions.push(`is_async = $${paramIndex++}`);
+        params.push(options.isAsync);
+      }
+
+      if (options.isExternal !== undefined) {
+        if (options.isExternal) {
+          conditions.push(`callee_function_id IS NULL`);
+        } else {
+          conditions.push(`callee_function_id IS NOT NULL`);
+        }
+      }
+
+      if (options.minConfidence !== undefined) {
+        conditions.push(`confidence_score >= $${paramIndex++}`);
+        params.push(options.minConfidence);
+      }
+
+      let sql = `SELECT * FROM call_edges`;
+      
+      if (conditions.length > 0) {
+        sql += ` WHERE ${conditions.join(' AND ')}`;
+      }
+      
+      sql += ` ORDER BY caller_function_id, line_number`;
+
+      if (options.limit) {
+        sql += ` LIMIT $${paramIndex++}`;
+        params.push(options.limit);
+      }
+
+      if (options.offset) {
+        sql += ` OFFSET $${paramIndex++}`;
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Delete call edges by caller function ID
+   */
+  async deleteCallEdgesByCaller(callerFunctionId: string): Promise<number> {
+    try {
+      const result = await this.db.query(`
+        DELETE FROM call_edges WHERE caller_function_id = $1
+      `, [callerFunctionId]);
+
+      const affectedRows = (result as unknown as { affectedRows?: number }).affectedRows ?? 0;
+      return affectedRows;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to delete call edges by caller: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Delete call edges by function IDs
+   */
+  async deleteCallEdges(functionIds: string[]): Promise<void> {
+    if (functionIds.length === 0) {
+      return;
+    }
+
+    try {
+      const placeholders = functionIds.map((_, index) => `$${index + 1}`).join(', ');
+      const query = `
+        DELETE FROM call_edges 
+        WHERE caller_function_id IN (${placeholders})
+           OR callee_function_id IN (${placeholders})
+      `;
+
+      await this.db.query(query, [...functionIds, ...functionIds]);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to delete call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Map database row to CallEdge object
+   */
+  private mapRowToCallEdge(row: CallEdgeRow): CallEdge {
+    return {
+      id: row.id,
+      callerFunctionId: row.caller_function_id,
+      calleeFunctionId: row.callee_function_id || undefined,
+      calleeName: row.callee_name,
+      calleeSignature: row.callee_signature || undefined,
+      callType: row.call_type,
+      callContext: row.call_context || undefined,
+      lineNumber: row.line_number,
+      columnNumber: row.column_number,
+      isAsync: row.is_async,
+      isChained: row.is_chained,
+      confidenceScore: row.confidence_score,
+      metadata: row.metadata,
+      createdAt: row.created_at,
+    };
   }
 
   /**
