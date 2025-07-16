@@ -6,7 +6,7 @@ import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
 import { CallEdge } from '../types';
-import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats } from '../analyzers/dependency-metrics';
+import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats, DependencyOptions } from '../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 
@@ -36,6 +36,10 @@ interface DepStatsOptions extends OptionValues {
   showHubs?: boolean;
   showUtility?: boolean;
   showIsolated?: boolean;
+  hubThreshold?: string;
+  utilityThreshold?: string;
+  maxHubFunctions?: string;
+  maxUtilityFunctions?: string;
   json?: boolean;
   snapshot?: string;
 }
@@ -494,7 +498,22 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
         cyclicFunctions
       );
 
-      const stats = metricsCalculator.generateStats(metrics);
+      // Create dependency options from CLI arguments
+      const dependencyOptions: DependencyOptions = {};
+      if (options.hubThreshold) {
+        dependencyOptions.hubThreshold = parseInt(options.hubThreshold);
+      }
+      if (options.utilityThreshold) {
+        dependencyOptions.utilityThreshold = parseInt(options.utilityThreshold);
+      }
+      if (options.maxHubFunctions) {
+        dependencyOptions.maxHubFunctions = parseInt(options.maxHubFunctions);
+      }
+      if (options.maxUtilityFunctions) {
+        dependencyOptions.maxUtilityFunctions = parseInt(options.maxUtilityFunctions);
+      }
+      
+      const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
 
       spinner.succeed('Dependency metrics calculated');
 
