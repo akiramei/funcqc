@@ -212,7 +212,7 @@ function applyDepSorting(edges: CallEdge[], options: DepListOptions): CallEdge[]
         comparison = (a.lineNumber || 0) - (b.lineNumber || 0);
         break;
       case 'file':
-        // Would need to look up file paths
+        // TODO: Implement file sorting by looking up function file paths
         comparison = 0;
         break;
     }
