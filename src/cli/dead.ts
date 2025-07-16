@@ -6,7 +6,6 @@ import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
-// import { formatFileSize } from '../utils/format-utils';
 
 interface DeadCodeOptions extends OptionValues {
   excludeTests?: boolean;

@@ -81,10 +81,10 @@ export class DependencyMetricsCalculator {
    */
   generateStats(metrics: DependencyMetrics[]): DependencyStats {
     const totalFunctions = metrics.length;
-    const avgFanIn = metrics.reduce((sum, m) => sum + m.fanIn, 0) / totalFunctions;
-    const avgFanOut = metrics.reduce((sum, m) => sum + m.fanOut, 0) / totalFunctions;
-    const maxFanIn = Math.max(...metrics.map(m => m.fanIn));
-    const maxFanOut = Math.max(...metrics.map(m => m.fanOut));
+    const avgFanIn = totalFunctions > 0 ? metrics.reduce((sum, m) => sum + m.fanIn, 0) / totalFunctions : 0;
+    const avgFanOut = totalFunctions > 0 ? metrics.reduce((sum, m) => sum + m.fanOut, 0) / totalFunctions : 0;
+    const maxFanIn = metrics.length > 0 ? Math.max(...metrics.map(m => m.fanIn)) : 0;
+    const maxFanOut = metrics.length > 0 ? Math.max(...metrics.map(m => m.fanOut)) : 0;
     
     // Identify special categories
     const hubFunctions = metrics

@@ -47,7 +47,9 @@ export class ReachabilityAnalyzer {
 
     // Include entry points themselves
     for (const entryPointId of entryPointIds) {
-      reachable.add(entryPointId);
+      if (functionMap.has(entryPointId)) {
+        reachable.add(entryPointId);
+      }
     }
 
     // Identify unreachable and unused export functions
@@ -117,7 +119,7 @@ export class ReachabilityAnalyzer {
       }
 
       // Check if only called from tests
-      if (callers && this.isOnlyCalledFromTests(functionId, callers, functionMap)) {
+      if (callers && this.isOnlyCalledFromTests(callers, functionMap)) {
         reason = 'test-only';
       }
 
@@ -224,7 +226,6 @@ export class ReachabilityAnalyzer {
    * Check if a function is only called from test files
    */
   private isOnlyCalledFromTests(
-    _functionId: string,
     callers: Set<string>,
     functionMap: Map<string, FunctionInfo>
   ): boolean {

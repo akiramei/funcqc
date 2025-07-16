@@ -38,6 +38,9 @@ export class EntryPointDetector {
     /app\.(ts|tsx|js|jsx)$/,
   ];
 
+  private readonly httpMethods = ['get', 'post', 'put', 'delete', 'patch', 'use'];
+  private readonly httpObjects = ['app', 'router', 'server'];
+
   /**
    * Detect all entry points from a list of functions
    */
@@ -93,7 +96,7 @@ export class EntryPointDetector {
     }
 
     // Special case: functions in index files are often entry points
-    if (filePath.includes('index.') && func.isExported) {
+    if (this.mainFilePatterns.some(pattern => pattern.test(filePath)) && func.isExported) {
       if (!reasons.includes('index')) {
         reasons.push('index');
       }
@@ -166,8 +169,8 @@ export class EntryPointDetector {
           }
 
           // Express/HTTP handlers
-          if (['get', 'post', 'put', 'delete', 'patch', 'use'].includes(propertyName) &&
-              ['app', 'router', 'server'].includes(objectName)) {
+          if (this.httpMethods.includes(propertyName) &&
+              this.httpObjects.includes(objectName)) {
             const args = node.getArguments();
             // Find callback arguments (usually the last one or multiple)
             for (let i = 1; i < args.length; i++) {
