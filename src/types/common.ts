@@ -125,11 +125,11 @@ export interface MetricsRow {
 export interface CallEdgeRow {
   id: string;
   caller_function_id: string;
-  callee_function_id?: string;
+  callee_function_id?: string | null;
   callee_name: string;
-  callee_signature?: string;
+  callee_signature?: string | null;
   call_type: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
-  call_context?: string;
+  call_context?: string | null;
   line_number: number;
   column_number: number;
   is_async: boolean;

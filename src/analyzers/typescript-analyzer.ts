@@ -15,9 +15,10 @@ import {
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import { FunctionInfo, ParameterInfo, ReturnTypeInfo } from '../types';
+import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
+import { CallGraphAnalyzer } from './call-graph-analyzer';
 
 interface FunctionMetadata {
   signature: string;
@@ -39,6 +40,7 @@ export class TypeScriptAnalyzer {
   private project: Project;
   private readonly maxSourceFilesInMemory: number;
   private cache: AnalysisCache;
+  private callGraphAnalyzer: CallGraphAnalyzer;
 
   constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
@@ -69,6 +71,9 @@ export class TypeScriptAnalyzer {
         maxMemorySize: 0,
       });
     }
+
+    // Initialize call graph analyzer
+    this.callGraphAnalyzer = new CallGraphAnalyzer(enableCache);
   }
 
   /**
@@ -1045,6 +1050,99 @@ export class TypeScriptAnalyzer {
    */
   getCacheStats(): CacheStats {
     return this.cache.getStats();
+  }
+
+  /**
+   * Analyze file and extract both functions and call edges
+   * Returns comprehensive analysis including call graph relationships
+   */
+  async analyzeFileWithCallGraph(
+    filePath: string
+  ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+    try {
+      // First, analyze functions normally
+      const functions = await this.analyzeFile(filePath);
+      
+      // Create function map for call graph analysis
+      const functionMap = new Map<string, { id: string; name: string; startLine: number; endLine: number }>();
+      for (const func of functions) {
+        functionMap.set(func.id, {
+          id: func.id,
+          name: func.name,
+          startLine: func.startLine,
+          endLine: func.endLine,
+        });
+      }
+
+      // Analyze call graph if functions exist
+      let callEdges: CallEdge[] = [];
+      if (functions.length > 0) {
+        try {
+          callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
+        } catch (error) {
+          console.warn(
+            `Warning: Call graph analysis failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          // Continue with empty call edges rather than failing the entire analysis
+        }
+      }
+
+      return { functions, callEdges };
+    } catch (error) {
+      throw new Error(
+        `Failed to analyze file with call graph ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Batch analyze files with call graph support
+   */
+  async analyzeFilesBatchWithCallGraph(
+    filePaths: string[],
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+    const batchSize = Math.min(this.maxSourceFilesInMemory, 20);
+    const allFunctions: FunctionInfo[] = [];
+    const allCallEdges: CallEdge[] = [];
+
+    const results = await BatchProcessor.processWithProgress(
+      filePaths,
+      async (filePath: string) => {
+        try {
+          return await this.analyzeFileWithCallGraph(filePath);
+        } catch (error) {
+          console.warn(
+            `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          return { functions: [], callEdges: [] };
+        }
+      },
+      onProgress,
+      batchSize
+    );
+
+    // Flatten results
+    for (const batch of results) {
+      allFunctions.push(...batch.functions);
+      allCallEdges.push(...batch.callEdges);
+    }
+
+    return { functions: allFunctions, callEdges: allCallEdges };
+  }
+
+  /**
+   * Get call graph analyzer statistics
+   */
+  getCallGraphStats(): CacheStats {
+    return this.callGraphAnalyzer.getCacheStats();
+  }
+
+  /**
+   * Clear call graph analyzer cache
+   */
+  clearCallGraphCache(): void {
+    this.callGraphAnalyzer.clearCache();
   }
 
   /**

@@ -9,6 +9,7 @@ import {
   CliComponents,
   FuncqcConfig,
   SpinnerInterface,
+  CallEdge,
 } from '../../types';
 import { ConfigManager } from '../../core/config';
 import { TypeScriptAnalyzer } from '../../analyzers/typescript-analyzer';
@@ -80,10 +81,10 @@ async function executeScanCommand(
       return;
     }
 
-    const allFunctions = await performAnalysis(files, components, spinner);
-    showAnalysisSummary(allFunctions);
+    const result = await performAnalysis(files, components, spinner);
+    showAnalysisSummary(result.functions);
 
-    await saveResults(allFunctions, env.storage, options, spinner);
+    await saveResults(result.functions, result.callEdges, env.storage, options, spinner);
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
@@ -177,21 +178,22 @@ async function performAnalysis(
   files: string[],
   components: CliComponents,
   spinner: SpinnerInterface
-): Promise<FunctionInfo[]> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   spinner.start('Analyzing functions...');
 
-  const allFunctions = await performFullAnalysis(files, components, spinner);
+  const result = await performFullAnalysis(files, components, spinner);
 
-  spinner.succeed(`Analyzed ${allFunctions.length} functions from ${files.length} files`);
-  return allFunctions;
+  spinner.succeed(`Analyzed ${result.functions.length} functions from ${files.length} files`);
+  return result;
 }
 
 async function performFullAnalysis(
   files: string[],
   components: CliComponents,
   spinner: SpinnerInterface
-): Promise<FunctionInfo[]> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   const allFunctions: FunctionInfo[] = [];
+  const allCallEdges: CallEdge[] = [];
 
   // Determine processing strategy based on project size and system capabilities
   const useParallel = ParallelFileProcessor.shouldUseParallelProcessing(files.length);
@@ -201,6 +203,7 @@ async function performFullAnalysis(
     spinner.text = `Using parallel processing for ${files.length} files...`;
     const result = await performParallelAnalysis(files, spinner);
     allFunctions.push(...result.functions);
+    // Note: Parallel processing doesn't support call graph analysis yet
 
     // Show parallel processing stats
     if (result.stats.workersUsed > 1) {
@@ -209,12 +212,14 @@ async function performFullAnalysis(
   } else if (useStreaming) {
     spinner.text = `Using streaming mode for ${files.length} files...`;
     await performStreamingAnalysis(files, components, allFunctions, spinner);
+    // Note: Streaming processing doesn't support call graph analysis yet
   } else {
     const batchSize = 50; // Fixed batch size for smaller projects
-    await performBatchAnalysis(files, components, allFunctions, batchSize, spinner);
+    const batchResult = await performBatchAnalysis(files, components, allFunctions, batchSize, spinner);
+    allCallEdges.push(...batchResult.callEdges);
   }
 
-  return allFunctions;
+  return { functions: allFunctions, callEdges: allCallEdges };
 }
 
 async function performBatchAnalysis(
@@ -223,18 +228,23 @@ async function performBatchAnalysis(
   allFunctions: FunctionInfo[],
   batchSize: number,
   spinner: SpinnerInterface
-): Promise<void> {
+): Promise<{ callEdges: CallEdge[] }> {
+  const allCallEdges: CallEdge[] = [];
+  
   for (let i = 0; i < files.length; i += batchSize) {
     const batch = files.slice(i, i + batchSize);
-    const batchFunctions = await analyzeBatch(
+    const batchResult = await analyzeBatch(
       batch,
       components.analyzer,
       components.qualityCalculator
     );
-    allFunctions.push(...batchFunctions);
+    allFunctions.push(...batchResult.functions);
+    allCallEdges.push(...batchResult.callEdges);
 
     spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
   }
+  
+  return { callEdges: allCallEdges };
 }
 
 async function performParallelAnalysis(
@@ -382,6 +392,7 @@ async function performStreamingAnalysis(
 
 async function saveResults(
   allFunctions: FunctionInfo[],
+  allCallEdges: CallEdge[],
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
   spinner: SpinnerInterface
@@ -396,6 +407,13 @@ async function saveResults(
 
   const startTime = Date.now();
   const snapshotId = await storage.saveSnapshot(allFunctions, options.label, options.comment);
+  
+  // Save call edges if any were found
+  if (allCallEdges.length > 0) {
+    spinner.text = `Saving ${allCallEdges.length} call edges to database...`;
+    await storage.insertCallEdges(allCallEdges);
+  }
+  
   const elapsed = Math.ceil((Date.now() - startTime) / 1000);
 
   if (allFunctions.length > 1000) {
@@ -476,19 +494,34 @@ async function analyzeBatch(
   files: string[],
   analyzer: CliComponents['analyzer'],
   qualityCalculator: CliComponents['qualityCalculator']
-): Promise<FunctionInfo[]> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   const functions: FunctionInfo[] = [];
+  const callEdges: CallEdge[] = [];
 
   for (const file of files) {
     try {
-      const fileFunctions = await analyzer.analyzeFile(file);
-
-      // Calculate quality metrics for each function
-      for (const func of fileFunctions) {
-        func.metrics = await qualityCalculator.calculate(func);
+      // Use call graph analysis if available
+      if (typeof analyzer.analyzeFileWithCallGraph === 'function') {
+        const result = await analyzer.analyzeFileWithCallGraph(file);
+        
+        // Calculate quality metrics for each function
+        for (const func of result.functions) {
+          func.metrics = await qualityCalculator.calculate(func);
+        }
+        
+        functions.push(...result.functions);
+        callEdges.push(...result.callEdges);
+      } else {
+        // Fallback to regular analysis
+        const fileFunctions = await analyzer.analyzeFile(file);
+        
+        // Calculate quality metrics for each function
+        for (const func of fileFunctions) {
+          func.metrics = await qualityCalculator.calculate(func);
+        }
+        
+        functions.push(...fileFunctions);
       }
-
-      functions.push(...fileFunctions);
     } catch (error) {
       console.warn(
         chalk.yellow(
@@ -498,7 +531,7 @@ async function analyzeBatch(
     }
   }
 
-  return functions;
+  return { functions, callEdges };
 }
 
 function showAnalysisSummary(functions: FunctionInfo[]): void {

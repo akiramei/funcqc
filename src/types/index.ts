@@ -172,11 +172,11 @@ export interface ParameterInfo {
 export interface CallEdge {
   id: string;
   callerFunctionId: string;
-  calleeFunctionId?: string;
+  calleeFunctionId?: string | undefined;
   calleeName: string;
-  calleeSignature?: string;
+  calleeSignature?: string | undefined;
   callType: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
-  callContext?: string;
+  callContext?: string | undefined;
   lineNumber: number;
   columnNumber: number;
   isAsync: boolean;
@@ -458,7 +458,10 @@ export interface ExplainCommandOptions extends CommandOptions {
 
 // Additional type definitions for CLI components
 export interface CliComponents {
-  analyzer: { analyzeFile(file: string): Promise<FunctionInfo[]> };
+  analyzer: { 
+    analyzeFile(file: string): Promise<FunctionInfo[]>;
+    analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
+  };
   storage: StorageAdapter;
   qualityCalculator: { calculate(func: FunctionInfo): Promise<QualityMetrics> };
 }
@@ -600,6 +603,20 @@ export interface StorageAdapter {
 
   // Helper methods for RefactoringHealthEngine
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
+
+  // Call edge operations
+  insertCallEdges(edges: CallEdge[]): Promise<void>;
+  getCallEdges(options?: {
+    callerFunctionId?: string;
+    calleeFunctionId?: string;
+    calleeName?: string;
+    callType?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<CallEdge[]>;
+  getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]>;
+  getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]>;
+  deleteCallEdges(functionIds: string[]): Promise<void>;
 
   // Maintenance operations
   cleanup(retentionDays: number): Promise<number>;
