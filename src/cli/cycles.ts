@@ -5,6 +5,7 @@ import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
+import { CallEdge } from '../types';
 
 interface CyclesOptions extends OptionValues {
   minSize?: string;

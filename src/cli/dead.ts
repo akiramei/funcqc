@@ -208,15 +208,15 @@ function outputDeadCodeTable(
       switch (func.reason) {
         case 'no-callers':
           reasonIcon = '🚫';
-          reasonText = 'Never called';
+          reasonText = 'no-callers';
           break;
         case 'unreachable':
           reasonIcon = '🔗';
-          reasonText = 'Unreachable';
+          reasonText = 'unreachable';
           break;
         case 'test-only':
           reasonIcon = '🧪';
-          reasonText = 'Test only';
+          reasonText = 'test-only';
           break;
       }
 
