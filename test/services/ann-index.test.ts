@@ -37,7 +37,12 @@ describe('ANN Index Services', () => {
       const index = new HierarchicalIndex(config);
       const stats = index.getIndexStats();
       
-      expect(stats.config).toEqual(config);
+      // Configuration validator adds default values, so check core properties
+      expect(stats.config.algorithm).toBe(config.algorithm);
+      expect(stats.config.clusterCount).toBe(config.clusterCount);
+      expect(stats.config.hashBits).toBe(config.hashBits);
+      expect(stats.config.approximationLevel).toBe(config.approximationLevel);
+      expect(stats.config.cacheSize).toBe(config.cacheSize);
       expect(stats.clusterCount).toBe(0); // No clusters before building
       expect(stats.totalVectors).toBe(0);
     });
@@ -119,7 +124,12 @@ describe('ANN Index Services', () => {
       const index = new LSHIndex(lshConfig);
       const stats = index.getIndexStats();
       
-      expect(stats.config).toEqual(lshConfig);
+      // Configuration validator adds default values, so check core properties
+      expect(stats.config.algorithm).toBe('lsh');
+      expect(stats.config.clusterCount).toBe(config.clusterCount);
+      expect(stats.config.hashBits).toBe(config.hashBits);
+      expect(stats.config.approximationLevel).toBe(config.approximationLevel);
+      expect(stats.config.cacheSize).toBe(config.cacheSize);
       expect(stats.totalVectors).toBe(0);
       expect(stats.tableCount).toBe(0);
     });
@@ -307,9 +317,10 @@ describe('ANN Index Services', () => {
       const index = new HierarchicalIndex(config);
       await index.buildIndex(testEmbeddings);
       
-      // This test would depend on implementation - some might throw, others might handle gracefully
-      const results = await index.searchApproximate([1], 2); // Wrong dimension
-      expect(results).toBeDefined(); // Should not crash
+      // With new validation, this should throw an error for dimension mismatch
+      expect(() => {
+        index.searchApproximate([1], 2); // Wrong dimension (1D instead of 3D)
+      }).toThrow('Vector dimension mismatch');
     });
   });
 });
