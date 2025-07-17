@@ -1,0 +1,38 @@
+# Sample architecture configuration for funcqc
+layers:
+  cli:
+    - "src/cli/**"
+  core:
+    - "src/core/**"
+    - "src/analyzers/**"
+  storage:
+    - "src/storage/**"
+  utils:
+    - "src/utils/**"
+  types:
+    - "src/types/**"
+
+rules:
+  - type: forbid
+    from: "types"
+    to: "*"
+    description: "Types should not depend on other modules"
+    severity: error
+  
+  - type: forbid
+    from: "utils"
+    to: "cli"
+    description: "Utils should not depend on CLI"
+    severity: warning
+  
+  - type: forbid
+    from: "storage"
+    to: "cli"
+    description: "Storage should not depend on CLI"
+    severity: error
+
+settings:
+  allowSameLayer: true
+  strictMode: false
+  defaultSeverity: error
+  ignoreExternal: true

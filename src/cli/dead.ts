@@ -25,8 +25,8 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
     
     // Check for common user mistakes with format option
-    if (options.args && options.args.length > 0) {
-      const arg = options.args[0];
+    if (options['args'] && options['args'].length > 0) {
+      const arg = options['args'][0];
       if (arg === 'json' || arg === 'table') {
         env.commandLogger.warn(
           `Unrecognized argument: ${arg}. Did you mean --format=${arg}?`
