@@ -122,22 +122,22 @@ export class RiskDetector {
    */
   private detectWrapperFunctions(
     functions: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>,
-    functionMap: Map<string, FunctionInfo>
+    _callEdgesByFunction: Map<string, CallEdge[]>,
+    _functionMap: Map<string, FunctionInfo>
   ): RiskPattern[] {
     const patterns: RiskPattern[] = [];
 
     for (const func of functions) {
-      // Skip small functions
-      if (func.metrics.linesOfCode < this.options.minFunctionSize) {
+      // Skip functions without metrics or small functions
+      if (!func.metrics || func.metrics.linesOfCode < this.options.minFunctionSize) {
         continue;
       }
 
-      const outgoingCalls = callEdgesByFunction.get(func.id) || [];
+      const outgoingCalls = _callEdgesByFunction.get(func.id) || [];
       
       // Check if function is a wrapper
-      if (this.isWrapperFunction(func, outgoingCalls, functionMap)) {
-        const wrappedFunction = functionMap.get(outgoingCalls[0].calleeFunctionId || '');
+      if (this.isWrapperFunction(func, outgoingCalls, _functionMap)) {
+        const wrappedFunction = _functionMap.get(outgoingCalls[0].calleeFunctionId || '');
         const score = this.calculateWrapperScore(func, outgoingCalls[0], wrappedFunction);
         
         patterns.push({
@@ -153,7 +153,7 @@ export class RiskDetector {
             callType: outgoingCalls[0].callType,
             linesOfCode: func.metrics.linesOfCode,
             hasParameters: func.parameters.length > 0,
-            hasReturnType: func.returnType !== 'void',
+            hasReturnType: func.returnType?.type !== 'void',
           },
           score,
         });
@@ -169,19 +169,22 @@ export class RiskDetector {
   private isWrapperFunction(
     func: FunctionInfo,
     outgoingCalls: CallEdge[],
-    functionMap: Map<string, FunctionInfo>
+    _functionMap: Map<string, FunctionInfo>
   ): boolean {
     // Must have exactly one outgoing call
     if (outgoingCalls.length !== 1) {
       return false;
     }
 
-    const calledFunction = functionMap.get(outgoingCalls[0].calleeFunctionId || '');
+    const calledFunction = _functionMap.get(outgoingCalls[0].calleeFunctionId || '');
     if (!calledFunction) {
       return false;
     }
 
     // Check if the function body is mostly just the call
+    if (!func.metrics) {
+      return false;
+    }
     const bodyComplexity = func.metrics.cyclomaticComplexity;
     const bodyLines = func.metrics.linesOfCode;
     
@@ -194,7 +197,7 @@ export class RiskDetector {
     const paramCountSimilar = Math.abs(func.parameters.length - calledFunction.parameters.length) <= 1;
     
     // Check if return types are compatible
-    const returnTypesCompatible = this.areReturnTypesCompatible(func.returnType, calledFunction.returnType);
+    const returnTypesCompatible = this.areReturnTypesCompatible(func.returnType?.type || '', calledFunction?.returnType?.type || '');
     
     return paramCountSimilar && returnTypesCompatible;
   }
@@ -204,10 +207,14 @@ export class RiskDetector {
    */
   private calculateWrapperScore(
     wrapper: FunctionInfo,
-    edge: CallEdge,
+    _edge: CallEdge,
     wrapped?: FunctionInfo
   ): number {
     let score = 70; // Base score for wrapper
+
+    if (!wrapper.metrics) {
+      return score;
+    }
 
     // Adjust based on function size
     if (wrapper.metrics.linesOfCode <= 3) {
@@ -244,22 +251,22 @@ export class RiskDetector {
    */
   private detectFakeSplitPatterns(
     functions: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>,
-    functionMap: Map<string, FunctionInfo>,
-    metricsMap: Map<string, DependencyMetrics>
+    _callEdgesByFunction: Map<string, CallEdge[]>,
+    _functionMap: Map<string, FunctionInfo>,
+    _metricsMap: Map<string, DependencyMetrics>
   ): RiskPattern[] {
     const patterns: RiskPattern[] = [];
     
     // Group functions by file
     const functionsByFile = this.groupFunctionsByFile(functions);
     
-    for (const [filePath, fileFunctions] of functionsByFile.entries()) {
+    for (const [_filePath, fileFunctions] of functionsByFile.entries()) {
       // Look for clusters of small functions with high coupling
-      const clusters = this.findFunctionClusters(fileFunctions, callEdgesByFunction);
+      const clusters = this.findFunctionClusters(fileFunctions, _callEdgesByFunction);
       
       for (const cluster of clusters) {
-        if (this.isFakeSplitCluster(cluster, callEdgesByFunction, metricsMap)) {
-          const score = this.calculateFakeSplitScore(cluster, callEdgesByFunction, metricsMap);
+        if (this.isFakeSplitCluster(cluster, _callEdgesByFunction, _metricsMap)) {
+          const score = this.calculateFakeSplitScore(cluster, _callEdgesByFunction, _metricsMap);
           
           for (const func of cluster) {
             patterns.push({
@@ -271,8 +278,8 @@ export class RiskDetector {
               description: 'Function appears to be part of an artificially split complex function',
               details: {
                 clusterSize: cluster.length,
-                totalComplexity: cluster.reduce((sum, f) => sum + f.metrics.cyclomaticComplexity, 0),
-                totalLines: cluster.reduce((sum, f) => sum + f.metrics.linesOfCode, 0),
+                totalComplexity: cluster.reduce((sum, f) => sum + (f.metrics?.cyclomaticComplexity || 0), 0),
+                totalLines: cluster.reduce((sum, f) => sum + (f.metrics?.linesOfCode || 0), 0),
                 clusterFunctions: cluster.map(f => ({ id: f.id, name: f.name })),
               },
               score,
@@ -290,7 +297,7 @@ export class RiskDetector {
    */
   private findFunctionClusters(
     functions: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>
+    _callEdgesByFunction: Map<string, CallEdge[]>
   ): FunctionInfo[][] {
     const clusters: FunctionInfo[][] = [];
     const visited = new Set<string>();
@@ -298,7 +305,7 @@ export class RiskDetector {
     for (const func of functions) {
       if (visited.has(func.id)) continue;
       
-      const cluster = this.expandCluster(func, functions, callEdgesByFunction, visited);
+      const cluster = this.expandCluster(func, functions, _callEdgesByFunction, visited);
       if (cluster.length >= 3) { // Minimum cluster size
         clusters.push(cluster);
       }
@@ -313,7 +320,7 @@ export class RiskDetector {
   private expandCluster(
     startFunc: FunctionInfo,
     allFunctions: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>,
+    _callEdgesByFunction: Map<string, CallEdge[]>,
     visited: Set<string>
   ): FunctionInfo[] {
     const cluster: FunctionInfo[] = [];
@@ -329,13 +336,13 @@ export class RiskDetector {
       cluster.push(current);
       
       // Find directly connected functions in the same file
-      const edges = callEdgesByFunction.get(current.id) || [];
+      const edges = _callEdgesByFunction.get(current.id) || [];
       for (const edge of edges) {
         const targetFunc = allFunctions.find(f => f.id === edge.calleeFunctionId);
         if (targetFunc && 
             targetFunc.filePath === current.filePath &&
             !clusterIds.has(targetFunc.id) &&
-            targetFunc.metrics.linesOfCode < 20) { // Small functions only
+            (targetFunc.metrics?.linesOfCode || 0) < 20) { // Small functions only
           queue.push(targetFunc);
         }
       }
@@ -349,11 +356,11 @@ export class RiskDetector {
    */
   private isFakeSplitCluster(
     cluster: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>,
-    metricsMap: Map<string, DependencyMetrics>
+    _callEdgesByFunction: Map<string, CallEdge[]>,
+    _metricsMap: Map<string, DependencyMetrics>
   ): boolean {
     // All functions should be small
-    const allSmall = cluster.every(f => f.metrics.linesOfCode < 20);
+    const allSmall = cluster.every(f => (f.metrics?.linesOfCode || 0) < 20);
     if (!allSmall) return false;
     
     // High coupling within cluster
@@ -361,7 +368,7 @@ export class RiskDetector {
     let externalCalls = 0;
     
     for (const func of cluster) {
-      const edges = callEdgesByFunction.get(func.id) || [];
+      const edges = _callEdgesByFunction.get(func.id) || [];
       for (const edge of edges) {
         if (cluster.some(f => f.id === edge.calleeFunctionId)) {
           internalCalls++;
@@ -380,13 +387,13 @@ export class RiskDetector {
    */
   private calculateFakeSplitScore(
     cluster: FunctionInfo[],
-    callEdgesByFunction: Map<string, CallEdge[]>,
-    metricsMap: Map<string, DependencyMetrics>
+    _callEdgesByFunction: Map<string, CallEdge[]>,
+    _metricsMap: Map<string, DependencyMetrics>
   ): number {
     let score = 60; // Base score
     
     // Total complexity
-    const totalComplexity = cluster.reduce((sum, f) => sum + f.metrics.cyclomaticComplexity, 0);
+    const totalComplexity = cluster.reduce((sum, f) => sum + (f.metrics?.cyclomaticComplexity || 0), 0);
     if (totalComplexity > 20) score += 20;
     else if (totalComplexity > 15) score += 10;
     
@@ -481,13 +488,15 @@ export class RiskDetector {
    */
   private detectComplexityHotspots(
     functions: FunctionInfo[],
-    metricsMap: Map<string, DependencyMetrics>
+    _metricsMap: Map<string, DependencyMetrics>
   ): RiskPattern[] {
     const patterns: RiskPattern[] = [];
     
     for (const func of functions) {
-      const metrics = metricsMap.get(func.id);
+      const metrics = _metricsMap.get(func.id);
       if (!metrics) continue;
+      
+      if (!func.metrics) continue;
       
       const complexity = func.metrics.cyclomaticComplexity;
       if (complexity >= this.options.complexityHotspotThreshold) {
@@ -504,7 +513,7 @@ export class RiskDetector {
             cyclomaticComplexity: complexity,
             cognitiveComplexity: func.metrics.cognitiveComplexity,
             linesOfCode: func.metrics.linesOfCode,
-            nestingDepth: func.metrics.maxNestingDepth,
+            nestingDepth: func.metrics.maxNestingLevel,
             fanIn: metrics.fanIn,
             fanOut: metrics.fanOut,
           },
@@ -521,6 +530,10 @@ export class RiskDetector {
    */
   private calculateComplexityScore(func: FunctionInfo, metrics: DependencyMetrics): number {
     let score = 50; // Base score
+    
+    if (!func.metrics) {
+      return score;
+    }
     
     // Cyclomatic complexity
     if (func.metrics.cyclomaticComplexity > 30) score += 30;
@@ -551,21 +564,21 @@ export class RiskDetector {
    */
   private detectIsolatedFunctions(
     functions: FunctionInfo[],
-    metricsMap: Map<string, DependencyMetrics>
+    _metricsMap: Map<string, DependencyMetrics>
   ): RiskPattern[] {
     const patterns: RiskPattern[] = [];
     
     for (const func of functions) {
-      const metrics = metricsMap.get(func.id);
+      const metrics = _metricsMap.get(func.id);
       if (!metrics) continue;
       
-      // Skip small utility functions
-      if (func.metrics.linesOfCode < this.options.minFunctionSize) {
+      // Skip small utility functions or functions without metrics
+      if (!func.metrics || func.metrics.linesOfCode < this.options.minFunctionSize) {
         continue;
       }
       
       // Check if isolated
-      if (metrics.fanIn === 0 && metrics.fanOut === 0 && !func.exported) {
+      if (metrics.fanIn === 0 && metrics.fanOut === 0 && !func.isExported) {
         patterns.push({
           type: 'isolated',
           severity: 'low',
@@ -575,7 +588,7 @@ export class RiskDetector {
           description: 'Function is completely isolated with no callers or callees',
           details: {
             linesOfCode: func.metrics.linesOfCode,
-            isExported: func.exported,
+            isExported: func.isExported,
             hasTests: func.filePath.includes('test') || func.filePath.includes('spec'),
           },
           score: 40,
@@ -638,10 +651,8 @@ export class RiskDetector {
       low: 0,
     };
     
-    let totalScore = 0;
     for (const pattern of patterns) {
       severityCounts[pattern.severity]++;
-      totalScore += pattern.score;
     }
     
     // Calculate overall risk score (weighted by severity)

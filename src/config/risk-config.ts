@@ -238,7 +238,7 @@ export class RiskConfigManager {
       if (typeof scoring[field] === 'number') {
         const weight = scoring[field] as number;
         if (weight >= 0 && weight <= 1) {
-          (result as any)[field] = weight;
+          (result as unknown as Record<string, unknown>)[field] = weight;
         } else {
           throw new Error(`Weight ${field} must be between 0 and 1`);
         }
@@ -250,14 +250,14 @@ export class RiskConfigManager {
       result.complexityThresholds = this.validateThresholds(
         scoring['complexityThresholds'] as Record<string, unknown>,
         ['low', 'medium', 'high', 'critical']
-      );
+      ) as RiskScoringConfig['complexityThresholds'];
     }
 
     if (scoring['sizeThresholds'] && typeof scoring['sizeThresholds'] === 'object') {
       result.sizeThresholds = this.validateThresholds(
         scoring['sizeThresholds'] as Record<string, unknown>,
         ['small', 'medium', 'large', 'huge']
-      );
+      ) as RiskScoringConfig['sizeThresholds'];
     }
 
     return result;
@@ -269,8 +269,8 @@ export class RiskConfigManager {
   private validateThresholds(
     thresholds: Record<string, unknown>,
     requiredKeys: string[]
-  ): any {
-    const result: any = {};
+  ): Record<string, number> {
+    const result: Record<string, number> = {};
 
     for (const key of requiredKeys) {
       if (typeof thresholds[key] === 'number') {
@@ -303,7 +303,7 @@ export class RiskConfigManager {
       const patterns = detection['enabledPatterns'].filter(p => 
         typeof p === 'string' && validPatterns.includes(p)
       );
-      result.enabledPatterns = patterns as any;
+      result.enabledPatterns = patterns as RiskConfig['detection']['enabledPatterns'];
     }
 
     // Validate pattern-specific configurations
@@ -317,9 +317,11 @@ export class RiskConfigManager {
 
     for (const configName of patternConfigs) {
       if (detection[configName] && typeof detection[configName] === 'object') {
-        result[configName as keyof typeof result] = {
-          ...result[configName as keyof typeof result],
-          ...this.validatePatternConfig(detection[configName] as Record<string, unknown>),
+        const currentConfig = (result as Record<string, unknown>)[configName] || {};
+        const newConfig = this.validatePatternConfig(detection[configName] as Record<string, unknown>);
+        (result as Record<string, unknown>)[configName] = {
+          ...currentConfig,
+          ...newConfig,
         };
       }
     }
@@ -378,7 +380,7 @@ export class RiskConfigManager {
 
     const validGroupBy = ['severity', 'file', 'pattern', 'score'];
     if (typeof reporting['groupBy'] === 'string' && validGroupBy.includes(reporting['groupBy'])) {
-      result.groupBy = reporting['groupBy'] as any;
+      result.groupBy = reporting['groupBy'] as RiskConfig['reporting']['groupBy'];
     }
 
     if (typeof reporting['includeLowRisk'] === 'boolean') {
@@ -415,7 +417,7 @@ export class RiskConfigManager {
               name: ruleObj['name'] as string,
               description: ruleObj['description'] as string,
               condition: ruleObj['condition'] as string,
-              severity: severity as any,
+              severity: severity as RiskConfig['customRules'][0]['severity'],
               message: ruleObj['message'] as string,
             });
           }
@@ -551,8 +553,8 @@ export class RiskConfigManager {
    */
   evaluateCustomRule(
     rule: RiskConfig['customRules'][0],
-    func: any,
-    metrics?: any
+    func: unknown,
+    metrics?: unknown
   ): boolean {
     try {
       // Create evaluation context

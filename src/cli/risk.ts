@@ -2,12 +2,13 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { VoidCommand, BaseCommandOptions } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
+import { FunctionInfo } from '../types';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
 import { RiskDetector, RiskAnalysisResult } from '../analyzers/risk-detector';
-import { SCCAnalyzer, SCCAnalysisResult } from '../analyzers/scc-analyzer';
+import { SCCAnalyzer, SCCAnalysisResult, StronglyConnectedComponent } from '../analyzers/scc-analyzer';
 import { ComprehensiveRiskScorer, ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
-import { RiskConfigManager } from '../config/risk-config';
+import { RiskConfigManager, RiskConfig } from '../config/risk-config';
 import { DependencyMetricsCalculator } from '../analyzers/dependency-metrics';
 
 interface RiskAnalyzeOptions extends BaseCommandOptions {
@@ -92,7 +93,7 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
 
       // Detect risk patterns
       const riskDetector = new RiskDetector({
-        wrapperThreshold: riskConfig.detection.wrapperDetection.couplingThreshold,
+        wrapperThreshold: 0.8, // Default threshold since it's not in config
         fakeSplitThreshold: riskConfig.detection.fakeSplitDetection.couplingThreshold,
         complexityHotspotThreshold: riskConfig.detection.complexityHotspots.cyclomaticThreshold,
         minFunctionSize: riskConfig.detection.isolatedFunctions.minSize,
@@ -282,7 +283,7 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
         targetFunction = functions.find(f => f.id === options.functionId);
       } else if (options.functionName) {
         targetFunction = functions.find(f => 
-          f.name === options.functionName || f.name.includes(options.functionName)
+          f.name === options.functionName || f.name.includes(options.functionName || '')
         );
       }
 
@@ -360,7 +361,7 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
 function outputRiskAnalysisJSON(
   analysis: RiskAnalysisResult,
   assessments: ComprehensiveRiskAssessment[],
-  riskConfig: any,
+  _riskConfig: RiskConfig,
   options: RiskAnalyzeOptions
 ): void {
   const result = {
@@ -386,7 +387,7 @@ function outputRiskAnalysisJSON(
 function outputRiskAnalysisTable(
   analysis: RiskAnalysisResult,
   assessments: ComprehensiveRiskAssessment[],
-  riskConfig: any,
+  _riskConfig: RiskConfig,
   options: RiskAnalyzeOptions
 ): void {
   console.log(chalk.bold('\n🚨 Risk Analysis Report\n'));
@@ -480,7 +481,7 @@ function outputByRiskLevel(assessments: ComprehensiveRiskAssessment[], options: 
 /**
  * Output assessments grouped by file
  */
-function outputByFile(assessments: ComprehensiveRiskAssessment[], options: RiskAnalyzeOptions): void {
+function outputByFile(assessments: ComprehensiveRiskAssessment[], _options: RiskAnalyzeOptions): void {
   const groupedByFile = assessments.reduce((groups, assessment) => {
     if (!groups[assessment.filePath]) {
       groups[assessment.filePath] = [];
@@ -521,7 +522,7 @@ function outputByFile(assessments: ComprehensiveRiskAssessment[], options: RiskA
 /**
  * Output assessments grouped by pattern
  */
-function outputByPattern(assessments: ComprehensiveRiskAssessment[], options: RiskAnalyzeOptions): void {
+function outputByPattern(assessments: ComprehensiveRiskAssessment[], _options: RiskAnalyzeOptions): void {
   const patternCounts = new Map<string, ComprehensiveRiskAssessment[]>();
   
   for (const assessment of assessments) {
@@ -585,7 +586,7 @@ function outputByScore(assessments: ComprehensiveRiskAssessment[], options: Risk
  */
 function outputSCCAnalysisJSON(
   sccResult: SCCAnalysisResult,
-  components: any[],
+  components: StronglyConnectedComponent[],
   options: RiskSCCOptions
 ): void {
   const result = {
@@ -609,9 +610,9 @@ function outputSCCAnalysisJSON(
  */
 function outputSCCAnalysisTable(
   sccResult: SCCAnalysisResult,
-  components: any[],
+  components: StronglyConnectedComponent[],
   options: RiskSCCOptions,
-  env: CommandEnvironment
+  _env: CommandEnvironment
 ): void {
   console.log(chalk.bold('\n🔄 Strongly Connected Components Analysis\n'));
 
@@ -659,7 +660,7 @@ function outputSCCAnalysisTable(
  * Output risk score as JSON
  */
 function outputRiskScoreJSON(
-  func: any,
+  func: FunctionInfo,
   assessment: ComprehensiveRiskAssessment,
   options: RiskScoreOptions
 ): void {
@@ -682,7 +683,7 @@ function outputRiskScoreJSON(
  * Output risk score as formatted display
  */
 function outputRiskScoreTable(
-  func: any,
+  func: FunctionInfo,
   assessment: ComprehensiveRiskAssessment,
   options: RiskScoreOptions
 ): void {
@@ -721,7 +722,6 @@ function outputRiskScoreTable(
     assessment.factors
       .sort((a, b) => (b.score * b.weight) - (a.score * a.weight))
       .forEach(factor => {
-        const contribution = Math.round(factor.score * factor.weight);
         const barLength = Math.round(factor.score / 5);
         const bar = '█'.repeat(barLength) + '░'.repeat(20 - barLength);
         

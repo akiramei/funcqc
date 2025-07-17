@@ -135,7 +135,7 @@ export class ComprehensiveRiskScorer {
    */
   assessRisks(
     functions: FunctionInfo[],
-    callEdges: CallEdge[],
+    _callEdges: CallEdge[],
     dependencyMetrics: DependencyMetrics[],
     riskPatterns: RiskPattern[],
     sccComponents: StronglyConnectedComponent[]
@@ -153,7 +153,7 @@ export class ComprehensiveRiskScorer {
       const patterns = patternsMap.get(func.id) || [];
       const scc = sccMap.get(func.id);
       
-      const assessment = this.assessFunction(func, metrics, patterns, scc, callEdges);
+      const assessment = this.assessFunction(func, metrics, patterns, scc, _callEdges);
       assessments.push(assessment);
     }
     
@@ -171,7 +171,7 @@ export class ComprehensiveRiskScorer {
     metrics?: DependencyMetrics,
     patterns: RiskPattern[] = [],
     scc?: StronglyConnectedComponent,
-    callEdges: CallEdge[] = []
+    _callEdges: CallEdge[] = []
   ): ComprehensiveRiskAssessment {
     const factors: RiskFactor[] = [];
     
@@ -221,6 +221,10 @@ export class ComprehensiveRiskScorer {
   private calculateComplexityFactors(func: FunctionInfo): RiskFactor[] {
     const factors: RiskFactor[] = [];
     
+    if (!func.metrics) {
+      return factors;
+    }
+    
     // Cyclomatic complexity
     const ccScore = this.scoreComplexity(
       func.metrics.cyclomaticComplexity,
@@ -246,12 +250,12 @@ export class ComprehensiveRiskScorer {
     });
     
     // Nesting depth
-    const nestingScore = this.scoreNesting(func.metrics.maxNestingDepth);
+    const nestingScore = this.scoreNesting(func.metrics.maxNestingLevel);
     factors.push({
       name: 'nestingDepth',
       weight: this.config.nestingDepthWeight,
       score: nestingScore,
-      description: `Max nesting depth: ${func.metrics.maxNestingDepth}`,
+      description: `Max nesting depth: ${func.metrics.maxNestingLevel}`,
     });
     
     return factors;
@@ -262,6 +266,10 @@ export class ComprehensiveRiskScorer {
    */
   private calculateSizeFactors(func: FunctionInfo): RiskFactor[] {
     const factors: RiskFactor[] = [];
+    
+    if (!func.metrics) {
+      return factors;
+    }
     
     // Lines of code
     const locScore = this.scoreSize(
@@ -360,7 +368,7 @@ export class ComprehensiveRiskScorer {
    * Calculate SCC-related risk factors
    */
   private calculateSCCFactors(
-    func: FunctionInfo,
+    _func: FunctionInfo,
     scc: StronglyConnectedComponent
   ): RiskFactor[] {
     const factors: RiskFactor[] = [];
@@ -530,7 +538,7 @@ export class ComprehensiveRiskScorer {
    * Generate specific recommendations
    */
   private generateRecommendations(
-    func: FunctionInfo,
+    _func: FunctionInfo,
     factors: RiskFactor[],
     patterns: RiskPattern[]
   ): string[] {

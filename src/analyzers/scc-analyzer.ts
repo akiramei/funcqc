@@ -128,7 +128,9 @@ export class SCCAnalyzer {
     const allFunctions = new Set<string>();
     for (const edge of callEdges) {
       allFunctions.add(edge.callerFunctionId);
-      allFunctions.add(edge.calleeFunctionId);
+      if (edge.calleeFunctionId) {
+        allFunctions.add(edge.calleeFunctionId);
+      }
     }
     
     // Create nodes for all functions (SCCs and individual nodes)
