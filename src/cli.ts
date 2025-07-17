@@ -1175,6 +1175,65 @@ program
     return withEnvironment(cyclesCommand)(options);
   });
 
+// Risk analysis command group
+program
+  .command('risk')
+  .description('Enhanced risk detection and analysis')
+  .action(() => {
+    console.log(chalk.yellow('Please specify a risk subcommand:'));
+    console.log('  analyze  - Analyze risk patterns in the codebase');
+    console.log('  scc      - Analyze strongly connected components');
+    console.log('  score    - Score individual functions');
+    console.log('\nExample: funcqc risk analyze');
+  });
+
+// Add risk subcommands
+const riskCommand = program.commands.find(cmd => cmd.name() === 'risk')!;
+
+riskCommand.command('analyze')
+  .description('Analyze risk patterns in the codebase')
+  .option('--config <path>', 'path to risk configuration file')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--severity <level>', 'filter by severity (critical, high, medium, low)')
+  .option('--pattern <type>', 'filter by pattern type (wrapper, fake-split, complexity-hotspot, isolated, circular)')
+  .option('--limit <num>', 'maximum number of results to show')
+  .option('--min-score <num>', 'minimum risk score to include (0-100)')
+  .option('--include-recommendations', 'include recommendations in output')
+  .option('--group-by <field>', 'group results by field (severity, file, pattern, score)', 'severity')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { riskAnalyzeCommand } = await import('./cli/risk');
+    return withEnvironment(riskAnalyzeCommand)(options);
+  });
+
+riskCommand.command('scc')
+  .description('Analyze strongly connected components (SCCs)')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--min-size <num>', 'minimum component size to include', '2')
+  .option('--include-recursive', 'include recursive functions (self-loops)')
+  .option('--show-metrics', 'show complexity metrics for components')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { riskSCCCommand } = await import('./cli/risk');
+    return withEnvironment(riskSCCCommand)(options);
+  });
+
+riskCommand.command('score')
+  .description('Calculate risk score for individual functions')
+  .option('--function-name <name>', 'function name to analyze')
+  .option('--function-id <id>', 'function ID to analyze')
+  .option('--config <path>', 'path to risk configuration file')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--include-factors', 'include detailed risk factors in output')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { riskScoreCommand } = await import('./cli/risk');
+    return withEnvironment(riskScoreCommand)(options);
+  });
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));
@@ -1211,7 +1270,7 @@ function performLightweightSystemCheck(logger: Logger, skipCheck: boolean = fals
   return systemChecker.basicSystemCheck();
 }
 
-const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain', 'dead'] as const;
+const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'explain', 'dead', 'risk', 'cycles'] as const;
 
 function isReadOnlyCommand(): boolean {
   const command = process.argv[2];
