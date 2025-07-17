@@ -804,7 +804,15 @@ function outputRiskAnalysisDot(
     rankdir: 'TB' as const,
     nodeShape: 'box' as const,
     includeMetrics: true,
-    clusterBy: options.groupBy === 'file' ? 'file' as const : 'risk' as const,
+    clusterBy: (() => {
+      switch (options.groupBy) {
+        case 'file': return 'file' as const;
+        case 'severity': return 'risk' as const;
+        case 'pattern': return 'complexity' as const; // pattern complexity maps to complexity clustering
+        case 'score': return 'risk' as const; // score-based grouping maps to risk clustering
+        default: return 'risk' as const;
+      }
+    })(),
     showLabels: true,
     maxLabelLength: 30,
   };

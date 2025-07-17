@@ -40,6 +40,9 @@ export interface DotGraph {
  * DOT format graph generator for various funcqc visualizations
  */
 export class DotGenerator {
+  private sanitizedIdMap = new Map<string, string>();
+  private sanitizedIdCounter = 0;
+  
   private readonly defaultOptions: Required<DotGraphOptions> = {
     title: 'Function Graph',
     rankdir: 'TB',
@@ -594,10 +597,13 @@ export class DotGenerator {
       color: 'black',
     };
     
+    // O(N) optimization: Pre-build function lookup map
+    const functionMap = new Map(functions.map(f => [this.sanitizeNodeId(f.id), f]));
+    
     // O(N): Single pass through nodes to assign clusters
     for (const node of graph.nodes) {
       // Find corresponding function to get file path
-      const func = functions.find(f => this.sanitizeNodeId(f.id) === node.id);
+      const func = functionMap.get(node.id);
       if (!func) continue;
       
       const file = func.filePath;
@@ -629,27 +635,43 @@ export class DotGenerator {
       critical: 'lightcoral', // CC: 16+
     };
     
+    // O(N) optimization: Pre-build lookup maps
+    const functionMap = new Map(functions.map(f => [this.sanitizeNodeId(f.id), f]));
+    
+    let riskAssessmentMap: Map<string, ComprehensiveRiskAssessment> | undefined;
+    let metricsMap: Map<string, DependencyMetrics> | undefined;
+    
+    if (metricsOrRiskAssessments.length > 0) {
+      const firstItem = metricsOrRiskAssessments[0];
+      if ('overallScore' in firstItem) {
+        // RiskAssessment case
+        riskAssessmentMap = new Map(
+          (metricsOrRiskAssessments as ComprehensiveRiskAssessment[])
+            .map(r => [r.functionId, r])
+        );
+      } else {
+        // DependencyMetrics case
+        metricsMap = new Map(
+          (metricsOrRiskAssessments as DependencyMetrics[])
+            .map(m => [m.functionId, m])
+        );
+      }
+    }
+    
     // O(N): Single pass through nodes to assign complexity clusters
     for (const node of graph.nodes) {
-      const func = functions.find(f => this.sanitizeNodeId(f.id) === node.id);
+      const func = functionMap.get(node.id);
       if (!func) continue;
       
       // Extract complexity metric from either DependencyMetrics or RiskAssessment
       let complexityValue = 5; // default medium complexity
       
-      if (metricsOrRiskAssessments.length > 0) {
-        const firstItem = metricsOrRiskAssessments[0];
-        if ('overallScore' in firstItem) {
-          // RiskAssessment case - use overall score as complexity proxy
-          const riskAssessment = (metricsOrRiskAssessments as ComprehensiveRiskAssessment[])
-            .find(r => r.functionId === func.id);
-          complexityValue = Math.round((riskAssessment?.overallScore || 50) / 5); // Map 0-100 to 0-20
-        } else {
-          // DependencyMetrics case - use fanIn + fanOut as complexity proxy
-          const metrics = (metricsOrRiskAssessments as DependencyMetrics[])
-            .find(m => m.functionId === func.id);
-          complexityValue = (metrics?.fanIn || 0) + (metrics?.fanOut || 0);
-        }
+      if (riskAssessmentMap) {
+        const riskAssessment = riskAssessmentMap.get(func.id);
+        complexityValue = Math.round((riskAssessment?.overallScore || 50) / 5); // Map 0-100 to 0-20
+      } else if (metricsMap) {
+        const metrics = metricsMap.get(func.id);
+        complexityValue = (metrics?.fanIn || 0) + (metrics?.fanOut || 0);
       }
       
       // Bucket complexity into categories
@@ -705,10 +727,10 @@ export class DotGenerator {
         },
       });
 
-      // Update node clusters
+      // Update node clusters - O(N) optimization using Set for fast lookup
+      const sanitizedIdsSet = new Set(funcIds.map(id => this.sanitizeNodeId(id)));
       for (const node of graph.nodes) {
-        const sanitizedIds = funcIds.map(id => this.sanitizeNodeId(id));
-        if (sanitizedIds.includes(node.id)) {
+        if (sanitizedIdsSet.has(node.id)) {
           node.cluster = clusterId;
         }
       }
@@ -721,10 +743,23 @@ export class DotGenerator {
   }
 
   private sanitizeNodeId(id: string): string {
+    // Check if already sanitized
+    const cached = this.sanitizedIdMap.get(id);
+    if (cached) return cached;
+    
     // Replace characters that are problematic in DOT format
     const cleaned = id.replace(/[^a-zA-Z0-9_]/g, '_');
     
     // DOT requires identifiers to start with letter or underscore, not digit
-    return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
+    let result = /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
+    
+    // Check for collision with existing sanitized IDs
+    const existingValues = Array.from(this.sanitizedIdMap.values());
+    if (existingValues.includes(result)) {
+      result = `${result}_${this.sanitizedIdCounter++}`;
+    }
+    
+    this.sanitizedIdMap.set(id, result);
+    return result;
   }
 }
