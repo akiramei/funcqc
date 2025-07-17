@@ -4,6 +4,9 @@ export * from './common';
 // Re-export quality enhancement types
 export * from './quality-enhancements';
 
+// Re-export architecture types
+export * from './architecture';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
 

@@ -1072,6 +1072,8 @@ program
     console.log(chalk.yellow('Please specify a dep subcommand:'));
     console.log('  list     - List function dependencies');
     console.log('  show     - Show detailed dependency information');
+    console.log('  stats    - Show dependency statistics and metrics');
+    console.log('  lint     - Lint architecture dependencies against rules');
     console.log('\nExample: funcqc dep list');
   });
 
@@ -1126,6 +1128,21 @@ depCommand.command('stats')
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { depStatsCommand } = await import('./cli/dep');
     return withEnvironment(depStatsCommand)(options);
+  });
+
+depCommand.command('lint')
+  .description('Lint architecture dependencies against defined rules')
+  .option('--config <path>', 'path to architecture configuration file')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--severity <level>', 'minimum severity level to report (error, warning, info)')
+  .option('--max-violations <num>', 'maximum number of violations to report')
+  .option('--include-metrics', 'include architecture metrics in output')
+  .option('--fix', 'attempt to fix violations automatically (future feature)')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depLintCommand } = await import('./cli/dep');
+    return withEnvironment(depLintCommand)(options);
   });
 
 // Dead code detection command
