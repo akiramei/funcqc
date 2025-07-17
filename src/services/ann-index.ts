@@ -112,7 +112,7 @@ function ensureFloat32Array(vector: Float32Array | number[], expectedDimension?:
   
   // Validate that vector contains no NaN or infinite values
   for (let i = 0; i < result.length; i++) {
-    if (!isFinite(result[i])) {
+    if (!Number.isFinite(result[i])) {
       throw new Error(
         `Invalid vector value at index ${i}: ${result[i]} (must be finite number)`
       );
@@ -1318,17 +1318,17 @@ export class ANNConfigValidator {
   static validate(config: Partial<ANNConfig>): ANNConfig {
     const validatedConfig: ANNConfig = {
       algorithm: config.algorithm || 'hierarchical',
-      clusterCount: this.validatePositiveInt(config.clusterCount, 50, 'clusterCount', 1, 1000),
-      hashBits: this.validatePositiveInt(config.hashBits, 16, 'hashBits', 4, 64),
-      approximationLevel: this.validateApproximationLevel(config.approximationLevel),
-      cacheSize: this.validatePositiveInt(config.cacheSize, 1000, 'cacheSize', 10, 100000),
+      clusterCount: ANNConfigValidator.validatePositiveInt(config.clusterCount, 50, 'clusterCount', 1, 1000),
+      hashBits: ANNConfigValidator.validatePositiveInt(config.hashBits, 16, 'hashBits', 4, 64),
+      approximationLevel: ANNConfigValidator.validateApproximationLevel(config.approximationLevel),
+      cacheSize: ANNConfigValidator.validatePositiveInt(config.cacheSize, 1000, 'cacheSize', 10, 100000),
       
       // Advanced parameters with validation
-      kMeansMaxIterations: this.validatePositiveInt(config.kMeansMaxIterations, 50, 'kMeansMaxIterations', 1, 1000),
-      kMeansConvergenceThreshold: this.validatePositiveFloat(config.kMeansConvergenceThreshold, 0.001, 'kMeansConvergenceThreshold', 1e-10, 1),
-      lshTableCountMultiplier: this.validatePositiveFloat(config.lshTableCountMultiplier, 1.0, 'lshTableCountMultiplier', 0.1, 10),
-      hybridHierarchicalWeight: this.validateWeight(config.hybridHierarchicalWeight, 0.6, 'hybridHierarchicalWeight'),
-      hybridLshWeight: this.validateWeight(config.hybridLshWeight, 0.4, 'hybridLshWeight'),
+      kMeansMaxIterations: ANNConfigValidator.validatePositiveInt(config.kMeansMaxIterations, 50, 'kMeansMaxIterations', 1, 1000),
+      kMeansConvergenceThreshold: ANNConfigValidator.validatePositiveFloat(config.kMeansConvergenceThreshold, 0.001, 'kMeansConvergenceThreshold', 1e-10, 1),
+      lshTableCountMultiplier: ANNConfigValidator.validatePositiveFloat(config.lshTableCountMultiplier, 1.0, 'lshTableCountMultiplier', 0.1, 10),
+      hybridHierarchicalWeight: ANNConfigValidator.validateWeight(config.hybridHierarchicalWeight, 0.6, 'hybridHierarchicalWeight'),
+      hybridLshWeight: ANNConfigValidator.validateWeight(config.hybridLshWeight, 0.4, 'hybridLshWeight'),
     };
 
     // Handle randomSeed separately to avoid exactOptionalPropertyTypes issues
@@ -1337,7 +1337,7 @@ export class ANNConfigValidator {
     }
 
     // Algorithm-specific validation
-    this.validateAlgorithm(validatedConfig.algorithm);
+    ANNConfigValidator.validateAlgorithm(validatedConfig.algorithm);
     
     // Validate weight consistency for hybrid algorithm
     if (validatedConfig.algorithm === 'hybrid') {
@@ -1373,7 +1373,7 @@ export class ANNConfigValidator {
   private static validatePositiveFloat(value: number | undefined, defaultValue: number, paramName: string, min?: number, max?: number): number {
     if (value === undefined) return defaultValue;
     
-    if (typeof value !== 'number' || value <= 0 || !isFinite(value)) {
+    if (typeof value !== 'number' || value <= 0 || !Number.isFinite(value)) {
       throw new Error(`${paramName} must be a positive finite number, got: ${value}`);
     }
     
@@ -1391,7 +1391,7 @@ export class ANNConfigValidator {
   private static validateWeight(value: number | undefined, defaultValue: number, paramName: string): number {
     if (value === undefined) return defaultValue;
     
-    if (typeof value !== 'number' || value < 0 || value > 1 || !isFinite(value)) {
+    if (typeof value !== 'number' || value < 0 || value > 1 || !Number.isFinite(value)) {
       throw new Error(`${paramName} must be a number between 0 and 1, got: ${value}`);
     }
     
@@ -1564,8 +1564,8 @@ export class ANNTestUtils {
     const index = createANNIndex(config);
     
     // Generate test data
-    const vectors = this.generateTestVectors(vectorCount, dimension);
-    const queries = this.generateTestVectors(queryCount, dimension, 999);
+    const vectors = ANNTestUtils.generateTestVectors(vectorCount, dimension);
+    const queries = ANNTestUtils.generateTestVectors(queryCount, dimension, 999);
     
     // Measure build time
     const buildStart = performance.now();
