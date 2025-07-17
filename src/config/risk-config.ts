@@ -549,7 +549,7 @@ export class RiskConfigManager {
   }
 
   /**
-   * Evaluate custom rule condition
+   * Evaluate custom rule condition using safe evaluation
    */
   evaluateCustomRule(
     rule: RiskConfig['customRules'][0],
@@ -557,24 +557,93 @@ export class RiskConfigManager {
     metrics?: unknown
   ): boolean {
     try {
-      // Create evaluation context
-      const context = {
-        func,
-        metrics,
-        // Helper functions
-        Math,
-        // Safe evaluation environment
-      };
-
-      // Simple expression evaluation (in production, use a proper expression evaluator)
-      const expression = rule.condition
-        .replace(/func\./g, 'context.func.')
-        .replace(/metrics\./g, 'context.metrics.');
-
-      return Function('context', `with(context) { return ${expression}; }`)(context);
+      // For security, only support basic property access patterns
+      // This is a simplified evaluator - in production, consider using a proper expression parser
+      return this.evaluateConditionSafely(rule.condition, func, metrics);
     } catch (error) {
       console.warn(`Failed to evaluate custom rule ${rule.name}:`, error);
       return false;
+    }
+  }
+
+  /**
+   * Safe evaluation of rule conditions
+   */
+  private evaluateConditionSafely(condition: string, func: unknown, _metrics?: unknown): boolean {
+    // Support only basic conditions for security
+    // Examples: "func.async && func.metrics.linesOfCode > 30"
+    //           "func.parameters.length >= 5"
+    
+    const funcObj = func as Record<string, unknown>;
+    
+    // Simple pattern matching for common condition types
+    const patterns = [
+      {
+        // func.async && func.metrics.linesOfCode > 30
+        regex: /^func\.async\s*&&\s*func\.metrics\.(\w+)\s*([><=]+)\s*(\d+)$/,
+        evaluate: (match: RegExpMatchArray) => {
+          const property = match[1];
+          const operator = match[2];
+          const value = parseInt(match[3], 10);
+          const funcMetrics = (funcObj['metrics'] as Record<string, unknown>) || {};
+          const propValue = funcMetrics[property] as number || 0;
+          
+          return (funcObj['async'] === true) && this.compareValues(propValue, operator, value);
+        }
+      },
+      {
+        // func.parameters.length >= 5
+        regex: /^func\.parameters\.length\s*([><=]+)\s*(\d+)$/,
+        evaluate: (match: RegExpMatchArray) => {
+          const operator = match[1];
+          const value = parseInt(match[2], 10);
+          const parametersLength = Array.isArray(funcObj['parameters']) ? funcObj['parameters'].length : 0;
+          
+          return this.compareValues(parametersLength, operator, value);
+        }
+      },
+      {
+        // func.metrics.linesOfCode > 30
+        regex: /^func\.metrics\.(\w+)\s*([><=]+)\s*(\d+)$/,
+        evaluate: (match: RegExpMatchArray) => {
+          const property = match[1];
+          const operator = match[2];
+          const value = parseInt(match[3], 10);
+          const funcMetrics = (funcObj['metrics'] as Record<string, unknown>) || {};
+          const propValue = funcMetrics[property] as number || 0;
+          
+          return this.compareValues(propValue, operator, value);
+        }
+      }
+    ];
+    
+    // Try to match against supported patterns
+    for (const pattern of patterns) {
+      const match = condition.match(pattern.regex);
+      if (match) {
+        return pattern.evaluate(match);
+      }
+    }
+    
+    // If no pattern matches, return false for security
+    console.warn(`Unsupported condition pattern: ${condition}. Only basic property access is supported for security.`);
+    return false;
+  }
+
+  /**
+   * Safe comparison of values
+   */
+  private compareValues(actual: number, operator: string, expected: number): boolean {
+    switch (operator) {
+      case '>': return actual > expected;
+      case '>=': return actual >= expected;
+      case '<': return actual < expected;
+      case '<=': return actual <= expected;
+      case '==': 
+      case '===': return actual === expected;
+      case '!=':
+      case '!==': return actual !== expected;
+      default: return false;
     }
   }
 }

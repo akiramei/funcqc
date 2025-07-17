@@ -60,7 +60,7 @@ export class SCCAnalyzer {
     const allFunctionIds = new Set<string>();
     for (const edge of callEdges) {
       allFunctionIds.add(edge.callerFunctionId);
-      if (edge.calleeFunctionId) {
+      if (edge.calleeFunctionId && edge.calleeFunctionId !== '') {
         allFunctionIds.add(edge.calleeFunctionId);
       }
     }
