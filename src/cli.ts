@@ -1139,10 +1139,10 @@ program
   .option('--format <format>', 'output format (table, json)', 'table')
   .option('--show-reasons', 'show detailed reasons for dead code')
   .option('--verbose', 'show verbose output')
-  .action(async (options: OptionValues) => {
+  .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { deadCommand } = await import('./cli/dead');
-    return withEnvironment(deadCommand)(options);
+    return withEnvironment(deadCommand)(options, command);
   });
 
 // Circular dependency detection command

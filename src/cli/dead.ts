@@ -23,6 +23,21 @@ interface DeadCodeOptions extends OptionValues {
 export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
+    
+    // Check for common user mistakes with format option
+    if (options.args && options.args.length > 0) {
+      const arg = options.args[0];
+      if (arg === 'json' || arg === 'table') {
+        env.commandLogger.warn(
+          `Unrecognized argument: ${arg}. Did you mean --format=${arg}?`
+        );
+      } else {
+        env.commandLogger.warn(
+          `Unrecognized argument: ${arg}. Use --help to see available options.`
+        );
+      }
+    }
+    
     const spinner = ora('Analyzing dead code...').start();
 
     try {
