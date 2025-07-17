@@ -10,10 +10,11 @@ import { SCCAnalyzer, SCCAnalysisResult, StronglyConnectedComponent } from '../a
 import { ComprehensiveRiskScorer, ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
 import { RiskConfigManager, RiskConfig } from '../config/risk-config';
 import { DependencyMetricsCalculator } from '../analyzers/dependency-metrics';
+import { DotGenerator } from '../visualization/dot-generator';
 
 interface RiskAnalyzeOptions extends BaseCommandOptions {
   config?: string;
-  format?: 'table' | 'json';
+  format?: 'table' | 'json' | 'dot';
   severity?: 'critical' | 'high' | 'medium' | 'low';
   pattern?: 'wrapper' | 'fake-split' | 'complexity-hotspot' | 'isolated' | 'circular';
   limit?: string;
@@ -93,7 +94,7 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
 
       // Detect risk patterns
       const riskDetector = new RiskDetector({
-        wrapperThreshold: 0.8, // Default threshold since it's not in config
+        wrapperThreshold: riskConfig.detection.wrapperDetection.parameterMatchTolerance,
         fakeSplitThreshold: riskConfig.detection.fakeSplitDetection.couplingThreshold,
         complexityHotspotThreshold: riskConfig.detection.complexityHotspots.cyclomaticThreshold,
         minFunctionSize: riskConfig.detection.isolatedFunctions.minSize,
@@ -154,7 +155,9 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
       }
 
       // Output results
-      if (options.format === 'json') {
+      if (options.format === 'dot') {
+        outputRiskAnalysisDot(functions, callEdges, filteredAssessments, options);
+      } else if (options.format === 'json') {
         outputRiskAnalysisJSON(riskAnalysis, filteredAssessments, riskConfig, options);
       } else {
         outputRiskAnalysisTable(riskAnalysis, filteredAssessments, riskConfig, options);
@@ -278,17 +281,41 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
       // Get all functions
       const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
 
-      let targetFunction;
+      let targetFunction: FunctionInfo | undefined;
       if (options.functionId) {
         targetFunction = functions.find(f => f.id === options.functionId);
+        if (!targetFunction) {
+          spinner.fail(chalk.red(`Function not found with ID: ${options.functionId}`));
+          return;
+        }
       } else if (options.functionName) {
-        targetFunction = functions.find(f => 
-          f.name === options.functionName || f.name.includes(options.functionName || '')
-        );
-      }
-
-      if (!targetFunction) {
-        spinner.fail(chalk.red(`Function not found: ${options.functionId || options.functionName}`));
+        // First try exact match
+        targetFunction = functions.find(f => f.name === options.functionName);
+        
+        if (!targetFunction) {
+          // Try partial match
+          const matchedFunctions = functions.filter(f => 
+            f.name.includes(options.functionName || '')
+          );
+          
+          if (matchedFunctions.length === 0) {
+            spinner.fail(chalk.red(`Function not found: ${options.functionName}`));
+            return;
+          } else if (matchedFunctions.length === 1) {
+            targetFunction = matchedFunctions[0];
+          } else {
+            // Multiple matches found
+            spinner.fail(chalk.red(`Multiple functions matched: ${options.functionName}. Please be more specific.`));
+            console.log(chalk.gray('\nMatched functions:'));
+            matchedFunctions.forEach(f => {
+              console.log(`  - ${chalk.cyan(f.name)} ${chalk.gray(`(${f.filePath}:${f.startLine})`)}`);
+            });
+            console.log(chalk.gray('\nUse --function-id for exact match or provide a more specific name.'));
+            return;
+          }
+        }
+      } else {
+        spinner.fail(chalk.red('Either --function-name or --function-id must be specified'));
         return;
       }
 
@@ -298,6 +325,14 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
       const [callEdges] = await Promise.all([
         env.storage.getCallEdgesBySnapshot(snapshot.id),
       ]);
+
+      // TODO: Performance optimization opportunity
+      // Currently, we analyze the entire codebase to score a single function.
+      // Future improvement: Implement targeted analysis methods in analyzers:
+      // - DependencyMetricsCalculator.calculateForFunction(targetFunction, callEdges)
+      // - RiskDetector.analyzeFunction(targetFunction, localContext)
+      // - SCCAnalyzer.findComponentContaining(targetFunction, callEdges)
+      // This would reduce complexity from O(N) to O(log N) for large codebases.
 
       // Calculate dependency metrics for the specific function
       const metricsCalculator = new DependencyMetricsCalculator();
@@ -419,16 +454,16 @@ function outputRiskAnalysisTable(
   }
 
   // Group results based on groupBy option
+  const outputStrategies = {
+    severity: outputByRiskLevel,
+    file: outputByFile,
+    pattern: outputByPattern,
+    score: outputByScore,
+  } as const;
+
   const groupBy = options.groupBy || 'severity';
-  if (groupBy === 'severity') {
-    outputByRiskLevel(assessments, options);
-  } else if (groupBy === 'file') {
-    outputByFile(assessments, options);
-  } else if (groupBy === 'pattern') {
-    outputByPattern(assessments, options);
-  } else {
-    outputByScore(assessments, options);
-  }
+  const outputStrategy = outputStrategies[groupBy] || outputByScore;
+  outputStrategy(assessments, options);
 
   // Recommendations
   if (options.includeRecommendations && analysis.recommendations.length > 0) {
@@ -739,4 +774,55 @@ function outputRiskScoreTable(
     });
     console.log();
   }
+}
+
+/**
+ * Output risk analysis as DOT format
+ * Note: Receives pre-filtered assessments from riskAnalyzeCommand
+ */
+function outputRiskAnalysisDot(
+  functions: import('../types').FunctionInfo[],
+  callEdges: import('../types').CallEdge[],
+  assessments: ComprehensiveRiskAssessment[],
+  options: RiskAnalyzeOptions
+): void {
+  const dotGenerator = new DotGenerator();
+  
+  // Filter functions to only include those with risk assessments (assessments are pre-filtered)
+  const assessmentFunctionIds = new Set(assessments.map(a => a.functionId));
+  const filteredFunctions = functions.filter(func => assessmentFunctionIds.has(func.id));
+  
+  // Filter call edges to only include those between remaining functions
+  const filteredCallEdges = callEdges.filter(edge => 
+    assessmentFunctionIds.has(edge.callerFunctionId) && 
+    assessmentFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  // Generate DOT graph
+  const dotOptions = {
+    title: 'Risk Analysis Graph',
+    rankdir: 'TB' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: true,
+    clusterBy: (() => {
+      switch (options.groupBy) {
+        case 'file': return 'file' as const;
+        case 'severity': return 'risk' as const;
+        case 'pattern': return 'complexity' as const; // pattern complexity maps to complexity clustering
+        case 'score': return 'risk' as const; // score-based grouping maps to risk clustering
+        default: return 'risk' as const;
+      }
+    })(),
+    showLabels: true,
+    maxLabelLength: 30,
+  };
+  
+  const dotOutput = dotGenerator.generateRiskGraph(
+    filteredFunctions,
+    filteredCallEdges,
+    assessments,
+    dotOptions
+  );
+  
+  console.log(dotOutput);
 }

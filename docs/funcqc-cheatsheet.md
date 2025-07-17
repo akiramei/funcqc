@@ -277,6 +277,36 @@ npm run dev scan --incremental
 npm run dev -- list --json | jq '.[] | select(.complexity > 10)'
 ```
 
+## 📊 可視化（DOT形式出力）
+
+```bash
+# 依存関係グラフ生成
+npm run dev -- dep stats --format dot > deps.dot
+dot -Tpng deps.dot -o deps.png
+
+# リスク分析の可視化
+npm run dev -- risk analyze --format dot --severity high > risk.dot
+dot -Tsvg risk.dot -o risk.svg
+
+# デッドコードの可視化
+npm run dev -- dead --format dot --exclude-tests > dead.dot
+
+# オンラインで表示（GraphViz Online）
+npm run dev -- dep stats --format dot | pbcopy  # クリップボードにコピー
+# https://dreampuf.github.io/GraphvizOnline/ で貼り付け
+```
+
+### DOT形式の活用例
+
+```bash
+# CI/CDパイプラインでの自動生成
+npm run dev -- risk analyze --format dot --severity critical > critical-risk.dot
+npm run dev -- dep stats --format dot --show-hubs > hubs.dot
+
+# バッチ変換
+for f in *.dot; do dot -Tpng "$f" -o "${f%.dot}.png"; done
+```
+
 ## 🚨 トラブルシューティング
 
 ```bash

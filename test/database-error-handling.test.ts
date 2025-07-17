@@ -96,8 +96,18 @@ describe('Database Error Handling', () => {
       
       const adapter = new PGLiteStorageAdapter('C:\\nonexistent\\path\\db.sqlite');
       
-      await expect(adapter.init()).rejects.toThrow(DatabaseError);
-      await expect(adapter.init()).rejects.toThrow('Database directory not found');
+      try {
+        // 1. 非同期メソッドを一度だけ呼び出す
+        await adapter.init();
+        
+        // 2. ここに到達した場合、エラーがスローされなかったのでテストを失敗させる
+        expect.fail('adapter.init() should have thrown a DatabaseError');
+
+      } catch (error) {
+        // 3. catchしたエラーオブジェクトに対して複数の検証を行う
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect((error as DatabaseError).message).toContain('Database directory not found');
+      }
     });
 
     it('should provide helpful error messages for common mistakes', () => {
