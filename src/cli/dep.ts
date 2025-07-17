@@ -721,12 +721,21 @@ export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
     try {
       // Load architecture configuration
       const configManager = new ArchitectureConfigManager();
-      const archConfig = await configManager.load(options.config);
+      const archConfig = configManager.load(options.config);
 
       if (Object.keys(archConfig.layers).length === 0) {
         spinner.fail(chalk.yellow('No architecture layers defined. Create a .funcqc-arch.yaml configuration file.'));
-        console.log(chalk.dim('\nTo create a sample configuration file, run:'));
-        console.log(chalk.cyan('  funcqc dep lint --init'));
+        console.log(chalk.dim('\nExample configuration:'));
+        console.log(chalk.cyan(`layers:
+  cli: ["src/cli/**"]
+  core: ["src/core/**"]
+  storage: ["src/storage/**"]
+rules:
+  - type: forbid
+    from: "storage"
+    to: "cli"
+    description: "Storage should not depend on CLI"
+    severity: error`));
         return;
       }
 

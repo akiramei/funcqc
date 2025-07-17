@@ -1,6 +1,7 @@
 import { minimatch } from 'minimatch';
 import { Project } from 'ts-morph';
 import path from 'path';
+import fs from 'fs';
 import {
   ArchitectureConfig,
   ArchitectureRule,
@@ -118,18 +119,61 @@ export class ArchitectureValidator {
       const fromDir = path.dirname(fromFilePath);
       const resolved = path.resolve(fromDir, importPath);
       
-      // Add .ts extension if missing
-      if (!resolved.endsWith('.ts') && !resolved.endsWith('.tsx') && !resolved.endsWith('.js')) {
-        return resolved + '.ts';
-      }
-      return resolved;
+      // Try to resolve with appropriate extension
+      return this.resolveWithExtension(resolved);
     } else if (!importPath.includes('/') || importPath.startsWith('@')) {
       // External package
       return null; // We don't track external dependencies for architecture linting
     } else {
-      // Absolute import within project
-      return importPath;
+      // Absolute import within project - resolve relative to project root
+      const projectRoot = this.findProjectRoot(fromFilePath);
+      if (projectRoot) {
+        const resolved = path.resolve(projectRoot, importPath);
+        // Try to resolve with appropriate extension
+        return this.resolveWithExtension(resolved);
+      }
+      return null;
     }
+  }
+
+  /**
+   * Resolve file path with appropriate extension
+   */
+  private resolveWithExtension(filePath: string): string {
+    // If already has extension, return as-is
+    const supportedExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+    if (supportedExts.some(ext => filePath.endsWith(ext))) {
+      return filePath;
+    }
+    
+    // Try to find the file with various extensions
+    for (const ext of supportedExts) {
+      const candidate = filePath + ext;
+      if (fs.existsSync(candidate)) {
+        return candidate;
+      }
+    }
+    
+    // If no file found, default to .ts
+    return filePath + '.ts';
+  }
+
+  /**
+   * Find project root by looking for package.json or tsconfig.json
+   */
+  private findProjectRoot(filePath: string): string | null {
+    let dir = path.dirname(filePath);
+    
+    while (dir !== path.dirname(dir)) {
+      // Check for package.json or tsconfig.json
+      if (fs.existsSync(path.join(dir, 'package.json')) ||
+          fs.existsSync(path.join(dir, 'tsconfig.json'))) {
+        return dir;
+      }
+      dir = path.dirname(dir);
+    }
+    
+    return null;
   }
 
   /**
@@ -506,9 +550,24 @@ export class ArchitectureValidator {
     let normalized = filePath.replace(/\\/g, '/').replace(/^\.\//, '');
     
     // Handle absolute paths - convert to relative from project root
-    if (normalized.includes('/src/')) {
-      const srcIndex = normalized.lastIndexOf('/src/');
-      normalized = normalized.substring(srcIndex + 1); // Keep 'src/' prefix
+    // Look for common project root indicators
+    const projectRootMarkers = ['/src/', '/lib/', '/dist/', '/build/'];
+    
+    for (const marker of projectRootMarkers) {
+      if (normalized.includes(marker)) {
+        const markerIndex = normalized.lastIndexOf(marker);
+        normalized = normalized.substring(markerIndex + 1); // Keep marker prefix
+        break;
+      }
+    }
+    
+    // If no project root marker found, try to find a common base
+    if (path.isAbsolute(normalized)) {
+      // Extract the path relative to the working directory
+      const cwd = process.cwd().replace(/\\/g, '/');
+      if (normalized.startsWith(cwd)) {
+        normalized = normalized.substring(cwd.length + 1);
+      }
     }
     
     return normalized;

@@ -38,7 +38,7 @@ export class ArchitectureConfigManager {
   /**
    * Load architecture configuration from file
    */
-  async load(configPath?: string): Promise<ArchitectureConfig> {
+  load(configPath?: string): ArchitectureConfig {
     if (this.config) {
       return this.config;
     }
