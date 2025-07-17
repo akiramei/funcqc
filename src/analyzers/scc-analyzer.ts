@@ -449,4 +449,169 @@ export class SCCAnalyzer {
       riskLevel,
     };
   }
+
+  /**
+   * Calculate centrality-based risk scoring for SCC functions
+   * This addresses the mathematical expert's suggestion to consider centrality within SCCs
+   */
+  analyzeSCCCentrality(
+    component: StronglyConnectedComponent,
+    functionMetrics?: Map<string, { cyclomaticComplexity: number; linesOfCode: number }>
+  ): {
+    centralityScores: Map<string, number>;
+    riskAdjustment: number;
+    centralityDistribution: {
+      functionId: string;
+      centrality: number;
+      adjustedRisk: number;
+    }[];
+  } {
+    const centralityScores = new Map<string, number>();
+    const riskDistribution: {
+      functionId: string;
+      centrality: number;
+      adjustedRisk: number;
+    }[] = [];
+    
+    // Calculate degree centrality for each function within the SCC
+    const degreeMap = new Map<string, { inDegree: number; outDegree: number }>();
+    
+    // Initialize degree counts
+    for (const functionId of component.functionIds) {
+      degreeMap.set(functionId, { inDegree: 0, outDegree: 0 });
+    }
+    
+    // Count degrees from component edges
+    for (const edge of component.edges) {
+      const caller = edge.callerFunctionId;
+      const callee = edge.calleeFunctionId;
+      
+      if (callee && component.functionIds.includes(caller) && component.functionIds.includes(callee)) {
+        const callerDegree = degreeMap.get(caller)!;
+        const calleeDegree = degreeMap.get(callee)!;
+        
+        callerDegree.outDegree++;
+        calleeDegree.inDegree++;
+      }
+    }
+    
+    // Calculate centrality scores (normalized by component size)
+    const maxPossibleDegree = component.size - 1;
+    
+    for (const [functionId, degrees] of degreeMap.entries()) {
+      const totalDegree = degrees.inDegree + degrees.outDegree;
+      const centrality = maxPossibleDegree > 0 ? totalDegree / (maxPossibleDegree * 2) : 0;
+      centralityScores.set(functionId, centrality);
+    }
+    
+    // Calculate risk adjustment based on centrality distribution
+    const centralityValues = Array.from(centralityScores.values());
+    const avgCentrality = centralityValues.reduce((sum, val) => sum + val, 0) / centralityValues.length;
+    const maxCentrality = Math.max(...centralityValues);
+    
+    // Risk adjustment: higher centrality variance = higher risk
+    const centralityVariance = centralityValues.reduce((sum, val) => sum + Math.pow(val - avgCentrality, 2), 0) / centralityValues.length;
+    const riskAdjustment = 1 + (centralityVariance * 2) + (maxCentrality * 0.5);
+    
+    // Generate risk distribution for each function
+    for (const [functionId, centrality] of centralityScores.entries()) {
+      const baseRisk = functionMetrics?.get(functionId)?.cyclomaticComplexity || 1;
+      const centralityMultiplier = 1 + (centrality * 0.5); // Central functions get higher risk
+      const adjustedRisk = baseRisk * centralityMultiplier;
+      
+      riskDistribution.push({
+        functionId,
+        centrality,
+        adjustedRisk,
+      });
+    }
+    
+    // Sort by adjusted risk (highest first)
+    riskDistribution.sort((a, b) => b.adjustedRisk - a.adjustedRisk);
+    
+    return {
+      centralityScores,
+      riskAdjustment,
+      centralityDistribution: riskDistribution,
+    };
+  }
+
+  /**
+   * Enhanced SCC risk analysis with centrality consideration
+   */
+  analyzeEnhancedSCCRisk(
+    component: StronglyConnectedComponent,
+    functionMetrics: Map<string, { cyclomaticComplexity: number; linesOfCode: number }>
+  ): {
+    basicAnalysis: {
+      totalComplexity: number;
+      totalLines: number;
+      averageComplexity: number;
+      riskLevel: 'high' | 'medium' | 'low';
+    };
+    centralityAnalysis: {
+      centralityScores: Map<string, number>;
+      riskAdjustment: number;
+      centralityDistribution: {
+        functionId: string;
+        centrality: number;
+        adjustedRisk: number;
+      }[];
+    };
+    enhancedRiskLevel: 'critical' | 'high' | 'medium' | 'low';
+    recommendations: string[];
+  } {
+    const basicAnalysis = this.analyzeSCCComplexity(component, functionMetrics);
+    const centralityAnalysis = this.analyzeSCCCentrality(component, functionMetrics);
+    
+    // Determine enhanced risk level incorporating centrality
+    const baseRiskScore = basicAnalysis.riskLevel === 'high' ? 3 : 
+                         basicAnalysis.riskLevel === 'medium' ? 2 : 1;
+    const adjustedRiskScore = baseRiskScore * centralityAnalysis.riskAdjustment;
+    
+    let enhancedRiskLevel: 'critical' | 'high' | 'medium' | 'low';
+    if (adjustedRiskScore > 4) {
+      enhancedRiskLevel = 'critical';
+    } else if (adjustedRiskScore > 3) {
+      enhancedRiskLevel = 'high';
+    } else if (adjustedRiskScore > 2) {
+      enhancedRiskLevel = 'medium';
+    } else {
+      enhancedRiskLevel = 'low';
+    }
+    
+    // Generate recommendations based on centrality analysis
+    const recommendations: string[] = [];
+    const highCentralityFunctions = centralityAnalysis.centralityDistribution
+      .filter(f => f.centrality > 0.7)
+      .slice(0, 3);
+    
+    if (highCentralityFunctions.length > 0) {
+      recommendations.push(
+        `Focus refactoring on high-centrality functions: ${highCentralityFunctions.map(f => f.functionId).join(', ')}`
+      );
+    }
+    
+    if (centralityAnalysis.riskAdjustment > 1.5) {
+      recommendations.push('Consider breaking this SCC into smaller components to reduce coupling');
+    }
+    
+    if (component.size > 10) {
+      recommendations.push('This large SCC may benefit from architectural redesign');
+    }
+    
+    const centralityVariance = centralityAnalysis.centralityDistribution.reduce((sum, f) => 
+      sum + Math.pow(f.centrality - 0.5, 2), 0) / centralityAnalysis.centralityDistribution.length;
+    
+    if (centralityVariance > 0.1) {
+      recommendations.push('Uneven centrality distribution suggests potential architectural issues');
+    }
+    
+    return {
+      basicAnalysis,
+      centralityAnalysis,
+      enhancedRiskLevel,
+      recommendations,
+    };
+  }
 }

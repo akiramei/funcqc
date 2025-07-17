@@ -91,18 +91,18 @@ export const DEFAULT_RISK_CONFIG: RiskScoringConfig = {
   fanInWeight: 0.10,
   fanOutWeight: 0.10,
   
-  // Pattern weights (total: 0.15)
-  wrapperPatternWeight: 0.05,
-  fakeSplitPatternWeight: 0.05,
-  isolatedFunctionWeight: 0.05,
+  // Pattern weights (total: 0.10)
+  wrapperPatternWeight: 0.04,
+  fakeSplitPatternWeight: 0.03,
+  isolatedFunctionWeight: 0.03,
   
   // SCC weights (total: 0.05)
   stronglyConnectedWeight: 0.03,
   recursiveCallWeight: 0.02,
   
-  // Quality weights (total: 0.00 - not implemented yet)
-  maintainabilityWeight: 0.00,
-  halsteadVolumeWeight: 0.00,
+  // Quality weights (total: 0.05 - future expansion)
+  maintainabilityWeight: 0.03,
+  halsteadVolumeWeight: 0.02,
   
   // Thresholds
   complexityThresholds: {
@@ -128,6 +128,7 @@ export class ComprehensiveRiskScorer {
 
   constructor(config: Partial<RiskScoringConfig> = {}) {
     this.config = { ...DEFAULT_RISK_CONFIG, ...config };
+    this.validateConfig();
   }
 
   /**
@@ -483,13 +484,13 @@ export class ComprehensiveRiskScorer {
    * Calculate overall weighted score
    */
   private calculateOverallScore(factors: RiskFactor[]): number {
-    let weightedSum = 0;
-    let totalWeight = 0;
-    
-    for (const factor of factors) {
-      weightedSum += factor.score * factor.weight;
-      totalWeight += factor.weight;
-    }
+    const { weightedSum, totalWeight } = factors.reduce(
+      (acc, factor) => ({
+        weightedSum: acc.weightedSum + (factor.score * factor.weight),
+        totalWeight: acc.totalWeight + factor.weight,
+      }),
+      { weightedSum: 0, totalWeight: 0 }
+    );
     
     // Normalize to 0-100 scale
     return totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 0;
@@ -674,5 +675,24 @@ export class ComprehensiveRiskScorer {
       topRisks,
       mostCommonFactors,
     };
+  }
+
+  /**
+   * Validate that risk configuration weights sum to 1.0
+   */
+  private validateConfig(): void {
+    const total =
+      this.config.cyclomaticComplexityWeight + this.config.cognitiveComplexityWeight +
+      this.config.nestingDepthWeight +
+      this.config.linesOfCodeWeight + this.config.parameterCountWeight +
+      this.config.fanInWeight + this.config.fanOutWeight +
+      this.config.wrapperPatternWeight + this.config.fakeSplitPatternWeight +
+      this.config.isolatedFunctionWeight +
+      this.config.stronglyConnectedWeight + this.config.recursiveCallWeight +
+      this.config.maintainabilityWeight + this.config.halsteadVolumeWeight;
+
+    if (Math.abs(total - 1) > 1e-6) {
+      throw new Error(`Risk weight total must be 1.0 but is ${total.toFixed(6)}`);
+    }
   }
 }
