@@ -12,6 +12,7 @@ import { EntryPointDetector } from '../analyzers/entry-point-detector';
 import { ArchitectureConfigManager } from '../config/architecture-config';
 import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
+import { DotGenerator } from '../visualization/dot-generator';
 
 interface DepListOptions extends BaseCommandOptions {
   caller?: string;
@@ -44,6 +45,7 @@ interface DepStatsOptions extends BaseCommandOptions {
   maxHubFunctions?: string;
   maxUtilityFunctions?: string;
   json?: boolean;
+  format?: 'table' | 'json' | 'dot';
   snapshot?: string;
 }
 
@@ -567,7 +569,9 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
       spinner.succeed('Dependency metrics calculated');
 
       // Output results
-      if (options.json) {
+      if (options.format === 'dot') {
+        outputDepStatsDot(functions, callEdges, metrics, options);
+      } else if (options.json || options.format === 'json') {
         outputDepStatsJSON(metrics, stats, options);
       } else {
         outputDepStatsTable(metrics, stats, options);
@@ -989,4 +993,95 @@ function outputArchLintTable(
   if (violations.length > 10) {
     console.log(chalk.dim('💡 Use --max-violations to limit output or --severity to filter by level'));
   }
+}
+
+/**
+ * Output dependency stats as DOT format
+ */
+function outputDepStatsDot(
+  functions: import('../types').FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  options: DepStatsOptions
+): void {
+  const dotGenerator = new DotGenerator();
+  
+  // Apply filters based on options
+  let filteredFunctions = functions;
+  let filteredCallEdges = callEdges;
+  
+  // Filter by hub/utility/isolated functions if requested
+  if (options.showHubs || options.showUtility || options.showIsolated) {
+    const hubThreshold = options.hubThreshold ? parseInt(options.hubThreshold, 10) : 5;
+    const utilityThreshold = options.utilityThreshold ? parseInt(options.utilityThreshold, 10) : 5;
+    
+    const metricsMap = new Map(metrics.map(m => [m.functionId, m]));
+    
+    filteredFunctions = functions.filter(func => {
+      const metric = metricsMap.get(func.id);
+      if (!metric) return false;
+      
+      const isHub = metric.fanIn >= hubThreshold;
+      const isUtility = metric.fanOut >= utilityThreshold;
+      const isIsolated = metric.fanIn === 0 && metric.fanOut === 0;
+      
+      return (
+        (options.showHubs && isHub) ||
+        (options.showUtility && isUtility) ||
+        (options.showIsolated && isIsolated) ||
+        (!options.showHubs && !options.showUtility && !options.showIsolated)
+      );
+    });
+    
+    // Filter edges to only include those between remaining functions
+    const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
+    filteredCallEdges = callEdges.filter(edge => 
+      remainingFunctionIds.has(edge.callerFunctionId) && 
+      remainingFunctionIds.has(edge.calleeFunctionId || '')
+    );
+  }
+  
+  // Apply limit if specified
+  if (options.limit) {
+    const limit = parseInt(options.limit, 10);
+    if (!isNaN(limit) && limit > 0) {
+      // Sort by fanIn + fanOut (total connectivity) and take top N
+      const sortedMetrics = metrics
+        .map(m => ({
+          ...m,
+          totalConnectivity: m.fanIn + m.fanOut
+        }))
+        .sort((a, b) => b.totalConnectivity - a.totalConnectivity)
+        .slice(0, limit);
+      
+      const topFunctionIds = new Set(sortedMetrics.map(m => m.functionId));
+      filteredFunctions = filteredFunctions.filter(f => topFunctionIds.has(f.id));
+      
+      // Filter edges to only include those between top functions
+      filteredCallEdges = callEdges.filter(edge => 
+        topFunctionIds.has(edge.callerFunctionId) && 
+        topFunctionIds.has(edge.calleeFunctionId || '')
+      );
+    }
+  }
+  
+  // Generate DOT graph
+  const dotOptions = {
+    title: 'Dependency Graph',
+    rankdir: 'LR' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: true,
+    clusterBy: 'file' as const,
+    showLabels: true,
+    maxLabelLength: 25,
+  };
+  
+  const dotOutput = dotGenerator.generateDependencyGraph(
+    filteredFunctions,
+    filteredCallEdges,
+    metrics,
+    dotOptions
+  );
+  
+  console.log(dotOutput);
 }

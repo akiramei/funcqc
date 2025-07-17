@@ -6,13 +6,14 @@ import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
+import { DotGenerator } from '../visualization/dot-generator';
 
 interface DeadCodeOptions extends OptionValues {
   excludeTests?: boolean;
   excludeExports?: boolean;
   excludeSmall?: boolean;
   threshold?: string;
-  format?: 'table' | 'json';
+  format?: 'table' | 'json' | 'dot';
   showReasons?: boolean;
   verbose?: boolean;
 }
@@ -115,7 +116,14 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
       spinner.succeed('Dead code analysis complete');
 
       // Output results
-      if (options.format === 'json') {
+      if (options.format === 'dot') {
+        outputDeadCodeDot(
+          functions,
+          callEdges,
+          reachabilityResult,
+          options
+        );
+      } else if (options.format === 'json') {
         outputDeadCodeJSON(
           deadCodeInfo,
           unusedExportInfo,
@@ -293,4 +301,67 @@ function outputDeadCodeTable(
   if (!options.excludeSmall && deadCodeInfo.some(info => info.size < 5)) {
     console.log(chalk.dim('💡 Tip: Use --exclude-small to hide small functions'));
   }
+}
+
+/**
+ * Output dead code analysis as DOT format
+ */
+function outputDeadCodeDot(
+  functions: import('../types').FunctionInfo[],
+  callEdges: import('../types').CallEdge[],
+  reachabilityResult: ReachabilityResult,
+  options: DeadCodeOptions
+): void {
+  const dotGenerator = new DotGenerator();
+  
+  // Create set of dead function IDs
+  const deadFunctionIds = reachabilityResult.unreachable;
+  
+  // Apply filters
+  let filteredFunctions = functions;
+  
+  // Filter out test functions if requested
+  if (options.excludeTests) {
+    filteredFunctions = filteredFunctions.filter(func => 
+      !func.name.includes('test') && 
+      !func.name.includes('Test') &&
+      !func.filePath.includes('test') &&
+      !func.filePath.includes('spec')
+    );
+  }
+  
+  // Filter out small functions if requested
+  if (options.excludeSmall) {
+    const minSize = options.threshold ? parseInt(options.threshold, 10) : 3;
+    filteredFunctions = filteredFunctions.filter(func => 
+      func.endLine - func.startLine >= minSize
+    );
+  }
+  
+  // Filter call edges to only include those between remaining functions
+  const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    remainingFunctionIds.has(edge.callerFunctionId) && 
+    remainingFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  // Generate DOT graph
+  const dotOptions = {
+    title: 'Dead Code Analysis',
+    rankdir: 'TB' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: false,
+    clusterBy: 'file' as const,
+    showLabels: true,
+    maxLabelLength: 30,
+  };
+  
+  const dotOutput = dotGenerator.generateDeadCodeGraph(
+    filteredFunctions,
+    filteredCallEdges,
+    deadFunctionIds as Set<string>,
+    dotOptions
+  );
+  
+  console.log(dotOutput);
 }

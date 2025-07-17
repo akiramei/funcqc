@@ -10,10 +10,11 @@ import { SCCAnalyzer, SCCAnalysisResult, StronglyConnectedComponent } from '../a
 import { ComprehensiveRiskScorer, ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
 import { RiskConfigManager, RiskConfig } from '../config/risk-config';
 import { DependencyMetricsCalculator } from '../analyzers/dependency-metrics';
+import { DotGenerator } from '../visualization/dot-generator';
 
 interface RiskAnalyzeOptions extends BaseCommandOptions {
   config?: string;
-  format?: 'table' | 'json';
+  format?: 'table' | 'json' | 'dot';
   severity?: 'critical' | 'high' | 'medium' | 'low';
   pattern?: 'wrapper' | 'fake-split' | 'complexity-hotspot' | 'isolated' | 'circular';
   limit?: string;
@@ -154,7 +155,9 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
       }
 
       // Output results
-      if (options.format === 'json') {
+      if (options.format === 'dot') {
+        outputRiskAnalysisDot(functions, callEdges, filteredAssessments, options);
+      } else if (options.format === 'json') {
         outputRiskAnalysisJSON(riskAnalysis, filteredAssessments, riskConfig, options);
       } else {
         outputRiskAnalysisTable(riskAnalysis, filteredAssessments, riskConfig, options);
@@ -739,4 +742,92 @@ function outputRiskScoreTable(
     });
     console.log();
   }
+}
+
+/**
+ * Output risk analysis as DOT format
+ */
+function outputRiskAnalysisDot(
+  functions: import('../types').FunctionInfo[],
+  callEdges: import('../types').CallEdge[],
+  assessments: ComprehensiveRiskAssessment[],
+  options: RiskAnalyzeOptions
+): void {
+  const dotGenerator = new DotGenerator();
+  
+  // Create risk assessments map
+  const riskMap = new Map(assessments.map(a => [a.functionId, a]));
+  
+  // Filter functions to only include those with risk assessments
+  const filteredFunctions = functions.filter(func => riskMap.has(func.id));
+  
+  // Apply additional filters
+  let finalAssessments = assessments;
+  let finalFunctions = filteredFunctions;
+  
+  // Filter by severity if specified
+  if (options.severity) {
+    finalAssessments = assessments.filter(a => a.riskLevel === options.severity);
+    const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
+    finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
+  }
+  
+  // Filter by pattern if specified
+  if (options.pattern) {
+    finalAssessments = assessments.filter(a => 
+      a.patterns.some(p => p.type === options.pattern)
+    );
+    const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
+    finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
+  }
+  
+  // Filter by minimum score if specified
+  if (options.minScore) {
+    const minScore = parseInt(options.minScore, 10);
+    if (!isNaN(minScore) && minScore >= 0 && minScore <= 100) {
+      finalAssessments = assessments.filter(a => a.overallScore >= minScore);
+      const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
+      finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
+    }
+  }
+  
+  // Apply limit if specified
+  if (options.limit) {
+    const limit = parseInt(options.limit, 10);
+    if (!isNaN(limit) && limit > 0) {
+      // Sort by risk score descending and take top N
+      finalAssessments = finalAssessments
+        .sort((a, b) => b.overallScore - a.overallScore)
+        .slice(0, limit);
+      const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
+      finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
+    }
+  }
+  
+  // Filter call edges to only include those between remaining functions
+  const remainingFunctionIds = new Set(finalFunctions.map(f => f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    remainingFunctionIds.has(edge.callerFunctionId) && 
+    remainingFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  // Generate DOT graph
+  const dotOptions = {
+    title: 'Risk Analysis Graph',
+    rankdir: 'TB' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: true,
+    clusterBy: options.groupBy === 'file' ? 'file' as const : 'file' as const,
+    showLabels: true,
+    maxLabelLength: 30,
+  };
+  
+  const dotOutput = dotGenerator.generateRiskGraph(
+    finalFunctions,
+    filteredCallEdges,
+    finalAssessments,
+    dotOptions
+  );
+  
+  console.log(dotOutput);
 }

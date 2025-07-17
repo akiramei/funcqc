@@ -1,0 +1,651 @@
+import { FunctionInfo, CallEdge } from '../types';
+import { DependencyMetrics } from '../analyzers/dependency-metrics';
+import { ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
+import { StronglyConnectedComponent } from '../analyzers/scc-analyzer';
+
+export interface DotGraphOptions {
+  title?: string;
+  rankdir?: 'TB' | 'LR' | 'BT' | 'RL';
+  nodeShape?: 'box' | 'circle' | 'ellipse' | 'diamond';
+  nodeColor?: string;
+  edgeColor?: string;
+  highlightColor?: string;
+  showLabels?: boolean;
+  maxLabelLength?: number;
+  includeMetrics?: boolean;
+  clusterBy?: 'file' | 'risk' | 'complexity';
+}
+
+export interface DotNode {
+  id: string;
+  label: string;
+  attributes: Record<string, string>;
+  cluster?: string | undefined;
+}
+
+export interface DotEdge {
+  source: string;
+  target: string;
+  attributes: Record<string, string>;
+}
+
+export interface DotGraph {
+  nodes: DotNode[];
+  edges: DotEdge[];
+  clusters: Map<string, { label: string; attributes: Record<string, string> }>;
+}
+
+/**
+ * DOT format graph generator for various funcqc visualizations
+ */
+export class DotGenerator {
+  private readonly defaultOptions: Required<DotGraphOptions> = {
+    title: 'Function Graph',
+    rankdir: 'TB',
+    nodeShape: 'box',
+    nodeColor: 'lightblue',
+    edgeColor: 'black',
+    highlightColor: 'red',
+    showLabels: true,
+    maxLabelLength: 30,
+    includeMetrics: false,
+    clusterBy: 'file',
+  };
+
+  /**
+   * Generate DOT graph from dependency metrics
+   */
+  generateDependencyGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    dependencyMetrics: DependencyMetrics[],
+    options: Partial<DotGraphOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+    const graph = this.createDependencyGraph(functions, callEdges, dependencyMetrics, opts);
+    
+    return this.renderDotGraph(graph, opts);
+  }
+
+  /**
+   * Generate DOT graph from risk assessment
+   */
+  generateRiskGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    riskAssessments: ComprehensiveRiskAssessment[],
+    options: Partial<DotGraphOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+    const graph = this.createRiskGraph(functions, callEdges, riskAssessments, opts);
+    
+    return this.renderDotGraph(graph, opts);
+  }
+
+  /**
+   * Generate DOT graph from circular dependencies
+   */
+  generateCircularDependencyGraph(
+    functions: FunctionInfo[],
+    cycles: string[][],
+    options: Partial<DotGraphOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+    const graph = this.createCircularDependencyGraph(functions, cycles, opts);
+    
+    return this.renderDotGraph(graph, opts);
+  }
+
+  /**
+   * Generate DOT graph from strongly connected components
+   */
+  generateSCCGraph(
+    functions: FunctionInfo[],
+    components: StronglyConnectedComponent[],
+    options: Partial<DotGraphOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+    const graph = this.createSCCGraph(functions, components, opts);
+    
+    return this.renderDotGraph(graph, opts);
+  }
+
+  /**
+   * Generate DOT graph for dead code analysis
+   */
+  generateDeadCodeGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    deadFunctions: Set<string>,
+    options: Partial<DotGraphOptions> = {}
+  ): string {
+    const opts = { ...this.defaultOptions, ...options };
+    const graph = this.createDeadCodeGraph(functions, callEdges, deadFunctions, opts);
+    
+    return this.renderDotGraph(graph, opts);
+  }
+
+  private createDependencyGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    dependencyMetrics: DependencyMetrics[],
+    options: Required<DotGraphOptions>
+  ): DotGraph {
+    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+    const metricsMap = new Map(dependencyMetrics.map(m => [m.functionId, m]));
+
+    // Create nodes
+    for (const func of functions) {
+      const metrics = metricsMap.get(func.id);
+      const label = this.truncateLabel(func.name, options.maxLabelLength);
+      
+      const attributes: Record<string, string> = {
+        shape: options.nodeShape,
+        style: 'filled',
+        fillcolor: this.getDependencyNodeColor(metrics, options),
+        label: options.showLabels ? `"${label}"` : `"${func.name}"`,
+      };
+
+      if (options.includeMetrics && metrics) {
+        attributes['tooltip'] = `"Fan-in: ${metrics.fanIn}\\nFan-out: ${metrics.fanOut}"`;
+      }
+
+      graph.nodes.push({
+        id: this.sanitizeNodeId(func.id),
+        label,
+        attributes,
+        cluster: options.clusterBy === 'file' ? func.filePath : undefined,
+      });
+    }
+
+    // Create edges
+    for (const edge of callEdges) {
+      const caller = functionMap.get(edge.callerFunctionId);
+      const callee = functionMap.get(edge.calleeFunctionId || '');
+      
+      if (!caller || !callee) continue;
+
+      const attributes: Record<string, string> = {
+        color: options.edgeColor,
+        tooltip: `"${caller.name} → ${callee.name}"`,
+      };
+
+      // Color edges based on call type
+      if (edge.callType === 'conditional') {
+        attributes['style'] = 'dashed';
+      }
+
+      graph.edges.push({
+        source: this.sanitizeNodeId(edge.callerFunctionId),
+        target: this.sanitizeNodeId(edge.calleeFunctionId || ''),
+        attributes,
+      });
+    }
+
+    // Create clusters
+    if (options.clusterBy === 'file') {
+      this.createFileClusters(graph, functions);
+    }
+
+    return graph;
+  }
+
+  private createRiskGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    riskAssessments: ComprehensiveRiskAssessment[],
+    options: Required<DotGraphOptions>
+  ): DotGraph {
+    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+    const riskMap = new Map(riskAssessments.map(r => [r.functionId, r]));
+
+    // Create nodes
+    for (const func of functions) {
+      const risk = riskMap.get(func.id);
+      const label = this.truncateLabel(func.name, options.maxLabelLength);
+      
+      const attributes: Record<string, string> = {
+        shape: options.nodeShape,
+        style: 'filled',
+        fillcolor: this.getRiskNodeColor(risk, options),
+        label: options.showLabels ? `"${label}"` : `"${func.name}"`,
+      };
+
+      if (options.includeMetrics && risk) {
+        attributes['tooltip'] = `"Risk: ${risk.overallScore}\\nLevel: ${risk.riskLevel}\\nPriority: ${risk.priority}"`;
+      }
+
+      graph.nodes.push({
+        id: this.sanitizeNodeId(func.id),
+        label,
+        attributes,
+        cluster: options.clusterBy === 'risk' ? risk?.riskLevel : func.filePath,
+      });
+    }
+
+    // Create edges (same as dependency graph)
+    for (const edge of callEdges) {
+      const caller = functionMap.get(edge.callerFunctionId);
+      const callee = functionMap.get(edge.calleeFunctionId || '');
+      
+      if (!caller || !callee) continue;
+
+      const callerRisk = riskMap.get(edge.callerFunctionId);
+      const calleeRisk = riskMap.get(edge.calleeFunctionId || '');
+      
+      const attributes: Record<string, string> = {
+        color: this.getRiskEdgeColor(callerRisk, calleeRisk, options),
+        tooltip: `"${caller.name} → ${callee.name}"`,
+      };
+
+      graph.edges.push({
+        source: this.sanitizeNodeId(edge.callerFunctionId),
+        target: this.sanitizeNodeId(edge.calleeFunctionId || ''),
+        attributes,
+      });
+    }
+
+    // Create clusters
+    if (options.clusterBy === 'risk') {
+      this.createRiskClusters(graph, riskAssessments);
+    } else if (options.clusterBy === 'file') {
+      this.createFileClusters(graph, functions);
+    }
+
+    return graph;
+  }
+
+  private createCircularDependencyGraph(
+    functions: FunctionInfo[],
+    cycles: string[][],
+    options: Required<DotGraphOptions>
+  ): DotGraph {
+    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
+    const cycleNodes = new Set<string>();
+
+    // Collect all functions in cycles
+    for (const cycle of cycles) {
+      for (const funcName of cycle) {
+        cycleNodes.add(funcName);
+      }
+    }
+
+    // Create nodes
+    for (const func of functions) {
+      if (!cycleNodes.has(func.name)) continue;
+
+      const label = this.truncateLabel(func.name, options.maxLabelLength);
+      const attributes: Record<string, string> = {
+        shape: options.nodeShape,
+        style: 'filled',
+        fillcolor: options.highlightColor,
+        label: options.showLabels ? `"${label}"` : `"${func.name}"`,
+      };
+
+      graph.nodes.push({
+        id: this.sanitizeNodeId(func.name),
+        label,
+        attributes,
+      });
+    }
+
+    // Create edges for cycles
+    for (let cycleIndex = 0; cycleIndex < cycles.length; cycleIndex++) {
+      const cycle = cycles[cycleIndex];
+      
+      for (let i = 0; i < cycle.length; i++) {
+        const from = cycle[i];
+        const to = cycle[(i + 1) % cycle.length];
+        
+        const attributes: Record<string, string> = {
+          color: options.highlightColor,
+          penwidth: '2',
+          tooltip: `"Cycle ${cycleIndex + 1}: ${from} → ${to}"`,
+        };
+
+        graph.edges.push({
+          source: this.sanitizeNodeId(from),
+          target: this.sanitizeNodeId(to),
+          attributes,
+        });
+      }
+    }
+
+    return graph;
+  }
+
+  private createSCCGraph(
+    functions: FunctionInfo[],
+    components: StronglyConnectedComponent[],
+    options: Required<DotGraphOptions>
+  ): DotGraph {
+    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+
+    // Create nodes
+    for (const component of components) {
+      for (const funcId of component.functionIds) {
+        const func = functionMap.get(funcId);
+        if (!func) continue;
+
+        const label = this.truncateLabel(func.name, options.maxLabelLength);
+        const attributes: Record<string, string> = {
+          shape: options.nodeShape,
+          style: 'filled',
+          fillcolor: this.getSCCNodeColor(component, options),
+          label: options.showLabels ? `"${label}"` : `"${func.name}"`,
+        };
+
+        if (options.includeMetrics) {
+          attributes['tooltip'] = `"Component: ${component.id}\\nSize: ${component.size}\\nRecursive: ${component.isRecursive}"`;
+        }
+
+        graph.nodes.push({
+          id: this.sanitizeNodeId(funcId),
+          label,
+          attributes,
+          cluster: `cluster_${component.id}`,
+        });
+      }
+    }
+
+    // Create edges
+    for (const component of components) {
+      for (const edge of component.edges) {
+        const attributes: Record<string, string> = {
+          color: options.highlightColor,
+          penwidth: '2',
+          tooltip: `"SCC ${component.id} internal call"`,
+        };
+
+        if (edge.calleeFunctionId) {
+          graph.edges.push({
+            source: this.sanitizeNodeId(edge.callerFunctionId),
+            target: this.sanitizeNodeId(edge.calleeFunctionId),
+            attributes,
+          });
+        }
+      }
+    }
+
+    // Create SCC clusters
+    for (const component of components) {
+      graph.clusters.set(`cluster_${component.id}`, {
+        label: `SCC ${component.id} (${component.size} functions)`,
+        attributes: {
+          style: 'filled',
+          fillcolor: 'lightgray',
+          color: 'black',
+        },
+      });
+    }
+
+    return graph;
+  }
+
+  private createDeadCodeGraph(
+    functions: FunctionInfo[],
+    callEdges: CallEdge[],
+    deadFunctions: Set<string>,
+    options: Required<DotGraphOptions>
+  ): DotGraph {
+    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+
+    // Create nodes
+    for (const func of functions) {
+      const isDead = deadFunctions.has(func.id);
+      const label = this.truncateLabel(func.name, options.maxLabelLength);
+      
+      const attributes: Record<string, string> = {
+        shape: options.nodeShape,
+        style: 'filled',
+        fillcolor: isDead ? 'lightcoral' : options.nodeColor,
+        label: options.showLabels ? `"${label}"` : `"${func.name}"`,
+      };
+
+      if (isDead) {
+        attributes['style'] = 'filled,dashed';
+        attributes['tooltip'] = `"Dead code: ${func.name}"`;
+      }
+
+      graph.nodes.push({
+        id: this.sanitizeNodeId(func.id),
+        label,
+        attributes,
+        cluster: isDead ? 'cluster_dead' : 'cluster_live',
+      });
+    }
+
+    // Create edges
+    for (const edge of callEdges) {
+      const caller = functionMap.get(edge.callerFunctionId);
+      const callee = functionMap.get(edge.calleeFunctionId || '');
+      
+      if (!caller || !callee) continue;
+
+      const callerDead = deadFunctions.has(edge.callerFunctionId);
+      const calleeDead = deadFunctions.has(edge.calleeFunctionId || '');
+      
+      const attributes: Record<string, string> = {
+        color: (callerDead || calleeDead) ? 'lightcoral' : options.edgeColor,
+        tooltip: `"${caller.name} → ${callee.name}"`,
+      };
+
+      if (callerDead || calleeDead) {
+        attributes['style'] = 'dashed';
+      }
+
+      graph.edges.push({
+        source: this.sanitizeNodeId(edge.callerFunctionId),
+        target: this.sanitizeNodeId(edge.calleeFunctionId || ''),
+        attributes,
+      });
+    }
+
+    // Create clusters
+    graph.clusters.set('cluster_live', {
+      label: 'Live Code',
+      attributes: {
+        style: 'filled',
+        fillcolor: 'lightgreen',
+        color: 'darkgreen',
+      },
+    });
+
+    graph.clusters.set('cluster_dead', {
+      label: 'Dead Code',
+      attributes: {
+        style: 'filled',
+        fillcolor: 'lightcoral',
+        color: 'darkred',
+      },
+    });
+
+    return graph;
+  }
+
+  private renderDotGraph(graph: DotGraph, options: Required<DotGraphOptions>): string {
+    const lines: string[] = [];
+    
+    // Graph header
+    lines.push('digraph G {');
+    lines.push(`  label="${options.title}";`);
+    lines.push(`  rankdir=${options.rankdir};`);
+    lines.push('  node [fontsize=10];');
+    lines.push('  edge [fontsize=8];');
+    lines.push('');
+
+    // Clusters
+    for (const [clusterId, cluster] of graph.clusters) {
+      lines.push(`  subgraph ${clusterId} {`);
+      lines.push(`    label="${cluster.label}";`);
+      
+      for (const [key, value] of Object.entries(cluster.attributes)) {
+        lines.push(`    ${key}=${value};`);
+      }
+      
+      // Add nodes belonging to this cluster
+      for (const node of graph.nodes) {
+        if (node.cluster === clusterId) {
+          const attrs = Object.entries(node.attributes)
+            .map(([key, value]) => `${key}=${value}`)
+            .join(', ');
+          lines.push(`    "${node.id}" [${attrs}];`);
+        }
+      }
+      
+      lines.push('  }');
+      lines.push('');
+    }
+
+    // Standalone nodes (not in clusters)
+    for (const node of graph.nodes) {
+      if (!node.cluster) {
+        const attrs = Object.entries(node.attributes)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(', ');
+        lines.push(`  "${node.id}" [${attrs}];`);
+      }
+    }
+
+    if (graph.nodes.some(n => !n.cluster)) {
+      lines.push('');
+    }
+
+    // Edges
+    for (const edge of graph.edges) {
+      const attrs = Object.entries(edge.attributes)
+        .map(([key, value]) => `${key}=${value}`)
+        .join(', ');
+      lines.push(`  "${edge.source}" -> "${edge.target}" [${attrs}];`);
+    }
+
+    lines.push('}');
+    
+    return lines.join('\n');
+  }
+
+  private getDependencyNodeColor(metrics: DependencyMetrics | undefined, options: Required<DotGraphOptions>): string {
+    if (!metrics) return options.nodeColor;
+    
+    // Color based on fan-in (hub detection)
+    if (metrics.fanIn > 5) return 'orange';
+    if (metrics.fanOut > 5) return 'lightgreen';
+    if (metrics.fanIn === 0 && metrics.fanOut === 0) return 'lightgray';
+    
+    return options.nodeColor;
+  }
+
+  private getRiskNodeColor(risk: ComprehensiveRiskAssessment | undefined, options: Required<DotGraphOptions>): string {
+    if (!risk) return options.nodeColor;
+    
+    switch (risk.riskLevel) {
+      case 'critical': return 'red';
+      case 'high': return 'orange';
+      case 'medium': return 'yellow';
+      case 'low': return 'lightgreen';
+      default: return options.nodeColor;
+    }
+  }
+
+  private getRiskEdgeColor(callerRisk: ComprehensiveRiskAssessment | undefined, calleeRisk: ComprehensiveRiskAssessment | undefined, options: Required<DotGraphOptions>): string {
+    if (callerRisk?.riskLevel === 'critical' || calleeRisk?.riskLevel === 'critical') {
+      return 'red';
+    }
+    if (callerRisk?.riskLevel === 'high' || calleeRisk?.riskLevel === 'high') {
+      return 'orange';
+    }
+    return options.edgeColor;
+  }
+
+  private getSCCNodeColor(component: StronglyConnectedComponent, options: Required<DotGraphOptions>): string {
+    if (component.isRecursive) return 'lightyellow';
+    if (component.size > 5) return 'lightcoral';
+    if (component.size > 2) return 'lightblue';
+    return options.nodeColor;
+  }
+
+  private createFileClusters(graph: DotGraph, functions: FunctionInfo[]): void {
+    const fileGroups = new Map<string, string[]>();
+    
+    for (const func of functions) {
+      const file = func.filePath;
+      if (!fileGroups.has(file)) {
+        fileGroups.set(file, []);
+      }
+      fileGroups.get(file)!.push(func.id);
+    }
+
+    for (const [file, funcIds] of fileGroups) {
+      const clusterId = `cluster_${this.sanitizeNodeId(file)}`;
+      graph.clusters.set(clusterId, {
+        label: file,
+        attributes: {
+          style: 'filled',
+          fillcolor: 'lightgray',
+          color: 'black',
+        },
+      });
+
+      // Update node clusters
+      for (const node of graph.nodes) {
+        const sanitizedIds = funcIds.map(id => this.sanitizeNodeId(id));
+        if (sanitizedIds.includes(node.id)) {
+          node.cluster = clusterId;
+        }
+      }
+    }
+  }
+
+  private createRiskClusters(graph: DotGraph, riskAssessments: ComprehensiveRiskAssessment[]): void {
+    const riskGroups = new Map<string, string[]>();
+    
+    for (const assessment of riskAssessments) {
+      const level = assessment.riskLevel;
+      if (!riskGroups.has(level)) {
+        riskGroups.set(level, []);
+      }
+      riskGroups.get(level)!.push(assessment.functionId);
+    }
+
+    const riskColors = {
+      critical: 'lightcoral',
+      high: 'lightyellow',
+      medium: 'lightblue',
+      low: 'lightgreen',
+    };
+
+    for (const [level, funcIds] of riskGroups) {
+      const clusterId = `cluster_risk_${level}`;
+      graph.clusters.set(clusterId, {
+        label: `${level.toUpperCase()} Risk`,
+        attributes: {
+          style: 'filled',
+          fillcolor: riskColors[level as keyof typeof riskColors] || 'lightgray',
+          color: 'black',
+        },
+      });
+
+      // Update node clusters
+      for (const node of graph.nodes) {
+        const sanitizedIds = funcIds.map(id => this.sanitizeNodeId(id));
+        if (sanitizedIds.includes(node.id)) {
+          node.cluster = clusterId;
+        }
+      }
+    }
+  }
+
+  private truncateLabel(label: string, maxLength: number): string {
+    if (label.length <= maxLength) return label;
+    return label.substring(0, maxLength - 3) + '...';
+  }
+
+  private sanitizeNodeId(id: string): string {
+    // Replace characters that are problematic in DOT format
+    return id.replace(/[^a-zA-Z0-9_]/g, '_');
+  }
+}
