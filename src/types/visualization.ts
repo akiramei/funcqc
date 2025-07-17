@@ -2,15 +2,29 @@
  * Visualization types for funcqc graph generation and rendering
  */
 
+/** Supported output formats for graph visualization */
 export type GraphFormat = 'dot' | 'svg' | 'png' | 'mermaid' | 'json';
 
+/** Graph layout algorithms for positioning nodes and edges */
 export type GraphLayoutAlgorithm = 'hierarchical' | 'force' | 'circular' | 'tree';
 
+/** Graph rank direction for hierarchical layouts */
 export type GraphRankDirection = 'TB' | 'LR' | 'BT' | 'RL';
 
+/** Available node shapes for graph visualization */
 export type GraphNodeShape = 'box' | 'circle' | 'ellipse' | 'diamond' | 'hexagon';
 
-export type GraphClusterBy = 'file' | 'risk' | 'complexity' | 'scc' | 'none';
+/** Risk levels used throughout the application - shared type for consistency */
+export type RiskLevel = 'critical' | 'high' | 'medium' | 'low';
+
+/** 
+ * Clustering strategies for grouping related nodes
+ * Note: undefined means no clustering (preferred over 'none')
+ */
+export type GraphClusterBy = 'file' | 'risk' | 'complexity' | 'scc';
+
+/** ISO 8601 date string for consistent date formatting */
+export type ISODateString = string;
 
 export interface GraphNode {
   id: string;
@@ -23,12 +37,18 @@ export interface GraphNode {
   cluster?: string;
   metadata?: Record<string, unknown>;
   metrics?: {
+    /** Cyclomatic complexity score (typically 1-20+) */
     complexity?: number;
+    /** Lines of code count */
     linesOfCode?: number;
+    /** Number of functions calling this function */
     fanIn?: number;
+    /** Number of functions called by this function */
     fanOut?: number;
+    /** Risk score (0-100) */
     riskScore?: number;
-    riskLevel?: 'critical' | 'high' | 'medium' | 'low';
+    /** Risk level classification */
+    riskLevel?: RiskLevel;
   };
 }
 
@@ -36,7 +56,9 @@ export interface GraphEdge {
   id: string;
   source: string;
   target: string;
-  type: 'call' | 'depends' | 'similar' | 'risk' | 'cycle' | 'scc';
+  /** Edge type - 'dependency' is preferred over 'depends' for consistency */
+  type: 'call' | 'dependency' | 'similar' | 'risk' | 'cycle' | 'scc';
+  /** Edge weight (0-1 for normalized weights, or positive integer for counts) */
   weight?: number;
   color?: string;
   style?: 'solid' | 'dashed' | 'dotted';
@@ -48,20 +70,22 @@ export interface GraphCluster {
   id: string;
   label: string;
   type: 'file' | 'risk' | 'complexity' | 'scc';
-  nodes: string[];
+  /** Read-only array of node IDs belonging to this cluster */
+  nodes: readonly string[];
   color?: string;
   style?: 'filled' | 'outlined' | 'dashed';
-  metadata?: Record<string, unknown>;
+  metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface GraphData {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  clusters: GraphCluster[];
+  nodes: readonly GraphNode[];
+  edges: readonly GraphEdge[];
+  clusters: readonly GraphCluster[];
   metadata: {
     title: string;
     description?: string;
-    generated: string;
+    /** ISO 8601 timestamp of graph generation */
+    generated: ISODateString;
     source: string;
     version: string;
     filters?: Record<string, unknown>;
@@ -93,49 +117,52 @@ export interface GraphRenderOptions {
 }
 
 export interface DependencyGraphOptions extends GraphRenderOptions {
-  showFanIn?: boolean;
-  showFanOut?: boolean;
-  showDepth?: boolean;
-  highlightHubs?: boolean;
-  highlightUtility?: boolean;
-  highlightIsolated?: boolean;
+  /** Feature flags for dependency graph visualization */
+  features?: Partial<Record<'showFanIn' | 'showFanOut' | 'showDepth' | 'highlightHubs' | 'highlightUtility' | 'highlightIsolated', boolean>>;
+  /** Threshold for considering a node as a hub (fan-in count) */
   hubThreshold?: number;
+  /** Threshold for considering a node as utility (fan-out count) */
   utilityThreshold?: number;
 }
 
 export interface RiskGraphOptions extends GraphRenderOptions {
-  showRiskScores?: boolean;
-  showPatterns?: boolean;
-  showRecommendations?: boolean;
-  riskLevelColors?: Record<string, string>;
+  /** Feature flags for risk graph visualization */
+  features?: Partial<Record<'showRiskScores' | 'showPatterns' | 'showRecommendations', boolean>>;
+  /** Type-safe risk level to color mapping */
+  riskLevelColors?: Partial<Record<RiskLevel, string>>;
   patternColors?: Record<string, string>;
+  /** Minimum risk score filter (0-100) */
   minRiskScore?: number;
+  /** Maximum risk score filter (0-100) */
   maxRiskScore?: number;
 }
 
 export interface CircularDependencyGraphOptions extends GraphRenderOptions {
-  showCycleNumbers?: boolean;
-  showCyclePaths?: boolean;
+  /** Feature flags for circular dependency visualization */
+  features?: Partial<Record<'showCycleNumbers' | 'showCyclePaths', boolean>>;
   cycleLengthColors?: Record<number, string>;
+  /** Minimum cycle length to display */
   minCycleLength?: number;
+  /** Maximum cycle length to display */
   maxCycleLength?: number;
 }
 
 export interface SCCGraphOptions extends GraphRenderOptions {
-  showComponentSizes?: boolean;
-  showRecursiveIndicators?: boolean;
+  /** Feature flags for SCC visualization */
+  features?: Partial<Record<'showComponentSizes' | 'showRecursiveIndicators', boolean>>;
   componentSizeColors?: Record<number, string>;
   recursiveColor?: string;
+  /** Minimum component size to display */
   minComponentSize?: number;
+  /** Maximum component size to display */
   maxComponentSize?: number;
 }
 
 export interface DeadCodeGraphOptions extends GraphRenderOptions {
-  showDeadCodeClusters?: boolean;
-  showLiveCodeClusters?: boolean;
+  /** Feature flags for dead code visualization */
+  features?: Partial<Record<'showDeadCodeClusters' | 'showLiveCodeClusters' | 'showReachabilityPaths', boolean>>;
   deadCodeColor?: string;
   liveCodeColor?: string;
-  showReachabilityPaths?: boolean;
 }
 
 export interface ExportOptions {
@@ -150,22 +177,31 @@ export interface ExportOptions {
 export interface GraphFilter {
   nodes?: {
     types?: string[];
+    /** Minimum complexity threshold (typically 1-20+) */
     minComplexity?: number;
+    /** Maximum complexity threshold (typically 1-20+) */
     maxComplexity?: number;
+    /** Minimum risk score filter (0-100) */
     minRiskScore?: number;
+    /** Maximum risk score filter (0-100) */
     maxRiskScore?: number;
     files?: string[];
-    namePattern?: string;
+    /** Regular expression pattern for node name filtering */
+    namePattern?: string | RegExp;
   };
   edges?: {
     types?: string[];
+    /** Minimum edge weight threshold */
     minWeight?: number;
+    /** Maximum edge weight threshold */
     maxWeight?: number;
     includeExternal?: boolean;
   };
   clusters?: {
     types?: string[];
+    /** Minimum cluster size (number of nodes) */
     minSize?: number;
+    /** Maximum cluster size (number of nodes) */
     maxSize?: number;
   };
 }
@@ -281,9 +317,11 @@ export interface GraphInsight {
   severity: 'info' | 'warning' | 'error';
   title: string;
   description: string;
-  affectedNodes: string[];
-  affectedEdges: string[];
-  metrics?: Record<string, number>;
+  /** Read-only array of affected node IDs */
+  affectedNodes: readonly string[];
+  /** Read-only array of affected edge IDs */
+  affectedEdges: readonly string[];
+  metrics?: Readonly<Record<string, number>>;
 }
 
 export interface GraphRecommendation {
@@ -293,8 +331,10 @@ export interface GraphRecommendation {
   description: string;
   impact: string;
   effort: 'low' | 'medium' | 'high';
-  affectedNodes: string[];
-  actionItems: string[];
+  /** Read-only array of affected node IDs */
+  affectedNodes: readonly string[];
+  /** Read-only array of action items */
+  actionItems: readonly string[];
 }
 
 // Mermaid-specific types

@@ -94,7 +94,7 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
 
       // Detect risk patterns
       const riskDetector = new RiskDetector({
-        wrapperThreshold: 0.8, // Default threshold since it's not in config
+        wrapperThreshold: riskConfig.detection.wrapperDetection.parameterMatchTolerance,
         fakeSplitThreshold: riskConfig.detection.fakeSplitDetection.couplingThreshold,
         complexityHotspotThreshold: riskConfig.detection.complexityHotspots.cyclomaticThreshold,
         minFunctionSize: riskConfig.detection.isolatedFunctions.minSize,
@@ -281,17 +281,41 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
       // Get all functions
       const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
 
-      let targetFunction;
+      let targetFunction: FunctionInfo | undefined;
       if (options.functionId) {
         targetFunction = functions.find(f => f.id === options.functionId);
+        if (!targetFunction) {
+          spinner.fail(chalk.red(`Function not found with ID: ${options.functionId}`));
+          return;
+        }
       } else if (options.functionName) {
-        targetFunction = functions.find(f => 
-          f.name === options.functionName || f.name.includes(options.functionName || '')
-        );
-      }
-
-      if (!targetFunction) {
-        spinner.fail(chalk.red(`Function not found: ${options.functionId || options.functionName}`));
+        // First try exact match
+        targetFunction = functions.find(f => f.name === options.functionName);
+        
+        if (!targetFunction) {
+          // Try partial match
+          const matchedFunctions = functions.filter(f => 
+            f.name.includes(options.functionName || '')
+          );
+          
+          if (matchedFunctions.length === 0) {
+            spinner.fail(chalk.red(`Function not found: ${options.functionName}`));
+            return;
+          } else if (matchedFunctions.length === 1) {
+            targetFunction = matchedFunctions[0];
+          } else {
+            // Multiple matches found
+            spinner.fail(chalk.red(`Multiple functions matched: ${options.functionName}. Please be more specific.`));
+            console.log(chalk.gray('\nMatched functions:'));
+            matchedFunctions.forEach(f => {
+              console.log(`  - ${chalk.cyan(f.name)} ${chalk.gray(`(${f.filePath}:${f.startLine})`)}`);
+            });
+            console.log(chalk.gray('\nUse --function-id for exact match or provide a more specific name.'));
+            return;
+          }
+        }
+      } else {
+        spinner.fail(chalk.red('Either --function-name or --function-id must be specified'));
         return;
       }
 
@@ -301,6 +325,14 @@ export const riskScoreCommand: VoidCommand<RiskScoreOptions> = (options) =>
       const [callEdges] = await Promise.all([
         env.storage.getCallEdgesBySnapshot(snapshot.id),
       ]);
+
+      // TODO: Performance optimization opportunity
+      // Currently, we analyze the entire codebase to score a single function.
+      // Future improvement: Implement targeted analysis methods in analyzers:
+      // - DependencyMetricsCalculator.calculateForFunction(targetFunction, callEdges)
+      // - RiskDetector.analyzeFunction(targetFunction, localContext)
+      // - SCCAnalyzer.findComponentContaining(targetFunction, callEdges)
+      // This would reduce complexity from O(N) to O(log N) for large codebases.
 
       // Calculate dependency metrics for the specific function
       const metricsCalculator = new DependencyMetricsCalculator();
@@ -422,16 +454,16 @@ function outputRiskAnalysisTable(
   }
 
   // Group results based on groupBy option
+  const outputStrategies = {
+    severity: outputByRiskLevel,
+    file: outputByFile,
+    pattern: outputByPattern,
+    score: outputByScore,
+  } as const;
+
   const groupBy = options.groupBy || 'severity';
-  if (groupBy === 'severity') {
-    outputByRiskLevel(assessments, options);
-  } else if (groupBy === 'file') {
-    outputByFile(assessments, options);
-  } else if (groupBy === 'pattern') {
-    outputByPattern(assessments, options);
-  } else {
-    outputByScore(assessments, options);
-  }
+  const outputStrategy = outputStrategies[groupBy] || outputByScore;
+  outputStrategy(assessments, options);
 
   // Recommendations
   if (options.includeRecommendations && analysis.recommendations.length > 0) {
@@ -746,6 +778,7 @@ function outputRiskScoreTable(
 
 /**
  * Output risk analysis as DOT format
+ * Note: Receives pre-filtered assessments from riskAnalyzeCommand
  */
 function outputRiskAnalysisDot(
   functions: import('../types').FunctionInfo[],
@@ -755,60 +788,14 @@ function outputRiskAnalysisDot(
 ): void {
   const dotGenerator = new DotGenerator();
   
-  // Create risk assessments map
-  const riskMap = new Map(assessments.map(a => [a.functionId, a]));
-  
-  // Filter functions to only include those with risk assessments
-  const filteredFunctions = functions.filter(func => riskMap.has(func.id));
-  
-  // Apply additional filters
-  let finalAssessments = assessments;
-  let finalFunctions = filteredFunctions;
-  
-  // Filter by severity if specified
-  if (options.severity) {
-    finalAssessments = assessments.filter(a => a.riskLevel === options.severity);
-    const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
-    finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
-  }
-  
-  // Filter by pattern if specified
-  if (options.pattern) {
-    finalAssessments = assessments.filter(a => 
-      a.patterns.some(p => p.type === options.pattern)
-    );
-    const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
-    finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
-  }
-  
-  // Filter by minimum score if specified
-  if (options.minScore) {
-    const minScore = parseInt(options.minScore, 10);
-    if (!isNaN(minScore) && minScore >= 0 && minScore <= 100) {
-      finalAssessments = assessments.filter(a => a.overallScore >= minScore);
-      const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
-      finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
-    }
-  }
-  
-  // Apply limit if specified
-  if (options.limit) {
-    const limit = parseInt(options.limit, 10);
-    if (!isNaN(limit) && limit > 0) {
-      // Sort by risk score descending and take top N
-      finalAssessments = finalAssessments
-        .sort((a, b) => b.overallScore - a.overallScore)
-        .slice(0, limit);
-      const finalFunctionIds = new Set(finalAssessments.map(a => a.functionId));
-      finalFunctions = functions.filter(f => finalFunctionIds.has(f.id));
-    }
-  }
+  // Filter functions to only include those with risk assessments (assessments are pre-filtered)
+  const assessmentFunctionIds = new Set(assessments.map(a => a.functionId));
+  const filteredFunctions = functions.filter(func => assessmentFunctionIds.has(func.id));
   
   // Filter call edges to only include those between remaining functions
-  const remainingFunctionIds = new Set(finalFunctions.map(f => f.id));
   const filteredCallEdges = callEdges.filter(edge => 
-    remainingFunctionIds.has(edge.callerFunctionId) && 
-    remainingFunctionIds.has(edge.calleeFunctionId || '')
+    assessmentFunctionIds.has(edge.callerFunctionId) && 
+    assessmentFunctionIds.has(edge.calleeFunctionId || '')
   );
   
   // Generate DOT graph
@@ -817,15 +804,15 @@ function outputRiskAnalysisDot(
     rankdir: 'TB' as const,
     nodeShape: 'box' as const,
     includeMetrics: true,
-    clusterBy: options.groupBy === 'file' ? 'file' as const : 'file' as const,
+    clusterBy: options.groupBy === 'file' ? 'file' as const : 'risk' as const,
     showLabels: true,
     maxLabelLength: 30,
   };
   
   const dotOutput = dotGenerator.generateRiskGraph(
-    finalFunctions,
+    filteredFunctions,
     filteredCallEdges,
-    finalAssessments,
+    assessments,
     dotOptions
   );
   

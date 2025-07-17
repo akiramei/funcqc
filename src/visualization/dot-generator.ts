@@ -2,6 +2,7 @@ import { FunctionInfo, CallEdge } from '../types';
 import { DependencyMetrics } from '../analyzers/dependency-metrics';
 import { ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
 import { StronglyConnectedComponent } from '../analyzers/scc-analyzer';
+import { GraphClusterBy } from '../types/visualization';
 
 export interface DotGraphOptions {
   title?: string;
@@ -13,7 +14,7 @@ export interface DotGraphOptions {
   showLabels?: boolean;
   maxLabelLength?: number;
   includeMetrics?: boolean;
-  clusterBy?: 'file' | 'risk' | 'complexity';
+  clusterBy?: GraphClusterBy;
 }
 
 export interface DotNode {
@@ -151,11 +152,15 @@ export class DotGenerator {
         attributes['tooltip'] = `"Fan-in: ${metrics.fanIn}\\nFan-out: ${metrics.fanOut}"`;
       }
 
+      const clusterId = options.clusterBy === 'file' 
+        ? `cluster_${this.sanitizeNodeId(func.filePath)}`
+        : undefined;
+
       graph.nodes.push({
         id: this.sanitizeNodeId(func.id),
         label,
         attributes,
-        cluster: options.clusterBy === 'file' ? func.filePath : undefined,
+        cluster: clusterId,
       });
     }
 
@@ -186,6 +191,8 @@ export class DotGenerator {
     // Create clusters
     if (options.clusterBy === 'file') {
       this.createFileClusters(graph, functions);
+    } else if (options.clusterBy === 'complexity') {
+      this.createComplexityClusters(graph, functions, dependencyMetrics);
     }
 
     return graph;
@@ -217,11 +224,17 @@ export class DotGenerator {
         attributes['tooltip'] = `"Risk: ${risk.overallScore}\\nLevel: ${risk.riskLevel}\\nPriority: ${risk.priority}"`;
       }
 
+      const clusterId = options.clusterBy === 'risk' && risk?.riskLevel 
+        ? `cluster_risk_${risk.riskLevel}` 
+        : options.clusterBy === 'file' 
+        ? `cluster_${this.sanitizeNodeId(func.filePath)}`
+        : undefined;
+
       graph.nodes.push({
         id: this.sanitizeNodeId(func.id),
         label,
         attributes,
-        cluster: options.clusterBy === 'risk' ? risk?.riskLevel : func.filePath,
+        cluster: clusterId,
       });
     }
 
@@ -252,6 +265,8 @@ export class DotGenerator {
       this.createRiskClusters(graph, riskAssessments);
     } else if (options.clusterBy === 'file') {
       this.createFileClusters(graph, functions);
+    } else if (options.clusterBy === 'complexity') {
+      this.createComplexityClusters(graph, functions, riskAssessments);
     }
 
     return graph;
@@ -531,10 +546,13 @@ export class DotGenerator {
   private getDependencyNodeColor(metrics: DependencyMetrics | undefined, options: Required<DotGraphOptions>): string {
     if (!metrics) return options.nodeColor;
     
-    // Color based on fan-in (hub detection)
-    if (metrics.fanIn > 5) return 'orange';
-    if (metrics.fanOut > 5) return 'lightgreen';
-    if (metrics.fanIn === 0 && metrics.fanOut === 0) return 'lightgray';
+    // High priority: Super-hub (both central collector and distributor)
+    if (metrics.fanIn > 5 && metrics.fanOut > 5) return 'red';
+    
+    // Medium priority: Single-axis characteristics
+    if (metrics.fanIn > 5) return 'orange';        // Hub (many callers)
+    if (metrics.fanOut > 5) return 'yellow';       // Utility (many callees)
+    if (metrics.fanIn === 0 && metrics.fanOut === 0) return 'lightgray';  // Isolated
     
     return options.nodeColor;
   }
@@ -569,34 +587,92 @@ export class DotGenerator {
   }
 
   private createFileClusters(graph: DotGraph, functions: FunctionInfo[]): void {
-    const fileGroups = new Map<string, string[]>();
+    const clusterMap = new Map<string, string>();
+    const fileClusterAttrs = {
+      style: 'filled',
+      fillcolor: 'lightgray',
+      color: 'black',
+    };
     
-    for (const func of functions) {
+    // O(N): Single pass through nodes to assign clusters
+    for (const node of graph.nodes) {
+      // Find corresponding function to get file path
+      const func = functions.find(f => this.sanitizeNodeId(f.id) === node.id);
+      if (!func) continue;
+      
       const file = func.filePath;
-      if (!fileGroups.has(file)) {
-        fileGroups.set(file, []);
+      let clusterId = clusterMap.get(file);
+      
+      if (!clusterId) {
+        clusterId = `cluster_${this.sanitizeNodeId(file)}`;
+        clusterMap.set(file, clusterId);
+        graph.clusters.set(clusterId, {
+          label: file,
+          attributes: fileClusterAttrs,
+        });
       }
-      fileGroups.get(file)!.push(func.id);
+      
+      node.cluster = clusterId;
     }
+  }
 
-    for (const [file, funcIds] of fileGroups) {
-      const clusterId = `cluster_${this.sanitizeNodeId(file)}`;
-      graph.clusters.set(clusterId, {
-        label: file,
-        attributes: {
-          style: 'filled',
-          fillcolor: 'lightgray',
-          color: 'black',
-        },
-      });
-
-      // Update node clusters
-      for (const node of graph.nodes) {
-        const sanitizedIds = funcIds.map(id => this.sanitizeNodeId(id));
-        if (sanitizedIds.includes(node.id)) {
-          node.cluster = clusterId;
+  private createComplexityClusters(
+    graph: DotGraph, 
+    functions: FunctionInfo[], 
+    metricsOrRiskAssessments: DependencyMetrics[] | ComprehensiveRiskAssessment[]
+  ): void {
+    const clusterMap = new Map<string, string>();
+    const complexityColors = {
+      low: 'lightgreen',      // CC: 1-5
+      medium: 'lightyellow',  // CC: 6-10
+      high: 'orange',         // CC: 11-15
+      critical: 'lightcoral', // CC: 16+
+    };
+    
+    // O(N): Single pass through nodes to assign complexity clusters
+    for (const node of graph.nodes) {
+      const func = functions.find(f => this.sanitizeNodeId(f.id) === node.id);
+      if (!func) continue;
+      
+      // Extract complexity metric from either DependencyMetrics or RiskAssessment
+      let complexityValue = 5; // default medium complexity
+      
+      if (metricsOrRiskAssessments.length > 0) {
+        const firstItem = metricsOrRiskAssessments[0];
+        if ('overallScore' in firstItem) {
+          // RiskAssessment case - use overall score as complexity proxy
+          const riskAssessment = (metricsOrRiskAssessments as ComprehensiveRiskAssessment[])
+            .find(r => r.functionId === func.id);
+          complexityValue = Math.round((riskAssessment?.overallScore || 50) / 5); // Map 0-100 to 0-20
+        } else {
+          // DependencyMetrics case - use fanIn + fanOut as complexity proxy
+          const metrics = (metricsOrRiskAssessments as DependencyMetrics[])
+            .find(m => m.functionId === func.id);
+          complexityValue = (metrics?.fanIn || 0) + (metrics?.fanOut || 0);
         }
       }
+      
+      // Bucket complexity into categories
+      const complexityLevel = complexityValue <= 5 ? 'low' :
+                            complexityValue <= 10 ? 'medium' :
+                            complexityValue <= 15 ? 'high' : 'critical';
+      
+      let clusterId = clusterMap.get(complexityLevel);
+      
+      if (!clusterId) {
+        clusterId = `cluster_complexity_${complexityLevel}`;
+        clusterMap.set(complexityLevel, clusterId);
+        graph.clusters.set(clusterId, {
+          label: `${complexityLevel.toUpperCase()} Complexity`,
+          attributes: {
+            style: 'filled',
+            fillcolor: complexityColors[complexityLevel as keyof typeof complexityColors],
+            color: 'black',
+          },
+        });
+      }
+      
+      node.cluster = clusterId;
     }
   }
 
@@ -646,6 +722,9 @@ export class DotGenerator {
 
   private sanitizeNodeId(id: string): string {
     // Replace characters that are problematic in DOT format
-    return id.replace(/[^a-zA-Z0-9_]/g, '_');
+    const cleaned = id.replace(/[^a-zA-Z0-9_]/g, '_');
+    
+    // DOT requires identifiers to start with letter or underscore, not digit
+    return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `_${cleaned}`;
   }
 }
