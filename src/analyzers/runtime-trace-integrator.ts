@@ -190,6 +190,9 @@ export class RuntimeTraceIntegrator {
    */
   private findCoverageMatch(edge: IdealCallEdge): CoverageInfo | undefined {
     // Get function metadata for callee
+    if (!edge.calleeFunctionId) {
+      return undefined;
+    }
     const calleeFunction = this.functionMetadata.get(edge.calleeFunctionId);
     if (!calleeFunction) {
       return undefined;
@@ -222,7 +225,7 @@ export class RuntimeTraceIntegrator {
     
     // Strategy 6: Cautious fuzzy matching by file basename and function name
     const fileName = path.basename(calleeFunction.filePath);
-    for (const [coverageKey, coverageInfo] of this.coverageData) {
+    for (const [, coverageInfo] of this.coverageData) {
       const coverageFileName = path.basename(coverageInfo.filePath);
       
       // Require exact filename match to prevent over-matching
@@ -296,9 +299,9 @@ export class RuntimeTraceIntegrator {
         count: 1,
         firstSeen: new Date().toISOString(),
         lastSeen: new Date().toISOString(),
-        callerDepth,
-        calleeDepth,
-        directionVerified: callerDepth !== undefined && calleeDepth !== undefined ? callerDepth < calleeDepth : undefined
+        ...(callerDepth !== undefined && { callerDepth }),
+        ...(calleeDepth !== undefined && { calleeDepth }),
+        ...(callerDepth !== undefined && calleeDepth !== undefined && { directionVerified: callerDepth < calleeDepth })
       };
       
       this.executionTraces.push(newTrace);

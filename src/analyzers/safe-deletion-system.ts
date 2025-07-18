@@ -212,6 +212,7 @@ export class SafeDeletionSystem {
 
       if (config.excludeExports && func.isExported) continue;
       if (this.isExcludedByPattern(func.filePath, config.excludePatterns)) continue;
+      if (this.isExternalLibraryFunction(func.filePath)) continue;
 
       const callers = reverseCallGraph.get(functionId) || new Set();
       const highConfidenceCallersSet = highConfidenceEdgeMap.get(functionId) || new Set();
@@ -445,6 +446,37 @@ export class SafeDeletionSystem {
       const regex = new RegExp(pattern.replace(/\*/g, '.*'));
       return regex.test(filePath);
     });
+  }
+
+  /**
+   * Check if function is from external library (node_modules, .d.ts files, etc.)
+   */
+  private isExternalLibraryFunction(filePath: string): boolean {
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    // Check for node_modules
+    if (normalizedPath.includes('/node_modules/')) {
+      return true;
+    }
+    
+    // Check for TypeScript declaration files
+    if (normalizedPath.endsWith('.d.ts')) {
+      return true;
+    }
+    
+    // Check for common external library patterns
+    const externalPatterns = [
+      '/@types/',
+      '/types/',
+      '/lib/',
+      '/dist/',
+      '/build/',
+      '/vendor/',
+      '/third-party/',
+      '/external/'
+    ];
+    
+    return externalPatterns.some(pattern => normalizedPath.includes(pattern));
   }
 
   /**

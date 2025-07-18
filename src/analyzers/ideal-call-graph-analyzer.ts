@@ -55,6 +55,7 @@ export interface FunctionMetadata {
   signature: string;
   startLine: number;
   endLine: number;
+  positionId?: string;
   contentHash: string;
 }
 
@@ -104,7 +105,7 @@ export class IdealCallGraphAnalyzer {
     
     // Phase 4: Runtime Trace Integration (if available)
     console.log('🔄 Phase 4: Integrating runtime traces...');
-    const finalEdges = await this.runtimeIntegrator.integrateTraces(confidenceEdges);
+    const finalEdges = await this.runtimeIntegrator.integrateTraces(confidenceEdges, functions);
 
     // Phase 5: Generate Results
     const result = this.generateResults(finalEdges, functions);

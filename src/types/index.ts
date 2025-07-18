@@ -112,6 +112,7 @@ export interface FunctionInfo {
   endLine: number; // ファイル内終了行
   startColumn: number; // ファイル内開始列
   endColumn: number; // ファイル内終了列
+  positionId?: string; // Position-based hash（文字オフセット識別）
 
   // 意味識別次元
   semanticId: string; // Semantic hash（役割ベース識別）
