@@ -1,10 +1,14 @@
-import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError } from '../types';
+import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError, CallEdge } from '../types';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
+import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
+import { Project } from 'ts-morph';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
   private qualityCalculator: QualityCalculator;
+  private idealCallGraphAnalyzer: IdealCallGraphAnalyzer | null = null;
+  private project: Project | null = null;
 
   constructor(private config: FuncqcConfig) {
     this.tsAnalyzer = new TypeScriptAnalyzer();
@@ -102,6 +106,207 @@ export class FunctionAnalyzer {
       errors: allErrors,
       warnings: allWarnings,
     };
+  }
+
+  /**
+   * Analyze files with ideal call graph analysis
+   */
+  async analyzeFilesWithIdealCallGraph(filePaths: string[]): Promise<{ 
+    functions: FunctionInfo[]; 
+    callEdges: CallEdge[]; 
+    errors: FuncqcError[]; 
+    warnings: string[] 
+  }> {
+    console.log('🎯 Starting ideal call graph analysis...');
+    
+    try {
+      // Initialize ts-morph project
+      await this.initializeProject(filePaths);
+      
+      if (!this.project || !this.idealCallGraphAnalyzer) {
+        throw new Error('Failed to initialize ideal call graph analyzer');
+      }
+      
+      // Perform ideal call graph analysis
+      const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
+      
+      // Convert to legacy format for compatibility
+      const functions = await this.convertToLegacyFormat(callGraphResult.functions);
+      const callEdges = this.convertCallEdges(callGraphResult.edges);
+      
+      return {
+        functions,
+        callEdges,
+        errors: [],
+        warnings: []
+      };
+      
+    } catch (error) {
+      console.error('❌ Ideal call graph analysis failed:', error);
+      
+      // Fallback to regular analysis
+      console.log('🔄 Falling back to regular analysis...');
+      const result = await this.analyzeFiles(filePaths);
+      
+      return {
+        functions: result.data || [],
+        callEdges: [],
+        errors: result.errors,
+        warnings: result.warnings
+      };
+    }
+  }
+
+  /**
+   * Initialize ts-morph project for ideal analysis
+   */
+  private async initializeProject(_filePaths: string[]): Promise<void> {
+    console.log('🏗️  Initializing ts-morph project...');
+    
+    // Find tsconfig.json
+    const tsConfigPath = await this.findTsConfigPath();
+    
+    const projectOptions: import('ts-morph').ProjectOptions = {
+      skipAddingFilesFromTsConfig: false, // Load all files for maximum precision
+      skipLoadingLibFiles: true,
+      useInMemoryFileSystem: false
+    };
+    
+    if (tsConfigPath) {
+      projectOptions.tsConfigFilePath = tsConfigPath;
+    }
+    
+    this.project = new Project(projectOptions);
+    
+    // Initialize ideal call graph analyzer
+    this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(this.project);
+    
+    console.log(`✅ Project initialized with ${this.project.getSourceFiles().length} files`);
+  }
+
+  /**
+   * Find tsconfig.json path
+   */
+  private async findTsConfigPath(): Promise<string | undefined> {
+    const fs = await import('fs');
+    const path = await import('path');
+    
+    // Search for tsconfig.json in project roots
+    for (const root of this.config.roots) {
+      const tsConfigPath = path.join(root, 'tsconfig.json');
+      if (fs.existsSync(tsConfigPath)) {
+        return tsConfigPath;
+      }
+    }
+    
+    // Search in parent directories
+    let currentDir = process.cwd();
+    while (currentDir !== '/') {
+      const tsConfigPath = path.join(currentDir, 'tsconfig.json');
+      if (fs.existsSync(tsConfigPath)) {
+        return tsConfigPath;
+      }
+      currentDir = path.dirname(currentDir);
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Convert ideal function metadata to legacy FunctionInfo format
+   */
+  private async convertToLegacyFormat(functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>): Promise<FunctionInfo[]> {
+    const legacyFunctions: FunctionInfo[] = [];
+    
+    for (const func of functions.values()) {
+      const legacyFunc: FunctionInfo = {
+        id: func.id,
+        name: func.name,
+        filePath: func.filePath,
+        startLine: func.startLine,
+        endLine: func.endLine,
+        startColumn: 0, // Not available in ideal system
+        endColumn: 0, // Not available in ideal system
+        semanticId: func.contentHash,
+        displayName: func.name,
+        signature: func.signature,
+        contextPath: func.className ? [func.className] : [],
+        functionType: func.isMethod ? 'method' : 'function',
+        modifiers: func.isExported ? ['export'] : [],
+        nestingLevel: 0,
+        isExported: func.isExported,
+        isAsync: false, // Will be determined by existing analyzer
+        isArrowFunction: false, // Will be determined by existing analyzer
+        isMethod: func.isMethod,
+        parameters: [], // Will be populated by quality calculator
+        sourceCode: '', // Will be populated if needed
+        astHash: func.contentHash,
+        contentId: func.contentHash,
+        
+        // Additional required fields
+        signatureHash: func.contentHash,
+        fileHash: func.contentHash,
+        isGenerator: false,
+        isConstructor: func.nodeKind === 'ConstructorDeclaration',
+        isStatic: false
+      };
+      
+      // Calculate quality metrics
+      try {
+        legacyFunc.metrics = await this.qualityCalculator.calculate(legacyFunc);
+      } catch (error) {
+        console.warn(`Failed to calculate metrics for ${func.name}: ${error}`);
+      }
+      
+      legacyFunctions.push(legacyFunc);
+    }
+    
+    return legacyFunctions;
+  }
+
+  /**
+   * Convert ideal call edges to legacy format
+   */
+  private convertCallEdges(edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]): CallEdge[] {
+    return edges.map((edge, index) => ({
+      id: `edge_${index}`,
+      callerFunctionId: edge.callerFunctionId,
+      calleeFunctionId: edge.calleeFunctionId,
+      calleeName: edge.calleeFunctionId || 'unknown',
+      calleeSignature: '', // Not available in ideal system
+      callType: 'direct' as const,
+      callContext: edge.resolutionSource,
+      lineNumber: 0, // Not available in ideal system
+      columnNumber: 0, // Not available in ideal system
+      isAsync: false, // Not available in ideal system
+      isChained: false, // Not available in ideal system
+      confidenceScore: edge.confidenceScore,
+      metadata: {
+        resolutionLevel: edge.resolutionLevel,
+        resolutionSource: edge.resolutionSource,
+        runtimeConfirmed: edge.runtimeConfirmed
+      },
+      createdAt: new Date().toISOString(),
+      
+      // Extensions for ideal system
+      calleeCandidates: edge.candidates,
+      resolutionLevel: edge.resolutionLevel as any,
+      resolutionSource: edge.resolutionSource,
+      runtimeConfirmed: edge.runtimeConfirmed
+    }));
+  }
+
+  /**
+   * Cleanup resources
+   */
+  dispose(): void {
+    if (this.idealCallGraphAnalyzer) {
+      this.idealCallGraphAnalyzer.dispose();
+      this.idealCallGraphAnalyzer = null;
+    }
+    if (this.project) {
+      this.project = null;
+    }
   }
 
   /**

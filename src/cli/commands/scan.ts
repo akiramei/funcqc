@@ -22,6 +22,7 @@ import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import { FunctionAnalyzer } from '../../core/analyzer';
 
 /**
  * Scan command as a Reader function
@@ -81,7 +82,7 @@ async function executeScanCommand(
       return;
     }
 
-    const result = await performAnalysis(files, components, spinner);
+    const result = await performAnalysis(files, components, spinner, env);
     showAnalysisSummary(result.functions);
 
     await saveResults(result.functions, result.callEdges, env.storage, options, spinner);
@@ -177,17 +178,58 @@ async function discoverFiles(
 async function performAnalysis(
   files: string[],
   components: CliComponents,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  env: CommandEnvironment
 ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   spinner.start('Analyzing functions...');
 
-  const result = await performFullAnalysis(files, components, spinner);
+  const result = await performFullAnalysis(files, components, spinner, env);
 
   spinner.succeed(`Analyzed ${result.functions.length} functions from ${files.length} files`);
   return result;
 }
 
 async function performFullAnalysis(
+  files: string[],
+  components: CliComponents,
+  spinner: SpinnerInterface,
+  env: CommandEnvironment
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+  // Try ideal call graph analysis first
+  const functionAnalyzer = new FunctionAnalyzer(env.config);
+  
+  try {
+    spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
+    const result = await functionAnalyzer.analyzeFilesWithIdealCallGraph(files);
+    
+    spinner.text = `Ideal analysis completed: ${result.functions.length} functions, ${result.callEdges.length} call edges`;
+    
+    // Show analysis statistics
+    if (result.callEdges.length > 0) {
+      const highConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95);
+      const mediumConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95);
+      const lowConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore < 0.7);
+      
+      spinner.text = `Call graph: ${result.callEdges.length} edges (High: ${highConfidenceEdges.length}, Medium: ${mediumConfidenceEdges.length}, Low: ${lowConfidenceEdges.length})`;
+    }
+    
+    return {
+      functions: result.functions,
+      callEdges: result.callEdges
+    };
+    
+  } catch (error) {
+    console.warn('⚠️  Ideal call graph analysis failed, falling back to legacy analysis');
+    console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    
+    // Fallback to legacy analysis
+    return await performLegacyAnalysis(files, components, spinner);
+  } finally {
+    functionAnalyzer.dispose();
+  }
+}
+
+async function performLegacyAnalysis(
   files: string[],
   components: CliComponents,
   spinner: SpinnerInterface
