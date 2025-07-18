@@ -13,6 +13,15 @@ This directory contains detailed documentation of known issues in funcqc.
 
 **Before Using**: Always verify dead code results manually and use `--dry-run` before deletion.
 
+### [DCD-002: Dead Code Detection Accuracy Improvements Implementation](./dead-code-detection-improvements.md)
+**Status**: In Progress  
+**Impact**: High - Systematic implementation to resolve DCD-001  
+**Affected**: `funcqc dead`, `funcqc clean` commands  
+
+**Quick Summary**: Implementation plan for systematic improvements to dead code detection accuracy through 3-phase approach: entry point detection enhancement, same-file call detection, and module resolution enhancement.
+
+**Progress**: Phase 1 (Entry Points) → Phase 2 (Internal Calls) → Phase 3 (Module Resolution)
+
 ---
 
 ## 📝 How to Report Issues

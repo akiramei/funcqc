@@ -81,7 +81,10 @@ export async function executeCleanCommand(options: CleanOptions): Promise<void> 
 
     // Detect entry points
     console.log(chalk.blue('🔍 Detecting entry points...'));
-    const entryPointDetector = new EntryPointDetector();
+    const entryPointDetector = new EntryPointDetector({
+      verbose: options.verbose,
+      debug: options.verbose // Use verbose flag for debug output
+    });
     const entryPoints = entryPointDetector.detectEntryPoints(allFunctions);
     
     // Analyze reachability to find dead code

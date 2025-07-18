@@ -40,48 +40,63 @@ src/cli/commands/show.ts:207:  if (await fileExists(func.filePath)) {
 
 ## 🎯 Root Causes
 
-### 1. Entry Point Detection Issues
-- **Test file recognition failure**: Functions called from test files are not recognized as entry points
-- **Location**: `src/analyzers/entry-point-detector.ts`
-- **Problem**: `isTestFile()` logic may be insufficient
+### 1. ~~Entry Point Detection Issues~~ (Investigation showed this is NOT the issue)
+- ~~**Test file recognition failure**: Functions called from test files are not recognized as entry points~~
+- ~~**Location**: `src/analyzers/entry-point-detector.ts`~~
+- ~~**Problem**: `isTestFile()` logic may be insufficient~~
+- **UPDATE**: Entry point detection is working correctly. The issue is in call graph analysis.
 
-### 2. Call Graph Analysis Problems
-- **Import/export analysis gaps**: Module dependency building is incomplete
-- **Same-file call detection**: Internal function calls within the same file are missed
-- **Location**: `src/analyzers/reachability-analyzer.ts`
+### 2. Call Graph Analysis Problems (PRIMARY ISSUE)
+- **Cross-file call detection failure**: CallGraphAnalyzer only resolves function calls within the same file
+- **Design flaw**: Each file is analyzed independently with only local function map
+- **Location**: `src/analyzers/call-graph-analyzer.ts` line 331-389 (createCallEdge method)
+- **Evidence**: `functionMap` parameter only contains functions from current file being analyzed
 
 ### 3. Module Resolution Issues
-- **Dynamic imports**: May not be properly tracked
-- **Re-exports**: Complex export patterns may be missed
-- **Type-only imports**: Distinction between type and value imports
+- **No global function registry**: No mechanism to map function calls to functions in other files
+- **Method name ambiguity**: `calculate` method name alone cannot identify `QualityCalculator.calculate`
+- **Import tracking missing**: Import statements are not used to resolve cross-file dependencies
 
 ## 🛠️ Technical Details
 
 ### Current Detection Flow
 ```
-1. EntryPointDetector.detectEntryPoints() 
+1. TypeScriptAnalyzer.analyzeFileWithCallGraph() - Analyzes each file independently
    ↓
-2. ReachabilityAnalyzer.analyzeReachability()
+2. CallGraphAnalyzer.analyzeFile(filePath, localFunctionMap) - Only has access to current file's functions
    ↓
-3. Build call graph from function calls
+3. createCallEdge() - Tries to resolve callee function ID from local map only
    ↓
-4. Mark unreachable functions as dead code
+4. Returns CallEdges with many calleeFunctionId = undefined (cross-file calls)
+   ↓
+5. ReachabilityAnalyzer sees no callers for functions called from other files
 ```
 
-### Problematic Areas
+### Problematic Code
 ```typescript
-// In EntryPointDetector
-isTestFile(filePath: string): boolean {
-  return filePath.includes('.test.') || filePath.includes('.spec.');
-  // ❌ This may be too simplistic
+// In CallGraphAnalyzer.createCallEdge() - line 331-358
+private createCallEdge(
+  call: DetectedCall,
+  functionMap: Map<string, { id: string; name: string }> // ❌ Only contains current file's functions!
+): CallEdge {
+  // Try to find the callee function in the same file
+  let calleeFunctionId: string | undefined;
+  
+  for (const [id, info] of functionMap.entries()) {
+    if (info.name === call.calleeName) {
+      calleeFunctionId = id; // ❌ Will be undefined for cross-file calls
+      break;
+    }
+  }
+  // ...
 }
 
-// In ReachabilityAnalyzer  
-buildCallGraph(functions, callEdges) {
-  // ❌ May miss same-file calls
-  // ❌ May miss dynamic imports
-  // ❌ May miss test file dependencies
+// In TypeScriptAnalyzer.analyzeFileWithCallGraph() - line 1067-1075
+const functionMap = new Map(); // ❌ Only includes functions from current file
+for (const func of functions) {
+  functionMap.set(func.id, { /* ... */ });
 }
+callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
 ```
 
 ## 🧪 Reproduction Steps
