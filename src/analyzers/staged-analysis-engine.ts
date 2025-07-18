@@ -1,5 +1,6 @@
-import { Project, Node, TypeChecker, CallExpression, PropertyAccessExpression, Identifier, SyntaxKind } from 'ts-morph';
+import { Project, Node, TypeChecker, CallExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
+import { CHAAnalyzer, UnresolvedMethodCall } from './cha-analyzer';
 
 /**
  * Staged Analysis Engine
@@ -16,10 +17,13 @@ export class StagedAnalysisEngine {
   private project: Project;
   private typeChecker: TypeChecker;
   private edges: IdealCallEdge[] = [];
+  private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
+  private chaAnalyzer: CHAAnalyzer;
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
     this.typeChecker = typeChecker;
+    this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
   }
 
   /**
@@ -85,6 +89,8 @@ export class StagedAnalysisEngine {
               resolutionLevel: 'local_exact' as ResolutionLevel,
               resolutionSource: 'local_exact',
               runtimeConfirmed: false,
+              lineNumber: node.getStartLineNumber(),
+              columnNumber: node.getStart() - node.getStartLinePos(),
               analysisMetadata: {
                 timestamp: Date.now(),
                 analysisVersion: '1.0',
@@ -126,6 +132,8 @@ export class StagedAnalysisEngine {
               resolutionLevel: 'import_exact' as ResolutionLevel,
               resolutionSource: 'typechecker_import',
               runtimeConfirmed: false,
+              lineNumber: node.getStartLineNumber(),
+              columnNumber: node.getStart() - node.getStartLinePos(),
               analysisMetadata: {
                 timestamp: Date.now(),
                 analysisVersion: '1.0',
@@ -146,16 +154,36 @@ export class StagedAnalysisEngine {
    * Class Hierarchy Analysis for method calls
    */
   private async performCHAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
-    // Implementation will be added in next phase
-    // For now, maintain perfect precision by not adding uncertain edges
-    return 0;
+    if (this.unresolvedMethodCalls.length === 0) {
+      console.log('   ℹ️  No unresolved method calls for CHA analysis');
+      return 0;
+    }
+    
+    try {
+      const chaEdges = await this.chaAnalyzer.performCHAAnalysis(functions, this.unresolvedMethodCalls);
+      
+      // Add CHA edges to our collection
+      for (const edge of chaEdges) {
+        this.addEdge(edge);
+      }
+      
+      // Clear unresolved method calls after successful CHA analysis to prevent memory leaks
+      this.unresolvedMethodCalls.length = 0;
+      
+      console.log(`   ✅ CHA resolved ${chaEdges.length} method calls`);
+      return chaEdges.length;
+    } catch (error) {
+      console.log(`   ⚠️  CHA analysis failed: ${error}`);
+      // Don't clear unresolved calls on failure - they might be needed for RTA
+      return 0;
+    }
   }
 
   /**
    * Stage 4: RTA Analysis  
    * Rapid Type Analysis with constructor tracking
    */
-  private async performRTAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
+  private async performRTAAnalysis(_functions: Map<string, FunctionMetadata>): Promise<number> {
     // Implementation will be added in next phase
     // For now, maintain perfect precision by not adding uncertain edges
     return 0;
@@ -167,7 +195,7 @@ export class StagedAnalysisEngine {
   private resolveLocalCall(
     callNode: CallExpression,
     functionByName: Map<string, FunctionMetadata>,
-    functionByLexicalPath: Map<string, FunctionMetadata>
+    _functionByLexicalPath: Map<string, FunctionMetadata>
   ): string | undefined {
     const expression = callNode.getExpression();
     
@@ -182,10 +210,36 @@ export class StagedAnalysisEngine {
       // Method call: obj.method()
       const methodName = expression.getName();
       
-      // For now, only resolve if we can find exact match
-      // More sophisticated resolution will come in CHA/RTA stages
+      // Try to find exact match first
       const func = functionByName.get(methodName);
-      return func?.id;
+      if (func) {
+        return func.id;
+      }
+      
+      // If not found locally, collect for CHA analysis
+      // We need to find the caller using the file functions
+      const fileFunctions = Array.from(functionByName.values());
+      const callerFunction = this.findContainingFunction(callNode, fileFunctions);
+      if (callerFunction) {
+        const receiverExpression = expression.getExpression();
+        let receiverType: string | undefined;
+        
+        // Try to determine receiver type using TypeChecker
+        try {
+          const type = this.typeChecker.getTypeAtLocation(receiverExpression);
+          receiverType = type.getSymbol()?.getName();
+        } catch {
+          // If TypeChecker fails, we'll try CHA without receiver type
+        }
+        
+        this.unresolvedMethodCalls.push({
+          callerFunctionId: callerFunction.id,
+          methodName,
+          receiverType,
+          lineNumber: callNode.getStartLineNumber(),
+          columnNumber: callNode.getStart()
+        });
+      }
     }
     
     return undefined;
@@ -211,7 +265,7 @@ export class StagedAnalysisEngine {
         if (!declarations || declarations.length === 0) return undefined;
         
         const declaration = declarations[0];
-        if (!Node.isFunctionLike(declaration)) return undefined;
+        if (!Node.isFunctionDeclaration(declaration) && !Node.isMethodDeclaration(declaration) && !Node.isArrowFunction(declaration) && !Node.isFunctionExpression(declaration)) return undefined;
         
         // Find matching function in our registry
         const declFilePath = declaration.getSourceFile().getFilePath();
@@ -224,8 +278,55 @@ export class StagedAnalysisEngine {
         }
       }
       
+      if (Node.isPropertyAccessExpression(expression)) {
+        // Method call through import: importedObj.method()
+        const methodName = expression.getName();
+        const receiverExpression = expression.getExpression();
+        
+        // Try to resolve receiver type
+        let receiverType: string | undefined;
+        try {
+          const type = this.typeChecker.getTypeAtLocation(receiverExpression);
+          receiverType = type.getSymbol()?.getName();
+        } catch {
+          // TypeChecker failed, collect for CHA analysis
+        }
+        
+        // Try direct resolution first
+        const symbol = this.typeChecker.getSymbolAtLocation(expression);
+        if (symbol) {
+          const declarations = symbol.getDeclarations();
+          if (declarations && declarations.length > 0) {
+            const declaration = declarations[0];
+            if (Node.isFunctionDeclaration(declaration) || Node.isMethodDeclaration(declaration) || Node.isArrowFunction(declaration) || Node.isFunctionExpression(declaration)) {
+              const declFilePath = declaration.getSourceFile().getFilePath();
+              const declStartLine = declaration.getStartLineNumber();
+              
+              for (const func of functions.values()) {
+                if (func.filePath === declFilePath && func.startLine === declStartLine) {
+                  return func.id;
+                }
+              }
+            }
+          }
+        }
+        
+        // If direct resolution fails, collect for CHA analysis
+        const fileFunctions = Array.from(functions.values()).filter(f => f.filePath === callNode.getSourceFile().getFilePath());
+        const callerFunction = this.findContainingFunction(callNode, fileFunctions);
+        if (callerFunction) {
+          this.unresolvedMethodCalls.push({
+            callerFunctionId: callerFunction.id,
+            methodName,
+            receiverType,
+            lineNumber: callNode.getStartLineNumber(),
+            columnNumber: callNode.getStart()
+          });
+        }
+      }
+      
       return undefined;
-    } catch (error) {
+    } catch {
       // If TypeChecker fails, don't add edge (maintain precision)
       return undefined;
     }
@@ -238,7 +339,7 @@ export class StagedAnalysisEngine {
     let current = node.getParent();
     
     while (current) {
-      if (Node.isFunctionLike(current)) {
+      if (Node.isFunctionDeclaration(current) || Node.isMethodDeclaration(current) || Node.isArrowFunction(current) || Node.isFunctionExpression(current) || Node.isConstructorDeclaration(current)) {
         const startLine = current.getStartLineNumber();
         const endLine = current.getEndLineNumber();
         
@@ -252,6 +353,7 @@ export class StagedAnalysisEngine {
     
     return undefined;
   }
+
 
   /**
    * Add edge to results (avoiding duplicates)
@@ -267,8 +369,8 @@ export class StagedAnalysisEngine {
       calleeSignature: '',
       callType: 'direct',
       callContext: edge.resolutionSource,
-      lineNumber: 0,
-      columnNumber: 0,
+      lineNumber: edge.lineNumber || 0,
+      columnNumber: edge.columnNumber || 0,
       isAsync: false,
       isChained: false,
       confidenceScore: edge.confidenceScore || 0,
@@ -280,7 +382,7 @@ export class StagedAnalysisEngine {
       resolutionSource: edge.resolutionSource || '',
       runtimeConfirmed: edge.runtimeConfirmed || false,
       candidates: edge.candidates || [],
-      executionCount: edge.executionCount,
+      ...(edge.executionCount !== undefined && { executionCount: edge.executionCount }),
       analysisMetadata: edge.analysisMetadata || {
         timestamp: Date.now(),
         analysisVersion: '1.0',
@@ -307,9 +409,11 @@ export class StagedAnalysisEngine {
   }
 
   /**
-   * Clear collected edges
+   * Clear collected edges and reset state
    */
   clear(): void {
     this.edges = [];
+    this.unresolvedMethodCalls = [];
+    this.chaAnalyzer.clear();
   }
 }

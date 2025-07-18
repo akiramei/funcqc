@@ -290,7 +290,7 @@ export class FunctionAnalyzer {
       
       // Extensions for ideal system
       calleeCandidates: edge.candidates,
-      resolutionLevel: edge.resolutionLevel as any,
+      resolutionLevel: edge.resolutionLevel,
       resolutionSource: edge.resolutionSource,
       runtimeConfirmed: edge.runtimeConfirmed
     }));

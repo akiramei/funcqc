@@ -44,7 +44,7 @@ export class RuntimeTraceIntegrator {
    */
   private async loadCoverageData(): Promise<void> {
     try {
-      const coverageDir = process.env.NODE_V8_COVERAGE || '.nyc_output';
+      const coverageDir = process.env['NODE_V8_COVERAGE'] || '.nyc_output';
       
       if (!fs.existsSync(coverageDir)) {
         return;
@@ -69,7 +69,7 @@ export class RuntimeTraceIntegrator {
   /**
    * Process V8 coverage data
    */
-  private processCoverageData(coverage: any): void {
+  private processCoverageData(coverage: V8CoverageData): void {
     if (!coverage.result) return;
     
     for (const script of coverage.result) {
@@ -80,14 +80,14 @@ export class RuntimeTraceIntegrator {
       
       for (const func of functions) {
         if (func.isBlockCoverage && func.ranges) {
-          const executedRanges = func.ranges.filter((r: any) => r.count > 0);
+          const executedRanges = func.ranges.filter((r: V8CoverageRange) => r.count > 0);
           
           if (executedRanges.length > 0) {
             this.coverageData.set(`${filePath}:${func.ranges[0].startOffset}`, {
               filePath,
               functionName: func.functionName || 'anonymous',
               executionCount: executedRanges[0].count,
-              executedRanges: executedRanges.map((r: any) => ({
+              executedRanges: executedRanges.map((r: V8CoverageRange) => ({
                 start: r.startOffset,
                 end: r.endOffset,
                 count: r.count
@@ -144,7 +144,7 @@ export class RuntimeTraceIntegrator {
     const updatedEdge: IdealCallEdge = {
       ...edge,
       runtimeConfirmed,
-      executionCount: executionCount > 0 ? executionCount : undefined
+      ...(executionCount > 0 && { executionCount })
     };
     
     // Boost confidence if runtime confirmed
@@ -164,7 +164,7 @@ export class RuntimeTraceIntegrator {
   /**
    * Find coverage data matching an edge
    */
-  private findCoverageMatch(edge: IdealCallEdge): CoverageInfo | undefined {
+  private findCoverageMatch(_edge: IdealCallEdge): CoverageInfo | undefined {
     // This is a simplified implementation
     // In practice, we'd need to map function IDs to coverage data
     return undefined;
@@ -247,4 +247,25 @@ interface ExecutionTrace {
   count: number;
   firstSeen: string;
   lastSeen: string;
+}
+
+interface V8CoverageRange {
+  startOffset: number;
+  endOffset: number;
+  count: number;
+}
+
+interface V8CoverageFunction {
+  functionName: string;
+  isBlockCoverage: boolean;
+  ranges: V8CoverageRange[];
+}
+
+interface V8CoverageScript {
+  url: string;
+  functions: V8CoverageFunction[];
+}
+
+interface V8CoverageData {
+  result: V8CoverageScript[];
 }

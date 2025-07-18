@@ -45,7 +45,7 @@ export class FunctionRegistry {
     const filePath = sourceFile.getFilePath();
     
     // Use forEachDescendant to visit every node
-    sourceFile.forEachDescendant((node, traversal) => {
+    sourceFile.forEachDescendant((node, _traversal) => {
       if (this.isFunctionLikeNode(node)) {
         try {
           const metadata = this.createFunctionMetadata(node, filePath);
@@ -82,6 +82,7 @@ export class FunctionRegistry {
     const signature = this.getFunctionSignature(node);
     const contentHash = this.calculateContentHash(node);
     
+    const className = this.getClassName(node);
     return {
       id: lexicalPath, // Use lexical path as unique ID
       name,
@@ -90,7 +91,7 @@ export class FunctionRegistry {
       nodeKind: node.getKindName(),
       isExported: this.isExported(node),
       isMethod: this.isMethod(node),
-      className: this.getClassName(node),
+      ...(className && { className }),
       signature,
       startLine: node.getStartLineNumber(),
       endLine: node.getEndLineNumber(),
@@ -189,7 +190,7 @@ export class FunctionRegistry {
    */
   private getFunctionSignature(node: Node): string {
     try {
-      if (Node.isFunctionLike(node)) {
+      if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node) || Node.isArrowFunction(node) || Node.isFunctionExpression(node) || Node.isConstructorDeclaration(node)) {
         const parameters = node.getParameters();
         const paramList = parameters.map(p => p.getName()).join(', ');
         const name = this.getFunctionName(node);
@@ -205,9 +206,13 @@ export class FunctionRegistry {
    * Check if function is exported
    */
   private isExported(node: Node): boolean {
-    return node.getModifiers().some(modifier => 
-      modifier.getKind() === SyntaxKind.ExportKeyword
-    );
+    // Check if node has modifiers (not all nodes have modifiers)
+    if ('getModifiers' in node && typeof node.getModifiers === 'function') {
+      return (node.getModifiers() as any[]).some(modifier => 
+        modifier.getKind() === SyntaxKind.ExportKeyword
+      );
+    }
+    return false;
   }
 
   /**

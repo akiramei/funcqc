@@ -1,4 +1,4 @@
-import { IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
+import { IdealCallEdge } from './ideal-call-graph-analyzer';
 
 /**
  * Confidence Calculator
@@ -44,7 +44,7 @@ export class ConfidenceCalculator {
    * Calculate confidence score for a single edge
    */
   private calculateEdgeConfidence(edge: IdealCallEdge): number {
-    let baseConfidence = ConfidenceCalculator.BASE_CONFIDENCE[edge.resolutionLevel as string];
+    const baseConfidence = ConfidenceCalculator.BASE_CONFIDENCE[edge.resolutionLevel as string];
     
     // Apply modifiers based on edge characteristics
     let confidence = baseConfidence;

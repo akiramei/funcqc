@@ -1,4 +1,4 @@
-import { Project, Node, TypeChecker, Symbol } from 'ts-morph';
+import { Project, TypeChecker } from 'ts-morph';
 import { FunctionRegistry } from './function-registry';
 import { StagedAnalysisEngine } from './staged-analysis-engine';
 import { ConfidenceCalculator } from './confidence-calculator';

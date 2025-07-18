@@ -66,8 +66,8 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
 
       // Detect entry points
       const entryPointDetector = new EntryPointDetector({
-        verbose: options.verbose,
-        debug: options.verbose
+        ...(options.verbose !== undefined && { verbose: options.verbose }),
+        ...(options.verbose !== undefined && { debug: options.verbose })
       });
       let entryPoints = entryPointDetector.detectEntryPoints(functions);
 
