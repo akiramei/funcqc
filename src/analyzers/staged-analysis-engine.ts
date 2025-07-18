@@ -393,9 +393,6 @@ export class StagedAnalysisEngine {
    */
   private async performRuntimeTraceIntegration(functions: Map<string, FunctionMetadata>): Promise<number> {
     try {
-      // Get current edges before integration
-      const edgesBeforeIntegration = [...this.edges];
-      
       // Integrate runtime traces
       const integratedEdges = await this.runtimeTraceIntegrator.integrateTraces(this.edges, functions);
       
