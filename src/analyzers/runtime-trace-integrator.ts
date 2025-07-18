@@ -14,6 +14,7 @@ import * as path from 'path';
 export class RuntimeTraceIntegrator {
   private coverageData: Map<string, CoverageInfo> = new Map();
   private executionTraces: ExecutionTrace[] = [];
+  private executionTraceIndex: Map<string, ExecutionTrace> = new Map();
   private functionMetadata: Map<string, FunctionMetadata> = new Map();
   private fileLineOffsetsCache: Map<string, number[]> = new Map();
 
@@ -45,7 +46,7 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
-   * Load V8 coverage data if available
+   * Load V8 coverage data if available (async optimized)
    */
   private async loadCoverageData(): Promise<void> {
     try {
@@ -55,13 +56,20 @@ export class RuntimeTraceIntegrator {
         return;
       }
       
-      const files = fs.readdirSync(coverageDir).filter(f => f.endsWith('.json'));
+      const files = (await fs.promises.readdir(coverageDir)).filter(f => f.endsWith('.json'));
       
-      for (const file of files) {
+      // Process files in parallel for better performance
+      const coveragePromises = files.map(async (file) => {
         const filePath = path.join(coverageDir, file);
-        const coverageRaw = fs.readFileSync(filePath, 'utf8');
+        const coverageRaw = await fs.promises.readFile(filePath, 'utf8');
         const coverage = JSON.parse(coverageRaw);
-        
+        return coverage;
+      });
+      
+      const coverageResults = await Promise.all(coveragePromises);
+      
+      // Process all coverage data
+      for (const coverage of coverageResults) {
         this.processCoverageData(coverage);
       }
       
@@ -111,7 +119,7 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
-   * Load execution traces if available
+   * Load execution traces if available (async optimized)
    */
   private async loadExecutionTraces(): Promise<void> {
     try {
@@ -121,8 +129,11 @@ export class RuntimeTraceIntegrator {
         return;
       }
       
-      const traceData = fs.readFileSync(tracePath, 'utf8');
+      const traceData = await fs.promises.readFile(tracePath, 'utf8');
       this.executionTraces = JSON.parse(traceData);
+      
+      // Build index for O(1) lookup
+      this.rebuildTraceIndex();
       
       console.log(`   📈 Loaded ${this.executionTraces.length} execution traces`);
     } catch (error) {
@@ -234,49 +245,83 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
-   * Find execution trace matching an edge
+   * Find execution trace matching an edge with direction verification (O(1) lookup)
    */
   private findTraceMatch(edge: IdealCallEdge): ExecutionTrace | undefined {
-    return this.executionTraces.find(trace => 
-      trace.caller === edge.callerFunctionId && 
-      trace.callee === edge.calleeFunctionId
-    );
+    const traceKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
+    const trace = this.executionTraceIndex.get(traceKey);
+    
+    if (!trace) {
+      return undefined;
+    }
+    
+    // Verify call direction if depth information is available
+    if (trace.callerDepth !== undefined && trace.calleeDepth !== undefined) {
+      const directionCorrect = trace.callerDepth < trace.calleeDepth;
+      if (!directionCorrect) {
+        console.warn(`   ⚠️  Direction mismatch: ${trace.caller} -> ${trace.callee} (depths: ${trace.callerDepth} -> ${trace.calleeDepth})`);
+        return undefined; // Don't use traces with incorrect direction
+      }
+    }
+    
+    return trace;
   }
 
   /**
-   * Generate execution trace for future use
+   * Generate execution trace for future use with optional depth information
    */
-  generateExecutionTrace(callerFunctionId: string, calleeFunctionId: string): void {
-    const existingTrace = this.executionTraces.find(t => 
-      t.caller === callerFunctionId && t.callee === calleeFunctionId
-    );
+  generateExecutionTrace(
+    callerFunctionId: string, 
+    calleeFunctionId: string,
+    callerDepth?: number,
+    calleeDepth?: number
+  ): void {
+    const traceKey = `${callerFunctionId}->${calleeFunctionId}`;
+    const existingTrace = this.executionTraceIndex.get(traceKey);
     
     if (existingTrace) {
       existingTrace.count++;
       existingTrace.lastSeen = new Date().toISOString();
+      
+      // Update depth information if provided
+      if (callerDepth !== undefined && calleeDepth !== undefined) {
+        existingTrace.callerDepth = callerDepth;
+        existingTrace.calleeDepth = calleeDepth;
+        existingTrace.directionVerified = callerDepth < calleeDepth;
+      }
     } else {
-      this.executionTraces.push({
+      const newTrace: ExecutionTrace = {
         caller: callerFunctionId,
         callee: calleeFunctionId,
         count: 1,
         firstSeen: new Date().toISOString(),
-        lastSeen: new Date().toISOString()
-      });
+        lastSeen: new Date().toISOString(),
+        callerDepth,
+        calleeDepth,
+        directionVerified: callerDepth !== undefined && calleeDepth !== undefined ? callerDepth < calleeDepth : undefined
+      };
+      
+      this.executionTraces.push(newTrace);
+      this.executionTraceIndex.set(traceKey, newTrace);
     }
   }
 
   /**
-   * Save execution traces to file
+   * Save execution traces to file (async optimized with atomic writes)
    */
   async saveExecutionTraces(): Promise<void> {
     try {
       const traceDir = '.funcqc';
       if (!fs.existsSync(traceDir)) {
-        fs.mkdirSync(traceDir, { recursive: true });
+        await fs.promises.mkdir(traceDir, { recursive: true });
       }
       
       const tracePath = path.join(traceDir, 'execution-traces.json');
-      fs.writeFileSync(tracePath, JSON.stringify(this.executionTraces, null, 2));
+      const tempPath = `${tracePath}.tmp`;
+      
+      // Write to temp file first, then atomically rename
+      await fs.promises.writeFile(tempPath, JSON.stringify(this.executionTraces, null, 2));
+      await fs.promises.rename(tempPath, tracePath);
       
       console.log(`   💾 Saved ${this.executionTraces.length} execution traces`);
     } catch (error) {
@@ -369,6 +414,17 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
+   * Rebuild execution trace index for O(1) lookup
+   */
+  private rebuildTraceIndex(): void {
+    this.executionTraceIndex.clear();
+    for (const trace of this.executionTraces) {
+      const traceKey = `${trace.caller}->${trace.callee}`;
+      this.executionTraceIndex.set(traceKey, trace);
+    }
+  }
+
+  /**
    * Get coverage statistics
    */
   getCoverageStats(): {
@@ -394,6 +450,7 @@ export class RuntimeTraceIntegrator {
   clear(): void {
     this.coverageData.clear();
     this.executionTraces = [];
+    this.executionTraceIndex.clear();
     this.functionMetadata.clear();
     this.fileLineOffsetsCache.clear();
   }
@@ -418,6 +475,9 @@ interface ExecutionTrace {
   count: number;
   firstSeen: string;
   lastSeen: string;
+  callerDepth?: number;
+  calleeDepth?: number;
+  directionVerified?: boolean;
 }
 
 interface V8CoverageRange {
