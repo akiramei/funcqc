@@ -3,6 +3,7 @@ import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-g
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
+import * as crypto from 'crypto';
 
 /**
  * Staged Analysis Engine
@@ -442,10 +443,13 @@ export class StagedAnalysisEngine {
    * Add edge to results (avoiding duplicates)
    */
   private addEdge(edge: Partial<IdealCallEdge>): void {
+    // Generate stable edge ID based on caller->callee relationship
+    const edgeId = this.generateStableEdgeId(edge.callerFunctionId!, edge.calleeFunctionId!);
+    
     // Create complete edge with required CallEdge properties
     const completeEdge: IdealCallEdge = {
       // Required CallEdge properties
-      id: `edge_${this.edges.length}`,
+      id: edgeId,
       callerFunctionId: edge.callerFunctionId!,
       calleeFunctionId: edge.calleeFunctionId,
       calleeName: edge.calleeFunctionId || 'unknown',
@@ -473,15 +477,21 @@ export class StagedAnalysisEngine {
       }
     };
     
-    // Check for duplicates
-    const exists = this.edges.some(existing => 
-      existing.callerFunctionId === completeEdge.callerFunctionId &&
-      existing.calleeFunctionId === completeEdge.calleeFunctionId
-    );
+    // Check for duplicates using stable ID
+    const exists = this.edges.some(existing => existing.id === edgeId);
     
     if (!exists) {
       this.edges.push(completeEdge);
     }
+  }
+
+  /**
+   * Generate stable edge ID based on caller->callee relationship
+   */
+  private generateStableEdgeId(callerFunctionId: string, calleeFunctionId: string): string {
+    const edgeKey = `${callerFunctionId}->${calleeFunctionId}`;
+    const hash = crypto.createHash('md5').update(edgeKey).digest('hex');
+    return `edge_${hash.substring(0, 8)}`;
   }
 
   /**

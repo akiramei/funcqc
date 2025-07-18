@@ -15,6 +15,7 @@ export class RuntimeTraceIntegrator {
   private coverageData: Map<string, CoverageInfo> = new Map();
   private executionTraces: ExecutionTrace[] = [];
   private functionMetadata: Map<string, FunctionMetadata> = new Map();
+  private fileLineOffsetsCache: Map<string, number[]> = new Map();
 
   /**
    * Integrate runtime traces with static analysis edges
@@ -159,7 +160,9 @@ export class RuntimeTraceIntegrator {
     
     // Boost confidence if runtime confirmed
     if (runtimeConfirmed) {
-      updatedEdge.confidenceScore = Math.min(1.0, updatedEdge.confidenceScore + 0.05);
+      // Use logarithmic scaling for execution count boost
+      const executionBoost = executionCount > 0 ? Math.min(0.15, Math.log10(executionCount + 1) * 0.05) : 0.05;
+      updatedEdge.confidenceScore = Math.min(1.0, updatedEdge.confidenceScore + executionBoost);
       
       // If we have strong runtime evidence, upgrade resolution level
       if (executionCount > 10) {
@@ -206,13 +209,24 @@ export class RuntimeTraceIntegrator {
       }
     }
     
-    // Strategy 6: Fuzzy matching by file basename and function name
+    // Strategy 6: Cautious fuzzy matching by file basename and function name
     const fileName = path.basename(calleeFunction.filePath);
     for (const [coverageKey, coverageInfo] of this.coverageData) {
-      if (coverageKey.includes(fileName) && 
+      const coverageFileName = path.basename(coverageInfo.filePath);
+      
+      // Require exact filename match to prevent over-matching
+      if (coverageFileName === fileName &&
+          // Require sufficient execution count to increase confidence
+          coverageInfo.executionCount >= 3 &&
+          // Require function name match or anonymous pattern
           (coverageInfo.functionName === calleeFunction.name || 
-           coverageInfo.functionName === 'anonymous' && calleeFunction.name.includes('anonymous'))) {
-        return coverageInfo;
+           (coverageInfo.functionName === 'anonymous' && calleeFunction.name.includes('anonymous')))) {
+        
+        // Additional safety check: ensure file paths are reasonably similar
+        const pathSimilarity = this.calculatePathSimilarity(calleeFunction.filePath, coverageInfo.filePath);
+        if (pathSimilarity >= 0.7) {
+          return coverageInfo;
+        }
       }
     }
     
@@ -271,7 +285,7 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
-   * Convert file offset to line number for coverage mapping
+   * Convert file offset to line number for coverage mapping (optimized with caching)
    */
   private offsetToLineNumber(filePath: string, offset: number): number {
     try {
@@ -279,12 +293,79 @@ export class RuntimeTraceIntegrator {
         return 1; // Default to line 1 if file doesn't exist
       }
       
-      const content = fs.readFileSync(filePath, 'utf8');
-      const lines = content.substring(0, offset).split('\n');
-      return lines.length;
+      // Check cache first
+      let lineOffsets = this.fileLineOffsetsCache.get(filePath);
+      if (!lineOffsets) {
+        // Build and cache line offsets for this file
+        const content = fs.readFileSync(filePath, 'utf8');
+        lineOffsets = this.buildLineOffsets(content);
+        this.fileLineOffsetsCache.set(filePath, lineOffsets);
+      }
+      
+      // Binary search to find the line number
+      return this.binarySearchLineNumber(lineOffsets, offset);
     } catch {
       return 1; // Default to line 1 on error
     }
+  }
+
+  /**
+   * Build array of line start offsets for a file
+   */
+  private buildLineOffsets(content: string): number[] {
+    const offsets = [0]; // Line 1 starts at offset 0
+    for (let i = 0; i < content.length; i++) {
+      if (content[i] === '\n') {
+        offsets.push(i + 1);
+      }
+    }
+    return offsets;
+  }
+
+  /**
+   * Binary search to find line number for given offset
+   */
+  private binarySearchLineNumber(lineOffsets: number[], offset: number): number {
+    let left = 0;
+    let right = lineOffsets.length - 1;
+    
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const midOffset = lineOffsets[mid];
+      
+      if (midOffset <= offset) {
+        // Check if this is the last line or the next line starts after our offset
+        if (mid === lineOffsets.length - 1 || lineOffsets[mid + 1] > offset) {
+          return mid + 1; // Line numbers are 1-indexed
+        }
+        left = mid + 1;
+      } else {
+        right = mid - 1;
+      }
+    }
+    
+    return 1; // Fallback to line 1
+  }
+
+  /**
+   * Calculate path similarity for fuzzy matching safety
+   */
+  private calculatePathSimilarity(path1: string, path2: string): number {
+    const normalize = (p: string) => p.replace(/\\/g, '/').toLowerCase();
+    const norm1 = normalize(path1);
+    const norm2 = normalize(path2);
+    
+    // Split paths into components
+    const parts1 = norm1.split('/').filter(p => p);
+    const parts2 = norm2.split('/').filter(p => p);
+    
+    // Calculate Jaccard similarity
+    const set1 = new Set(parts1);
+    const set2 = new Set(parts2);
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    
+    return intersection.size / union.size;
   }
 
   /**
@@ -314,6 +395,7 @@ export class RuntimeTraceIntegrator {
     this.coverageData.clear();
     this.executionTraces = [];
     this.functionMetadata.clear();
+    this.fileLineOffsetsCache.clear();
   }
 }
 
