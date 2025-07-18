@@ -1,6 +1,7 @@
 import { Project, Node, TypeChecker, CallExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
-import { CHAAnalyzer, UnresolvedMethodCall } from './cha-analyzer';
+import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
+import { RTAAnalyzer } from './rta-analyzer';
 
 /**
  * Staged Analysis Engine
@@ -18,12 +19,16 @@ export class StagedAnalysisEngine {
   private typeChecker: TypeChecker;
   private edges: IdealCallEdge[] = [];
   private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
+  private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
   private chaAnalyzer: CHAAnalyzer;
+  private rtaAnalyzer: RTAAnalyzer;
+  private chaCandidates: Map<string, MethodInfo[]> = new Map();
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
     this.typeChecker = typeChecker;
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
+    this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
   }
 
   /**
@@ -160,12 +165,18 @@ export class StagedAnalysisEngine {
     }
     
     try {
+      // Copy unresolved method calls for RTA analysis before CHA clears them
+      this.unresolvedMethodCallsForRTA = [...this.unresolvedMethodCalls];
+      
       const chaEdges = await this.chaAnalyzer.performCHAAnalysis(functions, this.unresolvedMethodCalls);
       
       // Add CHA edges to our collection
       for (const edge of chaEdges) {
         this.addEdge(edge);
       }
+      
+      // Collect CHA candidates for RTA analysis
+      this.collectCHACandidatesForRTA();
       
       // Clear unresolved method calls after successful CHA analysis to prevent memory leaks
       this.unresolvedMethodCalls.length = 0;
@@ -180,13 +191,49 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Collect CHA candidates for RTA analysis
+   */
+  private collectCHACandidatesForRTA(): void {
+    // Get method candidates from CHA analyzer
+    const methodIndex = this.chaAnalyzer.getMethodIndex();
+    
+    for (const [methodName, methodInfoSet] of methodIndex) {
+      if (methodInfoSet.size > 0) {
+        this.chaCandidates.set(methodName, Array.from(methodInfoSet));
+      }
+    }
+    
+    console.log(`   📋 Collected ${this.chaCandidates.size} CHA candidate groups for RTA`);
+  }
+
+  /**
    * Stage 4: RTA Analysis  
    * Rapid Type Analysis with constructor tracking
    */
-  private async performRTAAnalysis(_functions: Map<string, FunctionMetadata>): Promise<number> {
-    // Implementation will be added in next phase
-    // For now, maintain perfect precision by not adding uncertain edges
-    return 0;
+  private async performRTAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
+    if (this.chaCandidates.size === 0) {
+      console.log('   ℹ️  No CHA candidates for RTA analysis');
+      return 0;
+    }
+    
+    try {
+      const rtaEdges = await this.rtaAnalyzer.performRTAAnalysis(functions, this.chaCandidates, this.unresolvedMethodCallsForRTA);
+      
+      // Add RTA edges to our collection
+      for (const edge of rtaEdges) {
+        this.addEdge(edge);
+      }
+      
+      // Clear CHA candidates and RTA data after successful RTA analysis
+      this.chaCandidates.clear();
+      this.unresolvedMethodCallsForRTA.length = 0;
+      
+      console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
+      return rtaEdges.length;
+    } catch (error) {
+      console.log(`   ⚠️  RTA analysis failed: ${error}`);
+      return 0;
+    }
   }
 
   /**
@@ -414,6 +461,9 @@ export class StagedAnalysisEngine {
   clear(): void {
     this.edges = [];
     this.unresolvedMethodCalls = [];
+    this.unresolvedMethodCallsForRTA = [];
+    this.chaCandidates.clear();
     this.chaAnalyzer.clear();
+    this.rtaAnalyzer.clear();
   }
 }
