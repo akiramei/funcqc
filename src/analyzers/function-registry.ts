@@ -1,4 +1,4 @@
-import { Project, Node, SourceFile, SyntaxKind } from 'ts-morph';
+import { Project, Node, SourceFile } from 'ts-morph';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as crypto from 'crypto';
 import * as path from 'path';
@@ -206,11 +206,34 @@ export class FunctionRegistry {
    * Check if function is exported
    */
   private isExported(node: Node): boolean {
-    // Check if node has modifiers (not all nodes have modifiers)
-    if ('getModifiers' in node && typeof node.getModifiers === 'function') {
-      return (node.getModifiers() as any[]).some(modifier => 
-        modifier.getKind() === SyntaxKind.ExportKeyword
-      );
+    try {
+      // Use type guards to safely check for exported functions
+      if (Node.isFunctionDeclaration(node)) {
+        return node.isExported();
+      }
+      
+      // For methods, getters, setters, and constructors, check if the containing class is exported
+      if (Node.isMethodDeclaration(node) || Node.isGetAccessorDeclaration(node) || 
+          Node.isSetAccessorDeclaration(node) || Node.isConstructorDeclaration(node)) {
+        const classDeclaration = node.getParent();
+        if (Node.isClassDeclaration(classDeclaration)) {
+          return classDeclaration.isExported();
+        }
+        return false;
+      }
+      
+      // For arrow functions and function expressions, check parent context
+      if (Node.isArrowFunction(node) || Node.isFunctionExpression(node)) {
+        const parent = node.getParent();
+        if (Node.isVariableDeclaration(parent)) {
+          const statement = parent.getVariableStatement();
+          return statement ? statement.isExported() : false;
+        }
+        return false;
+      }
+    } catch {
+      // Fallback to false if any check fails
+      return false;
     }
     return false;
   }
