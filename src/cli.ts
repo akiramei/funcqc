@@ -1163,6 +1163,50 @@ program
     return withEnvironment(deadCommand)(options, command);
   });
 
+// Safe deletion command using high-confidence call graph analysis
+program
+  .command('safe-delete')
+  .description('🛡️  Safely delete dead code using high-confidence call graph analysis')
+  .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
+  .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
+  .option('--no-tests', 'skip test execution before deletion')
+  .option('--no-type-check', 'skip TypeScript type checking')
+  .option('--no-backup', 'skip backup creation')
+  .option('--dry-run', 'preview what would be deleted without executing')
+  .option('--include-exports', 'include exported functions in deletion candidates')
+  .option('--exclude <patterns>', 'exclude file patterns (comma-separated)')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--verbose', 'show detailed analysis information')
+  .option('--restore <path>', 'restore functions from backup directory')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { safeDeleteCommand } = await import('./cli/safe-delete');
+    return withEnvironment(safeDeleteCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # Preview safe deletion (dry run)
+  $ funcqc safe-delete --dry-run
+
+  # Delete with high confidence threshold
+  $ funcqc safe-delete --confidence-threshold 0.98
+
+  # Delete without backup (faster but less safe)
+  $ funcqc safe-delete --no-backup
+
+  # Delete in smaller batches for safety
+  $ funcqc safe-delete --max-batch 5
+
+  # Include exported functions in analysis
+  $ funcqc safe-delete --include-exports
+
+  # Exclude specific patterns
+  $ funcqc safe-delete --exclude "**/*.test.ts,**/fixtures/**"
+
+  # Restore from backup
+  $ funcqc safe-delete --restore ".funcqc/backups/safe-deletion-2024-01-15T10-30-00-000Z"
+`);
+
 // Clean dead code command
 program
   .command('clean')
