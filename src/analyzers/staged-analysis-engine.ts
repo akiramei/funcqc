@@ -2,6 +2,7 @@ import { Project, Node, TypeChecker, CallExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
+import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 
 /**
  * Staged Analysis Engine
@@ -11,6 +12,7 @@ import { RTAAnalyzer } from './rta-analyzer';
  * 2. Import Exact - Cross-file imports via TypeChecker (confidence: 0.95)
  * 3. CHA Resolved - Class Hierarchy Analysis (confidence: 0.8)
  * 4. RTA Resolved - Rapid Type Analysis (confidence: 0.9)
+ * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  * 
  * Each stage only adds edges it can resolve with high confidence.
  */
@@ -22,6 +24,7 @@ export class StagedAnalysisEngine {
   private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
   private chaAnalyzer: CHAAnalyzer;
   private rtaAnalyzer: RTAAnalyzer;
+  private runtimeTraceIntegrator: RuntimeTraceIntegrator;
   private chaCandidates: Map<string, MethodInfo[]> = new Map();
 
   constructor(project: Project, typeChecker: TypeChecker) {
@@ -29,6 +32,7 @@ export class StagedAnalysisEngine {
     this.typeChecker = typeChecker;
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
+    this.runtimeTraceIntegrator = new RuntimeTraceIntegrator();
   }
 
   /**
@@ -52,6 +56,10 @@ export class StagedAnalysisEngine {
     console.log('   🔍 Stage 4: RTA analysis...');
     const rtaEdges = await this.performRTAAnalysis(functions);
     console.log(`      Found ${rtaEdges} RTA edges`);
+    
+    console.log('   🔍 Stage 5: Runtime trace integration...');
+    const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
+    console.log(`      Integrated ${runtimeIntegratedEdges} runtime traces`);
     
     return this.edges;
   }
@@ -380,6 +388,37 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Stage 5: Runtime Trace Integration
+   * Integrate V8 coverage data and execution traces
+   */
+  private async performRuntimeTraceIntegration(functions: Map<string, FunctionMetadata>): Promise<number> {
+    try {
+      // Get current edges before integration
+      const edgesBeforeIntegration = [...this.edges];
+      
+      // Integrate runtime traces
+      const integratedEdges = await this.runtimeTraceIntegrator.integrateTraces(this.edges, functions);
+      
+      // Update edges with integrated data
+      this.edges = integratedEdges;
+      
+      // Count how many edges were actually enhanced with runtime data
+      const enhancedEdges = integratedEdges.filter(edge => edge.runtimeConfirmed).length;
+      
+      // Get coverage statistics
+      const coverageStats = this.runtimeTraceIntegrator.getCoverageStats();
+      if (coverageStats.totalCoveredFunctions > 0) {
+        console.log(`   📊 Coverage: ${coverageStats.totalCoveredFunctions} functions, ${coverageStats.totalExecutions} executions`);
+      }
+      
+      return enhancedEdges;
+    } catch (error) {
+      console.log(`   ⚠️  Runtime trace integration failed: ${error}`);
+      return 0;
+    }
+  }
+
+  /**
    * Find the containing function for a node
    */
   private findContainingFunction(node: Node, fileFunctions: FunctionMetadata[]): FunctionMetadata | undefined {
@@ -465,5 +504,6 @@ export class StagedAnalysisEngine {
     this.chaCandidates.clear();
     this.chaAnalyzer.clear();
     this.rtaAnalyzer.clear();
+    this.runtimeTraceIntegrator.clear();
   }
 }

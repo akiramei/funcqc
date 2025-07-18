@@ -1,4 +1,4 @@
-import { IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
+import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -14,12 +14,16 @@ import * as path from 'path';
 export class RuntimeTraceIntegrator {
   private coverageData: Map<string, CoverageInfo> = new Map();
   private executionTraces: ExecutionTrace[] = [];
+  private functionMetadata: Map<string, FunctionMetadata> = new Map();
 
   /**
    * Integrate runtime traces with static analysis edges
    */
-  async integrateTraces(edges: IdealCallEdge[]): Promise<IdealCallEdge[]> {
+  async integrateTraces(edges: IdealCallEdge[], functions: Map<string, FunctionMetadata>): Promise<IdealCallEdge[]> {
     console.log('   🔄 Integrating runtime traces...');
+    
+    // Store function metadata for coverage mapping
+    this.functionMetadata = functions;
     
     // Load coverage data if available
     await this.loadCoverageData();
@@ -83,10 +87,16 @@ export class RuntimeTraceIntegrator {
           const executedRanges = func.ranges.filter((r: V8CoverageRange) => r.count > 0);
           
           if (executedRanges.length > 0) {
-            this.coverageData.set(`${filePath}:${func.ranges[0].startOffset}`, {
+            // Convert file offset to line number for mapping
+            const startLine = this.offsetToLineNumber(filePath, func.ranges[0].startOffset);
+            const coverageKey = `${filePath}:${startLine}`;
+            
+            this.coverageData.set(coverageKey, {
               filePath,
               functionName: func.functionName || 'anonymous',
               executionCount: executedRanges[0].count,
+              startLine,
+              startOffset: func.ranges[0].startOffset,
               executedRanges: executedRanges.map((r: V8CoverageRange) => ({
                 start: r.startOffset,
                 end: r.endOffset,
@@ -164,9 +174,48 @@ export class RuntimeTraceIntegrator {
   /**
    * Find coverage data matching an edge
    */
-  private findCoverageMatch(_edge: IdealCallEdge): CoverageInfo | undefined {
-    // This is a simplified implementation
-    // In practice, we'd need to map function IDs to coverage data
+  private findCoverageMatch(edge: IdealCallEdge): CoverageInfo | undefined {
+    // Get function metadata for callee
+    const calleeFunction = this.functionMetadata.get(edge.calleeFunctionId);
+    if (!calleeFunction) {
+      return undefined;
+    }
+    
+    // Try to find coverage data by multiple strategies
+    const strategies = [
+      // Strategy 1: Exact file path and line number match
+      `${calleeFunction.filePath}:${calleeFunction.startLine}`,
+      
+      // Strategy 2: Normalize file path (remove file://, resolve relative paths)
+      `${path.resolve(calleeFunction.filePath)}:${calleeFunction.startLine}`,
+      
+      // Strategy 3: Try with different path separators
+      `${calleeFunction.filePath.replace(/\\/g, '/')}:${calleeFunction.startLine}`,
+      
+      // Strategy 4: Try with file:// prefix
+      `file://${calleeFunction.filePath}:${calleeFunction.startLine}`,
+      
+      // Strategy 5: Try with file:// prefix and normalized path
+      `file://${path.resolve(calleeFunction.filePath)}:${calleeFunction.startLine}`
+    ];
+    
+    for (const strategy of strategies) {
+      const match = this.coverageData.get(strategy);
+      if (match) {
+        return match;
+      }
+    }
+    
+    // Strategy 6: Fuzzy matching by file basename and function name
+    const fileName = path.basename(calleeFunction.filePath);
+    for (const [coverageKey, coverageInfo] of this.coverageData) {
+      if (coverageKey.includes(fileName) && 
+          (coverageInfo.functionName === calleeFunction.name || 
+           coverageInfo.functionName === 'anonymous' && calleeFunction.name.includes('anonymous'))) {
+        return coverageInfo;
+      }
+    }
+    
     return undefined;
   }
 
@@ -222,11 +271,49 @@ export class RuntimeTraceIntegrator {
   }
 
   /**
+   * Convert file offset to line number for coverage mapping
+   */
+  private offsetToLineNumber(filePath: string, offset: number): number {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return 1; // Default to line 1 if file doesn't exist
+      }
+      
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.substring(0, offset).split('\n');
+      return lines.length;
+    } catch {
+      return 1; // Default to line 1 on error
+    }
+  }
+
+  /**
+   * Get coverage statistics
+   */
+  getCoverageStats(): {
+    totalCoveredFunctions: number;
+    totalExecutions: number;
+    averageExecutionCount: number;
+  } {
+    const totalCoveredFunctions = this.coverageData.size;
+    const totalExecutions = Array.from(this.coverageData.values())
+      .reduce((sum, info) => sum + info.executionCount, 0);
+    const averageExecutionCount = totalCoveredFunctions > 0 ? totalExecutions / totalCoveredFunctions : 0;
+    
+    return {
+      totalCoveredFunctions,
+      totalExecutions,
+      averageExecutionCount
+    };
+  }
+
+  /**
    * Clear loaded data
    */
   clear(): void {
     this.coverageData.clear();
     this.executionTraces = [];
+    this.functionMetadata.clear();
   }
 }
 
@@ -234,6 +321,8 @@ interface CoverageInfo {
   filePath: string;
   functionName: string;
   executionCount: number;
+  startLine: number;
+  startOffset: number;
   executedRanges: Array<{
     start: number;
     end: number;
