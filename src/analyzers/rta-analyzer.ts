@@ -24,6 +24,7 @@ export class RTAAnalyzer {
   private typeChecker: TypeChecker;
   private instantiatedTypes = new Set<string>();
   private typeInstantiationMap = new Map<string, InstantiationInfo[]>();
+  private classInterfacesMap = new Map<string, string[]>();
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
@@ -34,7 +35,7 @@ export class RTAAnalyzer {
    * Perform RTA analysis to refine CHA candidates
    */
   async performRTAAnalysis(
-    _functions: Map<string, FunctionMetadata>,
+    functions: Map<string, FunctionMetadata>,
     chaCandidates: Map<string, MethodInfo[]>,
     unresolvedMethodCalls: UnresolvedMethodCall[]
   ): Promise<IdealCallEdge[]> {
@@ -42,7 +43,7 @@ export class RTAAnalyzer {
     await this.buildInstantiatedTypesRegistry();
     
     console.log('   🔬 Filtering CHA candidates with RTA...');
-    const rtaEdges = this.filterCHACandidatesWithRTA(chaCandidates, unresolvedMethodCalls);
+    const rtaEdges = this.filterCHACandidatesWithRTA(functions, chaCandidates, unresolvedMethodCalls);
     
     console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
     return rtaEdges;
@@ -84,6 +85,9 @@ export class RTAAnalyzer {
       
       if (typeName) {
         this.instantiatedTypes.add(typeName);
+        
+        // Add interface names if the class implements them
+        this.addImplementedInterfaces(typeName, node);
         
         // Record instantiation location for debugging
         const instantiationInfo: InstantiationInfo = {
@@ -151,6 +155,7 @@ export class RTAAnalyzer {
    * Filter CHA candidates based on instantiated types
    */
   private filterCHACandidatesWithRTA(
+    functions: Map<string, FunctionMetadata>,
     chaCandidates: Map<string, MethodInfo[]>, 
     unresolvedMethodCalls: UnresolvedMethodCall[]
   ): IdealCallEdge[] {
@@ -167,8 +172,13 @@ export class RTAAnalyzer {
     
     for (const [methodName, candidates] of chaCandidates) {
       const rtaFilteredCandidates = candidates.filter(candidate => {
-        // Only include candidates whose class is actually instantiated
-        return this.instantiatedTypes.has(candidate.className);
+        // Include candidates whose class is instantiated OR whose interfaces are instantiated
+        const classInstantiated = this.instantiatedTypes.has(candidate.className);
+        const interfacesOfClass = this.classInterfacesMap.get(candidate.className) || [];
+        const interfaceInstantiated = interfacesOfClass.some(interfaceName => 
+          this.instantiatedTypes.has(interfaceName)
+        );
+        return classInstantiated || interfaceInstantiated;
       });
       
       if (rtaFilteredCandidates.length > 0) {
@@ -178,7 +188,7 @@ export class RTAAnalyzer {
         // Create edges for each unresolved call with RTA-filtered candidates
         for (const unresolvedCall of methodCalls) {
           for (const candidate of rtaFilteredCandidates) {
-            const functionId = this.buildFunctionId(candidate);
+            const functionId = this.findMatchingFunctionId(functions, candidate);
             if (functionId) {
               const edge: IdealCallEdge = {
                 id: crypto.randomUUID(),
@@ -206,7 +216,7 @@ export class RTAAnalyzer {
                 resolutionLevel: 'rta_resolved' as ResolutionLevel,
                 resolutionSource: 'rta_analysis',
                 runtimeConfirmed: false,
-                candidates: rtaFilteredCandidates.map(c => this.buildFunctionId(c)).filter(id => id !== undefined) as string[],
+                candidates: rtaFilteredCandidates.map(c => this.findMatchingFunctionId(functions, c)).filter(id => id !== undefined) as string[],
                 analysisMetadata: {
                   timestamp: Date.now(),
                   analysisVersion: '1.0',
@@ -230,27 +240,74 @@ export class RTAAnalyzer {
   private calculateRTAConfidence(candidate: MethodInfo, totalRTACandidates: number): number {
     const baseConfidence = 0.9; // Base RTA confidence (higher than CHA)
     
-    // Reduce confidence based on number of remaining candidates
-    const candidatePenalty = Math.min(0.2, (totalRTACandidates - 1) * 0.03);
+    // Non-linear penalty: 1 - 1/√n approach
+    // As candidates increase, penalty grows more slowly (non-linear)
+    const candidatePenalty = totalRTACandidates > 1 ? 
+      Math.min(0.2, 1 - (1 / Math.sqrt(totalRTACandidates))) : 0;
     
     // Boost confidence for concrete implementations
     const concreteBonus = candidate.isAbstract ? 0 : 0.05;
     
-    // Boost confidence for constructor calls vs factory methods
+    // Boost confidence for constructor calls vs factory methods or interface implementations
     const instantiationInfo = this.typeInstantiationMap.get(candidate.className);
     const constructorBonus = instantiationInfo?.some(info => info.instantiationType === 'constructor') ? 0.02 : 0;
     
-    const confidence = baseConfidence - candidatePenalty + concreteBonus + constructorBonus;
+    // Check if class implements any instantiated interfaces
+    const interfacesOfClass = this.classInterfacesMap.get(candidate.className) || [];
+    const interfaceBonus = interfacesOfClass.some(interfaceName => 
+      this.instantiatedTypes.has(interfaceName)
+    ) ? 0.01 : 0;
+    
+    const confidence = baseConfidence - candidatePenalty + concreteBonus + constructorBonus + interfaceBonus;
     
     return Math.max(0.7, Math.min(1.0, confidence));
   }
 
   /**
-   * Build function ID for a method candidate
+   * Find matching function ID in the function registry for a method candidate
    */
-  private buildFunctionId(candidate: MethodInfo): string | undefined {
-    const relativePath = this.getRelativePath(candidate.filePath);
-    return `${relativePath}#${candidate.className}.${candidate.name}`;
+  private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
+    try {
+      const relativePath = this.getRelativePath(candidate.filePath);
+      
+      // Strategy 1: Try exact lexical path match (most accurate)
+      const exactPath = `${relativePath}#${candidate.className}.${candidate.name}`;
+      if (functions.has(exactPath)) {
+        return exactPath;
+      }
+      
+      // Strategy 2: Search by file path and line number (fallback for exact match)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            Math.abs(functionMetadata.startLine - candidate.startLine) <= 2 && // Allow small line differences
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
+      }
+      
+      // Strategy 3: Search by class and method name in same file (more lenient)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
+      }
+      
+      // Strategy 4: Search by method name only in same file (most lenient)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.isMethod) {
+          return functionId;
+        }
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -287,11 +344,66 @@ export class RTAAnalyzer {
   }
 
   /**
+   * Add interface names to instantiated types when a class implements them
+   */
+  private addImplementedInterfaces(typeName: string, node: NewExpression): void {
+    try {
+      // Use ts-morph to navigate the AST instead of the TypeScript compiler API
+      const expression = node.getExpression();
+      
+      if (expression) {
+        // Try to get the symbol and find the class declaration
+        const symbol = expression.getSymbol();
+        if (symbol) {
+          const declarations = symbol.getDeclarations();
+          for (const declaration of declarations) {
+            if (Node.isClassDeclaration(declaration)) {
+              const implementsClauses = declaration.getImplements();
+              const implementedInterfaces: string[] = [];
+              
+              for (const implementsClause of implementsClauses) {
+                const interfaceName = implementsClause.getExpression().getText();
+                if (interfaceName) {
+                  this.instantiatedTypes.add(interfaceName);
+                  implementedInterfaces.push(interfaceName);
+                  
+                  // Record interface instantiation info
+                  const instantiationInfo: InstantiationInfo = {
+                    typeName: interfaceName,
+                    filePath: node.getSourceFile().getFilePath(),
+                    lineNumber: node.getStartLineNumber(),
+                    instantiationType: 'interface'
+                  };
+                  
+                  if (!this.typeInstantiationMap.has(interfaceName)) {
+                    this.typeInstantiationMap.set(interfaceName, []);
+                  }
+                  this.typeInstantiationMap.get(interfaceName)!.push(instantiationInfo);
+                }
+              }
+              
+              // Build class -> interfaces mapping
+              if (implementedInterfaces.length > 0) {
+                const existingInterfaces = this.classInterfacesMap.get(typeName) || [];
+                const allInterfaces = [...new Set([...existingInterfaces, ...implementedInterfaces])];
+                this.classInterfacesMap.set(typeName, allInterfaces);
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore errors in interface resolution
+    }
+  }
+
+  /**
    * Clear internal state
    */
   clear(): void {
     this.instantiatedTypes.clear();
     this.typeInstantiationMap.clear();
+    this.classInterfacesMap.clear();
   }
 }
 
@@ -299,5 +411,5 @@ export interface InstantiationInfo {
   typeName: string;
   filePath: string;
   lineNumber: number;
-  instantiationType: 'constructor' | 'factory';
+  instantiationType: 'constructor' | 'factory' | 'interface';
 }

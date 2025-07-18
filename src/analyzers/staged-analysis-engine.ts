@@ -1,10 +1,11 @@
-import { Project, Node, TypeChecker, CallExpression, ModuleResolutionKind } from 'ts-morph';
+import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile, Symbol, ImportDeclaration, ModuleResolutionKind, SyntaxKind, ClassDeclaration, MethodDeclaration, PropertyAccessExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
+import * as path from 'path';
 
 /**
  * Staged Analysis Engine
@@ -25,6 +26,7 @@ export class StagedAnalysisEngine {
   private fullTypeChecker: TypeChecker | null = null;
   private edges: IdealCallEdge[] = [];
   private edgeKeys: Set<string> = new Set(); // Track unique caller->callee relationships
+  private edgeIndex: Map<string, IdealCallEdge> = new Map(); // caller->callee key to edge mapping
   private functionLookupMap: Map<string, string> = new Map(); // filePath+positionId -> funcId for O(1) lookup
   private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
   private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
@@ -156,6 +158,7 @@ export class StagedAnalysisEngine {
   async performStagedAnalysis(functions: Map<string, FunctionMetadata>): Promise<IdealCallEdge[]> {
     this.edges = [];
     this.edgeKeys.clear();
+    this.edgeIndex.clear();
     
     // Build function lookup map for O(1) function resolution
     this.buildFunctionLookupMap(functions);
@@ -211,24 +214,51 @@ export class StagedAnalysisEngine {
           const callerFunction = this.findContainingFunction(node, fileFunctions);
           if (!callerFunction) return;
           
+          // Check if this is an optional call expression
+          const isOptional = this.isOptionalCallExpression(node);
+          
           const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath);
           if (calleeId) {
             this.addEdge({
               callerFunctionId: callerFunction.id,
               calleeFunctionId: calleeId,
               candidates: [calleeId],
-              confidenceScore: 1.0,
+              // Reduce confidence slightly for optional calls due to runtime uncertainty
+              confidenceScore: isOptional ? 0.95 : 1.0,
               resolutionLevel: 'local_exact' as ResolutionLevel,
-              resolutionSource: 'local_exact',
+              resolutionSource: isOptional ? 'local_exact_optional' : 'local_exact',
               runtimeConfirmed: false,
               lineNumber: node.getStartLineNumber(),
               columnNumber: node.getStart() - node.getStartLinePos(),
+              metadata: isOptional ? { optionalChaining: true } : {},
               analysisMetadata: {
                 timestamp: Date.now(),
                 analysisVersion: '1.0',
                 sourceHash: sourceFile.getFilePath()
               }
             });
+          } else if (isOptional) {
+            // For optional calls that can't be resolved locally, try optional resolution
+            const optionalCalleeId = this.resolveOptionalCall(node, functions);
+            if (optionalCalleeId) {
+              this.addEdge({
+                callerFunctionId: callerFunction.id,
+                calleeFunctionId: optionalCalleeId,
+                candidates: [optionalCalleeId],
+                confidenceScore: 0.85, // Lower confidence for optional calls
+                resolutionLevel: 'local_exact' as ResolutionLevel,
+                resolutionSource: 'local_exact_optional',
+                runtimeConfirmed: false,
+                lineNumber: node.getStartLineNumber(),
+                columnNumber: node.getStart() - node.getStartLinePos(),
+                metadata: { optionalChaining: true },
+                analysisMetadata: {
+                  timestamp: Date.now(),
+                  analysisVersion: '1.0',
+                  sourceHash: sourceFile.getFilePath()
+                }
+              });
+            }
           }
         }
       });
@@ -241,7 +271,7 @@ export class StagedAnalysisEngine {
    */
   private async performImportExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     let importEdgesCount = 0;
-    const sourceFiles = this.project.getSourceFiles();
+    const sourceFiles = this.getProject().getSourceFiles();
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
@@ -250,22 +280,29 @@ export class StagedAnalysisEngine {
       if (fileFunctions.length === 0) continue;
       
       sourceFile.forEachDescendant(node => {
-        if (Node.isCallExpression(node)) {
+        if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
           const callerFunction = this.findContainingFunction(node, fileFunctions);
           if (!callerFunction) return;
           
-          const calleeId = this.resolveImportCall(node, functions);
+          // Check if this is an optional call expression
+          const isOptional = Node.isCallExpression(node) ? this.isOptionalCallExpression(node) : false;
+          
+          const calleeId = Node.isCallExpression(node) 
+            ? this.resolveImportCall(node, functions)
+            : this.resolveNewExpression(node, functions);
           if (calleeId) {
             this.addEdge({
               callerFunctionId: callerFunction.id,
               calleeFunctionId: calleeId,
               candidates: [calleeId],
-              confidenceScore: 0.95,
+              // Reduce confidence slightly for optional calls
+              confidenceScore: isOptional ? 0.90 : 0.95,
               resolutionLevel: 'import_exact' as ResolutionLevel,
-              resolutionSource: 'typechecker_import',
+              resolutionSource: isOptional ? 'typechecker_import_optional' : 'typechecker_import',
               runtimeConfirmed: false,
               lineNumber: node.getStartLineNumber(),
               columnNumber: node.getStart() - node.getStartLinePos(),
+              metadata: isOptional ? { optionalChaining: true } : {},
               analysisMetadata: {
                 timestamp: Date.now(),
                 analysisVersion: '1.0',
@@ -383,6 +420,19 @@ export class StagedAnalysisEngine {
     if (Node.isPropertyAccessExpression(expression)) {
       // Method call: obj.method()
       const methodName = expression.getName();
+      const receiverExpression = expression.getExpression();
+      
+      // Check for this/super calls first
+      const thisSuperId = this.resolveThisSuperCall(callNode, receiverExpression, methodName, functionByName);
+      if (thisSuperId) {
+        return thisSuperId;
+      }
+      
+      // Check for static method calls: ClassName.staticMethod()
+      const staticMethodId = this.resolveStaticMethodCall(callNode, receiverExpression, methodName, functionByName);
+      if (staticMethodId) {
+        return staticMethodId;
+      }
       
       // Try to find exact match first
       const func = functionByName.get(methodName);
@@ -395,7 +445,6 @@ export class StagedAnalysisEngine {
       const fileFunctions = Array.from(functionByName.values());
       const callerFunction = this.findContainingFunction(callNode, fileFunctions);
       if (callerFunction) {
-        const receiverExpression = expression.getExpression();
         let receiverType: string | undefined;
         
         // Try to determine receiver type using TypeChecker
@@ -416,6 +465,537 @@ export class StagedAnalysisEngine {
       }
     }
     
+    return undefined;
+  }
+
+  /**
+   * Resolve this/super method calls within class context
+   * Handles: this.method(), super.method()
+   */
+  private resolveThisSuperCall(
+    callNode: CallExpression,
+    receiverExpression: Node,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Check if this is a this/super call
+      if (Node.isThisExpression(receiverExpression)) {
+        return this.resolveThisCall(callNode, methodName, functionByName);
+      }
+      
+      if (Node.isSuperExpression(receiverExpression)) {
+        return this.resolveSuperCall(callNode, methodName, functionByName);
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve this.method() calls
+   */
+  private resolveThisCall(
+    callNode: CallExpression,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Find the containing class for this call
+      const containingClass = this.findContainingClass(callNode);
+      if (!containingClass) {
+        return undefined;
+      }
+      
+      const className = containingClass.getName();
+      if (!className) {
+        return undefined;
+      }
+      
+      // Strategy 1: Look for method in the same class
+      const directMethod = this.findMethodInClass(containingClass, methodName);
+      if (directMethod) {
+        const methodId = this.buildMethodId(directMethod, className);
+        if (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName)) {
+          return methodId;
+        }
+      }
+      
+      // Strategy 2: Use TypeChecker to resolve this context
+      const thisType = this.getTypeChecker().getTypeAtLocation(callNode.getExpression());
+      const symbol = thisType.getSymbol();
+      if (symbol) {
+        const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
+        return this.resolveFunctionFromSymbol(resolvedSymbol, functionByName);
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve super.method() calls
+   */
+  private resolveSuperCall(
+    callNode: CallExpression,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Find the containing class for this call
+      const containingClass = this.findContainingClass(callNode);
+      if (!containingClass) {
+        return undefined;
+      }
+      
+      // Get the parent class from extends clause
+      const extendsClause = containingClass.getExtends();
+      if (!extendsClause) {
+        return undefined;
+      }
+      
+      const parentClassName = extendsClause.getExpression().getText();
+      
+      // Strategy 1: Find parent class in the same file
+      const sourceFile = callNode.getSourceFile();
+      const parentClass = sourceFile.getClass(parentClassName);
+      if (parentClass) {
+        const parentMethod = this.findMethodInClass(parentClass, methodName);
+        if (parentMethod) {
+          const methodId = this.buildMethodId(parentMethod, parentClassName);
+          if (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName)) {
+            return methodId;
+          }
+        }
+      }
+      
+      // Strategy 2: Use TypeChecker to resolve super context
+      try {
+        const superExpression = callNode.getExpression() as PropertyAccessExpression;
+        const superType = this.getTypeChecker().getTypeAtLocation(superExpression.getExpression());
+        const symbol = superType.getSymbol();
+        if (symbol) {
+          const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
+          return this.resolveFunctionFromSymbol(resolvedSymbol, functionByName);
+        }
+      } catch {
+        // Continue to next strategy
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Find containing class for a given node
+   */
+  private findContainingClass(node: Node): ClassDeclaration | undefined {
+    let current = node.getParent();
+    while (current) {
+      if (Node.isClassDeclaration(current)) {
+        return current;
+      }
+      current = current.getParent();
+    }
+    return undefined;
+  }
+
+  /**
+   * Find method in a class declaration
+   */
+  private findMethodInClass(classDecl: ClassDeclaration, methodName: string): MethodDeclaration | undefined {
+    const methods = classDecl.getMethods();
+    return methods.find(method => method.getName() === methodName);
+  }
+
+  /**
+   * Build method ID in format: filePath#ClassName.methodName
+   */
+  private buildMethodId(method: MethodDeclaration, className: string): string {
+    const filePath = method.getSourceFile().getFilePath();
+    const relativePath = this.getRelativePath(filePath);
+    return `${relativePath}#${className}.${method.getName()}`;
+  }
+
+  /**
+   * Check if method exists in function registry
+   */
+  private isMethodInFunctionRegistry(methodId: string, functionByName: Map<string, FunctionMetadata>): boolean {
+    // Check if any function in registry matches this method ID
+    for (const [, func] of functionByName) {
+      if (func.id === methodId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Get relative path for building method IDs
+   */
+  private getRelativePath(filePath: string): string {
+    try {
+      const cwd = process.cwd();
+      return path.relative(cwd, filePath);
+    } catch {
+      return path.basename(filePath);
+    }
+  }
+
+  /**
+   * Extract class name and namespace from receiver expression
+   * Supports: ClassName and Namespace.ClassName patterns
+   */
+  private extractClassNameFromReceiver(receiverExpression: Node): { className: string; namespace?: string } | undefined {
+    if (Node.isIdentifier(receiverExpression)) {
+      // Simple case: ClassName.staticMethod()
+      return {
+        className: receiverExpression.getText()
+      };
+    }
+    
+    if (Node.isPropertyAccessExpression(receiverExpression)) {
+      // Namespace case: Namespace.ClassName.staticMethod()
+      // The receiverExpression is Namespace.ClassName
+      const rightSide = receiverExpression.getName(); // ClassName
+      const leftSide = receiverExpression.getExpression(); // Namespace
+      
+      if (Node.isIdentifier(leftSide)) {
+        return {
+          className: rightSide,
+          namespace: leftSide.getText()
+        };
+      }
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Resolve static method calls: ClassName.staticMethod() and Namespace.ClassName.staticMethod()
+   */
+  private resolveStaticMethodCall(
+    callNode: CallExpression,
+    receiverExpression: Node,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Extract class name from receiver expression
+      const classNameInfo = this.extractClassNameFromReceiver(receiverExpression);
+      if (!classNameInfo) {
+        return undefined;
+      }
+      
+      const { className, namespace } = classNameInfo;
+      
+      // Strategy 1: Look for class in the same file (with inheritance chain search)
+      const sourceFile = callNode.getSourceFile();
+      const classDeclaration = sourceFile.getClass(className);
+      if (classDeclaration) {
+        const staticMethodResult = this.findStaticMethodInClassWithInheritance(classDeclaration, methodName, functionByName);
+        if (staticMethodResult) {
+          return staticMethodResult;
+        }
+      }
+      
+      // Strategy 2: Use TypeChecker to resolve class symbol
+      if (namespace) {
+        // Handle namespaced class: Namespace.ClassName.staticMethod()
+        const namespacedClassResult = this.resolveNamespacedClass(callNode, namespace, className, methodName, functionByName);
+        if (namespacedClassResult) {
+          return namespacedClassResult;
+        }
+      } else {
+        // Handle direct class reference: ClassName.staticMethod()
+        const classSymbol = this.getTypeChecker().getSymbolAtLocation(receiverExpression);
+        if (classSymbol) {
+          // Check if this is a class symbol
+          if (classSymbol.compilerSymbol.flags & ts.SymbolFlags.Class) {
+            const resolvedSymbol = this.resolveAliasedSymbol(classSymbol.compilerSymbol);
+            return this.resolveStaticMethodFromSymbol(resolvedSymbol, methodName, functionByName);
+          }
+        }
+      }
+      
+      // Strategy 3: Cross-file static method resolution using import analysis
+      const importedStaticMethod = this.resolveImportedStaticMethod(receiverExpression, methodName, functionByName);
+      if (importedStaticMethod) {
+        return importedStaticMethod;
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve namespaced class static methods: Namespace.ClassName.staticMethod()
+   */
+  private resolveNamespacedClass(
+    callNode: CallExpression,
+    namespace: string,
+    className: string,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      const sourceFile = callNode.getSourceFile();
+      
+      // Primary strategy: Resolve via module/import analysis (import * as Namespace)
+      const moduleNamespaceResult = this.resolveModuleNamespacedClass(sourceFile, namespace, className, methodName, functionByName);
+      if (moduleNamespaceResult) {
+        return moduleNamespaceResult;
+      }
+      
+      // Secondary strategy: Use TypeChecker to resolve namespace.class via PropertyAccessExpression
+      // This handles cases where the namespace might be resolved at the receiver level
+      const fullQualifiedName = `${namespace}.${className}`;
+      try {
+        // Try to find a class that matches the full qualified name pattern
+        for (const [functionId, functionMetadata] of functionByName) {
+          if (functionMetadata.className === className && functionMetadata.name === methodName && functionMetadata.isMethod) {
+            // Check if this function's class path matches our namespace pattern
+            if (functionMetadata.lexicalPath.includes(fullQualifiedName) || 
+                functionMetadata.filePath.includes(namespace)) {
+              return functionId;
+            }
+          }
+        }
+      } catch {
+        // Continue if this approach fails
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+
+  /**
+   * Resolve module-based namespaced class (import * as Namespace)
+   */
+  private resolveModuleNamespacedClass(
+    sourceFile: SourceFile,
+    namespace: string,
+    className: string,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Look for namespace import: import * as Namespace from './module'
+      const namespaceImportDecl = this.findNamespaceImportDeclaration(sourceFile, namespace);
+      if (!namespaceImportDecl) {
+        return undefined;
+      }
+      
+      // Use existing namespace import resolution logic but for class static methods
+      const moduleSpecifier = namespaceImportDecl.getModuleSpecifier();
+      if (!moduleSpecifier || !Node.isStringLiteral(moduleSpecifier)) {
+        return undefined;
+      }
+      
+      // Try to resolve the class symbol from the imported module
+      const namespaceSymbol = this.getTypeChecker().getSymbolAtLocation(sourceFile.getVariableDeclaration(namespace)?.getNameNode() || sourceFile);
+      if (namespaceSymbol) {
+        const moduleExports = this.typeChecker.compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
+        const classSymbol = moduleExports.find(exp => exp.getName() === className);
+        
+        if (classSymbol && classSymbol.flags & ts.SymbolFlags.Class) {
+          const resolvedSymbol = this.resolveAliasedSymbol(classSymbol);
+          return this.resolveStaticMethodFromSymbol(resolvedSymbol, methodName, functionByName);
+        }
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Find static method in a class declaration with inheritance chain search
+   */
+  private findStaticMethodInClassWithInheritance(
+    classDecl: ClassDeclaration, 
+    methodName: string, 
+    functionByName: Map<string, FunctionMetadata>,
+    visited = new Set<string>()
+  ): string | undefined {
+    const className = classDecl.getName();
+    if (!className || visited.has(className)) {
+      return undefined;
+    }
+    visited.add(className);
+    
+    // Check static method in current class
+    const staticMethod = this.findStaticMethodInClass(classDecl, methodName);
+    if (staticMethod) {
+      const methodId = this.buildMethodId(staticMethod, className);
+      if (this.isMethodInFunctionRegistry(methodId, functionByName)) {
+        return methodId;
+      }
+    }
+    
+    // Search in parent class (inheritance chain)
+    const extendsClause = classDecl.getExtends();
+    if (extendsClause) {
+      const parentClassName = extendsClause.getExpression().getText();
+      
+      // Look for parent class in the same file
+      const sourceFile = classDecl.getSourceFile();
+      const parentClass = sourceFile.getClass(parentClassName);
+      if (parentClass) {
+        const parentResult = this.findStaticMethodInClassWithInheritance(parentClass, methodName, functionByName, visited);
+        if (parentResult) {
+          return parentResult;
+        }
+      }
+      
+      // Use TypeChecker to resolve parent class across files
+      try {
+        const parentSymbol = this.getTypeChecker().getSymbolAtLocation(extendsClause.getExpression());
+        if (parentSymbol && parentSymbol.compilerSymbol.flags & ts.SymbolFlags.Class) {
+          const resolvedParentSymbol = this.resolveAliasedSymbol(parentSymbol.compilerSymbol);
+          const parentStaticMethod = this.resolveStaticMethodFromSymbol(resolvedParentSymbol, methodName, functionByName);
+          if (parentStaticMethod) {
+            return parentStaticMethod;
+          }
+        }
+      } catch {
+        // Continue if TypeChecker resolution fails
+      }
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Find static method in a class declaration
+   */
+  private findStaticMethodInClass(classDecl: ClassDeclaration, methodName: string): MethodDeclaration | undefined {
+    const methods = classDecl.getMethods();
+    return methods.find(method => method.getName() === methodName && method.isStatic());
+  }
+
+  /**
+   * Resolve static method from TypeScript symbol with inheritance chain search
+   */
+  private resolveStaticMethodFromSymbol(
+    classSymbol: ts.Symbol,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>,
+    visited = new Set<string>()
+  ): string | undefined {
+    try {
+      const symbolName = classSymbol.getName();
+      if (visited.has(symbolName)) {
+        return undefined;
+      }
+      visited.add(symbolName);
+      
+      // Get static members of the class
+      const staticType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const staticProperties = this.typeChecker.compilerObject.getPropertiesOfType(staticType);
+      
+      // Find the static method in current class
+      const staticMethodSymbol = staticProperties.find(prop => prop.getName() === methodName);
+      if (staticMethodSymbol) {
+        // Check if it's a method (function)
+        const methodType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
+        if (methodType.getCallSignatures().length > 0) {
+          const result = this.resolveFunctionFromSymbol(staticMethodSymbol, functionByName);
+          if (result) {
+            return result;
+          }
+        }
+      }
+      
+      // Search in base classes (inheritance chain)
+      const classType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const baseTypes = this.typeChecker.compilerObject.getBaseTypes(classType as ts.InterfaceType);
+      
+      for (const baseType of baseTypes) {
+        const baseSymbol = baseType.getSymbol();
+        if (baseSymbol && baseSymbol.flags & ts.SymbolFlags.Class) {
+          const baseResult = this.resolveStaticMethodFromSymbol(baseSymbol, methodName, functionByName, visited);
+          if (baseResult) {
+            return baseResult;
+          }
+        }
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve imported static method calls
+   * Handles: import { MyClass } from './module'; MyClass.staticMethod()
+   */
+  private resolveImportedStaticMethod(
+    classIdentifier: Node,
+    methodName: string,
+    functionByName: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      const className = classIdentifier.getText();
+      const sourceFile = classIdentifier.getSourceFile();
+      
+      // Find import declaration for this class
+      const importDecl = this.findClassImportDeclaration(sourceFile, className);
+      if (!importDecl) {
+        return undefined;
+      }
+      
+      // Use TypeChecker to resolve the imported class symbol
+      const classSymbol = this.getTypeChecker().getSymbolAtLocation(classIdentifier);
+      if (classSymbol) {
+        const resolvedSymbol = this.resolveAliasedSymbol(classSymbol.compilerSymbol);
+        return this.resolveStaticMethodFromSymbol(resolvedSymbol, methodName, functionByName);
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Find import declaration for a class name
+   */
+  private findClassImportDeclaration(sourceFile: SourceFile, className: string): ImportDeclaration | undefined {
+    for (const importDecl of sourceFile.getImportDeclarations()) {
+      const importClause = importDecl.getImportClause();
+      if (!importClause) continue;
+      
+      // Check named imports
+      const namedBindings = importClause.getNamedBindings();
+      if (namedBindings && Node.isNamedImports(namedBindings)) {
+        const namedImports = namedBindings.getElements();
+        for (const namedImport of namedImports) {
+          if (namedImport.getName() === className) {
+            return importDecl;
+          }
+        }
+      }
+      
+      // Check default import
+      const defaultImport = importClause.getDefaultImport();
+      if (defaultImport && defaultImport.getText() === className) {
+        return importDecl;
+      }
+    }
     return undefined;
   }
 
@@ -564,6 +1144,317 @@ export class StagedAnalysisEngine {
   }
   
   /**
+   * Resolve namespace import calls: import * as ns; ns.functionName()
+   * Handles the complete namespace resolution process with import statement analysis
+   */
+  private resolveNamespaceImport(
+    receiverExpression: Node,
+    methodName: string,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Check if receiver is an identifier (namespace)
+      if (!Node.isIdentifier(receiverExpression)) {
+        return undefined;
+      }
+      
+      const namespaceName = receiverExpression.getText();
+      
+      // Skip external modules that are not in our function registry
+      if (['crypto', 'fs', 'path', 'os', 'util'].includes(namespaceName)) {
+        return undefined;
+      }
+      
+      // Get the namespace symbol
+      const namespaceSymbol = this.getTypeChecker().getSymbolAtLocation(receiverExpression);
+      if (!namespaceSymbol) {
+        return undefined;
+      }
+      
+      // Strategy 1: Direct namespace resolution
+      const directResult = this.resolveDirectNamespace(namespaceSymbol, methodName, functions);
+      if (directResult) {
+        return directResult;
+      }
+      
+      // Strategy 2: Import statement analysis for 'import * as ns from "module"'
+      const importResult = this.resolveNamespaceFromImport(receiverExpression, methodName, functions);
+      if (importResult) {
+        return importResult;
+      }
+      
+      return undefined;
+    } catch {
+      // If namespace resolution fails, return undefined
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve namespace through direct symbol analysis
+   */
+  private resolveDirectNamespace(
+    namespaceSymbol: Symbol,
+    methodName: string,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Check if this is a namespace import (SymbolFlags.NamespaceModule or SymbolFlags.ValueModule)
+      const isNamespace = (namespaceSymbol.compilerSymbol.flags & ts.SymbolFlags.NamespaceModule) ||
+                         (namespaceSymbol.compilerSymbol.flags & ts.SymbolFlags.ValueModule) ||
+                         (namespaceSymbol.compilerSymbol.flags & ts.SymbolFlags.Alias);
+      
+      if (!isNamespace) {
+        return undefined;
+      }
+      
+      // Resolve aliased namespace symbols first
+      const resolvedNamespace = this.resolveAliasedSymbol(namespaceSymbol.compilerSymbol);
+      
+      // Get the module declaration that this namespace refers to
+      const moduleExports = this.getTypeChecker().compilerObject.getExportsOfModule(resolvedNamespace);
+      if (!moduleExports) {
+        return undefined;
+      }
+      
+      // Find the specific export with the method name
+      const exportSymbol = moduleExports.find(exp => exp.getName() === methodName);
+      if (!exportSymbol) {
+        return undefined;
+      }
+      
+      // Resolve aliased symbols if needed
+      const resolvedExportSymbol = this.resolveAliasedSymbol(exportSymbol);
+      
+      return this.resolveFunctionFromSymbol(resolvedExportSymbol, functions);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve namespace from import declaration analysis
+   * Uses TypeChecker's getSymbolAtLocation to find the actual imported function
+   */
+  private resolveNamespaceFromImport(
+    namespaceIdentifier: Node,
+    methodName: string,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Find the import declaration that declares this namespace
+      const sourceFile = namespaceIdentifier.getSourceFile();
+      const importDeclaration = this.findNamespaceImportDeclaration(sourceFile, namespaceIdentifier.getText());
+      
+      if (!importDeclaration) {
+        return undefined;
+      }
+      
+      // Get the module specifier (the module being imported)
+      const moduleSpecifier = importDeclaration.getModuleSpecifier();
+      if (!moduleSpecifier || !Node.isStringLiteral(moduleSpecifier)) {
+        return undefined;
+      }
+      
+      // Search for any CallExpression in the current file that matches this pattern
+      const matchingCall = this.findCallExpressionWithPattern(sourceFile, namespaceIdentifier.getText(), methodName);
+      if (matchingCall) {
+        // Use the TypeChecker to resolve this expression
+        const symbol = this.getTypeChecker().getSymbolAtLocation(matchingCall);
+        if (symbol) {
+          const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
+          return this.resolveFunctionFromSymbol(resolvedSymbol, functions);
+        }
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Find a call expression that matches the namespace.method pattern
+   */
+  private findCallExpressionWithPattern(sourceFile: SourceFile, namespaceName: string, methodName: string): Node | undefined {
+    let foundExpression: Node | undefined;
+    
+    sourceFile.forEachDescendant((node: Node) => {
+      if (foundExpression) return; // Stop when found
+      
+      if (Node.isCallExpression(node)) {
+        const expression = node.getExpression();
+        if (Node.isPropertyAccessExpression(expression)) {
+          const receiver = expression.getExpression();
+          if (Node.isIdentifier(receiver) && 
+              receiver.getText() === namespaceName && 
+              expression.getName() === methodName) {
+            foundExpression = expression;
+          }
+        }
+      }
+    });
+    
+    return foundExpression;
+  }
+
+  /**
+   * Find namespace import declaration: import * as ns from "module"
+   */
+  private findNamespaceImportDeclaration(sourceFile: SourceFile, namespaceName: string): ImportDeclaration | undefined {
+    for (const importDecl of sourceFile.getImportDeclarations()) {
+      const importClause = importDecl.getImportClause();
+      if (!importClause) continue;
+      
+      const namedBindings = importClause.getNamedBindings();
+      if (!namedBindings || !Node.isNamespaceImport(namedBindings)) continue;
+      
+      const namespaceImport = namedBindings;
+      if (namespaceImport.getName() === namespaceName) {
+        return importDecl;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Resolve function from TypeScript symbol with comprehensive validation
+   */
+  private resolveFunctionFromSymbol(
+    symbol: ts.Symbol,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      // Handle default exports within namespace
+      if (symbol.getName() === 'default') {
+        return this.resolveDefaultExport(symbol, functions);
+      }
+      
+      // Get the actual function declaration
+      const declarations = symbol.getDeclarations();
+      if (!declarations || declarations.length === 0) {
+        return undefined;
+      }
+      
+      const tsDeclaration = declarations[0];
+      
+      // Convert TypeScript declaration to ts-morph node for validation
+      const sourceFile = this.getProject().getSourceFile(tsDeclaration.getSourceFile().fileName);
+      if (!sourceFile) {
+        return undefined;
+      }
+      
+      const morphDeclaration = sourceFile.getDescendantAtPos(tsDeclaration.getStart());
+      if (!morphDeclaration) {
+        return undefined;
+      }
+      
+      // Validate it's a function-like declaration
+      if (!Node.isFunctionDeclaration(morphDeclaration) && 
+          !Node.isMethodDeclaration(morphDeclaration) && 
+          !Node.isArrowFunction(morphDeclaration) && 
+          !Node.isFunctionExpression(morphDeclaration)) {
+        return undefined;
+      }
+      
+      // Find matching function in our registry using O(1) lookup
+      const declFilePath = morphDeclaration.getSourceFile().getFilePath();
+      const declStartPos = morphDeclaration.getStart();
+      const declEndPos = morphDeclaration.getEnd();
+      
+      // Create position ID for precise matching
+      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+      const declStartLine = morphDeclaration.getStartLineNumber();
+      
+      // Use fast lookup instead of linear search
+      const functionId = this.fastFunctionLookup(declFilePath, positionId, declStartLine);
+      if (functionId) {
+        return functionId;
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  
+  /**
+   * Resolve new expression (constructor calls) with import resolution
+   */
+  private resolveNewExpression(
+    newNode: NewExpression,
+    _functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      const expression = newNode.getExpression();
+      
+      if (Node.isIdentifier(expression)) {
+        
+        // Get symbol from TypeChecker
+        const symbol = this.getTypeChecker().getSymbolAtLocation(expression);
+        if (!symbol) {
+          return undefined;
+        }
+        
+        // Resolve re-exported symbols to their original declaration
+        const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
+        
+        // Get the constructor declaration
+        const declarations = resolvedSymbol.getDeclarations();
+        if (!declarations || declarations.length === 0) return undefined;
+        
+        // Find the class declaration
+        const classDecl = declarations.find((d: ts.Declaration) => 
+          ts.isClassDeclaration(d) || ts.isConstructorDeclaration(d)
+        );
+        
+        if (!classDecl) return undefined;
+        
+        // For class declaration, we need to find the constructor
+        let constructorDecl: ts.Declaration | undefined;
+        if (ts.isClassDeclaration(classDecl)) {
+          // Find constructor in class members
+          const members = classDecl.members;
+          constructorDecl = members?.find((m: ts.ClassElement) => ts.isConstructorDeclaration(m));
+          
+          // If no explicit constructor, use the class declaration itself
+          if (!constructorDecl) {
+            constructorDecl = classDecl;
+          }
+        } else {
+          constructorDecl = classDecl;
+        }
+        
+        // Convert TypeScript declaration to ts-morph node
+        const sourceFile = this.getProject().getSourceFile(constructorDecl.getSourceFile().fileName);
+        if (!sourceFile) return undefined;
+        
+        const morphDeclaration = sourceFile.getDescendantAtPos(constructorDecl.getStart());
+        if (!morphDeclaration) return undefined;
+        
+        // Find matching function in our registry
+        const declFilePath = sourceFile.getFilePath();
+        const declStartPos = morphDeclaration.getStart();
+        const declEndPos = morphDeclaration.getEnd();
+        
+        // Create position ID for precise matching
+        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+        const declStartLine = morphDeclaration.getStartLineNumber();
+        
+        // Use fast lookup
+        const functionId = this.fastFunctionLookup(declFilePath, positionId, declStartLine);
+        if (functionId) {
+          return functionId;
+        }
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  
+  /**
    * Generate position-based ID for precise function identification
    * Uses character offset for maximum accuracy regardless of formatting changes
    */
@@ -592,7 +1483,9 @@ export class StagedAnalysisEngine {
         
         // Get symbol from TypeChecker (use full TypeChecker for better resolution)
         const symbol = this.getTypeChecker().getSymbolAtLocation(expression);
-        if (!symbol) return undefined;
+        if (!symbol) {
+          return undefined;
+        }
         
         // Resolve re-exported symbols to their original declaration
         const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
@@ -640,9 +1533,15 @@ export class StagedAnalysisEngine {
       }
       
       if (Node.isPropertyAccessExpression(expression)) {
-        // Method call through import: importedObj.method()
+        // Method call through import: importedObj.method() or namespace.function()
         const methodName = expression.getName();
         const receiverExpression = expression.getExpression();
+        
+        // Check for namespace import: import * as ns; ns.functionName()
+        const namespaceResult = this.resolveNamespaceImport(receiverExpression, methodName, functions);
+        if (namespaceResult) {
+          return namespaceResult;
+        }
         
         // Try to resolve receiver type
         let receiverType: string | undefined;
@@ -767,55 +1666,206 @@ export class StagedAnalysisEngine {
 
 
   /**
-   * Add edge to results (avoiding duplicates)
+   * Check if node is an optional call expression (obj?.method() or fn?.())
+   */
+  private isOptionalCallExpression(node: Node): boolean {
+    // Check for optional call expression using SyntaxKind
+    if (node.getKind() === SyntaxKind.CallExpression) {
+      const callExpr = node as CallExpression;
+      const expression = callExpr.getExpression();
+      
+      // Check if the expression contains optional chaining
+      if (Node.isPropertyAccessExpression(expression)) {
+        return expression.hasQuestionDotToken();
+      }
+      
+      // Check for direct optional call: fn?.()
+      return callExpr.getText().includes('?.(');
+    }
+    
+    return false;
+  }
+
+  /**
+   * Resolve optional call expression with reduced confidence
+   */
+  private resolveOptionalCall(
+    callNode: CallExpression,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      const expression = callNode.getExpression();
+      
+      if (Node.isPropertyAccessExpression(expression)) {
+        // obj?.method() pattern
+        const receiver = expression.getExpression();
+        const methodName = expression.getName();
+        
+        // Try to resolve the receiver type first
+        const symbol = this.getTypeChecker().getSymbolAtLocation(receiver);
+        if (symbol) {
+          // Use similar logic to regular method calls but with optional handling
+          return this.resolveMethodCall(receiver, methodName, functions);
+        }
+      } else if (Node.isIdentifier(expression)) {
+        // fn?.() pattern - direct function call with optional chaining
+        const functionName = expression.getText();
+        
+        // Try local resolution first
+        const localResult = this.resolveLocalFunction(functionName, functions);
+        if (localResult) {
+          return localResult;
+        }
+        
+        // Try import resolution
+        return this.resolveImportCall(callNode, functions);
+      }
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Resolve method call (shared logic for regular and optional calls)
+   */
+  private resolveMethodCall(
+    receiver: Node,
+    methodName: string,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    // This is a simplified version - in real implementation,
+    // this would use the existing CHA/RTA resolution logic
+    
+    // For now, add to unresolved method calls for CHA/RTA analysis
+    const callerFunction = this.findContainingFunction(receiver, Array.from(functions.values()));
+    if (callerFunction) {
+      this.unresolvedMethodCalls.push({
+        callerFunctionId: callerFunction.id,
+        methodName,
+        receiverType: undefined, // Could be enhanced with type analysis
+        lineNumber: receiver.getStartLineNumber(),
+        columnNumber: receiver.getStart() - receiver.getStartLinePos() + 1
+      });
+    }
+    
+    return undefined; // Will be resolved by CHA/RTA stages
+  }
+
+  /**
+   * Resolve local function by name
+   */
+  private resolveLocalFunction(
+    functionName: string,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    // Search for function by name in the same file or accessible scope
+    for (const [functionId, func] of functions) {
+      if (func.name === functionName) {
+        return functionId;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get resolution level priority for edge merging
+   */
+  private getResolutionPriority(level: ResolutionLevel): number {
+    const priorities = {
+      'local_exact': 5,
+      'import_exact': 4,
+      'runtime_confirmed': 3,
+      'rta_resolved': 2,
+      'cha_resolved': 1
+    };
+    return priorities[level] || 0;
+  }
+
+  /**
+   * Add or merge edge with evolution tracking and confidence upgrades
    */
   private addEdge(edge: Partial<IdealCallEdge>): void {
-    // Check for duplicates using caller->callee key
     const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
-    if (this.edgeKeys.has(edgeKey)) {
-      return; // Skip duplicate edge
-    }
-    this.edgeKeys.add(edgeKey);
     
-    // Generate stable edge ID based on caller->callee relationship
-    const edgeId = this.generateStableEdgeId(edge.callerFunctionId!, edge.calleeFunctionId!);
+    // Find existing edge
+    const existingEdge = this.edgeIndex.get(edgeKey);
     
-    // Create complete edge with required CallEdge properties
-    const completeEdge: IdealCallEdge = {
-      // Required CallEdge properties
-      id: edgeId,
-      callerFunctionId: edge.callerFunctionId!,
-      calleeFunctionId: edge.calleeFunctionId,
-      calleeName: edge.calleeFunctionId || 'unknown',
-      calleeSignature: '',
-      callType: 'direct',
-      callContext: edge.resolutionSource,
-      lineNumber: edge.lineNumber || 0,
-      columnNumber: edge.columnNumber || 0,
-      isAsync: false,
-      isChained: false,
-      confidenceScore: edge.confidenceScore || 0,
-      metadata: {},
-      createdAt: new Date().toISOString(),
+    if (!existingEdge) {
+      // Create new edge
+      const edgeId = this.generateStableEdgeId(edge.callerFunctionId!, edge.calleeFunctionId!);
       
-      // Ideal system properties
-      resolutionLevel: edge.resolutionLevel!,
-      resolutionSource: edge.resolutionSource || '',
-      runtimeConfirmed: edge.runtimeConfirmed || false,
-      candidates: edge.candidates || [],
-      ...(edge.executionCount !== undefined && { executionCount: edge.executionCount }),
-      analysisMetadata: edge.analysisMetadata || {
-        timestamp: Date.now(),
-        analysisVersion: '1.0',
-        sourceHash: ''
-      }
-    };
-    
-    // Check for duplicates using stable ID
-    const exists = this.edges.some(existing => existing.id === edgeId);
-    
-    if (!exists) {
+      const completeEdge: IdealCallEdge = {
+        // Required CallEdge properties
+        id: edgeId,
+        callerFunctionId: edge.callerFunctionId!,
+        calleeFunctionId: edge.calleeFunctionId!,
+        calleeName: edge.calleeName || edge.calleeFunctionId || 'unknown',
+        calleeSignature: edge.calleeSignature || '',
+        callType: edge.callType || 'direct',
+        callContext: edge.callContext || edge.resolutionSource || '',
+        lineNumber: edge.lineNumber || 0,
+        columnNumber: edge.columnNumber || 0,
+        isAsync: edge.isAsync || false,
+        isChained: edge.isChained || false,
+        confidenceScore: edge.confidenceScore || 0,
+        metadata: edge.metadata || {},
+        createdAt: new Date().toISOString(),
+        
+        // Ideal system properties
+        resolutionLevel: edge.resolutionLevel!,
+        resolutionSource: edge.resolutionSource || '',
+        runtimeConfirmed: edge.runtimeConfirmed || false,
+        candidates: edge.candidates || [],
+        ...(edge.executionCount !== undefined && { executionCount: edge.executionCount }),
+        analysisMetadata: edge.analysisMetadata || {
+          timestamp: Date.now(),
+          analysisVersion: '1.0',
+          sourceHash: ''
+        }
+      };
+      
       this.edges.push(completeEdge);
+      this.edgeIndex.set(edgeKey, completeEdge);
+      this.edgeKeys.add(edgeKey);
+    } else {
+      // Merge with existing edge - upgrade confidence and resolution level
+      const newConfidence = edge.confidenceScore || 0;
+      const newResolutionLevel = edge.resolutionLevel!;
+      
+      // Upgrade confidence to maximum
+      existingEdge.confidenceScore = Math.max(existingEdge.confidenceScore, newConfidence);
+      
+      // Upgrade resolution level based on priority
+      if (this.getResolutionPriority(newResolutionLevel) > this.getResolutionPriority(existingEdge.resolutionLevel)) {
+        existingEdge.resolutionLevel = newResolutionLevel;
+        existingEdge.resolutionSource = edge.resolutionSource || existingEdge.resolutionSource;
+        existingEdge.callContext = edge.callContext || existingEdge.callContext;
+      }
+      
+      // Merge runtime information
+      if (edge.runtimeConfirmed) {
+        existingEdge.runtimeConfirmed = true;
+      }
+      
+      if (edge.executionCount !== undefined) {
+        existingEdge.executionCount = Math.max(existingEdge.executionCount || 0, edge.executionCount);
+      }
+      
+      // Merge candidates (avoid duplicates)
+      if (edge.candidates && edge.candidates.length > 0) {
+        const existingCandidates = new Set(existingEdge.candidates);
+        for (const candidate of edge.candidates) {
+          existingCandidates.add(candidate);
+        }
+        existingEdge.candidates = Array.from(existingCandidates);
+      }
+      
+      // Update metadata if provided
+      if (edge.metadata && Object.keys(edge.metadata).length > 0) {
+        existingEdge.metadata = { ...existingEdge.metadata, ...edge.metadata };
+      }
     }
   }
 
@@ -841,6 +1891,7 @@ export class StagedAnalysisEngine {
   clear(): void {
     this.edges = [];
     this.edgeKeys.clear();
+    this.edgeIndex.clear();
     this.functionLookupMap.clear();
     this.unresolvedMethodCalls = [];
     this.unresolvedMethodCallsForRTA = [];

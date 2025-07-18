@@ -120,6 +120,13 @@ export class FunctionRegistry {
         if (name) {
           ancestorNames.unshift(name);
         }
+      } else if (current.getKind() === 267) { // ModuleDeclaration (namespace)
+        // Check if the node has a getName method (ModuleDeclaration)
+        const name = 'getName' in current && typeof current.getName === 'function' 
+          ? current.getName() : undefined;
+        if (name) {
+          ancestorNames.unshift(name);
+        }
       }
       current = current.getParent();
     }
