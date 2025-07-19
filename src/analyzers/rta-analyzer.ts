@@ -1,7 +1,6 @@
 import { Project, Node, TypeChecker, CallExpression, NewExpression } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
-import { FunctionIdGenerator } from '../utils/function-id-generator';
 import * as path from 'path';
 import * as crypto from 'crypto';
 

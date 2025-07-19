@@ -1,12 +1,77 @@
-import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile, Symbol, ImportDeclaration, ModuleResolutionKind, SyntaxKind, ClassDeclaration, MethodDeclaration, PropertyAccessExpression } from 'ts-morph';
+import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile, Symbol, ImportDeclaration, ModuleResolutionKind, ClassDeclaration, MethodDeclaration, PropertyAccessExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
+import { SymbolCache } from '../utils/symbol-cache';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
+
+/**
+ * Confidence scores for different resolution levels
+ */
+const CONFIDENCE_SCORES = {
+  // Perfect confidence - same file, definite resolution
+  LOCAL_EXACT: 1.0,
+  LOCAL_EXACT_OPTIONAL: 0.95,
+  
+  // High confidence - TypeChecker verified imports
+  IMPORT_EXACT: 0.95,
+  IMPORT_EXACT_OPTIONAL: 0.90,
+  
+  // Medium confidence - CHA analysis
+  CHA_BASE: 0.8,
+  CHA_ABSTRACT_BONUS: 0.1,
+  CHA_CLASS_BONUS: 0.05,
+  
+  // High confidence - RTA analysis with instance filtering
+  RTA_BASE: 0.9,
+  
+  // Perfect confidence - Runtime verified
+  RUNTIME_CONFIRMED: 1.0,
+  
+  // Optional call penalties
+  OPTIONAL_LOCAL_PENALTY: 0.05,  // 1.0 -> 0.95
+  OPTIONAL_IMPORT_PENALTY: 0.05, // 0.95 -> 0.90
+  OPTIONAL_GENERIC_PENALTY: 0.10 // 0.95 -> 0.85
+} as const;
+
+/**
+ * Node.js built-in modules that should be excluded from analysis
+ */
+const NODE_BUILTIN_MODULES = new Set<string>([
+  'crypto', 'fs', 'path', 'os', 'util', 'http', 'https', 'url', 'querystring',
+  'stream', 'buffer', 'events', 'child_process', 'cluster', 'dgram', 'dns',
+  'net', 'tls', 'readline', 'repl', 'string_decoder', 'timers', 'tty',
+  'vm', 'zlib', 'assert', 'constants', 'module', 'process', 'v8',
+  'worker_threads', 'perf_hooks', 'async_hooks', 'inspector', 'punycode'
+]);
+
+/**
+ * Resolution levels for type safety and consistency
+ */
+const RESOLUTION_LEVELS = {
+  LOCAL_EXACT: 'local_exact',
+  IMPORT_EXACT: 'import_exact', 
+  CHA_RESOLVED: 'cha_resolved',
+  RTA_RESOLVED: 'rta_resolved',
+  RUNTIME_CONFIRMED: 'runtime_confirmed'
+} as const;
+
+/**
+ * Resolution sources for detailed tracking
+ */
+const RESOLUTION_SOURCES = {
+  LOCAL_EXACT: 'local_exact',
+  LOCAL_EXACT_OPTIONAL: 'local_exact_optional',
+  TYPECHECKER_IMPORT: 'typechecker_import',
+  TYPECHECKER_IMPORT_OPTIONAL: 'typechecker_import_optional',
+  CHA_ANALYSIS: 'cha_analysis',
+  RTA_ANALYSIS: 'rta_analysis',
+  RUNTIME_VERIFIED: 'runtime_verified'
+} as const;
 
 /**
  * Staged Analysis Engine
@@ -35,10 +100,13 @@ export class StagedAnalysisEngine {
   private rtaAnalyzer: RTAAnalyzer;
   private runtimeTraceIntegrator: RuntimeTraceIntegrator;
   private chaCandidates: Map<string, MethodInfo[]> = new Map();
+  private symbolCache: SymbolCache;
+  private fullSymbolCache: SymbolCache | null = null;
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
     this.typeChecker = typeChecker;
+    this.symbolCache = new SymbolCache(typeChecker);
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
     this.runtimeTraceIntegrator = new RuntimeTraceIntegrator();
@@ -87,6 +155,7 @@ export class StagedAnalysisEngine {
       });
       
       this.fullTypeChecker = this.fullProject.getTypeChecker();
+      this.fullSymbolCache = new SymbolCache(this.fullTypeChecker);
       console.log('   📚 Full project initialized with tsconfig and libraries');
     } catch (error) {
       console.log(`   ⚠️  Failed to initialize full project: ${error}`);
@@ -101,6 +170,14 @@ export class StagedAnalysisEngine {
    */
   private getTypeChecker(): TypeChecker {
     return this.fullTypeChecker || this.typeChecker;
+  }
+
+  /**
+   * Get symbol at location with caching
+   */
+  private getCachedSymbolAtLocation(node: Node): Symbol | undefined {
+    const cache = this.fullSymbolCache || this.symbolCache;
+    return cache.getSymbolAtLocation(node);
   }
 
   /**
@@ -184,6 +261,9 @@ export class StagedAnalysisEngine {
     const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
     console.log(`      Integrated ${runtimeIntegratedEdges} runtime traces`);
     
+    // Log symbol cache statistics
+    this.logCacheStatistics();
+    
     return this.edges;
   }
 
@@ -225,9 +305,9 @@ export class StagedAnalysisEngine {
               calleeFunctionId: calleeId,
               candidates: [calleeId],
               // Reduce confidence slightly for optional calls due to runtime uncertainty
-              confidenceScore: isOptional ? 0.95 : 1.0,
-              resolutionLevel: 'local_exact' as ResolutionLevel,
-              resolutionSource: isOptional ? 'local_exact_optional' : 'local_exact',
+              confidenceScore: isOptional ? CONFIDENCE_SCORES.LOCAL_EXACT_OPTIONAL : CONFIDENCE_SCORES.LOCAL_EXACT,
+              resolutionLevel: RESOLUTION_LEVELS.LOCAL_EXACT as ResolutionLevel,
+              resolutionSource: isOptional ? RESOLUTION_SOURCES.LOCAL_EXACT_OPTIONAL : RESOLUTION_SOURCES.LOCAL_EXACT,
               runtimeConfirmed: false,
               lineNumber: node.getStartLineNumber(),
               columnNumber: node.getStart() - node.getStartLinePos(),
@@ -297,9 +377,9 @@ export class StagedAnalysisEngine {
               calleeFunctionId: calleeId,
               candidates: [calleeId],
               // Reduce confidence slightly for optional calls
-              confidenceScore: isOptional ? 0.90 : 0.95,
-              resolutionLevel: 'import_exact' as ResolutionLevel,
-              resolutionSource: isOptional ? 'typechecker_import_optional' : 'typechecker_import',
+              confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
+              resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+              resolutionSource: isOptional ? RESOLUTION_SOURCES.TYPECHECKER_IMPORT_OPTIONAL : RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
               runtimeConfirmed: false,
               lineNumber: node.getStartLineNumber(),
               columnNumber: node.getStart() - node.getStartLinePos(),
@@ -719,7 +799,7 @@ export class StagedAnalysisEngine {
         }
       } else {
         // Handle direct class reference: ClassName.staticMethod()
-        const classSymbol = this.getTypeChecker().getSymbolAtLocation(receiverExpression);
+        const classSymbol = this.getCachedSymbolAtLocation(receiverExpression);
         if (classSymbol) {
           // Check if this is a class symbol
           if (classSymbol.compilerSymbol.flags & ts.SymbolFlags.Class) {
@@ -809,7 +889,7 @@ export class StagedAnalysisEngine {
       }
       
       // Try to resolve the class symbol from the imported module
-      const namespaceSymbol = this.getTypeChecker().getSymbolAtLocation(sourceFile.getVariableDeclaration(namespace)?.getNameNode() || sourceFile);
+      const namespaceSymbol = this.getCachedSymbolAtLocation(sourceFile.getVariableDeclaration(namespace)?.getNameNode() || sourceFile);
       if (namespaceSymbol) {
         const moduleExports = this.typeChecker.compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
         const classSymbol = moduleExports.find(exp => exp.getName() === className);
@@ -867,7 +947,7 @@ export class StagedAnalysisEngine {
       
       // Use TypeChecker to resolve parent class across files
       try {
-        const parentSymbol = this.getTypeChecker().getSymbolAtLocation(extendsClause.getExpression());
+        const parentSymbol = this.getCachedSymbolAtLocation(extendsClause.getExpression());
         if (parentSymbol && parentSymbol.compilerSymbol.flags & ts.SymbolFlags.Class) {
           const resolvedParentSymbol = this.resolveAliasedSymbol(parentSymbol.compilerSymbol);
           const parentStaticMethod = this.resolveStaticMethodFromSymbol(resolvedParentSymbol, methodName, functionByName);
@@ -964,7 +1044,7 @@ export class StagedAnalysisEngine {
       }
       
       // Use TypeChecker to resolve the imported class symbol
-      const classSymbol = this.getTypeChecker().getSymbolAtLocation(classIdentifier);
+      const classSymbol = this.getCachedSymbolAtLocation(classIdentifier);
       if (classSymbol) {
         const resolvedSymbol = this.resolveAliasedSymbol(classSymbol.compilerSymbol);
         return this.resolveStaticMethodFromSymbol(resolvedSymbol, methodName, functionByName);
@@ -1067,7 +1147,7 @@ export class StagedAnalysisEngine {
           actualFunctionNode = expression;
         } else if (Node.isIdentifier(expression)) {
           // export default myFunction - resolve the identifier
-          const funcSymbol = this.getTypeChecker().getSymbolAtLocation(expression);
+          const funcSymbol = this.getCachedSymbolAtLocation(expression);
           if (funcSymbol) {
             const funcDeclarations = funcSymbol.getDeclarations();
             if (funcDeclarations && funcDeclarations.length > 0) {
@@ -1166,12 +1246,12 @@ export class StagedAnalysisEngine {
       const namespaceName = receiverExpression.getText();
       
       // Skip external modules that are not in our function registry
-      if (['crypto', 'fs', 'path', 'os', 'util'].includes(namespaceName)) {
+      if (NODE_BUILTIN_MODULES.has(namespaceName)) {
         return undefined;
       }
       
       // Get the namespace symbol
-      const namespaceSymbol = this.getTypeChecker().getSymbolAtLocation(receiverExpression);
+      const namespaceSymbol = this.getCachedSymbolAtLocation(receiverExpression);
       if (!namespaceSymbol) {
         return undefined;
       }
@@ -1265,7 +1345,7 @@ export class StagedAnalysisEngine {
       const matchingCall = this.findCallExpressionWithPattern(sourceFile, namespaceIdentifier.getText(), methodName);
       if (matchingCall) {
         // Use the TypeChecker to resolve this expression
-        const symbol = this.getTypeChecker().getSymbolAtLocation(matchingCall);
+        const symbol = this.getCachedSymbolAtLocation(matchingCall);
         if (symbol) {
           const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
           return this.resolveFunctionFromSymbol(resolvedSymbol, functions);
@@ -1396,7 +1476,7 @@ export class StagedAnalysisEngine {
       if (Node.isIdentifier(expression)) {
         
         // Get symbol from TypeChecker
-        const symbol = this.getTypeChecker().getSymbolAtLocation(expression);
+        const symbol = this.getCachedSymbolAtLocation(expression);
         if (!symbol) {
           return undefined;
         }
@@ -1487,7 +1567,7 @@ export class StagedAnalysisEngine {
         }
         
         // Get symbol from TypeChecker (use full TypeChecker for better resolution)
-        const symbol = this.getTypeChecker().getSymbolAtLocation(expression);
+        const symbol = this.getCachedSymbolAtLocation(expression);
         if (!symbol) {
           return undefined;
         }
@@ -1558,7 +1638,7 @@ export class StagedAnalysisEngine {
         }
         
         // Try direct resolution first with re-export support
-        const symbol = this.getTypeChecker().getSymbolAtLocation(expression);
+        const symbol = this.getCachedSymbolAtLocation(expression);
         if (symbol) {
           // Resolve re-exported symbols to their original declaration
           const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
@@ -1672,23 +1752,33 @@ export class StagedAnalysisEngine {
 
   /**
    * Check if node is an optional call expression (obj?.method() or fn?.())
+   * Uses AST-based detection to avoid false positives from string content
    */
   private isOptionalCallExpression(node: Node): boolean {
-    // Check for optional call expression using SyntaxKind
-    if (node.getKind() === SyntaxKind.CallExpression) {
-      const callExpr = node as CallExpression;
-      const expression = callExpr.getExpression();
-      
-      // Check if the expression contains optional chaining
-      if (Node.isPropertyAccessExpression(expression)) {
-        return expression.hasQuestionDotToken();
-      }
-      
-      // Check for direct optional call: fn?.()
-      return callExpr.getText().includes('?.(');
+    if (!Node.isCallExpression(node)) {
+      return false;
     }
     
-    return false;
+    const callExpr = node as CallExpression;
+    const expression = callExpr.getExpression();
+    
+    // Check if the expression contains optional chaining
+    if (Node.isPropertyAccessExpression(expression)) {
+      return expression.hasQuestionDotToken();
+    }
+    
+    // Check for direct optional call: fn?.()
+    // Use more precise AST analysis instead of text search
+    const sourceFile = node.getSourceFile();
+    const start = expression.getEnd();
+    
+    // Find the opening parenthesis by looking at the arguments
+    const args = callExpr.getArguments();
+    const openParenPos = args.length > 0 ? args[0].getStart() - 1 : callExpr.getEnd() - 1;
+    const between = sourceFile.getFullText().slice(start, openParenPos);
+    
+    // Look for question dot token specifically (more precise than text includes)
+    return between.trim() === '?.';
   }
 
   /**
@@ -1707,7 +1797,7 @@ export class StagedAnalysisEngine {
         const methodName = expression.getName();
         
         // Try to resolve the receiver type first
-        const symbol = this.getTypeChecker().getSymbolAtLocation(receiver);
+        const symbol = this.getCachedSymbolAtLocation(receiver);
         if (symbol) {
           // Use similar logic to regular method calls but with optional handling
           return this.resolveMethodCall(receiver, methodName, functions);
@@ -1884,6 +1974,17 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Log symbol cache statistics for performance monitoring
+   */
+  private logCacheStatistics(): void {
+    if (this.fullSymbolCache) {
+      this.fullSymbolCache.logStats();
+    } else {
+      this.symbolCache.logStats();
+    }
+  }
+
+  /**
    * Get all collected edges
    */
   getEdges(): IdealCallEdge[] {
@@ -1904,6 +2005,12 @@ export class StagedAnalysisEngine {
     this.chaAnalyzer.clear();
     this.rtaAnalyzer.clear();
     this.runtimeTraceIntegrator.clear();
+    
+    // Clear symbol caches
+    this.symbolCache.clear();
+    if (this.fullSymbolCache) {
+      this.fullSymbolCache.clear();
+    }
     
     // Clean up full project resources
     if (this.fullProject) {

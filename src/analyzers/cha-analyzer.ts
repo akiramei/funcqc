@@ -434,33 +434,6 @@ export class CHAAnalyzer {
     return methods;
   }
 
-  /**
-   * Get methods from implemented interfaces (with cycle detection)
-   */
-  private getMethodsFromInterfaces(
-    node: ClassHierarchyNode, 
-    methodName: string, 
-    visited = new Set<string>()
-  ): MethodInfo[] {
-    if (visited.has(node.name)) return [];
-    visited.add(node.name);
-    
-    const methods: MethodInfo[] = [];
-    
-    for (const interfaceName of node.interfaces) {
-      const interfaceNode = this.inheritanceGraph.get(interfaceName);
-      if (interfaceNode) {
-        const interfaceMethods = interfaceNode.methods.filter(m => m.name === methodName);
-        methods.push(...interfaceMethods);
-        
-        // Recursively check interface's parent interfaces with shared visited set
-        const parentInterfaceMethods = this.getMethodsFromParents(interfaceNode, methodName, visited);
-        methods.push(...parentInterfaceMethods);
-      }
-    }
-    
-    return methods;
-  }
 
   /**
    * Calculate inheritance depth from receiver type to method's class
@@ -531,16 +504,6 @@ export class CHAAnalyzer {
     return Math.max(0.5, Math.min(1.0, confidence));
   }
 
-  /**
-   * Find function ID for a method candidate
-   */
-  private findFunctionId(candidate: MethodInfo): string | undefined {
-    // This method is used internally by CHA for edge creation
-    // The actual function ID resolution should be done in resolveMethodCalls()
-    // by searching through the functions Map passed from the registry
-    // For now, return a placeholder that will be replaced
-    return `cha_placeholder_${candidate.className}.${candidate.name}_${candidate.startLine}`;
-  }
 
   /**
    * Find matching function ID in the function registry for a method candidate
