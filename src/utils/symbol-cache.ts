@@ -1,4 +1,4 @@
-import { Node, Symbol, TypeChecker } from 'ts-morph';
+import { Node, Symbol as TsMorphSymbol, TypeChecker } from 'ts-morph';
 
 /**
  * Symbol Cache for TypeChecker.getSymbolAtLocation optimization
@@ -8,7 +8,7 @@ import { Node, Symbol, TypeChecker } from 'ts-morph';
  */
 export class SymbolCache {
   // WeakMap ensures cached entries are garbage collected with their nodes
-  private cache = new WeakMap<Node, Symbol | null>();
+  private cache = new WeakMap<Node, TsMorphSymbol | null>();
   private typeChecker: TypeChecker;
   private hitCount = 0;
   private missCount = 0;
@@ -21,7 +21,7 @@ export class SymbolCache {
    * Get symbol for node with caching
    * Returns cached result if available, otherwise calls TypeChecker
    */
-  getSymbolAtLocation(node: Node): Symbol | undefined {
+  getSymbolAtLocation(node: Node): TsMorphSymbol | undefined {
     // Check cache first
     if (this.cache.has(node)) {
       this.hitCount++;
@@ -44,7 +44,7 @@ export class SymbolCache {
    */
   clear(): void {
     // WeakMap doesn't have clear(), create new instance
-    this.cache = new WeakMap<Node, Symbol | null>();
+    this.cache = new WeakMap<Node, TsMorphSymbol | null>();
     this.hitCount = 0;
     this.missCount = 0;
   }

@@ -45,7 +45,13 @@ export class ConfidenceCalculator {
    */
   private calculateEdgeConfidence(edge: IdealCallEdge): number {
     const baseConfidence = ConfidenceCalculator.BASE_CONFIDENCE[edge.resolutionLevel as string];
-    
+
+    // Handle unknown resolution levels
+    if (baseConfidence === undefined) {
+      console.warn(`Unknown resolution level: ${edge.resolutionLevel}`);
+      return 0.5; // Default to medium confidence
+    }
+
     // Apply modifiers based on edge characteristics
     let confidence = baseConfidence;
     

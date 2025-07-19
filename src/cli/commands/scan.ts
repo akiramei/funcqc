@@ -206,9 +206,18 @@ async function performFullAnalysis(
     
     // Show analysis statistics
     if (result.callEdges.length > 0) {
-      const highConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95);
-      const mediumConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95);
-      const lowConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore < 0.7);
+      const highConfidenceEdges = result.callEdges.filter(
+        e => e.confidenceScore !== undefined && e.confidenceScore >= 0.95
+      );
+      const mediumConfidenceEdges = result.callEdges.filter(
+        e =>
+          e.confidenceScore !== undefined &&
+          e.confidenceScore >= 0.7 &&
+          e.confidenceScore < 0.95
+      );
+      const lowConfidenceEdges = result.callEdges.filter(
+        e => e.confidenceScore !== undefined && e.confidenceScore < 0.7
+      );
       
       spinner.text = `Call graph: ${result.callEdges.length} edges (High: ${highConfidenceEdges.length}, Medium: ${mediumConfidenceEdges.length}, Low: ${lowConfidenceEdges.length})`;
     }

@@ -133,8 +133,8 @@ export class CHAAnalyzer {
     
     // Extract constructor
     const constructors = classDecl.getConstructors();
-    for (const constructor of constructors) {
-      const methodInfo = this.extractMethodInfo(constructor, className);
+    for (const ctor of constructors) {
+      const methodInfo = this.extractMethodInfo(ctor, className);
       if (methodInfo) {
         node.methods.push(methodInfo);
       }

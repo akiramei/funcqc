@@ -4,7 +4,7 @@ export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
   // Add snapshot_id column to call_edges table for proper snapshot isolation
   await db.schema
     .alterTable('call_edges')
-    .addColumn('snapshot_id', 'text')
+    .addColumn('snapshot_id', 'text', (col) => col.notNull())
     .execute();
 
   // Add foreign key constraint to snapshots table

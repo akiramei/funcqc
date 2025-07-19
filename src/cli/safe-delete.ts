@@ -111,7 +111,7 @@ async function performSafeDeletion(
   const safeDeletionOptions: Partial<SafeDeletionOptions> = {
     confidenceThreshold: parseFloat(options.confidenceThreshold || '0.95'),
     maxFunctionsPerBatch: parseInt(options.maxBatch || '10'),
-    createBackup: options['backup'] !== false,  // --no-backup sets backup: false
+    createBackup: !options.noBackup,  // --no-backup sets noBackup: true
     dryRun: options.dryRun || false,
     excludeExports: !options.includeExports,
     excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**']

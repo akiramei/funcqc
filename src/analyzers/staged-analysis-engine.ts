@@ -1,4 +1,4 @@
-import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile, Symbol, ImportDeclaration, ModuleResolutionKind, ClassDeclaration, MethodDeclaration, PropertyAccessExpression } from 'ts-morph';
+import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile, Symbol as TsMorphSymbol, ImportDeclaration, ModuleResolutionKind, ClassDeclaration, MethodDeclaration, PropertyAccessExpression } from 'ts-morph';
 import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-graph-analyzer';
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
@@ -175,7 +175,7 @@ export class StagedAnalysisEngine {
   /**
    * Get symbol at location with caching
    */
-  private getCachedSymbolAtLocation(node: Node): Symbol | undefined {
+  private getCachedSymbolAtLocation(node: Node): TsMorphSymbol | undefined {
     const cache = this.fullSymbolCache || this.symbolCache;
     return cache.getSymbolAtLocation(node);
   }
@@ -1311,7 +1311,7 @@ export class StagedAnalysisEngine {
    * Resolve namespace through direct symbol analysis
    */
   private resolveDirectNamespace(
-    namespaceSymbol: Symbol,
+    namespaceSymbol: TsMorphSymbol,
     methodName: string,
     functions: Map<string, FunctionMetadata>
   ): string | undefined {

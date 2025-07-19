@@ -1,6 +1,7 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { ReachabilityAnalyzer } from './reachability-analyzer';
 import { EntryPointDetector } from './entry-point-detector';
+import { minimatch } from 'minimatch';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -300,11 +301,19 @@ export class SafeDeletionSystem {
 
     // Read the file
     const fileContent = await fs.readFile(filePath, 'utf8');
-    const lines = fileContent.split('\n');
+    
+    // Preserve line endings
+    const lineEnding = fileContent.includes('\r\n') ? '\r\n' : '\n';
+    const lines = fileContent.split(/\r?\n/);
 
     // Calculate zero-based line indices
     const startIndex = functionInfo.startLine - 1;
     const endIndex = functionInfo.endLine - 1;
+    
+    // Verify function still exists at expected location
+    if (startIndex >= lines.length || endIndex >= lines.length) {
+      throw new Error(`Function location out of bounds in ${filePath}`);
+    }
 
     // Remove function lines
     const newLines = [
@@ -313,7 +322,7 @@ export class SafeDeletionSystem {
     ];
 
     // Write back to file
-    await fs.writeFile(filePath, newLines.join('\n'));
+    await fs.writeFile(filePath, newLines.join(lineEnding));
 
     console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
   }
@@ -442,10 +451,9 @@ export class SafeDeletionSystem {
    * Check if file is excluded by patterns
    */
   private isExcludedByPattern(filePath: string, patterns: string[]): boolean {
-    return patterns.some(pattern => {
-      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
-      return regex.test(filePath);
-    });
+    return patterns.some(pattern =>
+      minimatch(filePath, pattern, { dot: true })
+    );
   }
 
   /**
