@@ -1,6 +1,7 @@
 import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, ConstructorDeclaration, MethodSignature, TypeChecker } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 /**
  * Class Hierarchy Analysis (CHA) Analyzer
@@ -40,7 +41,7 @@ export class CHAAnalyzer {
     this.buildMethodIndex(functions);
     
     console.log('   🎯 Resolving method calls via CHA...');
-    const resolvedEdges = this.resolveMethodCalls(unresolvedEdges);
+    const resolvedEdges = this.resolveMethodCalls(functions, unresolvedEdges);
     
     console.log(`   ✅ CHA resolved ${resolvedEdges.length} method calls`);
     return resolvedEdges;
@@ -274,6 +275,11 @@ export class CHAAnalyzer {
    */
   private buildMethodIndex(functions: Map<string, FunctionMetadata>): void {
     for (const [className, node] of this.inheritanceGraph) {
+      // Skip interface nodes - their methods are signatures, not implementations
+      if (node.type === 'interface') {
+        continue;
+      }
+      
       for (const method of node.methods) {
         // Check if this method exists in the FunctionRegistry
         const methodLexicalPath = this.buildMethodLexicalPath(method, className);
@@ -308,7 +314,7 @@ export class CHAAnalyzer {
   /**
    * Resolve method calls using CHA (optimized sync)
    */
-  private resolveMethodCalls(unresolvedEdges: UnresolvedMethodCall[]): IdealCallEdge[] {
+  private resolveMethodCalls(functions: Map<string, FunctionMetadata>, unresolvedEdges: UnresolvedMethodCall[]): IdealCallEdge[] {
     const resolvedEdges: IdealCallEdge[] = [];
     
     for (const unresolved of unresolvedEdges) {
@@ -317,13 +323,13 @@ export class CHAAnalyzer {
       if (candidates.length > 0) {
         // Create edges for all candidates with inheritance depth
         for (const candidate of candidates) {
-          const functionId = this.findFunctionId(candidate);
+          const functionId = this.findMatchingFunctionId(functions, candidate);
           if (functionId) {
             // Calculate inheritance depth for this candidate
             const inheritanceDepth = this.calculateInheritanceDepth(candidate, unresolved.receiverType);
             
             const edge: IdealCallEdge = {
-              id: `cha_edge_${resolvedEdges.length}`,
+              id: crypto.randomUUID(),
               callerFunctionId: unresolved.callerFunctionId,
               calleeFunctionId: functionId,
               calleeName: candidate.signature,
@@ -347,7 +353,7 @@ export class CHAAnalyzer {
               resolutionLevel: 'cha_resolved' as ResolutionLevel,
               resolutionSource: 'cha_analysis',
               runtimeConfirmed: false,
-              candidates: candidates.map(c => this.findFunctionId(c)).filter(id => id !== undefined) as string[],
+              candidates: candidates.map(c => this.findMatchingFunctionId(functions, c)).filter(id => id !== undefined) as string[],
               analysisMetadata: {
                 timestamp: Date.now(),
                 analysisVersion: '1.0',
@@ -374,17 +380,19 @@ export class CHAAnalyzer {
       // Look for specific class/interface methods
       const classNode = this.inheritanceGraph.get(receiverType);
       if (classNode) {
-        // Add methods from the class itself
-        const directMethods = classNode.methods.filter(m => m.name === methodName);
-        candidates.push(...directMethods);
+        // Only add methods from concrete classes, not interface signatures
+        if (classNode.type === 'class') {
+          const directMethods = classNode.methods.filter(m => m.name === methodName);
+          candidates.push(...directMethods);
+        }
         
         // Add methods from parent classes (with fresh visited set)
         const parentMethods = this.getMethodsFromParents(classNode, methodName, new Set<string>());
         candidates.push(...parentMethods);
         
-        // Add methods from implemented interfaces (with fresh visited set)
-        const interfaceMethods = this.getMethodsFromInterfaces(classNode, methodName, new Set<string>());
-        candidates.push(...interfaceMethods);
+        // Skip interface methods - they are signatures, not callable implementations
+        // const interfaceMethods = this.getMethodsFromInterfaces(classNode, methodName, new Set<string>());
+        // candidates.push(...interfaceMethods);
       }
     } else {
       // Look for all methods with the given name (polymorphic call)
@@ -411,8 +419,11 @@ export class CHAAnalyzer {
     for (const parentName of node.parents) {
       const parentNode = this.inheritanceGraph.get(parentName);
       if (parentNode) {
-        const parentMethods = parentNode.methods.filter(m => m.name === methodName);
-        methods.push(...parentMethods);
+        // Only include methods from concrete classes, not interface signatures
+        if (parentNode.type === 'class') {
+          const parentMethods = parentNode.methods.filter(m => m.name === methodName);
+          methods.push(...parentMethods);
+        }
         
         // Recursively check parent's parents with cycle detection
         const grandParentMethods = this.getMethodsFromParents(parentNode, methodName, visited);
@@ -524,12 +535,80 @@ export class CHAAnalyzer {
    * Find function ID for a method candidate
    */
   private findFunctionId(candidate: MethodInfo): string | undefined {
-    // Build lexical path that matches FunctionRegistry format
-    const relativePath = this.getRelativePath(candidate.filePath);
-    const lexicalPath = `${relativePath}#${candidate.className}.${candidate.name}`;
-    
-    // This matches the ID format used by FunctionRegistry
-    return lexicalPath;
+    // This method is used internally by CHA for edge creation
+    // The actual function ID resolution should be done in resolveMethodCalls()
+    // by searching through the functions Map passed from the registry
+    // For now, return a placeholder that will be replaced
+    return `cha_placeholder_${candidate.className}.${candidate.name}_${candidate.startLine}`;
+  }
+
+  /**
+   * Find matching function ID in the function registry for a method candidate
+   */
+  private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
+    try {
+      // Strategy 1: Exact match with position and metadata (most accurate)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.startLine === candidate.startLine &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
+      }
+      
+      // Strategy 2: Match by lexical path construction (fallback compatibility)
+      // Build the expected lexical path as FunctionRegistry would
+      const relativePath = this.getRelativePath(candidate.filePath);
+      const expectedLexicalPath = `${relativePath}#${candidate.className}.${candidate.name}`;
+      
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.lexicalPath === expectedLexicalPath &&
+            Math.abs(functionMetadata.startLine - candidate.startLine) <= 2) { // Allow small line differences
+          return functionId;
+        }
+      }
+      
+      // Strategy 3: Search by file path and line number with tolerance
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            Math.abs(functionMetadata.startLine - candidate.startLine) <= 2 && // Allow small line differences
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
+      }
+      
+      // Strategy 4: Search by class and method name in same file
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
+      }
+      
+      // Strategy 5: Search by method name only in same file (most lenient)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.isMethod) {
+          return functionId;
+        }
+      }
+      
+      // Debug: log failed match attempts
+      console.warn(`CHA: Failed to find function ID for candidate:`, {
+        name: candidate.name,
+        className: candidate.className,
+        filePath: candidate.filePath,
+        startLine: candidate.startLine
+      });
+      
+      return undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /**

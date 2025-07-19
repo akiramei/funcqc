@@ -1,6 +1,7 @@
 import { Project, Node, TypeChecker, CallExpression, NewExpression } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import * as path from 'path';
 import * as crypto from 'crypto';
 
@@ -268,15 +269,29 @@ export class RTAAnalyzer {
    */
   private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
     try {
-      const relativePath = this.getRelativePath(candidate.filePath);
-      
-      // Strategy 1: Try exact lexical path match (most accurate)
-      const exactPath = `${relativePath}#${candidate.className}.${candidate.name}`;
-      if (functions.has(exactPath)) {
-        return exactPath;
+      // Strategy 1: Exact match with position and metadata (most accurate)
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.filePath === candidate.filePath &&
+            functionMetadata.startLine === candidate.startLine &&
+            functionMetadata.name === candidate.name &&
+            functionMetadata.className === candidate.className) {
+          return functionId;
+        }
       }
       
-      // Strategy 2: Search by file path and line number (fallback for exact match)
+      // Strategy 2: Match by lexical path construction (fallback compatibility)
+      // Build the expected lexical path as FunctionRegistry would
+      const relativePath = this.getRelativePath(candidate.filePath);
+      const expectedLexicalPath = `${relativePath}#${candidate.className}.${candidate.name}`;
+      
+      for (const [functionId, functionMetadata] of functions) {
+        if (functionMetadata.lexicalPath === expectedLexicalPath &&
+            Math.abs(functionMetadata.startLine - candidate.startLine) <= 2) { // Allow small line differences
+          return functionId;
+        }
+      }
+      
+      // Strategy 3: Search by file path and line number with tolerance
       for (const [functionId, functionMetadata] of functions) {
         if (functionMetadata.filePath === candidate.filePath &&
             Math.abs(functionMetadata.startLine - candidate.startLine) <= 2 && // Allow small line differences
@@ -286,7 +301,7 @@ export class RTAAnalyzer {
         }
       }
       
-      // Strategy 3: Search by class and method name in same file (more lenient)
+      // Strategy 4: Search by class and method name in same file
       for (const [functionId, functionMetadata] of functions) {
         if (functionMetadata.filePath === candidate.filePath &&
             functionMetadata.name === candidate.name &&
@@ -295,7 +310,7 @@ export class RTAAnalyzer {
         }
       }
       
-      // Strategy 4: Search by method name only in same file (most lenient)
+      // Strategy 5: Search by method name only in same file (most lenient)
       for (const [functionId, functionMetadata] of functions) {
         if (functionMetadata.filePath === candidate.filePath &&
             functionMetadata.name === candidate.name &&
@@ -304,8 +319,17 @@ export class RTAAnalyzer {
         }
       }
       
+      // Debug: log failed match attempts
+      console.warn(`RTA: Failed to find function ID for candidate:`, {
+        name: candidate.name,
+        className: candidate.className,
+        filePath: candidate.filePath,
+        startLine: candidate.startLine
+      });
+      
       return undefined;
-    } catch {
+    } catch (error) {
+      console.warn(`RTA: Error in findMatchingFunctionId:`, error);
       return undefined;
     }
   }

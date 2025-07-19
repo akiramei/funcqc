@@ -3,6 +3,7 @@ import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-g
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
@@ -618,9 +619,13 @@ export class StagedAnalysisEngine {
    * Build method ID in format: filePath#ClassName.methodName
    */
   private buildMethodId(method: MethodDeclaration, className: string): string {
+    // Use the same ID generation as FunctionRegistry for consistency
     const filePath = method.getSourceFile().getFilePath();
     const relativePath = this.getRelativePath(filePath);
-    return `${relativePath}#${className}.${method.getName()}`;
+    const lexicalPath = `${relativePath}#${className}.${method.getName()}`;
+    
+    // Use FunctionIdGenerator to ensure consistent ID format with position information
+    return FunctionIdGenerator.generateFromNode(method, lexicalPath);
   }
 
   /**
