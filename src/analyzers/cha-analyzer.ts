@@ -275,8 +275,6 @@ export class CHAAnalyzer {
    * Only index methods that are in the FunctionRegistry to prevent false positives
    */
   private buildMethodIndex(functions: Map<string, FunctionMetadata>): void {
-    let methodCount = 0;
-    
     for (const [className, node] of this.inheritanceGraph) {
       // Skip interface nodes - their methods are signatures, not implementations
       if (node.type === 'interface') {
@@ -301,7 +299,6 @@ export class CHAAnalyzer {
           // Skip methods not in FunctionRegistry to avoid false positives
           continue;
         }
-        methodCount++;
         
         const methodKey = `${className}.${method.name}`;
         if (!this.methodIndex.has(methodKey)) {
@@ -316,7 +313,6 @@ export class CHAAnalyzer {
         this.methodIndex.get(method.name)!.add(method);
       }
     }
-    
   }
 
 
