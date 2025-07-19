@@ -259,6 +259,7 @@ CREATE INDEX idx_quality_metrics_nesting ON quality_metrics(max_nesting_level);
 -- -----------------------------------------------------------------------------
 CREATE TABLE call_edges (
   id TEXT PRIMARY KEY,                          -- Edge ID (UUID)
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this edge belongs to
   caller_function_id TEXT NOT NULL,             -- Physical ID of calling function
   callee_function_id TEXT,                      -- Physical ID of called function (NULL for external)
   callee_name TEXT NOT NULL,                    -- Function/method name being called
@@ -274,15 +275,19 @@ CREATE TABLE call_edges (
   confidence_score REAL DEFAULT 1.0,           -- Analysis confidence (0-1)
   metadata JSONB DEFAULT '{}',                  -- Additional call metadata
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
   FOREIGN KEY (caller_function_id) REFERENCES functions(id) ON DELETE CASCADE,
   FOREIGN KEY (callee_function_id) REFERENCES functions(id) ON DELETE SET NULL
 );
 
 -- Indexes for call graph traversal and analysis
+CREATE INDEX idx_call_edges_snapshot ON call_edges(snapshot_id);
 CREATE INDEX idx_call_edges_caller ON call_edges(caller_function_id);
 CREATE INDEX idx_call_edges_callee ON call_edges(callee_function_id);
 CREATE INDEX idx_call_edges_callee_name ON call_edges(callee_name);
 CREATE INDEX idx_call_edges_call_type ON call_edges(call_type);
+CREATE INDEX idx_call_edges_snapshot_caller ON call_edges(snapshot_id, caller_function_id);
+CREATE INDEX idx_call_edges_snapshot_callee ON call_edges(snapshot_id, callee_function_id);
 CREATE INDEX idx_call_edges_line_number ON call_edges(caller_function_id, line_number);
 CREATE INDEX idx_call_edges_confidence ON call_edges(confidence_score);
 

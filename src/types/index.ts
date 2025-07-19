@@ -112,6 +112,7 @@ export interface FunctionInfo {
   endLine: number; // ファイル内終了行
   startColumn: number; // ファイル内開始列
   endColumn: number; // ファイル内終了列
+  positionId?: string; // Position-based hash（文字オフセット識別）
 
   // 意味識別次元
   semanticId: string; // Semantic hash（役割ベース識別）
@@ -187,6 +188,12 @@ export interface CallEdge {
   confidenceScore: number;
   metadata: Record<string, unknown>;
   createdAt: string;
+  
+  // Extensions for ideal call graph system
+  calleeCandidates?: string[]; // Function IDs of potential targets when calleeFunctionId is unresolved
+  resolutionLevel?: 'local_exact' | 'import_exact' | 'cha_resolved' | 'rta_resolved' | 'runtime_confirmed' | 'unresolved';
+  resolutionSource?: string; // Module or file where the target was found
+  runtimeConfirmed?: boolean; // Whether edge is confirmed by runtime traces
 }
 
 export interface ReturnTypeInfo {
@@ -608,8 +615,9 @@ export interface StorageAdapter {
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
 
   // Call edge operations
-  insertCallEdges(edges: CallEdge[]): Promise<void>;
+  insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;
   getCallEdges(options?: {
+    snapshotId?: string;
     callerFunctionId?: string;
     calleeFunctionId?: string;
     calleeName?: string;
@@ -617,8 +625,9 @@ export interface StorageAdapter {
     limit?: number;
     offset?: number;
   }): Promise<CallEdge[]>;
-  getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]>;
-  getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]>;
+  getCallEdgesByCaller(callerFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
+  getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
+  getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]>;
   deleteCallEdges(functionIds: string[]): Promise<void>;
 
   // Maintenance operations

@@ -294,8 +294,9 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: func.getStartLineNumber(),
       endLine: func.getEndLineNumber(),
-      startColumn: 0,
-      endColumn: 0,
+      startColumn: func.getStart() - func.getStartLinePos(),
+      endColumn: func.getSourceFile().getLineAndColumnAtPos(func.getEnd()).column,
+      positionId: this.generatePositionId(relativePath, func.getStart(), func.getEnd()),
       astHash,
 
       // Enhanced function identification
@@ -379,8 +380,9 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
-      startColumn: 0,
-      endColumn: 0,
+      startColumn: method.getStart() - method.getStartLinePos(),
+      endColumn: method.getSourceFile().getLineAndColumnAtPos(method.getEnd()).column,
+      positionId: this.generatePositionId(relativePath, method.getStart(), method.getEnd()),
       astHash,
 
       // Enhanced function identification
@@ -466,8 +468,9 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: ctor.getStartLineNumber(),
       endLine: ctor.getEndLineNumber(),
-      startColumn: 0,
-      endColumn: 0,
+      startColumn: ctor.getStart() - ctor.getStartLinePos(),
+      endColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getEnd()).column,
+      positionId: this.generatePositionId(relativePath, ctor.getStart(), ctor.getEnd()),
       astHash,
 
       // Enhanced function identification
@@ -579,8 +582,9 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: functionNode.getStartLineNumber(),
       endLine: functionNode.getEndLineNumber(),
-      startColumn: 0,
-      endColumn: 0,
+      startColumn: functionNode.getStart() - functionNode.getStartLinePos(),
+      endColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getEnd()).column,
+      positionId: this.generatePositionId(relativePath, functionNode.getStart(), functionNode.getEnd()),
       astHash: metadata.astHash,
       contextPath: metadata.contextPath,
       functionType: metadata.functionType,
@@ -862,6 +866,17 @@ export class TypeScriptAnalyzer {
     const contentComponents = [astHash, sourceCode.trim()];
 
     return crypto.createHash('sha256').update(contentComponents.join('|')).digest('hex');
+  }
+
+  /**
+   * Generate position-based ID for precise function identification
+   * Uses character offset for maximum accuracy regardless of formatting changes
+   */
+  private generatePositionId(filePath: string, startPos: number, endPos: number): string {
+    return crypto.createHash('sha256')
+      .update(`${filePath}:${startPos}-${endPos}`)
+      .digest('hex')
+      .slice(0, 16); // Shorter hash for position-based IDs
   }
 
   /**

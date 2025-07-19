@@ -65,7 +65,10 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
       spinner.text = 'Detecting entry points...';
 
       // Detect entry points
-      const entryPointDetector = new EntryPointDetector();
+      const entryPointDetector = new EntryPointDetector({
+        ...(options.verbose !== undefined && { verbose: options.verbose }),
+        ...(options.verbose !== undefined && { debug: options.verbose })
+      });
       let entryPoints = entryPointDetector.detectEntryPoints(functions);
 
       // Apply entry point filters

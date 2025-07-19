@@ -1,4 +1,15 @@
 import { PGlite } from '@electric-sql/pglite';
+import { 
+  Kysely, 
+  DatabaseConnection, 
+  CompiledQuery, 
+  QueryResult,
+  Driver,
+  Dialect,
+  PostgresQueryCompiler,
+  PostgresIntrospector,
+  PostgresAdapter
+} from 'kysely';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
 import { readFileSync, existsSync } from 'fs';
@@ -39,6 +50,125 @@ import {
   BatchTransactionProcessor,
 } from '../utils/batch-processor';
 import { ErrorCode } from '../utils/error-handler';
+
+// PGlite Kysely Dialect Implementation
+interface PGliteDialectConfig {
+  database: PGlite;
+}
+
+class PGliteConnection implements DatabaseConnection {
+  readonly #config: PGliteDialectConfig;
+
+  public constructor(config: PGliteDialectConfig) {
+    this.#config = config;
+  }
+
+  public async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
+    const results = await this.#config.database.query(
+      compiledQuery.sql,
+      [...compiledQuery.parameters],
+    );
+
+    return {
+      rows: results.rows as R[],
+      ...(results.affectedRows
+        ? { numAffectedRows: BigInt(results.affectedRows) }
+        : {}),
+    };
+  }
+
+  public async *streamQuery<R>(
+    _compiledQuery: CompiledQuery,
+    _chunkSize?: number
+  ): AsyncIterableIterator<QueryResult<R>> {
+    throw new Error(`PGliteDriver doesn't support streaming.`);
+  }
+}
+
+class PGliteDriver implements Driver {
+  readonly #config: PGliteDialectConfig;
+
+  constructor(config: PGliteDialectConfig) {
+    this.#config = config;
+  }
+
+  async init(): Promise<void> {
+    // PGliteは既に初期化済みなので何もしない
+  }
+
+  async acquireConnection(): Promise<DatabaseConnection> {
+    return new PGliteConnection(this.#config);
+  }
+
+  async beginTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('BEGIN'));
+  }
+
+  async commitTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('COMMIT'));
+  }
+
+  async rollbackTransaction(connection: DatabaseConnection): Promise<void> {
+    await connection.executeQuery(CompiledQuery.raw('ROLLBACK'));
+  }
+
+  async releaseConnection(): Promise<void> {
+    // PGliteはコネクションプールを持たないので何もしない
+  }
+
+  async destroy(): Promise<void> {
+    // PGliteの破棄は外部で管理されるので何もしない
+  }
+}
+
+class PGliteDialect implements Dialect {
+  readonly #config: PGliteDialectConfig;
+
+  constructor(config: PGliteDialectConfig) {
+    this.#config = config;
+  }
+
+  createDriver(): Driver {
+    return new PGliteDriver(this.#config);
+  }
+
+  createQueryCompiler() {
+    return new PostgresQueryCompiler();
+  }
+
+  createAdapter() {
+    return new PostgresAdapter();
+  }
+
+  createIntrospector(db: Kysely<Database>) {
+    return new PostgresIntrospector(db);
+  }
+}
+
+// Kysely database types
+interface CallEdgeTable {
+  id: string;
+  snapshot_id: string;
+  caller_function_id: string;
+  callee_function_id: string | null;
+  callee_name: string;
+  callee_signature: string | null;
+  call_type: string;
+  call_context: string | null;
+  line_number: number;
+  column_number: number;
+  is_async: boolean;
+  is_chained: boolean;
+  confidence_score: number;
+  metadata: object;
+  created_at: string;
+}
+
+interface Database {
+  call_edges: CallEdgeTable;
+  // 他のテーブルは必要に応じて追加
+}
+
 import {
   prepareBulkInsertData,
   generateBulkInsertSQL,
@@ -100,6 +230,7 @@ interface RefactoringChangesetRow {
  */
 export class PGLiteStorageAdapter implements StorageAdapter {
   private db: PGlite;
+  private kysely!: Kysely<Database>; // init()で初期化される
   private git: SimpleGit;
   private transactionDepth: number = 0;
   private dbPath: string;
@@ -120,6 +251,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // パスを正規化してキャッシュの一貫性を保証
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
+    // Kyselyは非同期初期化なので、後でinit()で設定
     this.git = simpleGit();
     
     // Track connection in tests for proper cleanup
@@ -296,6 +428,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       }
 
       await this.db.waitReady;
+
+      // Initialize Kysely after PGlite is ready
+      const dialect = new PGliteDialect({ database: this.db });
+      this.kysely = new Kysely<Database>({ dialect });
 
       // Use cache to avoid redundant schema initialization
       if (!PGLiteStorageAdapter.schemaCache.has(this.dbPath)) {
@@ -3954,7 +4090,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Insert call edges in batch for efficient storage
    */
-  async insertCallEdges(edges: CallEdge[]): Promise<void> {
+  async insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void> {
     if (edges.length === 0) return;
 
     try {
@@ -3962,8 +4098,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const batches = splitIntoBatches(edges, batchSize);
 
       for (const batch of batches) {
-        const callEdgeRows: CallEdgeRow[] = batch.map(edge => ({
+        const callEdgeRows = batch.map(edge => ({
           id: edge.id,
+          snapshot_id: snapshotId,
           caller_function_id: edge.callerFunctionId,
           callee_function_id: edge.calleeFunctionId || null,
           callee_name: edge.calleeName,
@@ -3980,19 +4117,45 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }));
 
         for (const row of callEdgeRows) {
-          await this.db.query(`
-            INSERT INTO call_edges (
-              id, caller_function_id, callee_function_id, callee_name, 
-              callee_signature, call_type, call_context, line_number, 
-              column_number, is_async, is_chained, confidence_score, 
-              metadata, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-          `, [
-            row.id, row.caller_function_id, row.callee_function_id, row.callee_name,
-            row.callee_signature, row.call_type, row.call_context, row.line_number,
-            row.column_number, row.is_async, row.is_chained, row.confidence_score,
-            JSON.stringify(row.metadata), row.created_at
-          ]);
+          await this.kysely
+            .insertInto('call_edges')
+            .values({
+              id: row.id,
+              snapshot_id: row.snapshot_id,
+              caller_function_id: row.caller_function_id,
+              callee_function_id: row.callee_function_id,
+              callee_name: row.callee_name,
+              callee_signature: row.callee_signature,
+              call_type: row.call_type,
+              call_context: row.call_context,
+              line_number: row.line_number,
+              column_number: row.column_number,
+              is_async: row.is_async,
+              is_chained: row.is_chained,
+              confidence_score: row.confidence_score,
+              metadata: row.metadata,
+              created_at: row.created_at,
+            })
+            .onConflict((oc) => 
+              oc.column('id').doUpdateSet({
+                snapshot_id: (eb) => eb.ref('excluded.snapshot_id'),
+                confidence_score: (eb) => eb.fn('greatest', [
+                  eb.ref('excluded.confidence_score'),
+                  eb.ref('call_edges.confidence_score')
+                ]),
+                call_type: (eb) => eb.ref('excluded.call_type'),
+                call_context: (eb) => eb.ref('excluded.call_context'),
+                callee_signature: (eb) => eb.fn('coalesce', [
+                  eb.ref('excluded.callee_signature'),
+                  eb.ref('call_edges.callee_signature')
+                ]),
+                // 複雑な論理演算は一旦シンプルに
+                is_async: (eb) => eb.ref('excluded.is_async'),
+                is_chained: (eb) => eb.ref('excluded.is_chained'),
+                metadata: (eb) => eb.ref('excluded.metadata')
+              })
+            )
+            .execute();
         }
       }
     } catch (error) {
@@ -4006,13 +4169,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Get call edges for a specific caller function
    */
-  async getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]> {
+  async getCallEdgesByCaller(callerFunctionId: string, snapshotId: string): Promise<CallEdge[]> {
     try {
       const result = await this.db.query(`
         SELECT * FROM call_edges 
-        WHERE caller_function_id = $1 
+        WHERE caller_function_id = $1 AND snapshot_id = $2
         ORDER BY line_number
-      `, [callerFunctionId]);
+      `, [callerFunctionId, snapshotId]);
 
       return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
     } catch (error) {
@@ -4026,13 +4189,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Get call edges for a specific callee function
    */
-  async getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]> {
+  async getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]> {
     try {
       const result = await this.db.query(`
         SELECT * FROM call_edges 
-        WHERE callee_function_id = $1 
+        WHERE callee_function_id = $1 AND snapshot_id = $2
         ORDER BY line_number
-      `, [calleeFunctionId]);
+      `, [calleeFunctionId, snapshotId]);
 
       return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
     } catch (error) {
@@ -4047,6 +4210,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Get all call edges with optional filtering
    */
   async getCallEdges(options: {
+    snapshotId?: string;
     callType?: CallEdge['callType'];
     isAsync?: boolean;
     isExternal?: boolean;
@@ -4058,6 +4222,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const conditions: string[] = [];
       const params: unknown[] = [];
       let paramIndex = 1;
+
+      // Always require snapshot_id if provided, or warn if not provided
+      if (options.snapshotId) {
+        conditions.push(`snapshot_id = $${paramIndex++}`);
+        params.push(options.snapshotId);
+      }
 
       if (options.callType) {
         conditions.push(`call_type = $${paramIndex++}`);
@@ -4116,10 +4286,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
     try {
       const result = await this.db.query(`
-        SELECT DISTINCT ce.*
+        SELECT ce.*
         FROM call_edges ce
-        JOIN functions f ON ce.caller_function_id = f.id
-        WHERE f.snapshot_id = $1
+        WHERE ce.snapshot_id = $1
         ORDER BY ce.caller_function_id, ce.line_number
       `, [snapshotId]);
 
