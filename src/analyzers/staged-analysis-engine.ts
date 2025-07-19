@@ -307,9 +307,11 @@ export class StagedAnalysisEngine {
           
           const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
           if (calleeId) {
+            const calleeFunction = functions.get(calleeId);
             this.addEdge({
               callerFunctionId: callerFunction.id,
               calleeFunctionId: calleeId,
+              calleeName: calleeFunction?.name || 'unknown',
               candidates: [calleeId],
               // Reduce confidence slightly for optional calls due to runtime uncertainty
               confidenceScore: isOptional ? CONFIDENCE_SCORES.LOCAL_EXACT_OPTIONAL : CONFIDENCE_SCORES.LOCAL_EXACT,
@@ -329,9 +331,11 @@ export class StagedAnalysisEngine {
             // For optional calls that can't be resolved locally, try optional resolution
             const optionalCalleeId = this.resolveOptionalCall(node, functions);
             if (optionalCalleeId) {
+              const calleeFunction = functions.get(optionalCalleeId);
               this.addEdge({
                 callerFunctionId: callerFunction.id,
                 calleeFunctionId: optionalCalleeId,
+                calleeName: calleeFunction?.name || 'unknown',
                 candidates: [optionalCalleeId],
                 confidenceScore: 0.85, // Lower confidence for optional calls
                 resolutionLevel: 'local_exact' as ResolutionLevel,
@@ -379,9 +383,11 @@ export class StagedAnalysisEngine {
             ? this.resolveImportCall(node, functions)
             : this.resolveNewExpression(node, functions);
           if (calleeId) {
+            const calleeFunction = functions.get(calleeId);
             this.addEdge({
               callerFunctionId: callerFunction.id,
               calleeFunctionId: calleeId,
+              calleeName: calleeFunction?.name || 'unknown',
               candidates: [calleeId],
               // Reduce confidence slightly for optional calls
               confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
