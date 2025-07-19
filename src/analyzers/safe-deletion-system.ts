@@ -207,6 +207,8 @@ export class SafeDeletionSystem {
     // Process candidates efficiently
     const filtered: DeletionCandidate[] = [];
     
+    // 🚨 CRITICAL FIX: Only process truly unreachable functions
+    // Functions that are reachable from entry points should NEVER be deletion candidates
     for (const functionId of reachabilityResult.unreachable) {
       const func = functionsById.get(functionId);
       if (!func) continue;
@@ -221,18 +223,23 @@ export class SafeDeletionSystem {
         highConfidenceCallersSet.has(callerId)
       );
 
-      // 削除理由・信頼度スコア
+      // 🔧 FIXED: Improved deletion reason logic
       let reason: DeletionCandidate['reason'] = 'unreachable';
       let confidenceScore = 1.0;
+      
+      // If function is truly unreachable from entry points, it's safe to delete
       if (callers.size === 0) {
-        reason = 'no-high-confidence-callers';
-        confidenceScore = 0.95;
+        reason = 'unreachable';
+        confidenceScore = 1.0;
       } else if (highConfidenceCallers.length === 0) {
+        // Has callers but none are high-confidence - conservative approach
         reason = 'no-high-confidence-callers';
         confidenceScore = 0.90;
-      } else if (callers.size === 1) {
-        reason = 'isolated';
-        confidenceScore = 0.85;
+      } else {
+        // 🚨 CRITICAL: If there are high-confidence callers, this function should NOT be unreachable
+        // This indicates a bug in reachability analysis - skip this function
+        console.warn(`⚠️  Function ${func.name} marked as unreachable but has ${highConfidenceCallers.length} high-confidence callers. Skipping deletion.`);
+        continue;
       }
 
       // Skip source line loading in dry run mode for performance
