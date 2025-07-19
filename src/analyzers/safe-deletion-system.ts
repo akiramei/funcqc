@@ -4,6 +4,7 @@ import { EntryPointDetector } from './entry-point-detector';
 import { minimatch } from 'minimatch';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { SafeFunctionDeleter } from '../tools/function-deleter';
 
 export interface SafeDeletionOptions {
   confidenceThreshold: number;     // Minimum confidence score for deletion (default: 0.95)
@@ -293,38 +294,31 @@ export class SafeDeletionSystem {
   }
 
   /**
-   * Delete a single function from source code
+   * Delete a single function from source code using AST-based safe deletion
    */
   private async deleteFunction(candidate: DeletionCandidate): Promise<void> {
     const { functionInfo } = candidate;
-    const filePath = functionInfo.filePath;
-
-    // Read the file
-    const fileContent = await fs.readFile(filePath, 'utf8');
     
-    // Preserve line endings
-    const lineEnding = fileContent.includes('\r\n') ? '\r\n' : '\n';
-    const lines = fileContent.split(/\r?\n/);
-
-    // Calculate zero-based line indices
-    const startIndex = functionInfo.startLine - 1;
-    const endIndex = functionInfo.endLine - 1;
+    // Use the existing SafeFunctionDeleter for precise AST-based deletion
+    const deleter = new SafeFunctionDeleter({ verbose: false });
     
-    // Verify function still exists at expected location
-    if (startIndex >= lines.length || endIndex >= lines.length) {
-      throw new Error(`Function location out of bounds in ${filePath}`);
+    try {
+      const result = await deleter.deleteFunctions([functionInfo], {
+        dryRun: false,
+        verbose: false,
+        backupFiles: false, // We handle backups at the batch level
+        skipJsDoc: false    // Remove JSDoc comments with the function
+      });
+      
+      if (!result.success || result.functionsDeleted === 0) {
+        throw new Error(`Failed to delete function: ${result.errors.join(', ')}`);
+      }
+      
+      console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
+      
+    } finally {
+      deleter.dispose();
     }
-
-    // Remove function lines
-    const newLines = [
-      ...lines.slice(0, startIndex),
-      ...lines.slice(endIndex + 1)
-    ];
-
-    // Write back to file
-    await fs.writeFile(filePath, newLines.join(lineEnding));
-
-    console.log(`   🗑️  Deleted function: ${functionInfo.name} (${functionInfo.filePath}:${functionInfo.startLine})`);
   }
 
   /**
