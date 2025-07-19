@@ -5,6 +5,7 @@ import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { SymbolCache } from '../utils/symbol-cache';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
+import { PathNormalizer } from '../utils/path-normalizer';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
@@ -276,10 +277,7 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const normalizedFilePath = this.normalizeFilePath(filePath);
-      const fileFunctions = Array.from(functions.values()).filter(f => 
-        this.normalizeFilePath(f.filePath) === normalizedFilePath
-      );
+      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
       
       if (fileFunctions.length === 0) continue;
       
@@ -359,10 +357,7 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const normalizedFilePath = this.normalizeFilePath(filePath);
-      const fileFunctions = Array.from(functions.values()).filter(f => 
-        this.normalizeFilePath(f.filePath) === normalizedFilePath
-      );
+      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
       
       if (fileFunctions.length === 0) continue;
       
@@ -718,7 +713,7 @@ export class StagedAnalysisEngine {
     
     // Strategy 2: Search through functions map for exact match
     for (const [id, func] of functions) {
-      if (this.normalizeFilePath(func.filePath) === this.normalizeFilePath(filePath) &&
+      if (PathNormalizer.areEqual(func.filePath, filePath) &&
           func.startLine === startLine &&
           func.name === methodName &&
           func.className === className) {
@@ -1717,10 +1712,8 @@ export class StagedAnalysisEngine {
         }
         
         // If direct resolution fails, collect for CHA analysis
-        const callNodePath = this.normalizeFilePath(callNode.getSourceFile().getFilePath());
-        const fileFunctions = Array.from(functions.values()).filter(f => 
-          this.normalizeFilePath(f.filePath) === callNodePath
-        );
+        const callNodePath = callNode.getSourceFile().getFilePath();
+        const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), callNodePath);
         const callerFunction = this.findContainingFunction(callNode, fileFunctions);
         if (callerFunction) {
           this.unresolvedMethodCalls.push({
@@ -1839,15 +1832,6 @@ export class StagedAnalysisEngine {
     return undefined;
   }
   
-  /**
-   * Normalize file path for consistent comparison
-   * Handles case sensitivity, path separators, and symbolic links
-   */
-  private normalizeFilePath(filePath: string): string {
-    return path.normalize(path.resolve(filePath)).toLowerCase().replace(/\\/g, '/');
-  }
-
-
   /**
    * Check if node is an optional call expression (obj?.method() or fn?.())
    * Uses AST-based detection to avoid false positives from string content
