@@ -615,7 +615,7 @@ export interface StorageAdapter {
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
 
   // Call edge operations
-  insertCallEdges(edges: CallEdge[]): Promise<void>;
+  insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;
   getCallEdges(options?: {
     callerFunctionId?: string;
     calleeFunctionId?: string;

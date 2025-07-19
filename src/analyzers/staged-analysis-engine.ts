@@ -3,8 +3,8 @@ import { IdealCallEdge, ResolutionLevel, FunctionMetadata } from './ideal-call-g
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from './cha-analyzer';
 import { RTAAnalyzer } from './rta-analyzer';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
-import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { SymbolCache } from '../utils/symbol-cache';
+import { generateStableEdgeId } from '../utils/edge-id-generator';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
@@ -598,8 +598,8 @@ export class StagedAnalysisEngine {
       // Strategy 1: Look for method in the same class
       const directMethod = this.findMethodInClass(containingClass, methodName);
       if (directMethod) {
-        const methodId = this.buildMethodId(directMethod, className);
-        if (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName)) {
+        const methodId = this.buildMethodId(directMethod, className, functionByName);
+        if (methodId && (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName))) {
           return methodId;
         }
       }
@@ -647,8 +647,8 @@ export class StagedAnalysisEngine {
       if (parentClass) {
         const parentMethod = this.findMethodInClass(parentClass, methodName);
         if (parentMethod) {
-          const methodId = this.buildMethodId(parentMethod, parentClassName);
-          if (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName)) {
+          const methodId = this.buildMethodId(parentMethod, parentClassName, functionByName);
+          if (methodId && (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName))) {
             return methodId;
           }
         }
@@ -698,20 +698,52 @@ export class StagedAnalysisEngine {
   /**
    * Build method ID in format: filePath#ClassName.methodName
    */
-  private buildMethodId(method: MethodDeclaration, className: string): string {
-    // Use the same ID generation as FunctionRegistry for consistency
+  private buildMethodId(method: MethodDeclaration, className: string, functions: Map<string, FunctionMetadata>): string | undefined {
     const filePath = method.getSourceFile().getFilePath();
-    const relativePath = this.getRelativePath(filePath);
-    const lexicalPath = `${relativePath}#${className}.${method.getName()}`;
+    const startLine = method.getStartLineNumber();
+    const methodName = method.getName();
     
-    // Use FunctionIdGenerator to ensure consistent ID format with position information
-    return FunctionIdGenerator.generateFromNode(method, lexicalPath);
+    // Strategy 1: Fast lookup using position or line
+    const positionId = method.getStart().toString();
+    const functionId = this.fastFunctionLookup(filePath, positionId, startLine);
+    if (functionId) {
+      return functionId;
+    }
+    
+    // Strategy 2: Search through functions map for exact match
+    for (const [id, func] of functions) {
+      if (func.filePath === filePath &&
+          func.startLine === startLine &&
+          func.name === methodName &&
+          func.className === className) {
+        return id;
+      }
+    }
+    
+    // Strategy 3: Match by lexical path (less precise)
+    const relativePath = this.getRelativePath(filePath);
+    const expectedLexicalPath = `${relativePath}#${className}.${methodName}`;
+    
+    for (const [id, func] of functions) {
+      if (func.lexicalPath === expectedLexicalPath &&
+          Math.abs(func.startLine - startLine) <= 2) {
+        return id;
+      }
+    }
+    
+    // If no match found, warn and return undefined
+    console.warn(`buildMethodId: Could not find function ID for method ${className}.${methodName} at ${filePath}:${startLine}`);
+    return undefined;
   }
 
   /**
    * Check if method exists in function registry
    */
-  private isMethodInFunctionRegistry(methodId: string, functionByName: Map<string, FunctionMetadata>): boolean {
+  private isMethodInFunctionRegistry(methodId: string | undefined, functionByName: Map<string, FunctionMetadata>): boolean {
+    if (!methodId) {
+      return false;
+    }
+    
     // Check if any function in registry matches this method ID
     for (const [, func] of functionByName) {
       if (func.id === methodId) {
@@ -924,8 +956,8 @@ export class StagedAnalysisEngine {
     // Check static method in current class
     const staticMethod = this.findStaticMethodInClass(classDecl, methodName);
     if (staticMethod) {
-      const methodId = this.buildMethodId(staticMethod, className);
-      if (this.isMethodInFunctionRegistry(methodId, functionByName)) {
+      const methodId = this.buildMethodId(staticMethod, className, functionByName);
+      if (methodId && this.isMethodInFunctionRegistry(methodId, functionByName)) {
         return methodId;
       }
     }
@@ -1889,7 +1921,7 @@ export class StagedAnalysisEngine {
     
     if (!existingEdge) {
       // Create new edge
-      const edgeId = this.generateStableEdgeId(edge.callerFunctionId!, edge.calleeFunctionId!);
+      const edgeId = generateStableEdgeId(edge.callerFunctionId!, edge.calleeFunctionId!);
       
       const completeEdge: IdealCallEdge = {
         // Required CallEdge properties
@@ -1964,14 +1996,6 @@ export class StagedAnalysisEngine {
     }
   }
 
-  /**
-   * Generate stable edge ID based on caller->callee relationship
-   */
-  private generateStableEdgeId(callerFunctionId: string, calleeFunctionId: string): string {
-    const edgeKey = `${callerFunctionId}->${calleeFunctionId}`;
-    const hash = crypto.createHash('md5').update(edgeKey).digest('hex');
-    return `edge_${hash.substring(0, 8)}`;
-  }
 
   /**
    * Log symbol cache statistics for performance monitoring
@@ -1985,10 +2009,50 @@ export class StagedAnalysisEngine {
   }
 
   /**
-   * Get all collected edges
+   * Get final edges with duplicate ID diagnostics
    */
   getEdges(): IdealCallEdge[] {
+    // Step 3: Diagnostic logging for duplicate ID detection
+    this.logEdgeDuplicateDiagnostics();
     return this.edges;
+  }
+
+  /**
+   * Log edge duplicate diagnostics for debugging
+   */
+  private logEdgeDuplicateDiagnostics(): void {
+    const edgeIds = this.edges.map(e => e.id);
+    const duplicateIds = edgeIds.filter((id, index) => edgeIds.indexOf(id) !== index);
+    
+    if (duplicateIds.length > 0) {
+      console.warn(`⚠️  Edge duplicate ID detection:`);
+      console.warn(`   Total edges: ${this.edges.length}`);
+      console.warn(`   Unique IDs: ${new Set(edgeIds).size}`);
+      console.warn(`   Duplicate IDs found: ${duplicateIds.length}`);
+      
+      // Group by duplicate ID
+      const duplicateGroups = new Map<string, IdealCallEdge[]>();
+      for (const edge of this.edges) {
+        if (duplicateIds.includes(edge.id)) {
+          if (!duplicateGroups.has(edge.id)) {
+            duplicateGroups.set(edge.id, []);
+          }
+          duplicateGroups.get(edge.id)!.push(edge);
+        }
+      }
+      
+      // Log details for each duplicate group
+      for (const [edgeId, duplicates] of duplicateGroups) {
+        console.warn(`   Duplicate ID "${edgeId}" appears ${duplicates.length} times:`);
+        for (const edge of duplicates) {
+          console.warn(`     - Caller: ${edge.callerFunctionId}, Callee: ${edge.calleeFunctionId}`);
+          console.warn(`       Resolution: ${edge.resolutionLevel}, Confidence: ${edge.confidenceScore}`);
+          console.warn(`       Context: ${edge.callContext}, Line: ${edge.lineNumber}`);
+        }
+      }
+    } else {
+      console.log(`✅ Edge ID uniqueness check passed: ${this.edges.length} edges, all unique`);
+    }
   }
 
   /**

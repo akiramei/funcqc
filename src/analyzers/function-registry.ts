@@ -1,6 +1,5 @@
 import { Project, Node, SourceFile } from 'ts-morph';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
-import { FunctionIdGenerator } from '../utils/function-id-generator';
 import * as crypto from 'crypto';
 import * as path from 'path';
 
@@ -85,8 +84,8 @@ export class FunctionRegistry {
     
     const className = this.getClassName(node);
     
-    // Generate unique ID using centralized ID generator
-    const uniqueId = FunctionIdGenerator.generateFromNode(node, lexicalPath);
+    // Generate UUID for physical function identity
+    const uniqueId = crypto.randomUUID();
     
     return {
       id: uniqueId,

@@ -1,7 +1,7 @@
 import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, ConstructorDeclaration, MethodSignature, TypeChecker } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
+import { generateStableEdgeId } from '../utils/edge-id-generator';
 import * as path from 'path';
-import * as crypto from 'crypto';
 
 /**
  * Class Hierarchy Analysis (CHA) Analyzer
@@ -329,7 +329,7 @@ export class CHAAnalyzer {
             const inheritanceDepth = this.calculateInheritanceDepth(candidate, unresolved.receiverType);
             
             const edge: IdealCallEdge = {
-              id: crypto.randomUUID(),
+              id: generateStableEdgeId(unresolved.callerFunctionId, functionId),
               callerFunctionId: unresolved.callerFunctionId,
               calleeFunctionId: functionId,
               calleeName: candidate.signature,
@@ -607,6 +607,7 @@ export class CHAAnalyzer {
     this.inheritanceGraph.clear();
     this.methodIndex.clear();
   }
+
 }
 
 export interface ClassHierarchyNode {

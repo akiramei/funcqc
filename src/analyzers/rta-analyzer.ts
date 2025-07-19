@@ -1,8 +1,8 @@
 import { Project, Node, TypeChecker, CallExpression, NewExpression } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
+import { generateStableEdgeId } from '../utils/edge-id-generator';
 import * as path from 'path';
-import * as crypto from 'crypto';
 
 /**
  * Rapid Type Analysis (RTA) Analyzer
@@ -191,7 +191,7 @@ export class RTAAnalyzer {
             const functionId = this.findMatchingFunctionId(functions, candidate);
             if (functionId) {
               const edge: IdealCallEdge = {
-                id: crypto.randomUUID(),
+                id: generateStableEdgeId(unresolvedCall.callerFunctionId, functionId),
                 callerFunctionId: unresolvedCall.callerFunctionId,
                 calleeFunctionId: functionId,
                 calleeName: candidate.signature,
@@ -428,6 +428,7 @@ export class RTAAnalyzer {
     this.typeInstantiationMap.clear();
     this.classInterfacesMap.clear();
   }
+
 }
 
 export interface InstantiationInfo {

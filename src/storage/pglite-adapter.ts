@@ -3954,7 +3954,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Insert call edges in batch for efficient storage
    */
-  async insertCallEdges(edges: CallEdge[]): Promise<void> {
+  async insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void> {
     if (edges.length === 0) return;
 
     try {
@@ -3962,8 +3962,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const batches = splitIntoBatches(edges, batchSize);
 
       for (const batch of batches) {
-        const callEdgeRows: CallEdgeRow[] = batch.map(edge => ({
+        const callEdgeRows = batch.map(edge => ({
           id: edge.id,
+          snapshot_id: snapshotId,
           caller_function_id: edge.callerFunctionId,
           callee_function_id: edge.calleeFunctionId || null,
           callee_name: edge.calleeName,
@@ -3982,13 +3983,28 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         for (const row of callEdgeRows) {
           await this.db.query(`
             INSERT INTO call_edges (
-              id, caller_function_id, callee_function_id, callee_name, 
+              id, snapshot_id, caller_function_id, callee_function_id, callee_name, 
               callee_signature, call_type, call_context, line_number, 
               column_number, is_async, is_chained, confidence_score, 
               metadata, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            ON CONFLICT (id) DO UPDATE SET
+              confidence_score = GREATEST(EXCLUDED.confidence_score, call_edges.confidence_score),
+              call_type = EXCLUDED.call_type,
+              call_context = EXCLUDED.call_context,
+              callee_signature = COALESCE(EXCLUDED.callee_signature, call_edges.callee_signature),
+              is_async = call_edges.is_async OR EXCLUDED.is_async,
+              is_chained = call_edges.is_chained OR EXCLUDED.is_chained,
+              metadata = 
+                CASE 
+                  WHEN call_edges.metadata::text = '{}' OR call_edges.metadata IS NULL 
+                  THEN EXCLUDED.metadata::jsonb
+                  WHEN EXCLUDED.metadata::text = '{}' OR EXCLUDED.metadata IS NULL
+                  THEN call_edges.metadata
+                  ELSE call_edges.metadata || EXCLUDED.metadata::jsonb
+                END
           `, [
-            row.id, row.caller_function_id, row.callee_function_id, row.callee_name,
+            row.id, row.snapshot_id, row.caller_function_id, row.callee_function_id, row.callee_name,
             row.callee_signature, row.call_type, row.call_context, row.line_number,
             row.column_number, row.is_async, row.is_chained, row.confidence_score,
             JSON.stringify(row.metadata), row.created_at

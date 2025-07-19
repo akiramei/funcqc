@@ -453,7 +453,7 @@ async function saveResults(
   // Save call edges if any were found
   if (allCallEdges.length > 0) {
     spinner.text = `Saving ${allCallEdges.length} call edges to database...`;
-    await storage.insertCallEdges(allCallEdges);
+    await storage.insertCallEdges(allCallEdges, snapshotId);
   }
   
   const elapsed = Math.ceil((Date.now() - startTime) / 1000);

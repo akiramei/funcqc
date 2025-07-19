@@ -7,6 +7,7 @@
 
 import { Node } from 'ts-morph';
 import * as path from 'path';
+import * as crypto from 'crypto';
 
 export class FunctionIdGenerator {
   /**
@@ -22,18 +23,27 @@ export class FunctionIdGenerator {
   }
 
   /**
-   * Generate ID from ts-morph node
+   * Generate ID from ts-morph node with content-based stability
    */
   static generateFromNode(
     node: Node,
     lexicalPath: string
   ): string {
+    // Create a stable hash from the function's content and position
     const startLine = node.getStartLineNumber();
     const startColumn = node.getStart() - node.getStartLinePos();
-    const nodeStart = node.getStart(); // Absolute character position for extra uniqueness
+    const nodeStart = node.getStart();
     
-    // Use both lexical path and absolute position for maximum uniqueness
-    return `${lexicalPath}:${startLine}:${startColumn}:${nodeStart}`;
+    // Use content hash for maximum stability across multiple scans
+    const content = node.getFullText().trim();
+    const contentHash = crypto.createHash('md5').update(content).digest('hex');
+    
+    // Create a deterministic identifier combining position and content
+    const uniqueString = `${lexicalPath}:${startLine}:${startColumn}:${nodeStart}:${contentHash}`;
+    const stableHash = crypto.createHash('md5').update(uniqueString).digest('hex');
+    
+    // Return a shortened hash for readability
+    return stableHash.substring(0, 16);
   }
 
   /**
@@ -63,6 +73,7 @@ export class FunctionIdGenerator {
 
   /**
    * Parse function ID to extract components
+   * Note: Hash-based IDs are not parseable, this method is for legacy compatibility
    */
   static parseId(functionId: string): {
     lexicalPath: string;
@@ -70,6 +81,11 @@ export class FunctionIdGenerator {
     startColumn: number;
     nodeStart?: number;
   } | null {
+    // If it's a hash-based ID (16 hex characters), it's not parseable
+    if (/^[a-f0-9]{16}$/.test(functionId)) {
+      return null;
+    }
+
     const parts = functionId.split(':');
     if (parts.length < 3) {
       return null;
