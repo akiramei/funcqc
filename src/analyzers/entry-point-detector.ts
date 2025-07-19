@@ -1,5 +1,6 @@
 import { FunctionInfo } from '../types';
 import { Node, SourceFile } from 'ts-morph';
+import { PathNormalizer } from '../utils/path-normalizer';
 
 export interface EntryPoint {
   functionId: string;
@@ -76,7 +77,7 @@ export class EntryPointDetector {
       // Track test file statistics for debugging
       if (this.isTestFile(func.filePath)) {
         if (testFileStats.files === 0 || !entryPoints.some(ep => 
-          functions.find(f => f.id === ep.functionId)?.filePath === func.filePath
+          PathNormalizer.areEqual(functions.find(f => f.id === ep.functionId)?.filePath || '', func.filePath)
         )) {
           testFileStats.files++;
         }

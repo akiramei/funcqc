@@ -1,6 +1,7 @@
 import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, ConstructorDeclaration, MethodSignature, TypeChecker } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
+import { PathNormalizer } from '../utils/path-normalizer';
 import * as path from 'path';
 
 /**
@@ -512,7 +513,7 @@ export class CHAAnalyzer {
     try {
       // Strategy 1: Exact match with position and metadata (most accurate)
       for (const [functionId, functionMetadata] of functions) {
-        if (functionMetadata.filePath === candidate.filePath &&
+        if (PathNormalizer.areEqual(functionMetadata.filePath, candidate.filePath) &&
             functionMetadata.startLine === candidate.startLine &&
             functionMetadata.name === candidate.name &&
             functionMetadata.className === candidate.className) {
@@ -534,7 +535,7 @@ export class CHAAnalyzer {
       
       // Strategy 3: Search by file path and line number with tolerance
       for (const [functionId, functionMetadata] of functions) {
-        if (functionMetadata.filePath === candidate.filePath &&
+        if (PathNormalizer.areEqual(functionMetadata.filePath, candidate.filePath) &&
             Math.abs(functionMetadata.startLine - candidate.startLine) <= 2 && // Allow small line differences
             functionMetadata.name === candidate.name &&
             functionMetadata.className === candidate.className) {
@@ -544,7 +545,7 @@ export class CHAAnalyzer {
       
       // Strategy 4: Search by class and method name in same file
       for (const [functionId, functionMetadata] of functions) {
-        if (functionMetadata.filePath === candidate.filePath &&
+        if (PathNormalizer.areEqual(functionMetadata.filePath, candidate.filePath) &&
             functionMetadata.name === candidate.name &&
             functionMetadata.className === candidate.className) {
           return functionId;
@@ -553,7 +554,7 @@ export class CHAAnalyzer {
       
       // Strategy 5: Search by method name only in same file (most lenient)
       for (const [functionId, functionMetadata] of functions) {
-        if (functionMetadata.filePath === candidate.filePath &&
+        if (PathNormalizer.areEqual(functionMetadata.filePath, candidate.filePath) &&
             functionMetadata.name === candidate.name &&
             functionMetadata.isMethod) {
           return functionId;
