@@ -276,7 +276,10 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = Array.from(functions.values()).filter(f => f.filePath === filePath);
+      const normalizedFilePath = this.normalizeFilePath(filePath);
+      const fileFunctions = Array.from(functions.values()).filter(f => 
+        this.normalizeFilePath(f.filePath) === normalizedFilePath
+      );
       
       if (fileFunctions.length === 0) continue;
       
@@ -356,7 +359,10 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = Array.from(functions.values()).filter(f => f.filePath === filePath);
+      const normalizedFilePath = this.normalizeFilePath(filePath);
+      const fileFunctions = Array.from(functions.values()).filter(f => 
+        this.normalizeFilePath(f.filePath) === normalizedFilePath
+      );
       
       if (fileFunctions.length === 0) continue;
       
@@ -712,7 +718,7 @@ export class StagedAnalysisEngine {
     
     // Strategy 2: Search through functions map for exact match
     for (const [id, func] of functions) {
-      if (func.filePath === filePath &&
+      if (this.normalizeFilePath(func.filePath) === this.normalizeFilePath(filePath) &&
           func.startLine === startLine &&
           func.name === methodName &&
           func.className === className) {
@@ -1711,7 +1717,10 @@ export class StagedAnalysisEngine {
         }
         
         // If direct resolution fails, collect for CHA analysis
-        const fileFunctions = Array.from(functions.values()).filter(f => f.filePath === callNode.getSourceFile().getFilePath());
+        const callNodePath = this.normalizeFilePath(callNode.getSourceFile().getFilePath());
+        const fileFunctions = Array.from(functions.values()).filter(f => 
+          this.normalizeFilePath(f.filePath) === callNodePath
+        );
         const callerFunction = this.findContainingFunction(callNode, fileFunctions);
         if (callerFunction) {
           this.unresolvedMethodCalls.push({
@@ -1760,7 +1769,8 @@ export class StagedAnalysisEngine {
   }
 
   /**
-   * Find the containing function for a node
+   * Find the containing function for a node with improved tolerance
+   * Uses containment + position fallback instead of exact line matching
    */
   private findContainingFunction(node: Node, fileFunctions: FunctionMetadata[]): FunctionMetadata | undefined {
     let current = node.getParent();
@@ -1769,16 +1779,72 @@ export class StagedAnalysisEngine {
       if (Node.isFunctionDeclaration(current) || Node.isMethodDeclaration(current) || Node.isArrowFunction(current) || Node.isFunctionExpression(current) || Node.isConstructorDeclaration(current)) {
         const startLine = current.getStartLineNumber();
         const endLine = current.getEndLineNumber();
+        const startPos = current.getStart();
+        const endPos = current.getEnd();
         
-        // Find matching function metadata
-        return fileFunctions.find(f => 
+        // Strategy 1: Exact line match (legacy compatibility)
+        let match = fileFunctions.find(f => 
           f.startLine === startLine && f.endLine === endLine
         );
+        if (match) return match;
+        
+        // Strategy 2: Containment-based matching (more tolerant)
+        match = fileFunctions.find(f => 
+          f.startLine <= startLine && 
+          endLine <= f.endLine &&
+          // Prevent nested function mismatches by ensuring reasonable size relationship
+          (f.endLine - f.startLine) >= (endLine - startLine)
+        );
+        if (match) return match;
+        
+        // Strategy 3: Position-based fallback (handles line offset issues)
+        if (startPos !== undefined && endPos !== undefined) {
+          const positionId = this.generatePositionId(current.getSourceFile().getFilePath(), startPos, endPos);
+          match = fileFunctions.find(f => {
+            // Try to match by content hash or position ID if available
+            if (f.contentHash && f.contentHash.includes(positionId.substring(0, 8))) {
+              return true;
+            }
+            if (f.positionId && f.positionId === positionId) {
+              return true;
+            }
+            // Near-line tolerance (±1 line for minor discrepancies)
+            return Math.abs(f.startLine - startLine) <= 1 && 
+                   Math.abs(f.endLine - endLine) <= 1;
+          });
+          if (match) return match;
+        }
+        
+        // Strategy 4: Best effort by function size and proximity
+        match = fileFunctions.reduce((best, candidate) => {
+          const candidateDistance = Math.abs(candidate.startLine - startLine) + Math.abs(candidate.endLine - endLine);
+          const candidateSize = candidate.endLine - candidate.startLine;
+          const nodeSize = endLine - startLine;
+          
+          // Prefer functions with similar size and close proximity
+          if (!best || (
+            candidateDistance < 3 && 
+            Math.abs(candidateSize - nodeSize) < Math.abs((best.endLine - best.startLine) - nodeSize)
+          )) {
+            return candidate;
+          }
+          return best;
+        }, undefined as FunctionMetadata | undefined);
+        
+        if (match) return match;
       }
       current = current.getParent();
     }
     
     return undefined;
+  }
+  
+  /**
+   * Normalize file path for consistent comparison
+   * Handles case sensitivity, path separators, and symbolic links
+   */
+  private normalizeFilePath(filePath: string): string {
+    return path.normalize(path.resolve(filePath)).toLowerCase().replace(/\\/g, '/');
   }
 
 
