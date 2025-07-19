@@ -275,6 +275,8 @@ export class CHAAnalyzer {
    * Only index methods that are in the FunctionRegistry to prevent false positives
    */
   private buildMethodIndex(functions: Map<string, FunctionMetadata>): void {
+    let methodCount = 0;
+    
     for (const [className, node] of this.inheritanceGraph) {
       // Skip interface nodes - their methods are signatures, not implementations
       if (node.type === 'interface') {
@@ -283,11 +285,23 @@ export class CHAAnalyzer {
       
       for (const method of node.methods) {
         // Check if this method exists in the FunctionRegistry
-        const methodLexicalPath = this.buildMethodLexicalPath(method, className);
-        if (!functions.has(methodLexicalPath)) {
+        // Look for matching function by file path, class name, and method name
+        let foundInRegistry = false;
+        for (const [, func] of functions) {
+          if (PathNormalizer.areEqual(func.filePath, method.filePath) &&
+              func.className === className &&
+              func.name === method.name &&
+              func.isMethod) {
+            foundInRegistry = true;
+            break;
+          }
+        }
+        
+        if (!foundInRegistry) {
           // Skip methods not in FunctionRegistry to avoid false positives
           continue;
         }
+        methodCount++;
         
         const methodKey = `${className}.${method.name}`;
         if (!this.methodIndex.has(methodKey)) {
@@ -302,15 +316,9 @@ export class CHAAnalyzer {
         this.methodIndex.get(method.name)!.add(method);
       }
     }
+    
   }
 
-  /**
-   * Build lexical path for method that matches FunctionRegistry format
-   */
-  private buildMethodLexicalPath(method: MethodInfo, className: string): string {
-    const relativePath = this.getRelativePath(method.filePath);
-    return `${relativePath}#${className}.${method.name}`;
-  }
 
   /**
    * Resolve method calls using CHA (optimized sync)
@@ -379,21 +387,29 @@ export class CHAAnalyzer {
     
     if (receiverType) {
       // Look for specific class/interface methods
-      const classNode = this.inheritanceGraph.get(receiverType);
-      if (classNode) {
-        // Only add methods from concrete classes, not interface signatures
-        if (classNode.type === 'class') {
-          const directMethods = classNode.methods.filter(m => m.name === methodName);
+      const node = this.inheritanceGraph.get(receiverType);
+      if (node) {
+        if (node.type === 'class') {
+          // Handle class methods
+          const directMethods = node.methods.filter(m => m.name === methodName);
           candidates.push(...directMethods);
+          
+          // Add methods from parent classes (with fresh visited set)
+          const parentMethods = this.getMethodsFromParents(node, methodName, new Set<string>());
+          candidates.push(...parentMethods);
+        } else if (node.type === 'interface') {
+          // Handle interface methods by expanding to implementing classes
+          const implementingClasses = this.getImplementingClasses(node, new Set<string>());
+          for (const implClass of implementingClasses) {
+            // Add direct methods from implementing class
+            const directMethods = implClass.methods.filter(m => m.name === methodName);
+            candidates.push(...directMethods);
+            
+            // Add inherited methods from implementing class's parents
+            const inheritedMethods = this.getMethodsFromParents(implClass, methodName, new Set<string>());
+            candidates.push(...inheritedMethods);
+          }
         }
-        
-        // Add methods from parent classes (with fresh visited set)
-        const parentMethods = this.getMethodsFromParents(classNode, methodName, new Set<string>());
-        candidates.push(...parentMethods);
-        
-        // Skip interface methods - they are signatures, not callable implementations
-        // const interfaceMethods = this.getMethodsFromInterfaces(classNode, methodName, new Set<string>());
-        // candidates.push(...interfaceMethods);
       }
     } else {
       // Look for all methods with the given name (polymorphic call)
@@ -401,7 +417,7 @@ export class CHAAnalyzer {
       candidates.push(...Array.from(allMethods));
     }
     
-    return candidates;
+    return this.deduplicateCandidates(candidates);
   }
 
   /**
@@ -599,6 +615,53 @@ export class CHAAnalyzer {
    */
   getMethodIndex(): Map<string, Set<MethodInfo>> {
     return this.methodIndex;
+  }
+
+  /**
+   * Get implementing classes for an interface (with cycle detection)
+   */
+  private getImplementingClasses(
+    interfaceNode: ClassHierarchyNode, 
+    visited = new Set<string>()
+  ): ClassHierarchyNode[] {
+    if (visited.has(interfaceNode.name)) return [];
+    visited.add(interfaceNode.name);
+    
+    const implementingClasses: ClassHierarchyNode[] = [];
+    
+    // Get direct implementing classes
+    for (const childName of interfaceNode.children) {
+      const childNode = this.inheritanceGraph.get(childName);
+      if (childNode) {
+        if (childNode.type === 'class') {
+          implementingClasses.push(childNode);
+        } else if (childNode.type === 'interface') {
+          // Recursively get implementing classes of child interfaces
+          const indirectImpls = this.getImplementingClasses(childNode, visited);
+          implementingClasses.push(...indirectImpls);
+        }
+      }
+    }
+    
+    return implementingClasses;
+  }
+
+  /**
+   * Deduplicate method candidates by signature
+   */
+  private deduplicateCandidates(candidates: MethodInfo[]): MethodInfo[] {
+    const seen = new Set<string>();
+    const deduplicated: MethodInfo[] = [];
+    
+    for (const candidate of candidates) {
+      const signature = `${candidate.filePath}:${candidate.startLine}:${candidate.name}`;
+      if (!seen.has(signature)) {
+        seen.add(signature);
+        deduplicated.push(candidate);
+      }
+    }
+    
+    return deduplicated;
   }
 
   /**

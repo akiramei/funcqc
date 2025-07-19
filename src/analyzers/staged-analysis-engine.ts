@@ -522,10 +522,31 @@ export class StagedAnalysisEngine {
       const methodName = expression.getName();
       const receiverExpression = expression.getExpression();
       
+      
       // Check for this/super calls first
       const thisSuperId = this.resolveThisSuperCall(callNode, receiverExpression, methodName, functionByName, functions);
       if (thisSuperId) {
         return thisSuperId;
+      }
+      
+      // If this/super call couldn't be resolved and receiver is this/super, collect for CHA
+      if (Node.isThisExpression(receiverExpression) || Node.isSuperExpression(receiverExpression)) {
+        const currentFilePath = callNode.getSourceFile().getFilePath();
+        const currentFileFunctions = Array.from(functions.values()).filter(
+          func => PathNormalizer.areEqual(func.filePath, currentFilePath)
+        );
+        const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
+        if (callerFunction) {
+          console.log(`🔍 Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
+          this.unresolvedMethodCalls.push({
+            callerFunctionId: callerFunction.id,
+            methodName,
+            receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
+            lineNumber: callNode.getStartLineNumber(),
+            columnNumber: callNode.getStart()
+          });
+        }
+        return undefined;
       }
       
       // Check for static method calls: ClassName.staticMethod()
@@ -534,9 +555,23 @@ export class StagedAnalysisEngine {
         return staticMethodId;
       }
       
-      // Try to find exact match first
+      // Try to find exact match first, but check for inheritance
       const candidates = functionByName.get(methodName);
       if (candidates && candidates.length > 0) {
+        // Check if any candidate belongs to a class with inheritance
+        const hasInheritedMethod = candidates.some(candidate => {
+          if (!candidate.className) return false;
+          const sourceFile = callNode.getSourceFile();
+          const classDecl = sourceFile.getClass(candidate.className);
+          return classDecl ? this.hasInheritanceOrInterfaces(classDecl) : false;
+        });
+        
+        // If there's inheritance involved, let CHA handle it
+        if (hasInheritedMethod) {
+          console.log(`🔍 Method ${methodName} has inheritance - delegating to CHA`);
+          return undefined;
+        }
+        
         const bestCandidate = this.selectBestFunctionCandidate(callNode, candidates);
         if (bestCandidate) {
           return bestCandidate.id;
@@ -544,9 +579,13 @@ export class StagedAnalysisEngine {
       }
       
       // If not found locally, collect for CHA analysis
-      // We need to find the caller using the file functions
-      const fileFunctions = Array.from(functionByName.values()).flat();
-      const callerFunction = this.findContainingFunction(callNode, fileFunctions);
+      // We need to find the caller in the current file
+      // Get all functions from the current file by looking at the source file path
+      const currentFilePath = callNode.getSourceFile().getFilePath();
+      const currentFileFunctions = Array.from(functions.values()).filter(
+        func => PathNormalizer.areEqual(func.filePath, currentFilePath)
+      );
+      const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
       if (callerFunction) {
         let receiverType: string | undefined;
         
@@ -558,6 +597,7 @@ export class StagedAnalysisEngine {
           // If TypeChecker fails, we'll try CHA without receiver type
         }
         
+        console.log(`🔍 Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
         this.unresolvedMethodCalls.push({
           callerFunctionId: callerFunction.id,
           methodName,
@@ -622,7 +662,7 @@ export class StagedAnalysisEngine {
       // Strategy 1: Look for method in the same class
       const directMethod = this.findMethodInClass(containingClass, methodName);
       if (directMethod) {
-        // Search for matching function using array-based lookup
+        // Method is directly defined in this class
         const candidates = functionByName.get(methodName) || [];
         const methodCandidate = candidates.find(func => 
           func.className === className &&
@@ -631,6 +671,10 @@ export class StagedAnalysisEngine {
         if (methodCandidate) {
           return methodCandidate.id;
         }
+      } else if (this.hasInheritanceOrInterfaces(containingClass)) {
+        // Method is not in this class but class has inheritance - delegate to CHA
+        console.log(`🔍 this.${methodName}() not found in ${className} but has inheritance - delegating to CHA`);
+        return undefined;
       }
       
       // Strategy 2: Use TypeChecker to resolve this context
@@ -853,10 +897,16 @@ export class StagedAnalysisEngine {
       
       const { className, namespace } = classNameInfo;
       
-      // Strategy 1: Look for class in the same file (with inheritance chain search)
+      // Strategy 1: Look for class in the same file
       const sourceFile = callNode.getSourceFile();
       const classDeclaration = sourceFile.getClass(className);
       if (classDeclaration) {
+        // Check if the class has inheritance - if so, delegate to CHA
+        if (this.hasInheritanceOrInterfaces(classDeclaration)) {
+          return undefined;
+        }
+        
+        // Only resolve locally if there's no inheritance
         const staticMethodResult = this.findStaticMethodInClassWithInheritance(classDeclaration, methodName, functionByName);
         if (staticMethodResult) {
           return staticMethodResult;
@@ -2234,5 +2284,22 @@ export class StagedAnalysisEngine {
     }
 
     return best.candidate;
+  }
+
+  /**
+   * Check if a class has inheritance or implements interfaces
+   */
+  private hasInheritanceOrInterfaces(classDeclaration: ClassDeclaration): boolean {
+    // Check for extends clause (inheritance)
+    if (classDeclaration.getExtends()) {
+      return true;
+    }
+    
+    // Check for implements clause (interfaces)
+    if (classDeclaration.getImplements().length > 0) {
+      return true;
+    }
+    
+    return false;
   }
 }
