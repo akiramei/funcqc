@@ -281,12 +281,18 @@ export class StagedAnalysisEngine {
       
       if (fileFunctions.length === 0) continue;
       
-      // Create lookup map for functions in this file
-      const functionByName = new Map<string, FunctionMetadata>();
+      // Create lookup maps for functions in this file
+      // Use arrays to handle multiple functions with the same name
+      const functionByName = new Map<string, FunctionMetadata[]>();
       const functionByLexicalPath = new Map<string, FunctionMetadata>();
       
       for (const func of fileFunctions) {
-        functionByName.set(func.name, func);
+        // Array-based storage for same-name functions
+        const existing = functionByName.get(func.name) || [];
+        existing.push(func);
+        functionByName.set(func.name, existing);
+        
+        // Lexical path should be unique
         functionByLexicalPath.set(func.lexicalPath, func);
       }
       
@@ -299,7 +305,7 @@ export class StagedAnalysisEngine {
           // Check if this is an optional call expression
           const isOptional = this.isOptionalCallExpression(node);
           
-          const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath);
+          const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
           if (calleeId) {
             this.addEdge({
               callerFunctionId: callerFunction.id,
@@ -487,16 +493,22 @@ export class StagedAnalysisEngine {
    */
   private resolveLocalCall(
     callNode: CallExpression,
-    functionByName: Map<string, FunctionMetadata>,
-    _functionByLexicalPath: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>,
+    _functionByLexicalPath: Map<string, FunctionMetadata>,
+    functions: Map<string, FunctionMetadata>
   ): string | undefined {
     const expression = callNode.getExpression();
     
     if (Node.isIdentifier(expression)) {
       // Direct function call: foo()
       const name = expression.getText();
-      const func = functionByName.get(name);
-      return func?.id;
+      const candidates = functionByName.get(name);
+      if (candidates && candidates.length > 0) {
+        // If multiple candidates, use the most appropriate one
+        const bestCandidate = this.selectBestFunctionCandidate(callNode, candidates);
+        return bestCandidate?.id;
+      }
+      return undefined;
     }
     
     if (Node.isPropertyAccessExpression(expression)) {
@@ -505,7 +517,7 @@ export class StagedAnalysisEngine {
       const receiverExpression = expression.getExpression();
       
       // Check for this/super calls first
-      const thisSuperId = this.resolveThisSuperCall(callNode, receiverExpression, methodName, functionByName);
+      const thisSuperId = this.resolveThisSuperCall(callNode, receiverExpression, methodName, functionByName, functions);
       if (thisSuperId) {
         return thisSuperId;
       }
@@ -517,14 +529,17 @@ export class StagedAnalysisEngine {
       }
       
       // Try to find exact match first
-      const func = functionByName.get(methodName);
-      if (func) {
-        return func.id;
+      const candidates = functionByName.get(methodName);
+      if (candidates && candidates.length > 0) {
+        const bestCandidate = this.selectBestFunctionCandidate(callNode, candidates);
+        if (bestCandidate) {
+          return bestCandidate.id;
+        }
       }
       
       // If not found locally, collect for CHA analysis
       // We need to find the caller using the file functions
-      const fileFunctions = Array.from(functionByName.values());
+      const fileFunctions = Array.from(functionByName.values()).flat();
       const callerFunction = this.findContainingFunction(callNode, fileFunctions);
       if (callerFunction) {
         let receiverType: string | undefined;
@@ -558,16 +573,17 @@ export class StagedAnalysisEngine {
     callNode: CallExpression,
     receiverExpression: Node,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>,
+    functions: Map<string, FunctionMetadata>
   ): string | undefined {
     try {
       // Check if this is a this/super call
       if (Node.isThisExpression(receiverExpression)) {
-        return this.resolveThisCall(callNode, methodName, functionByName);
+        return this.resolveThisCall(callNode, methodName, functionByName, functions);
       }
       
       if (Node.isSuperExpression(receiverExpression)) {
-        return this.resolveSuperCall(callNode, methodName, functionByName);
+        return this.resolveSuperCall(callNode, methodName, functionByName, functions);
       }
       
       return undefined;
@@ -582,7 +598,8 @@ export class StagedAnalysisEngine {
   private resolveThisCall(
     callNode: CallExpression,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>,
+    functions: Map<string, FunctionMetadata>
   ): string | undefined {
     try {
       // Find the containing class for this call
@@ -599,9 +616,14 @@ export class StagedAnalysisEngine {
       // Strategy 1: Look for method in the same class
       const directMethod = this.findMethodInClass(containingClass, methodName);
       if (directMethod) {
-        const methodId = this.buildMethodId(directMethod, className, functionByName);
-        if (methodId && (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName))) {
-          return methodId;
+        // Search for matching function using array-based lookup
+        const candidates = functionByName.get(methodName) || [];
+        const methodCandidate = candidates.find(func => 
+          func.className === className &&
+          Math.abs(func.startLine - directMethod.getStartLineNumber()) <= 2
+        );
+        if (methodCandidate) {
+          return methodCandidate.id;
         }
       }
       
@@ -610,7 +632,7 @@ export class StagedAnalysisEngine {
       const symbol = thisType.getSymbol();
       if (symbol) {
         const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
-        return this.resolveFunctionFromSymbol(resolvedSymbol, functionByName);
+        return this.resolveFunctionFromSymbol(resolvedSymbol, functions);
       }
       
       return undefined;
@@ -625,7 +647,8 @@ export class StagedAnalysisEngine {
   private resolveSuperCall(
     callNode: CallExpression,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>,
+    functions: Map<string, FunctionMetadata>
   ): string | undefined {
     try {
       // Find the containing class for this call
@@ -648,9 +671,14 @@ export class StagedAnalysisEngine {
       if (parentClass) {
         const parentMethod = this.findMethodInClass(parentClass, methodName);
         if (parentMethod) {
-          const methodId = this.buildMethodId(parentMethod, parentClassName, functionByName);
-          if (methodId && (functionByName.has(methodName) || this.isMethodInFunctionRegistry(methodId, functionByName))) {
-            return methodId;
+          // Search for matching function using array-based lookup
+          const candidates = functionByName.get(methodName) || [];
+          const methodCandidate = candidates.find(func => 
+            func.className === parentClassName &&
+            Math.abs(func.startLine - parentMethod.getStartLineNumber()) <= 2
+          );
+          if (methodCandidate) {
+            return methodCandidate.id;
           }
         }
       }
@@ -662,7 +690,7 @@ export class StagedAnalysisEngine {
         const symbol = superType.getSymbol();
         if (symbol) {
           const resolvedSymbol = this.resolveAliasedSymbol(symbol.compilerSymbol);
-          return this.resolveFunctionFromSymbol(resolvedSymbol, functionByName);
+          return this.resolveFunctionFromSymbol(resolvedSymbol, functions);
         }
       } catch {
         // Continue to next strategy
@@ -698,7 +726,10 @@ export class StagedAnalysisEngine {
 
   /**
    * Build method ID in format: filePath#ClassName.methodName
+   * NOTE: Currently unused but kept for potential future use
    */
+  // @ts-expect-error TS6133
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private buildMethodId(method: MethodDeclaration, className: string, functions: Map<string, FunctionMetadata>): string | undefined {
     const filePath = method.getSourceFile().getFilePath();
     const startLine = method.getStartLineNumber();
@@ -739,15 +770,18 @@ export class StagedAnalysisEngine {
 
   /**
    * Check if method exists in function registry
+   * NOTE: Currently unused but kept for potential future use
    */
-  private isMethodInFunctionRegistry(methodId: string | undefined, functionByName: Map<string, FunctionMetadata>): boolean {
+  // @ts-expect-error TS6133
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  private isMethodInFunctionRegistry(methodId: string | undefined, functionByName: Map<string, FunctionMetadata[]>): boolean {
     if (!methodId) {
       return false;
     }
     
     // Check if any function in registry matches this method ID
-    for (const [, func] of functionByName) {
-      if (func.id === methodId) {
+    for (const [, functions] of functionByName) {
+      if (functions.some(func => func.id === methodId)) {
         return true;
       }
     }
@@ -802,7 +836,7 @@ export class StagedAnalysisEngine {
     callNode: CallExpression,
     receiverExpression: Node,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>
   ): string | undefined {
     try {
       // Extract class name from receiver expression
@@ -862,7 +896,7 @@ export class StagedAnalysisEngine {
     namespace: string,
     className: string,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>
   ): string | undefined {
     try {
       const sourceFile = callNode.getSourceFile();
@@ -878,12 +912,13 @@ export class StagedAnalysisEngine {
       const fullQualifiedName = `${namespace}.${className}`;
       try {
         // Try to find a class that matches the full qualified name pattern
-        for (const [functionId, functionMetadata] of functionByName) {
+        const candidates = functionByName.get(methodName) || [];
+        for (const functionMetadata of candidates) {
           if (functionMetadata.className === className && functionMetadata.name === methodName && functionMetadata.isMethod) {
             // Check if this function's class path matches our namespace pattern
             if (functionMetadata.lexicalPath.includes(fullQualifiedName) || 
                 functionMetadata.filePath.includes(namespace)) {
-              return functionId;
+              return functionMetadata.id;
             }
           }
         }
@@ -906,7 +941,7 @@ export class StagedAnalysisEngine {
     namespace: string,
     className: string,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>
   ): string | undefined {
     try {
       // Look for namespace import: import * as Namespace from './module'
@@ -945,7 +980,7 @@ export class StagedAnalysisEngine {
   private findStaticMethodInClassWithInheritance(
     classDecl: ClassDeclaration, 
     methodName: string, 
-    functionByName: Map<string, FunctionMetadata>,
+    functionByName: Map<string, FunctionMetadata[]>,
     visited = new Set<string>()
   ): string | undefined {
     const className = classDecl.getName();
@@ -957,9 +992,15 @@ export class StagedAnalysisEngine {
     // Check static method in current class
     const staticMethod = this.findStaticMethodInClass(classDecl, methodName);
     if (staticMethod) {
-      const methodId = this.buildMethodId(staticMethod, className, functionByName);
-      if (methodId && this.isMethodInFunctionRegistry(methodId, functionByName)) {
-        return methodId;
+      // Search for matching function using array-based lookup
+      const candidates = functionByName.get(methodName) || [];
+      const methodCandidate = candidates.find(func => 
+        func.className === className &&
+        func.isStatic === true &&
+        Math.abs(func.startLine - staticMethod.getStartLineNumber()) <= 2
+      );
+      if (methodCandidate) {
+        return methodCandidate.id;
       }
     }
     
@@ -1010,7 +1051,7 @@ export class StagedAnalysisEngine {
   private resolveStaticMethodFromSymbol(
     classSymbol: ts.Symbol,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>,
+    functionByName: Map<string, FunctionMetadata[]>,
     visited = new Set<string>()
   ): string | undefined {
     try {
@@ -1030,9 +1071,15 @@ export class StagedAnalysisEngine {
         // Check if it's a method (function)
         const methodType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
         if (methodType.getCallSignatures().length > 0) {
-          const result = this.resolveFunctionFromSymbol(staticMethodSymbol, functionByName);
-          if (result) {
-            return result;
+          // Search for matching function using array-based lookup
+          const candidates = functionByName.get(methodName) || [];
+          const methodCandidate = candidates.find(func => 
+            func.className === classSymbol.getName() &&
+            func.isStatic === true &&
+            func.name === methodName
+          );
+          if (methodCandidate) {
+            return methodCandidate.id;
           }
         }
       }
@@ -1064,7 +1111,7 @@ export class StagedAnalysisEngine {
   private resolveImportedStaticMethod(
     classIdentifier: Node,
     methodName: string,
-    functionByName: Map<string, FunctionMetadata>
+    functionByName: Map<string, FunctionMetadata[]>
   ): string | undefined {
     try {
       const className = classIdentifier.getText();
@@ -2132,5 +2179,54 @@ export class StagedAnalysisEngine {
       this.fullProject = null;
       this.fullTypeChecker = null;
     }
+  }
+
+  /**
+   * Select the best function candidate from multiple same-name functions
+   * Uses lexical proximity, scope context, and function type to determine the best match
+   */
+  private selectBestFunctionCandidate(callNode: CallExpression, candidates: FunctionMetadata[]): FunctionMetadata | undefined {
+    if (candidates.length === 1) {
+      return candidates[0];
+    }
+
+    // Strategy 1: Find candidate in the same lexical scope (closest containing function)
+    const callLine = callNode.getStartLineNumber();
+    const containingFunction = this.findContainingFunction(callNode, candidates);
+    
+    // Strategy 2: Lexical proximity - prefer functions defined closer to the call site
+    const proximityScored = candidates.map(candidate => ({
+      candidate,
+      distance: Math.abs(candidate.startLine - callLine),
+      isInScope: containingFunction ? containingFunction.id === candidate.id : false
+    }));
+
+    // Sort by priority: same scope > lexical proximity > lexical path specificity
+    proximityScored.sort((a, b) => {
+      // Prioritize functions in the same scope
+      if (a.isInScope && !b.isInScope) return -1;
+      if (!a.isInScope && b.isInScope) return 1;
+      
+      // Then by proximity
+      if (a.distance !== b.distance) {
+        return a.distance - b.distance;
+      }
+      
+      // Finally by lexical path specificity (more specific paths preferred)
+      return b.candidate.lexicalPath.split('#').length - a.candidate.lexicalPath.split('#').length;
+    });
+
+    const best = proximityScored[0];
+    
+    // Log ambiguity warning if multiple candidates are very close
+    if (proximityScored.length > 1 && proximityScored[1].distance <= best.distance + 5) {
+      console.warn(`🚨 Ambiguous function resolution for '${candidates[0].name}' at line ${callLine}:`);
+      proximityScored.slice(0, Math.min(3, proximityScored.length)).forEach((scored, i) => {
+        const symbol = i === 0 ? '✅' : '⚠️ ';
+        console.warn(`   ${symbol} ${scored.candidate.lexicalPath} (line ${scored.candidate.startLine}, distance: ${scored.distance})`);
+      });
+    }
+
+    return best.candidate;
   }
 }

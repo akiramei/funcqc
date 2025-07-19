@@ -51,6 +51,7 @@ export interface FunctionMetadata {
   nodeKind: string;
   isExported: boolean;
   isMethod: boolean;
+  isStatic?: boolean;
   className?: string;
   signature: string;
   startLine: number;
