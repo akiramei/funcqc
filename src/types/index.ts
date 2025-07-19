@@ -617,6 +617,7 @@ export interface StorageAdapter {
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;
   getCallEdges(options?: {
+    snapshotId?: string;
     callerFunctionId?: string;
     calleeFunctionId?: string;
     calleeName?: string;
@@ -624,8 +625,8 @@ export interface StorageAdapter {
     limit?: number;
     offset?: number;
   }): Promise<CallEdge[]>;
-  getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]>;
-  getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]>;
+  getCallEdgesByCaller(callerFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
+  getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
   getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]>;
   deleteCallEdges(functionIds: string[]): Promise<void>;
 
