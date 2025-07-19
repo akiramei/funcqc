@@ -4132,10 +4132,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
     try {
       const result = await this.db.query(`
-        SELECT DISTINCT ce.*
+        SELECT ce.*
         FROM call_edges ce
-        JOIN functions f ON ce.caller_function_id = f.id
-        WHERE f.snapshot_id = $1
+        WHERE ce.snapshot_id = $1
         ORDER BY ce.caller_function_id, ce.line_number
       `, [snapshotId]);
 

@@ -626,6 +626,7 @@ export interface StorageAdapter {
   }): Promise<CallEdge[]>;
   getCallEdgesByCaller(callerFunctionId: string): Promise<CallEdge[]>;
   getCallEdgesByCallee(calleeFunctionId: string): Promise<CallEdge[]>;
+  getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]>;
   deleteCallEdges(functionIds: string[]): Promise<void>;
 
   // Maintenance operations
