@@ -75,11 +75,13 @@ export class IdealCallGraphAnalyzer {
   private confidenceCalculator: ConfidenceCalculator;
   private runtimeIntegrator: RuntimeTraceIntegrator;
   private typeChecker: TypeChecker;
+  private logger: import('../utils/cli-utils').Logger;
 
-  constructor(project: Project) {
+  constructor(project: Project, options: { logger?: import('../utils/cli-utils').Logger } = {}) {
     this.typeChecker = project.getTypeChecker();
     this.functionRegistry = new FunctionRegistry(project);
-    this.analysisEngine = new StagedAnalysisEngine(project, this.typeChecker);
+    this.logger = options.logger || new (require('../utils/cli-utils').Logger)();
+    this.analysisEngine = new StagedAnalysisEngine(project, this.typeChecker, { logger: this.logger });
     this.confidenceCalculator = new ConfidenceCalculator();
     this.runtimeIntegrator = new RuntimeTraceIntegrator();
   }
@@ -88,30 +90,30 @@ export class IdealCallGraphAnalyzer {
    * Perform complete call graph analysis with maximum precision
    */
   async analyzeProject(): Promise<CallGraphResult> {
-    console.log('🎯 Starting ideal call graph analysis...');
+    this.logger.debug('Starting ideal call graph analysis...');
     
     // Phase 1: Comprehensive Function Collection
-    console.log('📋 Phase 1: Collecting all function-like nodes...');
+    this.logger.debug('Phase 1: Collecting all function-like nodes...');
     const functions = await this.functionRegistry.collectAllFunctions();
-    console.log(`   Found ${functions.size} functions`);
+    this.logger.debug(`Found ${functions.size} functions`);
 
     // Phase 2: Staged Analysis (Local → Import → CHA → RTA)
-    console.log('🔍 Phase 2: Performing staged analysis...');
+    this.logger.debug('Phase 2: Performing staged analysis...');
     const rawEdges = await this.analysisEngine.performStagedAnalysis(functions);
-    console.log(`   Generated ${rawEdges.length} raw edges`);
+    this.logger.debug(`Generated ${rawEdges.length} raw edges`);
 
     // Phase 3: Confidence Calculation
-    console.log('📊 Phase 3: Calculating confidence scores...');
+    this.logger.debug('Phase 3: Calculating confidence scores...');
     const confidenceEdges = await this.confidenceCalculator.calculateConfidenceScores(rawEdges);
     
     // Phase 4: Runtime Trace Integration (if available)
-    console.log('🔄 Phase 4: Integrating runtime traces...');
+    this.logger.debug('Phase 4: Integrating runtime traces...');
     const finalEdges = await this.runtimeIntegrator.integrateTraces(confidenceEdges, functions);
 
     // Phase 5: Generate Results
     const result = this.generateResults(finalEdges, functions);
     
-    console.log('✅ Ideal call graph analysis completed');
+    this.logger.debug('Ideal call graph analysis completed');
     this.printAnalysisStats(result);
     
     return result;
@@ -150,21 +152,21 @@ export class IdealCallGraphAnalyzer {
   private printAnalysisStats(result: CallGraphResult): void {
     const { analysisStats } = result;
     
-    console.log('\n📊 Analysis Statistics:');
-    console.log(`   Total Functions: ${analysisStats.totalFunctions}`);
-    console.log(`   Total Edges: ${analysisStats.totalEdges}`);
+    this.logger.debug('Analysis Statistics:');
+    this.logger.debug(`Total Functions: ${analysisStats.totalFunctions}`);
+    this.logger.debug(`Total Edges: ${analysisStats.totalEdges}`);
     
-    console.log('\n🎯 Resolution Breakdown:');
+    this.logger.debug('Resolution Breakdown:');
     for (const [level, count] of analysisStats.resolutionBreakdown) {
       const percentage = ((count / analysisStats.totalEdges) * 100).toFixed(1);
-      console.log(`   ${level}: ${count} (${percentage}%)`);
+      this.logger.debug(`${level}: ${count} (${percentage}%)`);
     }
     
-    console.log('\n📈 Confidence Distribution:');
+    this.logger.debug('Confidence Distribution:');
     const { high, medium, low } = analysisStats.confidenceDistribution;
-    console.log(`   High (≥0.95): ${high} (${((high / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
-    console.log(`   Medium (0.7-0.95): ${medium} (${((medium / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
-    console.log(`   Low (<0.7): ${low} (${((low / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
+    this.logger.debug(`High (≥0.95): ${high} (${((high / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
+    this.logger.debug(`Medium (0.7-0.95): ${medium} (${((medium / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
+    this.logger.debug(`Low (<0.7): ${low} (${((low / analysisStats.totalEdges) * 100).toFixed(1)}%)`);
   }
 
   /**

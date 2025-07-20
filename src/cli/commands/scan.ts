@@ -14,7 +14,6 @@ import {
 import { ConfigManager } from '../../core/config';
 import { TypeScriptAnalyzer } from '../../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../../metrics/quality-calculator';
-import { QualityScorer } from '../../utils/quality-scorer';
 import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/parallel-processor';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
@@ -196,7 +195,7 @@ async function performFullAnalysis(
   env: CommandEnvironment
 ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   // Try ideal call graph analysis first
-  const functionAnalyzer = new FunctionAnalyzer(env.config);
+  const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
   
   try {
     spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
@@ -585,49 +584,36 @@ async function analyzeBatch(
   return { functions, callEdges };
 }
 
+/**
+ * Show scan-specific analysis summary (no quality evaluation)
+ * Quality evaluation should be done via 'funcqc health' command
+ */
 function showAnalysisSummary(functions: FunctionInfo[]): void {
   if (functions.length === 0) {
     return;
   }
 
   const stats = calculateStats(functions);
-  const qualityScorer = new QualityScorer();
-  const qualityScore = qualityScorer.calculateProjectScore(functions);
+  const fileCount = calculateFileCount(functions);
 
   console.log();
-  console.log(chalk.blue('📊 Project Quality Overview:'));
-
-  // Quality grade with color coding
-  const gradeColor =
-    qualityScore.overallGrade === 'A'
-      ? chalk.green
-      : qualityScore.overallGrade === 'B'
-        ? chalk.blue
-        : qualityScore.overallGrade === 'C'
-          ? chalk.yellow
-          : qualityScore.overallGrade === 'D'
-            ? chalk.red
-            : chalk.red;
-
-  console.log(
-    `  Overall Grade: ${gradeColor(qualityScore.overallGrade)} (${qualityScore.score}/100)`
-  );
-  console.log(
-    `  Functions Analyzed: ${qualityScore.totalFunctions} in ${calculateFileCount(functions)} files`
-  );
-
-  if (qualityScore.highRiskFunctions > 0) {
-    console.log(chalk.yellow(`  ⚠️  High Risk Functions: ${qualityScore.highRiskFunctions}`));
-  } else {
-    console.log(chalk.green(`  ✓ No high-risk functions detected`));
-  }
+  console.log(chalk.blue('📋 Scan Results Summary:'));
+  console.log(`  Functions Analyzed: ${chalk.cyan(functions.length)} in ${chalk.cyan(fileCount)} files`);
+  
+  // Show basic distribution stats
+  console.log();
+  console.log(chalk.blue('📊 Function Distribution:'));
+  console.log(`  Exported functions: ${chalk.green(stats.exported)} (${((stats.exported / functions.length) * 100).toFixed(1)}%)`);
+  console.log(`  Async functions: ${chalk.blue(stats.async)} (${((stats.async / functions.length) * 100).toFixed(1)}%)`);
+  console.log(`  Average complexity: ${chalk.yellow(stats.avgComplexity.toFixed(1))}`);
+  console.log(`  Average lines of code: ${chalk.yellow(stats.avgLines.toFixed(1))}`);
 
   // Show performance statistics for large projects
   if (functions.length > 1000) {
     console.log();
     console.log(chalk.blue('🚀 Performance Stats:'));
     console.log(
-      `  Project Size: ${functions.length > 10000 ? 'Very Large' : 'Large'} (${functions.length} functions)`
+      `  Project Size: ${functions.length > 10000 ? chalk.red('Very Large') : chalk.yellow('Large')} (${functions.length} functions)`
     );
     console.log(`  Memory Usage: ${estimateMemoryUsage(functions)} MB (estimated)`);
     console.log(
@@ -635,30 +621,12 @@ function showAnalysisSummary(functions: FunctionInfo[]): void {
     );
   }
 
+  // Suggest next steps
   console.log();
-  console.log(chalk.blue('📈 Quality Breakdown:'));
-  console.log(`  Complexity Score: ${qualityScore.complexityScore}/100`);
-  console.log(`  Maintainability Score: ${qualityScore.maintainabilityScore}/100`);
-  console.log(`  Size Score: ${qualityScore.sizeScore}/100`);
-  console.log(`  Code Quality Score: ${qualityScore.codeQualityScore}/100`);
-
-  // Show top problematic functions if any
-  if (qualityScore.topProblematicFunctions.length > 0) {
-    console.log();
-    console.log(chalk.yellow('🏆 Top Functions Needing Attention:'));
-    qualityScore.topProblematicFunctions.slice(0, 3).forEach((func, index) => {
-      const shortPath = func.filePath.split('/').slice(-2).join('/');
-      console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${shortPath})`);
-      console.log(`     Complexity: ${func.complexity}, ${func.reason}`);
-    });
-  }
-
-  console.log();
-  console.log(chalk.blue('📊 Additional Stats:'));
-  console.log(`  Exported functions: ${stats.exported}`);
-  console.log(`  Async functions: ${stats.async}`);
-  console.log(`  Average complexity: ${stats.avgComplexity.toFixed(1)}`);
-  console.log(`  Average lines: ${stats.avgLines.toFixed(1)}`);
+  console.log(chalk.gray('💡 Next steps:'));
+  console.log(chalk.gray('  • Run `funcqc health` for quality analysis'));
+  console.log(chalk.gray('  • Run `funcqc list --cc-ge 10` to find complex functions'));
+  console.log(chalk.gray('  • Run `funcqc similar` to detect code duplication'));
 }
 
 function estimateMemoryUsage(functions: FunctionInfo[]): number {

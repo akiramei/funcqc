@@ -6,6 +6,7 @@ import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { SymbolCache } from '../utils/symbol-cache';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { Logger } from '../utils/cli-utils';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
@@ -91,29 +92,37 @@ export class StagedAnalysisEngine {
   private typeChecker: TypeChecker;
   private fullProject: Project | null = null; // Full project with tsconfig and libs
   private fullTypeChecker: TypeChecker | null = null;
+  private isFullTypeCheckerInitialized: boolean = false;
   private edges: IdealCallEdge[] = [];
   private edgeKeys: Set<string> = new Set(); // Track unique caller->callee relationships
   private edgeIndex: Map<string, IdealCallEdge> = new Map(); // caller->callee key to edge mapping
   private functionLookupMap: Map<string, string> = new Map(); // filePath+positionId -> funcId for O(1) lookup
   private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
+  private instantiationEvents: InstantiationEvent[] = []; // Collected during Stage 1&2 for RTA optimization
   private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
+  private unresolvedMethodCallsSet: Set<string> = new Set(); // Track duplicates using composite keys
   private chaAnalyzer: CHAAnalyzer;
   private rtaAnalyzer: RTAAnalyzer;
   private runtimeTraceIntegrator: RuntimeTraceIntegrator;
   private chaCandidates: Map<string, MethodInfo[]> = new Map();
   private symbolCache: SymbolCache;
   private fullSymbolCache: SymbolCache | null = null;
+  private logger: Logger;
+  private fileToFunctionsMap: Map<string, FunctionMetadata[]> = new Map(); // filePath -> functions for O(1) lookup
+  private functionContainmentMaps: Map<string, Array<{start: number, end: number, id: string}>> = new Map(); // filePath -> sorted function ranges
+  private positionIdCache: WeakMap<Node, string> = new WeakMap(); // Cache for positionId calculations
 
-  constructor(project: Project, typeChecker: TypeChecker) {
+  constructor(project: Project, typeChecker: TypeChecker, options: { logger?: Logger } = {}) {
     this.project = project;
     this.typeChecker = typeChecker;
+    this.logger = options.logger ?? new Logger(false); // Default non-verbose logger
     this.symbolCache = new SymbolCache(typeChecker);
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
     this.runtimeTraceIntegrator = new RuntimeTraceIntegrator();
     
-    // Initialize full project for enhanced type resolution
-    this.initializeFullProject();
+    // Delay full project initialization until actually needed for performance
+    // this.initializeFullProject();
   }
 
   /**
@@ -157,9 +166,9 @@ export class StagedAnalysisEngine {
       
       this.fullTypeChecker = this.fullProject.getTypeChecker();
       this.fullSymbolCache = new SymbolCache(this.fullTypeChecker);
-      console.log('   📚 Full project initialized with tsconfig and libraries');
+      this.logger.debug('Full project initialized with tsconfig and libraries');
     } catch (error) {
-      console.log(`   ⚠️  Failed to initialize full project: ${error}`);
+      this.logger.debug(`Failed to initialize full project: ${error}`);
       // Fall back to lightweight project
       this.fullProject = null;
       this.fullTypeChecker = null;
@@ -189,6 +198,39 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Lazy initialization of full TypeChecker with comprehensive type information
+   * Only initializes when advanced type resolution is actually needed
+   * @deprecated Currently unused, kept for future advanced type analysis
+   */
+  // @ts-expect-error - Method kept for future use
+  private getFullTypeChecker(): TypeChecker {
+    if (!this.isFullTypeCheckerInitialized) {
+      this.logger.debug('🚀 Lazy initializing full TypeChecker for advanced resolution...');
+      const startTime = performance.now();
+      
+      // Initialize full project if not already done
+      if (!this.fullProject) {
+        this.initializeFullProject();
+      }
+      
+      // Use the full TypeChecker if available
+      if (this.fullProject) {
+        this.fullTypeChecker = this.fullProject.getTypeChecker();
+      } else {
+        // Fallback to basic TypeChecker
+        this.fullTypeChecker = this.typeChecker;
+      }
+      
+      this.isFullTypeCheckerInitialized = true;
+      
+      const endTime = performance.now();
+      this.logger.debug(`⚡ Full TypeChecker initialized in ${(endTime - startTime).toFixed(1)}ms`);
+    }
+    
+    return this.fullTypeChecker || this.typeChecker;
+  }
+
+  /**
    * Build function lookup map for O(1) function resolution
    */
   private buildFunctionLookupMap(functions: Map<string, FunctionMetadata>): void {
@@ -208,7 +250,46 @@ export class StagedAnalysisEngine {
       }
     }
     
-    console.log(`   🗺️  Built function lookup map with ${this.functionLookupMap.size} entries`);
+    this.logger.debug(`Built function lookup map with ${this.functionLookupMap.size} entries`);
+  }
+
+  /**
+   * Build optimized lookup structures for file-based operations
+   * Eliminates need for repeated Array.from(functions.values()) and PathNormalizer.filterByPath calls
+   */
+  private buildOptimizedLookupStructures(functions: Map<string, FunctionMetadata>): void {
+    const startTime = performance.now();
+    this.fileToFunctionsMap.clear();
+    this.functionContainmentMaps.clear();
+    
+    // Group functions by file path
+    for (const func of functions.values()) {
+      const filePath = func.filePath;
+      
+      // Add to fileToFunctionsMap
+      if (!this.fileToFunctionsMap.has(filePath)) {
+        this.fileToFunctionsMap.set(filePath, []);
+      }
+      this.fileToFunctionsMap.get(filePath)!.push(func);
+    }
+    
+    // Build sorted containment maps for binary search
+    for (const [filePath, fileFunctions] of this.fileToFunctionsMap) {
+      const ranges = fileFunctions.map(func => ({
+        start: func.startLine,
+        end: func.endLine,
+        id: func.id
+      }));
+      
+      // Sort by start line for binary search
+      ranges.sort((a, b) => a.start - b.start);
+      this.functionContainmentMaps.set(filePath, ranges);
+    }
+    
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    this.logger.debug(`🗺️  Built optimized lookup structures in ${duration.toFixed(1)}ms`);
+    this.logger.debug(`   Files: ${this.fileToFunctionsMap.size}, Functions: ${functions.size}`);
   }
 
   /**
@@ -238,29 +319,29 @@ export class StagedAnalysisEngine {
     this.edges = [];
     this.edgeKeys.clear();
     this.edgeIndex.clear();
+    this.instantiationEvents = []; // Clear instantiation events for fresh analysis
     
     // Build function lookup map for O(1) function resolution
     this.buildFunctionLookupMap(functions);
     
-    console.log('   🔍 Stage 1: Local exact analysis...');
-    await this.performLocalExactAnalysis(functions);
-    console.log(`      Found ${this.edges.length} local edges`);
+    // Build optimized lookup structures for file-based operations
+    this.buildOptimizedLookupStructures(functions);
     
-    console.log('   🔍 Stage 2: Import exact analysis...');
-    const importEdges = await this.performImportExactAnalysis(functions);
-    console.log(`      Found ${importEdges} import edges`);
+    this.logger.debug('Stage 1 & 2: Combined local and import analysis (single-pass)...');
+    const { localEdges, importEdges } = await this.performCombinedLocalAndImportAnalysis(functions);
+    this.logger.debug(`Found ${localEdges} local edges and ${importEdges} import edges`);
     
-    console.log('   🔍 Stage 3: CHA analysis...');
+    this.logger.debug('Stage 3: CHA analysis...');
     const chaEdges = await this.performCHAAnalysis(functions);
-    console.log(`      Found ${chaEdges} CHA edges`);
+    this.logger.debug(`Found ${chaEdges} CHA edges`);
     
-    console.log('   🔍 Stage 4: RTA analysis...');
+    this.logger.debug('Stage 4: RTA analysis...');
     const rtaEdges = await this.performRTAAnalysis(functions);
-    console.log(`      Found ${rtaEdges} RTA edges`);
+    this.logger.debug(`Found ${rtaEdges} RTA edges`);
     
-    console.log('   🔍 Stage 5: Runtime trace integration...');
+    this.logger.debug('Stage 5: Runtime trace integration...');
     const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
-    console.log(`      Integrated ${runtimeIntegratedEdges} runtime traces`);
+    this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
     
     // Log symbol cache statistics
     this.logCacheStatistics();
@@ -271,13 +352,15 @@ export class StagedAnalysisEngine {
   /**
    * Stage 1: Local Exact Analysis
    * Analyze calls within the same source file with 100% confidence
+   * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
+  // @ts-expect-error - Method kept for future use
   private async performLocalExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<void> {
     const sourceFiles = this.project.getSourceFiles();
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
       
       if (fileFunctions.length === 0) continue;
       
@@ -305,7 +388,7 @@ export class StagedAnalysisEngine {
           // Check if this is an optional call expression
           const isOptional = this.isOptionalCallExpression(node);
           
-          const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
+          const calleeId = this.resolveLocalCall(node, callerFunction, functionByName, functionByLexicalPath, functions);
           if (calleeId) {
             const calleeFunction = functions.get(calleeId);
             this.addEdge({
@@ -360,14 +443,16 @@ export class StagedAnalysisEngine {
   /**
    * Stage 2: Import Exact Analysis
    * Analyze cross-file imports using TypeChecker with high confidence
+   * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
+  // @ts-expect-error - Method kept for future use
   private async performImportExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     let importEdgesCount = 0;
     const sourceFiles = this.getProject().getSourceFiles();
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
       
       if (fileFunctions.length === 0) continue;
       
@@ -413,12 +498,304 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Combined Local and Import Analysis (Single-Pass Optimization)
+   * Replaces performLocalExactAnalysis and performImportExactAnalysis
+   * Uses single AST traversal per file for maximum performance
+   */
+  private async performCombinedLocalAndImportAnalysis(functions: Map<string, FunctionMetadata>): Promise<{ localEdges: number, importEdges: number }> {
+    const startTime = performance.now();
+    const sourceFiles = this.project.getSourceFiles();
+    let localEdgesCount = 0;
+    let importEdgesCount = 0;
+    let processedFiles = 0;
+    
+    for (const sourceFile of sourceFiles) {
+      if (processedFiles % 20 === 0) {
+        this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
+      }
+      
+      const filePath = sourceFile.getFilePath();
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
+      
+      if (fileFunctions.length === 0) {
+        processedFiles++;
+        continue;
+      }
+      
+      // Create local function lookup maps for this file
+      const functionByName = new Map<string, FunctionMetadata[]>();
+      const functionByLexicalPath = new Map<string, FunctionMetadata>();
+      
+      for (const func of fileFunctions) {
+        const existing = functionByName.get(func.name) || [];
+        existing.push(func);
+        functionByName.set(func.name, existing);
+        functionByLexicalPath.set(func.lexicalPath, func);
+      }
+      
+      // Ultra-fast AST traversal using direct node access (bypassing ts-morph overhead)
+      const callExpressions: Node[] = [];
+      const newExpressions: Node[] = [];
+      const instantiationEvents: InstantiationEvent[] = [];
+      
+      // Direct traversal - much faster than forEachDescendant, also collect instantiation events for RTA
+      this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions, instantiationEvents);
+      
+      // Accumulate instantiation events for RTA optimization (eliminates duplicate AST traversal)
+      this.instantiationEvents.push(...instantiationEvents);
+      
+      // Process collected expressions
+      const allExpressions = [
+        ...callExpressions.map(node => ({ node, type: 'call' as const })),
+        ...newExpressions.map(node => ({ node, type: 'new' as const }))
+      ];
+      
+      for (const { node, type } of allExpressions) {
+        const callerFunction = this.findContainingFunctionOptimized(node, filePath);
+        if (!callerFunction) continue;
+        
+        const isOptional = type === 'call' ? this.isOptionalCallExpression(node) : false;
+          
+        if (type === 'call') {
+          // Try local resolution first
+          const localCalleeId = this.resolveLocalCall(node as CallExpression, callerFunction, functionByName, functionByLexicalPath, functions);
+            if (localCalleeId) {
+              const calleeFunction = functions.get(localCalleeId);
+              this.addEdge({
+                callerFunctionId: callerFunction.id,
+                calleeFunctionId: localCalleeId,
+                calleeName: calleeFunction?.name || 'unknown',
+                candidates: [localCalleeId],
+                confidenceScore: isOptional ? CONFIDENCE_SCORES.LOCAL_EXACT_OPTIONAL : CONFIDENCE_SCORES.LOCAL_EXACT,
+                resolutionLevel: RESOLUTION_LEVELS.LOCAL_EXACT as ResolutionLevel,
+                resolutionSource: isOptional ? RESOLUTION_SOURCES.LOCAL_EXACT_OPTIONAL : RESOLUTION_SOURCES.LOCAL_EXACT,
+                runtimeConfirmed: false,
+                lineNumber: node.getStartLineNumber(),
+                columnNumber: node.getStart() - node.getStartLinePos(),
+                metadata: isOptional ? { optionalChaining: true } : {},
+                analysisMetadata: {
+                  timestamp: Date.now(),
+                  analysisVersion: '1.0',
+                  sourceHash: sourceFile.getFilePath()
+                }
+              });
+              localEdgesCount++;
+            } else {
+              // Try import resolution if local resolution failed
+              const importCalleeId = this.resolveImportCall(node as CallExpression, functions);
+              if (importCalleeId) {
+                const calleeFunction = functions.get(importCalleeId);
+                this.addEdge({
+                  callerFunctionId: callerFunction.id,
+                  calleeFunctionId: importCalleeId,
+                  calleeName: calleeFunction?.name || 'unknown',
+                  candidates: [importCalleeId],
+                  confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
+                  resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+                  resolutionSource: isOptional ? RESOLUTION_SOURCES.TYPECHECKER_IMPORT_OPTIONAL : RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+                  runtimeConfirmed: false,
+                  lineNumber: node.getStartLineNumber(),
+                  columnNumber: node.getStart() - node.getStartLinePos(),
+                  metadata: isOptional ? { optionalChaining: true } : {},
+                  analysisMetadata: {
+                    timestamp: Date.now(),
+                    analysisVersion: '1.0',
+                    sourceHash: sourceFile.getFilePath()
+                  }
+                });
+                importEdgesCount++;
+              } else if (isOptional) {
+                // Handle unresolved optional calls
+                const optionalCalleeId = this.resolveOptionalCall(node as CallExpression, functions);
+                if (optionalCalleeId) {
+                  const calleeFunction = functions.get(optionalCalleeId);
+                  this.addEdge({
+                    callerFunctionId: callerFunction.id,
+                    calleeFunctionId: optionalCalleeId,
+                    calleeName: calleeFunction?.name || 'unknown',
+                    candidates: [optionalCalleeId],
+                    confidenceScore: 0.85,
+                    resolutionLevel: 'local_exact' as ResolutionLevel,
+                    resolutionSource: 'local_exact_optional',
+                    runtimeConfirmed: false,
+                    lineNumber: node.getStartLineNumber(),
+                    columnNumber: node.getStart() - node.getStartLinePos(),
+                    metadata: { optionalChaining: true },
+                    analysisMetadata: {
+                      timestamp: Date.now(),
+                      analysisVersion: '1.0',
+                      sourceHash: sourceFile.getFilePath()
+                    }
+                  });
+                }
+              }
+            }
+          } else {
+          // Handle NewExpression 
+          const calleeId = this.resolveNewExpression(node as NewExpression, functions);
+          if (calleeId) {
+            const calleeFunction = functions.get(calleeId);
+            this.addEdge({
+              callerFunctionId: callerFunction.id,
+              calleeFunctionId: calleeId,
+              calleeName: calleeFunction?.name || 'unknown',
+              candidates: [calleeId],
+              confidenceScore: CONFIDENCE_SCORES.IMPORT_EXACT,
+              resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+              resolutionSource: RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+              runtimeConfirmed: false,
+              lineNumber: node.getStartLineNumber(),
+              columnNumber: node.getStart() - node.getStartLinePos(),
+              metadata: {},
+              analysisMetadata: {
+                timestamp: Date.now(),
+                analysisVersion: '1.0',
+                sourceHash: filePath
+              }
+            });
+            importEdgesCount++;
+          }
+        }
+      }
+      
+      processedFiles++;
+    }
+    
+    const endTime = performance.now();
+    const duration = (endTime - startTime) / 1000; // Convert to seconds
+    this.logger.debug(`      Completed: ${processedFiles}/${sourceFiles.length} files processed in ${duration.toFixed(2)}s`);
+    this.logger.debug(`      Performance: ${(processedFiles / duration).toFixed(1)} files/sec`);
+    return { localEdges: localEdgesCount, importEdges: importEdgesCount };
+  }
+
+  /**
+   * Ultra-fast direct AST expression collection with instantiation event tracking
+   * Bypasses ts-morph's forEachDescendant overhead for maximum performance
+   * Also collects instantiation events for RTA optimization (eliminates duplicate traversal)
+   */
+  private collectExpressionsDirectly(
+    sourceFile: SourceFile, 
+    callExpressions: Node[], 
+    newExpressions: Node[],
+    instantiationEvents: InstantiationEvent[]
+  ): void {
+    const stack: Node[] = [sourceFile];
+    const filePath = sourceFile.getFilePath();
+    
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      
+      if (Node.isCallExpression(current)) {
+        callExpressions.push(current);
+        
+        // Collect factory method instantiation events for RTA
+        this.processCallExpressionForInstantiation(current, filePath, instantiationEvents);
+        
+      } else if (Node.isNewExpression(current)) {
+        newExpressions.push(current);
+        
+        // Collect constructor instantiation events for RTA
+        this.processNewExpressionForInstantiation(current, filePath, instantiationEvents);
+      }
+      
+      // Add child nodes to stack for traversal
+      const children = current.getChildren();
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push(children[i]);
+      }
+    }
+  }
+
+  /**
+   * Process NewExpression for instantiation events (RTA optimization)
+   * Extracts constructor call information for type instantiation tracking
+   */
+  private processNewExpressionForInstantiation(
+    node: NewExpression, 
+    filePath: string, 
+    instantiationEvents: InstantiationEvent[]
+  ): void {
+    try {
+      const expression = node.getExpression();
+      let typeName: string | undefined;
+      
+      if (Node.isIdentifier(expression)) {
+        typeName = expression.getText();
+      } else if (Node.isPropertyAccessExpression(expression)) {
+        // Handle namespaced constructors like MyNamespace.MyClass
+        typeName = expression.getName();
+      }
+      
+      if (typeName) {
+        instantiationEvents.push({
+          typeName,
+          filePath,
+          lineNumber: node.getStartLineNumber(),
+          instantiationType: 'constructor',
+          node
+        });
+      }
+    } catch {
+      // Ignore errors in type resolution during collection phase
+    }
+  }
+
+  /**
+   * Process CallExpression for instantiation events (RTA optimization)
+   * Extracts factory method calls that might create instances
+   */
+  private processCallExpressionForInstantiation(
+    node: CallExpression, 
+    filePath: string, 
+    instantiationEvents: InstantiationEvent[]
+  ): void {
+    try {
+      const expression = node.getExpression();
+      
+      // Look for factory methods or other instance creation patterns
+      if (Node.isPropertyAccessExpression(expression)) {
+        const methodName = expression.getName();
+        
+        // Common factory method patterns
+        if (methodName === 'create' || methodName === 'getInstance' || 
+            methodName === 'build' || methodName === 'new') {
+          
+          // Try to determine the return type using TypeChecker if available
+          if (this.typeChecker) {
+            try {
+              const type = this.typeChecker.getTypeAtLocation(node);
+              const symbol = type.getSymbol();
+              
+              if (symbol) {
+                const typeName = symbol.getName();
+                if (typeName && typeName !== 'unknown') {
+                  instantiationEvents.push({
+                    typeName,
+                    filePath,
+                    lineNumber: node.getStartLineNumber(),
+                    instantiationType: 'factory',
+                    node
+                  });
+                }
+              }
+            } catch {
+              // Ignore TypeChecker errors - factory methods are best-effort
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore errors in type resolution during collection phase
+    }
+  }
+
+  /**
    * Stage 3: CHA Analysis
    * Class Hierarchy Analysis for method calls
    */
   private async performCHAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     if (this.unresolvedMethodCalls.length === 0) {
-      console.log('   ℹ️  No unresolved method calls for CHA analysis');
+      this.logger.debug('No unresolved method calls for CHA analysis');
       return 0;
     }
     
@@ -438,11 +815,12 @@ export class StagedAnalysisEngine {
       
       // Clear unresolved method calls after successful CHA analysis to prevent memory leaks
       this.unresolvedMethodCalls.length = 0;
+      this.unresolvedMethodCallsSet.clear();
       
-      console.log(`   ✅ CHA resolved ${chaEdges.length} method calls`);
+      this.logger.debug(`CHA resolved ${chaEdges.length} method calls`);
       return chaEdges.length;
     } catch (error) {
-      console.log(`   ⚠️  CHA analysis failed: ${error}`);
+      this.logger.debug(`CHA analysis failed: ${error}`);
       // Don't clear unresolved calls on failure - they might be needed for RTA
       return 0;
     }
@@ -461,21 +839,29 @@ export class StagedAnalysisEngine {
       }
     }
     
-    console.log(`   📋 Collected ${this.chaCandidates.size} CHA candidate groups for RTA`);
+    this.logger.debug(`Collected ${this.chaCandidates.size} CHA candidate groups for RTA`);
   }
 
   /**
    * Stage 4: RTA Analysis  
-   * Rapid Type Analysis with constructor tracking
+   * Rapid Type Analysis with constructor tracking (AST traversal optimized)
    */
   private async performRTAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     if (this.chaCandidates.size === 0) {
-      console.log('   ℹ️  No CHA candidates for RTA analysis');
+      this.logger.debug('No CHA candidates for RTA analysis');
       return 0;
     }
     
     try {
-      const rtaEdges = await this.rtaAnalyzer.performRTAAnalysis(functions, this.chaCandidates, this.unresolvedMethodCallsForRTA);
+      // Use optimized path with prebuilt instantiation events and class-to-interfaces mapping
+      const classToInterfacesMap = this.chaAnalyzer.getClassToInterfacesMap();
+      const rtaEdges = await this.rtaAnalyzer.performRTAAnalysisOptimized(
+        functions, 
+        this.chaCandidates, 
+        this.unresolvedMethodCallsForRTA,
+        this.instantiationEvents,
+        classToInterfacesMap
+      );
       
       // Add RTA edges to our collection
       for (const edge of rtaEdges) {
@@ -486,10 +872,10 @@ export class StagedAnalysisEngine {
       this.chaCandidates.clear();
       this.unresolvedMethodCallsForRTA.length = 0;
       
-      console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
+      this.logger.debug(`RTA refined ${rtaEdges.length} method calls`);
       return rtaEdges.length;
     } catch (error) {
-      console.log(`   ⚠️  RTA analysis failed: ${error}`);
+      this.logger.debug(`RTA analysis failed: ${error}`);
       return 0;
     }
   }
@@ -499,6 +885,7 @@ export class StagedAnalysisEngine {
    */
   private resolveLocalCall(
     callNode: CallExpression,
+    callerFunction: FunctionMetadata,
     functionByName: Map<string, FunctionMetadata[]>,
     _functionByLexicalPath: Map<string, FunctionMetadata>,
     functions: Map<string, FunctionMetadata>
@@ -531,21 +918,15 @@ export class StagedAnalysisEngine {
       
       // If this/super call couldn't be resolved and receiver is this/super, collect for CHA
       if (Node.isThisExpression(receiverExpression) || Node.isSuperExpression(receiverExpression)) {
-        const currentFilePath = callNode.getSourceFile().getFilePath();
-        const currentFileFunctions = Array.from(functions.values()).filter(
-          func => PathNormalizer.areEqual(func.filePath, currentFilePath)
-        );
-        const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
-        if (callerFunction) {
-          console.log(`🔍 Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
-          this.unresolvedMethodCalls.push({
-            callerFunctionId: callerFunction.id,
-            methodName,
-            receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
-            lineNumber: callNode.getStartLineNumber(),
-            columnNumber: callNode.getStart()
-          });
-        }
+        // Use the callerFunction passed as parameter instead of searching again
+        this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
+        this.addUnresolvedMethodCall({
+          callerFunctionId: callerFunction.id,
+          methodName,
+          receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
+          lineNumber: callNode.getStartLineNumber(),
+          columnNumber: callNode.getStart()
+        });
         return undefined;
       }
       
@@ -568,7 +949,7 @@ export class StagedAnalysisEngine {
         
         // If there's inheritance involved, let CHA handle it
         if (hasInheritedMethod) {
-          console.log(`🔍 Method ${methodName} has inheritance - delegating to CHA`);
+          this.logger.debug(`Method ${methodName} has inheritance - delegating to CHA`);
           return undefined;
         }
         
@@ -581,31 +962,25 @@ export class StagedAnalysisEngine {
       // If not found locally, collect for CHA analysis
       // We need to find the caller in the current file
       // Get all functions from the current file by looking at the source file path
-      const currentFilePath = callNode.getSourceFile().getFilePath();
-      const currentFileFunctions = Array.from(functions.values()).filter(
-        func => PathNormalizer.areEqual(func.filePath, currentFilePath)
-      );
-      const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
-      if (callerFunction) {
-        let receiverType: string | undefined;
-        
-        // Try to determine receiver type using TypeChecker
-        try {
-          const type = this.getTypeChecker().getTypeAtLocation(receiverExpression);
-          receiverType = type.getSymbol()?.getName();
-        } catch {
-          // If TypeChecker fails, we'll try CHA without receiver type
-        }
-        
-        console.log(`🔍 Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
-        this.unresolvedMethodCalls.push({
-          callerFunctionId: callerFunction.id,
-          methodName,
-          receiverType,
-          lineNumber: callNode.getStartLineNumber(),
-          columnNumber: callNode.getStart()
-        });
+      // Use the callerFunction passed as parameter instead of searching again
+      let receiverType: string | undefined;
+      
+      // Try to determine receiver type using TypeChecker
+      try {
+        const type = this.getTypeChecker().getTypeAtLocation(receiverExpression);
+        receiverType = type.getSymbol()?.getName();
+      } catch {
+        // If TypeChecker fails, we'll try CHA without receiver type
       }
+      
+      this.logger.debug(`Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
+      this.addUnresolvedMethodCall({
+        callerFunctionId: callerFunction.id,
+        methodName,
+        receiverType,
+        lineNumber: callNode.getStartLineNumber(),
+        columnNumber: callNode.getStart()
+      });
     }
     
     return undefined;
@@ -673,7 +1048,7 @@ export class StagedAnalysisEngine {
         }
       } else if (this.hasInheritanceOrInterfaces(containingClass)) {
         // Method is not in this class but class has inheritance - delegate to CHA
-        console.log(`🔍 this.${methodName}() not found in ${className} but has inheritance - delegating to CHA`);
+        this.logger.debug(`this.${methodName}() not found in ${className} but has inheritance - delegating to CHA`);
         return undefined;
       }
       
@@ -814,7 +1189,7 @@ export class StagedAnalysisEngine {
     }
     
     // If no match found, warn and return undefined
-    console.warn(`buildMethodId: Could not find function ID for method ${className}.${methodName} at ${filePath}:${startLine}`);
+    this.logger.debug(`buildMethodId: Could not find function ID for method ${className}.${methodName} at ${filePath}:${startLine}`);
     return undefined;
   }
 
@@ -1015,7 +1390,7 @@ export class StagedAnalysisEngine {
       // Try to resolve the class symbol from the imported module
       const namespaceSymbol = this.getCachedSymbolAtLocation(sourceFile.getVariableDeclaration(namespace)?.getNameNode() || sourceFile);
       if (namespaceSymbol) {
-        const moduleExports = this.typeChecker.compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
+        const moduleExports = this.getTypeChecker().compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
         const classSymbol = moduleExports.find(exp => exp.getName() === className);
         
         if (classSymbol && classSymbol.flags & ts.SymbolFlags.Class) {
@@ -1118,14 +1493,14 @@ export class StagedAnalysisEngine {
       visited.add(symbolName);
       
       // Get static members of the class
-      const staticType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
-      const staticProperties = this.typeChecker.compilerObject.getPropertiesOfType(staticType);
+      const staticType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const staticProperties = this.getTypeChecker().compilerObject.getPropertiesOfType(staticType);
       
       // Find the static method in current class
       const staticMethodSymbol = staticProperties.find(prop => prop.getName() === methodName);
       if (staticMethodSymbol) {
         // Check if it's a method (function)
-        const methodType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
+        const methodType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
         if (methodType.getCallSignatures().length > 0) {
           // Search for matching function using array-based lookup
           const candidates = functionByName.get(methodName) || [];
@@ -1141,8 +1516,8 @@ export class StagedAnalysisEngine {
       }
       
       // Search in base classes (inheritance chain)
-      const classType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
-      const baseTypes = this.typeChecker.compilerObject.getBaseTypes(classType as ts.InterfaceType);
+      const classType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const baseTypes = this.getTypeChecker().compilerObject.getBaseTypes(classType as ts.InterfaceType);
       
       for (const baseType of baseTypes) {
         const baseSymbol = baseType.getSymbol();
@@ -1229,7 +1604,7 @@ export class StagedAnalysisEngine {
     
     // Follow the alias chain until we reach the original symbol
     while (currentSymbol.flags & ts.SymbolFlags.Alias) {
-      const aliasedSymbol = this.typeChecker.compilerObject.getAliasedSymbol(currentSymbol);
+      const aliasedSymbol = this.getTypeChecker().compilerObject.getAliasedSymbol(currentSymbol);
       if (aliasedSymbol && aliasedSymbol !== currentSymbol) {
         currentSymbol = aliasedSymbol;
       } else {
@@ -1312,8 +1687,8 @@ export class StagedAnalysisEngine {
       const declStartPos = actualFunctionNode.getStart();
       const declEndPos = actualFunctionNode.getEnd();
       
-      // Create position ID for precise matching
-      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+      // Create position ID for precise matching (with Node caching)
+      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, actualFunctionNode);
       const declStartLine = actualFunctionNode.getStartLineNumber();
       
       // Use fast lookup instead of linear search
@@ -1583,8 +1958,8 @@ export class StagedAnalysisEngine {
       const declStartPos = morphDeclaration.getStart();
       const declEndPos = morphDeclaration.getEnd();
       
-      // Create position ID for precise matching
-      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+      // Create position ID for precise matching (with Node caching)
+      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
       const declStartLine = morphDeclaration.getStartLineNumber();
       
       // Use fast lookup instead of linear search
@@ -1658,8 +2033,8 @@ export class StagedAnalysisEngine {
         const declStartPos = morphDeclaration.getStart();
         const declEndPos = morphDeclaration.getEnd();
         
-        // Create position ID for precise matching
-        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+        // Create position ID for precise matching (with Node caching)
+        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
         const declStartLine = morphDeclaration.getStartLineNumber();
         
         // Use fast lookup
@@ -1676,10 +2051,51 @@ export class StagedAnalysisEngine {
   }
   
   /**
+   * Create a unique key for unresolved method call deduplication
+   * Combines all significant properties to identify duplicate calls
+   */
+  private createMethodCallKey(call: UnresolvedMethodCall): string {
+    return `${call.callerFunctionId}:${call.methodName}:${call.receiverType || 'undefined'}:${call.lineNumber}:${call.columnNumber}`;
+  }
+
+  /**
+   * Add unresolved method call with duplicate prevention
+   * Uses Set-based deduplication to prevent redundant CHA/RTA analysis
+   */
+  private addUnresolvedMethodCall(call: UnresolvedMethodCall): void {
+    const key = this.createMethodCallKey(call);
+    if (!this.unresolvedMethodCallsSet.has(key)) {
+      this.unresolvedMethodCallsSet.add(key);
+      this.unresolvedMethodCalls.push(call);
+    }
+  }
+
+  /**
    * Generate position-based ID for precise function identification
    * Uses character offset for maximum accuracy regardless of formatting changes
+   * Cached with WeakMap to reduce CPU load from repeated hash operations
    */
-  private generatePositionId(filePath: string, startPos: number, endPos: number): string {
+  private generatePositionId(filePath: string, startPos: number, endPos: number, node?: Node): string {
+    // If we have a Node object, use it for efficient WeakMap caching
+    if (node) {
+      const cachedId = this.positionIdCache.get(node);
+      if (cachedId) {
+        return cachedId;
+      }
+      
+      // Compute the position ID using crypto hash
+      const positionId = crypto.createHash('sha256')
+        .update(`${filePath}:${startPos}-${endPos}`)
+        .digest('hex')
+        .slice(0, 16); // Shorter hash for position-based IDs
+      
+      // Store in cache for future use
+      this.positionIdCache.set(node, positionId);
+      
+      return positionId;
+    }
+    
+    // Fallback for cases without Node object (no caching)
     return crypto.createHash('sha256')
       .update(`${filePath}:${startPos}-${endPos}`)
       .digest('hex')
@@ -1742,8 +2158,8 @@ export class StagedAnalysisEngine {
         const declStartPos = morphDeclaration.getStart();
         const declEndPos = morphDeclaration.getEnd();
         
-        // Create position ID for precise matching
-        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+        // Create position ID for precise matching (with Node caching)
+        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
         const declStartLine = morphDeclaration.getStartLineNumber();
         
         // Use fast lookup instead of linear search
@@ -1800,8 +2216,8 @@ export class StagedAnalysisEngine {
                 const declStartPos = morphDeclaration.getStart();
                 const declEndPos = morphDeclaration.getEnd();
                 
-                // Create position ID for precise matching
-                const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+                // Create position ID for precise matching (with Node caching)
+                const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
                 const declStartLine = morphDeclaration.getStartLineNumber();
                 
                 // Use fast lookup instead of linear search
@@ -1816,10 +2232,10 @@ export class StagedAnalysisEngine {
         
         // If direct resolution fails, collect for CHA analysis
         const callNodePath = callNode.getSourceFile().getFilePath();
-        const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), callNodePath);
+        const fileFunctions = this.fileToFunctionsMap.get(callNodePath) || [];
         const callerFunction = this.findContainingFunction(callNode, fileFunctions);
         if (callerFunction) {
-          this.unresolvedMethodCalls.push({
+          this.addUnresolvedMethodCall({
             callerFunctionId: callerFunction.id,
             methodName,
             receiverType,
@@ -1854,12 +2270,12 @@ export class StagedAnalysisEngine {
       // Get coverage statistics
       const coverageStats = this.runtimeTraceIntegrator.getCoverageStats();
       if (coverageStats.totalCoveredFunctions > 0) {
-        console.log(`   📊 Coverage: ${coverageStats.totalCoveredFunctions} functions, ${coverageStats.totalExecutions} executions`);
+        this.logger.debug(`Coverage: ${coverageStats.totalCoveredFunctions} functions, ${coverageStats.totalExecutions} executions`);
       }
       
       return enhancedEdges;
     } catch (error) {
-      console.log(`   ⚠️  Runtime trace integration failed: ${error}`);
+      this.logger.debug(`Runtime trace integration failed: ${error}`);
       return 0;
     }
   }
@@ -1932,6 +2348,71 @@ export class StagedAnalysisEngine {
       current = current.getParent();
     }
     
+    return undefined;
+  }
+
+  /**
+   * Optimized containing function finder using binary search
+   * Replaces O(n) linear search with O(log n) binary search on pre-sorted ranges
+   */
+  private findContainingFunctionOptimized(node: Node, filePath: string): FunctionMetadata | undefined {
+    const ranges = this.functionContainmentMaps.get(filePath);
+    if (!ranges || ranges.length === 0) {
+      return undefined;
+    }
+
+    const nodeStartLine = node.getStartLineNumber();
+    const nodeEndLine = node.getEndLineNumber();
+
+    // Binary search for containing function
+    let left = 0;
+    let right = ranges.length - 1;
+    const candidates: {start: number, end: number, id: string}[] = [];
+
+    // Find all containing functions
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const range = ranges[mid];
+
+      if (range.start <= nodeStartLine && nodeEndLine <= range.end) {
+        // Found a containing range, collect it
+        candidates.push(range);
+        
+        // Check both sides for other containing functions
+        // Check left side
+        let leftIdx = mid - 1;
+        while (leftIdx >= 0 && ranges[leftIdx].start <= nodeStartLine && nodeEndLine <= ranges[leftIdx].end) {
+          candidates.push(ranges[leftIdx]);
+          leftIdx--;
+        }
+        
+        // Check right side
+        let rightIdx = mid + 1;
+        while (rightIdx < ranges.length && ranges[rightIdx].start <= nodeStartLine && nodeEndLine <= ranges[rightIdx].end) {
+          candidates.push(ranges[rightIdx]);
+          rightIdx++;
+        }
+        
+        break;
+      } else if (range.start > nodeStartLine) {
+        right = mid - 1;
+      } else {
+        left = mid + 1;
+      }
+    }
+
+    // Find the most specific (smallest) containing function
+    if (candidates.length > 0) {
+      const bestMatch = candidates.reduce((best, current) => {
+        const bestSize = best.end - best.start;
+        const currentSize = current.end - current.start;
+        return currentSize < bestSize ? current : best;
+      });
+
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
+      return fileFunctions.find(func => func.id === bestMatch.id);
+    }
+
     return undefined;
   }
   
@@ -2021,7 +2502,7 @@ export class StagedAnalysisEngine {
     // For now, add to unresolved method calls for CHA/RTA analysis
     const callerFunction = this.findContainingFunction(receiver, Array.from(functions.values()));
     if (callerFunction) {
-      this.unresolvedMethodCalls.push({
+      this.addUnresolvedMethodCall({
         callerFunctionId: callerFunction.id,
         methodName,
         receiverType: undefined, // Could be enhanced with type analysis
@@ -2178,10 +2659,10 @@ export class StagedAnalysisEngine {
     const duplicateIds = edgeIds.filter((id, index) => edgeIds.indexOf(id) !== index);
     
     if (duplicateIds.length > 0) {
-      console.warn(`⚠️  Edge duplicate ID detection:`);
-      console.warn(`   Total edges: ${this.edges.length}`);
-      console.warn(`   Unique IDs: ${new Set(edgeIds).size}`);
-      console.warn(`   Duplicate IDs found: ${duplicateIds.length}`);
+      this.logger.debug(`Edge duplicate ID detection:`);
+      this.logger.debug(`Total edges: ${this.edges.length}`);
+      this.logger.debug(`Unique IDs: ${new Set(edgeIds).size}`);
+      this.logger.debug(`Duplicate IDs found: ${duplicateIds.length}`);
       
       // Group by duplicate ID
       const duplicateGroups = new Map<string, IdealCallEdge[]>();
@@ -2196,15 +2677,15 @@ export class StagedAnalysisEngine {
       
       // Log details for each duplicate group
       for (const [edgeId, duplicates] of duplicateGroups) {
-        console.warn(`   Duplicate ID "${edgeId}" appears ${duplicates.length} times:`);
+        this.logger.debug(`Duplicate ID "${edgeId}" appears ${duplicates.length} times:`);
         for (const edge of duplicates) {
-          console.warn(`     - Caller: ${edge.callerFunctionId}, Callee: ${edge.calleeFunctionId}`);
-          console.warn(`       Resolution: ${edge.resolutionLevel}, Confidence: ${edge.confidenceScore}`);
-          console.warn(`       Context: ${edge.callContext}, Line: ${edge.lineNumber}`);
+          this.logger.debug(`- Caller: ${edge.callerFunctionId}, Callee: ${edge.calleeFunctionId}`);
+          this.logger.debug(`Resolution: ${edge.resolutionLevel}, Confidence: ${edge.confidenceScore}`);
+          this.logger.debug(`Context: ${edge.callContext}, Line: ${edge.lineNumber}`);
         }
       }
     } else {
-      console.log(`✅ Edge ID uniqueness check passed: ${this.edges.length} edges, all unique`);
+      this.logger.debug(`Edge ID uniqueness check passed: ${this.edges.length} edges, all unique`);
     }
   }
 
@@ -2218,6 +2699,7 @@ export class StagedAnalysisEngine {
     this.functionLookupMap.clear();
     this.unresolvedMethodCalls = [];
     this.unresolvedMethodCallsForRTA = [];
+    this.unresolvedMethodCallsSet.clear();
     this.chaCandidates.clear();
     this.chaAnalyzer.clear();
     this.rtaAnalyzer.clear();
@@ -2276,10 +2758,10 @@ export class StagedAnalysisEngine {
     
     // Log ambiguity warning if multiple candidates are very close
     if (proximityScored.length > 1 && proximityScored[1].distance <= best.distance + 5) {
-      console.warn(`🚨 Ambiguous function resolution for '${candidates[0].name}' at line ${callLine}:`);
+      this.logger.debug(`Ambiguous function resolution for '${candidates[0].name}' at line ${callLine}:`);
       proximityScored.slice(0, Math.min(3, proximityScored.length)).forEach((scored, i) => {
         const symbol = i === 0 ? '✅' : '⚠️ ';
-        console.warn(`   ${symbol} ${scored.candidate.lexicalPath} (line ${scored.candidate.startLine}, distance: ${scored.distance})`);
+        this.logger.debug(`   ${symbol} ${scored.candidate.lexicalPath} (line ${scored.candidate.startLine}, distance: ${scored.distance})`);
       });
     }
 
@@ -2302,4 +2784,16 @@ export class StagedAnalysisEngine {
     
     return false;
   }
+}
+
+/**
+ * Instantiation event for RTA analysis optimization
+ * Collected during Stage 1&2 AST traversal to eliminate duplicate traversal in RTA
+ */
+export interface InstantiationEvent {
+  typeName: string;
+  filePath: string;
+  lineNumber: number;
+  instantiationType: 'constructor' | 'factory';
+  node: NewExpression | CallExpression;
 }
