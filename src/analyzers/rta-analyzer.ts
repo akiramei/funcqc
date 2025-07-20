@@ -6,6 +6,9 @@ import { PathNormalizer } from '../utils/path-normalizer';
 import { FunctionIndex } from './function-index';
 import * as path from 'path';
 
+// Import InstantiationEvent from staged-analysis-engine
+import type { InstantiationEvent } from './staged-analysis-engine';
+
 /**
  * Rapid Type Analysis (RTA) Analyzer
  * 
@@ -53,6 +56,60 @@ export class RTAAnalyzer {
     
     console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
     return rtaEdges;
+  }
+
+  /**
+   * Optimized RTA analysis using prebuilt instantiation events
+   * Eliminates duplicate AST traversal by using events collected during Stage 1&2
+   */
+  async performRTAAnalysisOptimized(
+    functions: Map<string, FunctionMetadata>,
+    chaCandidates: Map<string, MethodInfo[]>,
+    unresolvedMethodCalls: UnresolvedMethodCall[],
+    prebuiltInstantiationEvents: InstantiationEvent[]
+  ): Promise<IdealCallEdge[]> {
+    console.log('   🚀 Using prebuilt instantiation events (AST traversal optimization)...');
+    this.buildInstantiatedTypesFromEvents(prebuiltInstantiationEvents);
+    
+    console.log('   🔬 Filtering CHA candidates with RTA...');
+    const rtaEdges = this.filterCHACandidatesWithRTA(functions, chaCandidates, unresolvedMethodCalls);
+    
+    console.log(`   ✅ RTA refined ${rtaEdges.length} method calls (optimized path)`);
+    return rtaEdges;
+  }
+
+  /**
+   * Build instantiated types registry from prebuilt events (optimization)
+   * Eliminates duplicate AST traversal - events were collected during Stage 1&2
+   */
+  private buildInstantiatedTypesFromEvents(instantiationEvents: InstantiationEvent[]): void {
+    this.instantiatedTypes.clear();
+    this.typeInstantiationMap.clear();
+    this.classInterfacesMap.clear();
+    
+    for (const event of instantiationEvents) {
+      this.instantiatedTypes.add(event.typeName);
+      
+      // Add implemented interfaces if available
+      if (event.instantiationType === 'constructor' && Node.isNewExpression(event.node)) {
+        this.addImplementedInterfaces(event.typeName, event.node);
+      }
+      
+      // Convert InstantiationEvent to InstantiationInfo format
+      const instantiationInfo: InstantiationInfo = {
+        typeName: event.typeName,
+        filePath: event.filePath,
+        lineNumber: event.lineNumber,
+        instantiationType: event.instantiationType
+      };
+      
+      if (!this.typeInstantiationMap.has(event.typeName)) {
+        this.typeInstantiationMap.set(event.typeName, []);
+      }
+      this.typeInstantiationMap.get(event.typeName)!.push(instantiationInfo);
+    }
+    
+    console.log(`   📊 Built from ${instantiationEvents.length} prebuilt events, found ${this.instantiatedTypes.size} instantiated types`);
   }
 
   /**
@@ -284,7 +341,7 @@ export class RTAAnalyzer {
    * Find matching function ID in the function registry for a method candidate
    * @deprecated Use FunctionIndex.resolve() instead for O(1) performance
    */
-  // @ts-ignore - Method kept for future use
+  // @ts-expect-error - Method kept for future use
   private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
     try {
       // Strategy 1: Exact match with position and metadata (most accurate)

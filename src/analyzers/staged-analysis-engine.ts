@@ -98,6 +98,7 @@ export class StagedAnalysisEngine {
   private edgeIndex: Map<string, IdealCallEdge> = new Map(); // caller->callee key to edge mapping
   private functionLookupMap: Map<string, string> = new Map(); // filePath+positionId -> funcId for O(1) lookup
   private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
+  private instantiationEvents: InstantiationEvent[] = []; // Collected during Stage 1&2 for RTA optimization
   private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
   private unresolvedMethodCallsSet: Set<string> = new Set(); // Track duplicates using composite keys
   private chaAnalyzer: CHAAnalyzer;
@@ -201,7 +202,7 @@ export class StagedAnalysisEngine {
    * Only initializes when advanced type resolution is actually needed
    * @deprecated Currently unused, kept for future advanced type analysis
    */
-  // @ts-ignore - Method kept for future use
+  // @ts-expect-error - Method kept for future use
   private getFullTypeChecker(): TypeChecker {
     if (!this.isFullTypeCheckerInitialized) {
       this.logger.debug('🚀 Lazy initializing full TypeChecker for advanced resolution...');
@@ -318,6 +319,7 @@ export class StagedAnalysisEngine {
     this.edges = [];
     this.edgeKeys.clear();
     this.edgeIndex.clear();
+    this.instantiationEvents = []; // Clear instantiation events for fresh analysis
     
     // Build function lookup map for O(1) function resolution
     this.buildFunctionLookupMap(functions);
@@ -352,7 +354,7 @@ export class StagedAnalysisEngine {
    * Analyze calls within the same source file with 100% confidence
    * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
-  // @ts-ignore - Method kept for future use
+  // @ts-expect-error - Method kept for future use
   private async performLocalExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<void> {
     const sourceFiles = this.project.getSourceFiles();
     
@@ -443,7 +445,7 @@ export class StagedAnalysisEngine {
    * Analyze cross-file imports using TypeChecker with high confidence
    * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
-  // @ts-ignore - Method kept for future use
+  // @ts-expect-error - Method kept for future use
   private async performImportExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     let importEdgesCount = 0;
     const sourceFiles = this.getProject().getSourceFiles();
@@ -534,9 +536,13 @@ export class StagedAnalysisEngine {
       // Ultra-fast AST traversal using direct node access (bypassing ts-morph overhead)
       const callExpressions: Node[] = [];
       const newExpressions: Node[] = [];
+      const instantiationEvents: InstantiationEvent[] = [];
       
-      // Direct traversal - much faster than forEachDescendant
-      this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions);
+      // Direct traversal - much faster than forEachDescendant, also collect instantiation events for RTA
+      this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions, instantiationEvents);
+      
+      // Accumulate instantiation events for RTA optimization (eliminates duplicate AST traversal)
+      this.instantiationEvents.push(...instantiationEvents);
       
       // Process collected expressions
       const allExpressions = [
@@ -663,19 +669,33 @@ export class StagedAnalysisEngine {
   }
 
   /**
-   * Ultra-fast direct AST expression collection
+   * Ultra-fast direct AST expression collection with instantiation event tracking
    * Bypasses ts-morph's forEachDescendant overhead for maximum performance
+   * Also collects instantiation events for RTA optimization (eliminates duplicate traversal)
    */
-  private collectExpressionsDirectly(sourceFile: SourceFile, callExpressions: Node[], newExpressions: Node[]): void {
+  private collectExpressionsDirectly(
+    sourceFile: SourceFile, 
+    callExpressions: Node[], 
+    newExpressions: Node[],
+    instantiationEvents: InstantiationEvent[]
+  ): void {
     const stack: Node[] = [sourceFile];
+    const filePath = sourceFile.getFilePath();
     
     while (stack.length > 0) {
       const current = stack.pop()!;
       
       if (Node.isCallExpression(current)) {
         callExpressions.push(current);
+        
+        // Collect factory method instantiation events for RTA
+        this.processCallExpressionForInstantiation(current, filePath, instantiationEvents);
+        
       } else if (Node.isNewExpression(current)) {
         newExpressions.push(current);
+        
+        // Collect constructor instantiation events for RTA
+        this.processNewExpressionForInstantiation(current, filePath, instantiationEvents);
       }
       
       // Add child nodes to stack for traversal
@@ -683,6 +703,89 @@ export class StagedAnalysisEngine {
       for (let i = children.length - 1; i >= 0; i--) {
         stack.push(children[i]);
       }
+    }
+  }
+
+  /**
+   * Process NewExpression for instantiation events (RTA optimization)
+   * Extracts constructor call information for type instantiation tracking
+   */
+  private processNewExpressionForInstantiation(
+    node: NewExpression, 
+    filePath: string, 
+    instantiationEvents: InstantiationEvent[]
+  ): void {
+    try {
+      const expression = node.getExpression();
+      let typeName: string | undefined;
+      
+      if (Node.isIdentifier(expression)) {
+        typeName = expression.getText();
+      } else if (Node.isPropertyAccessExpression(expression)) {
+        // Handle namespaced constructors like MyNamespace.MyClass
+        typeName = expression.getName();
+      }
+      
+      if (typeName) {
+        instantiationEvents.push({
+          typeName,
+          filePath,
+          lineNumber: node.getStartLineNumber(),
+          instantiationType: 'constructor',
+          node
+        });
+      }
+    } catch {
+      // Ignore errors in type resolution during collection phase
+    }
+  }
+
+  /**
+   * Process CallExpression for instantiation events (RTA optimization)
+   * Extracts factory method calls that might create instances
+   */
+  private processCallExpressionForInstantiation(
+    node: CallExpression, 
+    filePath: string, 
+    instantiationEvents: InstantiationEvent[]
+  ): void {
+    try {
+      const expression = node.getExpression();
+      
+      // Look for factory methods or other instance creation patterns
+      if (Node.isPropertyAccessExpression(expression)) {
+        const methodName = expression.getName();
+        
+        // Common factory method patterns
+        if (methodName === 'create' || methodName === 'getInstance' || 
+            methodName === 'build' || methodName === 'new') {
+          
+          // Try to determine the return type using TypeChecker if available
+          if (this.typeChecker) {
+            try {
+              const type = this.typeChecker.getTypeAtLocation(node);
+              const symbol = type.getSymbol();
+              
+              if (symbol) {
+                const typeName = symbol.getName();
+                if (typeName && typeName !== 'unknown') {
+                  instantiationEvents.push({
+                    typeName,
+                    filePath,
+                    lineNumber: node.getStartLineNumber(),
+                    instantiationType: 'factory',
+                    node
+                  });
+                }
+              }
+            } catch {
+              // Ignore TypeChecker errors - factory methods are best-effort
+            }
+          }
+        }
+      }
+    } catch {
+      // Ignore errors in type resolution during collection phase
     }
   }
 
@@ -741,7 +844,7 @@ export class StagedAnalysisEngine {
 
   /**
    * Stage 4: RTA Analysis  
-   * Rapid Type Analysis with constructor tracking
+   * Rapid Type Analysis with constructor tracking (AST traversal optimized)
    */
   private async performRTAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     if (this.chaCandidates.size === 0) {
@@ -750,7 +853,13 @@ export class StagedAnalysisEngine {
     }
     
     try {
-      const rtaEdges = await this.rtaAnalyzer.performRTAAnalysis(functions, this.chaCandidates, this.unresolvedMethodCallsForRTA);
+      // Use optimized path with prebuilt instantiation events (eliminates duplicate AST traversal)
+      const rtaEdges = await this.rtaAnalyzer.performRTAAnalysisOptimized(
+        functions, 
+        this.chaCandidates, 
+        this.unresolvedMethodCallsForRTA,
+        this.instantiationEvents
+      );
       
       // Add RTA edges to our collection
       for (const edge of rtaEdges) {
@@ -2673,4 +2782,16 @@ export class StagedAnalysisEngine {
     
     return false;
   }
+}
+
+/**
+ * Instantiation event for RTA analysis optimization
+ * Collected during Stage 1&2 AST traversal to eliminate duplicate traversal in RTA
+ */
+export interface InstantiationEvent {
+  typeName: string;
+  filePath: string;
+  lineNumber: number;
+  instantiationType: 'constructor' | 'factory';
+  node: NewExpression | CallExpression;
 }
