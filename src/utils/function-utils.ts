@@ -27,6 +27,7 @@ export function groupFunctionsByFile(functions: FunctionInfo[]): Map<string, Fun
  * @returns Sorted array with functions from bottom to top of file
  */
 export function sortFunctionsForDeletion(functions: FunctionInfo[]): FunctionInfo[] {
+  return [...functions].sort((a, b) => b.startLine - a.startLine);
 }
 
 /**
@@ -37,9 +38,12 @@ export function sortFunctionsForDeletion(functions: FunctionInfo[]): FunctionInf
  */
 export function calculateFunctionStats(functions: FunctionInfo[]) {
   const fileCount = new Set(functions.map(f => f.filePath)).size;
+  const exportedCount = functions.filter(f => f.isExported).length;
   const avgLinesOfCode = functions.length > 0 
+    ? Math.round(functions.reduce((sum, f) => sum + (f.endLine - f.startLine + 1), 0) / functions.length)
     : 0;
 
+  return {
     totalFunctions: functions.length,
     uniqueFiles: fileCount,
     exportedFunctions: exportedCount,

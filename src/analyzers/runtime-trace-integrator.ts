@@ -39,6 +39,7 @@ export class RuntimeTraceIntegrator {
     }
     
     // Integrate traces with edges
+    const integratedEdges = edges.map(edge => this.integrateEdgeWithTraces(edge));
     
     console.log(`   ✅ Integrated traces for ${integratedEdges.length} edges`);
     return integratedEdges;

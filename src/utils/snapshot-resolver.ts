@@ -27,11 +27,13 @@ export async function resolveSnapshotId(
 
   // Try partial ID match with collision detection
   const snapshots = await env.storage.getSnapshots();
+  const partialMatches = snapshots.filter(s => s.id.startsWith(identifier));
 
   if (partialMatches.length === 1) {
     return partialMatches[0].id;
   } else if (partialMatches.length > 1) {
     const matchList = partialMatches.map(s => s.id.substring(0, 8)).join(', ');
+    throw new Error(
       `Ambiguous snapshot ID '${identifier}' matches ${partialMatches.length} snapshots: ${matchList}. Please provide more characters.`
     );
   }
@@ -39,6 +41,7 @@ export async function resolveSnapshotId(
   // Try label match
   const labeled = snapshots.find(s => s.label === identifier);
   if (labeled) return labeled.id;
+
   // Try special keywords
   if (identifier === 'latest' || identifier === 'HEAD') {
     const latest = snapshots[0]; // snapshots are ordered by created_at DESC

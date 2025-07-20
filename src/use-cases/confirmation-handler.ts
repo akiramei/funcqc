@@ -36,6 +36,26 @@ export class ConfirmationHandler {
 
       const defaultText = options.defaultValue ? ' (Y/n)' : ' (y/N)';
 
+      rl.question(`${options.message}${defaultText} `, answer => {
+        rl.close();
+
+        const normalizedAnswer = answer.toLowerCase().trim();
+        let confirmed: boolean;
+
+        if (normalizedAnswer === '') {
+          // Use default value if no input
+          confirmed = options.defaultValue ?? false;
+        } else if (normalizedAnswer === 'y' || normalizedAnswer === 'yes') {
+          confirmed = true;
+        } else if (normalizedAnswer === 'n' || normalizedAnswer === 'no') {
+          confirmed = false;
+        } else {
+          // Invalid input, default to false for safety
+          confirmed = false;
+        }
+
+        resolve({ confirmed, skipped: false });
+      });
     });
   }
 

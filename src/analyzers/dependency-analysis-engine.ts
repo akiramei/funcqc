@@ -39,7 +39,7 @@ export interface AnalysisMetadata {
     total: number;
     phases: Record<string, number>;
   };
-  [key: string]: any; // Allow additional metadata fields
+  [key: string]: unknown; // Allow additional metadata fields
 }
 
 /**

@@ -298,10 +298,11 @@ export class AnalysisFormatter {
         case 'confidence':
           comparison = b.confidenceScore - a.confidenceScore; // Higher confidence first by default
           break;
-        case 'impact':
+        case 'impact': {
           const impactOrder = { low: 0, medium: 1, high: 2 };
           comparison = impactOrder[b.estimatedImpact] - impactOrder[a.estimatedImpact];
           break;
+        }
         case 'file':
           comparison = a.functionInfo.filePath.localeCompare(b.functionInfo.filePath);
           break;
@@ -453,20 +454,23 @@ export class AnalysisFormatter {
    */
   private static addMetadataSection(
     lines: string[],
-    metadata: any,
+    metadata: Record<string, unknown>,
     colors: boolean
   ): void {
     lines.push(this.colorize('bold', '\n📋 Analysis Metadata', colors));
     
-    if (metadata.processingTime?.phases) {
-      lines.push('\nProcessing phases:');
-      for (const [phase, time] of Object.entries(metadata.processingTime.phases)) {
-        lines.push(`  ${phase}: ${time}ms`);
+    if (metadata['processingTime'] && typeof metadata['processingTime'] === 'object' && metadata['processingTime'] !== null) {
+      const processingTime = metadata['processingTime'] as { phases?: Record<string, number> };
+      if (processingTime.phases) {
+        lines.push('\nProcessing phases:');
+        for (const [phase, time] of Object.entries(processingTime.phases)) {
+          lines.push(`  ${phase}: ${time}ms`);
+        }
       }
     }
     
-    if (metadata.entryPoints?.length > 0) {
-      lines.push(`\nEntry points detected: ${metadata.entryPoints.length}`);
+    if (Array.isArray(metadata['entryPoints']) && metadata['entryPoints'].length > 0) {
+      lines.push(`\nEntry points detected: ${(metadata['entryPoints'] as unknown[]).length}`);
     }
   }
 

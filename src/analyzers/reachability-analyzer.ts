@@ -31,8 +31,10 @@ export class ReachabilityAnalyzer {
     callEdges: CallEdge[],
     entryPoints: EntryPoint[]
   ): ReachabilityResult {
+    const functionMap = new Map(allFunctions.map(f => [f.id, f]));
     const reachable = new Set<string>();
     const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
+
     // Build adjacency list for efficient traversal
     const callGraph = this.buildCallGraph(callEdges);
 
