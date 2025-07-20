@@ -494,7 +494,7 @@ describe('StagedAnalysisEngine - Same File Call Analysis', () => {
       const functions = await functionRegistry.collectAllFunctions();
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const edges = await engine.performStagedAnalysis(functions);
         
         // Filter to only local_exact edges (Stage 1)

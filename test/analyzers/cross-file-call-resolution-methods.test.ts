@@ -554,7 +554,7 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       `);
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const functions = await functionRegistry.collectAllFunctions();
         const edges = await engine.performStagedAnalysis(functions);
         return edges;
@@ -566,7 +566,7 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       const sourceFile = project.createSourceFile('empty.ts', '');
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const functions = await functionRegistry.collectAllFunctions();
         const edges = await engine.performStagedAnalysis(functions);
         return edges;
@@ -584,7 +584,7 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       `);
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const functions = await functionRegistry.collectAllFunctions();
         const edges = await engine.performStagedAnalysis(functions);
         return edges;
@@ -609,7 +609,7 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       `);
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const functions = await functionRegistry.collectAllFunctions();
         const edges = await engine.performStagedAnalysis(functions);
         return edges;
@@ -643,7 +643,7 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       `);
       
       // Act & Assert - Should not throw
-      expect(async () => {
+      await expect(async () => {
         const functions = await functionRegistry.collectAllFunctions();
         const edges = await engine.performStagedAnalysis(functions);
         return edges;
