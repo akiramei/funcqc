@@ -315,18 +315,17 @@ export class StagedAnalysisEngine {
     const { localEdges, importEdges } = await this.performCombinedLocalAndImportAnalysis(functions);
     this.logger.debug(`Found ${localEdges} local edges and ${importEdges} import edges`);
     
-    // Temporarily disable CHA/RTA for performance testing
-    this.logger.debug('Stage 3: CHA analysis (DISABLED for performance testing)...');
-    // const chaEdges = await this.performCHAAnalysis(functions);
-    // this.logger.debug(`Found ${chaEdges} CHA edges`);
+    this.logger.debug('Stage 3: CHA analysis...');
+    const chaEdges = await this.performCHAAnalysis(functions);
+    this.logger.debug(`Found ${chaEdges} CHA edges`);
     
-    this.logger.debug('Stage 4: RTA analysis (DISABLED for performance testing)...');
-    // const rtaEdges = await this.performRTAAnalysis(functions);
-    // this.logger.debug(`Found ${rtaEdges} RTA edges`);
+    this.logger.debug('Stage 4: RTA analysis...');
+    const rtaEdges = await this.performRTAAnalysis(functions);
+    this.logger.debug(`Found ${rtaEdges} RTA edges`);
     
-    this.logger.debug('Stage 5: Runtime trace integration (DISABLED for performance testing)...');
-    // const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
-    // this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
+    this.logger.debug('Stage 5: Runtime trace integration...');
+    const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
+    this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
     
     // Log symbol cache statistics
     this.logCacheStatistics();
@@ -514,17 +513,28 @@ export class StagedAnalysisEngine {
         functionByLexicalPath.set(func.lexicalPath, func);
       }
       
-      // Single AST traversal for both local and import resolution
-      sourceFile.forEachDescendant(node => {
-        if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
-          const callerFunction = this.findContainingFunctionOptimized(node, filePath);
-          if (!callerFunction) return;
+      // Ultra-fast AST traversal using direct node access (bypassing ts-morph overhead)
+      const callExpressions: Node[] = [];
+      const newExpressions: Node[] = [];
+      
+      // Direct traversal - much faster than forEachDescendant
+      this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions);
+      
+      // Process collected expressions
+      const allExpressions = [
+        ...callExpressions.map(node => ({ node, type: 'call' as const })),
+        ...newExpressions.map(node => ({ node, type: 'new' as const }))
+      ];
+      
+      for (const { node, type } of allExpressions) {
+        const callerFunction = this.findContainingFunctionOptimized(node, filePath);
+        if (!callerFunction) continue;
+        
+        const isOptional = type === 'call' ? this.isOptionalCallExpression(node) : false;
           
-          const isOptional = Node.isCallExpression(node) ? this.isOptionalCallExpression(node) : false;
-          
-          if (Node.isCallExpression(node)) {
-            // Try local resolution first
-            const localCalleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
+        if (type === 'call') {
+          // Try local resolution first
+          const localCalleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
             if (localCalleeId) {
               const calleeFunction = functions.get(localCalleeId);
               this.addEdge({
@@ -597,33 +607,32 @@ export class StagedAnalysisEngine {
               }
             }
           } else {
-            // Handle NewExpression 
-            const calleeId = this.resolveNewExpression(node, functions);
-            if (calleeId) {
-              const calleeFunction = functions.get(calleeId);
-              this.addEdge({
-                callerFunctionId: callerFunction.id,
-                calleeFunctionId: calleeId,
-                calleeName: calleeFunction?.name || 'unknown',
-                candidates: [calleeId],
-                confidenceScore: CONFIDENCE_SCORES.IMPORT_EXACT,
-                resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
-                resolutionSource: RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
-                runtimeConfirmed: false,
-                lineNumber: node.getStartLineNumber(),
-                columnNumber: node.getStart() - node.getStartLinePos(),
-                metadata: {},
-                analysisMetadata: {
-                  timestamp: Date.now(),
-                  analysisVersion: '1.0',
-                  sourceHash: sourceFile.getFilePath()
-                }
-              });
-              importEdgesCount++;
-            }
+          // Handle NewExpression 
+          const calleeId = this.resolveNewExpression(node, functions);
+          if (calleeId) {
+            const calleeFunction = functions.get(calleeId);
+            this.addEdge({
+              callerFunctionId: callerFunction.id,
+              calleeFunctionId: calleeId,
+              calleeName: calleeFunction?.name || 'unknown',
+              candidates: [calleeId],
+              confidenceScore: CONFIDENCE_SCORES.IMPORT_EXACT,
+              resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+              resolutionSource: RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+              runtimeConfirmed: false,
+              lineNumber: node.getStartLineNumber(),
+              columnNumber: node.getStart() - node.getStartLinePos(),
+              metadata: {},
+              analysisMetadata: {
+                timestamp: Date.now(),
+                analysisVersion: '1.0',
+                sourceHash: filePath
+              }
+            });
+            importEdgesCount++;
           }
         }
-      });
+      }
       
       processedFiles++;
     }
@@ -633,6 +642,30 @@ export class StagedAnalysisEngine {
     console.log(`      Completed: ${processedFiles}/${sourceFiles.length} files processed in ${duration.toFixed(2)}s`);
     console.log(`      Performance: ${(processedFiles / duration).toFixed(1)} files/sec`);
     return { localEdges: localEdgesCount, importEdges: importEdgesCount };
+  }
+
+  /**
+   * Ultra-fast direct AST expression collection
+   * Bypasses ts-morph's forEachDescendant overhead for maximum performance
+   */
+  private collectExpressionsDirectly(sourceFile: SourceFile, callExpressions: Node[], newExpressions: Node[]): void {
+    const stack: Node[] = [sourceFile];
+    
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      
+      if (Node.isCallExpression(current)) {
+        callExpressions.push(current);
+      } else if (Node.isNewExpression(current)) {
+        newExpressions.push(current);
+      }
+      
+      // Add child nodes to stack for traversal
+      const children = current.getChildren();
+      for (let i = children.length - 1; i >= 0; i--) {
+        stack.push(children[i]);
+      }
+    }
   }
 
   /**
@@ -755,9 +788,7 @@ export class StagedAnalysisEngine {
       // If this/super call couldn't be resolved and receiver is this/super, collect for CHA
       if (Node.isThisExpression(receiverExpression) || Node.isSuperExpression(receiverExpression)) {
         const currentFilePath = callNode.getSourceFile().getFilePath();
-        const currentFileFunctions = Array.from(functions.values()).filter(
-          func => PathNormalizer.areEqual(func.filePath, currentFilePath)
-        );
+        const currentFileFunctions = this.fileToFunctionsMap.get(currentFilePath) || [];
         const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
         if (callerFunction) {
           this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
@@ -805,9 +836,7 @@ export class StagedAnalysisEngine {
       // We need to find the caller in the current file
       // Get all functions from the current file by looking at the source file path
       const currentFilePath = callNode.getSourceFile().getFilePath();
-      const currentFileFunctions = Array.from(functions.values()).filter(
-        func => PathNormalizer.areEqual(func.filePath, currentFilePath)
-      );
+      const currentFileFunctions = this.fileToFunctionsMap.get(currentFilePath) || [];
       const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
       if (callerFunction) {
         let receiverType: string | undefined;
