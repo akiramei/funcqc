@@ -3,6 +3,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { Project } from 'ts-morph';
+import { Logger } from '../utils/cli-utils';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
@@ -11,10 +12,10 @@ export class FunctionAnalyzer {
   private project: Project | null = null;
   private logger: import('../utils/cli-utils').Logger;
 
-  constructor(private config: FuncqcConfig, options: { logger?: import('../utils/cli-utils').Logger } = {}) {
+  constructor(private config: FuncqcConfig, options: { logger?: Logger } = {}) {
     this.tsAnalyzer = new TypeScriptAnalyzer();
     this.qualityCalculator = new QualityCalculator();
-    this.logger = options.logger || new (require('../utils/cli-utils').Logger)();
+    this.logger = options.logger || new Logger();
     this.logger.debug('Analyzer initialized with config:', this.config.roots);
   }
 

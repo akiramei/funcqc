@@ -4,6 +4,7 @@ import { StagedAnalysisEngine } from './staged-analysis-engine';
 import { ConfidenceCalculator } from './confidence-calculator';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { CallEdge } from '../types';
+import { Logger } from '../utils/cli-utils';
 
 export interface IdealCallEdge extends CallEdge {
   // Enhanced fields for ideal system
@@ -77,10 +78,10 @@ export class IdealCallGraphAnalyzer {
   private typeChecker: TypeChecker;
   private logger: import('../utils/cli-utils').Logger;
 
-  constructor(project: Project, options: { logger?: import('../utils/cli-utils').Logger } = {}) {
+  constructor(project: Project, options: { logger?: Logger } = {}) {
     this.typeChecker = project.getTypeChecker();
     this.functionRegistry = new FunctionRegistry(project);
-    this.logger = options.logger || new (require('../utils/cli-utils').Logger)();
+    this.logger = options.logger || new Logger();
     this.analysisEngine = new StagedAnalysisEngine(project, this.typeChecker, { logger: this.logger });
     this.confidenceCalculator = new ConfidenceCalculator();
     this.runtimeIntegrator = new RuntimeTraceIntegrator();

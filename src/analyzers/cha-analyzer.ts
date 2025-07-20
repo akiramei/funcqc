@@ -92,9 +92,9 @@ export class CHAAnalyzer {
   /**
    * Get parameter types with caching to avoid expensive TypeChecker calls
    */
-  private getParameterTypesOptimized(parameters: ParameterDeclaration[], filePath: string, startLine: number): string[] {
-    // Create cache key from file and line position
-    const cacheKey = `${PathNormalizer.normalize(filePath)}|${startLine}`;
+  private getParameterTypesOptimized(parameters: ParameterDeclaration[], filePath: string, startLine: number, methodName?: string, className?: string): string[] {
+    // Create cache key from file, line, method and class to ensure uniqueness
+    const cacheKey = `${PathNormalizer.normalize(filePath)}|${startLine}|${className || ''}|${methodName || ''}`;
     
     // Check cache first
     if (this.parameterTypeCache.has(cacheKey)) {
@@ -273,7 +273,7 @@ export class CHAAnalyzer {
   ): MethodInfo | undefined {
     const methodName = node.getName();
     const parameters = node.getParameters();
-    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber());
+    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber(), methodName, interfaceName);
     
     return {
       name: methodName,
@@ -315,7 +315,7 @@ export class CHAAnalyzer {
     }
     
     const parameters = node.getParameters();
-    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber());
+    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber(), methodName, className);
     
     return {
       name: methodName,

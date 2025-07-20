@@ -78,8 +78,6 @@ export class BatchProcessor {
     const maxItemsInMemory = Math.floor(maxMemoryKB / estimatedItemSizeKB);
 
     // Use larger batches for better database performance (bulk operations are much faster)
-    if (itemCount > 10000) return Math.min(maxItemsInMemory, 1000);
-    if (itemCount > 5000) return Math.min(maxItemsInMemory, 1000);
     if (itemCount > 1000) return Math.min(maxItemsInMemory, 1000);
 
     return Math.min(maxItemsInMemory, 500);

@@ -100,7 +100,10 @@ export class RTAAnalyzer {
   private buildInstantiatedTypesFromEvents(instantiationEvents: InstantiationEvent[]): void {
     this.instantiatedTypes.clear();
     this.typeInstantiationMap.clear();
-    this.classInterfacesMap.clear();
+    // Only clear classInterfacesMap if it wasn't prebuilt from CHA
+    if (this.classInterfacesMap.size === 0) {
+      this.classInterfacesMap.clear();
+    }
     
     for (const event of instantiationEvents) {
       this.instantiatedTypes.add(event.typeName);

@@ -69,7 +69,9 @@ export class FunctionIndex {
     
     // Strategy 2: Lexical path match (build expected lexical path)
     const relativePath = this.getRelativePath(candidate.filePath);
-    const expectedLexicalPath = `${relativePath}#${candidate.className}.${candidate.name}`;
+    const expectedLexicalPath = candidate.className 
+      ? `${relativePath}#${candidate.className}.${candidate.name}`
+      : `${relativePath}#${candidate.name}`;
     const lexicalMatch = this.byLexical.get(expectedLexicalPath);
     if (lexicalMatch) return lexicalMatch;
     
@@ -172,7 +174,9 @@ export class FunctionIndex {
       const cwd = process.cwd();
       return path.relative(cwd, filePath);
     } catch {
-      return path.basename(filePath);
+      // Preserve directory structure by keeping last two path segments
+      const parts = filePath.split(path.sep);
+      return parts.length > 1 ? parts.slice(-2).join(path.sep) : parts[0];
     }
   }
 }
