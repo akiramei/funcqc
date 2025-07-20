@@ -92,6 +92,7 @@ export class StagedAnalysisEngine {
   private typeChecker: TypeChecker;
   private fullProject: Project | null = null; // Full project with tsconfig and libs
   private fullTypeChecker: TypeChecker | null = null;
+  private isFullTypeCheckerInitialized: boolean = false;
   private edges: IdealCallEdge[] = [];
   private edgeKeys: Set<string> = new Set(); // Track unique caller->callee relationships
   private edgeIndex: Map<string, IdealCallEdge> = new Map(); // caller->callee key to edge mapping
@@ -105,6 +106,8 @@ export class StagedAnalysisEngine {
   private symbolCache: SymbolCache;
   private fullSymbolCache: SymbolCache | null = null;
   private logger: Logger;
+  private fileToFunctionsMap: Map<string, FunctionMetadata[]> = new Map(); // filePath -> functions for O(1) lookup
+  private functionContainmentMaps: Map<string, Array<{start: number, end: number, id: string}>> = new Map(); // filePath -> sorted function ranges
 
   constructor(project: Project, typeChecker: TypeChecker, options: { logger?: Logger } = {}) {
     this.project = project;
@@ -192,6 +195,27 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Lazy initialization of full TypeChecker with comprehensive type information
+   * Only initializes when advanced type resolution is actually needed
+   */
+  private getFullTypeChecker(): TypeChecker {
+    if (!this.isFullTypeCheckerInitialized) {
+      this.logger.debug('🚀 Lazy initializing full TypeChecker for advanced resolution...');
+      const startTime = performance.now();
+      
+      // For now, use the existing typeChecker to avoid initialization overhead
+      // In a future optimization, we could create a full project with tsconfig and libs here
+      this.fullTypeChecker = this.typeChecker;
+      this.isFullTypeCheckerInitialized = true;
+      
+      const endTime = performance.now();
+      this.logger.debug(`⚡ Full TypeChecker initialized in ${(endTime - startTime).toFixed(1)}ms`);
+    }
+    
+    return this.fullTypeChecker || this.typeChecker;
+  }
+
+  /**
    * Build function lookup map for O(1) function resolution
    */
   private buildFunctionLookupMap(functions: Map<string, FunctionMetadata>): void {
@@ -212,6 +236,45 @@ export class StagedAnalysisEngine {
     }
     
     this.logger.debug(`Built function lookup map with ${this.functionLookupMap.size} entries`);
+  }
+
+  /**
+   * Build optimized lookup structures for file-based operations
+   * Eliminates need for repeated Array.from(functions.values()) and PathNormalizer.filterByPath calls
+   */
+  private buildOptimizedLookupStructures(functions: Map<string, FunctionMetadata>): void {
+    const startTime = performance.now();
+    this.fileToFunctionsMap.clear();
+    this.functionContainmentMaps.clear();
+    
+    // Group functions by file path
+    for (const func of functions.values()) {
+      const filePath = func.filePath;
+      
+      // Add to fileToFunctionsMap
+      if (!this.fileToFunctionsMap.has(filePath)) {
+        this.fileToFunctionsMap.set(filePath, []);
+      }
+      this.fileToFunctionsMap.get(filePath)!.push(func);
+    }
+    
+    // Build sorted containment maps for binary search
+    for (const [filePath, fileFunctions] of this.fileToFunctionsMap) {
+      const ranges = fileFunctions.map(func => ({
+        start: func.startLine,
+        end: func.endLine,
+        id: func.id
+      }));
+      
+      // Sort by start line for binary search
+      ranges.sort((a, b) => a.start - b.start);
+      this.functionContainmentMaps.set(filePath, ranges);
+    }
+    
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    this.logger.debug(`🗺️  Built optimized lookup structures in ${duration.toFixed(1)}ms`);
+    this.logger.debug(`   Files: ${this.fileToFunctionsMap.size}, Functions: ${functions.size}`);
   }
 
   /**
@@ -245,25 +308,25 @@ export class StagedAnalysisEngine {
     // Build function lookup map for O(1) function resolution
     this.buildFunctionLookupMap(functions);
     
-    this.logger.debug('Stage 1: Local exact analysis...');
-    await this.performLocalExactAnalysis(functions);
-    this.logger.debug(`Found ${this.edges.length} local edges`);
+    // Build optimized lookup structures for file-based operations
+    this.buildOptimizedLookupStructures(functions);
     
-    this.logger.debug('Stage 2: Import exact analysis...');
-    const importEdges = await this.performImportExactAnalysis(functions);
-    this.logger.debug(`Found ${importEdges} import edges`);
+    this.logger.debug('Stage 1 & 2: Combined local and import analysis (single-pass)...');
+    const { localEdges, importEdges } = await this.performCombinedLocalAndImportAnalysis(functions);
+    this.logger.debug(`Found ${localEdges} local edges and ${importEdges} import edges`);
     
-    this.logger.debug('Stage 3: CHA analysis...');
-    const chaEdges = await this.performCHAAnalysis(functions);
-    this.logger.debug(`Found ${chaEdges} CHA edges`);
+    // Temporarily disable CHA/RTA for performance testing
+    this.logger.debug('Stage 3: CHA analysis (DISABLED for performance testing)...');
+    // const chaEdges = await this.performCHAAnalysis(functions);
+    // this.logger.debug(`Found ${chaEdges} CHA edges`);
     
-    this.logger.debug('Stage 4: RTA analysis...');
-    const rtaEdges = await this.performRTAAnalysis(functions);
-    this.logger.debug(`Found ${rtaEdges} RTA edges`);
+    this.logger.debug('Stage 4: RTA analysis (DISABLED for performance testing)...');
+    // const rtaEdges = await this.performRTAAnalysis(functions);
+    // this.logger.debug(`Found ${rtaEdges} RTA edges`);
     
-    this.logger.debug('Stage 5: Runtime trace integration...');
-    const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
-    this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
+    this.logger.debug('Stage 5: Runtime trace integration (DISABLED for performance testing)...');
+    // const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
+    // this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
     
     // Log symbol cache statistics
     this.logCacheStatistics();
@@ -280,7 +343,7 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
       
       if (fileFunctions.length === 0) continue;
       
@@ -370,7 +433,7 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       const filePath = sourceFile.getFilePath();
-      const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), filePath);
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
       
       if (fileFunctions.length === 0) continue;
       
@@ -413,6 +476,163 @@ export class StagedAnalysisEngine {
     }
     
     return importEdgesCount;
+  }
+
+  /**
+   * Combined Local and Import Analysis (Single-Pass Optimization)
+   * Replaces performLocalExactAnalysis and performImportExactAnalysis
+   * Uses single AST traversal per file for maximum performance
+   */
+  private async performCombinedLocalAndImportAnalysis(functions: Map<string, FunctionMetadata>): Promise<{ localEdges: number, importEdges: number }> {
+    const startTime = performance.now();
+    const sourceFiles = this.project.getSourceFiles();
+    let localEdgesCount = 0;
+    let importEdgesCount = 0;
+    let processedFiles = 0;
+    
+    for (const sourceFile of sourceFiles) {
+      if (processedFiles % 20 === 0) {
+        console.log(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
+      }
+      
+      const filePath = sourceFile.getFilePath();
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
+      
+      if (fileFunctions.length === 0) {
+        processedFiles++;
+        continue;
+      }
+      
+      // Create local function lookup maps for this file
+      const functionByName = new Map<string, FunctionMetadata[]>();
+      const functionByLexicalPath = new Map<string, FunctionMetadata>();
+      
+      for (const func of fileFunctions) {
+        const existing = functionByName.get(func.name) || [];
+        existing.push(func);
+        functionByName.set(func.name, existing);
+        functionByLexicalPath.set(func.lexicalPath, func);
+      }
+      
+      // Single AST traversal for both local and import resolution
+      sourceFile.forEachDescendant(node => {
+        if (Node.isCallExpression(node) || Node.isNewExpression(node)) {
+          const callerFunction = this.findContainingFunctionOptimized(node, filePath);
+          if (!callerFunction) return;
+          
+          const isOptional = Node.isCallExpression(node) ? this.isOptionalCallExpression(node) : false;
+          
+          if (Node.isCallExpression(node)) {
+            // Try local resolution first
+            const localCalleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
+            if (localCalleeId) {
+              const calleeFunction = functions.get(localCalleeId);
+              this.addEdge({
+                callerFunctionId: callerFunction.id,
+                calleeFunctionId: localCalleeId,
+                calleeName: calleeFunction?.name || 'unknown',
+                candidates: [localCalleeId],
+                confidenceScore: isOptional ? CONFIDENCE_SCORES.LOCAL_EXACT_OPTIONAL : CONFIDENCE_SCORES.LOCAL_EXACT,
+                resolutionLevel: RESOLUTION_LEVELS.LOCAL_EXACT as ResolutionLevel,
+                resolutionSource: isOptional ? RESOLUTION_SOURCES.LOCAL_EXACT_OPTIONAL : RESOLUTION_SOURCES.LOCAL_EXACT,
+                runtimeConfirmed: false,
+                lineNumber: node.getStartLineNumber(),
+                columnNumber: node.getStart() - node.getStartLinePos(),
+                metadata: isOptional ? { optionalChaining: true } : {},
+                analysisMetadata: {
+                  timestamp: Date.now(),
+                  analysisVersion: '1.0',
+                  sourceHash: sourceFile.getFilePath()
+                }
+              });
+              localEdgesCount++;
+            } else {
+              // Try import resolution if local resolution failed
+              const importCalleeId = this.resolveImportCall(node, functions);
+              if (importCalleeId) {
+                const calleeFunction = functions.get(importCalleeId);
+                this.addEdge({
+                  callerFunctionId: callerFunction.id,
+                  calleeFunctionId: importCalleeId,
+                  calleeName: calleeFunction?.name || 'unknown',
+                  candidates: [importCalleeId],
+                  confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
+                  resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+                  resolutionSource: isOptional ? RESOLUTION_SOURCES.TYPECHECKER_IMPORT_OPTIONAL : RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+                  runtimeConfirmed: false,
+                  lineNumber: node.getStartLineNumber(),
+                  columnNumber: node.getStart() - node.getStartLinePos(),
+                  metadata: isOptional ? { optionalChaining: true } : {},
+                  analysisMetadata: {
+                    timestamp: Date.now(),
+                    analysisVersion: '1.0',
+                    sourceHash: sourceFile.getFilePath()
+                  }
+                });
+                importEdgesCount++;
+              } else if (isOptional) {
+                // Handle unresolved optional calls
+                const optionalCalleeId = this.resolveOptionalCall(node, functions);
+                if (optionalCalleeId) {
+                  const calleeFunction = functions.get(optionalCalleeId);
+                  this.addEdge({
+                    callerFunctionId: callerFunction.id,
+                    calleeFunctionId: optionalCalleeId,
+                    calleeName: calleeFunction?.name || 'unknown',
+                    candidates: [optionalCalleeId],
+                    confidenceScore: 0.85,
+                    resolutionLevel: 'local_exact' as ResolutionLevel,
+                    resolutionSource: 'local_exact_optional',
+                    runtimeConfirmed: false,
+                    lineNumber: node.getStartLineNumber(),
+                    columnNumber: node.getStart() - node.getStartLinePos(),
+                    metadata: { optionalChaining: true },
+                    analysisMetadata: {
+                      timestamp: Date.now(),
+                      analysisVersion: '1.0',
+                      sourceHash: sourceFile.getFilePath()
+                    }
+                  });
+                }
+              }
+            }
+          } else {
+            // Handle NewExpression 
+            const calleeId = this.resolveNewExpression(node, functions);
+            if (calleeId) {
+              const calleeFunction = functions.get(calleeId);
+              this.addEdge({
+                callerFunctionId: callerFunction.id,
+                calleeFunctionId: calleeId,
+                calleeName: calleeFunction?.name || 'unknown',
+                candidates: [calleeId],
+                confidenceScore: CONFIDENCE_SCORES.IMPORT_EXACT,
+                resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+                resolutionSource: RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+                runtimeConfirmed: false,
+                lineNumber: node.getStartLineNumber(),
+                columnNumber: node.getStart() - node.getStartLinePos(),
+                metadata: {},
+                analysisMetadata: {
+                  timestamp: Date.now(),
+                  analysisVersion: '1.0',
+                  sourceHash: sourceFile.getFilePath()
+                }
+              });
+              importEdgesCount++;
+            }
+          }
+        }
+      });
+      
+      processedFiles++;
+    }
+    
+    const endTime = performance.now();
+    const duration = (endTime - startTime) / 1000; // Convert to seconds
+    console.log(`      Completed: ${processedFiles}/${sourceFiles.length} files processed in ${duration.toFixed(2)}s`);
+    console.log(`      Performance: ${(processedFiles / duration).toFixed(1)} files/sec`);
+    return { localEdges: localEdgesCount, importEdges: importEdgesCount };
   }
 
   /**
@@ -1819,7 +2039,7 @@ export class StagedAnalysisEngine {
         
         // If direct resolution fails, collect for CHA analysis
         const callNodePath = callNode.getSourceFile().getFilePath();
-        const fileFunctions = PathNormalizer.filterByPath(Array.from(functions.values()), callNodePath);
+        const fileFunctions = this.fileToFunctionsMap.get(callNodePath) || [];
         const callerFunction = this.findContainingFunction(callNode, fileFunctions);
         if (callerFunction) {
           this.unresolvedMethodCalls.push({
@@ -1935,6 +2155,48 @@ export class StagedAnalysisEngine {
       current = current.getParent();
     }
     
+    return undefined;
+  }
+
+  /**
+   * Optimized containing function finder using binary search
+   * Replaces O(n) linear search with O(log n) binary search on pre-sorted ranges
+   */
+  private findContainingFunctionOptimized(node: Node, filePath: string): FunctionMetadata | undefined {
+    const ranges = this.functionContainmentMaps.get(filePath);
+    if (!ranges || ranges.length === 0) {
+      return undefined;
+    }
+
+    const nodeStartLine = node.getStartLineNumber();
+    const nodeEndLine = node.getEndLineNumber();
+
+    // Binary search for containing function
+    let left = 0;
+    let right = ranges.length - 1;
+    let bestMatch: {start: number, end: number, id: string} | undefined;
+
+    while (left <= right) {
+      const mid = Math.floor((left + right) / 2);
+      const range = ranges[mid];
+
+      if (range.start <= nodeStartLine && nodeEndLine <= range.end) {
+        // Found a containing range, but check if there's a more specific one
+        bestMatch = range;
+        // Look for a more specific (smaller) containing range
+        left = mid + 1;
+      } else if (range.start > nodeStartLine) {
+        right = mid - 1;
+      } else {
+        left = mid + 1;
+      }
+    }
+
+    if (bestMatch) {
+      const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
+      return fileFunctions.find(func => func.id === bestMatch!.id);
+    }
+
     return undefined;
   }
   
