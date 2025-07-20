@@ -370,7 +370,7 @@ export class StagedAnalysisEngine {
           // Check if this is an optional call expression
           const isOptional = this.isOptionalCallExpression(node);
           
-          const calleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
+          const calleeId = this.resolveLocalCall(node, callerFunction, functionByName, functionByLexicalPath, functions);
           if (calleeId) {
             const calleeFunction = functions.get(calleeId);
             this.addEdge({
@@ -491,7 +491,7 @@ export class StagedAnalysisEngine {
     
     for (const sourceFile of sourceFiles) {
       if (processedFiles % 20 === 0) {
-        console.log(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
+        this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
       
       const filePath = sourceFile.getFilePath();
@@ -534,7 +534,7 @@ export class StagedAnalysisEngine {
           
         if (type === 'call') {
           // Try local resolution first
-          const localCalleeId = this.resolveLocalCall(node, functionByName, functionByLexicalPath, functions);
+          const localCalleeId = this.resolveLocalCall(node as CallExpression, callerFunction, functionByName, functionByLexicalPath, functions);
             if (localCalleeId) {
               const calleeFunction = functions.get(localCalleeId);
               this.addEdge({
@@ -639,8 +639,8 @@ export class StagedAnalysisEngine {
     
     const endTime = performance.now();
     const duration = (endTime - startTime) / 1000; // Convert to seconds
-    console.log(`      Completed: ${processedFiles}/${sourceFiles.length} files processed in ${duration.toFixed(2)}s`);
-    console.log(`      Performance: ${(processedFiles / duration).toFixed(1)} files/sec`);
+    this.logger.debug(`      Completed: ${processedFiles}/${sourceFiles.length} files processed in ${duration.toFixed(2)}s`);
+    this.logger.debug(`      Performance: ${(processedFiles / duration).toFixed(1)} files/sec`);
     return { localEdges: localEdgesCount, importEdges: importEdgesCount };
   }
 
@@ -755,6 +755,7 @@ export class StagedAnalysisEngine {
    */
   private resolveLocalCall(
     callNode: CallExpression,
+    callerFunction: FunctionMetadata,
     functionByName: Map<string, FunctionMetadata[]>,
     _functionByLexicalPath: Map<string, FunctionMetadata>,
     functions: Map<string, FunctionMetadata>
@@ -787,19 +788,15 @@ export class StagedAnalysisEngine {
       
       // If this/super call couldn't be resolved and receiver is this/super, collect for CHA
       if (Node.isThisExpression(receiverExpression) || Node.isSuperExpression(receiverExpression)) {
-        const currentFilePath = callNode.getSourceFile().getFilePath();
-        const currentFileFunctions = this.fileToFunctionsMap.get(currentFilePath) || [];
-        const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
-        if (callerFunction) {
-          this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
-          this.unresolvedMethodCalls.push({
-            callerFunctionId: callerFunction.id,
-            methodName,
-            receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
-            lineNumber: callNode.getStartLineNumber(),
-            columnNumber: callNode.getStart()
-          });
-        }
+        // Use the callerFunction passed as parameter instead of searching again
+        this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
+        this.unresolvedMethodCalls.push({
+          callerFunctionId: callerFunction.id,
+          methodName,
+          receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
+          lineNumber: callNode.getStartLineNumber(),
+          columnNumber: callNode.getStart()
+        });
         return undefined;
       }
       
@@ -835,29 +832,25 @@ export class StagedAnalysisEngine {
       // If not found locally, collect for CHA analysis
       // We need to find the caller in the current file
       // Get all functions from the current file by looking at the source file path
-      const currentFilePath = callNode.getSourceFile().getFilePath();
-      const currentFileFunctions = this.fileToFunctionsMap.get(currentFilePath) || [];
-      const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
-      if (callerFunction) {
-        let receiverType: string | undefined;
-        
-        // Try to determine receiver type using TypeChecker
-        try {
-          const type = this.getTypeChecker().getTypeAtLocation(receiverExpression);
-          receiverType = type.getSymbol()?.getName();
-        } catch {
-          // If TypeChecker fails, we'll try CHA without receiver type
-        }
-        
-        this.logger.debug(`Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
-        this.unresolvedMethodCalls.push({
-          callerFunctionId: callerFunction.id,
-          methodName,
-          receiverType,
-          lineNumber: callNode.getStartLineNumber(),
-          columnNumber: callNode.getStart()
-        });
+      // Use the callerFunction passed as parameter instead of searching again
+      let receiverType: string | undefined;
+      
+      // Try to determine receiver type using TypeChecker
+      try {
+        const type = this.getTypeChecker().getTypeAtLocation(receiverExpression);
+        receiverType = type.getSymbol()?.getName();
+      } catch {
+        // If TypeChecker fails, we'll try CHA without receiver type
       }
+      
+      this.logger.debug(`Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
+      this.unresolvedMethodCalls.push({
+        callerFunctionId: callerFunction.id,
+        methodName,
+        receiverType,
+        lineNumber: callNode.getStartLineNumber(),
+        columnNumber: callNode.getStart()
+      });
     }
     
     return undefined;
@@ -2203,17 +2196,33 @@ export class StagedAnalysisEngine {
     // Binary search for containing function
     let left = 0;
     let right = ranges.length - 1;
-    let bestMatch: {start: number, end: number, id: string} | undefined;
+    let candidates: {start: number, end: number, id: string}[] = [];
 
+    // Find all containing functions
     while (left <= right) {
       const mid = Math.floor((left + right) / 2);
       const range = ranges[mid];
 
       if (range.start <= nodeStartLine && nodeEndLine <= range.end) {
-        // Found a containing range, but check if there's a more specific one
-        bestMatch = range;
-        // Look for a more specific (smaller) containing range
-        left = mid + 1;
+        // Found a containing range, collect it
+        candidates.push(range);
+        
+        // Check both sides for other containing functions
+        // Check left side
+        let leftIdx = mid - 1;
+        while (leftIdx >= 0 && ranges[leftIdx].start <= nodeStartLine && nodeEndLine <= ranges[leftIdx].end) {
+          candidates.push(ranges[leftIdx]);
+          leftIdx--;
+        }
+        
+        // Check right side
+        let rightIdx = mid + 1;
+        while (rightIdx < ranges.length && ranges[rightIdx].start <= nodeStartLine && nodeEndLine <= ranges[rightIdx].end) {
+          candidates.push(ranges[rightIdx]);
+          rightIdx++;
+        }
+        
+        break;
       } else if (range.start > nodeStartLine) {
         right = mid - 1;
       } else {
@@ -2221,9 +2230,16 @@ export class StagedAnalysisEngine {
       }
     }
 
-    if (bestMatch) {
+    // Find the most specific (smallest) containing function
+    if (candidates.length > 0) {
+      const bestMatch = candidates.reduce((best, current) => {
+        const bestSize = best.end - best.start;
+        const currentSize = current.end - current.start;
+        return currentSize < bestSize ? current : best;
+      });
+
       const fileFunctions = this.fileToFunctionsMap.get(filePath) || [];
-      return fileFunctions.find(func => func.id === bestMatch!.id);
+      return fileFunctions.find(func => func.id === bestMatch.id);
     }
 
     return undefined;
