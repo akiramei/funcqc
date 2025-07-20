@@ -308,13 +308,9 @@ export class RTAAnalyzer {
     // Fallback to original strategy for small type sets
     for (const [methodName, candidates] of chaCandidates) {
       const rtaFilteredCandidates = candidates.filter(candidate => {
-        // Include candidates whose class is instantiated OR whose interfaces are instantiated
-        const classInstantiated = this.instantiatedTypes.has(candidate.className);
-        const interfacesOfClass = this.classInterfacesMap.get(candidate.className) || [];
-        const interfaceInstantiated = interfacesOfClass.some(interfaceName => 
-          this.instantiatedTypes.has(interfaceName)
-        );
-        return classInstantiated || interfaceInstantiated;
+        // RTA Filtering: Only include candidates whose concrete class is directly instantiated
+        // This is the core principle of RTA - filter based on actual instantiations
+        return this.instantiatedTypes.has(candidate.className);
       });
       
       if (rtaFilteredCandidates.length > 0) {
@@ -373,14 +369,10 @@ export class RTAAnalyzer {
         // Get all candidates for this method
         const allCandidates = chaCandidates.get(methodName) || [];
         
-        // Filter candidates for this specific instantiated type
+        // RTA Filtering: Only include candidates whose class types are instantiated
         const rtaFilteredCandidates = allCandidates.filter(candidate => {
-          // Direct type match
-          if (candidate.className === instantiatedType) return true;
-          
-          // Interface match
-          const interfacesOfClass = this.classInterfacesMap.get(candidate.className) || [];
-          return interfacesOfClass.includes(instantiatedType);
+          // Check if this candidate's class is instantiated
+          return this.instantiatedTypes.has(candidate.className);
         });
         
         if (rtaFilteredCandidates.length > 0) {
