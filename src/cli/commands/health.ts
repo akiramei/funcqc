@@ -27,6 +27,9 @@ interface TrendData {
   totalFunctions: number;
   highRiskCount: number;
   qualityScore: number;
+  // NEW: Enhanced trend tracking
+  healthIndex?: number;
+  structuralDanger?: number;
   trend: 'improving' | 'stable' | 'degrading';
 }
 
@@ -69,6 +72,12 @@ interface HealthData {
   quality?: {
     overallGrade: string;
     overallScore: number;
+    // NEW: Integrated health scoring
+    healthIndex?: number;
+    healthGrade?: string;
+    structuralDanger?: number;
+    highRiskRate?: number;
+    criticalViolationRate?: number;
     averageRiskScore?: number;
     complexity: {
       grade: string;
@@ -89,6 +98,7 @@ interface HealthData {
       high: number;
       medium: number;
       low: number;
+      critical: number;
     };
     averageRiskScore?: number;
     highestRiskFunction?: {
@@ -99,6 +109,14 @@ interface HealthData {
   };
   git?: unknown;
   recommendations?: RecommendedAction[] | undefined;
+}
+
+// NEW: Risk distribution type
+interface RiskDistribution {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
 }
 
 /**
@@ -211,35 +229,58 @@ async function displayHealthOverview(
   const riskCounts = calculateRiskDistribution(riskAssessments);
   const enhancedRiskStats = calculateEnhancedRiskStats(riskAssessments, functions);
   
-  // Display quality overview
-  console.log(chalk.yellow('Quality Overview:'));
-  console.log(`  Overall Grade: ${qualityData.overallGrade} (${qualityData.overallScore}/100)`);
+  // NEW: Enhanced integrated health display
+  console.log(chalk.green.bold('🧪 Overall Health Index: ') + 
+    chalk.white.bold(`${qualityData.healthIndex}/100 (${qualityData.healthGrade})`));
+  console.log('');
+  
+  // Display integrated insights
+  console.log(chalk.yellow('📊 Health Breakdown:'));
+  console.log(`  ├── Traditional Grade: ${qualityData.overallGrade} (${qualityData.overallScore}/100)`);
+  console.log(`  ├── High Risk Function Rate: ${qualityData.highRiskRate || 0}% ${(qualityData.highRiskRate || 0) > 5 ? chalk.red('(Poor)') : chalk.green('(Good)')}`);
+  console.log(`  ├── Critical Violation Rate: ${qualityData.criticalViolationRate || 0}% ${(qualityData.criticalViolationRate || 0) > 1 ? chalk.red('(High)') : chalk.green('(Low)')}`);
+  console.log(`  └── Structural Danger Score: ${qualityData.structuralDanger}/100`);
   console.log('');
 
-  console.log(chalk.yellow('  Details:'));
-  console.log(`    Complexity: ${qualityData.complexityGrade} (${qualityData.complexityScore}/100)`);
-  console.log(`    Maintainability: ${qualityData.maintainabilityGrade} (${qualityData.maintainabilityScore}/100)`);
-  console.log(`    Code Size: ${qualityData.sizeGrade} (${qualityData.sizeScore}/100)`);
+  console.log(chalk.yellow('📈 Component Scores:'));
+  console.log(`  ├── Complexity: ${qualityData.complexityGrade} (${qualityData.complexityScore}/100)`);
+  console.log(`  ├── Maintainability: ${qualityData.maintainabilityGrade} (${qualityData.maintainabilityScore}/100)`);
+  console.log(`  └── Code Size: ${qualityData.sizeGrade} (${qualityData.sizeScore}/100)`);
   console.log('');
 
-  // Enhanced Risk Analysis
-  console.log(chalk.yellow('Risk Analysis:'));
-  console.log(`  Average Risk Score: ${enhancedRiskStats.average.toFixed(1)} (${getRiskDescription(enhancedRiskStats.average)})`);
-  console.log(`  Median Risk Score: ${enhancedRiskStats.median.toFixed(1)} (${getRiskDescription(enhancedRiskStats.median)})`);
-  console.log(`  P90 Risk Score: ${enhancedRiskStats.p90.toFixed(1)} (${getRiskDescription(enhancedRiskStats.p90)})`);
-  console.log(`  Risk/LOC Ratio: ${enhancedRiskStats.normalizedByLOC.toFixed(3)} (size-normalized)`);
+  // Enhanced Risk Analysis with clearer context
+  console.log(chalk.yellow('⚠️  Risk Analysis:'));
+  console.log(`  ├── Average Risk Score: ${enhancedRiskStats.average.toFixed(1)} (${getRiskDescription(enhancedRiskStats.average)})`);
+  console.log(`  ├── Median Risk Score: ${enhancedRiskStats.median.toFixed(1)} (${getRiskDescription(enhancedRiskStats.median)})`);
+  console.log(`  ├── P90 Risk Score: ${enhancedRiskStats.p90.toFixed(1)} (${getRiskDescription(enhancedRiskStats.p90)})`);
+  console.log(`  └── Risk/LOC Ratio: ${enhancedRiskStats.normalizedByLOC.toFixed(3)} (size-normalized)`);
   console.log('');
 
-  // Risk distribution
-  console.log(chalk.yellow('Risk Distribution:'));
-  console.log(`  High Risk: ${riskCounts.high} functions (${((riskCounts.high / functions.length) * 100).toFixed(1)}%)`);
-  console.log(`  Medium Risk: ${riskCounts.medium} functions (${((riskCounts.medium / functions.length) * 100).toFixed(1)}%)`);
-  console.log(`  Low Risk: ${riskCounts.low} functions (${((riskCounts.low / functions.length) * 100).toFixed(1)}%)`);
+  // Risk distribution with visual indicators
+  const totalFunctions = functions.length;
+  const highPct = ((riskCounts.high / totalFunctions) * 100).toFixed(1);
+  const mediumPct = ((riskCounts.medium / totalFunctions) * 100).toFixed(1);
+  const lowPct = ((riskCounts.low / totalFunctions) * 100).toFixed(1);
+  
+  console.log(chalk.yellow('🎯 Risk Distribution:'));
+  console.log(`  ├── ${chalk.red('High Risk')}: ${riskCounts.high} functions (${highPct}%) ${riskCounts.high > 0 ? '⚠️' : '✅'}`);
+  console.log(`  ├── ${chalk.yellow('Medium Risk')}: ${riskCounts.medium} functions (${mediumPct}%)`);
+  console.log(`  └── ${chalk.green('Low Risk')}: ${riskCounts.low} functions (${lowPct}%) ✅`);
+  
+  // NEW: Add recommendation based on risk distribution
+  if (riskCounts.high > 0) {
+    console.log('');
+    console.log(chalk.red.bold('💡 Recommendation: ') + 
+      `Focus on refactoring the ${riskCounts.high} high-risk functions to improve structural health.`);
+  }
   console.log('');
 
   // Show top risks if any
   if (riskCounts.high > 0) {
+    console.log(chalk.yellow.bold('🔍 Top High-Risk Functions:'));
     await displayTopRisks(env, functions, enhancedRiskStats, Boolean(options.verbose));
+  } else {
+    console.log(chalk.green('✅ No high-risk functions detected!'));
   }
 
   // Git status
@@ -381,7 +422,13 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
     quality: {
       overallGrade: qualityData.overallGrade,
       overallScore: qualityData.overallScore,
-      averageRiskScore: riskDetails.averageRiskScore, // 新しく追加
+      // NEW: Enhanced health metrics
+      healthIndex: qualityData.healthIndex,
+      healthGrade: qualityData.healthGrade!,
+      structuralDanger: qualityData.structuralDanger,
+      highRiskRate: qualityData.highRiskRate!,
+      criticalViolationRate: qualityData.criticalViolationRate!,
+      averageRiskScore: riskDetails.averageRiskScore,
       complexity: {
         grade: qualityData.complexityGrade,
         score: qualityData.complexityScore,
@@ -508,21 +555,29 @@ function calculateEnhancedRiskStats(
 }
 
 /**
- * リスク分布を計算（ThresholdEvaluatorベース）
+ * Calculate risk distribution from assessments
  */
-function calculateRiskDistribution(riskAssessments: FunctionRiskAssessment[]): {
-  high: number;
-  medium: number; 
-  low: number;
-  critical: number;
-} {
-  return riskAssessments.reduce(
-    (acc, assessment) => {
-      acc[assessment.riskLevel] += 1;
-      return acc;
-    },
-    { low: 0, medium: 0, high: 0, critical: 0 }
-  );
+function calculateRiskDistribution(riskAssessments: FunctionRiskAssessment[]): RiskDistribution {
+  const distribution: RiskDistribution = { low: 0, medium: 0, high: 0, critical: 0 };
+  
+  riskAssessments.forEach(assessment => {
+    switch (assessment.riskLevel) {
+      case 'low':
+        distribution.low++;
+        break;
+      case 'medium':
+        distribution.medium++;
+        break;
+      case 'high':
+        distribution.high++;
+        break;
+      case 'critical':
+        distribution.critical++;
+        break;
+    }
+  });
+  
+  return distribution;
 }
 
 /**
@@ -616,8 +671,8 @@ async function generateRiskAnalysis(
   functions: FunctionInfo[],
   includeRisks: boolean = false
 ): Promise<{ recommendations: RecommendedAction[] | undefined; riskDetails: {
-  distribution: { high: number; medium: number; low: number; };
-  percentages: { high: number; medium: number; low: number; };
+  distribution: RiskDistribution;
+  percentages: { high: number; medium: number; low: number; critical: number; };
   averageRiskScore: number;
   highestRiskFunction?: { name: string; riskScore: number; location: string; } | undefined;
 } }> {
@@ -630,6 +685,7 @@ async function generateRiskAnalysis(
       high: functions.length > 0 ? (distribution.high / functions.length) * 100 : 0,
       medium: functions.length > 0 ? (distribution.medium / functions.length) * 100 : 0,
       low: functions.length > 0 ? (distribution.low / functions.length) * 100 : 0,
+      critical: functions.length > 0 ? (distribution.critical / functions.length) * 100 : 0,
     },
     averageRiskScore,
   };
@@ -1000,12 +1056,16 @@ function generateFallbackSuggestions(funcName: string, totalLines: number, metri
 }
 
 
-// Helper functions (simplified for Reader pattern)
+/**
+ * Enhanced quality metrics calculation with integrated risk assessment
+ * Addresses the contradiction between Grade and Risk evaluations
+ */
 async function calculateQualityMetrics(functions: FunctionInfo[], _config: FuncqcConfig) {
   if (functions.length === 0) {
     return {
       overallGrade: 'N/A',
       overallScore: 0,
+      healthIndex: 0,
       complexityGrade: 'N/A',
       complexityScore: 0,
       maintainabilityGrade: 'N/A',
@@ -1014,6 +1074,8 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
       sizeScore: 0,
       averageRiskScore: 0,
       riskDescription: 'No functions',
+      riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+      structuralDanger: 0,
     };
   }
 
@@ -1024,6 +1086,7 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
     return {
       overallGrade: 'N/A',
       overallScore: 0,
+      healthIndex: 0,
       complexityGrade: 'N/A',
       complexityScore: 0,
       maintainabilityGrade: 'N/A',
@@ -1032,33 +1095,76 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
       sizeScore: 0,
       averageRiskScore: 0,
       riskDescription: 'No metrics available',
+      riskDistribution: { low: 0, medium: 0, high: 0, critical: 0 },
+      structuralDanger: 0,
     };
   }
 
-  // Calculate averages
+  // Calculate risk assessments for integrated scoring
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(metricsData);
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
+
+  // Calculate averages for traditional scores
   const avgComplexity = metricsData.reduce((sum, m) => sum + m.cyclomaticComplexity, 0) / metricsData.length;
   const avgLoc = metricsData.reduce((sum, m) => sum + m.linesOfCode, 0) / metricsData.length;
   const avgMaintainability = metricsData.reduce((sum, m) => sum + (m.maintainabilityIndex || 50), 0) / metricsData.length;
 
-  // Simple scoring (higher is better)
+  // Traditional scoring (higher is better)
   const complexityScore = Math.max(0, 100 - (avgComplexity * 10));
   const sizeScore = Math.max(0, 100 - (avgLoc * 2));
   const maintainabilityScore = avgMaintainability;
-  const overallScore = (complexityScore + sizeScore + maintainabilityScore) / 3;
+  const traditionalOverallScore = (complexityScore + sizeScore + maintainabilityScore) / 3;
+
+  // NEW: Calculate risk distribution and structural danger
+  const riskDistribution = calculateRiskDistribution(riskAssessments);
+  const highRiskRate = (riskDistribution.high + riskDistribution.critical) / functions.length;
+  const criticalViolationRate = riskAssessments
+    .flatMap(a => a.violations)
+    .filter(v => v.level === 'critical').length / functions.length;
+  
+  // NEW: Integrated Health Index - combines all factors
+  const structuralDanger = (highRiskRate * 50) + (criticalViolationRate * 100);
+  const healthIndex = Math.max(0, Math.min(100, 
+    traditionalOverallScore * 0.4 +  // Traditional metrics (40%)
+    (100 - highRiskRate * 100) * 0.3 +      // High risk rate penalty (30%)
+    (100 - criticalViolationRate * 100) * 0.2 +  // Critical violations penalty (20%)
+    (avgMaintainability > 0 ? avgMaintainability * 0.1 : 0)  // Maintainability bonus (10%)
+  ));
+
+  const averageRiskScore = calculateAverageRiskScore(riskAssessments);
 
   return {
-    overallGrade: getGradeFromScore(overallScore),
-    overallScore: Math.round(overallScore),
+    // Traditional scores (for backward compatibility)
+    overallGrade: getGradeFromScore(traditionalOverallScore),
+    overallScore: Math.round(traditionalOverallScore),
+    
+    // NEW: Integrated health scoring
+    healthIndex: Math.round(healthIndex * 100) / 100,
+    healthGrade: getGradeFromScore(healthIndex),
+    
+    // Component scores
     complexityGrade: getGradeFromScore(complexityScore),
     complexityScore: Math.round(complexityScore),
     maintainabilityGrade: getGradeFromScore(maintainabilityScore),
     maintainabilityScore: Math.round(maintainabilityScore),
     sizeGrade: getGradeFromScore(sizeScore),
     sizeScore: Math.round(sizeScore),
-    averageRiskScore: 0, // Placeholder value for compatibility
-    riskDescription: 'Not applicable',
+    
+    // Risk metrics
+    averageRiskScore: Math.round(averageRiskScore * 100) / 100,
+    riskDescription: getRiskDescription(averageRiskScore),
+    riskDistribution,
+    structuralDanger: Math.round(structuralDanger * 100) / 100,
+    
+    // NEW: Detailed risk insights
+    highRiskRate: Math.round(highRiskRate * 10000) / 100, // Percentage with 2 decimals
+    criticalViolationRate: Math.round(criticalViolationRate * 10000) / 100,
   };
 }
+
 
 
 async function displayTopRisks(
