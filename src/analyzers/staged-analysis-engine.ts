@@ -853,12 +853,14 @@ export class StagedAnalysisEngine {
     }
     
     try {
-      // Use optimized path with prebuilt instantiation events (eliminates duplicate AST traversal)
+      // Use optimized path with prebuilt instantiation events and class-to-interfaces mapping
+      const classToInterfacesMap = this.chaAnalyzer.getClassToInterfacesMap();
       const rtaEdges = await this.rtaAnalyzer.performRTAAnalysisOptimized(
         functions, 
         this.chaCandidates, 
         this.unresolvedMethodCallsForRTA,
-        this.instantiationEvents
+        this.instantiationEvents,
+        classToInterfacesMap
       );
       
       // Add RTA edges to our collection

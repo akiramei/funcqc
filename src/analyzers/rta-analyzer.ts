@@ -46,8 +46,15 @@ export class RTAAnalyzer {
   async performRTAAnalysis(
     functions: Map<string, FunctionMetadata>,
     chaCandidates: Map<string, MethodInfo[]>,
-    unresolvedMethodCalls: UnresolvedMethodCall[]
+    unresolvedMethodCalls: UnresolvedMethodCall[],
+    prebuiltClassToInterfacesMap?: Map<string, string[]>
   ): Promise<IdealCallEdge[]> {
+    // Use prebuilt class-to-interfaces mapping if available
+    if (prebuiltClassToInterfacesMap) {
+      console.log('   ⚡ Using prebuilt class-to-interfaces mapping from CHA...');
+      this.classInterfacesMap = new Map(prebuiltClassToInterfacesMap);
+    }
+    
     console.log('   🎯 Building instantiated types registry...');
     await this.buildInstantiatedTypesRegistry();
     
@@ -66,9 +73,17 @@ export class RTAAnalyzer {
     functions: Map<string, FunctionMetadata>,
     chaCandidates: Map<string, MethodInfo[]>,
     unresolvedMethodCalls: UnresolvedMethodCall[],
-    prebuiltInstantiationEvents: InstantiationEvent[]
+    prebuiltInstantiationEvents: InstantiationEvent[],
+    prebuiltClassToInterfacesMap?: Map<string, string[]>
   ): Promise<IdealCallEdge[]> {
     console.log('   🚀 Using prebuilt instantiation events (AST traversal optimization)...');
+    
+    // Use prebuilt class-to-interfaces mapping if available
+    if (prebuiltClassToInterfacesMap) {
+      console.log('   ⚡ Using prebuilt class-to-interfaces mapping from CHA...');
+      this.classInterfacesMap = new Map(prebuiltClassToInterfacesMap);
+    }
+    
     this.buildInstantiatedTypesFromEvents(prebuiltInstantiationEvents);
     
     console.log('   🔬 Filtering CHA candidates with RTA...');
@@ -90,9 +105,31 @@ export class RTAAnalyzer {
     for (const event of instantiationEvents) {
       this.instantiatedTypes.add(event.typeName);
       
-      // Add implemented interfaces if available
+      // Add implemented interfaces if available (only if not prebuilt from CHA)
       if (event.instantiationType === 'constructor' && Node.isNewExpression(event.node)) {
-        this.addImplementedInterfaces(event.typeName, event.node);
+        // Only call expensive addImplementedInterfaces if mapping wasn't prebuilt
+        if (!this.classInterfacesMap.has(event.typeName)) {
+          this.addImplementedInterfaces(event.typeName, event.node);
+        } else {
+          // Use prebuilt mapping - much faster
+          const implementedInterfaces = this.classInterfacesMap.get(event.typeName) || [];
+          for (const interfaceName of implementedInterfaces) {
+            this.instantiatedTypes.add(interfaceName);
+            
+            // Record interface instantiation info
+            const instantiationInfo: InstantiationInfo = {
+              typeName: interfaceName,
+              filePath: event.filePath,
+              lineNumber: event.lineNumber,
+              instantiationType: 'interface'
+            };
+            
+            if (!this.typeInstantiationMap.has(interfaceName)) {
+              this.typeInstantiationMap.set(interfaceName, []);
+            }
+            this.typeInstantiationMap.get(interfaceName)!.push(instantiationInfo);
+          }
+        }
       }
       
       // Convert InstantiationEvent to InstantiationInfo format
@@ -109,7 +146,11 @@ export class RTAAnalyzer {
       this.typeInstantiationMap.get(event.typeName)!.push(instantiationInfo);
     }
     
+    const prebuiltMappingCount = this.classInterfacesMap.size;
     console.log(`   📊 Built from ${instantiationEvents.length} prebuilt events, found ${this.instantiatedTypes.size} instantiated types`);
+    if (prebuiltMappingCount > 0) {
+      console.log(`   🚀 Used prebuilt mapping for ${prebuiltMappingCount} classes (interface resolution optimization)`);
+    }
   }
 
   /**
@@ -149,8 +190,30 @@ export class RTAAnalyzer {
       if (typeName) {
         this.instantiatedTypes.add(typeName);
         
-        // Add interface names if the class implements them
-        this.addImplementedInterfaces(typeName, node);
+        // Add interface names if the class implements them (check prebuilt mapping first)
+        if (this.classInterfacesMap.has(typeName)) {
+          // Use prebuilt mapping - much faster
+          const implementedInterfaces = this.classInterfacesMap.get(typeName) || [];
+          for (const interfaceName of implementedInterfaces) {
+            this.instantiatedTypes.add(interfaceName);
+            
+            // Record interface instantiation info
+            const instantiationInfo: InstantiationInfo = {
+              typeName: interfaceName,
+              filePath: node.getSourceFile().getFilePath(),
+              lineNumber: node.getStartLineNumber(),
+              instantiationType: 'interface'
+            };
+            
+            if (!this.typeInstantiationMap.has(interfaceName)) {
+              this.typeInstantiationMap.set(interfaceName, []);
+            }
+            this.typeInstantiationMap.get(interfaceName)!.push(instantiationInfo);
+          }
+        } else {
+          // Fallback to expensive addImplementedInterfaces
+          this.addImplementedInterfaces(typeName, node);
+        }
         
         // Record instantiation location for debugging
         const instantiationInfo: InstantiationInfo = {
@@ -215,7 +278,8 @@ export class RTAAnalyzer {
   }
 
   /**
-   * Filter CHA candidates based on instantiated types
+   * Filter CHA candidates based on instantiated types (optimized reverse strategy)
+   * Instead of filtering all candidates, start from instantiated types for efficiency
    */
   private filterCHACandidatesWithRTA(
     functions: Map<string, FunctionMetadata>,
@@ -233,6 +297,12 @@ export class RTAAnalyzer {
       methodCallMap.get(call.methodName)!.push(call);
     }
     
+    // Use optimized reverse strategy if we have many instantiated types
+    if (this.instantiatedTypes.size >= 10) {
+      return this.filterCHACandidatesWithRTAReverse(functions, chaCandidates, unresolvedMethodCalls, methodCallMap);
+    }
+    
+    // Fallback to original strategy for small type sets
     for (const [methodName, candidates] of chaCandidates) {
       const rtaFilteredCandidates = candidates.filter(candidate => {
         // Include candidates whose class is instantiated OR whose interfaces are instantiated
@@ -248,64 +318,253 @@ export class RTAAnalyzer {
         // Get corresponding unresolved calls for this method
         const methodCalls = methodCallMap.get(methodName) || [];
         
-        // Pre-resolve all candidates with memoization to avoid duplicate lookups
-        const resolvedCandidates = rtaFilteredCandidates
-          .map(candidate => ({
-            candidate,
-            functionId: this.resolveCandidateId(candidate, functions)
-          }))
-          .filter(resolved => resolved.functionId !== undefined);
-        
-        // Extract function IDs for candidates array (reuse resolved results)
-        const candidateIds = resolvedCandidates.map(r => r.functionId!);
-        
-        // Create edges for each unresolved call with RTA-filtered candidates
-        for (const unresolvedCall of methodCalls) {
-          for (const resolved of resolvedCandidates) {
-            const functionId = resolved.functionId!;
-            if (functionId) {
-              const edge: IdealCallEdge = {
-                id: generateStableEdgeId(unresolvedCall.callerFunctionId, functionId),
-                callerFunctionId: unresolvedCall.callerFunctionId,
-                calleeFunctionId: functionId,
-                calleeName: resolved.candidate.signature,
-                calleeSignature: resolved.candidate.signature,
-                callType: 'direct',
-                callContext: 'rta_resolved',
-                lineNumber: unresolvedCall.lineNumber,
-                columnNumber: unresolvedCall.columnNumber,
-                isAsync: false,
-                isChained: false,
-                confidenceScore: this.calculateRTAConfidence(resolved.candidate, rtaFilteredCandidates.length),
-                metadata: {
-                  rtaCandidate: true,
-                  originalCHACandidates: candidates.length,
-                  rtaFilteredCandidates: rtaFilteredCandidates.length,
-                  instantiatedType: resolved.candidate.className,
-                  receiverType: unresolvedCall.receiverType
-                },
-                createdAt: new Date().toISOString(),
-                
-                // Ideal system properties
-                resolutionLevel: 'rta_resolved' as ResolutionLevel,
-                resolutionSource: 'rta_analysis',
-                runtimeConfirmed: false,
-                candidates: candidateIds, // Reuse pre-resolved IDs
-                analysisMetadata: {
-                  timestamp: Date.now(),
-                  analysisVersion: '1.0',
-                  sourceHash: resolved.candidate.filePath
-                }
-              };
-              
-              rtaEdges.push(edge);
-            }
-          }
-        }
+        // Use helper method for edge creation (shared with reverse strategy)
+        this.createRTAEdgesForCandidates(
+          rtaEdges,
+          functions,
+          rtaFilteredCandidates,
+          candidates, // Pass all candidates for metadata
+          methodCalls
+        );
       }
     }
     
     return rtaEdges;
+  }
+
+  /**
+   * Reverse RTA filtering strategy: Start from instantiated types for efficiency
+   * O(I) where I = instantiated types, instead of O(C) where C = all candidates
+   */
+  private filterCHACandidatesWithRTAReverse(
+    functions: Map<string, FunctionMetadata>,
+    chaCandidates: Map<string, MethodInfo[]>,
+    _unresolvedMethodCalls: UnresolvedMethodCall[],
+    methodCallMap: Map<string, UnresolvedMethodCall[]>
+  ): IdealCallEdge[] {
+    const rtaEdges: IdealCallEdge[] = [];
+    
+    // Build reverse index: className -> Set<methodName> for O(1) lookup
+    const classToMethodsIndex = new Map<string, Set<string>>();
+    for (const [methodName, candidates] of chaCandidates) {
+      for (const candidate of candidates) {
+        if (!classToMethodsIndex.has(candidate.className)) {
+          classToMethodsIndex.set(candidate.className, new Set());
+        }
+        classToMethodsIndex.get(candidate.className)!.add(methodName);
+      }
+    }
+    
+    // Process each instantiated type (much smaller set than all candidates)
+    const processedMethods = new Set<string>(); // Avoid duplicate processing
+    
+    for (const instantiatedType of this.instantiatedTypes) {
+      // Find methods for this instantiated type
+      const methodsForType = classToMethodsIndex.get(instantiatedType);
+      if (!methodsForType) continue;
+      
+      for (const methodName of methodsForType) {
+        if (processedMethods.has(`${instantiatedType}.${methodName}`)) continue;
+        processedMethods.add(`${instantiatedType}.${methodName}`);
+        
+        // Get all candidates for this method
+        const allCandidates = chaCandidates.get(methodName) || [];
+        
+        // Filter candidates for this specific instantiated type
+        const rtaFilteredCandidates = allCandidates.filter(candidate => {
+          // Direct type match
+          if (candidate.className === instantiatedType) return true;
+          
+          // Interface match
+          const interfacesOfClass = this.classInterfacesMap.get(candidate.className) || [];
+          return interfacesOfClass.includes(instantiatedType);
+        });
+        
+        if (rtaFilteredCandidates.length > 0) {
+          this.createRTAEdgesForCandidates(
+            rtaEdges,
+            functions,
+            rtaFilteredCandidates,
+            allCandidates,
+            methodCallMap.get(methodName) || []
+          );
+        }
+      }
+    }
+    
+    console.log(`   ⚡ RTA reverse strategy: processed ${processedMethods.size} method-type combinations (vs ${Array.from(chaCandidates.values()).reduce((sum, candidates) => sum + candidates.length, 0)} total candidates)`);
+    
+    return rtaEdges;
+  }
+
+  /**
+   * Helper method to create RTA edges for filtered candidates (optimized aggregation)
+   * Reduces O(U × C) double nesting through candidate aggregation
+   */
+  private createRTAEdgesForCandidates(
+    rtaEdges: IdealCallEdge[],
+    functions: Map<string, FunctionMetadata>,
+    rtaFilteredCandidates: MethodInfo[],
+    allCandidates: MethodInfo[],
+    methodCalls: UnresolvedMethodCall[]
+  ): void {
+    if (rtaFilteredCandidates.length === 0 || methodCalls.length === 0) return;
+    
+    // Pre-resolve all candidates with memoization to avoid duplicate lookups
+    const resolvedCandidates = rtaFilteredCandidates
+      .map(candidate => ({
+        candidate,
+        functionId: this.resolveCandidateId(candidate, functions)
+      }))
+      .filter(resolved => resolved.functionId !== undefined) as Array<{ candidate: MethodInfo; functionId: string }>;
+    
+    if (resolvedCandidates.length === 0) return;
+    
+    // Extract function IDs for candidates array (reuse resolved results)
+    const candidateIds = resolvedCandidates.map(r => r.functionId!);
+    
+    // Pre-calculate common metadata once
+    const commonMetadata = {
+      rtaCandidate: true,
+      originalCHACandidates: allCandidates.length,
+      rtaFilteredCandidates: rtaFilteredCandidates.length
+    };
+    
+    const analysisMetadata = {
+      timestamp: Date.now(),
+      analysisVersion: '1.0'
+    };
+    
+    // Use optimized aggregation if we have many calls and candidates
+    if (methodCalls.length > 5 && resolvedCandidates.length > 3) {
+      this.createAggregatedEdges(rtaEdges, resolvedCandidates, methodCalls, candidateIds, commonMetadata, analysisMetadata);
+    } else {
+      this.createIndividualEdges(rtaEdges, resolvedCandidates, methodCalls, candidateIds, commonMetadata, analysisMetadata);
+    }
+  }
+
+  /**
+   * Create aggregated edges for high-volume scenarios
+   * Groups candidates by caller to reduce duplicate edge creation
+   */
+  private createAggregatedEdges(
+    rtaEdges: IdealCallEdge[],
+    resolvedCandidates: Array<{ candidate: MethodInfo; functionId: string }>,
+    methodCalls: UnresolvedMethodCall[],
+    candidateIds: string[],
+    commonMetadata: object,
+    analysisMetadata: { timestamp: number; analysisVersion: string }
+  ): void {
+    // Group method calls by caller for batch processing
+    const callsByCaller = new Map<string, UnresolvedMethodCall[]>();
+    for (const call of methodCalls) {
+      if (!callsByCaller.has(call.callerFunctionId)) {
+        callsByCaller.set(call.callerFunctionId, []);
+      }
+      callsByCaller.get(call.callerFunctionId)!.push(call);
+    }
+    
+    // Process each caller group
+    let totalEdgesCreated = 0;
+    for (const [callerFunctionId, callerCalls] of callsByCaller) {
+      // Pick representative call for shared properties
+      const representativeCall = callerCalls[0];
+      
+      // Create edges for each candidate from this caller
+      for (const resolved of resolvedCandidates) {
+        totalEdgesCreated++;
+        const edge: IdealCallEdge = {
+          id: generateStableEdgeId(callerFunctionId, resolved.functionId),
+          callerFunctionId,
+          calleeFunctionId: resolved.functionId,
+          calleeName: resolved.candidate.signature,
+          calleeSignature: resolved.candidate.signature,
+          callType: 'direct',
+          callContext: 'rta_resolved',
+          lineNumber: representativeCall.lineNumber,
+          columnNumber: representativeCall.columnNumber,
+          isAsync: false,
+          isChained: false,
+          confidenceScore: this.calculateRTAConfidence(resolved.candidate, resolvedCandidates.length),
+          metadata: {
+            ...commonMetadata,
+            instantiatedType: resolved.candidate.className,
+            receiverType: representativeCall.receiverType,
+            aggregatedCalls: callerCalls.length // Indicate aggregation
+          },
+          createdAt: new Date().toISOString(),
+          
+          // Ideal system properties
+          resolutionLevel: 'rta_resolved' as ResolutionLevel,
+          resolutionSource: 'rta_analysis',
+          runtimeConfirmed: false,
+          candidates: candidateIds,
+          analysisMetadata: {
+            timestamp: analysisMetadata.timestamp,
+            analysisVersion: analysisMetadata.analysisVersion,
+            sourceHash: resolved.candidate.filePath
+          }
+        };
+        
+        rtaEdges.push(edge);
+      }
+    }
+    
+    if (methodCalls.length > 10) {
+      console.log(`   📊 Aggregated ${totalEdgesCreated} edges from ${callsByCaller.size} callers (reduced from ${methodCalls.length} × ${resolvedCandidates.length} = ${methodCalls.length * resolvedCandidates.length})`);
+    }
+  }
+
+  /**
+   * Create individual edges for low-volume scenarios (original behavior)
+   * Maintains full fidelity for smaller datasets
+   */
+  private createIndividualEdges(
+    rtaEdges: IdealCallEdge[],
+    resolvedCandidates: Array<{ candidate: MethodInfo; functionId: string }>,
+    methodCalls: UnresolvedMethodCall[],
+    candidateIds: string[],
+    commonMetadata: object,
+    analysisMetadata: { timestamp: number; analysisVersion: string }
+  ): void {
+    // Traditional double loop for small datasets
+    for (const unresolvedCall of methodCalls) {
+      for (const resolved of resolvedCandidates) {
+        const edge: IdealCallEdge = {
+          id: generateStableEdgeId(unresolvedCall.callerFunctionId, resolved.functionId),
+          callerFunctionId: unresolvedCall.callerFunctionId,
+          calleeFunctionId: resolved.functionId,
+          calleeName: resolved.candidate.signature,
+          calleeSignature: resolved.candidate.signature,
+          callType: 'direct',
+          callContext: 'rta_resolved',
+          lineNumber: unresolvedCall.lineNumber,
+          columnNumber: unresolvedCall.columnNumber,
+          isAsync: false,
+          isChained: false,
+          confidenceScore: this.calculateRTAConfidence(resolved.candidate, resolvedCandidates.length),
+          metadata: {
+            ...commonMetadata,
+            instantiatedType: resolved.candidate.className,
+            receiverType: unresolvedCall.receiverType
+          },
+          createdAt: new Date().toISOString(),
+          
+          // Ideal system properties
+          resolutionLevel: 'rta_resolved' as ResolutionLevel,
+          resolutionSource: 'rta_analysis',
+          runtimeConfirmed: false,
+          candidates: candidateIds,
+          analysisMetadata: {
+            timestamp: analysisMetadata.timestamp,
+            analysisVersion: analysisMetadata.analysisVersion,
+            sourceHash: resolved.candidate.filePath
+          }
+        };
+        
+        rtaEdges.push(edge);
+      }
+    }
   }
 
   /**

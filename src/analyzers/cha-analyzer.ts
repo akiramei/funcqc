@@ -27,6 +27,9 @@ export class CHAAnalyzer {
   
   // Performance optimization: Parameter type cache to avoid expensive TypeChecker calls
   private parameterTypeCache = new Map<string, string[]>();
+  
+  // Performance optimization: Prebuilt class-to-interfaces mapping for RTA
+  private classToInterfacesMap = new Map<string, string[]>();
 
   constructor(project: Project, _typeChecker: TypeChecker) {
     this.project = project;
@@ -168,9 +171,16 @@ export class CHAAnalyzer {
     
     // Get implements clauses
     const implementsClauses = classDecl.getImplements();
+    const implementedInterfaces: string[] = [];
     for (const implementsClause of implementsClauses) {
       const interfaceName = implementsClause.getExpression().getText();
       node.interfaces.push(interfaceName);
+      implementedInterfaces.push(interfaceName);
+    }
+    
+    // Build class-to-interfaces mapping for RTA optimization
+    if (implementedInterfaces.length > 0) {
+      this.classToInterfacesMap.set(className, implementedInterfaces);
     }
     
     // Extract methods
@@ -723,6 +733,13 @@ export class CHAAnalyzer {
   }
 
   /**
+   * Get prebuilt class-to-interfaces mapping for RTA optimization
+   */
+  getClassToInterfacesMap(): Map<string, string[]> {
+    return new Map(this.classToInterfacesMap);
+  }
+
+  /**
    * Clear internal state
    */
   clear(): void {
@@ -731,6 +748,7 @@ export class CHAAnalyzer {
     this.methodMembershipSet?.clear();
     this.methodMembershipSet = undefined;
     this.parameterTypeCache.clear();
+    this.classToInterfacesMap.clear();
   }
 
 }
