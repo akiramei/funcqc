@@ -39,6 +39,7 @@ export interface AnalysisMetadata {
     total: number;
     phases: Record<string, number>;
   };
+  [key: string]: any; // Allow additional metadata fields
 }
 
 /**
@@ -128,7 +129,7 @@ export class DependencyAnalysisEngine {
 
       // Phase 2: Build analysis foundation
       const foundationData = await this.buildAnalysisFoundation(functions, highConfidenceEdges, config);
-      result.metadata.entryPoints = foundationData.entryPoints.map(ep => ep.id);
+      result.metadata.entryPoints = foundationData.entryPoints.map(ep => ep.functionId);
 
       // Phase 3: Generate candidates using provided generator
       const candidates = await candidateGenerator.generateCandidates(
@@ -177,13 +178,20 @@ export class DependencyAnalysisEngine {
     const functionsById = new Map(functions.map(f => [f.id, f]));
 
     // Detect entry points
-    const entryPoints = this.entryPointDetector.detectEntryPoints(functions);
+    const detectedEntryPoints = this.entryPointDetector.detectEntryPoints(functions);
+    
+    // Convert EntryPoint to expected format
+    const entryPoints = detectedEntryPoints.map(ep => ({
+      functionId: ep.functionId,
+      name: ep.functionId, // Use functionId as name for now
+      type: 'entrypoint' // Use a default type since EntryPoint doesn't have a type property
+    }));
 
     // Perform reachability analysis
     const reachabilityResult = this.reachabilityAnalyzer.analyzeReachability(
       functions,
       highConfidenceEdges,
-      entryPoints
+      detectedEntryPoints
     );
 
     // Build reverse call graph for caller analysis
@@ -479,7 +487,7 @@ export class DependencyAnalysisEngine {
  */
 export interface AnalysisFoundationData {
   functionsById: Map<string, FunctionInfo>;
-  entryPoints: FunctionInfo[];
+  entryPoints: Array<{ functionId: string; name: string; type: string; }>;
   reachabilityResult: {
     reachable: Set<string>;
     unreachable: Set<string>;

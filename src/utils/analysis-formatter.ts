@@ -371,7 +371,7 @@ export class AnalysisFormatter {
     lines: string[],
     groups: AnalysisGroup<T>[],
     config: AnalysisFormattingOptions,
-    warnings: string[]
+    _warnings: string[]
   ): void {
     lines.push(this.colorize('bold', '\n📊 Analysis Results\n', config.colors));
 

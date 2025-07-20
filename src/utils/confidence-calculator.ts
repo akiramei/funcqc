@@ -231,7 +231,7 @@ export class ConfidenceCalculator {
     }
 
     // Local resolution bonus (same file)
-    if (edge.metadata?.sameFile) {
+    if (edge.metadata?.['sameFile']) {
       confidence += config.bonusFactors.localResolution;
       adjustments.push({
         factor: 'local_resolution',
@@ -361,7 +361,7 @@ export class ConfidenceCalculator {
    * Calculate general dependency confidence (for dep command)
    */
   static calculateDependencyConfidence(
-    func: FunctionInfo,
+    _func: FunctionInfo,
     dependencyMetrics: DependencyMetrics,
     options: Partial<ConfidenceCalculationOptions> = {}
   ): ConfidenceCalculationResult {
