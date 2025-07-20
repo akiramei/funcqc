@@ -429,12 +429,13 @@ describe('StagedAnalysisEngine - Same File Call Analysis', () => {
       
       // Act
       const startTime = Date.now();
-      const edges = await engine.performStage1Analysis(functions);
+      const edges = await engine.performStagedAnalysis(functions);
       const endTime = Date.now();
       
       // Assert
       expect(endTime - startTime).toBeLessThan(1000); // Should complete within 1 second
       
+      const localExactEdges = edges.filter(edge => edge.resolutionLevel === 'local_exact');
       const process0Call = localExactEdges.find(edge => 
         edge.calleeName === 'process0' &&
         edge.callContext === 'local_exact'

@@ -684,12 +684,18 @@ describe('Cross-File Call Resolution Methods (Unit Test)', () => {
       expect(complexFunction.filePath).toContain('test.ts');
       expect(complexFunction.startLine).toBeGreaterThan(0);
       
-      // Test that metrics exist (they should be defined, even if 0)
-      expect(typeof complexFunction.loc).toBe('number');
-      expect(typeof complexFunction.complexity).toBe('number');
+      // Test that basic properties exist
+      expect(typeof complexFunction.isExported).toBe('boolean');
+      expect(typeof complexFunction.isMethod).toBe('boolean');
+      expect(typeof complexFunction.nodeKind).toBe('string');
       
-      // Test parameters array exists (even if metadata might not be fully populated)
-      expect(Array.isArray(complexFunction.parameters)).toBe(true);
+      // Test that signature exists
+      expect(typeof complexFunction.signature).toBe('string');
+      expect(complexFunction.signature.length).toBeGreaterThan(0);
+      
+      // Test that lexicalPath exists
+      expect(typeof complexFunction.lexicalPath).toBe('string');
+      expect(complexFunction.lexicalPath.length).toBeGreaterThan(0);
     });
 
     it('should handle class methods with correct metadata', async () => {

@@ -43,7 +43,7 @@ describe('Dead Code Detection - Simple Tests', () => {
       expect(entryPoints[0].reason).toBe('test');
     });
 
-    it('should NOT detect exported functions as entry points automatically', () => {
+    it('should detect exported functions as entry points (prevents false positives)', () => {
       const detector = new EntryPointDetector();
       
       const func = {
@@ -72,8 +72,9 @@ describe('Dead Code Detection - Simple Tests', () => {
       };
 
       const entryPoints = detector.detectEntryPoints([func]);
-      // Export functions should NOT be automatically considered entry points
-      expect(entryPoints).toHaveLength(0);
+      // Exported functions SHOULD be automatically considered entry points to prevent false positives
+      expect(entryPoints).toHaveLength(1);
+      expect(entryPoints[0].reason).toBe('exported');
     });
   });
 
