@@ -12,6 +12,8 @@ export interface SafeDeletionOptions {
   maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
   excludeExports: boolean;        // Exclude exported functions from deletion (default: true)
   excludePatterns: string[];      // File patterns to exclude from deletion
+  storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
+  snapshotId?: string;           // Snapshot ID for consistent data access
 }
 
 export interface SafeDeletionResult {
@@ -94,7 +96,9 @@ export class SafeDeletionSystem {
         excludeExports: config.excludeExports,
         excludePatterns: config.excludePatterns,
         verbose: true,
-        dryRun: config.dryRun
+        dryRun: config.dryRun,
+        ...(config.storage && { storage: config.storage }),
+        ...(config.snapshotId && { snapshotId: config.snapshotId })
       };
 
       const analysisResult = await this.analysisEngine.analyzeDependencies(

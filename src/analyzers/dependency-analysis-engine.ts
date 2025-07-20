@@ -14,6 +14,8 @@ export interface DependencyAnalysisOptions {
   excludePatterns: string[];       // File patterns to exclude from analysis
   verbose: boolean;               // Enable verbose logging (default: false)
   dryRun: boolean;               // Only analyze without making changes (default: true)
+  storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
+  snapshotId?: string;           // Snapshot ID for consistent data access
 }
 
 /**
@@ -213,7 +215,9 @@ export class DependencyAnalysisEngine {
       entryPoints,
       reachabilityResult,
       reverseCallGraph,
-      highConfidenceEdgeMap
+      highConfidenceEdgeMap,
+      ...(config.storage && { storage: config.storage }),
+      ...(config.snapshotId && { snapshotId: config.snapshotId })
     };
   }
 
@@ -387,6 +391,8 @@ export interface AnalysisFoundationData {
   };
   reverseCallGraph: Map<string, Set<string>>;
   highConfidenceEdgeMap: Map<string, Set<string>>;
+  storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
+  snapshotId?: string; // Snapshot ID for consistent data access
 }
 
 /**

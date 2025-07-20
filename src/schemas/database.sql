@@ -297,6 +297,39 @@ CREATE INDEX idx_call_edges_external ON call_edges(call_type) WHERE call_type = 
 CREATE INDEX idx_call_edges_context ON call_edges(call_context);
 
 -- -----------------------------------------------------------------------------
+-- Internal Call Edges: Intra-file function call tracking for safe-delete analysis
+-- -----------------------------------------------------------------------------
+CREATE TABLE internal_call_edges (
+  id TEXT PRIMARY KEY,                          -- Edge ID (UUID)
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this edge belongs to
+  file_path TEXT NOT NULL,                      -- Source file path (relative to project root)
+  caller_function_id TEXT NOT NULL,             -- Physical ID of calling function
+  callee_function_id TEXT NOT NULL,             -- Physical ID of called function (within same file)
+  caller_name TEXT NOT NULL,                    -- Calling function name
+  callee_name TEXT NOT NULL,                    -- Called function name
+  line_number INTEGER NOT NULL,                 -- Line where call occurs
+  column_number INTEGER DEFAULT 0,              -- Column position
+  call_context TEXT,                            -- Context: 'normal', 'conditional', 'loop', 'try', 'catch'
+  confidence_score REAL DEFAULT 1.0,           -- Analysis confidence (0-1)
+  detected_by TEXT NOT NULL DEFAULT 'ast',     -- Detection method: 'ast', 'ideal_call_graph'
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (caller_function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (callee_function_id) REFERENCES functions(id) ON DELETE CASCADE
+);
+
+-- Indexes optimized for safe-delete internal function protection
+CREATE INDEX idx_internal_call_edges_snapshot ON internal_call_edges(snapshot_id);
+CREATE INDEX idx_internal_call_edges_file_path ON internal_call_edges(file_path);
+CREATE INDEX idx_internal_call_edges_caller ON internal_call_edges(caller_function_id);
+CREATE INDEX idx_internal_call_edges_callee ON internal_call_edges(callee_function_id);
+CREATE INDEX idx_internal_call_edges_file_caller ON internal_call_edges(file_path, caller_function_id);
+CREATE INDEX idx_internal_call_edges_file_callee ON internal_call_edges(file_path, callee_function_id);
+CREATE INDEX idx_internal_call_edges_snapshot_file ON internal_call_edges(snapshot_id, file_path);
+CREATE INDEX idx_internal_call_edges_confidence ON internal_call_edges(confidence_score);
+CREATE INDEX idx_internal_call_edges_detected_by ON internal_call_edges(detected_by);
+
+-- -----------------------------------------------------------------------------
 -- Function Embeddings: Vector embeddings for similarity search
 -- -----------------------------------------------------------------------------
 CREATE TABLE function_embeddings (

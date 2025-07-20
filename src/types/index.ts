@@ -196,6 +196,22 @@ export interface CallEdge {
   runtimeConfirmed?: boolean; // Whether edge is confirmed by runtime traces
 }
 
+export interface InternalCallEdge {
+  id: string;
+  snapshotId: string;
+  filePath: string;
+  callerFunctionId: string;
+  calleeFunctionId: string;
+  callerName: string;
+  calleeName: string;
+  lineNumber: number;
+  columnNumber: number;
+  callContext?: string;
+  confidenceScore: number;
+  detectedBy: 'ast' | 'ideal_call_graph';
+  createdAt: string;
+}
+
 export interface ReturnTypeInfo {
   type: string;
   typeSimple: string;
@@ -629,6 +645,12 @@ export interface StorageAdapter {
   getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
   getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]>;
   deleteCallEdges(functionIds: string[]): Promise<void>;
+
+  // Internal call edge operations (for safe-delete analysis)
+  insertInternalCallEdges(edges: InternalCallEdge[]): Promise<void>;
+  getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]>;
+  getInternalCalleesByFunction(callerFunctionId: string, snapshotId: string): Promise<string[]>;
+  isInternalFunctionCalled(calleeFunctionId: string, snapshotId: string): Promise<boolean>;
 
   // Maintenance operations
   cleanup(retentionDays: number): Promise<number>;

@@ -164,8 +164,25 @@ interface CallEdgeTable {
   created_at: string;
 }
 
+interface InternalCallEdgeTable {
+  id: string;
+  snapshot_id: string;
+  file_path: string;
+  caller_function_id: string;
+  callee_function_id: string;
+  caller_name: string;
+  callee_name: string;
+  line_number: number;
+  column_number: number;
+  call_context: string | null;
+  confidence_score: number;
+  detected_by: string;
+  created_at: string;
+}
+
 interface Database {
   call_edges: CallEdgeTable;
+  internal_call_edges: InternalCallEdgeTable;
   // 他のテーブルは必要に応じて追加
 }
 
@@ -4176,6 +4193,131 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
         `Failed to insert call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Insert internal call edges (intra-file function calls) for safe-delete analysis
+   */
+  async insertInternalCallEdges(edges: import('../types').InternalCallEdge[]): Promise<void> {
+    if (edges.length === 0) return;
+
+    try {
+      const batchSize = calculateOptimalBatchSize(edges.length);
+      const batches = splitIntoBatches(edges, batchSize);
+
+      for (const batch of batches) {
+        for (const edge of batch) {
+          // Use raw SQL query for internal_call_edges to avoid type issues
+          await this.db.query(`
+            INSERT INTO internal_call_edges (
+              id, snapshot_id, file_path, caller_function_id, callee_function_id,
+              caller_name, callee_name, line_number, column_number, call_context,
+              confidence_score, detected_by, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ON CONFLICT (id) DO UPDATE SET
+              confidence_score = GREATEST(EXCLUDED.confidence_score, internal_call_edges.confidence_score),
+              detected_by = EXCLUDED.detected_by,
+              call_context = EXCLUDED.call_context
+          `, [
+            edge.id,
+            edge.snapshotId,
+            edge.filePath,
+            edge.callerFunctionId,
+            edge.calleeFunctionId,
+            edge.callerName,
+            edge.calleeName,
+            edge.lineNumber,
+            edge.columnNumber,
+            edge.callContext || null,
+            edge.confidenceScore,
+            edge.detectedBy,
+            edge.createdAt,
+          ]);
+        }
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to insert internal call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get internal call edges for a specific file and snapshot
+   */
+  async getInternalCallEdges(filePath: string, snapshotId: string): Promise<import('../types').InternalCallEdge[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM internal_call_edges 
+        WHERE file_path = $1 AND snapshot_id = $2
+        ORDER BY line_number
+      `, [filePath, snapshotId]);
+
+      return result.rows.map((row: unknown) => {
+        const typedRow = row as InternalCallEdgeTable;
+        return {
+          id: typedRow.id,
+          snapshotId: typedRow.snapshot_id,
+          filePath: typedRow.file_path,
+          callerFunctionId: typedRow.caller_function_id,
+          calleeFunctionId: typedRow.callee_function_id,
+          callerName: typedRow.caller_name,
+          calleeName: typedRow.callee_name,
+          lineNumber: typedRow.line_number,
+          columnNumber: typedRow.column_number,
+          ...(typedRow.call_context && { callContext: typedRow.call_context }),
+          confidenceScore: typedRow.confidence_score,
+          detectedBy: typedRow.detected_by as 'ast' | 'ideal_call_graph',
+          createdAt: typedRow.created_at,
+        };
+      });
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get internal call edges: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Get all functions called by a specific function within the same file
+   */
+  async getInternalCalleesByFunction(callerFunctionId: string, snapshotId: string): Promise<string[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT DISTINCT callee_function_id 
+        FROM internal_call_edges 
+        WHERE caller_function_id = $1 AND snapshot_id = $2
+      `, [callerFunctionId, snapshotId]);
+
+      return result.rows.map((row: unknown) => (row as { callee_function_id: string }).callee_function_id);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get internal callees: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Check if a function is called within its file (for safe-delete protection)
+   */
+  async isInternalFunctionCalled(calleeFunctionId: string, snapshotId: string): Promise<boolean> {
+    try {
+      const result = await this.db.query(`
+        SELECT 1 FROM internal_call_edges 
+        WHERE callee_function_id = $1 AND snapshot_id = $2 
+        LIMIT 1
+      `, [calleeFunctionId, snapshotId]);
+
+      return result.rows.length > 0;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to check internal function call: ${error instanceof Error ? error.message : String(error)}`
       );
     }
   }
