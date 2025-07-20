@@ -219,47 +219,75 @@ export class FunctionAnalyzer {
   private async convertToLegacyFormat(functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>): Promise<FunctionInfo[]> {
     const legacyFunctions: FunctionInfo[] = [];
     
+    // Group functions by file path for efficient source code extraction
+    const functionsByFile = new Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata[]>();
     for (const func of functions.values()) {
-      const legacyFunc: FunctionInfo = {
-        id: func.id,
-        name: func.name,
-        filePath: func.filePath,
-        startLine: func.startLine,
-        endLine: func.endLine,
-        startColumn: 0, // Not available in ideal system
-        endColumn: 0, // Not available in ideal system
-        semanticId: func.contentHash,
-        displayName: func.name,
-        signature: func.signature,
-        contextPath: func.className ? [func.className] : [],
-        functionType: func.isMethod ? 'method' : 'function',
-        modifiers: func.isExported ? ['export'] : [],
-        nestingLevel: 0,
-        isExported: func.isExported,
-        isAsync: false, // Will be determined by existing analyzer
-        isArrowFunction: false, // Will be determined by existing analyzer
-        isMethod: func.isMethod,
-        parameters: [], // Will be populated by quality calculator
-        sourceCode: '', // Will be populated if needed
-        astHash: func.contentHash,
-        contentId: func.contentHash,
-        
-        // Additional required fields
-        signatureHash: func.contentHash,
-        fileHash: func.contentHash,
-        isGenerator: false,
-        isConstructor: func.nodeKind === 'ConstructorDeclaration',
-        isStatic: false
-      };
-      
-      // Calculate quality metrics
+      const existing = functionsByFile.get(func.filePath) || [];
+      existing.push(func);
+      functionsByFile.set(func.filePath, existing);
+    }
+    
+    for (const [filePath, fileFunctions] of functionsByFile) {
+      let fileContent: string;
       try {
-        legacyFunc.metrics = await this.qualityCalculator.calculate(legacyFunc);
+        const fs = await import('fs');
+        fileContent = await fs.promises.readFile(filePath, 'utf-8');
       } catch (error) {
-        this.logger.debug(`Failed to calculate metrics for ${func.name}: ${error}`);
+        this.logger.debug(`Failed to read source file ${filePath}: ${error}`);
+        fileContent = '';
       }
       
-      legacyFunctions.push(legacyFunc);
+      for (const func of fileFunctions) {
+        // Extract source code from file content
+        let sourceCode = '';
+        if (fileContent) {
+          const lines = fileContent.split('\n');
+          const startIndex = Math.max(0, func.startLine - 1); // Convert to 0-based
+          const endIndex = Math.min(lines.length, func.endLine); // endLine is inclusive
+          sourceCode = lines.slice(startIndex, endIndex).join('\n');
+        }
+        
+        const legacyFunc: FunctionInfo = {
+          id: func.id,
+          name: func.name,
+          filePath: func.filePath,
+          startLine: func.startLine,
+          endLine: func.endLine,
+          startColumn: 0, // Not available in ideal system
+          endColumn: 0, // Not available in ideal system
+          semanticId: func.contentHash,
+          displayName: func.name,
+          signature: func.signature,
+          contextPath: func.className ? [func.className] : [],
+          functionType: func.isMethod ? 'method' : 'function',
+          modifiers: func.isExported ? ['export'] : [],
+          nestingLevel: 0,
+          isExported: func.isExported,
+          isAsync: false, // Will be determined by existing analyzer
+          isArrowFunction: false, // Will be determined by existing analyzer
+          isMethod: func.isMethod,
+          parameters: [], // Will be populated by quality calculator
+          sourceCode: sourceCode,
+          astHash: func.contentHash,
+          contentId: func.contentHash,
+          
+          // Additional required fields
+          signatureHash: func.contentHash,
+          fileHash: func.contentHash,
+          isGenerator: false,
+          isConstructor: func.nodeKind === 'ConstructorDeclaration',
+          isStatic: false
+        };
+      
+        // Calculate quality metrics
+        try {
+          legacyFunc.metrics = await this.qualityCalculator.calculate(legacyFunc);
+        } catch (error) {
+          this.logger.debug(`Failed to calculate metrics for ${func.name}: ${error}`);
+        }
+        
+        legacyFunctions.push(legacyFunc);
+      }
     }
     
     return legacyFunctions;
