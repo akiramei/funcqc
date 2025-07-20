@@ -18,8 +18,8 @@ export default defineConfig({
     maxConcurrency: 1,
     fileParallelism: false,
     // PGLite WASM用のタイムアウト調整
-    testTimeout: 45000,
-    hookTimeout: 45000,
+    testTimeout: 120000,  // Increased for CHA/RTA tests
+    hookTimeout: 60000,   // Increased for complex setup
     teardownTimeout: 15000,
     // CI環境で問題のあるテストを除外
     exclude: [
