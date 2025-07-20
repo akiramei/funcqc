@@ -22,12 +22,7 @@ export function findConnectedComponents<T>(
     connected.add(current);
 
     // Find all items connected to current item
-    const relatedIndices = getConnections(current, items);
-    relatedIndices.forEach(index => {
-      if (!connected.has(index)) {
-        queue.push(index);
-      }
-    });
+    getConnections(current, items);
   }
 
   return Array.from(connected);
