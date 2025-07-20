@@ -2,6 +2,7 @@ import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaratio
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { FunctionIndex } from './function-index';
 import * as path from 'path';
 
 /**
@@ -30,6 +31,9 @@ export class CHAAnalyzer {
   
   // Performance optimization: Prebuilt class-to-interfaces mapping for RTA
   private classToInterfacesMap = new Map<string, string[]>();
+  
+  // Performance optimization: FunctionIndex for O(1) function ID lookup
+  private functionIndex: FunctionIndex | undefined;
 
   constructor(project: Project, _typeChecker: TypeChecker) {
     this.project = project;
@@ -389,57 +393,68 @@ export class CHAAnalyzer {
 
 
   /**
-   * Resolve method calls using CHA (optimized sync)
+   * Resolve method calls using CHA (optimized sync with FunctionIndex)
    */
   private resolveMethodCalls(functions: Map<string, FunctionMetadata>, unresolvedEdges: UnresolvedMethodCall[]): IdealCallEdge[] {
     const resolvedEdges: IdealCallEdge[] = [];
+    
+    // Ensure FunctionIndex is built for O(1) lookups
+    this.ensureFunctionIndex(functions);
     
     for (const unresolved of unresolvedEdges) {
       const candidates = this.findMethodCandidates(unresolved.methodName, unresolved.receiverType);
       
       if (candidates.length > 0) {
-        // Create edges for all candidates with inheritance depth
-        for (const candidate of candidates) {
-          const functionId = this.findMatchingFunctionId(functions, candidate);
-          if (functionId) {
-            // Calculate inheritance depth for this candidate
-            const inheritanceDepth = this.calculateInheritanceDepth(candidate, unresolved.receiverType);
+        // Pre-resolve all candidate IDs to avoid duplicate lookups
+        const resolvedCandidates = candidates
+          .map(candidate => ({
+            candidate,
+            functionId: this.resolveCandidateId(candidate)
+          }))
+          .filter(resolved => resolved.functionId !== undefined);
+        
+        // Extract function IDs for candidates array (reuse resolved results)
+        const candidateIds = resolvedCandidates.map(r => r.functionId!);
+        
+        // Create edges for all resolved candidates
+        for (const { candidate, functionId } of resolvedCandidates) {
+          // Calculate inheritance depth for this candidate
+          const inheritanceDepth = this.calculateInheritanceDepth(candidate, unresolved.receiverType);
+          
+          const edge: IdealCallEdge = {
+            id: generateStableEdgeId(unresolved.callerFunctionId, functionId!),
+            callerFunctionId: unresolved.callerFunctionId,
+            calleeFunctionId: functionId!,
+            calleeName: candidate.signature,
+            calleeSignature: candidate.signature,
+            callType: 'direct',
+            callContext: 'cha_resolved',
+            lineNumber: unresolved.lineNumber,
+            columnNumber: unresolved.columnNumber,
+            isAsync: false,
+            isChained: false,
+            confidenceScore: this.calculateCHAConfidence(candidate, candidates.length, inheritanceDepth),
+            metadata: {
+              chaCandidate: true,
+              receiverType: unresolved.receiverType,
+              methodName: unresolved.methodName,
+              inheritanceDepth
+            },
+            createdAt: new Date().toISOString(),
             
-            const edge: IdealCallEdge = {
-              id: generateStableEdgeId(unresolved.callerFunctionId, functionId),
-              callerFunctionId: unresolved.callerFunctionId,
-              calleeFunctionId: functionId,
-              calleeName: candidate.signature,
-              calleeSignature: candidate.signature,
-              callType: 'direct',
-              callContext: 'cha_resolved',
-              lineNumber: unresolved.lineNumber,
-              columnNumber: unresolved.columnNumber,
-              isAsync: false,
-              isChained: false,
-              confidenceScore: this.calculateCHAConfidence(candidate, candidates.length, inheritanceDepth),
-              metadata: {
-                chaCandidate: true,
-                receiverType: unresolved.receiverType,
-                methodName: unresolved.methodName,
-                inheritanceDepth
-              },
-              createdAt: new Date().toISOString(),
-              
-              // Ideal system properties
-              resolutionLevel: 'cha_resolved' as ResolutionLevel,
-              resolutionSource: 'cha_analysis',
-              runtimeConfirmed: false,
-              candidates: candidates.map(c => this.findMatchingFunctionId(functions, c)).filter(id => id !== undefined) as string[],
-              analysisMetadata: {
-                timestamp: Date.now(),
-                analysisVersion: '1.0',
-                sourceHash: candidate.filePath
-              }
-            };
-            
-            resolvedEdges.push(edge);
-          }
+            // Ideal system properties
+            resolutionLevel: 'cha_resolved' as ResolutionLevel,
+            resolutionSource: 'cha_analysis',
+            runtimeConfirmed: false,
+            candidates: candidateIds, // Use pre-resolved IDs
+            analysisMetadata: {
+              timestamp: Date.now(),
+              analysisVersion: '1.0',
+              sourceHash: candidate.filePath
+            }
+          };
+          
+          resolvedEdges.push(edge);
         }
       }
     }
@@ -592,8 +607,10 @@ export class CHAAnalyzer {
 
   /**
    * Find matching function ID in the function registry for a method candidate
+   * @deprecated Use resolveCandidateId() with FunctionIndex for O(1) performance
    */
-  private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
+  // @ts-expect-error - Kept for reference, replaced by FunctionIndex
+  private _findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
     try {
       // Strategy 1: Exact match with position and metadata (most accurate)
       for (const [functionId, functionMetadata] of functions) {
@@ -740,6 +757,28 @@ export class CHAAnalyzer {
   }
 
   /**
+   * Ensure FunctionIndex is built for O(1) lookups
+   */
+  private ensureFunctionIndex(functions: Map<string, FunctionMetadata>): void {
+    if (!this.functionIndex) {
+      this.functionIndex = new FunctionIndex();
+      this.functionIndex.build(functions);
+    }
+  }
+
+  /**
+   * Resolve candidate to function ID using FunctionIndex (O(1) performance)
+   */
+  private resolveCandidateId(candidate: MethodInfo): string | undefined {
+    if (!this.functionIndex) {
+      throw new Error('FunctionIndex not initialized');
+    }
+    
+    // Use FunctionIndex for O(1) lookup instead of O(F) findMatchingFunctionId
+    return this.functionIndex.resolve(candidate);
+  }
+
+  /**
    * Clear internal state
    */
   clear(): void {
@@ -749,6 +788,7 @@ export class CHAAnalyzer {
     this.methodMembershipSet = undefined;
     this.parameterTypeCache.clear();
     this.classToInterfacesMap.clear();
+    this.functionIndex = undefined;
   }
 
 }
