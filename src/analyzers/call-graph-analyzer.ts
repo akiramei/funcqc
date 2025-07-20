@@ -47,8 +47,10 @@ export class CallGraphAnalyzer {
     'parseInt', 'parseFloat', 'isNaN', 'isFinite',
   ]);
 
-  constructor(enableCache: boolean = true) {
-    this.project = new Project({
+  constructor(project?: Project, enableCache: boolean = true) {
+    // 🔧 CRITICAL FIX: Share Project instance with TypeScriptAnalyzer to ensure consistent parsing
+    // This prevents line number mismatches that cause call edge detection failures
+    this.project = project || new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
       skipLoadingLibFiles: true,
@@ -70,17 +72,32 @@ export class CallGraphAnalyzer {
     functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>
   ): Promise<CallEdge[]> {
     try {
-      const sourceFile = this.project.addSourceFileAtPath(filePath);
+      // 🔧 CRITICAL FIX: Use existing source file if already loaded, avoid double parsing
+      // This ensures consistent AST node references and line numbers with TypeScriptAnalyzer
+      let sourceFile = this.project.getSourceFile(filePath);
+      if (!sourceFile) {
+        sourceFile = this.project.addSourceFileAtPath(filePath);
+      }
       const callEdges: CallEdge[] = [];
 
       // Get all function nodes in the file
       const functionNodes = this.getAllFunctionNodes(sourceFile);
 
       for (const [, functionInfo] of functionMap.entries()) {
-        const functionNode = functionNodes.find(node =>
-          node.getStartLineNumber() === functionInfo.startLine &&
-          node.getEndLineNumber() === functionInfo.endLine
-        );
+        // Allow ±1 line tolerance for better matching robustness
+        // This handles cases where line numbers might be slightly off due to:
+        // - Different parsing contexts
+        // - Trailing comments or whitespace
+        // - BOM or line ending differences
+        const functionNode = functionNodes.find(node => {
+          const nodeStart = node.getStartLineNumber();
+          const nodeEnd = node.getEndLineNumber();
+          const startDiff = Math.abs(nodeStart - functionInfo.startLine);
+          const endDiff = Math.abs(nodeEnd - functionInfo.endLine);
+          
+          // Exact match or within 1 line tolerance
+          return startDiff <= 1 && endDiff <= 1;
+        });
 
         if (functionNode) {
           const calls = this.extractCallsFromFunction(
@@ -96,6 +113,9 @@ export class CallGraphAnalyzer {
               callEdges.push(callEdge);
             }
           }
+        } else {
+          // Function not found in AST - this can happen with dynamic functions or parsing issues
+          // This is handled gracefully by not adding any call edges for this function
         }
       }
 

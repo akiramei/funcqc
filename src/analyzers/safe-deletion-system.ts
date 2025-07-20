@@ -1,6 +1,7 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyAnalysisEngine, DependencyAnalysisOptions } from './dependency-analysis-engine';
 import { SafeDeletionCandidateGenerator, SafeDeletionCandidate } from './safe-deletion-candidate-generator';
+import { Logger } from '../utils/cli-utils';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -54,10 +55,12 @@ export interface ValidationResult {
 export class SafeDeletionSystem {
   private analysisEngine: DependencyAnalysisEngine;
   private candidateGenerator: SafeDeletionCandidateGenerator;
+  private logger: Logger;
 
-  constructor() {
+  constructor(logger?: Logger) {
+    this.logger = logger || new Logger(false, false);
     this.analysisEngine = new DependencyAnalysisEngine();
-    this.candidateGenerator = new SafeDeletionCandidateGenerator();
+    this.candidateGenerator = new SafeDeletionCandidateGenerator(this.logger);
   }
 
   /**

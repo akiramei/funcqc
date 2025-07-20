@@ -35,7 +35,7 @@ export const safeDeleteCommand: VoidCommand<SafeDeleteOptions> = (options) =>
     try {
       // Handle restore operation
       if (options.restore) {
-        await handleRestoreOperation(options.restore, spinner);
+        await handleRestoreOperation(options.restore, spinner, env);
         return;
       }
 
@@ -66,7 +66,7 @@ async function performSafeDeletion(
   const safeDeletionOptions = createSafeDeletionOptions(options);
   
   // Step 1: Always perform analysis first
-  const result = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner);
+  const result = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner, env);
   
   // Step 2: Show preview results
   outputResults(result, options);
@@ -75,11 +75,11 @@ async function performSafeDeletion(
   if (options.execute && result.candidateFunctions.length > 0) {
     if (options.force) {
       console.log(chalk.yellow('\n⚠️  --force flag detected. Proceeding with deletion without confirmation.'));
-      await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner);
+      await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner, env);
     } else {
       const confirmed = await promptForConfirmation(result);
       if (confirmed) {
-        await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner);
+        await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner, env);
       } else {
         console.log(chalk.cyan('\n✅ Deletion cancelled. No files were modified.'));
       }
@@ -200,11 +200,12 @@ async function performAnalysis(
   functions: import('../types').FunctionInfo[],
   callEdges: import('../types').CallEdge[],
   safeDeletionOptions: Partial<SafeDeletionOptions>,
-  spinner: Ora
+  spinner: Ora,
+  env?: CommandEnvironment
 ): Promise<import('../analyzers/safe-deletion-system').SafeDeletionResult> {
   spinner.text = 'Analyzing functions for safe deletion...';
   
-  const safeDeletionSystem = new SafeDeletionSystem();
+  const safeDeletionSystem = new SafeDeletionSystem(env?.commandLogger);
   
   // Force dry-run for analysis phase
   const analysisOptions = { ...safeDeletionOptions, dryRun: true };
@@ -225,11 +226,12 @@ async function executeActualDeletion(
   functions: import('../types').FunctionInfo[],
   callEdges: import('../types').CallEdge[],
   safeDeletionOptions: Partial<SafeDeletionOptions>,
-  spinner: Ora
+  spinner: Ora,
+  env?: CommandEnvironment
 ): Promise<void> {
   spinner.start('Executing safe deletion...');
   
-  const safeDeletionSystem = new SafeDeletionSystem();
+  const safeDeletionSystem = new SafeDeletionSystem(env?.commandLogger);
   
   // Execute with actual deletion (dryRun: false)
   const executionOptions = { ...safeDeletionOptions, dryRun: false };
@@ -296,11 +298,11 @@ function outputResults(
 /**
  * Handle backup restoration
  */
-async function handleRestoreOperation(backupPath: string, spinner: Ora): Promise<void> {
+async function handleRestoreOperation(backupPath: string, spinner: Ora, env?: CommandEnvironment): Promise<void> {
   spinner.start('Restoring from backup...');
 
   try {
-    const safeDeletionSystem = new SafeDeletionSystem();
+    const safeDeletionSystem = new SafeDeletionSystem(env?.commandLogger);
     await safeDeletionSystem.restoreFromBackup(backupPath);
     spinner.succeed('Backup restoration completed');
   } catch (error) {

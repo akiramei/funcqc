@@ -1,5 +1,6 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyUtils } from '../utils/dependency-utils';
+import { Logger } from '../utils/cli-utils';
 import { 
   AnalysisCandidate, 
   CandidateGenerator, 
@@ -23,6 +24,11 @@ export interface SafeDeletionCandidate extends AnalysisCandidate {
  * Uses the proven safe-delete logic for identifying deletion candidates.
  */
 export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDeletionCandidate> {
+  private logger: Logger;
+
+  constructor(logger?: Logger) {
+    this.logger = logger || new Logger(false, false);
+  }
   
   /**
    * Generate safe deletion candidates using high-confidence analysis
@@ -37,6 +43,8 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     console.time('processCandidates');
     
     const candidates: SafeDeletionCandidate[] = [];
+    let skippedAnonymous = 0;
+    let skippedInternal = 0;
     
     // 🚨 CRITICAL FIX: Only process truly unreachable functions
     // Functions that are reachable from entry points should NEVER be deletion candidates
@@ -48,6 +56,22 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       if (config.excludeExports && func.isExported) continue;
       if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) continue;
       if (DependencyUtils.isExternalLibraryFunction(func.filePath)) continue;
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete inline anonymous functions
+      // These are typically used as callbacks in map/filter/reduce and are incorrectly marked as unreachable
+      // due to limitations in call graph analysis (callbacks are not tracked as call edges)
+      if (this.isInlineAnonymousFunction(func)) {
+        skippedAnonymous++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete internal functions in same file as exported functions
+      // Internal functions are often helper functions used by exported functions and may not be detected
+      // by call graph analysis due to line number mismatches or other parsing inconsistencies
+      if (await this.isInternalHelperFunction(func, foundationData)) {
+        skippedInternal++;
+        continue;
+      }
 
       const callers = foundationData.reverseCallGraph.get(functionId) || new Set();
       const highConfidenceCallersSet = foundationData.highConfidenceEdgeMap.get(functionId) || new Set();
@@ -97,6 +121,11 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     
     console.timeEnd('processCandidates');
     
+    // Log safety check summary (only if verbose or if significant skips occurred)
+    if (config.verbose || skippedAnonymous > 0 || skippedInternal > 0) {
+      this.logger.info(`Safety checks: ${skippedAnonymous} anonymous functions, ${skippedInternal} internal functions protected`);
+    }
+    
     // Sort candidates by confidence score and impact (safer deletions first)
     const sortedCandidates = this.sortDeletionCandidates(candidates);
     return sortedCandidates;
@@ -130,5 +159,117 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       const impactOrder = { low: 0, medium: 1, high: 2 };
       return impactOrder[a.estimatedImpact] - impactOrder[b.estimatedImpact];
     });
+  }
+
+  /**
+   * Check if a function is an inline anonymous function (likely used as callback)
+   * This is a critical safety check to prevent deletion of callbacks passed to
+   * higher-order functions like map, filter, reduce, forEach, etc.
+   */
+  private isInlineAnonymousFunction(func: FunctionInfo): boolean {
+    // Check if the function is anonymous or arrow function
+    const isAnonymous = !func.name || 
+                        func.name === 'anonymous' || 
+                        func.name === '<anonymous>' ||
+                        func.name === '' ||
+                        /^anonymous_\d+/.test(func.name) ||  // Actual pattern used in funcqc
+                        /^arrow_\d+/.test(func.name) ||      // Common pattern for unnamed arrow functions
+                        /^__\d+/.test(func.name);            // Another common pattern
+    
+    // Conservative approach: ALL anonymous functions are excluded from deletion
+    // This is because we cannot reliably determine if they are used as callbacks
+    // without proper call graph analysis that tracks function arguments
+    return isAnonymous;
+  }
+
+  /**
+   * Check if a function is an internal helper function that should not be deleted
+   * Uses existing call edge data to determine if non-exported functions are actually called within the same file
+   * Falls back to AST analysis if call graph data is incomplete
+   */
+  private async isInternalHelperFunction(func: FunctionInfo, foundationData: AnalysisFoundationData): Promise<boolean> {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if the function is actually called within the same file using existing call edge data
+    // This bypasses potential CallGraphAnalyzer issues while being more precise than blanket protection
+    return await this.isCalledWithinFile(func, foundationData);
+  }
+
+  /**
+   * Check if a function is called within its own file using existing call edge data
+   * Falls back to AST analysis if call graph data is incomplete or missing
+   */
+  private async isCalledWithinFile(func: FunctionInfo, foundationData: AnalysisFoundationData): Promise<boolean> {
+    // Get all functions that call this function
+    const callers = foundationData.reverseCallGraph.get(func.id) || new Set();
+    
+    // First attempt: Use existing call edge data (most efficient)
+    if (callers.size > 0) {
+      // Check if any caller is in the same file
+      for (const callerId of callers) {
+        const callerFunc = foundationData.functionsById.get(callerId);
+        if (callerFunc && callerFunc.filePath === func.filePath) {
+          // Found a caller in the same file - this function is used locally
+          return true;
+        }
+      }
+      // Found callers but none in same file
+      return false;
+    }
+
+    // Fallback: AST-based analysis for cases where call graph analysis fails
+    // This is critical for handling IdealCallGraphAnalyzer limitations
+    this.logger.debug(`No call edges found for ${func.name}, falling back to AST analysis`);
+    return await this.isCalledWithinFileAST(func);
+  }
+
+  /**
+   * AST-based fallback method to check if function is called within the same file
+   * This method is used when call graph data is incomplete or missing
+   */
+  private async isCalledWithinFileAST(func: FunctionInfo): Promise<boolean> {
+    try {
+      const { Project, Node } = await import('ts-morph');
+      
+      // Create minimal project for this specific file analysis
+      const project = new Project({
+        skipAddingFilesFromTsConfig: true,
+        skipFileDependencyResolution: true,
+        skipLoadingLibFiles: true,
+        compilerOptions: {
+          isolatedModules: true,
+        },
+      });
+      
+      const sourceFile = project.addSourceFileAtPath(func.filePath);
+      let isUsed = false;
+      
+      // Look for function calls that match our function name
+      sourceFile.forEachDescendant((node) => {
+        if (Node.isCallExpression(node)) {
+          const expression = node.getExpression();
+          if (Node.isIdentifier(expression)) {
+            const calledName = expression.getText();
+            if (calledName === func.name) {
+              // Found a call to this function in the same file
+              isUsed = true;
+              return true; // Stop traversal
+            }
+          }
+        }
+      });
+      
+      // Clean up memory
+      project.removeSourceFile(sourceFile);
+      
+      return isUsed;
+    } catch (error) {
+      this.logger.warn(`AST analysis failed for ${func.name}: ${error instanceof Error ? error.message : String(error)}`);
+      // Conservative fallback: protect the function if AST analysis fails
+      return true;
+    }
   }
 }

@@ -19,6 +19,7 @@ import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types'
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { CallGraphAnalyzer } from './call-graph-analyzer';
+import { Logger } from '../utils/cli-utils';
 
 interface FunctionMetadata {
   signature: string;
@@ -41,9 +42,11 @@ export class TypeScriptAnalyzer {
   private readonly maxSourceFilesInMemory: number;
   private cache: AnalysisCache;
   private callGraphAnalyzer: CallGraphAnalyzer;
+  private logger: Logger;
 
-  constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true) {
+  constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true, logger?: Logger) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
+    this.logger = logger || new Logger(false, false);
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
@@ -72,8 +75,9 @@ export class TypeScriptAnalyzer {
       });
     }
 
-    // Initialize call graph analyzer
-    this.callGraphAnalyzer = new CallGraphAnalyzer(enableCache);
+    // Initialize call graph analyzer with shared Project instance
+    // 🔧 CRITICAL FIX: Share Project instance to ensure consistent AST parsing and line numbers
+    this.callGraphAnalyzer = new CallGraphAnalyzer(this.project, enableCache);
   }
 
   /**
@@ -96,8 +100,9 @@ export class TypeScriptAnalyzer {
           }));
         }
       } catch (error) {
-        console.warn(
-          `Cache retrieval failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        this.logger.warn(
+          `Cache retrieval failed for ${filePath}`,
+          { error: error instanceof Error ? error.message : String(error) }
         );
       }
 
@@ -164,8 +169,9 @@ export class TypeScriptAnalyzer {
       try {
         await this.cache.set(filePath, functions);
       } catch (error) {
-        console.warn(
-          `Cache storage failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        this.logger.warn(
+          `Cache storage failed for ${filePath}`,
+          { error: error instanceof Error ? error.message : String(error) }
         );
       }
 
@@ -195,8 +201,9 @@ export class TypeScriptAnalyzer {
           return await this.analyzeFile(filePath);
         } catch (error) {
           // Log the error with file path for debugging
-          console.warn(
-            `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          this.logger.warn(
+            `Failed to analyze ${filePath}`,
+            { error: error instanceof Error ? error.message : String(error) }
           );
           // Return empty array to continue processing other files
           return [];
@@ -230,8 +237,9 @@ export class TypeScriptAnalyzer {
         const functions = await this.analyzeFile(filePath);
         await onFileAnalyzed(filePath, functions);
       } catch (error) {
-        console.warn(
-          `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        this.logger.warn(
+          `Failed to analyze ${filePath}`,
+          { error: error instanceof Error ? error.message : String(error) }
         );
         await onFileAnalyzed(filePath, []);
       }
@@ -1095,8 +1103,9 @@ export class TypeScriptAnalyzer {
         try {
           callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
         } catch (error) {
-          console.warn(
-            `Warning: Call graph analysis failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          this.logger.warn(
+            `Call graph analysis failed for ${filePath}`,
+            { error: error instanceof Error ? error.message : String(error) }
           );
           // Continue with empty call edges rather than failing the entire analysis
         }
@@ -1127,8 +1136,9 @@ export class TypeScriptAnalyzer {
         try {
           return await this.analyzeFileWithCallGraph(filePath);
         } catch (error) {
-          console.warn(
-            `Warning: Failed to analyze ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          this.logger.warn(
+            `Failed to analyze ${filePath}`,
+            { error: error instanceof Error ? error.message : String(error) }
           );
           return { functions: [], callEdges: [] };
         }

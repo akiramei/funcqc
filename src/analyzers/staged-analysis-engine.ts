@@ -111,11 +111,13 @@ export class StagedAnalysisEngine {
   private fileToFunctionsMap: Map<string, FunctionMetadata[]> = new Map(); // filePath -> functions for O(1) lookup
   private functionContainmentMaps: Map<string, Array<{start: number, end: number, id: string}>> = new Map(); // filePath -> sorted function ranges
   private positionIdCache: WeakMap<Node, string> = new WeakMap(); // Cache for positionId calculations
+  private debug: boolean;
 
   constructor(project: Project, typeChecker: TypeChecker, options: { logger?: Logger } = {}) {
     this.project = project;
     this.typeChecker = typeChecker;
     this.logger = options.logger ?? new Logger(false); // Default non-verbose logger
+    this.debug = process.env.DEBUG_STAGED_ANALYSIS === 'true';
     this.symbolCache = new SymbolCache(typeChecker);
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
@@ -551,8 +553,19 @@ export class StagedAnalysisEngine {
       ];
       
       for (const { node, type } of allExpressions) {
-        const callerFunction = this.findContainingFunctionOptimized(node, filePath);
-        if (!callerFunction) continue;
+        let callerFunction = this.findContainingFunctionOptimized(node, filePath);
+        
+        // Fallback to tolerant search if optimized search fails
+        if (!callerFunction) {
+          callerFunction = this.findContainingFunction(node, fileFunctions);
+        }
+        
+        if (!callerFunction) {
+          if (this.debug) {
+            this.logger.debug(`[SkipNoCaller] line=${node.getStartLineNumber()}-${node.getEndLineNumber()} file=${filePath}`);
+          }
+          continue;
+        }
         
         const isOptional = type === 'call' ? this.isOptionalCallExpression(node) : false;
           
@@ -899,7 +912,16 @@ export class StagedAnalysisEngine {
       if (candidates && candidates.length > 0) {
         // If multiple candidates, use the most appropriate one
         const bestCandidate = this.selectBestFunctionCandidate(callNode, candidates);
+        if (this.debug && !bestCandidate) {
+          this.logger.debug(`[selectBestFunctionCandidate] Failed to select best candidate for '${name}' at line ${callNode.getStartLineNumber()}`);
+        }
         return bestCandidate?.id;
+      } else {
+        // Enhanced debugging for missing function candidates
+        if (this.debug) {
+          this.logger.debug(`[resolveLocalCall] No candidates found for function '${name}' at line ${callNode.getStartLineNumber()}`);
+          this.logger.debug(`[resolveLocalCall] Available functions: ${Array.from(functionByName.keys()).join(', ')}`);
+        }
       }
       return undefined;
     }
@@ -2374,21 +2396,26 @@ export class StagedAnalysisEngine {
       const mid = Math.floor((left + right) / 2);
       const range = ranges[mid];
 
-      if (range.start <= nodeStartLine && nodeEndLine <= range.end) {
+      // Allow off-by-one tolerance for better matching robustness
+      // This handles cases where line numbers might be slightly off due to:
+      // - Trailing comments or whitespace
+      // - Different parsing contexts
+      // - Single-line arrow functions
+      if (range.start <= nodeStartLine && nodeEndLine <= range.end + 1) {
         // Found a containing range, collect it
         candidates.push(range);
         
         // Check both sides for other containing functions
         // Check left side
         let leftIdx = mid - 1;
-        while (leftIdx >= 0 && ranges[leftIdx].start <= nodeStartLine && nodeEndLine <= ranges[leftIdx].end) {
+        while (leftIdx >= 0 && ranges[leftIdx].start <= nodeStartLine && nodeEndLine <= ranges[leftIdx].end + 1) {
           candidates.push(ranges[leftIdx]);
           leftIdx--;
         }
         
         // Check right side
         let rightIdx = mid + 1;
-        while (rightIdx < ranges.length && ranges[rightIdx].start <= nodeStartLine && nodeEndLine <= ranges[rightIdx].end) {
+        while (rightIdx < ranges.length && ranges[rightIdx].start <= nodeStartLine && nodeEndLine <= ranges[rightIdx].end + 1) {
           candidates.push(ranges[rightIdx]);
           rightIdx++;
         }
