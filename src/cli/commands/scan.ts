@@ -196,7 +196,7 @@ async function performFullAnalysis(
   env: CommandEnvironment
 ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
   // Try ideal call graph analysis first
-  const functionAnalyzer = new FunctionAnalyzer(env.config);
+  const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
   
   try {
     spinner.text = `Using ideal call graph analysis for ${files.length} files...`;

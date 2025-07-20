@@ -6,6 +6,7 @@ import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { SymbolCache } from '../utils/symbol-cache';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { Logger } from '../utils/cli-utils';
 import * as crypto from 'crypto';
 import * as ts from 'typescript';
 import * as path from 'path';
@@ -103,10 +104,12 @@ export class StagedAnalysisEngine {
   private chaCandidates: Map<string, MethodInfo[]> = new Map();
   private symbolCache: SymbolCache;
   private fullSymbolCache: SymbolCache | null = null;
+  private logger: Logger;
 
-  constructor(project: Project, typeChecker: TypeChecker) {
+  constructor(project: Project, typeChecker: TypeChecker, options: { logger?: Logger } = {}) {
     this.project = project;
     this.typeChecker = typeChecker;
+    this.logger = options.logger ?? new Logger(false); // Default non-verbose logger
     this.symbolCache = new SymbolCache(typeChecker);
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
@@ -157,9 +160,9 @@ export class StagedAnalysisEngine {
       
       this.fullTypeChecker = this.fullProject.getTypeChecker();
       this.fullSymbolCache = new SymbolCache(this.fullTypeChecker);
-      console.log('   📚 Full project initialized with tsconfig and libraries');
+      this.logger.debug('Full project initialized with tsconfig and libraries');
     } catch (error) {
-      console.log(`   ⚠️  Failed to initialize full project: ${error}`);
+      this.logger.debug(`Failed to initialize full project: ${error}`);
       // Fall back to lightweight project
       this.fullProject = null;
       this.fullTypeChecker = null;
@@ -208,7 +211,7 @@ export class StagedAnalysisEngine {
       }
     }
     
-    console.log(`   🗺️  Built function lookup map with ${this.functionLookupMap.size} entries`);
+    this.logger.debug(`Built function lookup map with ${this.functionLookupMap.size} entries`);
   }
 
   /**
@@ -242,25 +245,25 @@ export class StagedAnalysisEngine {
     // Build function lookup map for O(1) function resolution
     this.buildFunctionLookupMap(functions);
     
-    console.log('   🔍 Stage 1: Local exact analysis...');
+    this.logger.debug('Stage 1: Local exact analysis...');
     await this.performLocalExactAnalysis(functions);
-    console.log(`      Found ${this.edges.length} local edges`);
+    this.logger.debug(`Found ${this.edges.length} local edges`);
     
-    console.log('   🔍 Stage 2: Import exact analysis...');
+    this.logger.debug('Stage 2: Import exact analysis...');
     const importEdges = await this.performImportExactAnalysis(functions);
-    console.log(`      Found ${importEdges} import edges`);
+    this.logger.debug(`Found ${importEdges} import edges`);
     
-    console.log('   🔍 Stage 3: CHA analysis...');
+    this.logger.debug('Stage 3: CHA analysis...');
     const chaEdges = await this.performCHAAnalysis(functions);
-    console.log(`      Found ${chaEdges} CHA edges`);
+    this.logger.debug(`Found ${chaEdges} CHA edges`);
     
-    console.log('   🔍 Stage 4: RTA analysis...');
+    this.logger.debug('Stage 4: RTA analysis...');
     const rtaEdges = await this.performRTAAnalysis(functions);
-    console.log(`      Found ${rtaEdges} RTA edges`);
+    this.logger.debug(`Found ${rtaEdges} RTA edges`);
     
-    console.log('   🔍 Stage 5: Runtime trace integration...');
+    this.logger.debug('Stage 5: Runtime trace integration...');
     const runtimeIntegratedEdges = await this.performRuntimeTraceIntegration(functions);
-    console.log(`      Integrated ${runtimeIntegratedEdges} runtime traces`);
+    this.logger.debug(`Integrated ${runtimeIntegratedEdges} runtime traces`);
     
     // Log symbol cache statistics
     this.logCacheStatistics();
@@ -418,7 +421,7 @@ export class StagedAnalysisEngine {
    */
   private async performCHAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     if (this.unresolvedMethodCalls.length === 0) {
-      console.log('   ℹ️  No unresolved method calls for CHA analysis');
+      this.logger.debug('No unresolved method calls for CHA analysis');
       return 0;
     }
     
@@ -439,10 +442,10 @@ export class StagedAnalysisEngine {
       // Clear unresolved method calls after successful CHA analysis to prevent memory leaks
       this.unresolvedMethodCalls.length = 0;
       
-      console.log(`   ✅ CHA resolved ${chaEdges.length} method calls`);
+      this.logger.debug(`CHA resolved ${chaEdges.length} method calls`);
       return chaEdges.length;
     } catch (error) {
-      console.log(`   ⚠️  CHA analysis failed: ${error}`);
+      this.logger.debug(`CHA analysis failed: ${error}`);
       // Don't clear unresolved calls on failure - they might be needed for RTA
       return 0;
     }
@@ -461,7 +464,7 @@ export class StagedAnalysisEngine {
       }
     }
     
-    console.log(`   📋 Collected ${this.chaCandidates.size} CHA candidate groups for RTA`);
+    this.logger.debug(`Collected ${this.chaCandidates.size} CHA candidate groups for RTA`);
   }
 
   /**
@@ -470,7 +473,7 @@ export class StagedAnalysisEngine {
    */
   private async performRTAAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     if (this.chaCandidates.size === 0) {
-      console.log('   ℹ️  No CHA candidates for RTA analysis');
+      this.logger.debug('No CHA candidates for RTA analysis');
       return 0;
     }
     
@@ -486,10 +489,10 @@ export class StagedAnalysisEngine {
       this.chaCandidates.clear();
       this.unresolvedMethodCallsForRTA.length = 0;
       
-      console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
+      this.logger.debug(`RTA refined ${rtaEdges.length} method calls`);
       return rtaEdges.length;
     } catch (error) {
-      console.log(`   ⚠️  RTA analysis failed: ${error}`);
+      this.logger.debug(`RTA analysis failed: ${error}`);
       return 0;
     }
   }
@@ -537,7 +540,7 @@ export class StagedAnalysisEngine {
         );
         const callerFunction = this.findContainingFunction(callNode, currentFileFunctions);
         if (callerFunction) {
-          console.log(`🔍 Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
+          this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
           this.unresolvedMethodCalls.push({
             callerFunctionId: callerFunction.id,
             methodName,
@@ -568,7 +571,7 @@ export class StagedAnalysisEngine {
         
         // If there's inheritance involved, let CHA handle it
         if (hasInheritedMethod) {
-          console.log(`🔍 Method ${methodName} has inheritance - delegating to CHA`);
+          this.logger.debug(`Method ${methodName} has inheritance - delegating to CHA`);
           return undefined;
         }
         
@@ -597,7 +600,7 @@ export class StagedAnalysisEngine {
           // If TypeChecker fails, we'll try CHA without receiver type
         }
         
-        console.log(`🔍 Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
+        this.logger.debug(`Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
         this.unresolvedMethodCalls.push({
           callerFunctionId: callerFunction.id,
           methodName,
@@ -673,7 +676,7 @@ export class StagedAnalysisEngine {
         }
       } else if (this.hasInheritanceOrInterfaces(containingClass)) {
         // Method is not in this class but class has inheritance - delegate to CHA
-        console.log(`🔍 this.${methodName}() not found in ${className} but has inheritance - delegating to CHA`);
+        this.logger.debug(`this.${methodName}() not found in ${className} but has inheritance - delegating to CHA`);
         return undefined;
       }
       
@@ -814,7 +817,7 @@ export class StagedAnalysisEngine {
     }
     
     // If no match found, warn and return undefined
-    console.warn(`buildMethodId: Could not find function ID for method ${className}.${methodName} at ${filePath}:${startLine}`);
+    this.logger.debug(`buildMethodId: Could not find function ID for method ${className}.${methodName} at ${filePath}:${startLine}`);
     return undefined;
   }
 
@@ -1854,12 +1857,12 @@ export class StagedAnalysisEngine {
       // Get coverage statistics
       const coverageStats = this.runtimeTraceIntegrator.getCoverageStats();
       if (coverageStats.totalCoveredFunctions > 0) {
-        console.log(`   📊 Coverage: ${coverageStats.totalCoveredFunctions} functions, ${coverageStats.totalExecutions} executions`);
+        this.logger.debug(`Coverage: ${coverageStats.totalCoveredFunctions} functions, ${coverageStats.totalExecutions} executions`);
       }
       
       return enhancedEdges;
     } catch (error) {
-      console.log(`   ⚠️  Runtime trace integration failed: ${error}`);
+      this.logger.debug(`Runtime trace integration failed: ${error}`);
       return 0;
     }
   }
@@ -2178,10 +2181,10 @@ export class StagedAnalysisEngine {
     const duplicateIds = edgeIds.filter((id, index) => edgeIds.indexOf(id) !== index);
     
     if (duplicateIds.length > 0) {
-      console.warn(`⚠️  Edge duplicate ID detection:`);
-      console.warn(`   Total edges: ${this.edges.length}`);
-      console.warn(`   Unique IDs: ${new Set(edgeIds).size}`);
-      console.warn(`   Duplicate IDs found: ${duplicateIds.length}`);
+      this.logger.debug(`Edge duplicate ID detection:`);
+      this.logger.debug(`Total edges: ${this.edges.length}`);
+      this.logger.debug(`Unique IDs: ${new Set(edgeIds).size}`);
+      this.logger.debug(`Duplicate IDs found: ${duplicateIds.length}`);
       
       // Group by duplicate ID
       const duplicateGroups = new Map<string, IdealCallEdge[]>();
@@ -2196,15 +2199,15 @@ export class StagedAnalysisEngine {
       
       // Log details for each duplicate group
       for (const [edgeId, duplicates] of duplicateGroups) {
-        console.warn(`   Duplicate ID "${edgeId}" appears ${duplicates.length} times:`);
+        this.logger.debug(`Duplicate ID "${edgeId}" appears ${duplicates.length} times:`);
         for (const edge of duplicates) {
-          console.warn(`     - Caller: ${edge.callerFunctionId}, Callee: ${edge.calleeFunctionId}`);
-          console.warn(`       Resolution: ${edge.resolutionLevel}, Confidence: ${edge.confidenceScore}`);
-          console.warn(`       Context: ${edge.callContext}, Line: ${edge.lineNumber}`);
+          this.logger.debug(`- Caller: ${edge.callerFunctionId}, Callee: ${edge.calleeFunctionId}`);
+          this.logger.debug(`Resolution: ${edge.resolutionLevel}, Confidence: ${edge.confidenceScore}`);
+          this.logger.debug(`Context: ${edge.callContext}, Line: ${edge.lineNumber}`);
         }
       }
     } else {
-      console.log(`✅ Edge ID uniqueness check passed: ${this.edges.length} edges, all unique`);
+      this.logger.debug(`Edge ID uniqueness check passed: ${this.edges.length} edges, all unique`);
     }
   }
 
@@ -2276,10 +2279,10 @@ export class StagedAnalysisEngine {
     
     // Log ambiguity warning if multiple candidates are very close
     if (proximityScored.length > 1 && proximityScored[1].distance <= best.distance + 5) {
-      console.warn(`🚨 Ambiguous function resolution for '${candidates[0].name}' at line ${callLine}:`);
+      this.logger.debug(`Ambiguous function resolution for '${candidates[0].name}' at line ${callLine}:`);
       proximityScored.slice(0, Math.min(3, proximityScored.length)).forEach((scored, i) => {
         const symbol = i === 0 ? '✅' : '⚠️ ';
-        console.warn(`   ${symbol} ${scored.candidate.lexicalPath} (line ${scored.candidate.startLine}, distance: ${scored.distance})`);
+        this.logger.debug(`   ${symbol} ${scored.candidate.lexicalPath} (line ${scored.candidate.startLine}, distance: ${scored.distance})`);
       });
     }
 

@@ -9,12 +9,13 @@ export class FunctionAnalyzer {
   private qualityCalculator: QualityCalculator;
   private idealCallGraphAnalyzer: IdealCallGraphAnalyzer | null = null;
   private project: Project | null = null;
+  private logger: import('../utils/cli-utils').Logger;
 
-  constructor(private config: FuncqcConfig) {
+  constructor(private config: FuncqcConfig, options: { logger?: import('../utils/cli-utils').Logger } = {}) {
     this.tsAnalyzer = new TypeScriptAnalyzer();
     this.qualityCalculator = new QualityCalculator();
-    // Config will be used in future enhancements
-    console.debug('Analyzer initialized with config:', this.config.roots);
+    this.logger = options.logger || new (require('../utils/cli-utils').Logger)();
+    this.logger.debug('Analyzer initialized with config:', this.config.roots);
   }
 
   /**
@@ -117,7 +118,7 @@ export class FunctionAnalyzer {
     errors: FuncqcError[]; 
     warnings: string[] 
   }> {
-    console.log('🎯 Starting ideal call graph analysis...');
+    this.logger.debug('Starting ideal call graph analysis...');
     
     try {
       // Initialize ts-morph project
@@ -142,10 +143,10 @@ export class FunctionAnalyzer {
       };
       
     } catch (error) {
-      console.error('❌ Ideal call graph analysis failed:', error);
+      this.logger.debug('Ideal call graph analysis failed:', error);
       
       // Fallback to regular analysis
-      console.log('🔄 Falling back to regular analysis...');
+      this.logger.debug('Falling back to regular analysis...');
       const result = await this.analyzeFiles(filePaths);
       
       return {
@@ -161,7 +162,7 @@ export class FunctionAnalyzer {
    * Initialize ts-morph project for ideal analysis
    */
   private async initializeProject(_filePaths: string[]): Promise<void> {
-    console.log('🏗️  Initializing ts-morph project...');
+    this.logger.debug('Initializing ts-morph project...');
     
     // Find tsconfig.json
     const tsConfigPath = await this.findTsConfigPath();
@@ -179,9 +180,9 @@ export class FunctionAnalyzer {
     this.project = new Project(projectOptions);
     
     // Initialize ideal call graph analyzer
-    this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(this.project);
+    this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(this.project, { logger: this.logger });
     
-    console.log(`✅ Project initialized with ${this.project.getSourceFiles().length} files`);
+    this.logger.debug(`Project initialized with ${this.project.getSourceFiles().length} files`);
   }
 
   /**
@@ -255,7 +256,7 @@ export class FunctionAnalyzer {
       try {
         legacyFunc.metrics = await this.qualityCalculator.calculate(legacyFunc);
       } catch (error) {
-        console.warn(`Failed to calculate metrics for ${func.name}: ${error}`);
+        this.logger.debug(`Failed to calculate metrics for ${func.name}: ${error}`);
       }
       
       legacyFunctions.push(legacyFunc);
