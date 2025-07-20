@@ -2,7 +2,7 @@ import { FunctionInfo, CallEdge } from '../types';
 import { ReachabilityAnalyzer } from './reachability-analyzer';
 import { EntryPointDetector } from './entry-point-detector';
 import { BatchProcessor } from '../utils/batch-processor';
-import { minimatch } from 'minimatch';
+import { DependencyUtils } from '../utils/dependency-utils';
 
 /**
  * Common configuration for dependency analysis operations
@@ -118,7 +118,7 @@ export class DependencyAnalysisEngine {
     try {
       // Phase 1: Filter high-confidence edges
       const phaseStart = Date.now();
-      const highConfidenceEdges = this.filterHighConfidenceEdges(callEdges, config.confidenceThreshold);
+      const highConfidenceEdges = DependencyUtils.filterHighConfidenceEdges(callEdges, config.confidenceThreshold);
       this.recordPhaseTime('filterHighConfidenceEdges', phaseStart);
       
       result.metadata.highConfidenceEdges = highConfidenceEdges.length;
@@ -175,7 +175,7 @@ export class DependencyAnalysisEngine {
     const phaseStart = Date.now();
 
     // Build function lookup map
-    const functionsById = new Map(functions.map(f => [f.id, f]));
+    const functionsById = DependencyUtils.createFunctionMap(functions);
 
     // Detect entry points
     const detectedEntryPoints = this.entryPointDetector.detectEntryPoints(functions);
@@ -195,10 +195,10 @@ export class DependencyAnalysisEngine {
     );
 
     // Build reverse call graph for caller analysis
-    const reverseCallGraph = this.buildReverseCallGraph(highConfidenceEdges);
+    const reverseCallGraph = DependencyUtils.buildReverseCallGraph(highConfidenceEdges);
 
     // Build high-confidence edge lookup
-    const highConfidenceEdgeMap = this.buildHighConfidenceEdgeMap(highConfidenceEdges);
+    const highConfidenceEdgeMap = DependencyUtils.buildHighConfidenceEdgeMap(highConfidenceEdges);
 
     this.recordPhaseTime('buildAnalysisFoundation', phaseStart);
 
@@ -217,62 +217,6 @@ export class DependencyAnalysisEngine {
     };
   }
 
-  /**
-   * Filter call edges for high confidence only (inherited from safe-delete)
-   */
-  private filterHighConfidenceEdges(callEdges: CallEdge[], threshold: number): CallEdge[] {
-    return callEdges.filter(edge => {
-      // Only use edges with confidence score above threshold
-      if (!edge.confidenceScore || edge.confidenceScore < threshold) {
-        return false;
-      }
-
-      // Additional safety checks for ideal call graph edges
-      if (edge.resolutionLevel) {
-        // Prefer local_exact and import_exact over CHA/RTA
-        const preferredLevels = ['local_exact', 'import_exact', 'runtime_confirmed'];
-        return preferredLevels.includes(edge.resolutionLevel);
-      }
-
-      return true;
-    });
-  }
-
-  /**
-   * Build reverse call graph for caller analysis (inherited from safe-delete)
-   */
-  private buildReverseCallGraph(callEdges: CallEdge[]): Map<string, Set<string>> {
-    const reverseGraph = new Map<string, Set<string>>();
-
-    for (const edge of callEdges) {
-      if (!edge.calleeFunctionId) continue;
-
-      if (!reverseGraph.has(edge.calleeFunctionId)) {
-        reverseGraph.set(edge.calleeFunctionId, new Set());
-      }
-      reverseGraph.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
-    }
-
-    return reverseGraph;
-  }
-
-  /**
-   * Build high-confidence edge lookup for fast access (inherited from safe-delete)
-   */
-  private buildHighConfidenceEdgeMap(highConfidenceEdges: CallEdge[]): Map<string, Set<string>> {
-    const edgeMap = new Map<string, Set<string>>();
-    
-    for (const edge of highConfidenceEdges) {
-      if (!edge.calleeFunctionId) continue;
-      
-      if (!edgeMap.has(edge.calleeFunctionId)) {
-        edgeMap.set(edge.calleeFunctionId, new Set());
-      }
-      edgeMap.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
-    }
-    
-    return edgeMap;
-  }
 
   /**
    * Process candidates in efficient batches
@@ -345,11 +289,11 @@ export class DependencyAnalysisEngine {
           continue;
         }
 
-        if (this.isExcludedByPattern(candidate.functionInfo.filePath, config.excludePatterns)) {
+        if (DependencyUtils.isExcludedByPattern(candidate.functionInfo.filePath, config.excludePatterns)) {
           continue;
         }
 
-        if (this.isExternalLibraryFunction(candidate.functionInfo.filePath)) {
+        if (DependencyUtils.isExternalLibraryFunction(candidate.functionInfo.filePath)) {
           continue;
         }
 
@@ -366,45 +310,6 @@ export class DependencyAnalysisEngine {
     return processedBatch;
   }
 
-  /**
-   * Check if file is excluded by patterns (inherited from safe-delete)
-   */
-  private isExcludedByPattern(filePath: string, patterns: string[]): boolean {
-    return patterns.some(pattern =>
-      minimatch(filePath, pattern, { dot: true })
-    );
-  }
-
-  /**
-   * Check if function is from external library (inherited from safe-delete)
-   */
-  private isExternalLibraryFunction(filePath: string): boolean {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    
-    // Check for node_modules
-    if (normalizedPath.includes('/node_modules/')) {
-      return true;
-    }
-    
-    // Check for TypeScript declaration files
-    if (normalizedPath.endsWith('.d.ts')) {
-      return true;
-    }
-    
-    // Check for common external library patterns
-    const externalPatterns = [
-      '/@types/',
-      '/types/',
-      '/lib/',
-      '/dist/',
-      '/build/',
-      '/vendor/',
-      '/third-party/',
-      '/external/'
-    ];
-    
-    return externalPatterns.some(pattern => normalizedPath.includes(pattern));
-  }
 
   /**
    * Record processing time for a phase
@@ -421,7 +326,7 @@ export class DependencyAnalysisEngine {
       confidenceThreshold: 0.95,
       maxItemsPerBatch: 100,
       excludeExports: false, // Different default from safe-delete - include exports for dep analysis
-      excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
+      excludePatterns: DependencyUtils.getDefaultExclusionPatterns(),
       verbose: false,
       dryRun: true,
       ...options
@@ -466,19 +371,7 @@ export class DependencyAnalysisEngine {
    * Estimate impact of analysis result (inherited from safe-delete)
    */
   static estimateImpact(func: FunctionInfo, callersCount: number): 'low' | 'medium' | 'high' {
-    // High impact: exported functions, large functions, many callers
-    if (func.isExported || callersCount > 5) {
-      return 'high';
-    }
-
-    // Medium impact: moderate size or some callers
-    const functionSize = func.endLine - func.startLine;
-    if (functionSize > 20 || callersCount > 2) {
-      return 'medium';
-    }
-
-    // Low impact: small, isolated functions
-    return 'low';
+    return DependencyUtils.estimateImpact(func, callersCount);
   }
 }
 

@@ -32,18 +32,6 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
   };
 
   // Recursively sort keys for stable output
-  const sortKeys = (obj: unknown): unknown => {
-    if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-      return obj;
-    }
-    const record = obj as Record<string, unknown>;
-    return Object.keys(record)
-      .sort()
-      .reduce((sorted: Record<string, unknown>, key) => {
-        sorted[key] = sortKeys(record[key]);
-        return sorted;
-      }, {});
-  };
 
   return JSON.stringify(sortKeys(outputData), null, 2);
 }
@@ -51,10 +39,6 @@ export function createStableJsonOutput<T extends Record<string, unknown>>(
 /**
  * Sanitize data for JSON output (convert undefined to null, ensure number types)
  */
-export function sanitizeForJson<T>(data: T): T | null {
-  if (data === null || data === undefined) {
-    return null;
-  }
 
   if (Array.isArray(data)) {
     return data.map(sanitizeForJson) as unknown as T;

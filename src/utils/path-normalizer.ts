@@ -30,7 +30,6 @@ export function arePathsEqual(path1: string, path2: string): boolean {
  */
 export function filterByPath<T extends { filePath: string }>(functions: T[], targetPath: string): T[] {
   const normalizedTarget = normalizePath(targetPath);
-  return functions.filter(func => normalizePath(func.filePath) === normalizedTarget);
 }
 
 /**

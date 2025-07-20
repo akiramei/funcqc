@@ -28,17 +28,12 @@ export class ConfidenceCalculator {
   async calculateConfidenceScores(edges: IdealCallEdge[]): Promise<IdealCallEdge[]> {
     console.log('   📊 Calculating confidence scores...');
     
-    const scoredEdges = edges.map(edge => ({
-      ...edge,
-      confidenceScore: this.calculateEdgeConfidence(edge)
-    }));
     
     // Sort by confidence (highest first)
     scoredEdges.sort((a, b) => b.confidenceScore - a.confidenceScore);
     
     console.log(`   ✅ Calculated confidence for ${scoredEdges.length} edges`);
     return scoredEdges;
-  }
 
   /**
    * Calculate confidence score for a single edge

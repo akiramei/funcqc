@@ -1,7 +1,6 @@
 import { FunctionInfo, CallEdge } from '../types';
-import { ReachabilityAnalyzer } from './reachability-analyzer';
-import { EntryPointDetector } from './entry-point-detector';
-import { minimatch } from 'minimatch';
+import { DependencyAnalysisEngine, DependencyAnalysisOptions } from './dependency-analysis-engine';
+import { SafeDeletionCandidateGenerator, SafeDeletionCandidate } from './safe-deletion-candidate-generator';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -25,14 +24,8 @@ export interface SafeDeletionResult {
   postDeleteValidation: ValidationResult;
 }
 
-export interface DeletionCandidate {
-  functionInfo: FunctionInfo;
-  reason: 'unreachable' | 'no-high-confidence-callers' | 'isolated';
-  confidenceScore: number;
-  callersCount: number;
-  sourceLines: string[];
-  estimatedImpact: 'low' | 'medium' | 'high';
-}
+// DeletionCandidate is now imported as SafeDeletionCandidate from the candidate generator
+export type DeletionCandidate = SafeDeletionCandidate;
 
 export interface ValidationResult {
   typeCheckPassed: boolean;
@@ -59,12 +52,12 @@ export interface ValidationResult {
  * - Automatic rollback: Full backup and recovery system
  */
 export class SafeDeletionSystem {
-  private reachabilityAnalyzer: ReachabilityAnalyzer;
-  private entryPointDetector: EntryPointDetector;
+  private analysisEngine: DependencyAnalysisEngine;
+  private candidateGenerator: SafeDeletionCandidateGenerator;
 
   constructor() {
-    this.reachabilityAnalyzer = new ReachabilityAnalyzer();
-    this.entryPointDetector = new EntryPointDetector();
+    this.analysisEngine = new DependencyAnalysisEngine();
+    this.candidateGenerator = new SafeDeletionCandidateGenerator();
   }
 
   /**
@@ -92,16 +85,27 @@ export class SafeDeletionSystem {
     console.log(`   Dry run: ${config.dryRun ? 'Yes' : 'No'}`);
 
     try {
-      // Step 1: Filter for high-confidence edges only
-      const highConfidenceEdges = this.filterHighConfidenceEdges(callEdges, config.confidenceThreshold);
-      console.log(`   🎯 Using ${highConfidenceEdges.length} high-confidence edges (≥${config.confidenceThreshold})`);
+      // Use DependencyAnalysisEngine for unified analysis
+      const analysisOptions: Partial<DependencyAnalysisOptions> = {
+        confidenceThreshold: config.confidenceThreshold,
+        excludeExports: config.excludeExports,
+        excludePatterns: config.excludePatterns,
+        verbose: true,
+        dryRun: config.dryRun
+      };
 
-      // Step 2: Identify deletion candidates
-      result.candidateFunctions = await this.identifyDeletionCandidates(
+      const analysisResult = await this.analysisEngine.analyzeDependencies(
         functions,
-        highConfidenceEdges,
-        config
+        callEdges,
+        this.candidateGenerator,
+        analysisOptions
       );
+
+      result.candidateFunctions = analysisResult.analysisResults;
+      result.errors.push(...analysisResult.errors);
+      result.warnings.push(...analysisResult.warnings);
+
+      console.log(`   🎯 Using ${analysisResult.metadata.highConfidenceEdges} high-confidence edges (≥${config.confidenceThreshold})`);
       console.log(`   🔍 Found ${result.candidateFunctions.length} deletion candidates`);
 
       if (result.candidateFunctions.length === 0) {
@@ -138,126 +142,8 @@ export class SafeDeletionSystem {
     }
   }
 
-  /**
-   * Filter call edges for high confidence only
-   */
-  private filterHighConfidenceEdges(callEdges: CallEdge[], threshold: number): CallEdge[] {
-    return callEdges.filter(edge => {
-      // Only use edges with confidence score above threshold
-      if (!edge.confidenceScore || edge.confidenceScore < threshold) {
-        return false;
-      }
 
-      // Additional safety checks for ideal call graph edges
-      if (edge.resolutionLevel) {
-        // Prefer local_exact and import_exact over CHA/RTA
-        const preferredLevels = ['local_exact', 'import_exact', 'runtime_confirmed'];
-        return preferredLevels.includes(edge.resolutionLevel);
-      }
-
-      return true;
-    });
-  }
-
-  /**
-   * Identify candidates for safe deletion
-   */
-  private async identifyDeletionCandidates(
-    functions: FunctionInfo[],
-    highConfidenceEdges: CallEdge[],
-    config: SafeDeletionOptions
-  ): Promise<DeletionCandidate[]> {
-    console.time('TOTAL_identifyDeletionCandidates');
-    
-    console.time('buildFunctionsById');
-    const functionsById = new Map(functions.map(f => [f.id, f]));
-    console.timeEnd('buildFunctionsById');
-    
-    console.time('detectEntryPoints');
-    const entryPoints = this.entryPointDetector.detectEntryPoints(functions);
-    console.timeEnd('detectEntryPoints');
-    
-    console.time('reachabilityAnalysis');
-    // Perform reachability analysis with high-confidence edges only
-    const reachabilityResult = this.reachabilityAnalyzer.analyzeReachability(
-      functions,
-      highConfidenceEdges,
-      entryPoints
-    );
-    console.timeEnd('reachabilityAnalysis');
-
-    console.time('buildReverseCallGraph');
-    // Build reverse call graph for caller analysis
-    const reverseCallGraph = this.buildReverseCallGraph(highConfidenceEdges);
-    console.timeEnd('buildReverseCallGraph');
-    
-    console.time('buildHighConfidenceEdgeMap');
-    // Build high-confidence edge lookup for fast caller filtering
-    const highConfidenceEdgeMap = new Map<string, Set<string>>();
-    for (const edge of highConfidenceEdges) {
-      if (!edge.calleeFunctionId) continue;
-      if (!highConfidenceEdgeMap.has(edge.calleeFunctionId)) {
-        highConfidenceEdgeMap.set(edge.calleeFunctionId, new Set());
-      }
-      highConfidenceEdgeMap.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
-    }
-    console.timeEnd('buildHighConfidenceEdgeMap');
-
-    console.time('processCandidates');
-    // Process candidates efficiently
-    const filtered: DeletionCandidate[] = [];
-    
-    // 🚨 CRITICAL FIX: Only process truly unreachable functions
-    // Functions that are reachable from entry points should NEVER be deletion candidates
-    for (const functionId of reachabilityResult.unreachable) {
-      const func = functionsById.get(functionId);
-      if (!func) continue;
-
-      if (config.excludeExports && func.isExported) continue;
-      if (this.isExcludedByPattern(func.filePath, config.excludePatterns)) continue;
-      if (this.isExternalLibraryFunction(func.filePath)) continue;
-
-      const callers = reverseCallGraph.get(functionId) || new Set();
-      const highConfidenceCallersSet = highConfidenceEdgeMap.get(functionId) || new Set();
-      const highConfidenceCallers = Array.from(callers).filter(callerId => 
-        highConfidenceCallersSet.has(callerId)
-      );
-
-      // 🔧 FIXED: Improved deletion reason logic
-      let reason: DeletionCandidate['reason'] = 'unreachable';
-      let confidenceScore = 1.0;
-      
-      // If function is truly unreachable from entry points, it's safe to delete
-      if (callers.size === 0) {
-        reason = 'unreachable';
-        confidenceScore = 1.0;
-      } else if (highConfidenceCallers.length === 0) {
-        // Has callers but none are high-confidence - conservative approach
-        reason = 'no-high-confidence-callers';
-        confidenceScore = 0.90;
-      } else {
-        // 🚨 CRITICAL: If there are high-confidence callers, this function should NOT be unreachable
-        // This indicates a bug in reachability analysis - skip this function
-        console.warn(`⚠️  Function ${func.name} marked as unreachable but has ${highConfidenceCallers.length} high-confidence callers. Skipping deletion.`);
-        continue;
-      }
-
-      // Skip source line loading in dry run mode for performance
-      const sourceLines = config.dryRun ? [] : await this.extractSourceLines(func);
-
-      filtered.push({
-        functionInfo: func,
-        reason,
-        confidenceScore,
-        callersCount: callers.size,
-        sourceLines,
-        estimatedImpact: this.estimateImpact(func, callers.size)
-      });
-    }
-    
-    const sortedCandidates = this.sortDeletionCandidates(filtered);
-    return sortedCandidates;
-  }
+  // identifyDeletionCandidates method removed - now handled by SafeDeletionCandidateGenerator
 
   /**
    * Process deletions in safe batches
@@ -404,95 +290,11 @@ export class SafeDeletionSystem {
     return result;
   }
 
-  /**
-   * Extract source lines for a function
-   */
-  private async extractSourceLines(func: FunctionInfo): Promise<string[]> {
-    try {
-      const fileContent = await fs.readFile(func.filePath, 'utf8');
-      const lines = fileContent.split('\n');
-      return lines.slice(func.startLine - 1, func.endLine);
-    } catch (error) {
-      return [`// Error reading source: ${error}`];
-    }
-  }
+  // extractSourceLines method removed - now handled by SafeDeletionCandidateGenerator
 
-  /**
-   * Build reverse call graph for caller analysis
-   */
-  private buildReverseCallGraph(callEdges: CallEdge[]): Map<string, Set<string>> {
-    const reverseGraph = new Map<string, Set<string>>();
 
-    for (const edge of callEdges) {
-      if (!edge.calleeFunctionId) continue;
 
-      if (!reverseGraph.has(edge.calleeFunctionId)) {
-        reverseGraph.set(edge.calleeFunctionId, new Set());
-      }
-      reverseGraph.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
-    }
 
-    return reverseGraph;
-  }
-
-  /**
-   * Estimate impact of deleting a function
-   */
-  private estimateImpact(func: FunctionInfo, callersCount: number): DeletionCandidate['estimatedImpact'] {
-    // High impact: exported functions, large functions, many callers
-    if (func.isExported || callersCount > 5) {
-      return 'high';
-    }
-
-    // Medium impact: moderate size or some callers
-    const functionSize = func.endLine - func.startLine;
-    if (functionSize > 20 || callersCount > 2) {
-      return 'medium';
-    }
-
-    // Low impact: small, isolated functions
-    return 'low';
-  }
-
-  /**
-   * Check if file is excluded by patterns
-   */
-  private isExcludedByPattern(filePath: string, patterns: string[]): boolean {
-    return patterns.some(pattern =>
-      minimatch(filePath, pattern, { dot: true })
-    );
-  }
-
-  /**
-   * Check if function is from external library (node_modules, .d.ts files, etc.)
-   */
-  private isExternalLibraryFunction(filePath: string): boolean {
-    const normalizedPath = filePath.replace(/\\/g, '/');
-    
-    // Check for node_modules
-    if (normalizedPath.includes('/node_modules/')) {
-      return true;
-    }
-    
-    // Check for TypeScript declaration files
-    if (normalizedPath.endsWith('.d.ts')) {
-      return true;
-    }
-    
-    // Check for common external library patterns
-    const externalPatterns = [
-      '/@types/',
-      '/types/',
-      '/lib/',
-      '/dist/',
-      '/build/',
-      '/vendor/',
-      '/third-party/',
-      '/external/'
-    ];
-    
-    return externalPatterns.some(pattern => normalizedPath.includes(pattern));
-  }
 
   /**
    * Create batches of functions for safe deletion
@@ -505,21 +307,7 @@ export class SafeDeletionSystem {
     return batches;
   }
 
-  /**
-   * Sort deletion candidates by confidence score and impact
-   */
-  private sortDeletionCandidates(candidates: DeletionCandidate[]): DeletionCandidate[] {
-    return candidates.sort((a, b) => {
-      // Primary sort: confidence score (higher first)
-      if (a.confidenceScore !== b.confidenceScore) {
-        return b.confidenceScore - a.confidenceScore;
-      }
-      
-      // Secondary sort: impact (lower first - safer to delete)
-      const impactOrder = { low: 0, medium: 1, high: 2 };
-      return impactOrder[a.estimatedImpact] - impactOrder[b.estimatedImpact];
-    });
-  }
+  // sortDeletionCandidates method removed - now handled by SafeDeletionCandidateGenerator
 
   /**
    * Get default options with user overrides

@@ -32,7 +32,6 @@ export class RiskAssessor {
 
     // Filter functions with complete metrics
     const functionsWithMetrics = functions.filter(
-      (f): f is FunctionInfo & { metrics: QualityMetrics } => f.metrics !== undefined
     );
     if (functionsWithMetrics.length === 0) {
       throw new Error('No functions found with complete metrics');
@@ -41,7 +40,6 @@ export class RiskAssessor {
     // Calculate project statistics
     const projectStatistics = statisticalEvaluator.calculateProjectStatistics(
       functionsWithMetrics.map(f => f.metrics)
-    );
 
     // Merge user thresholds with defaults, considering project context
     const configuredThresholds = this.getContextualThresholds(thresholds, projectContext);

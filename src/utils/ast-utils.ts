@@ -14,22 +14,10 @@ import * as ts from 'typescript';
  * @param functionName - The name of the function to find
  * @returns The matching function node, or undefined if not found
  */
-function matchesFunctionDeclaration(node: ts.Node, functionName: string): boolean {
-  return ts.isFunctionDeclaration(node) && node.name?.text === functionName;
-}
 
 function matchesArrowFunctionVariable(node: ts.Node, functionName: string): boolean {
   return (
     ts.isVariableDeclaration(node) &&
-    node.name.kind === ts.SyntaxKind.Identifier &&
-    (node.name as ts.Identifier).text === functionName &&
-    !!node.initializer &&
-    ts.isArrowFunction(node.initializer)
-  );
-}
-
-function matchesMethodDeclaration(node: ts.Node, functionName: string): boolean {
-  return (
     ts.isMethodDeclaration(node) &&
     node.name?.kind === ts.SyntaxKind.Identifier &&
     (node.name as ts.Identifier).text === functionName
@@ -40,13 +28,6 @@ function matchesConstructor(node: ts.Node, functionName: string): boolean {
   return ts.isConstructorDeclaration(node) && functionName === 'constructor';
 }
 
-function getNodeForMatch(node: ts.Node, functionName: string): ts.Node | undefined {
-  if (matchesFunctionDeclaration(node, functionName)) {
-    return node;
-  }
-  
-  if (matchesArrowFunctionVariable(node, functionName)) {
-    return (node as ts.VariableDeclaration).initializer;
   }
   
   if (matchesMethodDeclaration(node, functionName)) {
@@ -55,9 +36,6 @@ function getNodeForMatch(node: ts.Node, functionName: string): ts.Node | undefin
   
   if (matchesConstructor(node, functionName)) {
     return node;
-  }
-  
-  return undefined;
 }
 
 export function findFunctionNode(

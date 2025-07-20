@@ -17,13 +17,6 @@ export class QualityCalculator {
     // Find the function node in the AST
     let functionNode: ts.FunctionLikeDeclaration | null = null;
 
-    const findFunction = (node: ts.Node) => {
-      if (this.isFunctionLike(node)) {
-        functionNode = node as ts.FunctionLikeDeclaration;
-        return;
-      }
-      ts.forEachChild(node, findFunction);
-    };
 
     findFunction(sourceFile);
 
