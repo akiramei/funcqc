@@ -1125,13 +1125,18 @@ async function calculateQualityMetrics(functions: FunctionInfo[], _config: Funcq
     .flatMap(a => a.violations)
     .filter(v => v.level === 'critical').length / functions.length;
   
-  // NEW: Integrated Health Index - combines all factors
+  // NEW: Integrated Health Index - balanced realistic assessment
   const structuralDanger = (highRiskRate * 50) + (criticalViolationRate * 100);
+  
+  // Balanced penalty system for realistic but fair health assessment
+  const riskPenalty = highRiskRate * 120;      // Moderate penalty: 9% = 10.8 point penalty
+  const criticalPenalty = criticalViolationRate * 80;   // Moderate penalty: 9% = 7.2 point penalty
+  
   const healthIndex = Math.max(0, Math.min(100, 
-    traditionalOverallScore * 0.4 +  // Traditional metrics (40%)
-    (100 - highRiskRate * 100) * 0.3 +      // High risk rate penalty (30%)
-    (100 - criticalViolationRate * 100) * 0.2 +  // Critical violations penalty (20%)
-    (avgMaintainability > 0 ? avgMaintainability * 0.1 : 0)  // Maintainability bonus (10%)
+    traditionalOverallScore * 0.7 -  // Traditional metrics (70%, base score)
+    riskPenalty -                     // High risk penalty (moderate)
+    criticalPenalty +                 // Critical violations penalty (moderate)
+    (avgMaintainability > 70 ? (avgMaintainability - 70) * 0.15 : 0)  // Small maintainability bonus
   ));
 
   const averageRiskScore = calculateAverageRiskScore(riskAssessments);
