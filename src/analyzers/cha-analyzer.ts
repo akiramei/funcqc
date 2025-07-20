@@ -1,4 +1,4 @@
-import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, ConstructorDeclaration, MethodSignature, TypeChecker } from 'ts-morph';
+import { Project, Node, ClassDeclaration, InterfaceDeclaration, MethodDeclaration, GetAccessorDeclaration, SetAccessorDeclaration, ConstructorDeclaration, MethodSignature, TypeChecker, ParameterDeclaration } from 'ts-morph';
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
@@ -21,6 +21,12 @@ export class CHAAnalyzer {
   private project: Project;
   private inheritanceGraph = new Map<string, ClassHierarchyNode>();
   private methodIndex = new Map<string, Set<MethodInfo>>();
+  
+  // Performance optimization: O(1) method membership lookup
+  private methodMembershipSet: Set<string> | undefined;
+  
+  // Performance optimization: Parameter type cache to avoid expensive TypeChecker calls
+  private parameterTypeCache = new Map<string, string[]>();
 
   constructor(project: Project, _typeChecker: TypeChecker) {
     this.project = project;
@@ -38,14 +44,75 @@ export class CHAAnalyzer {
     console.log('   🏗️  Building class hierarchy graph...');
     this.buildInheritanceGraph();
     
+    console.log('   ⚡ Building method membership set...');
+    this.buildMethodMembershipSet(functions);
+    
     console.log('   📚 Indexing methods and properties...');
-    this.buildMethodIndex(functions);
+    this.buildMethodIndex();
     
     console.log('   🎯 Resolving method calls via CHA...');
     const resolvedEdges = this.resolveMethodCalls(functions, unresolvedEdges);
     
     console.log(`   ✅ CHA resolved ${resolvedEdges.length} method calls`);
     return resolvedEdges;
+  }
+
+  /**
+   * Build method membership set for O(1) lookup performance
+   * Eliminates O(M×F) problem in buildMethodIndex
+   */
+  private buildMethodMembershipSet(functions: Map<string, FunctionMetadata>): void {
+    this.methodMembershipSet = new Set();
+    
+    for (const [, func] of functions) {
+      if (func.isMethod && func.className) {
+        // Create canonical key: filePath|className|methodName|startLine
+        const key = this.createMethodKey(func.filePath, func.className, func.name, func.startLine);
+        this.methodMembershipSet.add(key);
+      }
+    }
+    
+    console.log(`   📊 Built membership set with ${this.methodMembershipSet.size} method entries`);
+  }
+
+  /**
+   * Create canonical method key for membership lookup
+   */
+  private createMethodKey(filePath: string, className: string, methodName: string, startLine: number): string {
+    return `${PathNormalizer.normalize(filePath)}|${className}|${methodName}|${startLine}`;
+  }
+
+  /**
+   * Get parameter types with caching to avoid expensive TypeChecker calls
+   */
+  private getParameterTypesOptimized(parameters: ParameterDeclaration[], filePath: string, startLine: number): string[] {
+    // Create cache key from file and line position
+    const cacheKey = `${PathNormalizer.normalize(filePath)}|${startLine}`;
+    
+    // Check cache first
+    if (this.parameterTypeCache.has(cacheKey)) {
+      return this.parameterTypeCache.get(cacheKey)!;
+    }
+    
+    // Only compute types when actually needed, use simplified approach
+    const parameterTypes = parameters.map((p, index) => {
+      try {
+        // Try to get type from type node first (faster than full type resolution)
+        const typeNode = p.getTypeNode();
+        if (typeNode) {
+          return typeNode.getText();
+        }
+        
+        // Fallback to parameter name with index for cache efficiency
+        return `param${index}`;
+      } catch {
+        return `param${index}`;
+      }
+    });
+    
+    // Cache the result
+    this.parameterTypeCache.set(cacheKey, parameterTypes);
+    return parameterTypes;
   }
 
   /**
@@ -192,7 +259,7 @@ export class CHAAnalyzer {
   ): MethodInfo | undefined {
     const methodName = node.getName();
     const parameters = node.getParameters();
-    const parameterTypes = parameters.map(p => p.getType().getText());
+    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber());
     
     return {
       name: methodName,
@@ -234,7 +301,7 @@ export class CHAAnalyzer {
     }
     
     const parameters = node.getParameters();
-    const parameterTypes = parameters.map(p => p.getType().getText());
+    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber());
     
     return {
       name: methodName,
@@ -274,7 +341,11 @@ export class CHAAnalyzer {
    * Build method index for fast lookup (with duplicate prevention, optimized sync)
    * Only index methods that are in the FunctionRegistry to prevent false positives
    */
-  private buildMethodIndex(functions: Map<string, FunctionMetadata>): void {
+  private buildMethodIndex(): void {
+    if (!this.methodMembershipSet) {
+      throw new Error('Method membership set must be built before building method index');
+    }
+    
     for (const [className, node] of this.inheritanceGraph) {
       // Skip interface nodes - their methods are signatures, not implementations
       if (node.type === 'interface') {
@@ -282,29 +353,20 @@ export class CHAAnalyzer {
       }
       
       for (const method of node.methods) {
-        // Check if this method exists in the FunctionRegistry
-        // Look for matching function by file path, class name, and method name
-        let foundInRegistry = false;
-        for (const [, func] of functions) {
-          if (PathNormalizer.areEqual(func.filePath, method.filePath) &&
-              func.className === className &&
-              func.name === method.name &&
-              func.isMethod) {
-            foundInRegistry = true;
-            break;
-          }
-        }
+        // O(1) membership check instead of O(F) linear search
+        const methodKey = this.createMethodKey(method.filePath, className, method.name, method.startLine);
+        const foundInRegistry = this.methodMembershipSet.has(methodKey);
         
         if (!foundInRegistry) {
           // Skip methods not in FunctionRegistry to avoid false positives
           continue;
         }
         
-        const methodKey = `${className}.${method.name}`;
-        if (!this.methodIndex.has(methodKey)) {
-          this.methodIndex.set(methodKey, new Set<MethodInfo>());
+        const indexKey = `${className}.${method.name}`;
+        if (!this.methodIndex.has(indexKey)) {
+          this.methodIndex.set(indexKey, new Set<MethodInfo>());
         }
-        this.methodIndex.get(methodKey)!.add(method);
+        this.methodIndex.get(indexKey)!.add(method);
         
         // Also index by method name alone for polymorphic calls
         if (!this.methodIndex.has(method.name)) {
@@ -666,6 +728,9 @@ export class CHAAnalyzer {
   clear(): void {
     this.inheritanceGraph.clear();
     this.methodIndex.clear();
+    this.methodMembershipSet?.clear();
+    this.methodMembershipSet = undefined;
+    this.parameterTypeCache.clear();
   }
 
 }

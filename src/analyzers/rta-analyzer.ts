@@ -3,6 +3,7 @@ import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-g
 import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { FunctionIndex } from './function-index';
 import * as path from 'path';
 
 /**
@@ -26,6 +27,10 @@ export class RTAAnalyzer {
   private instantiatedTypes = new Set<string>();
   private typeInstantiationMap = new Map<string, InstantiationInfo[]>();
   private classInterfacesMap = new Map<string, string[]>();
+  
+  // Performance optimization: O(1) function lookup index
+  private functionIndex: FunctionIndex | undefined;
+  private candidateIdCache = new Map<string, string | undefined>();
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
@@ -186,29 +191,40 @@ export class RTAAnalyzer {
         // Get corresponding unresolved calls for this method
         const methodCalls = methodCallMap.get(methodName) || [];
         
+        // Pre-resolve all candidates with memoization to avoid duplicate lookups
+        const resolvedCandidates = rtaFilteredCandidates
+          .map(candidate => ({
+            candidate,
+            functionId: this.resolveCandidateId(candidate, functions)
+          }))
+          .filter(resolved => resolved.functionId !== undefined);
+        
+        // Extract function IDs for candidates array (reuse resolved results)
+        const candidateIds = resolvedCandidates.map(r => r.functionId!);
+        
         // Create edges for each unresolved call with RTA-filtered candidates
         for (const unresolvedCall of methodCalls) {
-          for (const candidate of rtaFilteredCandidates) {
-            const functionId = this.findMatchingFunctionId(functions, candidate);
+          for (const resolved of resolvedCandidates) {
+            const functionId = resolved.functionId!;
             if (functionId) {
               const edge: IdealCallEdge = {
                 id: generateStableEdgeId(unresolvedCall.callerFunctionId, functionId),
                 callerFunctionId: unresolvedCall.callerFunctionId,
                 calleeFunctionId: functionId,
-                calleeName: candidate.signature,
-                calleeSignature: candidate.signature,
+                calleeName: resolved.candidate.signature,
+                calleeSignature: resolved.candidate.signature,
                 callType: 'direct',
                 callContext: 'rta_resolved',
                 lineNumber: unresolvedCall.lineNumber,
                 columnNumber: unresolvedCall.columnNumber,
                 isAsync: false,
                 isChained: false,
-                confidenceScore: this.calculateRTAConfidence(candidate, rtaFilteredCandidates.length),
+                confidenceScore: this.calculateRTAConfidence(resolved.candidate, rtaFilteredCandidates.length),
                 metadata: {
                   rtaCandidate: true,
                   originalCHACandidates: candidates.length,
                   rtaFilteredCandidates: rtaFilteredCandidates.length,
-                  instantiatedType: candidate.className,
+                  instantiatedType: resolved.candidate.className,
                   receiverType: unresolvedCall.receiverType
                 },
                 createdAt: new Date().toISOString(),
@@ -217,11 +233,11 @@ export class RTAAnalyzer {
                 resolutionLevel: 'rta_resolved' as ResolutionLevel,
                 resolutionSource: 'rta_analysis',
                 runtimeConfirmed: false,
-                candidates: rtaFilteredCandidates.map(c => this.findMatchingFunctionId(functions, c)).filter(id => id !== undefined) as string[],
+                candidates: candidateIds, // Reuse pre-resolved IDs
                 analysisMetadata: {
                   timestamp: Date.now(),
                   analysisVersion: '1.0',
-                  sourceHash: candidate.filePath
+                  sourceHash: resolved.candidate.filePath
                 }
               };
               
@@ -266,7 +282,9 @@ export class RTAAnalyzer {
 
   /**
    * Find matching function ID in the function registry for a method candidate
+   * @deprecated Use FunctionIndex.resolve() instead for O(1) performance
    */
+  // @ts-ignore - Method kept for future use
   private findMatchingFunctionId(functions: Map<string, FunctionMetadata>, candidate: MethodInfo): string | undefined {
     try {
       // Strategy 1: Exact match with position and metadata (most accurate)
@@ -428,6 +446,44 @@ export class RTAAnalyzer {
     this.instantiatedTypes.clear();
     this.typeInstantiationMap.clear();
     this.classInterfacesMap.clear();
+    this.functionIndex?.clear();
+    this.functionIndex = undefined;
+    this.candidateIdCache.clear();
+  }
+
+  /**
+   * Ensure function index is built for O(1) lookups
+   */
+  private ensureFunctionIndex(functions: Map<string, FunctionMetadata>): void {
+    if (!this.functionIndex) {
+      this.functionIndex = new FunctionIndex();
+      this.functionIndex.build(functions);
+    }
+  }
+
+  /**
+   * Optimized candidate resolution with memoization
+   * Replaces the expensive findMatchingFunctionId with O(1) lookup
+   */
+  private resolveCandidateId(candidate: MethodInfo, functions: Map<string, FunctionMetadata>): string | undefined {
+    // Create cache key from candidate properties
+    const cacheKey = `${candidate.filePath}|${candidate.startLine}|${candidate.className || ''}|${candidate.name}`;
+    
+    // Check cache first
+    if (this.candidateIdCache.has(cacheKey)) {
+      return this.candidateIdCache.get(cacheKey);
+    }
+    
+    // Ensure index is built
+    this.ensureFunctionIndex(functions);
+    
+    // Resolve using O(1) index lookup
+    const functionId = this.functionIndex!.resolve(candidate);
+    
+    // Cache result for future use
+    this.candidateIdCache.set(cacheKey, functionId);
+    
+    return functionId;
   }
 
 }

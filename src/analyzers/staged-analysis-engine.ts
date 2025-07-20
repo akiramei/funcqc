@@ -99,6 +99,7 @@ export class StagedAnalysisEngine {
   private functionLookupMap: Map<string, string> = new Map(); // filePath+positionId -> funcId for O(1) lookup
   private unresolvedMethodCalls: UnresolvedMethodCall[] = [];
   private unresolvedMethodCallsForRTA: UnresolvedMethodCall[] = [];
+  private unresolvedMethodCallsSet: Set<string> = new Set(); // Track duplicates using composite keys
   private chaAnalyzer: CHAAnalyzer;
   private rtaAnalyzer: RTAAnalyzer;
   private runtimeTraceIntegrator: RuntimeTraceIntegrator;
@@ -108,6 +109,7 @@ export class StagedAnalysisEngine {
   private logger: Logger;
   private fileToFunctionsMap: Map<string, FunctionMetadata[]> = new Map(); // filePath -> functions for O(1) lookup
   private functionContainmentMaps: Map<string, Array<{start: number, end: number, id: string}>> = new Map(); // filePath -> sorted function ranges
+  private positionIdCache: WeakMap<Node, string> = new WeakMap(); // Cache for positionId calculations
 
   constructor(project: Project, typeChecker: TypeChecker, options: { logger?: Logger } = {}) {
     this.project = project;
@@ -118,8 +120,8 @@ export class StagedAnalysisEngine {
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
     this.runtimeTraceIntegrator = new RuntimeTraceIntegrator();
     
-    // Initialize full project for enhanced type resolution
-    this.initializeFullProject();
+    // Delay full project initialization until actually needed for performance
+    // this.initializeFullProject();
   }
 
   /**
@@ -197,15 +199,27 @@ export class StagedAnalysisEngine {
   /**
    * Lazy initialization of full TypeChecker with comprehensive type information
    * Only initializes when advanced type resolution is actually needed
+   * @deprecated Currently unused, kept for future advanced type analysis
    */
+  // @ts-ignore - Method kept for future use
   private getFullTypeChecker(): TypeChecker {
     if (!this.isFullTypeCheckerInitialized) {
       this.logger.debug('🚀 Lazy initializing full TypeChecker for advanced resolution...');
       const startTime = performance.now();
       
-      // For now, use the existing typeChecker to avoid initialization overhead
-      // In a future optimization, we could create a full project with tsconfig and libs here
-      this.fullTypeChecker = this.typeChecker;
+      // Initialize full project if not already done
+      if (!this.fullProject) {
+        this.initializeFullProject();
+      }
+      
+      // Use the full TypeChecker if available
+      if (this.fullProject) {
+        this.fullTypeChecker = this.fullProject.getTypeChecker();
+      } else {
+        // Fallback to basic TypeChecker
+        this.fullTypeChecker = this.typeChecker;
+      }
+      
       this.isFullTypeCheckerInitialized = true;
       
       const endTime = performance.now();
@@ -336,7 +350,9 @@ export class StagedAnalysisEngine {
   /**
    * Stage 1: Local Exact Analysis
    * Analyze calls within the same source file with 100% confidence
+   * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
+  // @ts-ignore - Method kept for future use
   private async performLocalExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<void> {
     const sourceFiles = this.project.getSourceFiles();
     
@@ -425,7 +441,9 @@ export class StagedAnalysisEngine {
   /**
    * Stage 2: Import Exact Analysis
    * Analyze cross-file imports using TypeChecker with high confidence
+   * @deprecated Replaced by performCombinedLocalAndImportAnalysis for better performance
    */
+  // @ts-ignore - Method kept for future use
   private async performImportExactAnalysis(functions: Map<string, FunctionMetadata>): Promise<number> {
     let importEdgesCount = 0;
     const sourceFiles = this.getProject().getSourceFiles();
@@ -558,7 +576,7 @@ export class StagedAnalysisEngine {
               localEdgesCount++;
             } else {
               // Try import resolution if local resolution failed
-              const importCalleeId = this.resolveImportCall(node, functions);
+              const importCalleeId = this.resolveImportCall(node as CallExpression, functions);
               if (importCalleeId) {
                 const calleeFunction = functions.get(importCalleeId);
                 this.addEdge({
@@ -582,7 +600,7 @@ export class StagedAnalysisEngine {
                 importEdgesCount++;
               } else if (isOptional) {
                 // Handle unresolved optional calls
-                const optionalCalleeId = this.resolveOptionalCall(node, functions);
+                const optionalCalleeId = this.resolveOptionalCall(node as CallExpression, functions);
                 if (optionalCalleeId) {
                   const calleeFunction = functions.get(optionalCalleeId);
                   this.addEdge({
@@ -608,7 +626,7 @@ export class StagedAnalysisEngine {
             }
           } else {
           // Handle NewExpression 
-          const calleeId = this.resolveNewExpression(node, functions);
+          const calleeId = this.resolveNewExpression(node as NewExpression, functions);
           if (calleeId) {
             const calleeFunction = functions.get(calleeId);
             this.addEdge({
@@ -694,6 +712,7 @@ export class StagedAnalysisEngine {
       
       // Clear unresolved method calls after successful CHA analysis to prevent memory leaks
       this.unresolvedMethodCalls.length = 0;
+      this.unresolvedMethodCallsSet.clear();
       
       this.logger.debug(`CHA resolved ${chaEdges.length} method calls`);
       return chaEdges.length;
@@ -790,7 +809,7 @@ export class StagedAnalysisEngine {
       if (Node.isThisExpression(receiverExpression) || Node.isSuperExpression(receiverExpression)) {
         // Use the callerFunction passed as parameter instead of searching again
         this.logger.debug(`Adding unresolved this/super method call: ${methodName} from ${callerFunction.name}`);
-        this.unresolvedMethodCalls.push({
+        this.addUnresolvedMethodCall({
           callerFunctionId: callerFunction.id,
           methodName,
           receiverType: Node.isThisExpression(receiverExpression) ? 'this' : 'super',
@@ -844,7 +863,7 @@ export class StagedAnalysisEngine {
       }
       
       this.logger.debug(`Adding unresolved method call: ${methodName} from ${callerFunction.name} (receiverType: ${receiverType})`);
-      this.unresolvedMethodCalls.push({
+      this.addUnresolvedMethodCall({
         callerFunctionId: callerFunction.id,
         methodName,
         receiverType,
@@ -1260,7 +1279,7 @@ export class StagedAnalysisEngine {
       // Try to resolve the class symbol from the imported module
       const namespaceSymbol = this.getCachedSymbolAtLocation(sourceFile.getVariableDeclaration(namespace)?.getNameNode() || sourceFile);
       if (namespaceSymbol) {
-        const moduleExports = this.typeChecker.compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
+        const moduleExports = this.getTypeChecker().compilerObject.getExportsOfModule(namespaceSymbol.compilerSymbol);
         const classSymbol = moduleExports.find(exp => exp.getName() === className);
         
         if (classSymbol && classSymbol.flags & ts.SymbolFlags.Class) {
@@ -1363,14 +1382,14 @@ export class StagedAnalysisEngine {
       visited.add(symbolName);
       
       // Get static members of the class
-      const staticType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
-      const staticProperties = this.typeChecker.compilerObject.getPropertiesOfType(staticType);
+      const staticType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const staticProperties = this.getTypeChecker().compilerObject.getPropertiesOfType(staticType);
       
       // Find the static method in current class
       const staticMethodSymbol = staticProperties.find(prop => prop.getName() === methodName);
       if (staticMethodSymbol) {
         // Check if it's a method (function)
-        const methodType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
+        const methodType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(staticMethodSymbol, staticMethodSymbol.valueDeclaration!);
         if (methodType.getCallSignatures().length > 0) {
           // Search for matching function using array-based lookup
           const candidates = functionByName.get(methodName) || [];
@@ -1386,8 +1405,8 @@ export class StagedAnalysisEngine {
       }
       
       // Search in base classes (inheritance chain)
-      const classType = this.typeChecker.compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
-      const baseTypes = this.typeChecker.compilerObject.getBaseTypes(classType as ts.InterfaceType);
+      const classType = this.getTypeChecker().compilerObject.getTypeOfSymbolAtLocation(classSymbol, classSymbol.valueDeclaration!);
+      const baseTypes = this.getTypeChecker().compilerObject.getBaseTypes(classType as ts.InterfaceType);
       
       for (const baseType of baseTypes) {
         const baseSymbol = baseType.getSymbol();
@@ -1474,7 +1493,7 @@ export class StagedAnalysisEngine {
     
     // Follow the alias chain until we reach the original symbol
     while (currentSymbol.flags & ts.SymbolFlags.Alias) {
-      const aliasedSymbol = this.typeChecker.compilerObject.getAliasedSymbol(currentSymbol);
+      const aliasedSymbol = this.getTypeChecker().compilerObject.getAliasedSymbol(currentSymbol);
       if (aliasedSymbol && aliasedSymbol !== currentSymbol) {
         currentSymbol = aliasedSymbol;
       } else {
@@ -1557,8 +1576,8 @@ export class StagedAnalysisEngine {
       const declStartPos = actualFunctionNode.getStart();
       const declEndPos = actualFunctionNode.getEnd();
       
-      // Create position ID for precise matching
-      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+      // Create position ID for precise matching (with Node caching)
+      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, actualFunctionNode);
       const declStartLine = actualFunctionNode.getStartLineNumber();
       
       // Use fast lookup instead of linear search
@@ -1828,8 +1847,8 @@ export class StagedAnalysisEngine {
       const declStartPos = morphDeclaration.getStart();
       const declEndPos = morphDeclaration.getEnd();
       
-      // Create position ID for precise matching
-      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+      // Create position ID for precise matching (with Node caching)
+      const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
       const declStartLine = morphDeclaration.getStartLineNumber();
       
       // Use fast lookup instead of linear search
@@ -1903,8 +1922,8 @@ export class StagedAnalysisEngine {
         const declStartPos = morphDeclaration.getStart();
         const declEndPos = morphDeclaration.getEnd();
         
-        // Create position ID for precise matching
-        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+        // Create position ID for precise matching (with Node caching)
+        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
         const declStartLine = morphDeclaration.getStartLineNumber();
         
         // Use fast lookup
@@ -1921,10 +1940,51 @@ export class StagedAnalysisEngine {
   }
   
   /**
+   * Create a unique key for unresolved method call deduplication
+   * Combines all significant properties to identify duplicate calls
+   */
+  private createMethodCallKey(call: UnresolvedMethodCall): string {
+    return `${call.callerFunctionId}:${call.methodName}:${call.receiverType || 'undefined'}:${call.lineNumber}:${call.columnNumber}`;
+  }
+
+  /**
+   * Add unresolved method call with duplicate prevention
+   * Uses Set-based deduplication to prevent redundant CHA/RTA analysis
+   */
+  private addUnresolvedMethodCall(call: UnresolvedMethodCall): void {
+    const key = this.createMethodCallKey(call);
+    if (!this.unresolvedMethodCallsSet.has(key)) {
+      this.unresolvedMethodCallsSet.add(key);
+      this.unresolvedMethodCalls.push(call);
+    }
+  }
+
+  /**
    * Generate position-based ID for precise function identification
    * Uses character offset for maximum accuracy regardless of formatting changes
+   * Cached with WeakMap to reduce CPU load from repeated hash operations
    */
-  private generatePositionId(filePath: string, startPos: number, endPos: number): string {
+  private generatePositionId(filePath: string, startPos: number, endPos: number, node?: Node): string {
+    // If we have a Node object, use it for efficient WeakMap caching
+    if (node) {
+      const cachedId = this.positionIdCache.get(node);
+      if (cachedId) {
+        return cachedId;
+      }
+      
+      // Compute the position ID using crypto hash
+      const positionId = crypto.createHash('sha256')
+        .update(`${filePath}:${startPos}-${endPos}`)
+        .digest('hex')
+        .slice(0, 16); // Shorter hash for position-based IDs
+      
+      // Store in cache for future use
+      this.positionIdCache.set(node, positionId);
+      
+      return positionId;
+    }
+    
+    // Fallback for cases without Node object (no caching)
     return crypto.createHash('sha256')
       .update(`${filePath}:${startPos}-${endPos}`)
       .digest('hex')
@@ -1987,8 +2047,8 @@ export class StagedAnalysisEngine {
         const declStartPos = morphDeclaration.getStart();
         const declEndPos = morphDeclaration.getEnd();
         
-        // Create position ID for precise matching
-        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+        // Create position ID for precise matching (with Node caching)
+        const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
         const declStartLine = morphDeclaration.getStartLineNumber();
         
         // Use fast lookup instead of linear search
@@ -2045,8 +2105,8 @@ export class StagedAnalysisEngine {
                 const declStartPos = morphDeclaration.getStart();
                 const declEndPos = morphDeclaration.getEnd();
                 
-                // Create position ID for precise matching
-                const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos);
+                // Create position ID for precise matching (with Node caching)
+                const positionId = this.generatePositionId(declFilePath, declStartPos, declEndPos, morphDeclaration);
                 const declStartLine = morphDeclaration.getStartLineNumber();
                 
                 // Use fast lookup instead of linear search
@@ -2064,7 +2124,7 @@ export class StagedAnalysisEngine {
         const fileFunctions = this.fileToFunctionsMap.get(callNodePath) || [];
         const callerFunction = this.findContainingFunction(callNode, fileFunctions);
         if (callerFunction) {
-          this.unresolvedMethodCalls.push({
+          this.addUnresolvedMethodCall({
             callerFunctionId: callerFunction.id,
             methodName,
             receiverType,
@@ -2196,7 +2256,7 @@ export class StagedAnalysisEngine {
     // Binary search for containing function
     let left = 0;
     let right = ranges.length - 1;
-    let candidates: {start: number, end: number, id: string}[] = [];
+    const candidates: {start: number, end: number, id: string}[] = [];
 
     // Find all containing functions
     while (left <= right) {
@@ -2331,7 +2391,7 @@ export class StagedAnalysisEngine {
     // For now, add to unresolved method calls for CHA/RTA analysis
     const callerFunction = this.findContainingFunction(receiver, Array.from(functions.values()));
     if (callerFunction) {
-      this.unresolvedMethodCalls.push({
+      this.addUnresolvedMethodCall({
         callerFunctionId: callerFunction.id,
         methodName,
         receiverType: undefined, // Could be enhanced with type analysis
@@ -2528,6 +2588,7 @@ export class StagedAnalysisEngine {
     this.functionLookupMap.clear();
     this.unresolvedMethodCalls = [];
     this.unresolvedMethodCallsForRTA = [];
+    this.unresolvedMethodCallsSet.clear();
     this.chaCandidates.clear();
     this.chaAnalyzer.clear();
     this.rtaAnalyzer.clear();

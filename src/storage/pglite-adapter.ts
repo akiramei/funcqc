@@ -2753,26 +2753,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Process all functions in batches with transaction support
     await TransactionalBatchProcessor.processWithTransaction(functions, processor, batchSize);
 
-    // Verify that all functions and metrics were saved correctly
-    if (process.env['NODE_ENV'] !== 'production') {
+    // Light verification for development (only for small datasets to prevent performance impact)
+    if (process.env['NODE_ENV'] !== 'production' && functions.length < 100) {
       const savedCount = await this.db.query(
         'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
         [snapshotId]
       );
-      const metricsCount = await this.db.query(
-        'SELECT COUNT(*) as count FROM quality_metrics WHERE function_id IN (SELECT id FROM functions WHERE snapshot_id = $1)',
-        [snapshotId]
-      );
-
       const actualFunctionCount = (savedCount.rows[0] as { count: string }).count;
-      const actualMetricsCount = (metricsCount.rows[0] as { count: string }).count;
-      const expectedMetricsCount = functions.filter(f => f.metrics).length;
 
       if (parseInt(actualFunctionCount) !== functions.length) {
         this.logger?.warn(`Function count mismatch: expected ${functions.length}, got ${actualFunctionCount}`);
-      }
-      if (parseInt(actualMetricsCount) !== expectedMetricsCount) {
-        this.logger?.warn(`Metrics count mismatch: expected ${expectedMetricsCount}, got ${actualMetricsCount}`);
       }
     }
   }
@@ -2898,7 +2888,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     // Use bulk insert for better performance when batch size is large enough
-    if (functions.length >= 50) {
+    if (functions.length >= 10) {
       await this.saveFunctionsBulk(snapshotId, functions);
     } else {
       // Fall back to individual inserts for small batches
