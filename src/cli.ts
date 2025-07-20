@@ -1166,13 +1166,15 @@ program
 // Safe deletion command using high-confidence call graph analysis
 program
   .command('safe-delete')
-  .description('🛡️  Safely delete dead code using high-confidence call graph analysis')
+  .description('🛡️  Safely analyze and delete dead code using high-confidence call graph analysis')
   .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
   .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
   .option('--no-tests', 'skip test execution before deletion')
   .option('--no-type-check', 'skip TypeScript type checking')
   .option('--no-backup', 'skip backup creation')
-  .option('--dry-run', 'preview what would be deleted without executing')
+  .option('--execute', 'execute actual deletion (default is analysis/preview only)')
+  .option('--force', 'force deletion without interactive confirmation')
+  .option('--dry-run', 'preview what would be deleted (same as default behavior)')
   .option('--include-exports', 'include exported functions in deletion candidates')
   .option('--exclude <patterns>', 'exclude file patterns (comma-separated)')
   .option('--format <format>', 'output format (table, json)', 'table')
@@ -1185,17 +1187,23 @@ program
   })
   .addHelpText('after', `
 Examples:
-  # Preview safe deletion (dry run)
-  $ funcqc safe-delete --dry-run
+  # Analyze candidates for safe deletion (default - preview only)
+  $ funcqc safe-delete
 
-  # Delete with high confidence threshold
+  # Execute actual deletion with interactive confirmation
+  $ funcqc safe-delete --execute
+
+  # Force deletion without confirmation (dangerous!)
+  $ funcqc safe-delete --execute --force
+
+  # Analysis with high confidence threshold
   $ funcqc safe-delete --confidence-threshold 0.98
 
-  # Delete without backup (faster but less safe)
-  $ funcqc safe-delete --no-backup
+  # Execute deletion without backup (faster but less safe)
+  $ funcqc safe-delete --execute --no-backup
 
-  # Delete in smaller batches for safety
-  $ funcqc safe-delete --max-batch 5
+  # Execute deletion in smaller batches for safety
+  $ funcqc safe-delete --execute --max-batch 5
 
   # Include exported functions in analysis
   $ funcqc safe-delete --include-exports
@@ -1205,6 +1213,10 @@ Examples:
 
   # Restore from backup
   $ funcqc safe-delete --restore ".funcqc/backups/safe-deletion-2024-01-15T10-30-00-000Z"
+
+Note: By default, safe-delete only analyzes and previews candidates.
+Use --execute to perform actual deletion with confirmation prompts.
+Use --force to skip confirmation (not recommended).
 `);
 
 // Clean dead code command

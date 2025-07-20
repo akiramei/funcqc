@@ -2,6 +2,7 @@ import { OptionValues } from 'commander';
 import chalk from 'chalk';
 import { Ora } from 'ora';
 import ora from 'ora';
+import * as readline from 'readline';
 import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
@@ -13,6 +14,8 @@ interface SafeDeleteOptions extends OptionValues {
   noTests?: boolean;
   noTypeCheck?: boolean;
   noBackup?: boolean;
+  execute?: boolean;
+  force?: boolean;
   dryRun?: boolean;
   includeExports?: boolean;
   exclude?: string[];
@@ -61,9 +64,29 @@ async function performSafeDeletion(
 
   const callEdges = await loadCallEdges(env, spinner, snapshot.id, options);
   const safeDeletionOptions = createSafeDeletionOptions(options);
+  
+  // Step 1: Always perform analysis first
   const result = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner);
-
+  
+  // Step 2: Show preview results
   outputResults(result, options);
+  
+  // Step 3: If --execute flag is provided and candidates exist, ask for confirmation
+  if (options.execute && result.candidateFunctions.length > 0) {
+    if (options.force) {
+      console.log(chalk.yellow('\n⚠️  --force flag detected. Proceeding with deletion without confirmation.'));
+      await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner);
+    } else {
+      const confirmed = await promptForConfirmation(result);
+      if (confirmed) {
+        await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner);
+      } else {
+        console.log(chalk.cyan('\n✅ Deletion cancelled. No files were modified.'));
+      }
+    }
+  } else if (!options.execute && result.candidateFunctions.length > 0) {
+    console.log(chalk.dim('\n💡 This was a preview. Use --execute flag to perform actual deletion.'));
+  }
 }
 
 /**
@@ -152,21 +175,26 @@ function filterHighConfidenceEdges(
  * Create safe deletion options from CLI options
  */
 function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDeletionOptions> {
+  // Determine execution mode: preview-only by default, execute only with --execute flag
+  const shouldExecute = options.execute || false;
+  const dryRun = options.dryRun || !shouldExecute; // Default to dry-run unless --execute is specified
+  
   const safeDeletionOptions: Partial<SafeDeletionOptions> = {
     confidenceThreshold: parseFloat(options.confidenceThreshold || '0.95'),
     maxFunctionsPerBatch: parseInt(options.maxBatch || '10'),
     createBackup: !options.noBackup,
-    dryRun: options.dryRun || false,
+    dryRun,
     excludeExports: !options.includeExports,
     excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**']
   };
   
-  console.log(`🔧 Configuration: backup=${safeDeletionOptions.createBackup}, dryRun=${safeDeletionOptions.dryRun}`);
+  const mode = dryRun ? 'preview-only' : 'execute';
+  console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}`);
   return safeDeletionOptions;
 }
 
 /**
- * Perform the actual safe deletion analysis
+ * Perform the actual safe deletion analysis (preview mode)
  */
 async function performAnalysis(
   functions: import('../types').FunctionInfo[],
@@ -177,14 +205,78 @@ async function performAnalysis(
   spinner.text = 'Analyzing functions for safe deletion...';
   
   const safeDeletionSystem = new SafeDeletionSystem();
+  
+  // Force dry-run for analysis phase
+  const analysisOptions = { ...safeDeletionOptions, dryRun: true };
   const result = await safeDeletionSystem.performSafeDeletion(
     functions,
     callEdges,
-    safeDeletionOptions
+    analysisOptions
   );
   
   spinner.succeed('Safe deletion analysis completed');
   return result;
+}
+
+/**
+ * Execute actual deletion after confirmation
+ */
+async function executeActualDeletion(
+  functions: import('../types').FunctionInfo[],
+  callEdges: import('../types').CallEdge[],
+  safeDeletionOptions: Partial<SafeDeletionOptions>,
+  spinner: Ora
+): Promise<void> {
+  spinner.start('Executing safe deletion...');
+  
+  const safeDeletionSystem = new SafeDeletionSystem();
+  
+  // Execute with actual deletion (dryRun: false)
+  const executionOptions = { ...safeDeletionOptions, dryRun: false };
+  const result = await safeDeletionSystem.performSafeDeletion(
+    functions,
+    callEdges,
+    executionOptions
+  );
+  
+  spinner.succeed('Safe deletion execution completed');
+  
+  // Show execution results
+  console.log(chalk.bold('\n🎯 Execution Results\n'));
+  outputSummarySection(result);
+  outputValidationResults(result);
+  outputErrorsAndWarnings(result);
+  
+  if (result.backupPath) {
+    console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc safe-delete --restore "${result.backupPath}"`));
+  }
+}
+
+/**
+ * Prompt user for confirmation before actual deletion
+ */
+async function promptForConfirmation(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): Promise<boolean> {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+    
+    const candidateCount = result.candidateFunctions.length;
+    const totalLines = result.candidateFunctions.reduce((sum, c) => 
+      sum + (c.functionInfo.endLine - c.functionInfo.startLine + 1), 0
+    );
+    
+    console.log(chalk.yellow('\n⚠️  Confirmation Required'));
+    console.log(`You are about to delete ${chalk.bold(candidateCount)} functions (${chalk.bold(totalLines)} lines of code).`);
+    console.log(chalk.dim('This action cannot be undone without using the backup.'));
+    
+    rl.question('\nDo you want to proceed with the deletion? (y/N): ', (answer) => {
+      rl.close();
+      const confirmed = answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes';
+      resolve(confirmed);
+    });
+  });
 }
 
 /**
@@ -471,8 +563,8 @@ function outputActionableTips(
 ): void {
   const { candidateFunctions, deletedFunctions } = result;
   
-  if (options.dryRun) {
-    console.log(chalk.dim('\n💡 This was a dry run. Use `funcqc safe-delete` without --dry-run to perform actual deletions.'));
+  if (options.dryRun || !options.execute) {
+    console.log(chalk.dim('\n💡 This was a preview. Use `funcqc safe-delete --execute` to perform actual deletions.'));
   } else if (candidateFunctions.length > 0 && deletedFunctions.length === 0) {
     outputImprovementTips(candidateFunctions);
   }
@@ -498,7 +590,7 @@ function outputImprovementTips(candidateFunctions: import('../analyzers/safe-del
     console.log(chalk.dim('  • Use --verbose to see detailed reasons for skipping'));
   }
   
-  console.log(chalk.dim('  • Use --dry-run to preview what would be deleted'));
+  console.log(chalk.dim('  • Use --execute to perform actual deletion with confirmation'));
   console.log(chalk.dim('  • Use --exclude to exclude specific file patterns'));
   console.log(chalk.dim('  • Consider manual review of high-confidence candidates'));
 }
