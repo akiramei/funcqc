@@ -142,23 +142,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       filteredEdges = applyDepSorting(filteredEdges, options);
 
       // Prioritize internal call edges (they have actual line numbers) for better demo
-      filteredEdges = [...filteredEdges].sort((a, b) => {
-        // Internal edges first
-        const aIsInternal = a.metadata?.['source'] === 'internal';
-        const bIsInternal = b.metadata?.['source'] === 'internal';
-        
-        if (aIsInternal && !bIsInternal) return -1;
-        if (!aIsInternal && bIsInternal) return 1;
-        
-        // Within same type, prefer edges with line numbers
-        const aHasLine = a.lineNumber && a.lineNumber > 0;
-        const bHasLine = b.lineNumber && b.lineNumber > 0;
-        
-        if (aHasLine && !bHasLine) return -1;
-        if (!aHasLine && bHasLine) return 1;
-        
-        return 0; // Keep original order
-      });
+      filteredEdges = prioritizeInternalEdges(filteredEdges);
 
       // Apply limit
       let limit = 20;
@@ -411,6 +395,31 @@ function applyDepSorting(edges: CallEdge[], options: DepListOptions): CallEdge[]
   });
 
   return sorted;
+}
+
+/**
+ * Prioritize internal call edges for better visibility in demo/analysis contexts.
+ * Internal edges (with actual line numbers) are moved to the front of the array.
+ * 
+ * @param edges - Array of call edges to prioritize
+ * @returns Prioritized array with internal edges first, then external edges
+ */
+function prioritizeInternalEdges(edges: CallEdge[]): CallEdge[] {
+  return [...edges].sort((a, b) => {
+    // Prioritize edges with line numbers (internal calls) over those without
+    const aHasLineNumber = (a.lineNumber ?? 0) > 0;
+    const bHasLineNumber = (b.lineNumber ?? 0) > 0;
+    
+    if (aHasLineNumber && !bHasLineNumber) {
+      return -1; // a comes first
+    }
+    if (!aHasLineNumber && bHasLineNumber) {
+      return 1; // b comes first
+    }
+    
+    // If both have line numbers or both don't, maintain original relative order
+    return 0;
+  });
 }
 
 /**
