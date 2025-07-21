@@ -2704,8 +2704,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Replaces the destructive dropOldTablesIfNeeded approach
    */
   private async initializeWithMigrations(): Promise<void> {
-    // Create database schema directly
-    await this.createTablesDirectly();
+    // First, create base schema from database.sql if no tables exist
+    const result = await this.db.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_name = 'snapshots'
+    `);
+    
+    if (result.rows.length === 0) {
+      // Create initial schema from database.sql
+      await this.createTablesDirectly();
+      
+      // Run any pending migrations for new database
+      await this.runPendingMigrations();
+    }
   }
 
 
@@ -2735,6 +2747,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     } catch (error) {
       this.logger?.error(`❌ Failed to create database schema: ${error}`);
       throw new Error(`Database schema creation failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Run pending migrations using KyselyMigrationManager
+   */
+  private async runPendingMigrations(): Promise<void> {
+    try {
+      const { KyselyMigrationManager } = await import('../migrations/kysely-migration-manager.js');
+      const migrationManager = new KyselyMigrationManager(this.db);
+      
+      // Ensure migration metadata table exists first
+      await migrationManager.ensureMigrationTable();
+      
+      const result = await migrationManager.migrateToLatest();
+      
+      if (result.results && result.results.length > 0) {
+        console.log(`🚀 Executed ${result.results.length} migrations`);
+      }
+      
+      // Close the migration manager to avoid connection conflicts
+      await migrationManager.close();
+    } catch (error) {
+      console.warn('⚠️ Migration execution failed, continuing with existing schema:', error);
     }
   }
 

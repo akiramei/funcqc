@@ -267,6 +267,23 @@ export class KyselyMigrationManager {
   }
 
   /**
+   * Ensure migration metadata table exists
+   */
+  async ensureMigrationTable(): Promise<void> {
+    try {
+      // Create migration table if it doesn't exist
+      await this.kysely.schema
+        .createTable('kysely_migration')
+        .ifNotExists()
+        .addColumn('name', 'varchar', (col) => col.primaryKey())
+        .addColumn('timestamp', 'varchar', (col) => col.notNull())
+        .execute();
+    } catch {
+      // Table might already exist, ignore errors
+    }
+  }
+
+  /**
    * 最新バージョンまでマイグレーション実行
    */
   async migrateToLatest(): Promise<MigrationResultSet> {
