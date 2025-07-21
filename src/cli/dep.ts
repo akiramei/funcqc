@@ -241,8 +241,8 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
             .map(f => [
               f.id, 
               { 
-                cyclomaticComplexity: f.metrics!.cyclomaticComplexity, 
-                cognitiveComplexity: f.metrics!.cognitiveComplexity 
+                cyclomaticComplexity: f.metrics?.cyclomaticComplexity ?? 1, 
+                cognitiveComplexity: f.metrics?.cognitiveComplexity ?? 1 
               }
             ])
         );
@@ -492,12 +492,12 @@ function calculateRouteComplexity(
     pathNames.push(functionName);
     
     if (metrics) {
-      totalComplexity += metrics.cyclomaticComplexity;
+      totalComplexity += metrics.cyclomaticComplexity ?? 1;
       complexityBreakdown.push({
         functionId,
         functionName,
-        cyclomaticComplexity: metrics.cyclomaticComplexity,
-        cognitiveComplexity: metrics.cognitiveComplexity,
+        cyclomaticComplexity: metrics.cyclomaticComplexity ?? 1,
+        cognitiveComplexity: metrics.cognitiveComplexity ?? 1,
       });
     } else {
       // If no metrics available, assume low complexity
@@ -677,12 +677,13 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
       }
       console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
       
-      const mostComplexFunction = dependencies.routes
-        .flatMap(r => r.complexityBreakdown)
-        .reduce((max, current) => 
+      const allFunctions = dependencies.routes.flatMap(r => r.complexityBreakdown);
+      if (allFunctions.length > 0) {
+        const mostComplexFunction = allFunctions.reduce((max, current) => 
           current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
         );
-      console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
+        console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
+      }
       console.log();
     }
   }
