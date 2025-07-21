@@ -117,7 +117,7 @@ export class StagedAnalysisEngine {
     this.project = project;
     this.typeChecker = typeChecker;
     this.logger = options.logger ?? new Logger(false); // Default non-verbose logger
-    this.debug = process.env.DEBUG_STAGED_ANALYSIS === 'true';
+    this.debug = process.env['DEBUG_STAGED_ANALYSIS'] === 'true';
     this.symbolCache = new SymbolCache(typeChecker);
     this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
