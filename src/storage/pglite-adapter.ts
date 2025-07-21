@@ -4531,7 +4531,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           calleeClassName: typedRow.callee_class_name || undefined,
           lineNumber: typedRow.line_number,
           columnNumber: typedRow.column_number,
-          callType: typedRow.call_type,
+          callType: (typedRow.call_type && ['direct', 'conditional', 'async', 'dynamic'].includes(typedRow.call_type)) 
+            ? (typedRow.call_type as 'direct' | 'conditional' | 'async' | 'dynamic') 
+            : 'direct',
           callContext: typedRow.call_context || undefined,
           confidenceScore: typedRow.confidence_score,
           detectedBy: 'ast' as const,
