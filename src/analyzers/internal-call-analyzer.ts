@@ -333,9 +333,17 @@ export class InternalCallAnalyzer {
     while (parent) {
       if (Node.isIfStatement(parent) || 
           Node.isConditionalExpression(parent) || 
-          Node.isLogicalAndExpression(parent) ||
-          Node.isLogicalOrExpression(parent)) {
-        return true;
+          Node.isBinaryExpression(parent)) {
+        // Check if it's a logical operator
+        if (Node.isBinaryExpression(parent)) {
+          const operator = parent.getOperatorToken().getKind();
+          if (operator === SyntaxKind.AmpersandAmpersandToken || 
+              operator === SyntaxKind.BarBarToken) {
+            return true;
+          }
+        } else {
+          return true;
+        }
       }
       parent = parent.getParent();
     }

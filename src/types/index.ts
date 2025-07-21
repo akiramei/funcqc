@@ -211,6 +211,7 @@ export interface InternalCallEdge {
   calleeClassName?: string | undefined;
   lineNumber: number;
   columnNumber: number;
+  callType: 'direct' | 'conditional' | 'async' | 'dynamic';
   callContext?: string | undefined;
   confidenceScore: number;
   detectedBy: 'ast' | 'ideal_call_graph';

@@ -32,6 +32,9 @@ interface DepShowOptions extends BaseCommandOptions {
   direction?: 'in' | 'out' | 'both';
   depth?: string;
   includeExternal?: boolean;
+  showComplexity?: boolean;    // Show complexity metrics for each function in routes
+  rankByLength?: boolean;      // Sort routes by depth (longest first)
+  maxRoutes?: string;          // Limit number of displayed routes
   json?: boolean;
   snapshot?: string;
 }
@@ -191,7 +194,22 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
       // Get call edges for the snapshot
       const callEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
 
-      // Dependencies will be built by buildDependencyTree function
+      // Get quality metrics if complexity analysis is requested
+      let qualityMetricsMap: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
+      if (options.showComplexity) {
+        // Quality metrics are already included in FunctionInfo from getFunctionsBySnapshot
+        qualityMetricsMap = new Map(
+          functions
+            .filter(f => f.metrics)
+            .map(f => [
+              f.id, 
+              { 
+                cyclomaticComplexity: f.metrics!.cyclomaticComplexity, 
+                cognitiveComplexity: f.metrics!.cognitiveComplexity 
+              }
+            ])
+        );
+      }
 
       // Apply depth filtering if needed
       let maxDepth = 2;
@@ -203,13 +221,31 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
         }
         maxDepth = parsed;
       }
+
+      // Parse maxRoutes option
+      let maxRoutes = 5; // default
+      if (options.maxRoutes) {
+        const parsed = parseInt(options.maxRoutes, 10);
+        if (isNaN(parsed) || parsed < 1) {
+          console.log(chalk.red(`Invalid maxRoutes: ${options.maxRoutes}`));
+          return;
+        }
+        maxRoutes = parsed;
+      }
+
       const dependencies = buildDependencyTree(
         targetFunction.id,
         callEdges,
         functions,
         options.direction || 'both',
         maxDepth,
-        options.includeExternal || false
+        options.includeExternal || false,
+        {
+          showComplexity: options.showComplexity,
+          rankByLength: options.rankByLength,
+          maxRoutes,
+          qualityMetrics: qualityMetricsMap,
+        }
       );
 
       // Output results
@@ -348,7 +384,6 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
 
   // Table rows
   edges.forEach(edge => {
-    const caller = edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown';
     const callerWithClass = edge.callerClassName ? `${edge.callerClassName}::${edge.callerFunctionId?.substring(0, 8)}` : (edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown');
     const calleeWithClass = edge.calleeClassName ? `${edge.calleeClassName}::${edge.calleeName}` : (edge.calleeName || 'unknown');
     const type = edge.callType || 'unknown';
@@ -369,6 +404,20 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
   console.log();
 }
 
+interface RouteComplexityInfo {
+  path: string[];           // Function IDs in the route
+  pathNames: string[];      // Function names in the route
+  totalDepth: number;       // Route length
+  totalComplexity: number;  // Sum of cyclomatic complexity for all functions in route
+  avgComplexity: number;    // Average complexity per function
+  complexityBreakdown: Array<{
+    functionId: string;
+    functionName: string;
+    cyclomaticComplexity: number;
+    cognitiveComplexity: number;
+  }>;
+}
+
 interface DependencyTreeNode {
   id: string;
   name: string;
@@ -378,10 +427,64 @@ interface DependencyTreeNode {
     edge: CallEdge;
     subtree: DependencyTreeNode | null;
   }>;
+  routes?: RouteComplexityInfo[];  // Route complexity analysis results
 }
 
 /**
- * Build dependency tree with specified depth
+ * Calculate complexity metrics for a dependency route
+ */
+function calculateRouteComplexity(
+  path: string[],
+  functions: Array<{ id: string; name: string }>,
+  qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
+): RouteComplexityInfo | null {
+  if (path.length === 0 || !qualityMetrics) {
+    return null;
+  }
+
+  let totalComplexity = 0;
+  const complexityBreakdown: RouteComplexityInfo['complexityBreakdown'] = [];
+  const pathNames: string[] = [];
+
+  for (const functionId of path) {
+    const functionInfo = functions.find(f => f.id === functionId);
+    const metrics = qualityMetrics.get(functionId);
+    
+    const functionName = functionInfo?.name || 'unknown';
+    pathNames.push(functionName);
+    
+    if (metrics) {
+      totalComplexity += metrics.cyclomaticComplexity;
+      complexityBreakdown.push({
+        functionId,
+        functionName,
+        cyclomaticComplexity: metrics.cyclomaticComplexity,
+        cognitiveComplexity: metrics.cognitiveComplexity,
+      });
+    } else {
+      // If no metrics available, assume low complexity
+      complexityBreakdown.push({
+        functionId,
+        functionName,
+        cyclomaticComplexity: 1,
+        cognitiveComplexity: 1,
+      });
+      totalComplexity += 1;
+    }
+  }
+
+  return {
+    path,
+    pathNames,
+    totalDepth: path.length,
+    totalComplexity,
+    avgComplexity: totalComplexity / path.length,
+    complexityBreakdown,
+  };
+}
+
+/**
+ * Build dependency tree with specified depth and optional complexity analysis
  */
 function buildDependencyTree(
   functionId: string,
@@ -389,16 +492,24 @@ function buildDependencyTree(
   functions: Array<{ id: string; name: string }>,
   direction: 'in' | 'out' | 'both',
   maxDepth: number,
-  includeExternal: boolean
+  includeExternal: boolean,
+  options?: {
+    showComplexity?: boolean | undefined;
+    rankByLength?: boolean | undefined;
+    maxRoutes?: number | undefined;
+    qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
+  }
 ): DependencyTreeNode {
   const visited = new Set<string>();
+  const routes: RouteComplexityInfo[] = [];
   
-  function buildTree(currentId: string, depth: number, dir: 'in' | 'out'): DependencyTreeNode | null {
+  function buildTree(currentId: string, depth: number, dir: 'in' | 'out', currentPath: string[] = []): DependencyTreeNode | null {
     if (depth > maxDepth || visited.has(currentId)) {
       return null;
     }
     
     visited.add(currentId);
+    const newPath = [...currentPath, currentId];
     
     const currentFunction = functions.find(f => f.id === currentId);
     const result: DependencyTreeNode = {
@@ -418,7 +529,7 @@ function buildDependencyTree(
       result.dependencies.push(...incoming.map(edge => ({
         direction: 'in' as const,
         edge,
-        subtree: buildTree(edge.callerFunctionId || '', depth + 1, 'in'),
+        subtree: buildTree(edge.callerFunctionId || '', depth + 1, 'in', newPath),
       })).filter(dep => dep.subtree));
     }
     
@@ -432,19 +543,44 @@ function buildDependencyTree(
       result.dependencies.push(...outgoing.map(edge => ({
         direction: 'out' as const,
         edge,
-        subtree: buildTree(edge.calleeFunctionId || '', depth + 1, 'out'),
+        subtree: buildTree(edge.calleeFunctionId || '', depth + 1, 'out', newPath),
       })).filter(dep => dep.subtree));
+    }
+    
+    // Record route if this is a leaf node or if complexity analysis is enabled
+    if (options?.showComplexity && (result.dependencies.length === 0 || depth === maxDepth)) {
+      const routeComplexity = calculateRouteComplexity(newPath, functions, options.qualityMetrics);
+      if (routeComplexity) {
+        routes.push(routeComplexity);
+      }
     }
     
     return result;
   }
   
-  return buildTree(functionId, 0, direction === 'both' ? 'out' : direction) || {
+  const result = buildTree(functionId, 0, direction === 'both' ? 'out' : direction) || {
     id: functionId,
     name: 'unknown',
     depth: 0,
     dependencies: [],
   };
+  
+  // Add route analysis results if complexity analysis is enabled
+  if (options?.showComplexity && routes.length > 0) {
+    // Sort routes by length if requested
+    const sortedRoutes = options.rankByLength 
+      ? routes.sort((a, b) => b.totalDepth - a.totalDepth)
+      : routes;
+    
+    // Apply route limit
+    const limitedRoutes = options.maxRoutes 
+      ? sortedRoutes.slice(0, options.maxRoutes)
+      : sortedRoutes;
+      
+    result.routes = limitedRoutes;
+  }
+  
+  return result;
 }
 
 /**
@@ -461,11 +597,55 @@ function outputDepShowJSON(func: { id: string; name: string; file_path?: string;
 /**
  * Output dependency show in formatted tree
  */
-function outputDepShowFormatted(func: { id: string; name: string; file_path?: string; start_line?: number }, dependencies: DependencyTreeNode, _options: DepShowOptions): void {
+function outputDepShowFormatted(func: { id: string; name: string; file_path?: string; start_line?: number }, dependencies: DependencyTreeNode, options: DepShowOptions): void {
   console.log(chalk.bold(`\nDependency Analysis for: ${chalk.cyan(func.name)}`));
   console.log(chalk.gray(`ID: ${func.id}`));
   console.log(chalk.gray(`File: ${func.file_path}:${func.start_line}`));
   console.log();
+
+  // Show route complexity analysis if available
+  if (options.showComplexity && dependencies.routes && dependencies.routes.length > 0) {
+    console.log(chalk.bold('📊 Longest Routes (by depth):'));
+    console.log();
+    
+    dependencies.routes.forEach((route, index) => {
+      console.log(chalk.bold(`Route ${index + 1} (Depth: ${route.totalDepth}, Total Complexity: ${route.totalComplexity})`));
+      
+      // Display route path with complexity breakdown
+      route.complexityBreakdown.forEach((breakdown, pathIndex) => {
+        const isLast = pathIndex === route.complexityBreakdown.length - 1;
+        const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
+        const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
+        
+        if (pathIndex === 0) {
+          console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
+        } else {
+          console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
+        }
+      });
+      
+      console.log();
+    });
+    
+    // Summary statistics
+    if (dependencies.routes.length > 1) {
+      const maxComplexity = Math.max(...dependencies.routes.map(r => r.totalComplexity));
+      const avgComplexity = dependencies.routes.reduce((sum, r) => sum + r.totalComplexity, 0) / dependencies.routes.length;
+      const maxComplexityRoute = dependencies.routes.find(r => r.totalComplexity === maxComplexity);
+      
+      console.log(chalk.bold('📈 Complexity Summary:'));
+      console.log(`  Highest complexity route: Route ${dependencies.routes.indexOf(maxComplexityRoute!) + 1} (${maxComplexity})`);
+      console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
+      
+      const mostComplexFunction = dependencies.routes
+        .flatMap(r => r.complexityBreakdown)
+        .reduce((max, current) => 
+          current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
+        );
+      console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
+      console.log();
+    }
+  }
 
   function printTree(node: DependencyTreeNode | null, prefix: string = '', isLast: boolean = true): void {
     if (!node) return;
