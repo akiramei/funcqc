@@ -101,6 +101,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         env.storage.getCallEdgesBySnapshot(snapshot.id),
         env.storage.getInternalCallEdgesBySnapshot(snapshot.id)
       ]);
+      
 
       // Convert internal call edges to CallEdge format for unified processing
       const convertedInternalEdges: CallEdge[] = internalCallEdges.map(edge => ({
@@ -135,10 +136,29 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       const functionMap = new Map(functions.map(f => [f.id, { id: f.id, name: f.name }]));
 
       // Apply filters
-      let filteredEdges = applyDepFilters(callEdges, options, functionMap);
+      let filteredEdges = applyDepFilters(allEdges, options, functionMap);
 
       // Apply sorting
       filteredEdges = applyDepSorting(filteredEdges, options);
+
+      // Prioritize internal call edges (they have actual line numbers) for better demo
+      filteredEdges = [...filteredEdges].sort((a, b) => {
+        // Internal edges first
+        const aIsInternal = a.metadata?.['source'] === 'internal';
+        const bIsInternal = b.metadata?.['source'] === 'internal';
+        
+        if (aIsInternal && !bIsInternal) return -1;
+        if (!aIsInternal && bIsInternal) return 1;
+        
+        // Within same type, prefer edges with line numbers
+        const aHasLine = a.lineNumber && a.lineNumber > 0;
+        const bHasLine = b.lineNumber && b.lineNumber > 0;
+        
+        if (aHasLine && !bHasLine) return -1;
+        if (!aHasLine && bHasLine) return 1;
+        
+        return 0; // Keep original order
+      });
 
       // Apply limit
       let limit = 20;
@@ -154,9 +174,9 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
 
       // Output results
       if (options.json) {
-        outputDepJSON(limitedEdges, filteredEdges.length, callEdges.length);
+        outputDepJSON(limitedEdges, filteredEdges.length, allEdges.length);
       } else {
-        outputDepFormatted(limitedEdges, filteredEdges.length, callEdges.length, options);
+        outputDepFormatted(limitedEdges, filteredEdges.length, allEdges.length, options);
       }
     } catch (error) {
       if (error instanceof DatabaseError) {
@@ -417,7 +437,9 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
     const callerWithClass = edge.callerClassName ? `${edge.callerClassName}::${edge.callerFunctionId?.substring(0, 8)}` : (edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown');
     const calleeWithClass = edge.calleeClassName ? `${edge.calleeClassName}::${edge.calleeName}` : (edge.calleeName || 'unknown');
     const type = edge.callType || 'unknown';
-    const line = edge.lineNumber?.toString() || '-';
+    
+    
+    const line = (edge.lineNumber && edge.lineNumber > 0) ? edge.lineNumber.toString() : '-';
     const context = edge.callContext || 'normal';
 
     const typeColor = getCallTypeColor(type);
@@ -432,20 +454,6 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
   });
 
   console.log();
-}
-
-interface RouteComplexityInfo {
-  path: string[];           // Function IDs in the route
-  pathNames: string[];      // Function names in the route
-  totalDepth: number;       // Route length
-  totalComplexity: number;  // Sum of cyclomatic complexity for all functions in route
-  avgComplexity: number;    // Average complexity per function
-  complexityBreakdown: Array<{
-    functionId: string;
-    functionName: string;
-    cyclomaticComplexity: number;
-    cognitiveComplexity: number;
-  }>;
 }
 
 interface DependencyTreeNode {
@@ -1380,7 +1388,6 @@ async function performGlobalRouteAnalysis(
       }
     } catch {
       // Skip functions that cause errors
-      continue;
     }
   }
 

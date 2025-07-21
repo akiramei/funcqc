@@ -85,7 +85,7 @@ async function executeScanCommand(
     const result = await performAnalysis(files, components, spinner, env);
     showAnalysisSummary(result.functions);
 
-    await saveResults(result.functions, result.callEdges, env.storage, options, spinner);
+    await saveResults(result.functions, result.callEdges, result.internalCallEdges, env.storage, options, spinner, result.project, result.functionAnalyzer);
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
@@ -180,7 +180,7 @@ async function performAnalysis(
   components: CliComponents,
   spinner: SpinnerInterface,
   env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[]; project?: import('ts-morph').Project | null; functionAnalyzer?: FunctionAnalyzer }> {
   spinner.start('Analyzing functions...');
 
   const result = await performFullAnalysis(files, components, spinner, env);
@@ -194,13 +194,14 @@ async function performFullAnalysis(
   components: CliComponents,
   spinner: SpinnerInterface,
   env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[]; project?: import('ts-morph').Project | null; functionAnalyzer?: FunctionAnalyzer }> {
   // Try ideal call graph analysis first
   const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
   
   try {
     spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
     const result = await functionAnalyzer.analyzeFilesWithIdealCallGraph(files);
+    
     
     spinner.text = `Ideal analysis completed: ${result.functions.length} functions, ${result.callEdges.length} call edges`;
     
@@ -222,19 +223,27 @@ async function performFullAnalysis(
       spinner.text = `Call graph: ${result.callEdges.length} edges (High: ${highConfidenceEdges.length}, Medium: ${mediumConfidenceEdges.length}, Low: ${lowConfidenceEdges.length})`;
     }
     
+    // Get the project instance (don't dispose yet - needed for internal call analysis)
+    const project = functionAnalyzer.getProject();
+    
     return {
       functions: result.functions,
-      callEdges: result.callEdges
+      callEdges: result.callEdges,
+      internalCallEdges: result.internalCallEdges,
+      project: project,
+      functionAnalyzer: functionAnalyzer  // Keep reference for later disposal
     };
     
   } catch (error) {
     console.warn('⚠️  Ideal call graph analysis failed, falling back to legacy analysis');
     console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
     
-    // Fallback to legacy analysis
-    return await performLegacyAnalysis(files, components, spinner);
-  } finally {
+    // Dispose on error since we won't use it
     functionAnalyzer.dispose();
+    
+    // Fallback to legacy analysis
+    const fallbackResult = await performLegacyAnalysis(files, components, spinner);
+    return { ...fallbackResult, internalCallEdges: [], project: null };
   }
 }
 
@@ -444,9 +453,12 @@ async function performStreamingAnalysis(
 async function saveResults(
   allFunctions: FunctionInfo[],
   allCallEdges: CallEdge[],
+  allInternalCallEdges: import('../../types').InternalCallEdge[] | undefined,
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  project?: import('ts-morph').Project | null,
+  functionAnalyzer?: FunctionAnalyzer
 ): Promise<void> {
   spinner.start('Saving to database...');
 
@@ -465,9 +477,27 @@ async function saveResults(
     await storage.insertCallEdges(allCallEdges, snapshotId);
   }
 
-  // Analyze and save internal call edges for safe-delete functionality
-  spinner.text = 'Analyzing internal function calls for safe-delete...';
-  await saveInternalCallEdges(allFunctions, storage, snapshotId, spinner);
+  // Save internal call edges for safe-delete functionality  
+  if (allInternalCallEdges && allInternalCallEdges.length > 0) {
+    spinner.text = `Saving ${allInternalCallEdges.length} internal call edges for safe-delete...`;
+    
+    // Update snapshotId in the internal call edges
+    const edgesWithSnapshotId = allInternalCallEdges.map(edge => ({
+      ...edge,
+      snapshotId
+    }));
+    
+    await storage.insertInternalCallEdges(edgesWithSnapshotId);
+  } else if (project) {
+    // Fallback to old analysis method if no edges were pre-computed
+    spinner.text = 'Analyzing internal function calls for safe-delete...';
+    await saveInternalCallEdges(allFunctions, storage, snapshotId, spinner, project);
+  }
+
+  // Dispose of the function analyzer if provided
+  if (functionAnalyzer) {
+    functionAnalyzer.dispose();
+  }
   
   const elapsed = Math.ceil((Date.now() - startTime) / 1000);
 
@@ -485,10 +515,11 @@ async function saveInternalCallEdges(
   allFunctions: FunctionInfo[],
   storage: CliComponents['storage'],
   snapshotId: string,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  project: import('ts-morph').Project
 ): Promise<void> {
   try {
-    const internalCallAnalyzer = new InternalCallAnalyzer();
+    const internalCallAnalyzer = new InternalCallAnalyzer(project);
     const allInternalCallEdges: import('../../types').InternalCallEdge[] = [];
 
     // Group functions by file for efficient analysis
