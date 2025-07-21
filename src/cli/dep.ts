@@ -1429,7 +1429,7 @@ async function performGlobalRouteAnalysis(
     
     if (options.showComplexity && route.complexityBreakdown) {
       route.complexityBreakdown.forEach((func, i) => {
-        const prefix = i === route.complexityBreakdown!.length - 1 ? '└──' : '├──';
+        const prefix = i === (route.complexityBreakdown?.length ?? 0) - 1 ? '└──' : '├──';
         console.log(`  ${prefix} ${func.functionName} (CC: ${func.cyclomaticComplexity})`);
       });
     } else {
