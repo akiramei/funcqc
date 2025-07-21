@@ -119,8 +119,8 @@ export class CallGraphAnalyzer {
         }
       }
 
-      // Clean up memory
-      this.project.removeSourceFile(sourceFile);
+      // Note: Don't remove SourceFile here - it may still be referenced by other analyzers
+      // Project disposal will be handled by the parent FunctionAnalyzer
       
       return callEdges;
     } catch (error) {
@@ -176,7 +176,7 @@ export class CallGraphAnalyzer {
     try {
       const expression = callExpr.getExpression();
       const lineNumber = callExpr.getStartLineNumber();
-      const columnNumber = callExpr.getStart() - callExpr.getStartLinePos();
+      const columnNumber = callExpr.getSourceFile().getLineAndColumnAtPos(callExpr.getStart()).column;
       
       // Check if this is an await expression
       const isAsync = Node.isAwaitExpression(callExpr.getParent());

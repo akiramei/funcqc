@@ -139,6 +139,11 @@ class TypeScriptMigrationProvider implements MigrationProvider {
       const files = await fs.readdir(this.migrationFolder);
       const migrationFiles = files
         .filter(file => file.endsWith('.ts'))
+        .filter(file => {
+          // Only include files that follow migration naming pattern (starts with numbers)
+          // e.g., 001_initial_schema.ts, 002_add_columns.ts, 20240101_123456_migration.ts
+          return /^\d/.test(file) && !file.includes('helper') && !file.includes('manager');
+        })
         .sort(); // ファイル名でソート（タイムスタンプ順）
 
       for (const file of migrationFiles) {

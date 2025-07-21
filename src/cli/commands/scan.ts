@@ -22,7 +22,6 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
-import { InternalCallAnalyzer } from '../../analyzers/internal-call-analyzer';
 
 /**
  * Scan command as a Reader function
@@ -85,7 +84,7 @@ async function executeScanCommand(
     const result = await performAnalysis(files, components, spinner, env);
     showAnalysisSummary(result.functions);
 
-    await saveResults(result.functions, result.callEdges, env.storage, options, spinner);
+    await saveResults(result.functions, result.callEdges, result.internalCallEdges, env.storage, options, spinner);
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
@@ -180,7 +179,7 @@ async function performAnalysis(
   components: CliComponents,
   spinner: SpinnerInterface,
   env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[] }> {
   spinner.start('Analyzing functions...');
 
   const result = await performFullAnalysis(files, components, spinner, env);
@@ -194,7 +193,7 @@ async function performFullAnalysis(
   components: CliComponents,
   spinner: SpinnerInterface,
   env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[] }> {
   // Try ideal call graph analysis first
   const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
   
@@ -224,7 +223,8 @@ async function performFullAnalysis(
     
     return {
       functions: result.functions,
-      callEdges: result.callEdges
+      callEdges: result.callEdges,
+      internalCallEdges: result.internalCallEdges
     };
     
   } catch (error) {
@@ -232,8 +232,11 @@ async function performFullAnalysis(
     console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
     
     // Fallback to legacy analysis
-    return await performLegacyAnalysis(files, components, spinner);
+    const fallbackResult = await performLegacyAnalysis(files, components, spinner);
+    return { ...fallbackResult, internalCallEdges: [] };
+    
   } finally {
+    // Always dispose the function analyzer after analysis is complete
     functionAnalyzer.dispose();
   }
 }
@@ -444,6 +447,7 @@ async function performStreamingAnalysis(
 async function saveResults(
   allFunctions: FunctionInfo[],
   allCallEdges: CallEdge[],
+  allInternalCallEdges: import('../../types').InternalCallEdge[] | undefined,
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
   spinner: SpinnerInterface
@@ -465,9 +469,21 @@ async function saveResults(
     await storage.insertCallEdges(allCallEdges, snapshotId);
   }
 
-  // Analyze and save internal call edges for safe-delete functionality
-  spinner.text = 'Analyzing internal function calls for safe-delete...';
-  await saveInternalCallEdges(allFunctions, storage, snapshotId, spinner);
+  // Save internal call edges for safe-delete functionality  
+  if (allInternalCallEdges && allInternalCallEdges.length > 0) {
+    spinner.text = `Saving ${allInternalCallEdges.length} internal call edges for safe-delete...`;
+    
+    // Update snapshotId in the internal call edges
+    const edgesWithSnapshotId = allInternalCallEdges.map(edge => ({
+      ...edge,
+      snapshotId
+    }));
+    
+    await storage.insertInternalCallEdges(edgesWithSnapshotId);
+  } else {
+    // Log info if no internal call edges were found during analysis
+    console.log(chalk.gray('ℹ️  No internal call edges found during analysis. Safe-delete functionality may be limited.'));
+  }
   
   const elapsed = Math.ceil((Date.now() - startTime) / 1000);
 
@@ -481,62 +497,6 @@ async function saveResults(
   }
 }
 
-async function saveInternalCallEdges(
-  allFunctions: FunctionInfo[],
-  storage: CliComponents['storage'],
-  snapshotId: string,
-  spinner: SpinnerInterface
-): Promise<void> {
-  try {
-    const internalCallAnalyzer = new InternalCallAnalyzer();
-    const allInternalCallEdges: import('../../types').InternalCallEdge[] = [];
-
-    // Group functions by file for efficient analysis
-    const functionsByFile = new Map<string, FunctionInfo[]>();
-    for (const func of allFunctions) {
-      if (!functionsByFile.has(func.filePath)) {
-        functionsByFile.set(func.filePath, []);
-      }
-      functionsByFile.get(func.filePath)!.push(func);
-    }
-
-    let processedFiles = 0;
-    const totalFiles = functionsByFile.size;
-
-    // Analyze each file for internal function calls
-    for (const [filePath, functions] of functionsByFile.entries()) {
-      if (functions.length > 1) { // Only analyze files with multiple functions
-        try {
-          const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
-            filePath,
-            functions,
-            snapshotId
-          );
-          allInternalCallEdges.push(...internalEdges);
-        } catch (error) {
-          // Log error but continue processing other files
-          console.warn(`Warning: Failed to analyze internal calls in ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
-        }
-      }
-
-      processedFiles++;
-      if (totalFiles > 10) {
-        spinner.text = `Analyzing internal calls: ${processedFiles}/${totalFiles} files...`;
-      }
-    }
-
-    // Save internal call edges to database
-    if (allInternalCallEdges.length > 0) {
-      spinner.text = `Saving ${allInternalCallEdges.length} internal call edges...`;
-      await storage.insertInternalCallEdges(allInternalCallEdges);
-    }
-
-    internalCallAnalyzer.dispose();
-  } catch (error) {
-    // Non-critical error - log warning but don't fail the scan
-    console.warn(`Warning: Internal call analysis failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 function showCompletionMessage(): void {
   console.log(chalk.green('✓ Scan completed successfully!'));

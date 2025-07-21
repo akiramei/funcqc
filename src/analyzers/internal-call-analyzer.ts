@@ -9,9 +9,10 @@ import { Logger } from '../utils/cli-utils';
  */
 export class InternalCallAnalyzer {
   private logger: Logger;
-  private project: Project | null = null;
+  private project: Project;
 
-  constructor(logger?: Logger) {
+  constructor(project: Project, logger?: Logger) {
+    this.project = project;
     this.logger = logger || new Logger(false, false);
   }
 
@@ -25,17 +26,14 @@ export class InternalCallAnalyzer {
     snapshotId: string
   ): Promise<InternalCallEdge[]> {
     try {
-      // Create a minimal project for this specific file analysis
-      this.project = new Project({
-        skipAddingFilesFromTsConfig: true,
-        skipFileDependencyResolution: true,
-        skipLoadingLibFiles: true,
-        compilerOptions: {
-          isolatedModules: true,
-        },
-      });
-
-      const sourceFile = this.project.addSourceFileAtPath(filePath);
+      // Use existing source file or add if not already loaded
+      let sourceFile = this.project.getSourceFile(filePath);
+      if (!sourceFile) {
+        sourceFile = this.project.addSourceFileAtPath(filePath);
+      }
+      
+      // Initialize line number cache
+      sourceFile.getFullText();
       const internalCallEdges: InternalCallEdge[] = [];
 
       // Create lookup maps for efficient function resolution
@@ -65,11 +63,7 @@ export class InternalCallAnalyzer {
       this.logger.warn(`Internal call analysis failed for ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
       return [];
     } finally {
-      if (this.project) {
-        // Clean up memory
-        this.project.getSourceFiles().forEach(sf => this.project!.removeSourceFile(sf));
-        this.project = null;
-      }
+      // No cleanup needed - project is shared and managed externally
     }
   }
 
@@ -268,8 +262,20 @@ export class InternalCallAnalyzer {
       return null;
     }
 
-    const lineNumber = callExpression.getStartLineNumber();
-    const columnNumber = callExpression.getStart() - callExpression.getStartLinePos();
+    let lineNumber: number;
+    let columnNumber: number;
+    
+    try {
+      // Use the stable method to get line number
+      const pos = callExpression.getStart();
+      const lineAndColumn = callExpression.getSourceFile().getLineAndColumnAtPos(pos);
+      lineNumber = lineAndColumn.line;
+      columnNumber = lineAndColumn.column;
+    } catch (error) {
+      this.logger.debug(`Failed to get line/column for call expression: ${error}`);
+      lineNumber = 0;
+      columnNumber = 0;
+    }
 
     const callerClassName = this.extractClassName(callerFunction);
     const calleeClassName = className || this.extractClassName(calleeFunction);
@@ -333,9 +339,17 @@ export class InternalCallAnalyzer {
     while (parent) {
       if (Node.isIfStatement(parent) || 
           Node.isConditionalExpression(parent) || 
-          Node.isLogicalAndExpression(parent) ||
-          Node.isLogicalOrExpression(parent)) {
-        return true;
+          Node.isBinaryExpression(parent)) {
+        // Check if it's a logical operator
+        if (Node.isBinaryExpression(parent)) {
+          const operator = parent.getOperatorToken().getKind();
+          if (operator === SyntaxKind.AmpersandAmpersandToken || 
+              operator === SyntaxKind.BarBarToken) {
+            return true;
+          }
+        } else {
+          return true;
+        }
       }
       parent = parent.getParent();
     }
@@ -442,9 +456,6 @@ export class InternalCallAnalyzer {
    * Clean up resources
    */
   dispose(): void {
-    if (this.project) {
-      this.project.getSourceFiles().forEach(sf => this.project!.removeSourceFile(sf));
-      this.project = null;
-    }
+    // No cleanup needed - project is shared and managed externally
   }
 }

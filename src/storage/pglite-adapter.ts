@@ -178,7 +178,7 @@ interface InternalCallEdgeTable {
   callee_class_name: string | null;
   line_number: number;
   column_number: number;
-  call_type: 'direct' | 'conditional' | 'async' | 'dynamic';
+  call_type: 'direct' | 'conditional' | 'async' | 'dynamic' | null;
   call_context: string | null;
   confidence_score: number;
   detected_by: string;
@@ -689,7 +689,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       let sql = `
         SELECT 
-          f.*,
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.source_code, f.created_at,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -817,7 +822,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       const result = await this.db.query(
         `
-        SELECT f.*, qm.*
+        SELECT 
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.source_code, f.created_at,
+          qm.lines_of_code, qm.total_lines, qm.cyclomatic_complexity, qm.cognitive_complexity,
+          qm.max_nesting_level, qm.parameter_count, qm.return_statement_count, qm.branch_count,
+          qm.loop_count, qm.try_catch_count, qm.async_await_count, qm.callback_count,
+          qm.comment_lines, qm.code_to_comment_ratio, qm.halstead_volume, qm.halstead_difficulty,
+          qm.maintainability_index
         FROM functions f
         LEFT JOIN quality_metrics qm ON f.id = qm.function_id
         WHERE f.snapshot_id = $1
@@ -1184,7 +1200,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // 3. Description needs review flag is set
       let sql = `
         SELECT 
-          f.*,
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.source_code, f.created_at,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.parameter_count, q.max_nesting_level, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1243,7 +1264,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
       let sql = `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1297,7 +1347,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       let sql = `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1346,7 +1425,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       let sql = `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1460,7 +1568,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const embeddings = await this.db.query(
         `
         SELECT 
-          f.*, 
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash, 
           e.embedding,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
@@ -1538,7 +1675,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       let sql = `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1581,7 +1747,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     try {
       let sql = `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1625,7 +1820,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(
         `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -1667,7 +1891,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const result = await this.db.query(
         `
         SELECT 
-          f.*,
+          f.id,
+          f.snapshot_id,
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          f.created_at,
+          f.semantic_id,
+          f.name,
+          f.display_name,
+          f.signature,
+          f.file_path,
+          f.context_path,
+          f.function_type,
+          f.modifiers,
+          f.nesting_level,
+          f.is_exported,
+          f.is_async,
+          f.is_generator,
+          f.is_arrow_function,
+          f.is_method,
+          f.is_constructor,
+          f.is_static,
+          f.access_modifier,
+          f.content_id,
+          f.ast_hash,
+          f.source_code,
+          f.signature_hash,
+          f.file_hash,
+          f.file_content_hash,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -2527,7 +2780,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const functionsResult = await this.db.query(
         `
         SELECT 
-          f.*,
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.source_code, f.created_at,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -2564,12 +2822,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Create a map for quick lookup
       const functionMap = new Map<string, FunctionInfo>();
       for (const row of functionsResult.rows) {
-        const functionRow = row as FunctionRow & Partial<MetricsRow>;
-        // Get parameters from preloaded map
-        const parameters = parametersMap.get(functionRow.id) || [];
-        const func = this.mapRowToFunctionInfo(functionRow, parameters);
-        // Use snapshot_id from the row to map functions
-        functionMap.set(functionRow.snapshot_id, func);
+        try {
+          const functionRow = row as FunctionRow & Partial<MetricsRow>;
+          // Get parameters from preloaded map
+          const parameters = parametersMap.get(functionRow.id) || [];
+          const func = this.mapRowToFunctionInfo(functionRow, parameters);
+          // Use snapshot_id from the row to map functions
+          functionMap.set(functionRow.snapshot_id, func);
+        } catch (rowError) {
+          console.error('Error processing function row:', rowError);
+          console.error('Row data:', JSON.stringify(row, null, 2));
+          throw rowError;
+        }
       }
 
       // Build history array
@@ -2715,9 +2979,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (result.rows.length === 0) {
       // Create initial schema from database.sql
       await this.createTablesDirectly();
-      
-      // Run any pending migrations for new database
-      await this.runPendingMigrations();
     }
   }
 
@@ -2751,29 +3012,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Run pending migrations using KyselyMigrationManager
-   */
-  private async runPendingMigrations(): Promise<void> {
-    try {
-      const { KyselyMigrationManager } = await import('../migrations/kysely-migration-manager.js');
-      const migrationManager = new KyselyMigrationManager(this.db);
-      
-      // Ensure migration metadata table exists first
-      await migrationManager.ensureMigrationTable();
-      
-      const result = await migrationManager.migrateToLatest();
-      
-      if (result.results && result.results.length > 0) {
-        console.log(`🚀 Executed ${result.results.length} migrations`);
-      }
-      
-      // Close the migration manager to avoid connection conflicts
-      await migrationManager.close();
-    } catch (error) {
-      console.warn('⚠️ Migration execution failed, continuing with existing schema:', error);
-    }
-  }
 
   private generateSnapshotId(): string {
     return uuidv4();
@@ -3202,9 +3440,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
 
       // Enhanced function identification
-      ...(row.context_path && { contextPath: row.context_path }),
+      ...(row.context_path && Array.isArray(row.context_path) && { contextPath: row.context_path }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: row.modifiers }),
+      ...(row.modifiers && Array.isArray(row.modifiers) && { modifiers: row.modifiers }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes
@@ -4316,8 +4554,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           calleeFunctionId: typedRow.callee_function_id,
           callerName: typedRow.caller_name,
           calleeName: typedRow.callee_name,
+          ...(typedRow.caller_class_name && { callerClassName: typedRow.caller_class_name }),
+          ...(typedRow.callee_class_name && { calleeClassName: typedRow.callee_class_name }),
           lineNumber: typedRow.line_number,
           columnNumber: typedRow.column_number,
+          callType: (typedRow.call_type && ['direct', 'conditional', 'async', 'dynamic'].includes(typedRow.call_type)) 
+            ? (typedRow.call_type as 'direct' | 'conditional' | 'async' | 'dynamic') 
+            : 'direct',
           ...(typedRow.call_context && { callContext: typedRow.call_context }),
           confidenceScore: typedRow.confidence_score,
           detectedBy: typedRow.detected_by as 'ast' | 'ideal_call_graph',
@@ -4511,7 +4754,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           calleeClassName: typedRow.callee_class_name || undefined,
           lineNumber: typedRow.line_number,
           columnNumber: typedRow.column_number,
-          callType: typedRow.call_type,
+          callType: (typedRow.call_type && ['direct', 'conditional', 'async', 'dynamic'].includes(typedRow.call_type)) 
+            ? (typedRow.call_type as 'direct' | 'conditional' | 'async' | 'dynamic') 
+            : 'direct',
           callContext: typedRow.call_context || undefined,
           confidenceScore: typedRow.confidence_score,
           detectedBy: 'ast' as const,

@@ -115,14 +115,15 @@ export class FunctionAnalyzer {
    */
   async analyzeFilesWithIdealCallGraph(filePaths: string[]): Promise<{ 
     functions: FunctionInfo[]; 
-    callEdges: CallEdge[]; 
+    callEdges: CallEdge[];
+    internalCallEdges: import('../types').InternalCallEdge[];
     errors: FuncqcError[]; 
     warnings: string[] 
   }> {
     this.logger.debug('Starting ideal call graph analysis...');
     
     try {
-      // Initialize ts-morph project
+      // Initialize ts-morph project with specific files
       await this.initializeProject(filePaths);
       
       if (!this.project || !this.idealCallGraphAnalyzer) {
@@ -136,9 +137,14 @@ export class FunctionAnalyzer {
       const functions = await this.convertToLegacyFormat(callGraphResult.functions);
       const callEdges = this.convertCallEdges(callGraphResult.edges);
       
+      // Perform internal call analysis while the project is still active
+      const internalCallEdges = await this.analyzeInternalCalls(functions);
+      
+      
       return {
         functions,
         callEdges,
+        internalCallEdges,
         errors: [],
         warnings: []
       };
@@ -153,6 +159,7 @@ export class FunctionAnalyzer {
       return {
         functions: result.data || [],
         callEdges: [],
+        internalCallEdges: [],
         errors: result.errors,
         warnings: result.warnings
       };
@@ -162,14 +169,14 @@ export class FunctionAnalyzer {
   /**
    * Initialize ts-morph project for ideal analysis
    */
-  private async initializeProject(_filePaths: string[]): Promise<void> {
+  private async initializeProject(filePaths: string[]): Promise<void> {
     this.logger.debug('Initializing ts-morph project...');
     
     // Find tsconfig.json
     const tsConfigPath = await this.findTsConfigPath();
     
     const projectOptions: import('ts-morph').ProjectOptions = {
-      skipAddingFilesFromTsConfig: false, // Load all files for maximum precision
+      skipAddingFilesFromTsConfig: true, // Don't load all files, we'll add specific ones
       skipLoadingLibFiles: true,
       useInMemoryFileSystem: false
     };
@@ -179,6 +186,12 @@ export class FunctionAnalyzer {
     }
     
     this.project = new Project(projectOptions);
+    
+    // Add specific files we want to analyze
+    this.logger.debug(`Adding ${filePaths.length} files to project...`);
+    for (const filePath of filePaths) {
+      this.project.addSourceFileAtPath(filePath);
+    }
     
     // Initialize ideal call graph analyzer
     this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(this.project, { logger: this.logger });
@@ -327,6 +340,62 @@ export class FunctionAnalyzer {
   }
 
   /**
+   * Analyze internal function calls while the project is active
+   */
+  private async analyzeInternalCalls(functions: FunctionInfo[]): Promise<import('../types').InternalCallEdge[]> {
+    if (!this.project) {
+      this.logger.debug('No project available for internal call analysis');
+      return [];
+    }
+
+    this.logger.debug(`Starting internal call analysis with ${this.project.getSourceFiles().length} source files loaded`);
+
+    const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
+    // Enable debug logging for InternalCallAnalyzer
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const internalCallAnalyzer = new InternalCallAnalyzer(this.project, debugLogger);
+    const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
+
+    try {
+      // Group functions by file for efficient analysis
+      const functionsByFile = new Map<string, FunctionInfo[]>();
+      for (const func of functions) {
+        if (!functionsByFile.has(func.filePath)) {
+          functionsByFile.set(func.filePath, []);
+        }
+        functionsByFile.get(func.filePath)!.push(func);
+      }
+
+      // Analyze each file for internal function calls
+      for (const [filePath, fileFunctions] of functionsByFile.entries()) {
+        if (fileFunctions.length > 1) { // Only analyze files with multiple functions
+          try {
+            const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
+              filePath,
+              fileFunctions,
+              'temp' // snapshotId will be set later in scan.ts
+            );
+            allInternalCallEdges.push(...internalEdges);
+          } catch (error) {
+            this.logger.debug(`Failed to analyze internal calls in ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      return allInternalCallEdges;
+    } finally {
+      internalCallAnalyzer.dispose();
+    }
+  }
+
+  /**
+   * Get the ts-morph Project instance for shared usage
+   */
+  getProject(): Project | null {
+    return this.project;
+  }
+
+  /**
    * Cleanup resources
    */
   dispose(): void {
@@ -335,7 +404,16 @@ export class FunctionAnalyzer {
       this.idealCallGraphAnalyzer = null;
     }
     if (this.project) {
-      this.project = null;
+      // Properly dispose the Project to free all SourceFiles and memory
+      // This should be the only place where Project disposal happens
+      try {
+        // Note: ts-morph Project doesn't have a dispose() method, but setting to null
+        // allows garbage collection to clean up SourceFiles and TypeScript compiler resources
+        this.project = null;
+      } catch (error) {
+        console.warn('Warning: Error during Project cleanup:', error);
+        this.project = null;
+      }
     }
   }
 
