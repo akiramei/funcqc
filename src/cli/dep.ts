@@ -17,6 +17,8 @@ import { DotGenerator } from '../visualization/dot-generator';
 interface DepListOptions extends BaseCommandOptions {
   caller?: string;
   callee?: string;
+  callerClass?: string;
+  calleeClass?: string;
   file?: string;
   type?: 'direct' | 'async' | 'conditional' | 'external';
   limit?: string;
@@ -77,10 +79,36 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         return;
       }
 
-      // Get call edges for the snapshot
-      const callEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
+      // Get both external and internal call edges for the snapshot
+      const [callEdges, internalCallEdges] = await Promise.all([
+        env.storage.getCallEdgesBySnapshot(snapshot.id),
+        env.storage.getInternalCallEdgesBySnapshot(snapshot.id)
+      ]);
 
-      if (callEdges.length === 0) {
+      // Convert internal call edges to CallEdge format for unified processing
+      const convertedInternalEdges: CallEdge[] = internalCallEdges.map(edge => ({
+        id: edge.id,
+        callerFunctionId: edge.callerFunctionId,
+        calleeFunctionId: edge.calleeFunctionId,
+        calleeName: edge.calleeName,
+        calleeSignature: undefined,
+        callerClassName: edge.callerClassName,
+        calleeClassName: edge.calleeClassName,
+        callType: edge.callType,
+        callContext: edge.callContext,
+        lineNumber: edge.lineNumber,
+        columnNumber: edge.columnNumber,
+        isAsync: false,
+        isChained: false,
+        confidenceScore: edge.confidenceScore,
+        metadata: { source: 'internal', filePath: edge.filePath },
+        createdAt: edge.createdAt,
+      }));
+
+      // Combine all edges
+      const allEdges = [...callEdges, ...convertedInternalEdges];
+
+      if (allEdges.length === 0) {
         console.log(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
         return;
       }
@@ -228,6 +256,20 @@ function applyDepFilters(edges: CallEdge[], options: DepListOptions, functionMap
     );
   }
 
+  if (options.callerClass) {
+    const pattern = new RegExp(options.callerClass.replace(/\*/g, '.*'), 'i');
+    filtered = filtered.filter(edge => 
+      edge.callerClassName && pattern.test(edge.callerClassName)
+    );
+  }
+
+  if (options.calleeClass) {
+    const pattern = new RegExp(options.calleeClass.replace(/\*/g, '.*'), 'i');
+    filtered = filtered.filter(edge => 
+      edge.calleeClassName && pattern.test(edge.calleeClassName)
+    );
+  }
+
   if (options.type) {
     filtered = filtered.filter(edge => edge.callType === options.type);
   }
@@ -307,7 +349,8 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
   // Table rows
   edges.forEach(edge => {
     const caller = edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown';
-    const callee = edge.calleeName || 'unknown';
+    const callerWithClass = edge.callerClassName ? `${edge.callerClassName}::${edge.callerFunctionId?.substring(0, 8)}` : (edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown');
+    const calleeWithClass = edge.calleeClassName ? `${edge.calleeClassName}::${edge.calleeName}` : (edge.calleeName || 'unknown');
     const type = edge.callType || 'unknown';
     const line = edge.lineNumber?.toString() || '-';
     const context = edge.callContext || 'normal';
@@ -315,8 +358,8 @@ function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOrigi
     const typeColor = getCallTypeColor(type);
     
     console.log([
-      chalk.cyan(caller),
-      chalk.green(callee),
+      chalk.cyan(callerWithClass),
+      chalk.green(calleeWithClass),
       typeColor(type),
       chalk.gray(line),
       chalk.dim(context),

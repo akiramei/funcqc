@@ -286,6 +286,7 @@ export class InternalCallAnalyzer {
       ...(calleeClassName && { calleeClassName }),
       lineNumber,
       columnNumber,
+      callType: this.determineCallType(callExpression),
       callContext: Node.isCallExpression(callExpression) 
         ? this.determineCallContext(callExpression) 
         : 'constructor',
@@ -293,6 +294,53 @@ export class InternalCallAnalyzer {
       detectedBy: 'ast',
       createdAt: new Date().toISOString(),
     };
+  }
+
+  /**
+   * Determine the type of function call based on syntax and context
+   */
+  private determineCallType(callExpression: CallExpression | NewExpression): 'direct' | 'conditional' | 'async' | 'dynamic' {
+    // Check for await expression (async call)
+    const parent = callExpression.getParent();
+    if (Node.isAwaitExpression(parent)) {
+      return 'async';
+    }
+
+    // Check for conditional context
+    if (this.isInConditionalContext(callExpression)) {
+      return 'conditional';
+    }
+
+    // Check for dynamic call (computed property access)
+    if (Node.isCallExpression(callExpression)) {
+      const expression = callExpression.getExpression();
+      if (Node.isElementAccessExpression(expression) || 
+          (Node.isPropertyAccessExpression(expression) && 
+           Node.isElementAccessExpression(expression.getExpression()))) {
+        return 'dynamic';
+      }
+    }
+
+    return 'direct';
+  }
+
+  /**
+   * Check if call expression is in a conditional context
+   */
+  private isInConditionalContext(node: Node): boolean {
+    let parent = node.getParent();
+    
+    while (parent) {
+      if (Node.isIfStatement(parent) || 
+          Node.isConditionalExpression(parent) || 
+          Node.isLogicalAndExpression(parent) ||
+          Node.isLogicalOrExpression(parent)) {
+        return true;
+      }
+      parent = parent.getParent();
+    }
+    
+    return false;
   }
 
   /**

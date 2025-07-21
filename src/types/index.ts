@@ -180,8 +180,8 @@ export interface CallEdge {
   calleeFunctionId?: string | undefined;
   calleeName: string;
   calleeSignature?: string | undefined;
-  callerClassName?: string;
-  calleeClassName?: string;
+  callerClassName?: string | undefined;
+  calleeClassName?: string | undefined;
   callType: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
   callContext?: string | undefined;
   lineNumber: number;
@@ -207,11 +207,11 @@ export interface InternalCallEdge {
   calleeFunctionId: string;
   callerName: string;
   calleeName: string;
-  callerClassName?: string;
-  calleeClassName?: string;
+  callerClassName?: string | undefined;
+  calleeClassName?: string | undefined;
   lineNumber: number;
   columnNumber: number;
-  callContext?: string;
+  callContext?: string | undefined;
   confidenceScore: number;
   detectedBy: 'ast' | 'ideal_call_graph';
   createdAt: string;
@@ -649,6 +649,7 @@ export interface StorageAdapter {
   getCallEdgesByCaller(callerFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
   getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]>;
   getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]>;
+  getInternalCallEdgesBySnapshot(snapshotId: string): Promise<InternalCallEdge[]>;
   deleteCallEdges(functionIds: string[]): Promise<void>;
 
   // Internal call edge operations (for safe-delete analysis)

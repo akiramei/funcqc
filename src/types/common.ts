@@ -128,6 +128,8 @@ export interface CallEdgeRow {
   callee_function_id?: string | null;
   callee_name: string;
   callee_signature?: string | null;
+  caller_class_name?: string | null;
+  callee_class_name?: string | null;
   call_type: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
   call_context?: string | null;
   line_number: number;

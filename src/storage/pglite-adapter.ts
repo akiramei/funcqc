@@ -178,6 +178,7 @@ interface InternalCallEdgeTable {
   callee_class_name: string | null;
   line_number: number;
   column_number: number;
+  call_type: 'direct' | 'conditional' | 'async' | 'dynamic';
   call_context: string | null;
   confidence_score: number;
   detected_by: string;
@@ -4176,6 +4177,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           callee_function_id: edge.calleeFunctionId || null,
           callee_name: edge.calleeName,
           callee_signature: edge.calleeSignature || null,
+          caller_class_name: edge.callerClassName || null,
+          callee_class_name: edge.calleeClassName || null,
           call_type: edge.callType,
           call_context: edge.callContext || null,
           line_number: edge.lineNumber,
@@ -4253,13 +4256,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           await this.db.query(`
             INSERT INTO internal_call_edges (
               id, snapshot_id, file_path, caller_function_id, callee_function_id,
-              caller_name, callee_name, line_number, column_number, call_context,
+              caller_name, callee_name, caller_class_name, callee_class_name,
+              line_number, column_number, call_type, call_context,
               confidence_score, detected_by, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             ON CONFLICT (id) DO UPDATE SET
               confidence_score = GREATEST(EXCLUDED.confidence_score, internal_call_edges.confidence_score),
               detected_by = EXCLUDED.detected_by,
-              call_context = EXCLUDED.call_context
+              call_type = EXCLUDED.call_type,
+              call_context = EXCLUDED.call_context,
+              caller_class_name = EXCLUDED.caller_class_name,
+              callee_class_name = EXCLUDED.callee_class_name
           `, [
             edge.id,
             edge.snapshotId,
@@ -4268,8 +4275,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             edge.calleeFunctionId,
             edge.callerName,
             edge.calleeName,
+            edge.callerClassName || null,
+            edge.calleeClassName || null,
             edge.lineNumber,
             edge.columnNumber,
+            edge.callType || 'direct', // use actual call type from analysis
             edge.callContext || null,
             edge.confidenceScore,
             edge.detectedBy,
@@ -4477,6 +4487,46 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
+   * Get internal call edges for a specific snapshot
+   */
+  async getInternalCallEdgesBySnapshot(snapshotId: string): Promise<import('../types').InternalCallEdge[]> {
+    try {
+      const result = await this.db.query(`
+        SELECT * FROM internal_call_edges 
+        WHERE snapshot_id = $1
+        ORDER BY file_path, line_number
+      `, [snapshotId]);
+
+      return result.rows.map((row: unknown) => {
+        const typedRow = row as InternalCallEdgeTable;
+        return {
+          id: typedRow.id,
+          snapshotId: typedRow.snapshot_id,
+          filePath: typedRow.file_path,
+          callerFunctionId: typedRow.caller_function_id,
+          calleeFunctionId: typedRow.callee_function_id,
+          callerName: typedRow.caller_name,
+          calleeName: typedRow.callee_name,
+          callerClassName: typedRow.caller_class_name || undefined,
+          calleeClassName: typedRow.callee_class_name || undefined,
+          lineNumber: typedRow.line_number,
+          columnNumber: typedRow.column_number,
+          callType: typedRow.call_type,
+          callContext: typedRow.call_context || undefined,
+          confidenceScore: typedRow.confidence_score,
+          detectedBy: 'ast' as const,
+          createdAt: typedRow.created_at,
+        };
+      });
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get internal call edges for snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
    * Get call edges for a specific snapshot
    */
   async getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
@@ -4551,6 +4601,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       calleeFunctionId: row.callee_function_id || undefined,
       calleeName: row.callee_name,
       calleeSignature: row.callee_signature || undefined,
+      callerClassName: row.caller_class_name || undefined,
+      calleeClassName: row.callee_class_name || undefined,
       callType: row.call_type,
       callContext: row.call_context || undefined,
       lineNumber: row.line_number,

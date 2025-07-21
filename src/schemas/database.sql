@@ -313,6 +313,7 @@ CREATE TABLE internal_call_edges (
   callee_class_name TEXT,                        -- Class name for callee if it's a method/constructor
   line_number INTEGER NOT NULL,                 -- Line where call occurs
   column_number INTEGER DEFAULT 0,              -- Column position
+  call_type TEXT NOT NULL DEFAULT 'direct',     -- Call type: 'direct', 'conditional', 'async', 'dynamic'
   call_context TEXT,                            -- Context: 'normal', 'conditional', 'loop', 'try', 'catch'
   confidence_score REAL DEFAULT 1.0,           -- Analysis confidence (0-1)
   detected_by TEXT NOT NULL DEFAULT 'ast',     -- Detection method: 'ast', 'ideal_call_graph'
