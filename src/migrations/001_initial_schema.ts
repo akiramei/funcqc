@@ -74,8 +74,25 @@ function addIfNotExists(statement: string): string {
   if (upperStatement.startsWith('CREATE UNIQUE INDEX ')) {
     return statement.replace(/CREATE UNIQUE INDEX /i, 'CREATE UNIQUE INDEX IF NOT EXISTS ');
   }
+  if (upperStatement.startsWith('CREATE OR REPLACE FUNCTION')) {
+    // Functions with OR REPLACE don't need modification
+    return statement;
+  }
+  if (upperStatement.startsWith('CREATE TRIGGER')) {
+    // Triggers don't support IF NOT EXISTS, so we need to drop first
+    const triggerMatch = statement.match(/CREATE TRIGGER\s+(\w+)/i);
+    if (triggerMatch) {
+      const triggerName = triggerMatch[1];
+      return `DROP TRIGGER IF EXISTS ${triggerName} ON ${extractTableFromTrigger(statement)}; ${statement}`;
+    }
+  }
   
   return statement;
+}
+
+function extractTableFromTrigger(triggerStatement: string): string {
+  const match = triggerStatement.match(/ON\s+(\w+)/i);
+  return match ? match[1] : '';
 }
 
 /**
@@ -98,7 +115,13 @@ async function executeMultipleStatements(db: Kysely<Record<string, unknown>>, sq
     const statement = statements[i];
     if (statement.trim()) {
       try {
-        await sql.raw(statement).execute(db);
+        // Handle multiple statements separated by semicolons (like DROP + CREATE)
+        const subStatements = statement.split(';').map(s => s.trim()).filter(s => s.length > 0);
+        
+        for (const subStatement of subStatements) {
+          await sql.raw(subStatement).execute(db);
+        }
+        
         if (i % 10 === 0) {
           console.log(`   Executed ${i + 1}/${statements.length} statements...`);
         }

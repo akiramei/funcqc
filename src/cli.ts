@@ -1100,8 +1100,8 @@ depCommand.command('list')
   });
 
 depCommand.command('show')
-  .description('Show detailed dependency information for a function')
-  .argument('<function>', 'function name or ID')
+  .description('Show detailed dependency information for a function or analyze top routes globally')
+  .argument('[function]', 'function name or ID (optional - if not provided, shows global analysis)')
   .option('--direction <dir>', 'dependency direction (in, out, both)', 'both')
   .option('--depth <num>', 'maximum depth for dependency traversal', '2')
   .option('--include-external', 'include external dependencies')

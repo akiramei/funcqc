@@ -14,6 +14,20 @@ import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
 import { DotGenerator } from '../visualization/dot-generator';
 
+interface RouteComplexityInfo {
+  path: string[];           // Function IDs in the route
+  pathNames: string[];      // Function names in the route
+  totalDepth: number;       // Route length
+  totalComplexity: number;  // Sum of cyclomatic complexity for all functions in route
+  avgComplexity: number;    // Average complexity per function
+  complexityBreakdown: Array<{
+    functionId: string;
+    functionName: string;
+    cyclomaticComplexity: number;
+    cognitiveComplexity: number;
+  }>;
+}
+
 interface DepListOptions extends BaseCommandOptions {
   caller?: string;
   callee?: string;
@@ -162,7 +176,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
 /**
  * Show detailed dependency information for a function
  */
-export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions> => 
+export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions> => 
   (options) => async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
 
@@ -177,18 +191,21 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
         return;
       }
 
-      // Find the function by name or ID
+      // Find the function by name or ID (if specified)
       const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
 
-      const targetFunction = functions.find(f => 
-        f.id === functionRef || 
-        f.name === functionRef ||
-        f.name.includes(functionRef)
-      );
+      let targetFunction = null;
+      if (functionRef) {
+        targetFunction = functions.find(f => 
+          f.id === functionRef || 
+          f.name === functionRef ||
+          f.name.includes(functionRef)
+        );
 
-      if (!targetFunction) {
-        console.log(chalk.red(`Function "${functionRef}" not found.`));
-        return;
+        if (!targetFunction) {
+          console.log(chalk.red(`Function "${functionRef}" not found.`));
+          return;
+        }
       }
 
       // Get call edges for the snapshot
@@ -233,26 +250,39 @@ export const depShowCommand = (functionRef: string): VoidCommand<DepShowOptions>
         maxRoutes = parsed;
       }
 
-      const dependencies = buildDependencyTree(
-        targetFunction.id,
-        callEdges,
-        functions,
-        options.direction || 'both',
-        maxDepth,
-        options.includeExternal || false,
-        {
-          showComplexity: options.showComplexity,
-          rankByLength: options.rankByLength,
-          maxRoutes,
-          qualityMetrics: qualityMetricsMap,
-        }
-      );
+      if (targetFunction) {
+        // Single function analysis
+        const dependencies = buildDependencyTree(
+          targetFunction.id,
+          callEdges,
+          functions,
+          options.direction || 'both',
+          maxDepth,
+          options.includeExternal || false,
+          {
+            showComplexity: options.showComplexity,
+            rankByLength: options.rankByLength,
+            maxRoutes,
+            qualityMetrics: qualityMetricsMap,
+          }
+        );
 
-      // Output results
-      if (options.json) {
-        outputDepShowJSON(targetFunction, dependencies);
+        // Output results
+        if (options.json) {
+          outputDepShowJSON(targetFunction, dependencies);
+        } else {
+          outputDepShowFormatted(targetFunction, dependencies, options);
+        }
       } else {
-        outputDepShowFormatted(targetFunction, dependencies, options);
+        // Global analysis - find top routes across all functions
+        await performGlobalRouteAnalysis(
+          functions, 
+          callEdges, 
+          maxDepth, 
+          maxRoutes, 
+          options, 
+          qualityMetricsMap
+        );
       }
     } catch (error) {
       if (error instanceof DatabaseError) {
@@ -1307,4 +1337,97 @@ function outputDepStatsDot(
   );
   
   console.log(dotOutput);
+}
+
+/**
+ * Perform global route analysis across all functions to find the most complex/longest routes
+ */
+async function performGlobalRouteAnalysis(
+  functions: Array<{ id: string; name: string; metrics?: { cyclomaticComplexity: number } }>,
+  callEdges: CallEdge[],
+  maxDepth: number,
+  maxRoutes: number,
+  options: DepShowOptions,
+  qualityMetricsMap?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
+): Promise<void> {
+  const allRoutes: RouteComplexityInfo[] = [];
+
+  // Sample a subset of functions for performance (avoid analyzing thousands of functions)
+  const sampleSize = Math.min(functions.length, 100);
+  const sampleFunctions = functions.slice(0, sampleSize);
+
+  console.log(chalk.blue(`🔍 Analyzing routes from ${sampleSize} functions...`));
+
+  for (const func of sampleFunctions) {
+    try {
+      const dependencies = buildDependencyTree(
+        func.id,
+        callEdges,
+        functions,
+        options.direction || 'both',
+        maxDepth,
+        options.includeExternal || false,
+        {
+          showComplexity: options.showComplexity,
+          rankByLength: options.rankByLength,
+          maxRoutes: 50, // Get more routes for global analysis
+          qualityMetrics: qualityMetricsMap,
+        }
+      );
+
+      if (dependencies.routes) {
+        allRoutes.push(...dependencies.routes);
+      }
+    } catch {
+      // Skip functions that cause errors
+      continue;
+    }
+  }
+
+  // Sort routes by the selected criteria
+  if (options.rankByLength) {
+    // Sort by depth first, then by total complexity
+    allRoutes.sort((a, b) => {
+      if (b.totalDepth !== a.totalDepth) {
+        return b.totalDepth - a.totalDepth;
+      }
+      return b.totalComplexity - a.totalComplexity;
+    });
+  } else {
+    // Sort by total complexity first, then by depth
+    allRoutes.sort((a, b) => {
+      if (b.totalComplexity !== a.totalComplexity) {
+        return b.totalComplexity - a.totalComplexity;
+      }
+      return b.totalDepth - a.totalDepth;
+    });
+  }
+
+  // Take top routes
+  const topRoutes = allRoutes.slice(0, maxRoutes);
+
+  // Output results
+  console.log(chalk.bold('\n📊 Top Routes in Project:\n'));
+  
+  if (topRoutes.length === 0) {
+    console.log(chalk.yellow('No routes found.'));
+    return;
+  }
+
+  topRoutes.forEach((route, index) => {
+    console.log(`${chalk.bold(`Route ${index + 1}`)} (Depth: ${chalk.cyan(route.totalDepth)}, Total Complexity: ${chalk.magenta(route.totalComplexity)})`);
+    
+    if (options.showComplexity && route.complexityBreakdown) {
+      route.complexityBreakdown.forEach((func, i) => {
+        const prefix = i === route.complexityBreakdown!.length - 1 ? '└──' : '├──';
+        console.log(`  ${prefix} ${func.functionName} (CC: ${func.cyclomaticComplexity})`);
+      });
+    } else {
+      route.pathNames.forEach((funcName, i) => {
+        const prefix = i === route.pathNames.length - 1 ? '└──' : '├──';
+        console.log(`  ${prefix} ${funcName}`);
+      });
+    }
+    console.log();
+  });
 }
