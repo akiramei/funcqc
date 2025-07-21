@@ -4398,77 +4398,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // =============================================================================
 
   /**
-   * Insert call edges in batch for efficient storage
+   * Insert call edges using bulk insert for efficient storage
    */
   async insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void> {
     if (edges.length === 0) return;
 
     try {
-      const batchSize = calculateOptimalBatchSize(edges.length);
-      const batches = splitIntoBatches(edges, batchSize);
-
-      for (const batch of batches) {
-        const callEdgeRows = batch.map(edge => ({
-          id: edge.id,
-          snapshot_id: snapshotId,
-          caller_function_id: edge.callerFunctionId,
-          callee_function_id: edge.calleeFunctionId || null,
-          callee_name: edge.calleeName,
-          callee_signature: edge.calleeSignature || null,
-          caller_class_name: edge.callerClassName || null,
-          callee_class_name: edge.calleeClassName || null,
-          call_type: edge.callType,
-          call_context: edge.callContext || null,
-          line_number: edge.lineNumber,
-          column_number: edge.columnNumber,
-          is_async: edge.isAsync,
-          is_chained: edge.isChained,
-          confidence_score: edge.confidenceScore,
-          metadata: edge.metadata,
-          created_at: edge.createdAt,
-        }));
-
-        for (const row of callEdgeRows) {
-          await this.kysely
-            .insertInto('call_edges')
-            .values({
-              id: row.id,
-              snapshot_id: row.snapshot_id,
-              caller_function_id: row.caller_function_id,
-              callee_function_id: row.callee_function_id,
-              callee_name: row.callee_name,
-              callee_signature: row.callee_signature,
-              call_type: row.call_type,
-              call_context: row.call_context,
-              line_number: row.line_number,
-              column_number: row.column_number,
-              is_async: row.is_async,
-              is_chained: row.is_chained,
-              confidence_score: row.confidence_score,
-              metadata: row.metadata,
-              created_at: row.created_at,
-            })
-            .onConflict((oc) => 
-              oc.column('id').doUpdateSet({
-                snapshot_id: (eb) => eb.ref('excluded.snapshot_id'),
-                confidence_score: (eb) => eb.fn('greatest', [
-                  eb.ref('excluded.confidence_score'),
-                  eb.ref('call_edges.confidence_score')
-                ]),
-                call_type: (eb) => eb.ref('excluded.call_type'),
-                call_context: (eb) => eb.ref('excluded.call_context'),
-                callee_signature: (eb) => eb.fn('coalesce', [
-                  eb.ref('excluded.callee_signature'),
-                  eb.ref('call_edges.callee_signature')
-                ]),
-                // 複雑な論理演算は一旦シンプルに
-                is_async: (eb) => eb.ref('excluded.is_async'),
-                is_chained: (eb) => eb.ref('excluded.is_chained'),
-                metadata: (eb) => eb.ref('excluded.metadata')
-              })
-            )
-            .execute();
-        }
+      // Use bulk insert for better performance when batch size is large enough
+      if (edges.length >= 10) {
+        await this.insertCallEdgesBulk(edges, snapshotId);
+      } else {
+        // Fall back to individual inserts for small batches (preserve upsert logic)
+        await this.insertCallEdgesIndividual(edges, snapshotId);
       }
     } catch (error) {
       throw new DatabaseError(
@@ -4479,57 +4420,286 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   /**
-   * Insert internal call edges (intra-file function calls) for safe-delete analysis
+   * Bulk insert call edges for optimal performance
+   */
+  private async insertCallEdgesBulk(edges: CallEdge[], snapshotId: string): Promise<void> {
+    const executeBulkInsert = async () => {
+      // Define call_edges table columns in correct order
+      const callEdgeColumns = [
+        'id',
+        'snapshot_id', 
+        'caller_function_id',
+        'callee_function_id',
+        'callee_name',
+        'callee_signature',
+        'caller_class_name',
+        'callee_class_name',
+        'call_type',
+        'call_context',
+        'line_number',
+        'column_number',
+        'is_async',
+        'is_chained',
+        'confidence_score',
+        'metadata',
+        'created_at'
+      ];
+
+      // Prepare bulk data
+      const callEdgeData = edges.map(edge => [
+        edge.id,
+        snapshotId,
+        edge.callerFunctionId,
+        edge.calleeFunctionId || null,
+        edge.calleeName,
+        edge.calleeSignature || null,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.callType,
+        edge.callContext || null,
+        edge.lineNumber,
+        edge.columnNumber ?? 0,
+        edge.isAsync ?? false,
+        edge.isChained ?? false,
+        edge.confidenceScore ?? 1.0,
+        edge.metadata || null,
+        edge.createdAt || new Date().toISOString()
+      ]);
+
+      // Calculate optimal batch size for call edges (17 columns)
+      const optimalBatchSize = calculateOptimalBatchSize(callEdgeColumns.length);
+      const batches = splitIntoBatches(callEdgeData, optimalBatchSize);
+
+      // Execute bulk insert with upsert
+      for (const batch of batches) {
+        const sql = generateBulkInsertSQL('call_edges', callEdgeColumns, batch.length) + `
+          ON CONFLICT (id) DO UPDATE SET
+            snapshot_id = EXCLUDED.snapshot_id,
+            confidence_score = GREATEST(EXCLUDED.confidence_score, call_edges.confidence_score),
+            call_type = EXCLUDED.call_type,
+            call_context = EXCLUDED.call_context,
+            callee_signature = COALESCE(EXCLUDED.callee_signature, call_edges.callee_signature),
+            is_async = EXCLUDED.is_async,
+            is_chained = EXCLUDED.is_chained,
+            metadata = EXCLUDED.metadata
+        `;
+        
+        const flatParams = batch.flat();
+        await this.db.query(sql, flatParams);
+      }
+    };
+
+    // Execute within current transaction context or create new one
+    if (this.transactionDepth > 0) {
+      await executeBulkInsert();
+    } else {
+      await this.executeInTransaction(executeBulkInsert);
+    }
+  }
+
+  /**
+   * Individual insert for small batches (preserving complex upsert logic)
+   */
+  private async insertCallEdgesIndividual(edges: CallEdge[], snapshotId: string): Promise<void> {
+    const callEdgeRows = edges.map(edge => ({
+      id: edge.id,
+      snapshot_id: snapshotId,
+      caller_function_id: edge.callerFunctionId,
+      callee_function_id: edge.calleeFunctionId || null,
+      callee_name: edge.calleeName,
+      callee_signature: edge.calleeSignature || null,
+      caller_class_name: edge.callerClassName || null,
+      callee_class_name: edge.calleeClassName || null,
+      call_type: edge.callType,
+      call_context: edge.callContext || null,
+      line_number: edge.lineNumber,
+      column_number: edge.columnNumber,
+      is_async: edge.isAsync,
+      is_chained: edge.isChained,
+      confidence_score: edge.confidenceScore,
+      metadata: edge.metadata,
+      created_at: edge.createdAt,
+    }));
+
+    for (const row of callEdgeRows) {
+      await this.kysely
+        .insertInto('call_edges')
+        .values({
+          id: row.id,
+          snapshot_id: row.snapshot_id,
+          caller_function_id: row.caller_function_id,
+          callee_function_id: row.callee_function_id,
+          callee_name: row.callee_name,
+          callee_signature: row.callee_signature,
+          caller_class_name: row.caller_class_name,
+          callee_class_name: row.callee_class_name,
+          call_type: row.call_type,
+          call_context: row.call_context,
+          line_number: row.line_number,
+          column_number: row.column_number,
+          is_async: row.is_async,
+          is_chained: row.is_chained,
+          confidence_score: row.confidence_score,
+          metadata: row.metadata,
+          created_at: row.created_at,
+        })
+        .onConflict((oc) => 
+          oc.column('id').doUpdateSet({
+            snapshot_id: (eb) => eb.ref('excluded.snapshot_id'),
+            confidence_score: (eb) => eb.fn('greatest', [
+              eb.ref('excluded.confidence_score'),
+              eb.ref('call_edges.confidence_score')
+            ]),
+            call_type: (eb) => eb.ref('excluded.call_type'),
+            call_context: (eb) => eb.ref('excluded.call_context'),
+            callee_signature: (eb) => eb.fn('coalesce', [
+              eb.ref('excluded.callee_signature'),
+              eb.ref('call_edges.callee_signature')
+            ]),
+            // 複雑な論理演算は一旦シンプルに
+            is_async: (eb) => eb.ref('excluded.is_async'),
+            is_chained: (eb) => eb.ref('excluded.is_chained'),
+            metadata: (eb) => eb.ref('excluded.metadata')
+          })
+        )
+        .execute();
+    }
+  }
+
+  /**
+   * Insert internal call edges using bulk insert for efficient storage
    */
   async insertInternalCallEdges(edges: import('../types').InternalCallEdge[]): Promise<void> {
     if (edges.length === 0) return;
 
     try {
-      const batchSize = calculateOptimalBatchSize(edges.length);
-      const batches = splitIntoBatches(edges, batchSize);
-
-      for (const batch of batches) {
-        for (const edge of batch) {
-          // Use raw SQL query for internal_call_edges to avoid type issues
-          await this.db.query(`
-            INSERT INTO internal_call_edges (
-              id, snapshot_id, file_path, caller_function_id, callee_function_id,
-              caller_name, callee_name, caller_class_name, callee_class_name,
-              line_number, column_number, call_type, call_context,
-              confidence_score, detected_by, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-            ON CONFLICT (id) DO UPDATE SET
-              confidence_score = GREATEST(EXCLUDED.confidence_score, internal_call_edges.confidence_score),
-              detected_by = EXCLUDED.detected_by,
-              call_type = EXCLUDED.call_type,
-              call_context = EXCLUDED.call_context,
-              caller_class_name = EXCLUDED.caller_class_name,
-              callee_class_name = EXCLUDED.callee_class_name
-          `, [
-            edge.id,
-            edge.snapshotId,
-            edge.filePath,
-            edge.callerFunctionId,
-            edge.calleeFunctionId,
-            edge.callerName,
-            edge.calleeName,
-            edge.callerClassName || null,
-            edge.calleeClassName || null,
-            edge.lineNumber,
-            edge.columnNumber,
-            edge.callType || 'direct', // use actual call type from analysis
-            edge.callContext || null,
-            edge.confidenceScore,
-            edge.detectedBy,
-            edge.createdAt,
-          ]);
-        }
+      // Use bulk insert for better performance when batch size is large enough
+      if (edges.length >= 10) {
+        await this.insertInternalCallEdgesBulk(edges);
+      } else {
+        // Fall back to individual inserts for small batches
+        await this.insertInternalCallEdgesIndividual(edges);
       }
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
         `Failed to insert internal call edges: ${error instanceof Error ? error.message : String(error)}`
       );
+    }
+  }
+
+  /**
+   * Bulk insert internal call edges for optimal performance
+   */
+  private async insertInternalCallEdgesBulk(edges: import('../types').InternalCallEdge[]): Promise<void> {
+    const executeBulkInsert = async () => {
+      // Define internal_call_edges table columns in correct order
+      const internalCallEdgeColumns = [
+        'id',
+        'snapshot_id', 
+        'file_path',
+        'caller_function_id',
+        'callee_function_id',
+        'caller_name',
+        'callee_name',
+        'caller_class_name',
+        'callee_class_name',
+        'line_number',
+        'column_number',
+        'call_type',
+        'call_context',
+        'confidence_score',
+        'detected_by',
+        'created_at'
+      ];
+
+      // Prepare bulk data
+      const internalCallEdgeData = edges.map(edge => [
+        edge.id,
+        edge.snapshotId,
+        edge.filePath,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.callerName,
+        edge.calleeName,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.lineNumber,
+        edge.columnNumber ?? 0,
+        edge.callType || 'direct',
+        edge.callContext || null,
+        edge.confidenceScore ?? 1.0,
+        edge.detectedBy || 'ast',
+        edge.createdAt || new Date().toISOString()
+      ]);
+
+      // Calculate optimal batch size for internal call edges (16 columns)
+      const optimalBatchSize = calculateOptimalBatchSize(internalCallEdgeColumns.length);
+      const batches = splitIntoBatches(internalCallEdgeData, optimalBatchSize);
+
+      // Execute bulk insert with upsert
+      for (const batch of batches) {
+        const sql = generateBulkInsertSQL('internal_call_edges', internalCallEdgeColumns, batch.length) + `
+          ON CONFLICT (id) DO UPDATE SET
+            confidence_score = GREATEST(EXCLUDED.confidence_score, internal_call_edges.confidence_score),
+            detected_by = EXCLUDED.detected_by,
+            call_type = EXCLUDED.call_type,
+            call_context = EXCLUDED.call_context,
+            caller_class_name = EXCLUDED.caller_class_name,
+            callee_class_name = EXCLUDED.callee_class_name
+        `;
+        
+        const flatParams = batch.flat();
+        await this.db.query(sql, flatParams);
+      }
+    };
+
+    // Execute within current transaction context or create new one
+    if (this.transactionDepth > 0) {
+      await executeBulkInsert();
+    } else {
+      await this.executeInTransaction(executeBulkInsert);
+    }
+  }
+
+  /**
+   * Individual insert for small batches (preserving original logic)
+   */
+  private async insertInternalCallEdgesIndividual(edges: import('../types').InternalCallEdge[]): Promise<void> {
+    for (const edge of edges) {
+      // Use raw SQL query for internal_call_edges to avoid type issues
+      await this.db.query(`
+        INSERT INTO internal_call_edges (
+          id, snapshot_id, file_path, caller_function_id, callee_function_id,
+          caller_name, callee_name, caller_class_name, callee_class_name,
+          line_number, column_number, call_type, call_context,
+          confidence_score, detected_by, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO UPDATE SET
+          confidence_score = GREATEST(EXCLUDED.confidence_score, internal_call_edges.confidence_score),
+          detected_by = EXCLUDED.detected_by,
+          call_type = EXCLUDED.call_type,
+          call_context = EXCLUDED.call_context,
+          caller_class_name = EXCLUDED.caller_class_name,
+          callee_class_name = EXCLUDED.callee_class_name
+      `, [
+        edge.id,
+        edge.snapshotId,
+        edge.filePath,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.callerName,
+        edge.calleeName,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.lineNumber,
+        edge.columnNumber,
+        edge.callType || 'direct', // use actual call type from analysis
+        edge.callContext || null,
+        edge.confidenceScore,
+        edge.detectedBy,
+        edge.createdAt,
+      ]);
     }
   }
 
