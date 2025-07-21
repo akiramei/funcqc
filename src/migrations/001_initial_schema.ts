@@ -16,6 +16,7 @@ function parsePostgreSQLStatements(content: string): string[] {
     
     if (!inDollarQuote && char === '$') {
       // Check if this is the start of a dollar quote
+      // Support both empty dollar quotes $$ and tagged ones $tag$
       const match = content.substring(i).match(/^\$([a-zA-Z_][a-zA-Z0-9_]*)?\$/);
       if (match) {
         inDollarQuote = true;
@@ -115,11 +116,16 @@ async function executeMultipleStatements(db: Kysely<Record<string, unknown>>, sq
     const statement = statements[i];
     if (statement.trim()) {
       try {
-        // Handle multiple statements separated by semicolons (like DROP + CREATE)
-        const subStatements = statement.split(';').map(s => s.trim()).filter(s => s.length > 0);
-        
-        for (const subStatement of subStatements) {
-          await sql.raw(subStatement).execute(db);
+        // Check if this is a multi-statement (DROP + CREATE trigger)
+        if (statement.includes('DROP TRIGGER IF EXISTS') && statement.includes('CREATE TRIGGER')) {
+          // Split only for the special case of DROP + CREATE trigger statements
+          const subStatements = statement.split(';').map(s => s.trim()).filter(s => s.length > 0);
+          for (const subStatement of subStatements) {
+            await sql.raw(subStatement).execute(db);
+          }
+        } else {
+          // Execute single statement directly - parsing already handled semicolons correctly
+          await sql.raw(statement).execute(db);
         }
         
         if (i % 10 === 0) {
@@ -161,8 +167,8 @@ export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
     
     console.log('✅ Initial schema created successfully');
     
-    // スキーマ作成後の検証
-    await validateInitialSchema(db);
+    // スキーマ作成後の検証（新しいトランザクションで実行）
+    await validateInitialSchemaInNewTransaction(db);
     
   } catch (error) {
     console.error('❌ Failed to create initial schema:', error);
@@ -219,6 +225,20 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
     console.error('❌ Failed to drop tables:', error);
     throw error;
   }
+}
+
+/**
+ * 初回スキーマ作成後の検証（新しいトランザクションで実行）
+ */
+async function validateInitialSchemaInNewTransaction(db: Kysely<Record<string, unknown>>): Promise<void> {
+  // Force a new transaction by committing any existing transaction first
+  try {
+    await sql.raw('COMMIT').execute(db);
+  } catch {
+    // Ignore errors - there might not be an active transaction
+  }
+  
+  await validateInitialSchema(db);
 }
 
 /**

@@ -2979,9 +2979,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     if (result.rows.length === 0) {
       // Create initial schema from database.sql
       await this.createTablesDirectly();
-      
-      // Run any pending migrations for new database
-      await this.runPendingMigrations();
     }
   }
 
@@ -3015,33 +3012,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  /**
-   * Run pending migrations using KyselyMigrationManager
-   */
-  private async runPendingMigrations(): Promise<void> {
-    try {
-      const { KyselyMigrationManager } = await import('../migrations/kysely-migration-manager.js');
-      const path = await import('path');
-      
-      // Get the correct migration folder path relative to the project root
-      const migrationFolder = path.join(__dirname, '..', 'migrations');
-      const migrationManager = new KyselyMigrationManager(this.db, { migrationFolder });
-      
-      // Ensure migration metadata table exists first
-      await migrationManager.ensureMigrationTable();
-      
-      const result = await migrationManager.migrateToLatest();
-      
-      if (result.results && result.results.length > 0) {
-        console.log(`🚀 Executed ${result.results.length} migrations`);
-      }
-      
-      // Close the migration manager to avoid connection conflicts
-      await migrationManager.close();
-    } catch (error) {
-      console.warn('⚠️ Migration execution failed, continuing with existing schema:', error);
-    }
-  }
 
   private generateSnapshotId(): string {
     return uuidv4();
