@@ -160,8 +160,8 @@ export class TypeScriptAnalyzer {
           }
         );
       } finally {
-        // Prevent memory leaks by removing the file
-        this.project.removeSourceFile(sourceFile);
+        // Note: Don't remove SourceFile here - it may still be referenced by other analyzers
+        // Project disposal will be handled by the parent FunctionAnalyzer
         this.manageMemory();
       }
 
@@ -302,7 +302,7 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: func.getStartLineNumber(),
       endLine: func.getEndLineNumber(),
-      startColumn: func.getStart() - func.getStartLinePos(),
+      startColumn: func.getSourceFile().getLineAndColumnAtPos(func.getStart()).column,
       endColumn: func.getSourceFile().getLineAndColumnAtPos(func.getEnd()).column,
       positionId: this.generatePositionId(relativePath, func.getStart(), func.getEnd()),
       astHash,
@@ -388,7 +388,7 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
-      startColumn: method.getStart() - method.getStartLinePos(),
+      startColumn: method.getSourceFile().getLineAndColumnAtPos(method.getStart()).column,
       endColumn: method.getSourceFile().getLineAndColumnAtPos(method.getEnd()).column,
       positionId: this.generatePositionId(relativePath, method.getStart(), method.getEnd()),
       astHash,
@@ -477,7 +477,7 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: ctor.getStartLineNumber(),
       endLine: ctor.getEndLineNumber(),
-      startColumn: ctor.getStart() - ctor.getStartLinePos(),
+      startColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getStart()).column,
       endColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getEnd()).column,
       positionId: this.generatePositionId(relativePath, ctor.getStart(), ctor.getEnd()),
       astHash,
@@ -592,7 +592,7 @@ export class TypeScriptAnalyzer {
       fileHash,
       startLine: functionNode.getStartLineNumber(),
       endLine: functionNode.getEndLineNumber(),
-      startColumn: functionNode.getStart() - functionNode.getStartLinePos(),
+      startColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getStart()).column,
       endColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getEnd()).column,
       positionId: this.generatePositionId(relativePath, functionNode.getStart(), functionNode.getEnd()),
       astHash: metadata.astHash,
@@ -1037,13 +1037,12 @@ export class TypeScriptAnalyzer {
    * Manage memory by cleaning up project if too many source files are loaded
    */
   private manageMemory(): void {
+    // Note: Memory management disabled - SourceFiles must remain available
+    // for shared Project usage. Project disposal will be handled by parent FunctionAnalyzer
     const sourceFiles = this.project.getSourceFiles();
-    if (sourceFiles.length > this.maxSourceFilesInMemory) {
-      // Remove oldest source files to free memory
-      const filesToRemove = sourceFiles.slice(0, Math.floor(sourceFiles.length / 2));
-      filesToRemove.forEach(file => {
-        this.project.removeSourceFile(file);
-      });
+    if (sourceFiles.length > this.maxSourceFilesInMemory * 2) {
+      // Log warning if memory usage is very high
+      console.warn(`Warning: ${sourceFiles.length} SourceFiles in memory. Consider using smaller batch sizes.`);
     }
   }
 
@@ -1051,11 +1050,9 @@ export class TypeScriptAnalyzer {
    * Clean up all source files from memory
    */
   async cleanup(): Promise<void> {
-    const sourceFiles = this.project.getSourceFiles();
-    sourceFiles.forEach(file => {
-      this.project.removeSourceFile(file);
-    });
-
+    // Note: SourceFile removal disabled - shared Project usage requires SourceFiles to remain
+    // Project disposal will be handled by parent FunctionAnalyzer
+    
     // Cleanup cache
     await this.cache.cleanup();
   }
