@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
   console.log('🔄 Adding class context columns to call edges tables...');
   
   // Helper function to check if column exists
@@ -63,7 +63,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   console.log('✅ Class context columns migration completed');
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
   // Remove class context columns from call_edges table
   await db.schema
     .alterTable('call_edges')
