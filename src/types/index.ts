@@ -124,6 +124,7 @@ export interface FunctionInfo {
   functionType?: 'function' | 'method' | 'arrow' | 'local';
   modifiers?: string[]; // ['static', 'private', 'async']
   nestingLevel?: number; // ネスト深度
+  className?: string; // クラス名（メソッドやコンストラクタの場合）
 
   // 関数属性（意味ベース）
   isExported: boolean;
@@ -179,6 +180,8 @@ export interface CallEdge {
   calleeFunctionId?: string | undefined;
   calleeName: string;
   calleeSignature?: string | undefined;
+  callerClassName?: string;
+  calleeClassName?: string;
   callType: 'direct' | 'conditional' | 'async' | 'external' | 'dynamic';
   callContext?: string | undefined;
   lineNumber: number;
@@ -204,6 +207,8 @@ export interface InternalCallEdge {
   calleeFunctionId: string;
   callerName: string;
   calleeName: string;
+  callerClassName?: string;
+  calleeClassName?: string;
   lineNumber: number;
   columnNumber: number;
   callContext?: string;

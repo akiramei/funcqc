@@ -398,6 +398,7 @@ export class TypeScriptAnalyzer {
       functionType,
       modifiers,
       nestingLevel,
+      className,
 
       // Existing function attributes
       isExported: isClassExported,
@@ -486,6 +487,7 @@ export class TypeScriptAnalyzer {
       functionType,
       modifiers,
       nestingLevel,
+      className,
 
       // Existing function attributes
       isExported: isClassExported,

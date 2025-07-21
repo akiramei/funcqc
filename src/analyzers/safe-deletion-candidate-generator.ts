@@ -65,6 +65,70 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
         continue;
       }
 
+      // 🚨 CRITICAL SAFETY CHECK: Never delete constructors
+      // Constructors are called with 'new ClassName()' which may not be properly tracked
+      // Without class context, we cannot reliably determine if a constructor is used
+      if (func.name === 'constructor') {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete object factory methods
+      // Methods in object literals (createDummyPool, createConfig etc.) are called via property access
+      // which is difficult to track statically. Conservative approach: protect common factory methods
+      if (await this.isFactoryMethod(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete methods in instantiated classes
+      // Classes instantiated with 'new ClassName()' may have methods called via interfaces
+      // Even if CHA/RTA analysis exists, be conservative about class methods
+      if (await this.isInstantiatedClassMethod(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete callback functions in object literals
+      // Functions passed as properties in objects (config callbacks, event handlers etc.)
+      // are called by libraries but difficult to track statically
+      if (this.isCallbackFunction(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete functions in returned object literals
+      // Functions defined in objects that are returned from functions (APIs, adapters etc.)
+      // are accessed via property references which are difficult to track statically
+      if (await this.isObjectLiteralFunction(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete functions used as direct references
+      // Functions passed directly as arguments (map(functionName), callback references etc.)
+      // These are often missed by call graph analysis which tracks call expressions but not references
+      if (await this.isFunctionReference(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete local/nested functions
+      // Local functions defined within other functions (const visit = ...) are often used
+      // for recursion or as helpers but may not be tracked properly by call graph analysis
+      if (this.isLocalFunction(func)) {
+        skippedInternal++;
+        continue;
+      }
+
+      // 🚨 CRITICAL SAFETY CHECK: Never delete functions used in worker entry points
+      // Worker files have special patterns (parentPort, workerData) that call functions
+      // These top-level calls are often missed by standard call graph analysis
+      if (await this.isWorkerEntryFunction(func)) {
+        skippedInternal++;
+        continue;
+      }
+
       // 🚨 CRITICAL SAFETY CHECK: Never delete internal functions in same file as exported functions
       // Internal functions are often helper functions used by exported functions and may not be detected
       // by call graph analysis due to line number mismatches or other parsing inconsistencies
@@ -203,22 +267,20 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
    * Falls back to existing call edge data, then AST analysis if needed
    */
   private async isCalledWithinFile(func: FunctionInfo, foundationData: AnalysisFoundationData): Promise<boolean> {
-    // First attempt: Check internal call edges table for intra-file calls
+    // Primary: Check internal call edges table for intra-file calls
     // This is the most reliable method for snapshot-consistent analysis
     try {
       const storage = foundationData.storage;
-      if (storage && 'isInternalFunctionCalled' in storage) {
-        const isInternallyCalled = await (storage as import('../types').StorageAdapter).isInternalFunctionCalled(func.id, foundationData.snapshotId!);
-        if (isInternallyCalled) {
-          this.logger.debug(`Function ${func.name} is called within file (internal_call_edges)`);
-          return true;
-        }
+      if (storage && 'isInternalFunctionCalled' in storage && foundationData.snapshotId) {
+        const isInternallyCalled = await (storage as import('../types').StorageAdapter).isInternalFunctionCalled(func.id, foundationData.snapshotId);
+        this.logger.debug(`Function ${func.name} internal call check: ${isInternallyCalled} (internal_call_edges)`);
+        return isInternallyCalled; // Trust the internal_call_edges result completely
       }
     } catch (error) {
       this.logger.debug(`Internal call edge check failed for ${func.name}: ${error instanceof Error ? error.message : String(error)}`);
     }
 
-    // Second attempt: Use existing call edge data (backward compatibility)
+    // Fallback: Use existing call edge data (backward compatibility)
     const callers = foundationData.reverseCallGraph.get(func.id) || new Set();
     if (callers.size > 0) {
       // Check if any caller is in the same file
@@ -233,102 +295,531 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       return false;
     }
 
-    // Final fallback: AST-based analysis for cases where call graph analysis fails
-    // This is critical for handling IdealCallGraphAnalyzer limitations
-    this.logger.debug(`No call edges found for ${func.name}, falling back to AST analysis`);
-    return await this.isCalledWithinFileAST(func, foundationData);
+    // No call graph data available - assume not called within file
+    this.logger.debug(`No call edges found for ${func.name}, assuming not called within file`);
+    return false;
   }
 
   /**
-   * AST-based fallback method to check if function is called within the same file
-   * Uses snapshot source code to ensure consistency with the analyzed snapshot
+   * Check if a function is a factory method that should be protected from deletion
+   * Factory methods are often called via property access which is hard to track statically
    */
-  private async isCalledWithinFileAST(func: FunctionInfo, foundationData?: AnalysisFoundationData): Promise<boolean> {
+  private async isFactoryMethod(func: FunctionInfo): Promise<boolean> {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if this function could be part of an object factory pattern
+    return (await this.hasFactoryFunctionInFile(func.filePath)) && this.isCommonObjectMethod(func.name);
+  }
+
+  /**
+   * Check if a function is used as a worker entry point
+   * Worker files have special patterns that call functions at the top level
+   */
+  private async isWorkerEntryFunction(func: FunctionInfo): Promise<boolean> {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if this is a worker file and function is called at top level
+    return await this.isInWorkerFile(func.filePath, func.name);
+  }
+
+  /**
+   * Check if a file is a worker file and contains worker entry patterns
+   */
+  private async isInWorkerFile(filePath: string, functionName: string): Promise<boolean> {
+    // Cache this check per file-function to avoid repeated file reading
+    if (!this.workerEntryCache) {
+      this.workerEntryCache = new Map();
+    }
+
+    const cacheKey = `${filePath}:${functionName}`;
+    const cached = this.workerEntryCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
     try {
-      // First, try to use stored source code if available (snapshot consistency)
-      if (func.sourceCode && foundationData) {
-        return this.analyzeStoredSourceCode(func);
-      }
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
       
-      // Fallback to file-based analysis (less preferred due to version mismatch risk)
-      this.logger.debug(`No stored source code for ${func.name}, using file-based analysis`);
-      return await this.analyzeFileBasedSource(func);
-    } catch (error) {
-      this.logger.warn(`AST analysis failed for ${func.name}: ${error instanceof Error ? error.message : String(error)}`);
-      // Conservative fallback: protect the function if AST analysis fails
+      // Check if this is a worker file (contains worker-specific APIs)
+      const workerIndicators = [
+        'parentPort',
+        'workerData', 
+        'worker_threads',
+        'isMainThread',
+        'threadId'
+      ];
+
+      const isWorkerFile = workerIndicators.some(indicator => content.includes(indicator));
+      if (!isWorkerFile) {
+        this.workerEntryCache.set(cacheKey, false);
+        return false;
+      }
+
+      // Look for worker entry patterns that call the specific function
+      const workerEntryPatterns = [
+        // Direct function call in worker context
+        new RegExp(`if\\s*\\(\\s*parentPort\\s*&&\\s*workerData\\s*\\)[\\s\\S]*?${functionName}\\s*\\(`),
+        
+        // Function call in worker conditional
+        new RegExp(`if\\s*\\([^)]*(?:parentPort|workerData)[^)]*\\)[\\s\\S]*?${functionName}\\s*\\(`),
+        
+        // Top-level function call in worker
+        new RegExp(`(?:^|\\n)\\s*${functionName}\\s*\\([^)]*workerData`),
+        
+        // Worker message handler calling function
+        new RegExp(`parentPort\\.on\\s*\\([^)]*\\)[\\s\\S]*?${functionName}\\s*\\(`),
+        
+        // Process message calling function
+        new RegExp(`process\\.on\\s*\\(\\s*['"]message['"]\\s*[\\s\\S]*?${functionName}\\s*\\(`),
+        
+        // Function called with worker data
+        new RegExp(`${functionName}\\s*\\([^)]*workerData`),
+        
+        // Function in worker promise chain
+        new RegExp(`${functionName}\\s*\\([^)]*\\)\\s*\\.then`),
+      ];
+
+      const hasWorkerEntry = workerEntryPatterns.some(pattern => pattern.test(content));
+      this.workerEntryCache.set(cacheKey, hasWorkerEntry);
+      return hasWorkerEntry;
+    } catch {
+      // If file reading fails, be conservative and assume it might be a worker entry
+      this.workerEntryCache.set(cacheKey, true);
       return true;
     }
   }
 
   /**
-   * Analyze stored source code from the snapshot for intra-file function calls
-   * This ensures consistency with the snapshot being analyzed
+   * Check if a function is a local/nested function defined within another function
+   * Local functions are often used for recursion or as helpers but hard to track
    */
-  private analyzeStoredSourceCode(func: FunctionInfo): boolean {
-    if (!func.sourceCode) {
-      return false;
+  private isLocalFunction(func: FunctionInfo): boolean {
+    // Check if this function has a high nesting level (likely inside another function)
+    if (func.nestingLevel && func.nestingLevel > 0) {
+      return true;
     }
 
-    // We need to analyze all functions in the same file to detect inter-function calls
-    // For efficiency, we'll use a simple pattern-based approach on the individual function
-    // This works for simple cases but may miss complex call patterns
-    
-    // Note: We're analyzing just this function's source code, which won't detect
-    // calls FROM other functions TO this function. This is a limitation of the
-    // stored source code approach for individual functions.
-    // 
-    // For a complete solution, we would need to:
-    // 1. Get all functions in the same file from foundationData
-    // 2. Concatenate their source codes
-    // 3. Search for calls to this function in the concatenated source
-    //
-    // For now, we use a conservative approach: if we can't find clear evidence
-    // of usage, we assume it might be used (safer approach)
-    
-    // For internal helper functions, the safer approach is to assume they're used
-    // unless we can prove otherwise through comprehensive analysis
-    return true; // Conservative approach for stored source code analysis
+    // Check if function type indicates it's local
+    if (func.functionType === 'local') {
+      return true;
+    }
+
+    // Check if the function name suggests it's a local helper
+    if (this.isLocalFunctionName(func.name)) {
+      return true;
+    }
+
+    // Check if the function is an arrow function (often used for local functions)
+    if (func.isArrowFunction) {
+      return true;
+    }
+
+    // CRITICAL: Check if function is in a class context but not a method
+    // This catches const declarations inside class methods
+    if (func.contextPath && func.contextPath.length > 0 && !func.isMethod && !func.isConstructor) {
+      return true;
+    }
+
+    return false;
   }
 
   /**
-   * File-based AST analysis (fallback when stored source is not available)
-   * WARNING: This may analyze a different version than the snapshot
+   * Check if a function name suggests it's a local helper function
    */
-  private async analyzeFileBasedSource(func: FunctionInfo): Promise<boolean> {
-    const { Project, Node } = await import('ts-morph');
+  private isLocalFunctionName(name: string): boolean {
+    // Common local function names
+    const localFunctionPatterns = [
+      // Visitor pattern functions
+      'visit', 'visitor', 'traverse', 'walk',
+      
+      // Helper functions
+      'helper', 'util', 'internal', 'inner',
+      
+      // Recursive functions
+      'recurse', 'loop', 'iterate',
+      
+      // Processing functions
+      'process', 'handle', 'check', 'validate',
+      
+      // Calculation functions
+      'calc', 'calculate', 'compute', 'eval',
+      
+      // Anonymous/generated names (common in transpiled code)
+      'anonymous', 'lambda', 'closure',
+      
+      // Common local variable names used for functions
+      'fn', 'func', 'callback', 'cb', 'handler'
+    ];
     
-    // Create minimal project for this specific file analysis
-    const project = new Project({
-      skipAddingFilesFromTsConfig: true,
-      skipFileDependencyResolution: true,
-      skipLoadingLibFiles: true,
-      compilerOptions: {
-        isolatedModules: true,
-      },
-    });
+    // Check exact matches
+    if (localFunctionPatterns.includes(name)) {
+      return true;
+    }
     
-    const sourceFile = project.addSourceFileAtPath(func.filePath);
-    let isUsed = false;
+    // Check if name starts with common local prefixes
+    const localPrefixes = ['_', 'inner', 'local', 'helper', 'temp'];
+    if (localPrefixes.some(prefix => name.startsWith(prefix))) {
+      return true;
+    }
     
-    // Look for function calls that match our function name
-    sourceFile.forEachDescendant((node) => {
-      if (Node.isCallExpression(node)) {
-        const expression = node.getExpression();
-        if (Node.isIdentifier(expression)) {
-          const calledName = expression.getText();
-          if (calledName === func.name) {
-            // Found a call to this function in the same file
-            isUsed = true;
-            return true; // Stop traversal
-          }
-        }
-      }
-      return undefined; // Continue traversal
-    });
-    
-    // Clean up memory
-    project.removeSourceFile(sourceFile);
-    
-    return isUsed;
+    return false;
   }
+
+  /**
+   * Check if a function is used as a direct reference (passed as argument without calling)
+   * Examples: map(functionName), setTimeout(functionName), callback references
+   */
+  private async isFunctionReference(func: FunctionInfo): Promise<boolean> {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if this function name appears as a direct reference in the file
+    return await this.hasFunctionReferencePattern(func.filePath, func.name);
+  }
+
+  /**
+   * Check if a file contains function reference patterns
+   */
+  private async hasFunctionReferencePattern(filePath: string, functionName: string): Promise<boolean> {
+    // Cache this check per file-function to avoid repeated file reading
+    if (!this.functionReferenceCache) {
+      this.functionReferenceCache = new Map();
+    }
+
+    const cacheKey = `${filePath}:${functionName}`;
+    const cached = this.functionReferenceCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
+      
+      // Look for function reference patterns (function name without parentheses)
+      const referencePatterns = [
+        // Array method callbacks: .map(functionName), .filter(functionName), etc.
+        new RegExp(`\\.(?:map|filter|reduce|forEach|find|some|every|sort)\\s*\\(\\s*${functionName}\\s*[,)]`),
+        
+        // setTimeout/setInterval: setTimeout(functionName, ...)
+        new RegExp(`(?:setTimeout|setInterval)\\s*\\(\\s*${functionName}\\s*,`),
+        
+        // Event listeners: addEventListener('event', functionName)
+        new RegExp(`addEventListener\\s*\\([^,]+,\\s*${functionName}\\s*[,)]`),
+        
+        // Promise methods: .then(functionName), .catch(functionName)
+        new RegExp(`\\.(?:then|catch|finally)\\s*\\(\\s*${functionName}\\s*[,)]`),
+        
+        // Function assignment: const fn = functionName
+        new RegExp(`(?:const|let|var)\\s+\\w+\\s*=\\s*${functionName}\\s*[;,]`),
+        
+        // Object property assignment: { prop: functionName }
+        new RegExp(`\\w+\\s*:\\s*${functionName}\\s*[,}]`),
+        
+        // Function arguments: someFunction(functionName, ...)
+        new RegExp(`\\w+\\s*\\(\\s*${functionName}\\s*[,)]`),
+        
+        // Return statement: return functionName
+        new RegExp(`return\\s+${functionName}\\s*[;,}]`),
+        
+        // Logical operators: functionName || defaultFunction
+        new RegExp(`${functionName}\\s*(?:\\|\\||&&|\\?)`),
+      ];
+
+      const hasReference = referencePatterns.some(pattern => pattern.test(content));
+      this.functionReferenceCache.set(cacheKey, hasReference);
+      return hasReference;
+    } catch {
+      // If file reading fails, be conservative and assume function is referenced
+      this.functionReferenceCache.set(cacheKey, true);
+      return true;
+    }
+  }
+
+  /**
+   * Check if a function is defined in an object literal that gets returned or exported
+   * These functions are accessed via property references which are hard to track
+   */
+  private async isObjectLiteralFunction(func: FunctionInfo): Promise<boolean> {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if this function is in a file that has object literal patterns
+    return await this.hasObjectLiteralPattern(func.filePath, func.name);
+  }
+
+  /**
+   * Check if a file contains object literal patterns with function properties
+   */
+  private async hasObjectLiteralPattern(filePath: string, functionName: string): Promise<boolean> {
+    // Cache this check per file-function to avoid repeated file reading
+    if (!this.objectLiteralCache) {
+      this.objectLiteralCache = new Map();
+    }
+
+    const cacheKey = `${filePath}:${functionName}`;
+    const cached = this.objectLiteralCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
+      
+      // Look for object literal patterns that include the function name
+      const objectLiteralPatterns = [
+        // const/let obj = { functionName: ... }
+        new RegExp(`(?:const|let|var)\\s+\\w+\\s*=\\s*\\{[\\s\\S]*?${functionName}\\s*:`),
+        
+        // return { functionName: ... }
+        new RegExp(`return\\s*\\{[\\s\\S]*?${functionName}\\s*:`),
+        
+        // } as SomeInterface or } as const
+        new RegExp(`\\{[\\s\\S]*?${functionName}\\s*:[\\s\\S]*?\\}\\s*as\\s+`),
+        
+        // Object method shorthand: { functionName() { ... } }
+        new RegExp(`\\{[\\s\\S]*?${functionName}\\s*\\([^)]*\\)\\s*\\{`),
+        
+        // Object property with arrow function: { functionName: () => ... }
+        new RegExp(`\\{[\\s\\S]*?${functionName}\\s*:\\s*\\([^)]*\\)\\s*=>`),
+        
+        // Object property with async function: { functionName: async ... }
+        new RegExp(`\\{[\\s\\S]*?${functionName}\\s*:\\s*async\\s+`),
+      ];
+
+      const hasPattern = objectLiteralPatterns.some(pattern => pattern.test(content));
+      this.objectLiteralCache.set(cacheKey, hasPattern);
+      return hasPattern;
+    } catch {
+      // If file reading fails, be conservative and assume it might be in object literal
+      this.objectLiteralCache.set(cacheKey, true);
+      return true;
+    }
+  }
+
+  /**
+   * Check if a function is a callback function in an object literal
+   * These are typically passed as configuration options to libraries
+   */
+  private isCallbackFunction(func: FunctionInfo): boolean {
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if this looks like a callback function name
+    if (this.isCommonCallbackName(func.name)) {
+      return true;
+    }
+
+    // Check if this is an arrow function or anonymous function (likely callbacks)
+    if (func.isArrowFunction || this.isInlineAnonymousFunction(func)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if a function name matches common callback patterns
+   */
+  private isCommonCallbackName(name: string): boolean {
+    // Common callback function names used in configuration objects
+    const callbackPatterns = [
+      // Size/memory calculation callbacks
+      'sizeCalculation', 'calculateSize', 'getSize',
+      
+      // Event handlers
+      'onSuccess', 'onError', 'onComplete', 'onFailure', 'onProgress',
+      'onChange', 'onClick', 'onSubmit', 'onFocus', 'onBlur',
+      'onLoad', 'onUnload', 'onReady',
+      
+      // Lifecycle callbacks
+      'beforeCreate', 'afterCreate', 'beforeUpdate', 'afterUpdate',
+      'beforeDelete', 'afterDelete', 'beforeSave', 'afterSave',
+      
+      // Validation/transformation callbacks
+      'validate', 'transform', 'filter', 'map', 'reduce',
+      'serialize', 'deserialize', 'format', 'parse',
+      
+      // Custom handlers
+      'handler', 'callback', 'listener', 'processor',
+      'resolver', 'rejecter', 'executor',
+      
+      // Configuration callbacks
+      'configure', 'setup', 'init', 'dispose', 'cleanup',
+      'factory', 'creator', 'builder', 'getter', 'setter',
+      
+      // Comparison/sorting callbacks
+      'compare', 'sort', 'equals', 'match',
+      
+      // Stream/data processing callbacks
+      'processBatch', 'processItem', 'processData',
+      'onData', 'onEnd', 'onClose', 'onFinish'
+    ];
+    
+    return callbackPatterns.includes(name);
+  }
+
+  /**
+   * Check if a function is a method in a class that gets instantiated
+   * Classes with 'new ClassName()' calls should have their methods protected
+   */
+  private async isInstantiatedClassMethod(func: FunctionInfo): Promise<boolean> {
+    // Only check methods (not standalone functions)
+    if (!func.isMethod && !func.isConstructor) {
+      return false;
+    }
+
+    // Skip if function is exported (exported functions can be safely analyzed)
+    if (func.isExported) {
+      return false;
+    }
+
+    // Check if the class containing this method is instantiated somewhere
+    const className = func.className || (func.contextPath && func.contextPath[0]);
+    if (!className) {
+      return false;
+    }
+
+    return await this.isClassInstantiated(className, func.filePath);
+  }
+
+  /**
+   * Check if a class is instantiated with 'new ClassName()' pattern
+   */
+  private async isClassInstantiated(className: string, filePath: string): Promise<boolean> {
+    // Cache this check per class to avoid repeated file reading
+    if (!this.instantiatedClassCache) {
+      this.instantiatedClassCache = new Map();
+    }
+
+    const cacheKey = `${filePath}:${className}`;
+    const cached = this.instantiatedClassCache.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
+      
+      // Look for 'new ClassName(' patterns
+      const instantiationPatterns = [
+        new RegExp(`new\\s+${className}\\s*\\(`),                    // new ClassName(
+        new RegExp(`new\\s+${className}\\s*<[^>]*>\\s*\\(`),        // new ClassName<T>(
+        new RegExp(`:\\s*${className}\\s*=\\s*new\\s+${className}`), // : ClassName = new ClassName
+      ];
+
+      const isInstantiated = instantiationPatterns.some(pattern => pattern.test(content));
+      this.instantiatedClassCache.set(cacheKey, isInstantiated);
+      return isInstantiated;
+    } catch {
+      // If file reading fails, be conservative and assume class is instantiated
+      this.instantiatedClassCache.set(cacheKey, true);
+      return true;
+    }
+  }
+
+  /**
+   * Check if the file contains factory function patterns
+   */
+  private async hasFactoryFunctionInFile(filePath: string): Promise<boolean> {
+    // Cache this check per file to avoid repeated file reading
+    if (!this.factoryFileCache) {
+      this.factoryFileCache = new Map();
+    }
+
+    const cached = this.factoryFileCache.get(filePath);
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    try {
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
+      
+      // Look for factory function patterns in the file
+      const factoryPatterns = [
+        /const\s+\w*(create|make|build|get)\w*\s*=\s*\(\s*\)\s*:\s*\w+\s*=>\s*\(/,  // const createDummyPool = (): Type => ({
+        /function\s+\w*(create|make|build|get)\w*\s*\(\s*\)\s*:\s*\w+\s*\{/,         // function createDummyPool(): Type {
+        /\w*(create|make|build|get)\w*\s*\(\s*\)\s*:\s*\w+\s*=>\s*\{/,               // createDummyPool(): Type => {
+        /return\s*\{[\s\S]*?connect\s*:|query\s*:|end\s*:/,                         // return { connect:, query:, end:
+      ];
+
+      const hasFactory = factoryPatterns.some(pattern => pattern.test(content));
+      this.factoryFileCache.set(filePath, hasFactory);
+      return hasFactory;
+    } catch {
+      // If file reading fails, be conservative and assume it might have factories
+      this.factoryFileCache.set(filePath, true);
+      return true;
+    }
+  }
+
+  /**
+   * Check if a function name matches common object method patterns
+   */
+  private isCommonObjectMethod(name: string): boolean {
+    // Common methods in factory-created objects
+    const commonMethods = [
+      // Database/Connection methods
+      'connect', 'end', 'query', 'on', 'removeListener', 'off', 'emit',
+      'acquireConnection', 'releaseConnection', 'beginTransaction', 'commitTransaction', 'rollbackTransaction',
+      
+      // Lifecycle methods
+      'init', 'destroy', 'start', 'stop', 'close', 'open', 'dispose',
+      
+      // HTTP/API methods
+      'get', 'set', 'put', 'delete', 'post', 'patch', 'head', 'options',
+      
+      // Stream/Event methods
+      'read', 'write', 'pipe', 'unpipe', 'listen', 'unlisten',
+      
+      // Configuration methods
+      'configure', 'setup', 'reset', 'clear', 'update',
+      
+      // File system methods
+      'readFile', 'writeFile', 'exists', 'mkdir', 'rmdir',
+      
+      // Worker/Process methods
+      'run', 'execute', 'process', 'handle', 'send', 'receive',
+      
+      // Validation/Utility methods
+      'validate', 'check', 'test', 'verify', 'transform', 'parse', 'stringify',
+      
+      // Cache/Storage methods
+      'cache', 'store', 'retrieve', 'remove', 'flush', 'evict'
+    ];
+    
+    return commonMethods.includes(name);
+  }
+
+  // Cache for file factory pattern detection (to avoid repeated file reads)
+  private factoryFileCache?: Map<string, boolean>;
+  
+  // Cache for class instantiation detection (to avoid repeated file reads)
+  private instantiatedClassCache?: Map<string, boolean>;
+  
+  // Cache for object literal pattern detection (to avoid repeated file reads)
+  private objectLiteralCache?: Map<string, boolean>;
+  
+  // Cache for function reference pattern detection (to avoid repeated file reads)
+  private functionReferenceCache?: Map<string, boolean>;
+  
+  // Cache for worker entry pattern detection (to avoid repeated file reads)
+  private workerEntryCache?: Map<string, boolean>;
+
 }

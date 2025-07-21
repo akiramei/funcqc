@@ -264,6 +264,8 @@ CREATE TABLE call_edges (
   callee_function_id TEXT,                      -- Physical ID of called function (NULL for external)
   callee_name TEXT NOT NULL,                    -- Function/method name being called
   callee_signature TEXT,                        -- Full signature if resolvable
+  caller_class_name TEXT,                        -- Class name for caller if it's a method/constructor
+  callee_class_name TEXT,                        -- Class name for callee if it's a method/constructor
   call_type TEXT NOT NULL CHECK (              -- Type of call relationship
     call_type IN ('direct', 'conditional', 'async', 'external', 'dynamic')
   ),
@@ -307,6 +309,8 @@ CREATE TABLE internal_call_edges (
   callee_function_id TEXT NOT NULL,             -- Physical ID of called function (within same file)
   caller_name TEXT NOT NULL,                    -- Calling function name
   callee_name TEXT NOT NULL,                    -- Called function name
+  caller_class_name TEXT,                        -- Class name for caller if it's a method/constructor
+  callee_class_name TEXT,                        -- Class name for callee if it's a method/constructor
   line_number INTEGER NOT NULL,                 -- Line where call occurs
   column_number INTEGER DEFAULT 0,              -- Column position
   call_context TEXT,                            -- Context: 'normal', 'conditional', 'loop', 'try', 'catch'

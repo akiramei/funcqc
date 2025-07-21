@@ -153,6 +153,8 @@ interface CallEdgeTable {
   callee_function_id: string | null;
   callee_name: string;
   callee_signature: string | null;
+  caller_class_name: string | null;
+  callee_class_name: string | null;
   call_type: string;
   call_context: string | null;
   line_number: number;
@@ -172,6 +174,8 @@ interface InternalCallEdgeTable {
   callee_function_id: string;
   caller_name: string;
   callee_name: string;
+  caller_class_name: string | null;
+  callee_class_name: string | null;
   line_number: number;
   column_number: number;
   call_context: string | null;
