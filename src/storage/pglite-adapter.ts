@@ -178,7 +178,7 @@ interface InternalCallEdgeTable {
   callee_class_name: string | null;
   line_number: number;
   column_number: number;
-  call_type: 'direct' | 'conditional' | 'async' | 'dynamic';
+  call_type: 'direct' | 'conditional' | 'async' | 'dynamic' | null;
   call_context: string | null;
   confidence_score: number;
   detected_by: string;
@@ -2527,7 +2527,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       const functionsResult = await this.db.query(
         `
         SELECT 
-          f.*,
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.created_at,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -2564,12 +2569,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Create a map for quick lookup
       const functionMap = new Map<string, FunctionInfo>();
       for (const row of functionsResult.rows) {
-        const functionRow = row as FunctionRow & Partial<MetricsRow>;
-        // Get parameters from preloaded map
-        const parameters = parametersMap.get(functionRow.id) || [];
-        const func = this.mapRowToFunctionInfo(functionRow, parameters);
-        // Use snapshot_id from the row to map functions
-        functionMap.set(functionRow.snapshot_id, func);
+        try {
+          const functionRow = row as FunctionRow & Partial<MetricsRow>;
+          // Get parameters from preloaded map
+          const parameters = parametersMap.get(functionRow.id) || [];
+          const func = this.mapRowToFunctionInfo(functionRow, parameters);
+          // Use snapshot_id from the row to map functions
+          functionMap.set(functionRow.snapshot_id, func);
+        } catch (rowError) {
+          console.error('Error processing function row:', rowError);
+          console.error('Row data:', JSON.stringify(row, null, 2));
+          throw rowError;
+        }
       }
 
       // Build history array
@@ -2757,7 +2768,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private async runPendingMigrations(): Promise<void> {
     try {
       const { KyselyMigrationManager } = await import('../migrations/kysely-migration-manager.js');
-      const migrationManager = new KyselyMigrationManager(this.db);
+      const path = await import('path');
+      
+      // Get the correct migration folder path relative to the project root
+      const migrationFolder = path.join(__dirname, '..', 'migrations');
+      const migrationManager = new KyselyMigrationManager(this.db, { migrationFolder });
       
       // Ensure migration metadata table exists first
       await migrationManager.ensureMigrationTable();
@@ -3202,9 +3217,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       astHash: row.ast_hash,
 
       // Enhanced function identification
-      ...(row.context_path && { contextPath: row.context_path }),
+      ...(row.context_path && Array.isArray(row.context_path) && { contextPath: row.context_path }),
       ...(row.function_type && { functionType: row.function_type }),
-      ...(row.modifiers && { modifiers: row.modifiers }),
+      ...(row.modifiers && Array.isArray(row.modifiers) && { modifiers: row.modifiers }),
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes
@@ -4320,7 +4335,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           ...(typedRow.callee_class_name && { calleeClassName: typedRow.callee_class_name }),
           lineNumber: typedRow.line_number,
           columnNumber: typedRow.column_number,
-          callType: (typedRow.call_type as 'direct' | 'conditional' | 'async' | 'dynamic') || 'direct',
+          callType: (typedRow.call_type && ['direct', 'conditional', 'async', 'dynamic'].includes(typedRow.call_type)) 
+            ? (typedRow.call_type as 'direct' | 'conditional' | 'async' | 'dynamic') 
+            : 'direct',
           ...(typedRow.call_context && { callContext: typedRow.call_context }),
           confidenceScore: typedRow.confidence_score,
           detectedBy: typedRow.detected_by as 'ast' | 'ideal_call_graph',

@@ -15,7 +15,10 @@ const logger = new Logger();
  */
 async function createMigrationComponents(config: FuncqcConfig) {
   const pglite = new PGlite(config.storage.path!);
-  const migrationManager = new KyselyMigrationManager(pglite);
+  
+  // Get the correct migration folder path relative to the project root
+  const migrationFolder = path.join(__dirname, '..', 'migrations');
+  const migrationManager = new KyselyMigrationManager(pglite, { migrationFolder });
   
   return {
     pglite,

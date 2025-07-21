@@ -2,6 +2,122 @@ import { Kysely, sql } from 'kysely';
 import * as fs from 'fs/promises';
 
 /**
+ * Parse PostgreSQL statements properly, handling dollar-quoted strings
+ */
+function parsePostgreSQLStatements(content: string): string[] {
+  const statements: string[] = [];
+  let currentStatement = '';
+  let inDollarQuote = false;
+  let dollarQuoteTag = '';
+  let i = 0;
+  
+  while (i < content.length) {
+    const char = content[i];
+    
+    if (!inDollarQuote && char === '$') {
+      // Check if this is the start of a dollar quote
+      const match = content.substring(i).match(/^\$([a-zA-Z_][a-zA-Z0-9_]*)?\$/);
+      if (match) {
+        inDollarQuote = true;
+        dollarQuoteTag = match[0];
+        currentStatement += dollarQuoteTag;
+        i += dollarQuoteTag.length;
+        continue;
+      }
+    } else if (inDollarQuote && char === '$') {
+      // Check if this is the end of the current dollar quote
+      const endTag = content.substring(i, i + dollarQuoteTag.length);
+      if (endTag === dollarQuoteTag) {
+        inDollarQuote = false;
+        currentStatement += dollarQuoteTag;
+        i += dollarQuoteTag.length;
+        dollarQuoteTag = '';
+        continue;
+      }
+    }
+    
+    if (!inDollarQuote && char === ';') {
+      // End of statement
+      const trimmed = currentStatement.trim();
+      if (trimmed) {
+        statements.push(addIfNotExists(trimmed));
+      }
+      currentStatement = '';
+    } else {
+      currentStatement += char;
+    }
+    
+    i++;
+  }
+  
+  // Add any remaining statement
+  const trimmed = currentStatement.trim();
+  if (trimmed) {
+    statements.push(addIfNotExists(trimmed));
+  }
+  
+  return statements.filter(stmt => stmt.length > 0);
+}
+
+/**
+ * Add IF NOT EXISTS to CREATE statements for safety
+ */
+function addIfNotExists(statement: string): string {
+  const upperStatement = statement.toUpperCase();
+  
+  if (upperStatement.startsWith('CREATE TABLE ')) {
+    return statement.replace(/CREATE TABLE /i, 'CREATE TABLE IF NOT EXISTS ');
+  }
+  if (upperStatement.startsWith('CREATE INDEX ')) {
+    return statement.replace(/CREATE INDEX /i, 'CREATE INDEX IF NOT EXISTS ');
+  }
+  if (upperStatement.startsWith('CREATE UNIQUE INDEX ')) {
+    return statement.replace(/CREATE UNIQUE INDEX /i, 'CREATE UNIQUE INDEX IF NOT EXISTS ');
+  }
+  
+  return statement;
+}
+
+/**
+ * Execute multiple SQL statements from a schema file
+ * PGLite requires statements to be executed individually
+ */
+async function executeMultipleStatements(db: Kysely<Record<string, unknown>>, sqlContent: string): Promise<void> {
+  // Remove comment lines first
+  const cleanContent = sqlContent
+    .split('\n')
+    .filter(line => !line.trim().startsWith('--')) // Remove comment lines
+    .join('\n');
+  
+  // Parse SQL statements properly, handling dollar-quoted strings
+  const statements = parsePostgreSQLStatements(cleanContent);
+
+  console.log(`Executing ${statements.length} SQL statements...`);
+
+  for (let i = 0; i < statements.length; i++) {
+    const statement = statements[i];
+    if (statement.trim()) {
+      try {
+        await sql.raw(statement).execute(db);
+        if (i % 10 === 0) {
+          console.log(`   Executed ${i + 1}/${statements.length} statements...`);
+        }
+      } catch (error) {
+        // Log the error but continue with other statements for certain error types
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (errorMsg.includes('already exists') || errorMsg.includes('duplicate')) {
+          console.log(`   Skipped statement ${i + 1} (already exists): ${statement.substring(0, 50)}...`);
+        } else {
+          console.error(`Failed to execute statement ${i + 1}:`, statement.substring(0, 100) + '...');
+          console.error('Error:', errorMsg);
+          throw error;
+        }
+      }
+    }
+  }
+}
+
+/**
  * 初回マイグレーション: 既存のdatabase.sqlをベースとした完全なスキーマ作成
  * 
  * このマイグレーションは、既存のfuncqcデータベーススキーマを
@@ -17,8 +133,8 @@ export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
     const schemaContent = await fs.readFile(schemaPath, 'utf-8');
     
     // database.sqlの内容を実行
-    // 注意: PGLiteではsql.rawを使用してDDL文を実行
-    await sql.raw(schemaContent).execute(db);
+    // 注意: PGLiteでは複数のSQL文を分割して実行する必要がある
+    await executeMultipleStatements(db, schemaContent);
     
     console.log('✅ Initial schema created successfully');
     
