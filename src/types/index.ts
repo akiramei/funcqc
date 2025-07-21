@@ -139,12 +139,15 @@ export interface FunctionInfo {
   // 内容識別次元
   contentId: string; // Content hash（実装内容識別）
   astHash: string; // AST構造のハッシュ
-  sourceCode?: string; // 関数のソースコード
+  sourceCode?: string; // 関数のソースコード（廃止予定）
   signatureHash: string; // シグネチャのハッシュ
 
   // 効率化用フィールド
   fileHash: string; // ファイル内容のハッシュ
   fileContentHash?: string; // ファイル変更検出高速化用
+  
+  // File relationship (New)
+  sourceFileId?: string; // Reference to source_files table
 
   // ドキュメント
   jsDoc?: string; // JSDocコメント
@@ -161,6 +164,24 @@ export interface FunctionInfo {
   returnType?: ReturnTypeInfo;
   metrics?: QualityMetrics;
   dependencies?: DependencyInfo[];
+}
+
+// Source File types for enhanced analysis capabilities
+export interface SourceFile {
+  id: string; // File ID (UUID)
+  snapshotId: string; // Snapshot this file belongs to
+  filePath: string; // Relative path from project root
+  fileContent: string; // Complete file source code
+  fileHash: string; // Content hash for deduplication
+  encoding: string; // File encoding
+  fileSizeBytes: number; // Content size in bytes
+  lineCount: number; // Total lines in file
+  language: string; // Detected language (typescript, javascript, etc)
+  functionCount: number; // Number of functions in this file
+  exportCount: number; // Number of exports
+  importCount: number; // Number of imports
+  fileModifiedTime?: Date; // Original file modification time
+  createdAt: Date; // Database creation timestamp
 }
 
 export interface ParameterInfo {
@@ -445,6 +466,17 @@ export interface ShowCommandOptions extends CommandOptions {
   syntax?: boolean;
 }
 
+export interface FilesCommandOptions extends CommandOptions {
+  json?: boolean; // JSON output for jq/script processing
+  limit?: string;
+  sort?: string;
+  desc?: boolean;
+  language?: string;
+  path?: string;
+  snapshot?: string;
+  stats?: boolean;
+}
+
 export interface HealthCommandOptions extends CommandOptions {
   trend?: boolean;
   risks?: boolean; // Show detailed risk assessment
@@ -635,6 +667,13 @@ export interface StorageAdapter {
 
   // Helper methods for RefactoringHealthEngine
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
+
+  // Source file operations (new)
+  saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<void>;
+  getSourceFile(id: string): Promise<SourceFile | null>;
+  getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]>;
+  getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null>;
+  deleteSourceFiles(snapshotId: string): Promise<number>;
 
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;

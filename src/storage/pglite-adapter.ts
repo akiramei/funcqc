@@ -5030,6 +5030,195 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     };
   }
 
+  // ========================================
+  // SOURCE FILE OPERATIONS (New)
+  // ========================================
+
+  /**
+   * Save source files for a snapshot with deduplication
+   */
+  async saveSourceFiles(sourceFiles: import('../types').SourceFile[], snapshotId: string): Promise<void> {
+    if (sourceFiles.length === 0) return;
+
+    try {
+      // Start transaction for atomic operation
+      await this.db.query('BEGIN');
+
+      // Prepare batch insert data
+      const insertData = sourceFiles.map(file => [
+        file.id,
+        snapshotId,
+        file.filePath,
+        file.fileContent,
+        file.fileHash,
+        file.encoding,
+        file.fileSizeBytes,
+        file.lineCount,
+        file.language,
+        file.functionCount,
+        file.exportCount,
+        file.importCount,
+        file.fileModifiedTime?.toISOString() || null,
+      ]);
+
+      // Batch insert source files with conflict handling (deduplication by hash)
+      for (const data of insertData) {
+        await this.db.query(
+          `INSERT INTO source_files (
+            id, snapshot_id, file_path, file_content, file_hash, encoding,
+            file_size_bytes, line_count, language, function_count,
+            export_count, import_count, file_modified_time
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          data
+        );
+      }
+
+      await this.db.query('COMMIT');
+      
+      this.logger?.log(`Saved ${sourceFiles.length} source files for snapshot ${snapshotId}`);
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to save source files: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files save error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get a single source file by ID
+   */
+  async getSourceFile(id: string): Promise<import('../types').SourceFile | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM source_files WHERE id = $1',
+        [id]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToSourceFile(result.rows[0] as import('../types').SourceFileRow);
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source file: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source file retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get all source files for a snapshot
+   */
+  async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../types').SourceFile[]> {
+    try {
+      const result = await this.db.query(
+        `SELECT * FROM source_files 
+         WHERE snapshot_id = $1 
+         ORDER BY file_path`,
+        [snapshotId]
+      );
+      
+      return result.rows.map(row => 
+        this.mapRowToSourceFile(row as import('../types').SourceFileRow)
+      );
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source files for snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get a source file by file path for a specific snapshot
+   */
+  async getSourceFileByPath(filePath: string, snapshotId: string): Promise<import('../types').SourceFile | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM source_files WHERE file_path = $1 AND snapshot_id = $2',
+        [filePath, snapshotId]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToSourceFile(result.rows[0] as import('../types').SourceFileRow);
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source file by path: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source file by path retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Delete all source files for a snapshot (cleanup operation)
+   */
+  async deleteSourceFiles(snapshotId: string): Promise<number> {
+    try {
+      const result = await this.db.query(
+        'DELETE FROM source_files WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      
+      const deletedCount = result.affectedRows || 0;
+      this.logger?.log(`Deleted ${deletedCount} source files for snapshot ${snapshotId}`);
+      
+      return deletedCount;
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to delete source files: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files deletion error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Helper method to map database row to SourceFile object
+   */
+  private mapRowToSourceFile(row: import('../types').SourceFileRow): import('../types').SourceFile {
+    return {
+      id: row.id,
+      snapshotId: row.snapshot_id,
+      filePath: row.file_path,
+      fileContent: row.file_content,
+      fileHash: row.file_hash,
+      encoding: row.encoding,
+      fileSizeBytes: row.file_size_bytes,
+      lineCount: row.line_count,
+      language: row.language,
+      functionCount: row.function_count,
+      exportCount: row.export_count,
+      importCount: row.import_count,
+      fileModifiedTime: row.file_modified_time ? new Date(row.file_modified_time) : new Date(),
+      createdAt: new Date(row.created_at),
+    };
+  }
+
   /**
    * Get direct access to the database connection for advanced operations
    * Returns PGlite instance for direct database access

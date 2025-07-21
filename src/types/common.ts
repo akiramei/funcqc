@@ -141,6 +141,23 @@ export interface CallEdgeRow {
   created_at: string;
 }
 
+export interface SourceFileRow {
+  id: string;
+  snapshot_id: string;
+  file_path: string;
+  file_content: string;
+  file_hash: string;
+  encoding: string;
+  file_size_bytes: number;
+  line_count: number;
+  language: string;
+  function_count: number;
+  export_count: number;
+  import_count: number;
+  file_modified_time?: string | null;
+  created_at: string;
+}
+
 // Diff/History related types
 export interface DiffFunction {
   id: string;

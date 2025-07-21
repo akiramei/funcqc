@@ -84,7 +84,18 @@ async function executeScanCommand(
     const result = await performAnalysis(files, components, spinner, env);
     showAnalysisSummary(result.functions);
 
-    await saveResults(result.functions, result.callEdges, result.internalCallEdges, env.storage, options, spinner);
+    // Collect source files for storage
+    const sourceFiles = await collectSourceFiles(files, spinner);
+    
+    await saveResults(
+      result.functions, 
+      result.callEdges, 
+      result.internalCallEdges, 
+      sourceFiles,
+      env.storage, 
+      options, 
+      spinner
+    );
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
@@ -444,10 +455,71 @@ async function performStreamingAnalysis(
   await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
 }
 
+async function collectSourceFiles(
+  files: string[],
+  spinner: SpinnerInterface
+): Promise<import('../../types').SourceFile[]> {
+  spinner.start('Collecting source files...');
+  
+  const sourceFiles: import('../../types').SourceFile[] = [];
+  const crypto = await import('crypto');
+  
+  for (const filePath of files) {
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const relativePath = path.relative(process.cwd(), filePath);
+      const fileStats = await fs.stat(filePath);
+      
+      // Calculate file hash for deduplication
+      const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+      
+      // Count lines
+      const lineCount = fileContent.split('\n').length;
+      
+      // Detect language from file extension
+      const language = path.extname(filePath).slice(1) || 'typescript';
+      
+      // Basic analysis for exports/imports (simple regex-based for performance)
+      const exportCount = (fileContent.match(/^export\s+/gm) || []).length;
+      const importCount = (fileContent.match(/^import\s+/gm) || []).length;
+      
+      const sourceFile: import('../../types').SourceFile = {
+        id: crypto.randomUUID(),
+        snapshotId: '', // Will be set when saved
+        filePath: relativePath,
+        fileContent,
+        fileHash,
+        encoding: 'utf-8',
+        fileSizeBytes: Buffer.byteLength(fileContent, 'utf-8'),
+        lineCount,
+        language,
+        functionCount: 0, // Will be updated after function analysis
+        exportCount,
+        importCount,
+        fileModifiedTime: fileStats.mtime,
+        createdAt: new Date(),
+      };
+      
+      sourceFiles.push(sourceFile);
+      
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
+  }
+  
+  spinner.succeed(`Collected ${sourceFiles.length} source files`);
+  return sourceFiles;
+}
+
 async function saveResults(
   allFunctions: FunctionInfo[],
   allCallEdges: CallEdge[],
   allInternalCallEdges: import('../../types').InternalCallEdge[] | undefined,
+  sourceFiles: import('../../types').SourceFile[],
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
   spinner: SpinnerInterface
@@ -462,6 +534,25 @@ async function saveResults(
 
   const startTime = Date.now();
   const snapshotId = await storage.saveSnapshot(allFunctions, options.label, options.comment);
+  
+  // Update source files with snapshot ID and function counts
+  const functionCountByFile = new Map<string, number>();
+  allFunctions.forEach(func => {
+    const count = functionCountByFile.get(func.filePath) || 0;
+    functionCountByFile.set(func.filePath, count + 1);
+  });
+  
+  // Update function counts in source files
+  sourceFiles.forEach(file => {
+    file.snapshotId = snapshotId;
+    file.functionCount = functionCountByFile.get(file.filePath) || 0;
+  });
+  
+  // Save source files
+  if (sourceFiles.length > 0) {
+    spinner.text = `Saving ${sourceFiles.length} source files to database...`;
+    await storage.saveSourceFiles(sourceFiles, snapshotId);
+  }
   
   // Save call edges if any were found
   if (allCallEdges.length > 0) {
@@ -490,10 +581,10 @@ async function saveResults(
   if (allFunctions.length > 1000) {
     const functionsPerSecond = Math.round(allFunctions.length / elapsed);
     spinner.succeed(
-      `Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec)`
+      `Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec, ${sourceFiles.length} files)`
     );
   } else {
-    spinner.succeed(`Saved snapshot: ${snapshotId}`);
+    spinner.succeed(`Saved snapshot: ${snapshotId} (${sourceFiles.length} files)`);
   }
 }
 

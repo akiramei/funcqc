@@ -164,6 +164,53 @@ How to find function IDs:
 `);
 
 program
+  .command('files')
+  .description('List and display source files stored in snapshots')
+  .option('--snapshot <id>', 'snapshot ID to display files from (default: latest)')
+  .option('--language <lang>', 'filter by programming language')
+  .option('--path <pattern>', 'filter by file path pattern')
+  .option('--sort <field>', 'sort by field (path, size, lines, functions, language, modified)', 'path')
+  .option('--desc', 'sort in descending order')
+  .option('--limit <num>', 'limit number of results')
+  .option('--stats', 'show file statistics')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { filesCommand } = await import('./cli/commands/files');
+    return withEnvironment(filesCommand())(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # List all source files from latest snapshot
+  $ funcqc files
+
+  # Show files with statistics
+  $ funcqc files --stats
+
+  # Filter by language
+  $ funcqc files --language typescript
+
+  # Filter by path pattern
+  $ funcqc files --path "src/cli/*"
+
+  # Sort by file size (largest first)
+  $ funcqc files --sort size --desc
+
+  # Show files from specific snapshot
+  $ funcqc files --snapshot abc123
+
+  # JSON output for processing
+  $ funcqc files --json
+
+Features:
+  - Lists source files stored during scan operations
+  - Shows file metadata: size, lines, function count, language
+  - Provides filtering and sorting capabilities
+  - Displays file statistics with --stats option
+  - Supports both table and JSON output formats
+`);
+
+program
   .command('health')
   .description('Show project health and risk assessment')
   .option('--trend', 'show trend analysis')
