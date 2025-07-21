@@ -672,7 +672,9 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
       const maxComplexityRoute = dependencies.routes.find(r => r.totalComplexity === maxComplexity);
       
       console.log(chalk.bold('📈 Complexity Summary:'));
-      console.log(`  Highest complexity route: Route ${dependencies.routes.indexOf(maxComplexityRoute!) + 1} (${maxComplexity})`);
+      if (maxComplexityRoute) {
+        console.log(`  Highest complexity route: Route ${dependencies.routes.indexOf(maxComplexityRoute) + 1} (${maxComplexity})`);
+      }
       console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
       
       const mostComplexFunction = dependencies.routes

@@ -1042,7 +1042,7 @@ export class TypeScriptAnalyzer {
     const sourceFiles = this.project.getSourceFiles();
     if (sourceFiles.length > this.maxSourceFilesInMemory * 2) {
       // Log warning if memory usage is very high
-      console.warn(`Warning: ${sourceFiles.length} SourceFiles in memory. Consider using smaller batch sizes.`);
+      this.logger.warn(`Warning: ${sourceFiles.length} SourceFiles in memory. Consider using smaller batch sizes.`);
     }
   }
 

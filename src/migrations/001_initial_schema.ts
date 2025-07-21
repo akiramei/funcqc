@@ -92,8 +92,22 @@ function addIfNotExists(statement: string): string {
 }
 
 function extractTableFromTrigger(triggerStatement: string): string {
-  const match = triggerStatement.match(/ON\s+(\w+)/i);
-  return match ? match[1] : '';
+  // Handle various SQL syntax formats:
+  // ON table_name
+  // ON schema.table_name  
+  // ON "quoted_table"
+  // ON schema."quoted_table"
+  const match = triggerStatement.match(/ON\s+(?:(\w+)\.)?("[^"]+"|\w+)/i);
+  if (match) {
+    // Return schema.table if schema exists, otherwise just table
+    const schema = match[1];
+    const table = match[2];
+    return schema ? `${schema}.${table}` : table;
+  }
+  
+  // Fallback: try to extract any identifier after ON
+  const fallbackMatch = triggerStatement.match(/ON\s+([^\s;]+)/i);
+  return fallbackMatch ? fallbackMatch[1] : '';
 }
 
 /**
@@ -231,14 +245,10 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
  * 初回スキーマ作成後の検証（新しいトランザクションで実行）
  */
 async function validateInitialSchemaInNewTransaction(db: Kysely<Record<string, unknown>>): Promise<void> {
-  // Force a new transaction by committing any existing transaction first
-  try {
-    await sql.raw('COMMIT').execute(db);
-  } catch {
-    // Ignore errors - there might not be an active transaction
-  }
-  
-  await validateInitialSchema(db);
+  // Use Kysely's proper transaction management instead of manual COMMIT
+  await db.transaction().execute(async (trx) => {
+    await validateInitialSchema(trx);
+  });
 }
 
 /**
