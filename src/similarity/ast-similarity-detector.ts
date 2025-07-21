@@ -46,9 +46,8 @@ export class ASTSimilarityDetector implements SimilarityDetector {
   }
 
   dispose(): void {
-    // Clean up any remaining temporary files in the project
-    const sourceFiles = this.project.getSourceFiles();
-    sourceFiles.forEach(file => this.project.removeSourceFile(file));
+    // Note: Don't remove SourceFiles here - they may be shared with other analyzers
+    // Project disposal will be handled by the parent component
   }
 
   async detect(
