@@ -195,6 +195,19 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
 
 /**
  * Show detailed dependency information for a function
+ * 
+ * @param functionRef - Optional function ID or name. If provided, overrides the --name option.
+ *                      This parameter enables both programmatic usage and CLI argument passing.
+ * 
+ * @example
+ * // CLI usage with positional argument
+ * funcqc dep show myFunction
+ * 
+ * // CLI usage with option
+ * funcqc dep show --name myFunction
+ * 
+ * // Programmatic usage
+ * depShowCommand('myFunction')(options)(env)
  */
 export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions> => 
   (options) => async (env: CommandEnvironment): Promise<void> => {
@@ -476,8 +489,33 @@ function calculateRouteComplexity(
   functions: Array<{ id: string; name: string }>,
   qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
 ): RouteComplexityInfo | null {
-  if (path.length === 0 || !qualityMetrics) {
+  // Comprehensive null checks
+  if (!path || path.length === 0) {
     return null;
+  }
+  
+  if (!functions || functions.length === 0) {
+    return null;
+  }
+  
+  // If no quality metrics provided, still calculate basic route info
+  if (!qualityMetrics || qualityMetrics.size === 0) {
+    return {
+      path,
+      pathNames: path.map(id => functions.find(f => f.id === id)?.name || 'unknown'),
+      totalDepth: path.length,
+      totalComplexity: path.length, // Assume complexity of 1 per function
+      avgComplexity: 1,
+      complexityBreakdown: path.map(id => {
+        const func = functions.find(f => f.id === id);
+        return {
+          functionId: id,
+          functionName: func?.name || 'unknown',
+          cyclomaticComplexity: 1,
+          cognitiveComplexity: 1,
+        };
+      }),
+    };
   }
 
   let totalComplexity = 0;
@@ -516,7 +554,7 @@ function calculateRouteComplexity(
     pathNames,
     totalDepth: path.length,
     totalComplexity,
-    avgComplexity: totalComplexity / path.length,
+    avgComplexity: path.length > 0 ? totalComplexity / path.length : 0,
     complexityBreakdown,
   };
 }
