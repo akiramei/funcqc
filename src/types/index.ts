@@ -15,6 +15,16 @@ export interface FuncqcConfig {
   roots: string[];
   exclude: string[];
   include?: string[];
+  
+  // スコープ設定: 複数のスコープを定義可能
+  scopes?: {
+    [scopeName: string]: {
+      roots: string[];
+      exclude?: string[];
+      include?: string[];
+      description?: string;
+    };
+  };
 
   storage: {
     type: 'pglite' | 'postgres';
@@ -139,12 +149,15 @@ export interface FunctionInfo {
   // 内容識別次元
   contentId: string; // Content hash（実装内容識別）
   astHash: string; // AST構造のハッシュ
-  sourceCode?: string; // 関数のソースコード
+  sourceCode?: string; // 関数のソースコード（廃止予定）
   signatureHash: string; // シグネチャのハッシュ
 
   // 効率化用フィールド
   fileHash: string; // ファイル内容のハッシュ
   fileContentHash?: string; // ファイル変更検出高速化用
+  
+  // File relationship (New)
+  sourceFileId?: string; // Reference to source_files table
 
   // ドキュメント
   jsDoc?: string; // JSDocコメント
@@ -161,6 +174,24 @@ export interface FunctionInfo {
   returnType?: ReturnTypeInfo;
   metrics?: QualityMetrics;
   dependencies?: DependencyInfo[];
+}
+
+// Source File types for enhanced analysis capabilities
+export interface SourceFile {
+  id: string; // File ID (UUID)
+  snapshotId: string; // Snapshot this file belongs to
+  filePath: string; // Relative path from project root
+  fileContent: string; // Complete file source code
+  fileHash: string; // Content hash for deduplication
+  encoding: string; // File encoding
+  fileSizeBytes: number; // Content size in bytes
+  lineCount: number; // Total lines in file
+  language: string; // Detected language (typescript, javascript, etc)
+  functionCount: number; // Number of functions in this file
+  exportCount: number; // Number of exports
+  importCount: number; // Number of imports
+  fileModifiedTime?: Date; // Original file modification time
+  createdAt: Date; // Database creation timestamp
 }
 
 export interface ParameterInfo {
@@ -315,7 +346,11 @@ export interface SnapshotInfo {
   gitTag?: string;
   projectRoot: string;
   configHash: string;
+  scope: string;  // スコープ識別子 ('src', 'test', 'all', etc.)
   metadata: SnapshotMetadata;
+  analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
+  basicAnalysisCompleted?: boolean;
+  callGraphAnalysisCompleted?: boolean;
 }
 
 export interface SnapshotMetadata {
@@ -342,6 +377,8 @@ export interface QueryOptions {
   limit?: number;
   offset?: number;
   fields?: string[];
+  includeFullData?: boolean;  // For performance optimization
+  scope?: string;  // Filter by scope (src, test, all, or custom scope)
 }
 
 // Analysis and comparison types
@@ -415,9 +452,11 @@ export interface InitCommandOptions extends CommandOptions {
 export interface ScanCommandOptions extends CommandOptions {
   label?: string;
   comment?: string;
+  scope?: string; // Scan specific scope (src, test, all, or custom scope)
   realtimeGate?: boolean; // Enable real-time quality gate with adaptive thresholds
   json?: boolean;
   force?: boolean;
+  skipBasicAnalysis?: boolean; // Skip basic analysis for fast scan
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -428,6 +467,7 @@ export interface ListCommandOptions extends CommandOptions {
   ccGe?: string;
   file?: string;
   name?: string;
+  scope?: string; // Filter by scope (src, test, all, or custom scope)
 }
 
 export interface ShowCommandOptions extends CommandOptions {
@@ -445,6 +485,17 @@ export interface ShowCommandOptions extends CommandOptions {
   syntax?: boolean;
 }
 
+export interface FilesCommandOptions extends CommandOptions {
+  json?: boolean; // JSON output for jq/script processing
+  limit?: string;
+  sort?: string;
+  desc?: boolean;
+  language?: string;
+  path?: string;
+  snapshot?: string;
+  stats?: boolean;
+}
+
 export interface HealthCommandOptions extends CommandOptions {
   trend?: boolean;
   risks?: boolean; // Show detailed risk assessment
@@ -456,6 +507,7 @@ export interface HealthCommandOptions extends CommandOptions {
   aiOptimized?: boolean; // Deprecated: use json instead
   snapshot?: string; // Snapshot ID/identifier for historical health analysis
   diff?: string | boolean; // Compare snapshots: true (latest-prev), string (snapshot ID), or "id1 id2"
+  scope?: string; // Analyze specific scope (src, test, all, or custom scope)
 }
 
 export interface HistoryCommandOptions extends CommandOptions {
@@ -488,11 +540,21 @@ export interface ExplainCommandOptions extends CommandOptions {
   format?: 'table' | 'detailed';
 }
 
+export interface DbCommandOptions extends CommandOptions {
+  table?: string; // Table name to query
+  limit?: string; // Limit number of rows
+  where?: string; // Simple WHERE condition
+  columns?: string; // Columns to select (comma-separated)
+  json?: boolean; // JSON output
+  list?: boolean; // List all tables
+}
+
 // Additional type definitions for CLI components
 export interface CliComponents {
   analyzer: { 
     analyzeFile(file: string): Promise<FunctionInfo[]>;
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
+    analyzeContent(content: string, virtualPath: string): Promise<FunctionInfo[]>;
   };
   storage: StorageAdapter;
   qualityCalculator: { calculate(func: FunctionInfo): QualityMetrics };
@@ -518,13 +580,8 @@ export interface TrendDataSnapshot {
   functionChange: number;
 }
 
-export interface SpinnerInterface {
-  start(text?: string): void;
-  succeed(text?: string): void;
-  fail(text?: string): void;
-  warn(text?: string): void;
-  text: string;
-}
+// Use ora's official type definition for better compatibility
+export type SpinnerInterface = ReturnType<typeof import('ora').default>;
 
 // Storage adapter interface
 export interface StorageAdapter {
@@ -538,6 +595,8 @@ export interface StorageAdapter {
     comment?: string,
     configHash?: string
   ): Promise<string>;
+  createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string }): Promise<string>;
+  updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
@@ -548,6 +607,7 @@ export interface StorageAdapter {
   getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>>;
   getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
+  storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void>;
   getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsWithoutDescriptions(
     snapshotId: string,
@@ -635,6 +695,14 @@ export interface StorageAdapter {
 
   // Helper methods for RefactoringHealthEngine
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
+
+  // Source file operations (new)
+  saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<void>;
+  getSourceFile(id: string): Promise<SourceFile | null>;
+  getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]>;
+  getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null>;
+  deleteSourceFiles(snapshotId: string): Promise<number>;
+  updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void>;
 
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;

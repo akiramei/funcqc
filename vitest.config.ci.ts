@@ -25,7 +25,10 @@ export default defineConfig({
     exclude: [
       ...baseConfig.test?.exclude || [],
       '**/simple-migration-manager.test.ts', // WASM問題を回避
-      'test/risk-assessor.test.ts' // CI環境でのundefined問題を回避
+      'test/risk-assessor.test.ts', // CI環境でのundefined問題を回避
+      'test/storage/scope-based-operations.test.ts', // 統合テスト：CI環境でのモック競合を回避
+      'test/function-id-generation.test.ts', // WASM/PGLite依存の統合テスト
+      'test/cli/dot-format.test.ts' // process.exit依存のCLI統合テスト
     ],
     // CI専用セットアップ
     setupFiles: ['test/setup-ci.ts'],

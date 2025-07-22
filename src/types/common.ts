@@ -7,6 +7,14 @@ export interface UserConfig {
   roots?: string[];
   exclude?: string[];
   include?: string[];
+  scopes?: {
+    [scopeName: string]: {
+      roots: string[];
+      exclude?: string[];
+      include?: string[];
+      description?: string;
+    };
+  };
   storage?: {
     type?: 'pglite' | 'postgres';
     path?: string;
@@ -41,6 +49,7 @@ export interface SnapshotRow {
   git_tag?: string;
   project_root: string;
   config_hash: string;
+  scope: string;  // スコープ識別子 ('src', 'test', 'all', etc.)
   metadata: {
     totalFunctions: number;
     totalFiles: number;
@@ -50,6 +59,9 @@ export interface SnapshotRow {
     asyncFunctions: number;
     complexityDistribution: Record<number, number>;
     fileExtensions: Record<string, number>;
+    analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
+    basicAnalysisCompleted?: boolean;
+    callGraphAnalysisCompleted?: boolean;
   }; // JSONB is automatically parsed by PGLite
 }
 
@@ -138,6 +150,23 @@ export interface CallEdgeRow {
   is_chained: boolean;
   confidence_score: number;
   metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface SourceFileRow {
+  id: string;
+  snapshot_id: string;
+  file_path: string;
+  file_content: string;
+  file_hash: string;
+  encoding: string;
+  file_size_bytes: number;
+  line_count: number;
+  language: string;
+  function_count: number;
+  export_count: number;
+  import_count: number;
+  file_modified_time?: string | null;
   created_at: string;
 }
 

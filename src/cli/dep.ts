@@ -13,6 +13,7 @@ import { ArchitectureConfigManager } from '../config/architecture-config';
 import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
 import { DotGenerator } from '../visualization/dot-generator';
+import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
 
 interface RouteComplexityInfo {
   path: string[];           // Function IDs in the route
@@ -86,22 +87,20 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Get the latest snapshot if no specific snapshot is provided
-      const snapshot = options.snapshot ? 
-        await env.storage.getSnapshot(options.snapshot) :
-        await env.storage.getLatestSnapshot();
+      // Use lazy analysis to ensure call graph data is available
+      const { snapshot, callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+        showProgress: true,
+        snapshotId: options.snapshot
+      });
 
+      // Validate that we have sufficient call graph data
+      validateCallGraphRequirements(callEdges, 'dep list');
+
+      // Get internal call edges for the snapshot
       if (!snapshot) {
-        console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
+        throw new Error('Failed to load snapshot');
       }
-
-      // Get both external and internal call edges for the snapshot
-      const [callEdges, internalCallEdges] = await Promise.all([
-        env.storage.getCallEdgesBySnapshot(snapshot.id),
-        env.storage.getInternalCallEdgesBySnapshot(snapshot.id)
-      ]);
-      
+      const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshot.id);
 
       // Convert internal call edges to CallEdge format for unified processing
       const convertedInternalEdges: CallEdge[] = internalCallEdges.map(edge => ({
@@ -131,8 +130,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         return;
       }
 
-      // Get function map for filtering
-      const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
+      // Create function map for filtering
       const functionMap = new Map(functions.map(f => [f.id, { id: f.id, name: f.name }]));
 
       // Apply filters
@@ -198,18 +196,14 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Get the latest snapshot if no specific snapshot is provided
-      const snapshot = options.snapshot ? 
-        await env.storage.getSnapshot(options.snapshot) :
-        await env.storage.getLatestSnapshot();
+      // Use lazy analysis to ensure call graph data is available
+      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+        showProgress: true,
+        snapshotId: options.snapshot
+      });
 
-      if (!snapshot) {
-        console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
-      }
-
-      // Find the function by name or ID (if specified)
-      const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
+      // Validate that we have sufficient call graph data
+      validateCallGraphRequirements(callEdges, 'dep show');
 
       let targetFunction = null;
       if (functionRef) {
@@ -224,9 +218,6 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
           return;
         }
       }
-
-      // Get call edges for the snapshot
-      const callEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
 
       // Get quality metrics if complexity analysis is requested
       let qualityMetricsMap: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
@@ -791,23 +782,16 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
     const spinner = ora('Calculating dependency metrics...').start();
 
     try {
-      // Get the latest snapshot
-      const snapshot = options.snapshot ? 
-        await env.storage.getSnapshot(options.snapshot) :
-        await env.storage.getLatestSnapshot();
+      // Use lazy analysis to ensure call graph data is available
+      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+        showProgress: false, // We manage progress with our own spinner
+        snapshotId: options.snapshot
+      });
 
-      if (!snapshot) {
-        spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
-      }
+      // Validate that we have sufficient call graph data
+      validateCallGraphRequirements(callEdges, 'dep stats');
 
       spinner.text = 'Loading functions and call graph...';
-
-      // Get all functions and call edges
-      const [functions, callEdges] = await Promise.all([
-        env.storage.getFunctionsBySnapshot(snapshot.id),
-        env.storage.getCallEdgesBySnapshot(snapshot.id),
-      ]);
 
       if (functions.length === 0) {
         spinner.fail(chalk.yellow('No functions found in the snapshot.'));
@@ -1056,23 +1040,16 @@ rules:
 
       spinner.text = 'Loading snapshot data...';
 
-      // Get the latest snapshot
-      const snapshot = options.snapshot ? 
-        await env.storage.getSnapshot(options.snapshot) :
-        await env.storage.getLatestSnapshot();
+      // Use lazy analysis to ensure call graph data is available
+      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+        showProgress: false, // We manage progress with our own spinner
+        snapshotId: options.snapshot
+      });
 
-      if (!snapshot) {
-        spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
-      }
+      // Validate that we have sufficient call graph data
+      validateCallGraphRequirements(callEdges, 'dep lint');
 
       spinner.text = 'Loading functions and call graph...';
-
-      // Get all functions and call edges
-      const [functions, callEdges] = await Promise.all([
-        env.storage.getFunctionsBySnapshot(snapshot.id),
-        env.storage.getCallEdgesBySnapshot(snapshot.id),
-      ]);
 
       if (functions.length === 0) {
         spinner.fail(chalk.yellow('No functions found in the snapshot.'));

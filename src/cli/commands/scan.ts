@@ -72,22 +72,181 @@ async function executeScanCommand(
     // Check for configuration changes and enforce comment requirement
     await checkConfigurationChanges(env, options, spinner);
 
-    const scanPaths = determineScanPaths(env.config);
-    const components = await initializeComponents(env, spinner);
-    const files = await discoverFiles(scanPaths, env.config, spinner);
+    const scanPaths = await determineScanPaths(env.config, options.scope);
+    const files = await discoverFiles(scanPaths, env.config, spinner, options.scope);
 
     if (files.length === 0) {
       console.log(chalk.yellow('No TypeScript files found to analyze.'));
       return;
     }
 
-    const result = await performAnalysis(files, components, spinner, env);
-    showAnalysisSummary(result.functions);
-
-    await saveResults(result.functions, result.callEdges, result.internalCallEdges, env.storage, options, spinner);
+    // Step 1: Collect and store source files (fast)
+    const sourceFiles = await collectSourceFiles(files, spinner);
+    const snapshotId = await saveSourceFiles(sourceFiles, env.storage, options, spinner);
+    
+    // Step 2: Perform basic analysis (configurable timing)
+    const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
+    if (shouldPerformBasicAnalysis) {
+      await performBasicAnalysis(snapshotId, sourceFiles, env, spinner);
+    } else {
+      console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
+    }
+    
+    // Step 3: Call graph analysis is always deferred
+    console.log(chalk.gray('📊 Call graph analysis will be performed when needed by dep/dead/clean commands.'));
+    
     showCompletionMessage();
   } catch (error) {
     handleScanError(error, options, spinner);
+  }
+}
+
+/**
+ * Save source files and create initial snapshot (fast operation)
+ */
+async function saveSourceFiles(
+  sourceFiles: import('../../types').SourceFile[],
+  storage: CliComponents['storage'],
+  options: ScanCommandOptions,
+  spinner: SpinnerInterface
+): Promise<string> {
+  spinner.start('Saving source files...');
+  
+  // Create snapshot with minimal metadata
+  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string } = {
+    comment: options.comment || 'Source files stored (analysis pending)',
+    analysisLevel: 'NONE', // Will be added to snapshot type
+    scope: options.scope || 'src', // Use specified scope or default to 'src'
+  };
+  
+  if (options.label) {
+    createSnapshotOptions.label = options.label;
+  }
+  
+  const snapshotId = await storage.createSnapshot(createSnapshotOptions);
+  
+  // Update source files with snapshot ID and save
+  sourceFiles.forEach(file => {
+    file.snapshotId = snapshotId;
+  });
+  
+  await storage.saveSourceFiles(sourceFiles, snapshotId);
+  
+  spinner.succeed(`Saved ${sourceFiles.length} source files to snapshot: ${snapshotId}`);
+  return snapshotId;
+}
+
+/**
+ * Perform basic analysis on stored files (can be called later)
+ */
+export async function performBasicAnalysis(
+  snapshotId: string,
+  sourceFiles: import('../../types').SourceFile[],
+  env: CommandEnvironment,
+  spinner: SpinnerInterface
+): Promise<void> {
+  spinner.start('Performing basic function analysis...');
+  
+  const components = await initializeComponents(env, spinner);
+  const allFunctions: FunctionInfo[] = [];
+  
+  // Analyze each stored file
+  for (const sourceFile of sourceFiles) {
+    try {
+      // Create virtual source file for TypeScript analyzer
+      const virtualFile = {
+        path: sourceFile.filePath,
+        content: sourceFile.fileContent,
+      };
+      
+      // Use analyzer with content instead of file path
+      const functions = await components.analyzer.analyzeContent(
+        virtualFile.content,
+        virtualFile.path
+      );
+      
+      // Calculate metrics
+      for (const func of functions) {
+        func.metrics = components.qualityCalculator.calculate(func);
+        func.sourceFileId = sourceFile.id; // Link to source file
+      }
+      
+      allFunctions.push(...functions);
+      
+      // Update function count in source file
+      sourceFile.functionCount = functions.length;
+      
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Warning: Failed to analyze ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
+  }
+  
+  // Save analysis results
+  await env.storage.storeFunctions(allFunctions, snapshotId);
+  await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+  
+  // Update function counts in source_files table
+  const functionCountByFile = new Map<string, number>();
+  allFunctions.forEach(func => {
+    const count = functionCountByFile.get(func.filePath) || 0;
+    functionCountByFile.set(func.filePath, count + 1);
+  });
+  
+  if (functionCountByFile.size > 0) {
+    await env.storage.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+  }
+  
+  spinner.succeed(`Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`);
+  showAnalysisSummary(allFunctions);
+}
+
+/**
+ * Perform call graph analysis on stored files (called by dep/dead/clean commands)
+ */
+export async function performCallGraphAnalysis(
+  snapshotId: string,
+  env: CommandEnvironment,
+  spinner?: SpinnerInterface
+): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] }> {
+  const showSpinner = spinner !== undefined;
+  if (showSpinner) {
+    spinner.start('Performing call graph analysis...');
+  }
+  
+  // Get stored files and functions
+  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  const functions = await env.storage.getFunctions(snapshotId);
+  
+  // Reconstruct file map for analyzer
+  const fileContentMap = new Map<string, string>();
+  sourceFiles.forEach(file => {
+    fileContentMap.set(file.filePath, file.fileContent);
+  });
+  
+  // Use FunctionAnalyzer with stored content
+  const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
+  
+  try {
+    // Analyze call graph from stored content
+    const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions);
+    
+    // Save call edges
+    await env.storage.insertCallEdges(result.callEdges, snapshotId);
+    await env.storage.insertInternalCallEdges(result.internalCallEdges);
+    await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
+    
+    if (showSpinner) {
+      spinner!.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
+    }
+    
+    return result;
+    
+  } finally {
+    functionAnalyzer.dispose();
   }
 }
 
@@ -105,20 +264,21 @@ async function checkConfigurationChanges(
     if (lastConfigHash && lastConfigHash !== currentConfigHash && lastConfigHash !== 'unknown') {
       // Configuration has changed
       if (!options.comment) {
-        spinner.fail('Configuration change detected');
-        console.error(chalk.red('🚨 Scan configuration has changed since last snapshot!'));
-        console.error(chalk.yellow('Previous config hash:'), lastConfigHash);
-        console.error(chalk.yellow('Current config hash: '), currentConfigHash);
-        console.error();
-        console.error(chalk.red('A comment is required to document this change.'));
-        console.error(chalk.blue('Usage: funcqc scan --comment "Reason for configuration change"'));
-        console.error();
-        console.error(chalk.gray('Examples:'));
-        console.error(chalk.gray('  funcqc scan --comment "Added new src/components directory"'));
-        console.error(
+        spinner.stop();
+        console.log(chalk.blue('📋 Configuration change detected'));
+        console.log(chalk.gray('Your scan configuration has been updated since the last snapshot.'));
+        console.log(chalk.gray('Previous config hash:'), chalk.dim(lastConfigHash));
+        console.log(chalk.gray('Current config hash: '), chalk.dim(currentConfigHash));
+        console.log();
+        console.log(chalk.blue('Please add a comment to document this change:'));
+        console.log(chalk.green('Usage: funcqc scan --comment "Brief description of the change"'));
+        console.log();
+        console.log(chalk.gray('Examples:'));
+        console.log(chalk.gray('  funcqc scan --comment "Added new src/components directory"'));
+        console.log(
           chalk.gray('  funcqc scan --comment "Moved from src/ to lib/ folder structure"')
         );
-        console.error(
+        console.log(
           chalk.gray('  funcqc scan --comment "Updated exclude patterns for test files"')
         );
 
@@ -126,7 +286,7 @@ async function checkConfigurationChanges(
       }
 
       // Valid comment provided
-      console.log(chalk.blue('ℹ️  Configuration change detected and documented:'));
+      console.log(chalk.blue('ℹ️  Configuration change documented:'));
       console.log(chalk.gray(`   "${options.comment}"`));
       console.log();
     }
@@ -136,7 +296,13 @@ async function checkConfigurationChanges(
   }
 }
 
-function determineScanPaths(config: FuncqcConfig): string[] {
+async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Promise<string[]> {
+  if (scopeName) {
+    const configManager = new ConfigManager();
+    await configManager.load(); // Ensure config is loaded
+    const scopeConfig = configManager.resolveScopeConfig(scopeName);
+    return scopeConfig.roots;
+  }
   return config.roots;
 }
 
@@ -166,15 +332,30 @@ async function initializeComponents(
 async function discoverFiles(
   scanPaths: string[],
   config: FuncqcConfig,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  scopeName?: string
 ): Promise<string[]> {
   spinner.start('Finding TypeScript files...');
-  const files = await findTypeScriptFiles(scanPaths, config.exclude);
+  
+  let excludePatterns = config.exclude;
+  let includePatterns = config.include;
+  
+  if (scopeName) {
+    const configManager = new ConfigManager();
+    await configManager.load(); // Ensure config is loaded
+    const scopeConfig = configManager.resolveScopeConfig(scopeName);
+    excludePatterns = scopeConfig.exclude;
+    includePatterns = scopeConfig.include;
+  }
+  
+  const files = await findTypeScriptFiles(scanPaths, excludePatterns, includePatterns);
   spinner.succeed(`Found ${files.length} TypeScript files`);
   return files;
 }
 
-async function performAnalysis(
+// Legacy analysis function - replaced by staged analysis
+// @ts-expect-error - Legacy function kept for reference
+async function _performAnalysis(
   files: string[],
   components: CliComponents,
   spinner: SpinnerInterface,
@@ -444,10 +625,73 @@ async function performStreamingAnalysis(
   await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
 }
 
-async function saveResults(
+async function collectSourceFiles(
+  files: string[],
+  spinner: SpinnerInterface
+): Promise<import('../../types').SourceFile[]> {
+  spinner.start('Collecting source files...');
+  
+  const sourceFiles: import('../../types').SourceFile[] = [];
+  const crypto = await import('crypto');
+  
+  for (const filePath of files) {
+    try {
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      const relativePath = path.relative(process.cwd(), filePath);
+      const fileStats = await fs.stat(filePath);
+      
+      // Calculate file hash for deduplication
+      const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+      
+      // Count lines
+      const lineCount = fileContent.split('\n').length;
+      
+      // Detect language from file extension
+      const language = path.extname(filePath).slice(1) || 'typescript';
+      
+      // Basic analysis for exports/imports (simple regex-based for performance)
+      const exportCount = (fileContent.match(/^export\s+/gm) || []).length;
+      const importCount = (fileContent.match(/^import\s+/gm) || []).length;
+      
+      const sourceFile: import('../../types').SourceFile = {
+        id: crypto.randomUUID(),
+        snapshotId: '', // Will be set when saved
+        filePath: relativePath,
+        fileContent,
+        fileHash,
+        encoding: 'utf-8',
+        fileSizeBytes: Buffer.byteLength(fileContent, 'utf-8'),
+        lineCount,
+        language,
+        functionCount: 0, // Will be updated after function analysis
+        exportCount,
+        importCount,
+        fileModifiedTime: fileStats.mtime,
+        createdAt: new Date(),
+      };
+      
+      sourceFiles.push(sourceFile);
+      
+    } catch (error) {
+      console.warn(
+        chalk.yellow(
+          `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+        )
+      );
+    }
+  }
+  
+  spinner.succeed(`Collected ${sourceFiles.length} source files`);
+  return sourceFiles;
+}
+
+// Legacy save function - replaced by staged save
+// @ts-expect-error - Legacy function kept for reference  
+async function _saveResults(
   allFunctions: FunctionInfo[],
   allCallEdges: CallEdge[],
   allInternalCallEdges: import('../../types').InternalCallEdge[] | undefined,
+  sourceFiles: import('../../types').SourceFile[],
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
   spinner: SpinnerInterface
@@ -462,6 +706,25 @@ async function saveResults(
 
   const startTime = Date.now();
   const snapshotId = await storage.saveSnapshot(allFunctions, options.label, options.comment);
+  
+  // Update source files with snapshot ID and function counts
+  const functionCountByFile = new Map<string, number>();
+  allFunctions.forEach(func => {
+    const count = functionCountByFile.get(func.filePath) || 0;
+    functionCountByFile.set(func.filePath, count + 1);
+  });
+  
+  // Update function counts in source files
+  sourceFiles.forEach(file => {
+    file.snapshotId = snapshotId;
+    file.functionCount = functionCountByFile.get(file.filePath) || 0;
+  });
+  
+  // Save source files
+  if (sourceFiles.length > 0) {
+    spinner.text = `Saving ${sourceFiles.length} source files to database...`;
+    await storage.saveSourceFiles(sourceFiles, snapshotId);
+  }
   
   // Save call edges if any were found
   if (allCallEdges.length > 0) {
@@ -490,10 +753,10 @@ async function saveResults(
   if (allFunctions.length > 1000) {
     const functionsPerSecond = Math.round(allFunctions.length / elapsed);
     spinner.succeed(
-      `Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec)`
+      `Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec, ${sourceFiles.length} files)`
     );
   } else {
-    spinner.succeed(`Saved snapshot: ${snapshotId}`);
+    spinner.succeed(`Saved snapshot: ${snapshotId} (${sourceFiles.length} files)`);
   }
 }
 
@@ -527,12 +790,22 @@ function handleScanError(
   process.exit(1);
 }
 
-async function findTypeScriptFiles(roots: string[], excludePatterns: string[]): Promise<string[]> {
+async function findTypeScriptFiles(roots: string[], excludePatterns: string[], customIncludePatterns?: string[]): Promise<string[]> {
   // Create include patterns for TypeScript files in all roots
-  const includePatterns = roots.flatMap(root => [
-    path.join(root, '**/*.ts'),
-    path.join(root, '**/*.tsx'),
-  ]);
+  let includePatterns: string[];
+  
+  if (customIncludePatterns && customIncludePatterns.length > 0) {
+    // Use custom include patterns if provided (for scopes like 'test')
+    includePatterns = roots.flatMap(root => 
+      customIncludePatterns.map(pattern => path.join(root, pattern))
+    );
+  } else {
+    // Default TypeScript file patterns
+    includePatterns = roots.flatMap(root => [
+      path.join(root, '**/*.ts'),
+      path.join(root, '**/*.tsx'),
+    ]);
+  }
 
   // Convert exclude patterns to proper ignore patterns
   const ignorePatterns = excludePatterns.map(pattern => {
@@ -772,7 +1045,7 @@ function createQualityGate(historicalFunctions: FunctionInfo[], spinner: typeof 
 }
 
 async function performRealTimeAnalysis(config: FuncqcConfig, qualityGate: RealTimeQualityGate) {
-  const scanPaths = determineScanPaths(config);
+  const scanPaths = await determineScanPaths(config, 'src');
   const files = await discoverFiles(scanPaths, config, ora());
 
   console.log(chalk.cyan('\n🚀 Real-time Quality Gate Analysis\n'));

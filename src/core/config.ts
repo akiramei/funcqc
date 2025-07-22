@@ -29,6 +29,33 @@ const DEFAULT_CONFIG: FuncqcConfig = {
     '**/dist/**',
     '**/build/**',
   ],
+  // デフォルトスコープ設定
+  scopes: {
+    src: {
+      roots: ['src'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/__tests__/**',
+      ],
+      description: 'Production source code'
+    },
+    test: {
+      roots: ['test', 'tests', '__tests__', 'src/__tests__'],
+      include: ['**/*.test.ts', '**/*.spec.ts', '**/*.test.js', '**/*.spec.js'],
+      exclude: [],
+      description: 'Test code files'
+    },
+    all: {
+      roots: ['src', 'test', 'tests', '__tests__'],
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/build/**',
+      ],
+      description: 'All source and test code'
+    }
+  },
   storage: {
     type: 'pglite',
     path: '.funcqc/funcqc.db',
@@ -110,6 +137,7 @@ export class ConfigManager {
     const config: FuncqcConfig = { ...DEFAULT_CONFIG };
 
     this.mergeArrayConfigs(config, userConfig);
+    this.mergeScopesConfig(config, userConfig);
     this.mergeStorageConfig(config, userConfig);
     this.mergeMetricsConfig(config, userConfig);
     this.mergeGitConfig(config, userConfig);
@@ -137,6 +165,33 @@ export class ConfigManager {
       config.include = userConfig.include.filter(
         (pattern): pattern is string => typeof pattern === 'string'
       );
+    }
+  }
+
+  private mergeScopesConfig(config: FuncqcConfig, userConfig: UserConfig): void {
+    if (userConfig.scopes && typeof userConfig.scopes === 'object') {
+      // User provided scopes configuration - start with default scopes and merge user scopes
+      config.scopes = { ...config.scopes };
+      
+      for (const [scopeName, scopeConfig] of Object.entries(userConfig.scopes)) {
+        if (scopeConfig && typeof scopeConfig === 'object' && Array.isArray(scopeConfig.roots)) {
+          config.scopes![scopeName] = {
+            roots: scopeConfig.roots.filter((root): root is string => typeof root === 'string'),
+            exclude: Array.isArray(scopeConfig.exclude) 
+              ? scopeConfig.exclude.filter((pattern): pattern is string => typeof pattern === 'string')
+              : [],
+            ...(Array.isArray(scopeConfig.include) && {
+              include: scopeConfig.include.filter((pattern): pattern is string => typeof pattern === 'string')
+            }),
+            ...(typeof scopeConfig.description === 'string' && {
+              description: scopeConfig.description
+            })
+          };
+        }
+      }
+    } else {
+      // User did not provide scopes configuration - remove default scopes to allow fallback
+      delete config.scopes;
     }
   }
 
@@ -266,6 +321,62 @@ export class ConfigManager {
         ...thresholds,
       } as QualityScorerThresholds;
     }
+  }
+
+  /**
+   * Resolve scope configuration to get scan paths and filters
+   */
+  resolveScopeConfig(scopeName?: string): { roots: string[]; exclude: string[]; include?: string[]; description?: string } {
+    if (!scopeName) {
+      scopeName = 'src'; // Default scope
+    }
+
+    const config = this.config || this.getDefaults();
+    
+    // Check if scope exists in configuration
+    if (config.scopes && config.scopes[scopeName]) {
+      const scopeConfig = config.scopes[scopeName];
+      const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
+        roots: scopeConfig.roots,
+        exclude: scopeConfig.exclude || []
+      };
+      
+      // Only include optional properties if they are defined
+      if (scopeConfig.include) {
+        result.include = scopeConfig.include;
+      }
+      if (scopeConfig.description) {
+        result.description = scopeConfig.description;
+      }
+      
+      return result;
+    }
+
+    // If scope doesn't exist, fall back to default configuration
+    if (scopeName === 'src' || scopeName === 'default') {
+      const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
+        roots: config.roots,
+        exclude: config.exclude,
+        description: 'Default scope configuration'
+      };
+      
+      // Only include optional properties if they are defined
+      if (config.include) {
+        result.include = config.include;
+      }
+      
+      return result;
+    }
+
+    throw new Error(`Unknown scope: ${scopeName}. Available scopes: ${Object.keys(config.scopes || {}).join(', ')}`);
+  }
+
+  /**
+   * Get available scope names
+   */
+  getAvailableScopes(): string[] {
+    const config = this.config || this.getDefaults();
+    return Object.keys(config.scopes || { src: {} });
   }
 
   /**

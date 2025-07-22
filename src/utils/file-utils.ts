@@ -123,21 +123,8 @@ export function shouldExclude(filePath: string, patterns: string[]): boolean {
   return false;
 }
 
-/**
- * Format file size in human readable format
- */
-export function formatFileSize(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let size = bytes;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex++;
-  }
-
-  return `${size.toFixed(1)} ${units[unitIndex]}`;
-}
+// File size formatting moved to format-utils.ts for better organization
+// Use: import { formatFileSize } from './format-utils';
 
 /**
  * Format duration in human readable format

@@ -1,5 +1,5 @@
 import { OptionValues } from 'commander';
-import { createAppEnvironment, createCommandEnvironment, destroyAppEnvironment } from '../core/environment';
+import { createAppEnvironment, createLightweightAppEnvironment, createCommandEnvironment, destroyAppEnvironment } from '../core/environment';
 import { AppEnvironment, CommandEnvironment } from '../types/environment';
 import { Logger } from '../utils/cli-utils';
 import { createErrorHandler, ErrorCode } from '../utils/error-handler';
@@ -30,6 +30,19 @@ function isJsonOutputMode<TOptions extends BaseCommandOptions>(options: TOptions
  */
 async function createAppEnv(parentOpts: OptionValues, isJsonOutput: boolean): Promise<AppEnvironment> {
   return await createAppEnvironment({
+    configPath: parentOpts['config'],
+    dbPath: parentOpts['cwd'] ? `${parentOpts['cwd']}/.funcqc/funcqc.db` : undefined,
+    quiet: Boolean(parentOpts['quiet']) || isJsonOutput,
+    verbose: Boolean(parentOpts['verbose']) && !isJsonOutput,
+  });
+}
+
+/**
+ * Creates lightweight application environment for read-only commands
+ * Optimized for fast startup
+ */
+async function createLightweightAppEnv(parentOpts: OptionValues, isJsonOutput: boolean): Promise<AppEnvironment> {
+  return await createLightweightAppEnvironment({
     configPath: parentOpts['config'],
     dbPath: parentOpts['cwd'] ? `${parentOpts['cwd']}/.funcqc/funcqc.db` : undefined,
     quiet: Boolean(parentOpts['quiet']) || isJsonOutput,
@@ -70,6 +83,19 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 }
 
 /**
+ * List of commands that can use lightweight initialization
+ */
+const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'health', 'search', 'history', 'similar', 'explain', 'db'];
+
+/**
+ * Determines if the current command is lightweight
+ */
+function isLightweightCommand(): boolean {
+  const command = process.argv[2];
+  return LIGHTWEIGHT_COMMANDS.includes(command);
+}
+
+/**
  * Higher-order function that wraps Reader-based commands with environment injection
  */
 export function withEnvironment<TOptions extends BaseCommandOptions>(
@@ -93,7 +119,14 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
       performSystemCheck(parentOpts);
       
       const isJsonOutput = isJsonOutputMode(mergedOptions);
-      appEnv = await createAppEnv(parentOpts, isJsonOutput);
+      
+      // Use lightweight environment for read-only commands
+      if (isLightweightCommand()) {
+        appEnv = await createLightweightAppEnv(parentOpts, isJsonOutput);
+      } else {
+        appEnv = await createAppEnv(parentOpts, isJsonOutput);
+      }
+      
       const commandEnv = createCmdEnv(appEnv, mergedOptions, parentOpts, isJsonOutput);
 
       const readerFn = commandReader(mergedOptions);

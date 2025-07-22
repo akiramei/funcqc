@@ -6,6 +6,13 @@ import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
 
+// Static imports for frequently used commands (optimization)
+import { withEnvironment } from './cli/cli-wrapper';
+import { listCommand } from './cli/commands/list';
+import { showCommand } from './cli/commands/show';
+import { filesCommand } from './cli/commands/files';
+import { healthCommand } from './cli/commands/health';
+
 const program = new Command();
 
 program
@@ -89,6 +96,7 @@ program
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
+  .option('--scope <name>', 'scan specific scope (src, test, all, or custom scope)')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -106,9 +114,8 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
+  .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { listCommand } = await import('./cli/commands/list');
     return withEnvironment(listCommand)(options, command);
   });
 
@@ -129,8 +136,6 @@ program
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
   .action(async (namePattern: string | undefined, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { showCommand } = await import('./cli/commands/show');
     return withEnvironment(showCommand(namePattern || ''))(options, command);
   })
   .addHelpText('after', `
@@ -164,6 +169,51 @@ How to find function IDs:
 `);
 
 program
+  .command('files')
+  .description('List and display source files stored in snapshots')
+  .option('--snapshot <id>', 'snapshot ID to display files from (default: latest)')
+  .option('--language <lang>', 'filter by programming language')
+  .option('--path <pattern>', 'filter by file path pattern')
+  .option('--sort <field>', 'sort by field (path, size, lines, functions, language, modified)', 'path')
+  .option('--desc', 'sort in descending order')
+  .option('--limit <num>', 'limit number of results')
+  .option('--stats', 'show file statistics')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues, command) => {
+    return withEnvironment(filesCommand())(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # List all source files from latest snapshot
+  $ funcqc files
+
+  # Show files with statistics
+  $ funcqc files --stats
+
+  # Filter by language
+  $ funcqc files --language typescript
+
+  # Filter by path pattern
+  $ funcqc files --path "src/cli/*"
+
+  # Sort by file size (largest first)
+  $ funcqc files --sort size --desc
+
+  # Show files from specific snapshot
+  $ funcqc files --snapshot abc123
+
+  # JSON output for processing
+  $ funcqc files --json
+
+Features:
+  - Lists source files stored during scan operations
+  - Shows file metadata: size, lines, function count, language
+  - Provides filtering and sorting capabilities
+  - Displays file statistics with --stats option
+  - Supports both table and JSON output formats
+`);
+
+program
   .command('health')
   .description('Show project health and risk assessment')
   .option('--trend', 'show trend analysis')
@@ -174,10 +224,9 @@ program
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
+  .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
   .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { healthCommand } = await import('./cli/commands/health');
     return withEnvironment(healthCommand)(options, command);
   });
 
@@ -606,6 +655,44 @@ Available Metrics:
 
 Available Concepts:
   complexity, maintainability, quality, testing, refactoring
+`);
+
+program
+  .command('db')
+  .description('Inspect database contents for debugging and testing')
+  .option('--list', 'list all available tables')
+  .option('--table <name>', 'table name to query')
+  .option('--limit <num>', 'limit number of rows (default: 10, max: 1000)')
+  .option('--where <condition>', 'simple WHERE condition (e.g., "id = \'abc123\'")')
+  .option('--columns <list>', 'comma-separated list of columns to select')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbCommand } = await import('./cli/commands/db');
+    return withEnvironment(dbCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # List all available tables
+  $ funcqc db --list
+  
+  # Show recent snapshots
+  $ funcqc db --table snapshots --limit 5
+  
+  # Query specific columns
+  $ funcqc db --table functions --columns "id,name,file_path" --limit 10
+  
+  # Filter with WHERE clause
+  $ funcqc db --table functions --where "cyclomatic_complexity > 10" --limit 5
+  
+  # JSON output for processing
+  $ funcqc db --table snapshots --json | jq '.rows[0]'
+
+Safety Features:
+  - Read-only access (SELECT statements only)
+  - Input validation and sanitization
+  - Row limits to prevent overwhelming output
+  - Designed for debugging and testing purposes
 `);
 
 // Add refactor command

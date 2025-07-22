@@ -489,6 +489,53 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  /**
+   * Lightweight initialization for read-only commands
+   * Optimized for fast startup (target: 2-3 seconds)
+   */
+  async lightweightInit(): Promise<void> {
+    try {
+      // Quick existence check only
+      if (this.shouldCheckDatabaseDirectory(this.originalDbPath)) {
+        const dbDir = path.dirname(this.dbPath);
+        if (!existsSync(dbDir)) {
+          throw new DatabaseError(
+            ErrorCode.DATABASE_NOT_INITIALIZED,
+            'Database directory not found. funcqc needs to be initialized first.',
+            new Error(`Database directory does not exist: ${dbDir}`)
+          );
+        }
+      }
+
+      // Wait for PGlite but don't initialize schema
+      await this.db.waitReady;
+      
+      // Initialize Kysely with minimal setup
+      const dialect = new PGliteDialect({ database: this.db });
+      this.kysely = new Kysely<Database>({ dialect });
+      
+      // Mark as lightweight initialized (skip full schema validation)
+      this.isInitialized = true;
+      
+    } catch (error) {
+      if (error instanceof DatabaseError) {
+        throw error;
+      }
+      if (error instanceof Error && error.message.includes('does not exist')) {
+        throw new DatabaseError(
+          ErrorCode.DATABASE_NOT_INITIALIZED,
+          'Database not found. funcqc needs to be initialized first.',
+          error
+        );
+      }
+      throw new DatabaseError(
+        ErrorCode.DATABASE_CONNECTION_FAILED,
+        `Failed to initialize database: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async close(): Promise<void> {
     // Guard against invalid context or already closed connections
     if (!this || typeof this !== 'object') {
@@ -577,12 +624,104 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string }): Promise<string> {
+    const snapshotId = this.generateSnapshotId();
+    const [gitCommit, gitBranch, gitTag] = await Promise.all([
+      this.getGitCommit(),
+      this.getGitBranch(),
+      this.getGitTag()
+    ]);
+    
+    try {
+      await this.db.query(
+        `INSERT INTO snapshots (
+          id, label, comment, git_commit, git_branch, git_tag,
+          project_root, config_hash, scope, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          snapshotId,
+          options.label || null,
+          options.comment || null,
+          gitCommit,
+          gitBranch,
+          gitTag,
+          process.cwd(),
+          'pending', // Will be updated when functions are analyzed
+          options.scope || 'src', // Add scope parameter here
+          JSON.stringify({
+            totalFunctions: 0,
+            totalFiles: 0,
+            avgComplexity: 0,
+            maxComplexity: 0,
+            exportedFunctions: 0,
+            asyncFunctions: 0,
+            complexityDistribution: {},
+            fileExtensions: {},
+            analysisLevel: options.analysisLevel || 'NONE',
+            basicAnalysisCompleted: false,
+            callGraphAnalysisCompleted: false,
+          }),
+        ]
+      );
+      
+      return snapshotId;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to create snapshot: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+    await this.ensureInitialized();
+    
+    try {
+      // Get current metadata
+      const result = await this.db.query('SELECT metadata FROM snapshots WHERE id = $1', [snapshotId]);
+      if (result.rows.length === 0) {
+        throw new Error(`Snapshot ${snapshotId} not found`);
+      }
+      
+      const row = result.rows[0] as { metadata: unknown };
+      const currentMetadata = row.metadata;
+      if (typeof currentMetadata !== 'object' || currentMetadata === null) {
+        throw new Error(`Invalid metadata for snapshot ${snapshotId}`);
+      }
+      const metadata = currentMetadata as Record<string, unknown>;
+      metadata['analysisLevel'] = level;
+      metadata['basicAnalysisCompleted'] = level === 'BASIC' || level === 'CALL_GRAPH';
+      metadata['callGraphAnalysisCompleted'] = level === 'CALL_GRAPH';
+      
+      // Update metadata
+      await this.db.query(
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+        [JSON.stringify(metadata), snapshotId]
+      );
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to update analysis level: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
     await this.ensureInitialized();
     
     try {
-      let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC';
+      let sql = 'SELECT * FROM snapshots';
       const params: (string | number)[] = [];
+      
+      // Add scope filtering if specified
+      if (options?.scope) {
+        sql += ' WHERE scope = $' + (params.length + 1);
+        params.push(options.scope);
+      }
+      
+      sql += ' ORDER BY created_at DESC';
 
       if (options?.limit) {
         sql += ' LIMIT $' + (params.length + 1);
@@ -687,7 +826,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
     await this.ensureInitialized();
     try {
-      let sql = `
+      // Optimize for list command: select only essential columns
+      const isListCommand = !options?.includeFullData;
+      
+      let sql = isListCommand ? `
+        SELECT 
+          f.id, f.name, f.file_path, f.start_line, f.end_line,
+          f.is_exported, f.is_async,
+          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        WHERE f.snapshot_id = $1
+      ` : `
         SELECT 
           f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
           f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
@@ -861,8 +1011,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
     await this.ensureInitialized();
     try {
-      // Get the latest snapshot
-      const snapshots = await this.getSnapshots({ sort: 'created_at', limit: 1 });
+      // Get the latest snapshot for the specified scope
+      const snapshotOptions = { 
+        sort: 'created_at', 
+        limit: 1,
+        ...(options?.scope && { scope: options.scope })
+      };
+      const snapshots = await this.getSnapshots(snapshotOptions);
       if (snapshots.length === 0) {
         return [];
       }
@@ -872,6 +1027,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     } catch (error) {
       throw new Error(
         `Failed to query functions: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void> {
+    await this.ensureInitialized();
+    try {
+      await this.executeInTransaction(async () => {
+        await this.saveFunctions(snapshotId, functions);
+      });
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to store functions: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -1991,6 +2161,38 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // RAW DATABASE ACCESS (for debugging and testing)
+  // ========================================
+
+  /**
+   * Execute raw SQL query (read-only operations only)
+   * Used by db command for debugging and testing
+   */
+  async query(sql: string, params: (string | number)[] = []): Promise<{ rows: unknown[] }> {
+    await this.ensureInitialized();
+    
+    // Basic safety check - only allow SELECT statements
+    const trimmedSql = sql.trim().toUpperCase();
+    if (!trimmedSql.startsWith('SELECT')) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        'Only SELECT statements are allowed for raw queries',
+        new Error('Attempted non-SELECT query')
+      );
+    }
+    
+    try {
+      const result = await this.db.query(sql, params);
+      return { rows: result.rows };
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Query execution failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   // ANN INDEX MANAGEMENT
   // ========================================
 
@@ -3392,6 +3594,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.git_tag && { gitTag: row.git_tag }),
       projectRoot: row.project_root,
       configHash: row.config_hash,
+      scope: row.scope || 'src', // Default to 'src' for backward compatibility
       metadata: row.metadata || {
         totalFunctions: 0,
         totalFiles: 0,
@@ -3425,19 +3628,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private createBaseFunctionInfo(row: FunctionRow, parameters: ParameterRow[]): FunctionInfo {
     return {
       id: row.id,
-      semanticId: row.semantic_id,
-      contentId: row.content_id,
+      semanticId: row.semantic_id || '',
+      contentId: row.content_id || '',
       name: row.name,
-      displayName: row.display_name,
-      signature: row.signature,
-      signatureHash: row.signature_hash,
+      displayName: row.display_name || row.name,
+      signature: row.signature || '',
+      signatureHash: row.signature_hash || '',
       filePath: row.file_path,
-      fileHash: row.file_hash,
+      fileHash: row.file_hash || '',
       startLine: row.start_line,
       endLine: row.end_line,
-      startColumn: row.start_column,
-      endColumn: row.end_column,
-      astHash: row.ast_hash,
+      startColumn: row.start_column || 0,
+      endColumn: row.end_column || 0,
+      astHash: row.ast_hash || '',
 
       // Enhanced function identification
       ...(row.context_path && Array.isArray(row.context_path) && { contextPath: row.context_path }),
@@ -3446,13 +3649,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(row.nesting_level !== undefined && { nestingLevel: row.nesting_level }),
 
       // Existing function attributes
-      isExported: row.is_exported,
-      isAsync: row.is_async,
-      isGenerator: row.is_generator,
-      isArrowFunction: row.is_arrow_function,
-      isMethod: row.is_method,
-      isConstructor: row.is_constructor,
-      isStatic: row.is_static,
+      isExported: row.is_exported || false,
+      isAsync: row.is_async || false,
+      isGenerator: row.is_generator || false,
+      isArrowFunction: row.is_arrow_function || false,
+      isMethod: row.is_method || false,
+      isConstructor: row.is_constructor || false,
+      isStatic: row.is_static || false,
       parameters: this.mapParameters(parameters),
     };
   }
@@ -5027,6 +5230,225 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       confidenceScore: row.confidence_score,
       metadata: row.metadata,
       createdAt: row.created_at,
+    };
+  }
+
+  // ========================================
+  // SOURCE FILE OPERATIONS (New)
+  // ========================================
+
+  /**
+   * Save source files for a snapshot with deduplication
+   */
+  async saveSourceFiles(sourceFiles: import('../types').SourceFile[], snapshotId: string): Promise<void> {
+    if (sourceFiles.length === 0) return;
+
+    try {
+      // Start transaction for atomic operation
+      await this.db.query('BEGIN');
+
+      // Prepare batch insert data
+      const insertData = sourceFiles.map(file => [
+        file.id,
+        snapshotId,
+        file.filePath,
+        file.fileContent,
+        file.fileHash,
+        file.encoding,
+        file.fileSizeBytes,
+        file.lineCount,
+        file.language,
+        file.functionCount,
+        file.exportCount,
+        file.importCount,
+        file.fileModifiedTime?.toISOString() || null,
+      ]);
+
+      // Batch insert source files with conflict handling (deduplication by hash)
+      for (const data of insertData) {
+        await this.db.query(
+          `INSERT INTO source_files (
+            id, snapshot_id, file_path, file_content, file_hash, encoding,
+            file_size_bytes, line_count, language, function_count,
+            export_count, import_count, file_modified_time
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          data
+        );
+      }
+
+      await this.db.query('COMMIT');
+      
+      this.logger?.log(`Saved ${sourceFiles.length} source files for snapshot ${snapshotId}`);
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to save source files: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files save error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get a single source file by ID
+   */
+  async getSourceFile(id: string): Promise<import('../types').SourceFile | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM source_files WHERE id = $1',
+        [id]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToSourceFile(result.rows[0] as import('../types').SourceFileRow);
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source file: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source file retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get all source files for a snapshot
+   */
+  async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../types').SourceFile[]> {
+    try {
+      const result = await this.db.query(
+        `SELECT * FROM source_files 
+         WHERE snapshot_id = $1 
+         ORDER BY file_path`,
+        [snapshotId]
+      );
+      
+      return result.rows.map(row => 
+        this.mapRowToSourceFile(row as import('../types').SourceFileRow)
+      );
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source files for snapshot: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Get a source file by file path for a specific snapshot
+   */
+  async getSourceFileByPath(filePath: string, snapshotId: string): Promise<import('../types').SourceFile | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT * FROM source_files WHERE file_path = $1 AND snapshot_id = $2',
+        [filePath, snapshotId]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      return this.mapRowToSourceFile(result.rows[0] as import('../types').SourceFileRow);
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get source file by path: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source file by path retrieval error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Delete all source files for a snapshot (cleanup operation)
+   */
+  async deleteSourceFiles(snapshotId: string): Promise<number> {
+    try {
+      const result = await this.db.query(
+        'DELETE FROM source_files WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      
+      const deletedCount = result.affectedRows || 0;
+      this.logger?.log(`Deleted ${deletedCount} source files for snapshot ${snapshotId}`);
+      
+      return deletedCount;
+    } catch (error) {
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to delete source files: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source files deletion error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
+    if (functionCountByFile.size === 0) return;
+
+    try {
+      await this.db.query('BEGIN');
+      
+      for (const [filePath, functionCount] of functionCountByFile) {
+        await this.db.query(
+          'UPDATE source_files SET function_count = $1 WHERE file_path = $2 AND snapshot_id = $3',
+          [functionCount, filePath, snapshotId]
+        );
+      }
+      
+      await this.db.query('COMMIT');
+      this.logger?.log(`Updated function counts for ${functionCountByFile.size} files in snapshot ${snapshotId}`);
+      
+    } catch (error) {
+      await this.db.query('ROLLBACK');
+      
+      const dbError = new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to update source file function counts: ${error instanceof Error ? error.message : String(error)}`
+      );
+      
+      this.logger?.error(`Source file function count update error: ${dbError.message}`);
+      
+      throw dbError;
+    }
+  }
+
+  /**
+   * Helper method to map database row to SourceFile object
+   */
+  private mapRowToSourceFile(row: import('../types').SourceFileRow): import('../types').SourceFile {
+    return {
+      id: row.id,
+      snapshotId: row.snapshot_id,
+      filePath: row.file_path,
+      fileContent: row.file_content,
+      fileHash: row.file_hash,
+      encoding: row.encoding,
+      fileSizeBytes: row.file_size_bytes,
+      lineCount: row.line_count,
+      language: row.language,
+      functionCount: row.function_count,
+      exportCount: row.export_count,
+      importCount: row.import_count,
+      fileModifiedTime: row.file_modified_time ? new Date(row.file_modified_time) : new Date(),
+      createdAt: new Date(row.created_at),
     };
   }
 
