@@ -93,14 +93,16 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
   }
 
   try {
-    // Build query
-    const columns = options.columns ? options.columns.split(',').map(c => c.trim()).join(', ') : '*';
+    // Validate and build column list
+    const columns = options.columns ? validateAndBuildColumns(options.columns) : '*';
     let query = `SELECT ${columns} FROM ${tableName}`;
     const params: (string | number)[] = [];
     
-    // Add WHERE clause if specified
+    // Add WHERE clause with parameterized queries
     if (options.where) {
-      query += ` WHERE ${sanitizeWhereClause(options.where)}`;
+      const { whereClause, whereParams } = buildParameterizedWhereClause(options.where, params.length);
+      query += ` WHERE ${whereClause}`;
+      params.push(...whereParams);
     }
     
     // Add ORDER BY for consistent results (if the column exists)
@@ -111,10 +113,11 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
       query += ` ORDER BY 1`;
     }
     
-    // Add LIMIT
-    const limit = options.limit ? parseInt(options.limit, 10) : 10;
-    if (limit > 0 && limit <= 1000) { // Safety limit
-      query += ` LIMIT ${limit}`;
+    // Add LIMIT with validation
+    const limit = validateAndParseLimit(options.limit);
+    if (limit > 0) {
+      query += ` LIMIT $${params.length + 1}`;
+      params.push(limit);
     }
 
     const result = await env.storage.query(query, params);
@@ -143,22 +146,123 @@ function isValidTableName(tableName: string): boolean {
 }
 
 /**
- * Sanitize WHERE clause for basic safety
- * Note: This is a simple implementation - in production, use parameterized queries
+ * Validate and build column list with proper escaping
  */
-function sanitizeWhereClause(whereClause: string): string {
-  // Remove potentially dangerous keywords and characters
-  const dangerous = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', '--', ';'];
-  const sanitized = whereClause;
+function validateAndBuildColumns(columnsStr: string): string {
+  const columns = columnsStr.split(',').map(c => c.trim());
   
-  for (const keyword of dangerous) {
-    const regex = new RegExp(keyword, 'gi');
-    if (regex.test(sanitized)) {
-      throw new Error(`Dangerous keyword '${keyword}' not allowed in WHERE clause`);
+  for (const column of columns) {
+    if (!isValidColumnName(column)) {
+      throw new Error(`Invalid column name: ${column}`);
     }
   }
   
-  return sanitized;
+  return columns.join(', ');
+}
+
+/**
+ * Validate column name to prevent SQL injection
+ */
+function isValidColumnName(columnName: string): boolean {
+  // Allow only alphanumeric characters, underscores, and dots (for table.column)
+  return /^[a-zA-Z_][a-zA-Z0-9_.]*$/.test(columnName) && columnName.length <= 64;
+}
+
+/**
+ * Build parameterized WHERE clause from simple conditions
+ * Supports basic conditions like: column=value, column>value, etc.
+ */
+function buildParameterizedWhereClause(whereClause: string, paramOffset: number): { whereClause: string; whereParams: (string | number)[] } {
+  // First, validate for dangerous patterns
+  validateWhereClauseSafety(whereClause);
+  
+  // Parse simple conditions (column operator value)
+  const params: (string | number)[] = [];
+  let parameterizedClause = whereClause;
+  let currentParamIndex = paramOffset + 1;
+  
+  // Replace simple patterns like column='value' or column=123
+  // This is a basic implementation - for complex queries, consider a proper SQL parser
+  const patterns = [
+    // String values: column='value' or column="value"
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(['"])([^'"]*)(\3)/g,
+    // Numeric values: column=123 or column>456  
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(\d+(?:\.\d+)?)/g
+  ];
+  
+  // Handle string values
+  parameterizedClause = parameterizedClause.replace(patterns[0], (_match, column, operator, _quote, value) => {
+    if (!isValidColumnName(column)) {
+      throw new Error(`Invalid column name in WHERE clause: ${column}`);
+    }
+    params.push(value);
+    return `${column}${operator}$${currentParamIndex++}`;
+  });
+  
+  // Handle numeric values
+  parameterizedClause = parameterizedClause.replace(patterns[1], (_match, column, operator, value) => {
+    if (!isValidColumnName(column)) {
+      throw new Error(`Invalid column name in WHERE clause: ${column}`);
+    }
+    const numValue = parseFloat(value);
+    if (isNaN(numValue)) {
+      throw new Error(`Invalid numeric value in WHERE clause: ${value}`);
+    }
+    params.push(numValue);
+    return `${column}${operator}$${currentParamIndex++}`;
+  });
+  
+  return { whereClause: parameterizedClause, whereParams: params };
+}
+
+/**
+ * Validate WHERE clause for dangerous patterns
+ */
+function validateWhereClauseSafety(whereClause: string): void {
+  // Block dangerous keywords and patterns
+  const dangerous = [
+    'DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'EXEC', 'EXECUTE',
+    'TRUNCATE', 'GRANT', 'REVOKE', 'COMMIT', 'ROLLBACK',
+    '--', '/*', '*/', ';', 'UNION', 'OR 1=1', 'OR TRUE'
+  ];
+  
+  const upperClause = whereClause.toUpperCase();
+  
+  for (const keyword of dangerous) {
+    if (upperClause.includes(keyword)) {
+      throw new Error(`Dangerous pattern '${keyword}' not allowed in WHERE clause`);
+    }
+  }
+  
+  // Additional pattern checks
+  if (upperClause.match(/[^a-zA-Z0-9\s=><'"._(),-]/)) {
+    throw new Error('WHERE clause contains potentially dangerous characters');
+  }
+}
+
+/**
+ * Validate and parse limit parameter
+ */
+function validateAndParseLimit(limitStr?: string): number {
+  if (!limitStr) {
+    return 10; // Default limit
+  }
+  
+  const limit = parseInt(limitStr, 10);
+  
+  if (isNaN(limit)) {
+    throw new Error(`Invalid limit value: ${limitStr}. Must be a number.`);
+  }
+  
+  if (limit < 0) {
+    throw new Error(`Invalid limit value: ${limit}. Must be non-negative.`);
+  }
+  
+  if (limit > 1000) {
+    throw new Error(`Limit too large: ${limit}. Maximum allowed is 1000.`);
+  }
+  
+  return limit;
 }
 
 /**
