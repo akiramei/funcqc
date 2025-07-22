@@ -180,10 +180,10 @@ function formatSnapshotIdForDisplay(id: string): string {
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log(
-    'ID       Created       Functions    +/-     Files    +/-     Size'
+    'ID       Created       Functions +/-      Files +/-    Size'
   );
   console.log(
-    '-------- ------------- ------------ ------- -------- ------- ----------'
+    '-------- ------------- --------- -------- ----- ------ ----------'
   );
 
   // Display each snapshot
@@ -198,15 +198,15 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const currentFunctions = snapshot.metadata.totalFunctions;
     const prevFunctions = prevSnapshot?.metadata.totalFunctions || 0;
     const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
-    const functionsDisplay = currentFunctions.toString().padStart(12);
-    const functionsDiffDisplay = formatDiffValue(functionDiff);
+    const functionsDisplay = currentFunctions.toString().padStart(9);
+    const functionsDiffDisplay = formatDiffValue(functionDiff, 8);
 
     // Files count
     const currentFiles = snapshot.metadata.totalFiles;
     const prevFiles = prevSnapshot?.metadata.totalFiles || 0;
     const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
-    const filesDisplay = currentFiles.toString().padStart(8);
-    const filesDiffDisplay = formatDiffValue(filesDiff);
+    const filesDisplay = currentFiles.toString().padStart(5);
+    const filesDiffDisplay = formatDiffValue(filesDiff, 6);
 
     // Size estimation (rough LOC calculation)
     const sizeDisplay = formatSizeDisplay(snapshot.metadata);
@@ -392,14 +392,14 @@ export function formatRelativeDate(timestamp: number): string {
   }
 }
 
-export function formatDiffValue(diff: number): string {
+export function formatDiffValue(diff: number, width: number = 7): string {
   if (diff === 0) {
-    return '     -';
+    return '-'.padStart(width);
   }
   
   const sign = diff > 0 ? '+' : '';
   const diffStr = `${sign}${diff}`;
-  return diffStr.padStart(7);
+  return diffStr.padStart(width);
 }
 
 function formatDate(timestamp: number): string {
