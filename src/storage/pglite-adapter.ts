@@ -624,7 +624,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  async createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string }): Promise<string> {
+  async createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string> {
     const snapshotId = this.generateSnapshotId();
     const [gitCommit, gitBranch, gitTag] = await Promise.all([
       this.getGitCommit(),
@@ -646,7 +646,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           gitBranch,
           gitTag,
           process.cwd(),
-          'pending', // Will be updated when functions are analyzed
+          options.configHash || 'pending', // Config hash from scan configuration
           options.scope || 'src', // Add scope parameter here
           JSON.stringify({
             totalFunctions: 0,
@@ -3507,6 +3507,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           'is_static',
           'access_modifier',
           'source_code',
+          'source_file_id',
         ];
 
         const optimalBatchSize = calculateOptimalBatchSize(functionColumns.length);
@@ -5292,6 +5293,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Save source files for a snapshot with deduplication
    */
+  async findExistingSourceFile(compositeId: string): Promise<string | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT id FROM source_files WHERE id = $1 LIMIT 1',
+        [compositeId]
+      );
+      
+      return result.rows.length > 0 ? (result.rows[0] as { id: string }).id : null;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to check existing source file: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async saveSourceFiles(sourceFiles: import('../types').SourceFile[], snapshotId: string): Promise<void> {
     if (sourceFiles.length === 0) return;
 
@@ -5316,14 +5334,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         file.fileModifiedTime?.toISOString() || null,
       ]);
 
-      // Batch insert source files with conflict handling (deduplication by hash)
+      // Batch insert source files with conflict handling (deduplication by content hash)
       for (const data of insertData) {
         await this.db.query(
           `INSERT INTO source_files (
             id, snapshot_id, file_path, file_content, file_hash, encoding,
             file_size_bytes, line_count, language, function_count,
             export_count, import_count, file_modified_time
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (id) DO UPDATE SET
+            snapshot_id = EXCLUDED.snapshot_id,
+            file_path = EXCLUDED.file_path,
+            file_content = EXCLUDED.file_content,
+            file_hash = EXCLUDED.file_hash,
+            encoding = EXCLUDED.encoding,
+            file_size_bytes = EXCLUDED.file_size_bytes,
+            line_count = EXCLUDED.line_count,
+            language = EXCLUDED.language,
+            function_count = EXCLUDED.function_count,
+            export_count = EXCLUDED.export_count,
+            import_count = EXCLUDED.import_count,
+            file_modified_time = EXCLUDED.file_modified_time`,
           data
         );
       }
@@ -5374,19 +5405,52 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   /**
    * Get all source files for a snapshot
+   * Note: With deduplication, we need to get files through functions table
+   * to include both new files and existing files referenced by the snapshot
    */
   async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../types').SourceFile[]> {
     try {
-      const result = await this.db.query(
+      // First try to get source files directly associated with the snapshot
+      // This includes new files created during this scan
+      const directResult = await this.db.query(
         `SELECT * FROM source_files 
-         WHERE snapshot_id = $1 
-         ORDER BY file_path`,
+         WHERE snapshot_id = $1`,
         [snapshotId]
       );
       
-      return result.rows.map(row => 
-        this.mapRowToSourceFile(row as import('../types').SourceFileRow)
+      // Then get source files referenced by functions in this snapshot
+      // This includes existing files that were reused
+      const referencedResult = await this.db.query(
+        `SELECT DISTINCT sf.* 
+         FROM source_files sf
+         INNER JOIN functions f ON f.source_file_id = sf.id
+         WHERE f.snapshot_id = $1`,
+        [snapshotId]
       );
+      
+      // Combine both results and deduplicate by id
+      const fileMap = new Map<string, import('../types').SourceFileRow>();
+      
+      // Add directly associated files
+      for (const row of directResult.rows) {
+        const sourceFile = row as import('../types').SourceFileRow;
+        fileMap.set(sourceFile.id, sourceFile);
+      }
+      
+      // Add referenced files
+      for (const row of referencedResult.rows) {
+        const sourceFile = row as import('../types').SourceFileRow;
+        if (!fileMap.has(sourceFile.id)) {
+          fileMap.set(sourceFile.id, sourceFile);
+        }
+      }
+      
+      // Convert to array and sort by file path
+      const sourceFiles = Array.from(fileMap.values())
+        .map(row => this.mapRowToSourceFile(row))
+        .sort((a, b) => a.filePath.localeCompare(b.filePath));
+      
+      return sourceFiles;
     } catch (error) {
       const dbError = new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -5480,6 +5544,133 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       
       throw dbError;
     }
+  }
+
+  // ===== Function Source Code Extraction =====
+  
+  /**
+   * Extract function source code from stored file content using line/column positions
+   */
+  async extractFunctionSourceCode(functionId: string): Promise<string | null> {
+    try {
+      // Get function information first
+      const functionResult = await this.db.query(
+        'SELECT file_path, snapshot_id, start_line, end_line, start_column, end_column, source_file_id FROM functions WHERE id = $1',
+        [functionId]
+      );
+      
+      if (functionResult.rows.length === 0) {
+        return null;
+      }
+      
+      const func = functionResult.rows[0] as {
+        file_path: string;
+        snapshot_id: string;
+        start_line: number;
+        end_line: number;
+        start_column: number;
+        end_column: number;
+        source_file_id: string | null;
+      };
+      
+      // Get source file content using source_file_id for proper deduplication
+      let sourceFileResult;
+      if (func.source_file_id) {
+        // Preferred approach: use source_file_id directly
+        sourceFileResult = await this.db.query(
+          'SELECT file_content FROM source_files WHERE id = $1',
+          [func.source_file_id]
+        );
+      } else {
+        // Fallback: use file_path and snapshot_id (for compatibility with old data)
+        sourceFileResult = await this.db.query(
+          'SELECT file_content FROM source_files WHERE file_path = $1 AND snapshot_id = $2',
+          [func.file_path, func.snapshot_id]
+        );
+      }
+      
+      if (sourceFileResult.rows.length === 0) {
+        return null;
+      }
+      
+      const sourceFile = sourceFileResult.rows[0] as { file_content: string };
+      const fileContent = sourceFile.file_content;
+      
+      return this.extractSourceFromContent(
+        fileContent,
+        func.start_line,
+        func.end_line,
+        func.start_column,
+        func.end_column
+      );
+      
+    } catch (error) {
+      this.logger?.error(`Failed to extract function source code: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extract source code from file content using line and column positions
+   */
+  private extractSourceFromContent(
+    content: string,
+    startLine: number,
+    endLine: number,
+    startColumn: number,
+    endColumn: number
+  ): string {
+    const lines = content.split('\n');
+    
+    if (startLine < 1 || endLine > lines.length || startLine > endLine) {
+      throw new Error(`Invalid line range: ${startLine}-${endLine} (file has ${lines.length} lines)`);
+    }
+    
+    // Convert to 0-based indexing
+    const startLineIndex = startLine - 1;
+    const endLineIndex = endLine - 1;
+    
+    // Handle case where column information is not available (both are 0)
+    // In this case, extract complete lines
+    if (startColumn === 0 && endColumn === 0) {
+      const result: string[] = [];
+      for (let i = startLineIndex; i <= endLineIndex; i++) {
+        if (i < lines.length) {
+          result.push(lines[i]);
+        }
+      }
+      return result.join('\n');
+    }
+    
+    if (startLineIndex === endLineIndex) {
+      // Single line function
+      const line = lines[startLineIndex];
+      // Column positions are likely 1-based, convert to 0-based for substring
+      const startCol = Math.max(0, startColumn - 1);
+      const endCol = endColumn > 0 ? endColumn - 1 : line.length;
+      return line.substring(startCol, endCol);
+    }
+    
+    // Multi-line function
+    const result: string[] = [];
+    
+    // First line (from startColumn to end of line)
+    // Column positions are likely 1-based, convert to 0-based for substring
+    const startCol = Math.max(0, startColumn - 1);
+    result.push(lines[startLineIndex].substring(startCol));
+    
+    // Middle lines (complete lines)
+    for (let i = startLineIndex + 1; i < endLineIndex; i++) {
+      result.push(lines[i]);
+    }
+    
+    // Last line (from beginning to endColumn)
+    if (endLineIndex < lines.length) {
+      const endCol = endColumn > 0 ? endColumn - 1 : lines[endLineIndex].length;
+      result.push(lines[endLineIndex].substring(0, endCol));
+    }
+    
+    return result.join('\n');
   }
 
   /**

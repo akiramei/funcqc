@@ -595,7 +595,7 @@ export interface StorageAdapter {
     comment?: string,
     configHash?: string
   ): Promise<string>;
-  createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string }): Promise<string>;
+  createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string>;
   updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
@@ -701,8 +701,12 @@ export interface StorageAdapter {
   getSourceFile(id: string): Promise<SourceFile | null>;
   getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]>;
   getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null>;
+  findExistingSourceFile(compositeId: string): Promise<string | null>;
   deleteSourceFiles(snapshotId: string): Promise<number>;
   updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void>;
+
+  // Function source code extraction
+  extractFunctionSourceCode(functionId: string): Promise<string | null>;
 
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;

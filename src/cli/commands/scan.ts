@@ -70,7 +70,7 @@ async function executeScanCommand(
     }
 
     // Check for configuration changes and enforce comment requirement
-    await checkConfigurationChanges(env, options, spinner);
+    const configHash = await checkConfigurationChanges(env, options, spinner);
 
     const scanPaths = await determineScanPaths(env.config, options.scope);
     const files = await discoverFiles(scanPaths, env.config, spinner, options.scope);
@@ -82,12 +82,12 @@ async function executeScanCommand(
 
     // Step 1: Collect and store source files (fast)
     const sourceFiles = await collectSourceFiles(files, spinner);
-    const snapshotId = await saveSourceFiles(sourceFiles, env.storage, options, spinner);
+    const { snapshotId, sourceFileIdMap } = await saveSourceFilesWithDeduplication(sourceFiles, env.storage, options, spinner, configHash);
     
     // Step 2: Perform basic analysis (configurable timing)
     const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
     if (shouldPerformBasicAnalysis) {
-      await performBasicAnalysis(snapshotId, sourceFiles, env, spinner);
+      await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
     } else {
       console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
     }
@@ -102,21 +102,61 @@ async function executeScanCommand(
 }
 
 /**
+ * Save source files with proper deduplication and create initial snapshot
+ */
+async function saveSourceFilesWithDeduplication(
+  sourceFiles: import('../../types').SourceFile[],
+  storage: CliComponents['storage'],
+  options: ScanCommandOptions,
+  spinner: SpinnerInterface,
+  configHash: string
+): Promise<{ snapshotId: string; sourceFileIdMap: Map<string, string> }> {
+  spinner.start('Checking for existing source files...');
+  
+  // Check for existing source files and update IDs
+  const newSourceFiles: import('../../types').SourceFile[] = [];
+  const sourceFileIdMap = new Map<string, string>(); // filePath -> sourceFileId
+  
+  for (const sourceFile of sourceFiles) {
+    const existingId = await storage.findExistingSourceFile(sourceFile.id);
+    
+    if (existingId) {
+      // File already exists, use existing ID
+      sourceFileIdMap.set(sourceFile.filePath, existingId);
+      // Reuse existing file (silent operation for cleaner output)
+    } else {
+      // New file, will be created
+      newSourceFiles.push(sourceFile);
+      sourceFileIdMap.set(sourceFile.filePath, sourceFile.id);
+    }
+  }
+  
+  spinner.succeed(`Found ${newSourceFiles.length} new files, ${sourceFiles.length - newSourceFiles.length} existing files`);
+  
+  const snapshotId = await saveSourceFiles(newSourceFiles, storage, options, spinner, configHash);
+  
+  // Return both snapshotId and sourceFileIdMap for use in analysis
+  return { snapshotId, sourceFileIdMap };
+}
+
+/**
  * Save source files and create initial snapshot (fast operation)
  */
 async function saveSourceFiles(
   sourceFiles: import('../../types').SourceFile[],
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  configHash: string
 ): Promise<string> {
   spinner.start('Saving source files...');
   
   // Create snapshot with minimal metadata
-  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string } = {
+  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string } = {
     comment: options.comment || 'Source files stored (analysis pending)',
     analysisLevel: 'NONE', // Will be added to snapshot type
     scope: options.scope || 'src', // Use specified scope or default to 'src'
+    configHash: configHash, // Store the current configuration hash
   };
   
   if (options.label) {
@@ -130,9 +170,12 @@ async function saveSourceFiles(
     file.snapshotId = snapshotId;
   });
   
-  await storage.saveSourceFiles(sourceFiles, snapshotId);
+  // Only save new source files that don't already exist
+  if (sourceFiles.length > 0) {
+    await storage.saveSourceFiles(sourceFiles, snapshotId);
+  }
   
-  spinner.succeed(`Saved ${sourceFiles.length} source files to snapshot: ${snapshotId}`);
+  spinner.succeed(`Saved ${sourceFiles.length} new source files to snapshot: ${snapshotId}`);
   return snapshotId;
 }
 
@@ -143,7 +186,8 @@ export async function performBasicAnalysis(
   snapshotId: string,
   sourceFiles: import('../../types').SourceFile[],
   env: CommandEnvironment,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  sourceFileIdMap?: Map<string, string>
 ): Promise<void> {
   spinner.start('Performing basic function analysis...');
   
@@ -165,10 +209,11 @@ export async function performBasicAnalysis(
         virtualFile.path
       );
       
-      // Calculate metrics
+      // Calculate metrics and set source file ID
       for (const func of functions) {
         func.metrics = components.qualityCalculator.calculate(func);
-        func.sourceFileId = sourceFile.id; // Link to source file
+        // Use sourceFileIdMap if available, otherwise fall back to sourceFile.id
+        func.sourceFileId = sourceFileIdMap?.get(func.filePath) || sourceFile.id;
       }
       
       allFunctions.push(...functions);
@@ -254,7 +299,7 @@ async function checkConfigurationChanges(
   env: CommandEnvironment,
   options: ScanCommandOptions,
   spinner: SpinnerInterface
-): Promise<void> {
+): Promise<string> {
   const configManager = new ConfigManager();
   const currentConfigHash = configManager.generateScanConfigHash(env.config);
 
@@ -294,6 +339,9 @@ async function checkConfigurationChanges(
     // Handle storage errors gracefully - continue with scan
     env.commandLogger.warn(`Warning: Could not check configuration hash: ${error instanceof Error ? error.message : String(error)}`);
   }
+  
+  // Return the current config hash to be stored with the snapshot
+  return currentConfigHash;
 }
 
 async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Promise<string[]> {
@@ -643,6 +691,12 @@ async function collectSourceFiles(
       // Calculate file hash for deduplication
       const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
       
+      // Generate composite ID for collision resistance
+      // Format: {fileHash}_{fileSizeBytes}_{modifiedTimeMs}
+      const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
+      const modifiedTimeMs = fileStats.mtime.getTime();
+      const compositeId = `${fileHash}_${fileSizeBytes}_${modifiedTimeMs}`;
+      
       // Count lines
       const lineCount = fileContent.split('\n').length;
       
@@ -654,13 +708,13 @@ async function collectSourceFiles(
       const importCount = (fileContent.match(/^import\s+/gm) || []).length;
       
       const sourceFile: import('../../types').SourceFile = {
-        id: crypto.randomUUID(),
+        id: compositeId, // Use composite ID for collision-resistant deduplication
         snapshotId: '', // Will be set when saved
         filePath: relativePath,
         fileContent,
         fileHash,
         encoding: 'utf-8',
-        fileSizeBytes: Buffer.byteLength(fileContent, 'utf-8'),
+        fileSizeBytes,
         lineCount,
         language,
         functionCount: 0, // Will be updated after function analysis

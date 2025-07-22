@@ -119,7 +119,7 @@ async function displaySnapshotHistory(
     displayCompactHistory(filteredSnapshots);
   }
 
-  displayHistorySummary(filteredSnapshots);
+  // Summary removed - not particularly useful
 }
 
 function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
@@ -180,10 +180,10 @@ function formatSnapshotIdForDisplay(id: string): string {
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log(
-    'ID       Created      Functions    Files     Size'
+    'ID       Created       Functions +/-      Files +/-    Size'
   );
   console.log(
-    '-------- ------------ ------------ --------- ----------'
+    '-------- ------------- --------- -------- ----- ------ ----------'
   );
 
   // Display each snapshot
@@ -192,25 +192,27 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const prevSnapshot = i < snapshots.length - 1 ? snapshots[i + 1] : null;
 
     const id = formatSnapshotIdForDisplay(snapshot.id);
-    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 12).padEnd(12);
+    const created = formatRelativeDate(snapshot.createdAt).padEnd(13);
 
     // Functions with diff
     const currentFunctions = snapshot.metadata.totalFunctions;
     const prevFunctions = prevSnapshot?.metadata.totalFunctions || 0;
     const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
-    const functionsDisplay = formatFunctionCountWithDiff(currentFunctions, functionDiff);
+    const functionsDisplay = currentFunctions.toString().padStart(9);
+    const functionsDiffDisplay = formatDiffValue(functionDiff, 8);
 
     // Files count
     const currentFiles = snapshot.metadata.totalFiles;
     const prevFiles = prevSnapshot?.metadata.totalFiles || 0;
     const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
-    const filesDisplay = formatFileCountWithDiff(currentFiles, filesDiff);
+    const filesDisplay = currentFiles.toString().padStart(5);
+    const filesDiffDisplay = formatDiffValue(filesDiff, 6);
 
     // Size estimation (rough LOC calculation)
     const sizeDisplay = formatSizeDisplay(snapshot.metadata);
 
     console.log(
-      `${id} ${created} ${functionsDisplay} ${filesDisplay} ${sizeDisplay}`
+      `${id} ${created} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
     );
   }
 }
@@ -317,44 +319,7 @@ async function displaySnapshotChanges(
   }
 }
 
-function displayHistorySummary(snapshots: SnapshotInfo[]): void {
-  if (snapshots.length === 0) return;
-
-  const totalFunctions = snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0);
-  const totalFiles = snapshots.reduce((sum, s) => sum + s.metadata.totalFiles, 0);
-  const avgFunctions = Math.round(totalFunctions / snapshots.length);
-  const avgFiles = Math.round(totalFiles / snapshots.length);
-
-  const timespan =
-    snapshots.length > 1
-      ? formatDuration(snapshots[0].createdAt - snapshots[snapshots.length - 1].createdAt)
-      : 'single snapshot';
-
-  // Calculate growth if we have multiple snapshots
-  const hasGrowth = snapshots.length > 1;
-  const latestSnapshot = snapshots[0];
-  const oldestSnapshot = snapshots[snapshots.length - 1];
-
-  console.log(chalk.cyan('📊 Summary:'));
-  console.log(`   Period: ${timespan}`);
-  console.log(`   Average functions per snapshot: ${avgFunctions}`);
-  console.log(`   Average files per snapshot: ${avgFiles}`);
-
-  if (hasGrowth && latestSnapshot.metadata.totalFunctions > 0) {
-    const functionGrowth = latestSnapshot.metadata.totalFunctions - oldestSnapshot.metadata.totalFunctions;
-    const fileGrowth = latestSnapshot.metadata.totalFiles - oldestSnapshot.metadata.totalFiles;
-    
-    if (functionGrowth !== 0 || fileGrowth !== 0) {
-      console.log(`   Growth: ${functionGrowth >= 0 ? '+' : ''}${functionGrowth} functions, ${fileGrowth >= 0 ? '+' : ''}${fileGrowth} files`);
-    }
-  }
-
-  // Git statistics
-  const gitBranches = new Set(snapshots.filter(s => s.gitBranch).map(s => s.gitBranch));
-  if (gitBranches.size > 0) {
-    console.log(`   Git branches: ${Array.from(gitBranches).join(', ')}`);
-  }
-}
+// Summary function removed - was not providing useful insights
 
 
 export function formatFunctionCountWithDiff(currentCount: number, diff: number): string {
@@ -394,6 +359,47 @@ export function formatSizeDisplay(metadata: SnapshotMetadata): string {
   } else {
     return `${estimatedLOC} LOC`.padStart(10);
   }
+}
+
+export function formatRelativeDate(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  
+  const seconds = Math.floor(diff / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (seconds < 60) {
+    return 'just now';
+  } else if (minutes < 60) {
+    return `${minutes}m ago`;
+  } else if (hours < 24) {
+    return `${hours}h ago`;
+  } else if (days === 1) {
+    return 'yesterday';
+  } else if (days < 7) {
+    return `${days}d ago`;
+  } else if (days < 30) {
+    const weeks = Math.floor(days / 7);
+    return `${weeks}w ago`;
+  } else if (days < 365) {
+    const months = Math.floor(days / 30);
+    return `${months}mo ago`;
+  } else {
+    const years = Math.floor(days / 365);
+    return `${years}y ago`;
+  }
+}
+
+export function formatDiffValue(diff: number, width: number = 7): string {
+  if (diff === 0) {
+    return '-'.padStart(width);
+  }
+  
+  const sign = diff > 0 ? '+' : '';
+  const diffStr = `${sign}${diff}`;
+  return diffStr.padStart(width);
 }
 
 function formatDate(timestamp: number): string {
