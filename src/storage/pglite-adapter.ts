@@ -5398,19 +5398,52 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   /**
    * Get all source files for a snapshot
+   * Note: With deduplication, we need to get files through functions table
+   * to include both new files and existing files referenced by the snapshot
    */
   async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../types').SourceFile[]> {
     try {
-      const result = await this.db.query(
+      // First try to get source files directly associated with the snapshot
+      // This includes new files created during this scan
+      const directResult = await this.db.query(
         `SELECT * FROM source_files 
-         WHERE snapshot_id = $1 
-         ORDER BY file_path`,
+         WHERE snapshot_id = $1`,
         [snapshotId]
       );
       
-      return result.rows.map(row => 
-        this.mapRowToSourceFile(row as import('../types').SourceFileRow)
+      // Then get source files referenced by functions in this snapshot
+      // This includes existing files that were reused
+      const referencedResult = await this.db.query(
+        `SELECT DISTINCT sf.* 
+         FROM source_files sf
+         INNER JOIN functions f ON f.source_file_id = sf.id
+         WHERE f.snapshot_id = $1`,
+        [snapshotId]
       );
+      
+      // Combine both results and deduplicate by id
+      const fileMap = new Map<string, import('../types').SourceFileRow>();
+      
+      // Add directly associated files
+      for (const row of directResult.rows) {
+        const sourceFile = row as import('../types').SourceFileRow;
+        fileMap.set(sourceFile.id, sourceFile);
+      }
+      
+      // Add referenced files
+      for (const row of referencedResult.rows) {
+        const sourceFile = row as import('../types').SourceFileRow;
+        if (!fileMap.has(sourceFile.id)) {
+          fileMap.set(sourceFile.id, sourceFile);
+        }
+      }
+      
+      // Convert to array and sort by file path
+      const sourceFiles = Array.from(fileMap.values())
+        .map(row => this.mapRowToSourceFile(row))
+        .sort((a, b) => a.filePath.localeCompare(b.filePath));
+      
+      return sourceFiles;
     } catch (error) {
       const dbError = new DatabaseError(
         ErrorCode.STORAGE_ERROR,
