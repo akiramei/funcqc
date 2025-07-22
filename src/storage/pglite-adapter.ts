@@ -678,14 +678,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.ensureInitialized();
     
     try {
-      // Get current metadata
+      // First, recalculate snapshot metadata based on actual functions
+      await this.recalculateSnapshotMetadata(snapshotId);
+      
+      // Then get current metadata to update analysis level
       const result = await this.db.query('SELECT metadata FROM snapshots WHERE id = $1', [snapshotId]);
       if (result.rows.length === 0) {
         throw new Error(`Snapshot ${snapshotId} not found`);
       }
       
       const row = result.rows[0] as { metadata: unknown };
-      const currentMetadata = row.metadata;
+      const currentMetadata = typeof row.metadata === 'string' 
+        ? this.safeJsonParse(row.metadata, {})
+        : row.metadata;
+      
       if (typeof currentMetadata !== 'object' || currentMetadata === null) {
         throw new Error(`Invalid metadata for snapshot ${snapshotId}`);
       }
@@ -706,6 +712,38 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         error instanceof Error ? error : undefined
       );
     }
+  }
+
+  private async recalculateSnapshotMetadata(snapshotId: string): Promise<void> {
+    // Get all functions for this snapshot
+    const functions = await this.getFunctions(snapshotId, { includeFullData: true });
+    
+    // Calculate new metadata
+    const newMetadata = this.calculateSnapshotMetadata(functions);
+    
+    // Get current metadata to preserve analysis level flags
+    const result = await this.db.query('SELECT metadata FROM snapshots WHERE id = $1', [snapshotId]);
+    if (result.rows.length > 0) {
+      const row = result.rows[0] as { metadata: unknown };
+      const currentMetadata = typeof row.metadata === 'string' 
+        ? this.safeJsonParse(row.metadata, {})
+        : row.metadata || {};
+      
+      if (typeof currentMetadata === 'object' && currentMetadata !== null) {
+        const current = currentMetadata as Record<string, unknown>;
+        // Preserve analysis level flags if they exist (cast to unknown first, then Record)
+        const newMetadataRecord = newMetadata as unknown as Record<string, unknown>;
+        if (current['analysisLevel']) newMetadataRecord['analysisLevel'] = current['analysisLevel'];
+        if (current['basicAnalysisCompleted']) newMetadataRecord['basicAnalysisCompleted'] = current['basicAnalysisCompleted'];
+        if (current['callGraphAnalysisCompleted']) newMetadataRecord['callGraphAnalysisCompleted'] = current['callGraphAnalysisCompleted'];
+      }
+    }
+    
+    // Update the snapshot metadata
+    await this.db.query(
+      'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+      [JSON.stringify(newMetadata), snapshotId]
+    );
   }
 
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
@@ -3244,7 +3282,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         await this.getGitTag(),
         process.cwd(),
         configHash,
-        metadata,
+        JSON.stringify(metadata), // Ensure consistent JSON storage
         nowUTC,
       ]
     );
@@ -3584,6 +3622,29 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private mapRowToSnapshotInfo(row: SnapshotRow): SnapshotInfo {
+    // Handle both parsed JSONB and string cases for metadata
+    const metadata = typeof row.metadata === 'string' 
+      ? this.safeJsonParse(row.metadata, {
+          totalFunctions: 0,
+          totalFiles: 0,
+          avgComplexity: 0,
+          maxComplexity: 0,
+          exportedFunctions: 0,
+          asyncFunctions: 0,
+          complexityDistribution: {},
+          fileExtensions: {}
+        })
+      : row.metadata || {
+          totalFunctions: 0,
+          totalFiles: 0,
+          avgComplexity: 0,
+          maxComplexity: 0,
+          exportedFunctions: 0,
+          asyncFunctions: 0,
+          complexityDistribution: {},
+          fileExtensions: {}
+        };
+
     return {
       id: row.id,
       createdAt: new Date(row.created_at).getTime(),
@@ -3595,16 +3656,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       projectRoot: row.project_root,
       configHash: row.config_hash,
       scope: row.scope || 'src', // Default to 'src' for backward compatibility
-      metadata: row.metadata || {
-        totalFunctions: 0,
-        totalFiles: 0,
-        avgComplexity: 0,
-        maxComplexity: 0,
-        exportedFunctions: 0,
-        asyncFunctions: 0,
-        complexityDistribution: {},
-        fileExtensions: {}
-      },
+      metadata,
     };
   }
 
