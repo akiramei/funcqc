@@ -7,6 +7,14 @@ export interface UserConfig {
   roots?: string[];
   exclude?: string[];
   include?: string[];
+  scopes?: {
+    [scopeName: string]: {
+      roots: string[];
+      exclude?: string[];
+      include?: string[];
+      description?: string;
+    };
+  };
   storage?: {
     type?: 'pglite' | 'postgres';
     path?: string;

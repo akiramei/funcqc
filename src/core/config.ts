@@ -137,6 +137,7 @@ export class ConfigManager {
     const config: FuncqcConfig = { ...DEFAULT_CONFIG };
 
     this.mergeArrayConfigs(config, userConfig);
+    this.mergeScopesConfig(config, userConfig);
     this.mergeStorageConfig(config, userConfig);
     this.mergeMetricsConfig(config, userConfig);
     this.mergeGitConfig(config, userConfig);
@@ -164,6 +165,33 @@ export class ConfigManager {
       config.include = userConfig.include.filter(
         (pattern): pattern is string => typeof pattern === 'string'
       );
+    }
+  }
+
+  private mergeScopesConfig(config: FuncqcConfig, userConfig: UserConfig): void {
+    if (userConfig.scopes && typeof userConfig.scopes === 'object') {
+      // User provided scopes configuration - start with default scopes and merge user scopes
+      config.scopes = { ...config.scopes };
+      
+      for (const [scopeName, scopeConfig] of Object.entries(userConfig.scopes)) {
+        if (scopeConfig && typeof scopeConfig === 'object' && Array.isArray(scopeConfig.roots)) {
+          config.scopes![scopeName] = {
+            roots: scopeConfig.roots.filter((root): root is string => typeof root === 'string'),
+            exclude: Array.isArray(scopeConfig.exclude) 
+              ? scopeConfig.exclude.filter((pattern): pattern is string => typeof pattern === 'string')
+              : [],
+            ...(Array.isArray(scopeConfig.include) && {
+              include: scopeConfig.include.filter((pattern): pattern is string => typeof pattern === 'string')
+            }),
+            ...(typeof scopeConfig.description === 'string' && {
+              description: scopeConfig.description
+            })
+          };
+        }
+      }
+    } else {
+      // User did not provide scopes configuration - remove default scopes to allow fallback
+      delete config.scopes;
     }
   }
 
