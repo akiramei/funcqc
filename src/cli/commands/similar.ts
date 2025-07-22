@@ -10,6 +10,7 @@ import { DatabaseError } from '../../storage/pglite-adapter';
 import { BaseCommandOptions } from '../../types/command';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { LayerAssigner } from '../../analyzers/layer-assigner';
+import { ArchitectureConfig, ArchitectureRule } from '../../types/architecture';
 
 export interface SimilarCommandOptions extends BaseCommandOptions {
   threshold?: string;

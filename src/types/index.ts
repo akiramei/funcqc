@@ -595,7 +595,7 @@ export interface StorageAdapter {
     comment?: string,
     configHash?: string
   ): Promise<string>;
-  createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string }): Promise<string>;
+  createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string>;
   updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;

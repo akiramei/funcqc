@@ -624,7 +624,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  async createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string }): Promise<string> {
+  async createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string> {
     const snapshotId = this.generateSnapshotId();
     const [gitCommit, gitBranch, gitTag] = await Promise.all([
       this.getGitCommit(),
@@ -646,7 +646,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           gitBranch,
           gitTag,
           process.cwd(),
-          'pending', // Will be updated when functions are analyzed
+          options.configHash || 'pending', // Config hash from scan configuration
           options.scope || 'src', // Add scope parameter here
           JSON.stringify({
             totalFunctions: 0,

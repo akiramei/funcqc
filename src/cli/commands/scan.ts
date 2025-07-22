@@ -70,7 +70,7 @@ async function executeScanCommand(
     }
 
     // Check for configuration changes and enforce comment requirement
-    await checkConfigurationChanges(env, options, spinner);
+    const configHash = await checkConfigurationChanges(env, options, spinner);
 
     const scanPaths = await determineScanPaths(env.config, options.scope);
     const files = await discoverFiles(scanPaths, env.config, spinner, options.scope);
@@ -82,7 +82,7 @@ async function executeScanCommand(
 
     // Step 1: Collect and store source files (fast)
     const sourceFiles = await collectSourceFiles(files, spinner);
-    const snapshotId = await saveSourceFiles(sourceFiles, env.storage, options, spinner);
+    const snapshotId = await saveSourceFiles(sourceFiles, env.storage, options, spinner, configHash);
     
     // Step 2: Perform basic analysis (configurable timing)
     const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
@@ -108,15 +108,17 @@ async function saveSourceFiles(
   sourceFiles: import('../../types').SourceFile[],
   storage: CliComponents['storage'],
   options: ScanCommandOptions,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  configHash: string
 ): Promise<string> {
   spinner.start('Saving source files...');
   
   // Create snapshot with minimal metadata
-  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string } = {
+  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string } = {
     comment: options.comment || 'Source files stored (analysis pending)',
     analysisLevel: 'NONE', // Will be added to snapshot type
     scope: options.scope || 'src', // Use specified scope or default to 'src'
+    configHash: configHash, // Store the current configuration hash
   };
   
   if (options.label) {
@@ -254,7 +256,7 @@ async function checkConfigurationChanges(
   env: CommandEnvironment,
   options: ScanCommandOptions,
   spinner: SpinnerInterface
-): Promise<void> {
+): Promise<string> {
   const configManager = new ConfigManager();
   const currentConfigHash = configManager.generateScanConfigHash(env.config);
 
@@ -294,6 +296,9 @@ async function checkConfigurationChanges(
     // Handle storage errors gracefully - continue with scan
     env.commandLogger.warn(`Warning: Could not check configuration hash: ${error instanceof Error ? error.message : String(error)}`);
   }
+  
+  // Return the current config hash to be stored with the snapshot
+  return currentConfigHash;
 }
 
 async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Promise<string[]> {
