@@ -11,6 +11,7 @@ import {
   SimilarityResult,
   SimilarFunction,
 } from '../../types';
+import { createTable } from '../../utils/table-formatter';
 import { SimilarityManager } from '../../similarity/similarity-manager';
 import { v4 as uuidv4 } from 'uuid';
 import simpleGit from 'simple-git';
@@ -219,15 +220,16 @@ function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions): void 
   // Display header
   displayDiffHeader(diff);
 
-  // Filter and display functions
+  // Filter functions
   const filtered = filterFunctions(diff, options);
 
-  // Display each category
-  displayAddedFunctions(filtered.added, options);
-  displayRemovedFunctions(filtered.removed, options);
-  displayModifiedFunctions(filtered.modified, options);
+  // Display structured overview
+  displayStructuredOverview(filtered, diff.statistics);
 
-  // Display statistics
+  // Display detailed changes organized by impact
+  displayDetailedChanges(filtered, options);
+
+  // Display summary footer
   displaySummary(diff);
 }
 
@@ -292,83 +294,185 @@ function filterByFilePath(functions: FunctionInfo[], pattern: string): FunctionI
   return functions.filter(f => f.filePath.toLowerCase().includes(pattern));
 }
 
-function displayAddedFunctions(functions: FunctionInfo[], options: DiffCommandOptions): void {
-  if (functions.length === 0) return;
+// Legacy display functions removed - replaced with structured table format
 
-  console.log(chalk.green.bold(`➕ Added Functions (${functions.length})`));
-  functions.forEach(func => {
-    console.log(`  ${chalk.green('+')} ${func.name} in ${func.filePath}:${func.startLine}`);
-    if (options.verbose && func.metrics) {
-      console.log(
-        `     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`
-      );
-    }
-  });
-  console.log();
+// displayChange function removed - integrated into table format
+
+function isNumericChange(change: ChangeDetail): boolean {
+  return !isNaN(Number(change.oldValue)) && !isNaN(Number(change.newValue));
 }
 
-function displayRemovedFunctions(functions: FunctionInfo[], options: DiffCommandOptions): void {
-  if (functions.length === 0) return;
-
-  console.log(chalk.red.bold(`➖ Removed Functions (${functions.length})`));
-  functions.forEach(func => {
-    console.log(`  ${chalk.red('-')} ${func.name} in ${func.filePath}:${func.startLine}`);
-    if (options.verbose && func.metrics) {
-      console.log(
-        `     Complexity: ${func.metrics.cyclomaticComplexity}, Lines: ${func.metrics.linesOfCode}`
-      );
-    }
-  });
-  console.log();
-}
-
-function displayModifiedFunctions(functions: FunctionChange[], options: DiffCommandOptions): void {
-  functions.forEach(func => {
-    const name = func.after.name || func.before.name;
-    const file = func.after.filePath || func.before.filePath;
-    const line = func.after.startLine || func.before.startLine;
-
-    console.log(`  ${chalk.yellow('~')} ${name} in ${file}:${line}`);
-
-    // Show changes
-    func.changes.forEach(change => {
-      if (options.threshold && isNumericChange(change)) {
-        const oldVal = Number(change.oldValue);
-        const newVal = Number(change.newValue);
-        const diff = Math.abs(newVal - oldVal);
-
-        if (diff < options.threshold) {
-          return; // Skip small changes
-        }
-      }
-
-      displayChange(change, options.verbose);
-    });
-
-    if (options.verbose) {
-      console.log(); // Extra line for verbose mode
-    }
-  });
-}
-
-function displayChange(change: ChangeDetail, verbose: boolean = false): void {
-  const { field, oldValue, newValue, impact } = change;
-
-  // Skip location fields as they are not quality metrics
-  if (field === 'startLine' || field === 'endLine') {
+function displayStructuredOverview(filtered: FilteredFunctions, _stats: import('../../types').DiffStatistics): void {
+  if (filtered.added.length === 0 && filtered.removed.length === 0 && filtered.modified.length === 0) {
     return;
   }
 
+  console.log(chalk.bold('\n📋 Change Overview\n'));
+
+  // Create overview table
+  const overviewTable = createTable([
+    { header: 'Type', width: 12, align: 'left' },
+    { header: 'Count', width: 8, align: 'right' },
+    { header: 'Top Functions', width: 45, align: 'left' },
+  ]);
+
+  // Add rows for each change type
+  if (filtered.added.length > 0) {
+    overviewTable.addRow({
+      'Type': chalk.green('➕ Added'),
+      'Count': chalk.green(filtered.added.length.toString()),
+      'Top Functions': getTopComplexFunctions(filtered.added, 3).join(', '),
+    });
+  }
+
+  if (filtered.removed.length > 0) {
+    overviewTable.addRow({
+      'Type': chalk.red('➖ Removed'),
+      'Count': chalk.red(filtered.removed.length.toString()),
+      'Top Functions': getTopComplexFunctions(filtered.removed, 3).join(', '),
+    });
+  }
+
+  if (filtered.modified.length > 0) {
+    overviewTable.addRow({
+      'Type': chalk.yellow('🔄 Modified'),
+      'Count': chalk.yellow(filtered.modified.length.toString()),
+      'Top Functions': getHighImpactModifications(filtered.modified, 3).join(', '),
+    });
+  }
+
+  console.log(overviewTable.render());
+}
+
+function displayDetailedChanges(filtered: FilteredFunctions, options: DiffCommandOptions): void {
+  // High impact changes first
+  const highImpactModified = filtered.modified.filter(hasHighImpactChanges);
+  if (highImpactModified.length > 0) {
+    displayModifiedFunctionsTable(highImpactModified, '🔴 High Impact Changes', options);
+  }
+
+  // Medium impact changes
+  const mediumImpactModified = filtered.modified.filter(func => 
+    !hasHighImpactChanges(func) && hasMediumImpactChanges(func));
+  if (mediumImpactModified.length > 0) {
+    displayModifiedFunctionsTable(mediumImpactModified, '🟡 Medium Impact Changes', options);
+  }
+
+  // Low impact changes
+  const lowImpactModified = filtered.modified.filter(func => 
+    !hasHighImpactChanges(func) && !hasMediumImpactChanges(func));
+  if (lowImpactModified.length > 0) {
+    displayModifiedFunctionsTable(lowImpactModified, '🟢 Low Impact Changes', options);
+  }
+
+  // Added and removed functions in table format
+  if (filtered.added.length > 0) {
+    displayFunctionsTable(filtered.added, 'Added Functions', 'green', options);
+  }
+
+  if (filtered.removed.length > 0) {
+    displayFunctionsTable(filtered.removed, 'Removed Functions', 'red', options);
+  }
+}
+
+function displayModifiedFunctionsTable(functions: FunctionChange[], title: string, _options: DiffCommandOptions): void {
+  if (functions.length === 0) return;
+
+  console.log(chalk.bold(`\n${title} (${functions.length})`));
+  console.log('─'.repeat(title.length + ` (${functions.length})`.length));
+
+  const table = createTable([
+    { header: 'Function', width: 25, align: 'left' },
+    { header: 'File', width: 30, align: 'left' },
+    { header: 'Changes', width: 35, align: 'left' },
+  ]);
+
+  functions.forEach(func => {
+    const name = func.after.name || func.before.name;
+    const file = (func.after.filePath || func.before.filePath).replace(/^.*\//, '');
+    const changes = func.changes
+      .filter(change => change.field !== 'startLine' && change.field !== 'endLine')
+      .slice(0, 2)
+      .map(change => formatChangeForTable(change))
+      .join(', ');
+
+    table.addRow({
+      'Function': name.length > 23 ? name.substring(0, 20) + '...' : name,
+      'File': file.length > 28 ? '...' + file.substring(file.length - 25) : file,
+      'Changes': changes,
+    });
+  });
+
+  console.log(table.render());
+}
+
+function displayFunctionsTable(functions: FunctionInfo[], title: string, colorType: string, _options: DiffCommandOptions): void {
+  if (functions.length === 0) return;
+
+  const icon = colorType === 'green' ? '➕' : '➖';
+
+  console.log(chalk.bold(`\n${icon} ${title} (${functions.length})`));
+  console.log('─'.repeat(title.length + ` (${functions.length})`.length + 2));
+
+  const table = createTable([
+    { header: 'Function', width: 25, align: 'left' },
+    { header: 'File', width: 30, align: 'left' },
+    { header: 'CC', width: 4, align: 'right' },
+    { header: 'LOC', width: 5, align: 'right' },
+  ]);
+
+  functions
+    .sort((a, b) => (b.metrics?.cyclomaticComplexity || 0) - (a.metrics?.cyclomaticComplexity || 0))
+    .slice(0, 10) // Show top 10 to avoid overwhelming output
+    .forEach(func => {
+      const fileName = func.filePath.replace(/^.*\//, '');
+      
+      table.addRow({
+        'Function': func.name.length > 23 ? func.name.substring(0, 20) + '...' : func.name,
+        'File': fileName.length > 28 ? '...' + fileName.substring(fileName.length - 25) : fileName,
+        'CC': (func.metrics?.cyclomaticComplexity || 0).toString(),
+        'LOC': (func.metrics?.linesOfCode || 0).toString(),
+      });
+    });
+
+  console.log(table.render());
+
+  // Show count if more functions exist
+  if (functions.length > 10) {
+    console.log(chalk.gray(`... and ${functions.length - 10} more functions`));
+  }
+}
+
+// Helper functions
+function getTopComplexFunctions(functions: FunctionInfo[], limit: number): string[] {
+  return functions
+    .sort((a, b) => (b.metrics?.cyclomaticComplexity || 0) - (a.metrics?.cyclomaticComplexity || 0))
+    .slice(0, limit)
+    .map(f => f.name);
+}
+
+function getHighImpactModifications(functions: FunctionChange[], limit: number): string[] {
+  return functions
+    .filter(hasHighImpactChanges)
+    .slice(0, limit)
+    .map(f => f.after.name || f.before.name);
+}
+
+function hasHighImpactChanges(func: FunctionChange): boolean {
+  return func.changes.some(change => change.impact === 'high');
+}
+
+function hasMediumImpactChanges(func: FunctionChange): boolean {
+  return func.changes.some(change => change.impact === 'medium');
+}
+
+function formatChangeForTable(change: ChangeDetail): string {
+  const { field, oldValue, newValue, impact } = change;
+  
   const impactIcon = {
     low: '🟢',
     medium: '🟡',
     high: '🔴',
-  }[impact];
-
-  const impactColor = {
-    low: chalk.green,
-    medium: chalk.yellow,
-    high: chalk.red,
   }[impact];
 
   if (isNumericChange(change)) {
@@ -376,21 +480,10 @@ function displayChange(change: ChangeDetail, verbose: boolean = false): void {
     const newVal = Number(newValue);
     const diff = newVal - oldVal;
     const diffStr = diff > 0 ? `+${diff}` : diff.toString();
-
-    console.log(`     ${impactIcon} ${field}: ${oldVal} → ${newVal} (${impactColor(diffStr)})`);
+    return `${impactIcon} ${field}: ${diffStr}`;
   } else {
-    if (verbose) {
-      console.log(`     ${impactIcon} ${field}:`);
-      console.log(`       Before: ${oldValue}`);
-      console.log(`       After:  ${newValue}`);
-    } else {
-      console.log(`     ${impactIcon} ${field}: ${String(oldValue)} → ${String(newValue)}`);
-    }
+    return `${impactIcon} ${field}`;
   }
-}
-
-function isNumericChange(change: ChangeDetail): boolean {
-  return !isNaN(Number(change.oldValue)) && !isNaN(Number(change.newValue));
 }
 
 function formatDate(timestamp: number): string {
