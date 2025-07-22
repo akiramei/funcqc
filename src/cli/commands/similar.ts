@@ -78,14 +78,17 @@ async function loadFunctions(
   spinner.start('Loading functions...');
 
   let functions: FunctionInfo[];
+  // Similarity analysis requires full function data including sourceCode
+  const queryOptions = { includeFullData: true };
+  
   if (options.snapshot) {
-    functions = await env.storage.getFunctions(options.snapshot);
+    functions = await env.storage.getFunctions(options.snapshot, queryOptions);
   } else {
     const snapshots = await env.storage.getSnapshots({ limit: 1 });
     if (snapshots.length === 0) {
       throw new Error('No snapshots found. Run "funcqc scan" first.');
     }
-    functions = await env.storage.getFunctions(snapshots[0].id);
+    functions = await env.storage.getFunctions(snapshots[0].id, queryOptions);
   }
 
   spinner.succeed(`Loaded ${functions.length} functions`);
