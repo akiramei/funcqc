@@ -180,10 +180,10 @@ function formatSnapshotIdForDisplay(id: string): string {
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log(
-    'ID       Label                Created              Functions  Avg CC  P95 CC  High Risk'
+    'ID       Created      Functions    Files     Size'
   );
   console.log(
-    '-------- -------------------- -------------------- ---------- ------- ------- ----------'
+    '-------- ------------ ------------ --------- ----------'
   );
 
   // Display each snapshot
@@ -192,8 +192,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const prevSnapshot = i < snapshots.length - 1 ? snapshots[i + 1] : null;
 
     const id = formatSnapshotIdForDisplay(snapshot.id);
-    const label = truncateWithEllipsis(snapshot.label || '-', 20).padEnd(20);
-    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 20).padEnd(20);
+    const created = truncateWithEllipsis(formatDate(snapshot.createdAt), 12).padEnd(12);
 
     // Functions with diff
     const currentFunctions = snapshot.metadata.totalFunctions;
@@ -201,15 +200,17 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
     const functionsDisplay = formatFunctionCountWithDiff(currentFunctions, functionDiff);
 
-    const avgComplexity = snapshot.metadata.avgComplexity.toFixed(1).padStart(7);
-    const p95Complexity = calculateP95Complexity(snapshot.metadata.complexityDistribution)
-      .toString()
-      .padStart(7);
-    const highRiskCount = calculateHighRiskCount(snapshot.metadata.complexityDistribution);
-    const highRiskDisplay = formatHighRiskCount(highRiskCount);
+    // Files count
+    const currentFiles = snapshot.metadata.totalFiles;
+    const prevFiles = prevSnapshot?.metadata.totalFiles || 0;
+    const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
+    const filesDisplay = formatFileCountWithDiff(currentFiles, filesDiff);
+
+    // Size estimation (rough LOC calculation)
+    const sizeDisplay = formatSizeDisplay(snapshot.metadata);
 
     console.log(
-      `${id} ${label} ${created} ${functionsDisplay} ${avgComplexity} ${p95Complexity} ${highRiskDisplay}`
+      `${id} ${created} ${functionsDisplay} ${filesDisplay} ${sizeDisplay}`
     );
   }
 }
@@ -320,23 +321,33 @@ function displayHistorySummary(snapshots: SnapshotInfo[]): void {
   if (snapshots.length === 0) return;
 
   const totalFunctions = snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0);
+  const totalFiles = snapshots.reduce((sum, s) => sum + s.metadata.totalFiles, 0);
   const avgFunctions = Math.round(totalFunctions / snapshots.length);
-
-  const totalComplexity = snapshots.reduce(
-    (sum, s) => sum + s.metadata.avgComplexity * s.metadata.totalFunctions,
-    0
-  );
-  const overallAvgComplexity = totalComplexity / totalFunctions;
+  const avgFiles = Math.round(totalFiles / snapshots.length);
 
   const timespan =
     snapshots.length > 1
       ? formatDuration(snapshots[0].createdAt - snapshots[snapshots.length - 1].createdAt)
       : 'single snapshot';
 
+  // Calculate growth if we have multiple snapshots
+  const hasGrowth = snapshots.length > 1;
+  const latestSnapshot = snapshots[0];
+  const oldestSnapshot = snapshots[snapshots.length - 1];
+
   console.log(chalk.cyan('📊 Summary:'));
   console.log(`   Period: ${timespan}`);
   console.log(`   Average functions per snapshot: ${avgFunctions}`);
-  console.log(`   Overall average complexity: ${overallAvgComplexity.toFixed(2)}`);
+  console.log(`   Average files per snapshot: ${avgFiles}`);
+
+  if (hasGrowth && latestSnapshot.metadata.totalFunctions > 0) {
+    const functionGrowth = latestSnapshot.metadata.totalFunctions - oldestSnapshot.metadata.totalFunctions;
+    const fileGrowth = latestSnapshot.metadata.totalFiles - oldestSnapshot.metadata.totalFiles;
+    
+    if (functionGrowth !== 0 || fileGrowth !== 0) {
+      console.log(`   Growth: ${functionGrowth >= 0 ? '+' : ''}${functionGrowth} functions, ${fileGrowth >= 0 ? '+' : ''}${fileGrowth} files`);
+    }
+  }
 
   // Git statistics
   const gitBranches = new Set(snapshots.filter(s => s.gitBranch).map(s => s.gitBranch));
@@ -345,62 +356,44 @@ function displayHistorySummary(snapshots: SnapshotInfo[]): void {
   }
 }
 
-export function calculateP95Complexity(complexityDistribution: Record<number, number>): number {
-  if (!complexityDistribution || Object.keys(complexityDistribution).length === 0) {
-    return 0;
-  }
-
-  // Convert distribution to sorted array of [complexity, count] pairs
-  const entries = Object.entries(complexityDistribution)
-    .map(([complexity, count]) => [parseInt(complexity), count] as [number, number])
-    .sort(([a], [b]) => a - b);
-
-  // Calculate total count
-  const totalCount = entries.reduce((sum, [, count]) => sum + count, 0);
-
-  // Find the 95th percentile
-  const p95Index = Math.ceil(totalCount * 0.95);
-
-  let currentCount = 0;
-  for (const [complexity, count] of entries) {
-    currentCount += count;
-    if (currentCount >= p95Index) {
-      return complexity;
-    }
-  }
-
-  // Fallback to max complexity
-  return entries.length > 0 ? entries[entries.length - 1][0] : 0;
-}
-
-export function calculateHighRiskCount(complexityDistribution: Record<number, number>): number {
-  if (!complexityDistribution || Object.keys(complexityDistribution).length === 0) {
-    return 0;
-  }
-
-  return Object.entries(complexityDistribution)
-    .filter(([complexity]) => parseInt(complexity) >= 10)
-    .reduce((sum, [, count]) => sum + count, 0);
-}
 
 export function formatFunctionCountWithDiff(currentCount: number, diff: number): string {
   if (diff === 0) {
-    return currentCount.toString().padStart(10);
+    return currentCount.toString().padStart(12);
   }
 
   const sign = diff > 0 ? '+' : '';
   const diffStr = `(${sign}${diff})`;
   const combined = `${currentCount}${diffStr}`;
-  return combined.padStart(10);
+  return combined.padStart(12);
 }
 
-export function formatHighRiskCount(count: number): string {
-  if (count === 0) {
-    return '0'.padStart(10);
+export function formatFileCountWithDiff(currentCount: number, diff: number): string {
+  if (diff === 0) {
+    return currentCount.toString().padStart(9);
   }
 
-  const formatted = `${count}(CC≥10)`;
-  return formatted.padStart(10);
+  const sign = diff > 0 ? '+' : '';
+  const diffStr = `(${sign}${diff})`;
+  const combined = `${currentCount}${diffStr}`;
+  return combined.padStart(9);
+}
+
+export function formatSizeDisplay(metadata: SnapshotMetadata): string {
+  // Rough estimation: average 50 LOC per function
+  const estimatedLOC = metadata.totalFunctions * 50;
+  
+  if (estimatedLOC === 0) {
+    return '0'.padStart(10);
+  }
+  
+  if (estimatedLOC >= 1000000) {
+    return `~${Math.round(estimatedLOC / 100000) / 10}M LOC`.padStart(10);
+  } else if (estimatedLOC >= 1000) {
+    return `~${Math.round(estimatedLOC / 100) / 10}k LOC`.padStart(10);
+  } else {
+    return `${estimatedLOC} LOC`.padStart(10);
+  }
 }
 
 function formatDate(timestamp: number): string {
