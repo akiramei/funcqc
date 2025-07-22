@@ -620,7 +620,7 @@ async function addArchitectureAnalysis(
     spinner.succeed(`Analyzed ${analyzedResults.length} similarity groups for architecture compliance`);
     return analyzedResults;
     
-  } catch (error) {
+  } catch {
     spinner.warn('Architecture analysis failed, continuing without it');
     // Return original results if architecture analysis fails
     return results as AnalyzedSimilarityResult[];
@@ -633,7 +633,7 @@ async function addArchitectureAnalysis(
 async function analyzeGroupArchitecture(
   result: SimilarityResult,
   layerAssigner: LayerAssigner,
-  config: any
+  config: ArchitectureConfig
 ): Promise<ArchitectureAnalysis> {
   const functions = result.functions;
   const layers = new Set<string>();
@@ -688,7 +688,7 @@ async function analyzeGroupArchitecture(
 /**
  * Check if layer combinations violate architecture rules
  */
-function checkArchitectureRules(layers: string[], rules: any[]): string[] {
+function checkArchitectureRules(layers: string[], rules: ArchitectureRule[]): string[] {
   const violations: string[] = [];
   
   for (const rule of rules) {

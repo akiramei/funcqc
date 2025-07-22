@@ -98,16 +98,12 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const config = this.parseDetectionOptions(options);
     const validFunctions = this.filterValidFunctions(functions, config);
 
-    console.log(`Advanced detector processing ${validFunctions.length} functions...`);
-
     // For small datasets, use direct advanced analysis
     if (validFunctions.length <= this.config.singleStageThreshold) {
-      console.log('🎯 Direct O(n) advanced analysis (testing single-stage performance)');
       return this.detectAdvancedMode(validFunctions, config);
     }
 
     // For large datasets, use 2-stage filtering approach
-    console.log('🚀 Large dataset - using 2-stage filtering approach');
     return this.detectTwoStageMode(validFunctions, config);
   }
 
@@ -160,20 +156,17 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     config: ReturnType<typeof this.parseDetectionOptions>
   ): Promise<SimilarityResult[]> {
     // Stage 1: Fast pre-filtering to identify candidates
-    console.log('🔥 Stage 1: Fast similarity pre-filtering...');
+    // Stage 1: Fast similarity pre-filtering
     const fastResults = this.detectFastMode(functions);
 
     // Extract candidate functions for detailed analysis
     const candidates = this.extractCandidates(fastResults, functions);
-    console.log(`📊 Identified ${candidates.length} candidates from ${functions.length} functions`);
-
     if (candidates.length === 0) {
-      console.log('✨ No candidates found - returning fast results');
       return fastResults;
     }
 
     // Stage 2: Advanced analysis on candidates only
-    console.log(`🎯 Stage 2: Advanced analysis on ${candidates.length} candidates...`);
+    // Stage 2: Advanced analysis on candidates
     const advancedResults = await this.detectAdvancedMode(candidates, config);
 
     // Merge results with priority to advanced analysis
@@ -221,19 +214,15 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
 
     // Add functions from LSH buckets with 2-10 functions (sweet spot)
-    for (const [bucketKey, bucketFunctions] of lshBuckets) {
+    for (const [, bucketFunctions] of lshBuckets) {
       if (bucketFunctions.length >= 2 && bucketFunctions.length <= this.config.maxLshBucketSize) {
         bucketFunctions.forEach(funcId => candidateIds.add(funcId));
-        console.log(
-          `LSH bucket ${bucketKey.slice(0, 8)}... has ${bucketFunctions.length} candidates`
-        );
+        // LSH bucket has candidates
       } else if (bucketFunctions.length > this.config.maxLshBucketSize && this.config.useTwoStageHierarchicalLsh) {
         // Apply hierarchical LSH for large buckets
         const hierarchicalCandidates = this.applyHierarchicalLSH(bucketFunctions, allFunctions);
         hierarchicalCandidates.forEach(funcId => candidateIds.add(funcId));
-        console.log(
-          `Hierarchical LSH applied to large bucket ${bucketKey.slice(0, 8)}... (${bucketFunctions.length} → ${hierarchicalCandidates.length} candidates)`
-        );
+        // Hierarchical LSH applied to large bucket
       }
     }
 
@@ -501,29 +490,23 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     // Add unique files to project with proper path resolution
     const uniqueFiles = new Set(functions.map(f => f.filePath));
-    let successCount = 0;
+    let _successCount = 0;
 
     for (const filePath of uniqueFiles) {
       try {
         // Use the existing file system instead of trying to add non-existent files
         if (await this.fileExists(filePath)) {
           this.project.addSourceFileAtPathIfExists(filePath);
-          successCount++;
+          _successCount++;
         }
-      } catch (error) {
+      } catch {
         // Skip files that can't be added - this is expected for some database entries
         // Log only in debug mode to avoid cluttering output
-        if (process.env['DEBUG']) {
-          console.debug(
-            `Skipping file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-          );
-        }
+        // File loading error (debug info suppressed)
       }
     }
 
-    console.log(
-      `Successfully loaded ${successCount}/${uniqueFiles.size} source files for AST analysis`
-    );
+    // Successfully loaded source files for AST analysis
   }
 
   private async ensureFilesLoaded(functions: FunctionInfo[]): Promise<void> {
@@ -531,13 +514,13 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const loadedFilePaths = this.project!.getSourceFiles().map(sf => sf.getFilePath().toString());
     const loadedFiles = new Set(loadedFilePaths);
 
-    let newCount = 0;
+    let _newCount = 0;
     for (const filePath of uniqueFiles) {
       if (!loadedFiles.has(filePath)) {
         try {
           if (await this.fileExists(filePath)) {
             this.project!.addSourceFileAtPathIfExists(filePath);
-            newCount++;
+            _newCount++;
           }
         } catch {
           // Silently skip files that can't be added
@@ -545,9 +528,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       }
     }
 
-    if (newCount > 0) {
-      console.log(`Added ${newCount} new source files to existing project`);
-    }
+    // Added new source files to existing project if needed
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
@@ -571,7 +552,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const useParallelProcessing = this.config.useParallelProcessing && functions.length > 200; // Threshold for parallel processing
 
     if (useParallelProcessing) {
-      console.log(`🚀 Using parallel fingerprint generation for ${functions.length} functions`);
+      // Using parallel fingerprint generation
 
       // Create batches for parallel processing
       const batches: FunctionInfo[][] = [];
@@ -580,7 +561,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       }
 
       // Process batches in parallel using Promise.all
-      const batchPromises = batches.map(async (batch, batchIndex) => {
+      const batchPromises = batches.map(async (batch) => {
         const batchFingerprints: FunctionFingerprint[] = [];
 
         for (const func of batch) {
@@ -589,15 +570,12 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
             if (fingerprint) {
               batchFingerprints.push(fingerprint);
             }
-          } catch (error) {
-            console.warn(`Failed to generate fingerprint for ${func.name}:`, error);
+          } catch {
+            // Failed to generate fingerprint (error suppressed)
           }
         }
 
-        // Progress indication for parallel batches
-        console.log(
-          `✅ Batch ${batchIndex + 1}/${batches.length} completed (${batchFingerprints.length} fingerprints)`
-        );
+        // Batch completed
         return batchFingerprints;
       });
 
@@ -615,17 +593,13 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
             if (fingerprint) {
               fingerprints.push(fingerprint);
             }
-          } catch (error) {
-            console.warn(`Failed to generate fingerprint for ${func.name}:`, error);
+          } catch {
+            // Failed to generate fingerprint (error suppressed)
           }
         }
 
         // Progress indication for large batches
-        if (functions.length > 100 && i % (batchSize * 4) === 0) {
-          console.log(
-            `Processing fingerprints: ${Math.min(i + batchSize, functions.length)}/${functions.length}`
-          );
-        }
+        // Processing fingerprints in batches
       }
     }
 
@@ -672,8 +646,8 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
         signatureHash,
         functionNode,
       };
-    } catch (error) {
-      console.warn(`Error generating fingerprint for ${func.name}:`, error);
+    } catch {
+      // Error generating fingerprint (error suppressed)
       return null;
     }
   }
@@ -1084,24 +1058,18 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     this.logLSHBucketDistribution(lshBuckets, fingerprints.length);
 
     // Check candidates within each bucket - ONLY small buckets for O(n) performance
-    for (const [bucketKey, candidates] of lshBuckets) {
+    for (const [, candidates] of lshBuckets) {
       if (candidates.length >= 2 && candidates.length <= this.config.maxLshBucketSize) {
-        console.log(
-          `Processing LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions`
-        );
+        // Processing LSH bucket
         const bucketResults = this.checkSmallBucketCandidates(candidates, config, excludedPairs);
         results.push(...bucketResults);
       } else if (candidates.length > this.config.maxLshBucketSize) {
         if (this.config.useTwoStageHierarchicalLsh) {
-          console.log(
-            `Applying hierarchical LSH to large bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions`
-          );
+          // Applying hierarchical LSH to large bucket
           const hierarchicalResults = this.applyHierarchicalLSHToLargeBucket(candidates, config, excludedPairs);
           results.push(...hierarchicalResults);
         } else {
-          console.log(
-            `Skipping large LSH bucket ${bucketKey.slice(0, 8)}... with ${candidates.length} functions (too large for O(n) guarantee)`
-          );
+          // Skipping large LSH bucket (too large for O(n) guarantee)
         }
       }
     }
@@ -1153,36 +1121,10 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    * Log LSH bucket size distribution for performance tuning
    */
   private logLSHBucketDistribution(
-    lshBuckets: Map<string, FunctionFingerprint[]>,
-    totalFunctions: number
+    _lshBuckets: Map<string, FunctionFingerprint[]>,
+    _totalFunctions: number
   ): void {
-    const bucketSizes = Array.from(lshBuckets.values()).map(bucket => bucket.length);
-    const sizeDistribution = new Map<number, number>();
-
-    // Count bucket size frequencies
-    for (const size of bucketSizes) {
-      sizeDistribution.set(size, (sizeDistribution.get(size) ?? 0) + 1);
-    }
-
-    // Generate histogram bins
-    const emptyBuckets = Math.max(0, (1 << this.config.lshBits) - lshBuckets.size);
-    const singleBuckets = sizeDistribution.get(1) ?? 0;
-    const optimalBuckets = Array.from(sizeDistribution.entries())
-      .filter(([size]) => size >= 2 && size <= this.config.maxLshBucketSize)
-      .reduce((sum, [, count]) => sum + count, 0);
-    const oversizedBuckets = Array.from(sizeDistribution.entries())
-      .filter(([size]) => size > this.config.maxLshBucketSize)
-      .reduce((sum, [, count]) => sum + count, 0);
-
-    // Log one-line histogram for easy monitoring
-    console.log(
-      `📊 LSH Distribution (${totalFunctions} funcs): ` +
-        `Empty=${emptyBuckets} Single=${singleBuckets} ` +
-        `Optimal(2-${this.config.maxLshBucketSize})=${optimalBuckets} ` +
-        `Oversized(>${this.config.maxLshBucketSize})=${oversizedBuckets} ` +
-        `bits=${this.config.lshBits} ` +
-        `hierarchical=${this.config.useTwoStageHierarchicalLsh ? 'ON' : 'OFF'}`
-    );
+    // LSH distribution statistics collection disabled
   }
 
   /**
@@ -1504,12 +1446,12 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   }
 
   private deduplicateResults(results: SimilarityResult[]): SimilarityResult[] {
-    console.log(`🔄 Merging ${results.length} similarity groups...`);
+    // Merging similarity groups
 
     // Advanced group merging: combine overlapping groups
     const mergedGroups = this.mergeOverlappingGroups(results);
 
-    console.log(`✅ Merged into ${mergedGroups.length} unique groups`);
+    // Merged into unique groups
     return mergedGroups;
   }
 
