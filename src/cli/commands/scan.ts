@@ -282,7 +282,7 @@ async function checkConfigurationChanges(
           chalk.gray('  funcqc scan --comment "Updated exclude patterns for test files"')
         );
 
-        process.exit(0);
+        process.exit(1);
       }
 
       // Valid comment provided
@@ -1045,7 +1045,7 @@ function createQualityGate(historicalFunctions: FunctionInfo[], spinner: typeof 
 }
 
 async function performRealTimeAnalysis(config: FuncqcConfig, qualityGate: RealTimeQualityGate) {
-  const scanPaths = await determineScanPaths(config);
+  const scanPaths = await determineScanPaths(config, 'src');
   const files = await discoverFiles(scanPaths, config, ora());
 
   console.log(chalk.cyan('\n🚀 Real-time Quality Gate Analysis\n'));

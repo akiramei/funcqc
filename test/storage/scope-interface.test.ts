@@ -6,7 +6,7 @@ describe('Scope Interface Contracts', () => {
     it('should define snapshot with scope field', () => {
       const snapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -31,7 +31,7 @@ describe('Scope Interface Contracts', () => {
       scopes.forEach(scope => {
         const snapshot: SnapshotInfo = {
           id: `${scope}-snapshot`,
-          createdAt: '2024-01-01T00:00:00Z',
+          createdAt: 1704067200000,
           metadata: {
             totalFunctions: 5,
             totalFiles: 3,
@@ -52,7 +52,7 @@ describe('Scope Interface Contracts', () => {
     it('should handle optional snapshot metadata', () => {
       const minimalSnapshot: SnapshotInfo = {
         id: 'minimal-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         scope: 'src'
       };
 
@@ -303,7 +303,7 @@ describe('Scope Interface Contracts', () => {
       const result: LazyAnalysisResult = {
         snapshot: {
           id: 'test',
-          createdAt: '2024-01-01T00:00:00Z',
+          createdAt: 1704067200000,
           scope: 'src',
           metadata: {
             totalFunctions: 10,

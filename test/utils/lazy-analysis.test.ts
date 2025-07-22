@@ -83,7 +83,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should return false when call graph analysis is already completed', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -104,7 +104,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should return false when basic analysis is not completed', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -125,7 +125,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should return true when call graph analysis is required', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -147,7 +147,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should handle snapshot without metadata', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: undefined,
         scope: 'src'
       };
@@ -165,7 +165,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should return existing call graph data when not required', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -198,7 +198,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should perform call graph analysis when required', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -290,7 +290,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should handle analysis errors gracefully', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -315,7 +315,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should return early when call graph not required', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 10,
           totalFiles: 5,
@@ -341,7 +341,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should load call graph data with specific snapshot ID', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'specific-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 5,
           totalFiles: 3,
@@ -404,7 +404,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should load latest snapshot when no snapshot ID provided', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'latest-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 8,
           totalFiles: 4,
@@ -442,7 +442,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should indicate when lazy analysis was performed', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 5,
           totalFiles: 3,
@@ -566,7 +566,7 @@ describe('Lazy Analysis Utilities', () => {
     it('should handle analyzer errors gracefully', async () => {
       const mockSnapshot: SnapshotInfo = {
         id: 'test-snapshot',
-        createdAt: '2024-01-01T00:00:00Z',
+        createdAt: 1704067200000,
         metadata: {
           totalFunctions: 5,
           totalFiles: 3,
