@@ -354,7 +354,7 @@ async function discoverFiles(
 }
 
 // Legacy analysis function - replaced by staged analysis
-// @ts-ignore - Legacy function kept for reference
+// @ts-expect-error - Legacy function kept for reference
 async function _performAnalysis(
   files: string[],
   components: CliComponents,
@@ -686,7 +686,7 @@ async function collectSourceFiles(
 }
 
 // Legacy save function - replaced by staged save
-// @ts-ignore - Legacy function kept for reference  
+// @ts-expect-error - Legacy function kept for reference  
 async function _saveResults(
   allFunctions: FunctionInfo[],
   allCallEdges: CallEdge[],

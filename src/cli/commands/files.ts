@@ -116,7 +116,7 @@ async function outputFriendly(
   const sortOrder = options.desc ? -1 : 1;
   
   filteredFiles.sort((a, b) => {
-    let aVal: any, bVal: any;
+    let aVal: string | number, bVal: string | number;
     
     switch (sortField) {
       case 'size':
@@ -147,7 +147,7 @@ async function outputFriendly(
     if (typeof aVal === 'string' && typeof bVal === 'string') {
       return aVal.localeCompare(bVal) * sortOrder;
     } else {
-      return (aVal - bVal) * sortOrder;
+      return ((aVal as number) - (bVal as number)) * sortOrder;
     }
   });
   

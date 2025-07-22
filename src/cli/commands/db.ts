@@ -149,7 +149,7 @@ function isValidTableName(tableName: string): boolean {
 function sanitizeWhereClause(whereClause: string): string {
   // Remove potentially dangerous keywords and characters
   const dangerous = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', '--', ';'];
-  let sanitized = whereClause;
+  const sanitized = whereClause;
   
   for (const keyword of dangerous) {
     const regex = new RegExp(keyword, 'gi');
