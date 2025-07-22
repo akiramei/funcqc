@@ -269,6 +269,7 @@ program
   .option('--lineage-auto-save', 'automatically save detected lineage as draft')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--change-detection-min-score <num>', 'minimum score for lineage suggestion (0-100)', '50')
+  .option('--insights', 'show suggested actions and insights for similarity analysis')
   .action(async (from: string, to: string, options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { diffCommand } = await import('./cli/commands/diff');

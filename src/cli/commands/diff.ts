@@ -40,6 +40,7 @@ export interface DiffCommandOptions extends CommandOptions {
   changeDetectionMinScore?: number; // Override minimum score for lineage suggestion
   similarityThreshold?: number; // Threshold for similarity analysis (default 0.85)
   detailed?: boolean; // Enable detailed mode with similarity analysis
+  insights?: boolean; // Show suggested actions and insights (default: false)
 }
 
 /**
@@ -215,7 +216,10 @@ function displaySummary(diff: SnapshotDiff): void {
 }
 
 async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, env: CommandEnvironment): Promise<void> {
-  console.log(chalk.cyan.bold('\n📊 Code Changes with Design Insights\n'));
+  const title = options.insights 
+    ? '\n📊 Code Changes with Design Insights\n'
+    : '\n📊 Code Changes\n';
+  console.log(chalk.cyan.bold(title));
 
   // Display header
   displayDiffHeader(diff);
@@ -330,7 +334,7 @@ async function displaySemanticDiff(
 async function displayAddedFunctionsWithSimilarity(
   functions: FunctionInfo[],
   similarityManager: SimilarityManager,
-  _options: DiffCommandOptions
+  options: DiffCommandOptions
 ): Promise<void> {
   console.log(chalk.green.bold(`🟢 ADDED FUNCTIONS (${functions.length})`));
   console.log();
@@ -356,15 +360,17 @@ async function displayAddedFunctionsWithSimilarity(
 
     console.log();
 
-    // Perform similarity analysis for added functions
-    await displaySimilarityAnalysisForAdded(fileFunctions, similarityManager);
+    // Perform similarity analysis for added functions only if insights are requested
+    if (options.insights) {
+      await displaySimilarityAnalysisForAdded(fileFunctions, similarityManager);
+    }
   }
 }
 
 async function displayRemovedFunctionsWithSimilarity(
   functions: FunctionInfo[],
   similarityManager: SimilarityManager,
-  _options: DiffCommandOptions
+  options: DiffCommandOptions
 ): Promise<void> {
   console.log(chalk.red.bold(`🔴 REMOVED FUNCTIONS (${functions.length})`));
   console.log();
@@ -390,15 +396,17 @@ async function displayRemovedFunctionsWithSimilarity(
 
     console.log();
 
-    // Perform similarity analysis for removed functions
-    await displaySimilarityAnalysisForRemoved(fileFunctions, similarityManager);
+    // Perform similarity analysis for removed functions only if insights are requested
+    if (options.insights) {
+      await displaySimilarityAnalysisForRemoved(fileFunctions, similarityManager);
+    }
   }
 }
 
 async function displayModifiedFunctionsWithSimilarity(
   functions: FunctionChange[],
   similarityManager: SimilarityManager,
-  _options: DiffCommandOptions
+  options: DiffCommandOptions
 ): Promise<void> {
   console.log(chalk.yellow.bold(`🟡 MODIFIED FUNCTIONS (${functions.length})`));
   console.log();
@@ -429,8 +437,10 @@ async function displayModifiedFunctionsWithSimilarity(
 
     console.log();
 
-    // Perform similarity analysis for modified functions
-    await displaySimilarityAnalysisForModified(fileFunctions, similarityManager);
+    // Perform similarity analysis for modified functions only if insights are requested
+    if (options.insights) {
+      await displaySimilarityAnalysisForModified(fileFunctions, similarityManager);
+    }
   }
 }
 
