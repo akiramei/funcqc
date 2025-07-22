@@ -36,6 +36,7 @@ export interface FuncqcError {
   recoverable: boolean;
   recoveryActions?: string[];
   originalError?: Error;
+  stack?: string;
 }
 
 export interface ErrorHandlerOptions {

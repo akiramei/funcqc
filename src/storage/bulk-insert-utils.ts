@@ -84,6 +84,7 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.isStatic,
     func.accessModifier || null,
     func.sourceCode || null,
+    func.sourceFileId || null,
   ];
 }
 

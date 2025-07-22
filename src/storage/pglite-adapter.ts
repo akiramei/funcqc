@@ -3507,6 +3507,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           'is_static',
           'access_modifier',
           'source_code',
+          'source_file_id',
         ];
 
         const optimalBatchSize = calculateOptimalBatchSize(functionColumns.length);
@@ -5292,6 +5293,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Save source files for a snapshot with deduplication
    */
+  async findExistingSourceFile(compositeId: string): Promise<string | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT id FROM source_files WHERE id = $1 LIMIT 1',
+        [compositeId]
+      );
+      
+      return result.rows.length > 0 ? (result.rows[0] as { id: string }).id : null;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to check existing source file: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async saveSourceFiles(sourceFiles: import('../types').SourceFile[], snapshotId: string): Promise<void> {
     if (sourceFiles.length === 0) return;
 
@@ -5316,14 +5334,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         file.fileModifiedTime?.toISOString() || null,
       ]);
 
-      // Batch insert source files with conflict handling (deduplication by hash)
+      // Batch insert source files with conflict handling (deduplication by content hash)
       for (const data of insertData) {
         await this.db.query(
           `INSERT INTO source_files (
             id, snapshot_id, file_path, file_content, file_hash, encoding,
             file_size_bytes, line_count, language, function_count,
             export_count, import_count, file_modified_time
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          ON CONFLICT (id) DO UPDATE SET
+            snapshot_id = $2,
+            file_path = $3,
+            function_count = $10,
+            export_count = $11,
+            import_count = $12`,
           data
         );
       }
@@ -5480,6 +5504,133 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       
       throw dbError;
     }
+  }
+
+  // ===== Function Source Code Extraction =====
+  
+  /**
+   * Extract function source code from stored file content using line/column positions
+   */
+  async extractFunctionSourceCode(functionId: string): Promise<string | null> {
+    try {
+      // Get function information first
+      const functionResult = await this.db.query(
+        'SELECT file_path, snapshot_id, start_line, end_line, start_column, end_column, source_file_id FROM functions WHERE id = $1',
+        [functionId]
+      );
+      
+      if (functionResult.rows.length === 0) {
+        return null;
+      }
+      
+      const func = functionResult.rows[0] as {
+        file_path: string;
+        snapshot_id: string;
+        start_line: number;
+        end_line: number;
+        start_column: number;
+        end_column: number;
+        source_file_id: string | null;
+      };
+      
+      // Get source file content using source_file_id for proper deduplication
+      let sourceFileResult;
+      if (func.source_file_id) {
+        // Preferred approach: use source_file_id directly
+        sourceFileResult = await this.db.query(
+          'SELECT file_content FROM source_files WHERE id = $1',
+          [func.source_file_id]
+        );
+      } else {
+        // Fallback: use file_path and snapshot_id (for compatibility with old data)
+        sourceFileResult = await this.db.query(
+          'SELECT file_content FROM source_files WHERE file_path = $1 AND snapshot_id = $2',
+          [func.file_path, func.snapshot_id]
+        );
+      }
+      
+      if (sourceFileResult.rows.length === 0) {
+        return null;
+      }
+      
+      const sourceFile = sourceFileResult.rows[0] as { file_content: string };
+      const fileContent = sourceFile.file_content;
+      
+      return this.extractSourceFromContent(
+        fileContent,
+        func.start_line,
+        func.end_line,
+        func.start_column,
+        func.end_column
+      );
+      
+    } catch (error) {
+      this.logger?.error(`Failed to extract function source code: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
+  }
+
+  /**
+   * Extract source code from file content using line and column positions
+   */
+  private extractSourceFromContent(
+    content: string,
+    startLine: number,
+    endLine: number,
+    startColumn: number,
+    endColumn: number
+  ): string {
+    const lines = content.split('\n');
+    
+    if (startLine < 1 || endLine > lines.length || startLine > endLine) {
+      throw new Error(`Invalid line range: ${startLine}-${endLine} (file has ${lines.length} lines)`);
+    }
+    
+    // Convert to 0-based indexing
+    const startLineIndex = startLine - 1;
+    const endLineIndex = endLine - 1;
+    
+    // Handle case where column information is not available (both are 0)
+    // In this case, extract complete lines
+    if (startColumn === 0 && endColumn === 0) {
+      const result: string[] = [];
+      for (let i = startLineIndex; i <= endLineIndex; i++) {
+        if (i < lines.length) {
+          result.push(lines[i]);
+        }
+      }
+      return result.join('\n');
+    }
+    
+    if (startLineIndex === endLineIndex) {
+      // Single line function
+      const line = lines[startLineIndex];
+      // Column positions are likely 1-based, convert to 0-based for substring
+      const startCol = Math.max(0, startColumn - 1);
+      const endCol = endColumn > 0 ? endColumn - 1 : line.length;
+      return line.substring(startCol, endCol);
+    }
+    
+    // Multi-line function
+    const result: string[] = [];
+    
+    // First line (from startColumn to end of line)
+    // Column positions are likely 1-based, convert to 0-based for substring
+    const startCol = Math.max(0, startColumn - 1);
+    result.push(lines[startLineIndex].substring(startCol));
+    
+    // Middle lines (complete lines)
+    for (let i = startLineIndex + 1; i < endLineIndex; i++) {
+      result.push(lines[i]);
+    }
+    
+    // Last line (from beginning to endColumn)
+    if (endLineIndex < lines.length) {
+      const endCol = endColumn > 0 ? endColumn - 1 : lines[endLineIndex].length;
+      result.push(lines[endLineIndex].substring(0, endCol));
+    }
+    
+    return result.join('\n');
   }
 
   /**

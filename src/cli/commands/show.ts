@@ -1,6 +1,5 @@
 import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo } from '../../types';
-import { calculateFileHash, fileExists } from '../../utils/file-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
@@ -184,13 +183,13 @@ async function outputFriendly(
   }
 
   if (config.showSource) {
-    displaySourceCode(func, options.syntax);
+    await displaySourceCode(func, env, options.syntax);
   }
 
   console.log(); // Empty line at end
 }
 
-async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
+async function displayBasicInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('📋 Basic Information:'));
   console.log(`  Name: ${func.displayName}`);
   console.log(`  File: ${func.filePath}:${func.startLine}-${func.endLine}`);
@@ -201,18 +200,35 @@ async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): P
   }
   
   console.log(`  Exported: ${func.isExported ? '✅' : '❌'}`);
-  console.log(`  Async: ${func.isAsync ? '✅' : '❌'}`);
+  console.log(`  Async: ${func.isAsync ? '✅' : '—'}`);
   
-  // File status check
-  if (await fileExists(func.filePath)) {
-    const currentHash = await calculateFileHash(func.filePath);
-    if (currentHash === func.fileHash) {
-      console.log(chalk.green('  File Status: ✅ Up to date'));
+  // File status check using database information
+  try {
+    // Get the latest snapshot to check file status
+    const snapshots = await env.storage.getSnapshots({ sort: 'created_at', limit: 1 });
+    const latestSnapshotId = snapshots.length > 0 ? snapshots[0].id : '';
+    
+    // Get source file information from database
+    const sourceFile = await env.storage.getSourceFileByPath(func.filePath, latestSnapshotId);
+    
+    if (sourceFile) {
+      // Compare stored hash with function's file hash to detect changes
+      if (sourceFile.fileHash === func.fileContentHash || sourceFile.fileHash === func.fileHash) {
+        console.log(chalk.green('  File Status: ✅ Up to date (from database)'));
+      } else {
+        console.log(chalk.yellow('  File Status: ⚠️ Modified since last scan'));
+      }
     } else {
-      console.log(chalk.yellow('  File Status: ⚠️ Modified since last scan'));
+      // Try to check if we can extract source code (indicating file exists in database)
+      const hasSourceCode = await env.storage.extractFunctionSourceCode(func.id);
+      if (hasSourceCode) {
+        console.log(chalk.green('  File Status: ✅ Available in database'));
+      } else {
+        console.log(chalk.yellow('  File Status: ⚠️ File not found in database'));
+      }
     }
-  } else {
-    console.log(chalk.red('  File Status: ❌ File not found'));
+  } catch {
+    console.log(chalk.gray('  File Status: ❓ Status check unavailable'));
   }
 
   // Description if available
@@ -376,8 +392,23 @@ function displayExamples(func: FunctionInfo): void {
   console.log();
 }
 
-function displaySourceCode(func: FunctionInfo, withSyntax?: boolean): void {
-  if (!func.sourceCode) {
+async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment, withSyntax?: boolean): Promise<void> {
+  // First try to get source code from function's sourceCode field
+  let sourceCode: string | null = func.sourceCode || null;
+  
+  // If not available, extract from database using precise line/column positions
+  if (!sourceCode) {
+    try {
+      sourceCode = await env.storage.extractFunctionSourceCode(func.id);
+    } catch (error) {
+      console.log(chalk.yellow('📄 Source Code: Failed to extract from database'));
+      console.log(chalk.gray(`  Error: ${error instanceof Error ? error.message : String(error)}`));
+      console.log();
+      return;
+    }
+  }
+  
+  if (!sourceCode) {
     console.log(chalk.cyan('📄 Source Code: Not available'));
     console.log();
     return;
@@ -388,7 +419,7 @@ function displaySourceCode(func: FunctionInfo, withSyntax?: boolean): void {
   
   if (withSyntax) {
     // Basic syntax highlighting (simplified)
-    const highlighted = func.sourceCode
+    const highlighted = sourceCode
       .replace(/\b(function|const|let|var|if|else|for|while|return|async|await)\b/g, chalk.blue('$1'))
       .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
       .replace(/"([^"]*)"/g, chalk.green('"$1"'))
@@ -396,7 +427,7 @@ function displaySourceCode(func: FunctionInfo, withSyntax?: boolean): void {
     
     console.log(highlighted);
   } else {
-    console.log(func.sourceCode);
+    console.log(sourceCode);
   }
   
   console.log('─'.repeat(60));

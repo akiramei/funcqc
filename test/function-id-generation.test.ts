@@ -158,8 +158,8 @@ describe('Function ID Generation System', () => {
     expect(snapshotId.length).toBeGreaterThan(0);
     expect(functions.length).toBe(20);
     
-    // Retrieve functions from storage
-    const storedFunctions = await storage.getFunctions(snapshotId!);
+    // Retrieve functions from storage with full data
+    const storedFunctions = await storage.getFunctions(snapshotId!, { includeFullData: true });
     expect(storedFunctions.length).toBe(20);
     
     // Verify all IDs are unique
