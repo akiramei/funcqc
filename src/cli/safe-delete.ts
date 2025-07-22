@@ -7,6 +7,7 @@ import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { SafeDeletionSystem, SafeDeletionOptions } from '../analyzers/safe-deletion-system';
+import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
 
 interface SafeDeleteOptions extends OptionValues {
   confidenceThreshold?: string;
@@ -56,120 +57,55 @@ async function performSafeDeletion(
   env: CommandEnvironment,
   spinner: Ora
 ): Promise<void> {
-  const snapshot = await loadLatestSnapshot(env, spinner);
-  if (!snapshot) return;
+  // Use lazy analysis to ensure call graph data is available
+  spinner.start('Loading analysis data...');
+  
+  let lazyResult;
+  try {
+    lazyResult = await loadCallGraphWithLazyAnalysis(env, {
+      showProgress: false // We manage progress with our own spinner
+    });
+  } catch (error) {
+    spinner.fail('Failed to load call graph data');
+    throw error;
+  }
 
-  const functions = await loadFunctionsFromSnapshot(env, spinner, snapshot.id);
-  if (!functions) return;
+  const { snapshot, callEdges, functions } = lazyResult;
 
-  const callEdges = await loadCallEdges(env, spinner, snapshot.id, options);
+  // Validate that we have sufficient call graph data
+  validateCallGraphRequirements(callEdges, 'safe-delete');
+
+  if (!snapshot) {
+    throw new Error('Snapshot is required for safe deletion');
+  }
+
   const safeDeletionOptions = createSafeDeletionOptions(options);
   
   // Step 1: Always perform analysis first
-  const result = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner, env, snapshot.id);
+  const analysisResult = await performAnalysis(functions, callEdges, safeDeletionOptions, spinner, env, snapshot.id);
   
   // Step 2: Show preview results
-  outputResults(result, options);
+  outputResults(analysisResult, options);
   
   // Step 3: If --execute flag is provided and candidates exist, ask for confirmation
-  if (options.execute && result.candidateFunctions.length > 0) {
+  if (options.execute && analysisResult.candidateFunctions.length > 0) {
     if (options.force) {
       console.log(chalk.yellow('\n⚠️  --force flag detected. Proceeding with deletion without confirmation.'));
       await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner, env, snapshot.id);
     } else {
-      const confirmed = await promptForConfirmation(result);
+      const confirmed = await promptForConfirmation(analysisResult);
       if (confirmed) {
         await executeActualDeletion(functions, callEdges, safeDeletionOptions, spinner, env, snapshot.id);
       } else {
         console.log(chalk.cyan('\n✅ Deletion cancelled. No files were modified.'));
       }
     }
-  } else if (!options.execute && result.candidateFunctions.length > 0) {
+  } else if (!options.execute && analysisResult.candidateFunctions.length > 0) {
     console.log(chalk.dim('\n💡 This was a preview. Use --execute flag to perform actual deletion.'));
   }
 }
 
-/**
- * Load the latest snapshot with validation
- */
-async function loadLatestSnapshot(
-  env: CommandEnvironment,
-  spinner: Ora
-): Promise<import('../types').SnapshotInfo | null> {
-  spinner.start('Loading latest analysis results...');
-  
-  const snapshot = await env.storage.getLatestSnapshot();
-  if (!snapshot) {
-    spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-    return null;
-  }
-  
-  return snapshot;
-}
 
-/**
- * Load functions from snapshot with validation
- */
-async function loadFunctionsFromSnapshot(
-  env: CommandEnvironment,
-  spinner: Ora,
-  snapshotId: string
-): Promise<import('../types').FunctionInfo[] | null> {
-  spinner.text = 'Loading functions...';
-  
-  const functions = await env.storage.getFunctionsBySnapshot(snapshotId);
-  if (functions.length === 0) {
-    spinner.fail(chalk.yellow('No functions found in the latest snapshot.'));
-    return null;
-  }
-  
-  console.log(`\n📊 Found ${functions.length} functions in snapshot ${snapshotId}`);
-  return functions;
-}
-
-/**
- * Load call edges with timeout and filtering
- */
-async function loadCallEdges(
-  env: CommandEnvironment,
-  spinner: Ora,
-  snapshotId: string,
-  options: SafeDeleteOptions
-): Promise<import('../types').CallEdge[]> {
-  spinner.text = 'Loading call edges...';
-  
-  try {
-    const callEdges = await Promise.race([
-      env.storage.getCallEdgesBySnapshot(snapshotId),
-      new Promise<never>((_, reject) => 
-        setTimeout(() => reject(new Error('Call edge query timeout after 30 seconds')), 30000)
-      )
-    ]);
-    
-    console.log(`📊 Found ${callEdges.length} call edges`);
-    return filterHighConfidenceEdges(callEdges, options);
-    
-  } catch (error) {
-    console.warn(`⚠️  Failed to load call edges: ${error}. Proceeding with basic analysis...`);
-    return [];
-  }
-}
-
-/**
- * Filter call edges for high confidence only
- */
-function filterHighConfidenceEdges(
-  callEdges: import('../types').CallEdge[],
-  options: SafeDeleteOptions
-): import('../types').CallEdge[] {
-  const threshold = parseFloat(options.confidenceThreshold || '0.95');
-  const highConfidenceEdges = callEdges.filter(edge => {
-    return edge.confidenceScore && edge.confidenceScore >= threshold;
-  });
-  
-  console.log(`📊 Found ${highConfidenceEdges.length} high-confidence call edges`);
-  return highConfidenceEdges;
-}
 
 /**
  * Create safe deletion options from CLI options

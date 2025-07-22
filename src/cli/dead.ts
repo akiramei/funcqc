@@ -7,6 +7,7 @@ import { createErrorHandler } from '../utils/error-handler';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
 import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
 import { DotGenerator } from '../visualization/dot-generator';
+import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
 
 interface DeadCodeOptions extends OptionValues {
   excludeTests?: boolean;
@@ -42,20 +43,15 @@ export const deadCommand: VoidCommand<DeadCodeOptions> = (options) =>
     const spinner = ora('Analyzing dead code...').start();
 
     try {
-      // Get the latest snapshot
-      const snapshot = await env.storage.getLatestSnapshot();
-      if (!snapshot) {
-        spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
-      }
+      // Use lazy analysis to ensure call graph data is available
+      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+        showProgress: false // We manage progress with our own spinner
+      });
+
+      // Validate that we have sufficient call graph data
+      validateCallGraphRequirements(callEdges, 'dead');
 
       spinner.text = 'Loading functions and call graph...';
-
-      // Get all functions and call edges
-      const [functions, callEdges] = await Promise.all([
-        env.storage.getFunctionsBySnapshot(snapshot.id),
-        env.storage.getCallEdgesBySnapshot(snapshot.id),
-      ]);
 
       if (functions.length === 0) {
         spinner.fail(chalk.yellow('No functions found in the latest snapshot.'));

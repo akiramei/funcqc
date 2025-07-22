@@ -7,6 +7,7 @@ import { EntryPointDetector } from '../../analyzers/entry-point-detector.js';
 import { SafeFunctionDeleter, DeletionResult, FunctionDeletionOptions } from '../../tools/function-deleter.js';
 import { FunctionInfo } from '../../types/index.js';
 import { groupFunctionsByFile, calculateFunctionStats, formatFunctionStats } from '../../utils/function-utils.js';
+// import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../../utils/lazy-analysis.js';
 
 interface CleanOptions {
   dryRun?: boolean;
@@ -75,7 +76,73 @@ export async function executeCleanCommand(options: CleanOptions): Promise<void> 
     const allFunctions = await storage.getFunctions(latestSnapshot.id);
     
     // Get call edges for reachability analysis
-    const callEdges = await storage.getCallEdgesBySnapshot(latestSnapshot.id);
+    // Check if call graph analysis is available, perform lazy analysis if needed
+    let callEdges = await storage.getCallEdgesBySnapshot(latestSnapshot.id);
+    
+    if (callEdges.length === 0) {
+      console.log(chalk.yellow('⚠️  No call graph data found. Analyzing call graph now...'));
+      
+      // Check if basic analysis is completed (prerequisite for call graph)
+      const basicCompleted = latestSnapshot.metadata && 'basicAnalysisCompleted' in latestSnapshot.metadata ? 
+        latestSnapshot.metadata.basicAnalysisCompleted : false;
+      if (!basicCompleted) {
+        console.error(chalk.red('❌ Basic analysis not completed. Run `funcqc scan` first.'));
+        process.exit(1);
+      }
+
+      // Import and perform call graph analysis
+      const { FunctionAnalyzer } = await import('../../core/analyzer.js');
+      
+      // Get source files for the snapshot
+      const sourceFiles = await storage.getSourceFilesBySnapshot(latestSnapshot.id);
+      
+      if (sourceFiles.length === 0) {
+        console.error(chalk.red('❌ No source files found. Call graph analysis cannot proceed.'));
+        process.exit(1);
+      }
+
+      console.log(chalk.blue(`🔍 Analyzing call graph from ${sourceFiles.length} files...`));
+      
+      try {
+        // Create analyzer instance with minimal config
+        const analyzer = new FunctionAnalyzer({
+          roots: [process.cwd()],
+          exclude: [],
+          storage: { type: 'pglite', path: '' },
+          metrics: { 
+            complexityThreshold: 10,
+            cognitiveComplexityThreshold: 15,
+            linesOfCodeThreshold: 40,
+            parameterCountThreshold: 4,
+            maxNestingLevelThreshold: 3
+          },
+          git: { enabled: false, autoLabel: false }
+        });
+        
+        // Create file content map
+        const fileContentMap = new Map<string, string>();
+        sourceFiles.forEach(file => {
+          fileContentMap.set(file.filePath, file.fileContent);
+        });
+
+        // Perform call graph analysis from stored content
+        const result = await analyzer.analyzeCallGraphFromContent(
+          fileContentMap,
+          allFunctions
+        );
+
+        // Store call graph results
+        await storage.insertCallEdges(result.callEdges, latestSnapshot.id);
+        await storage.insertInternalCallEdges(result.internalCallEdges);
+        await storage.updateAnalysisLevel(latestSnapshot.id, 'CALL_GRAPH');
+
+        callEdges = result.callEdges;
+        console.log(chalk.green(`✅ Call graph analysis completed: ${callEdges.length} edges found`));
+      } catch (error) {
+        console.error(chalk.red('❌ Call graph analysis failed:', error instanceof Error ? error.message : String(error)));
+        process.exit(1);
+      }
+    }
 
     console.log(chalk.gray(`📈 Total functions analyzed: ${allFunctions.length}`));
 
