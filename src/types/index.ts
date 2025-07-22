@@ -540,6 +540,15 @@ export interface ExplainCommandOptions extends CommandOptions {
   format?: 'table' | 'detailed';
 }
 
+export interface DbCommandOptions extends CommandOptions {
+  table?: string; // Table name to query
+  limit?: string; // Limit number of rows
+  where?: string; // Simple WHERE condition
+  columns?: string; // Columns to select (comma-separated)
+  json?: boolean; // JSON output
+  list?: boolean; // List all tables
+}
+
 // Additional type definitions for CLI components
 export interface CliComponents {
   analyzer: { 

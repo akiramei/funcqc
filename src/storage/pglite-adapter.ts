@@ -2161,6 +2161,38 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // ========================================
+  // RAW DATABASE ACCESS (for debugging and testing)
+  // ========================================
+
+  /**
+   * Execute raw SQL query (read-only operations only)
+   * Used by db command for debugging and testing
+   */
+  async query(sql: string, params: (string | number)[] = []): Promise<{ rows: unknown[] }> {
+    await this.ensureInitialized();
+    
+    // Basic safety check - only allow SELECT statements
+    const trimmedSql = sql.trim().toUpperCase();
+    if (!trimmedSql.startsWith('SELECT')) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        'Only SELECT statements are allowed for raw queries',
+        new Error('Attempted non-SELECT query')
+      );
+    }
+    
+    try {
+      const result = await this.db.query(sql, params);
+      return { rows: result.rows };
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Query execution failed: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   // ANN INDEX MANAGEMENT
   // ========================================
 

@@ -85,7 +85,7 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 /**
  * List of commands that can use lightweight initialization
  */
-const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'health', 'search', 'history', 'similar', 'explain'];
+const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'health', 'search', 'history', 'similar', 'explain', 'db'];
 
 /**
  * Determines if the current command is lightweight

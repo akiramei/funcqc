@@ -657,6 +657,44 @@ Available Concepts:
   complexity, maintainability, quality, testing, refactoring
 `);
 
+program
+  .command('db')
+  .description('Inspect database contents for debugging and testing')
+  .option('--list', 'list all available tables')
+  .option('--table <name>', 'table name to query')
+  .option('--limit <num>', 'limit number of rows (default: 10, max: 1000)')
+  .option('--where <condition>', 'simple WHERE condition (e.g., "id = \'abc123\'")')
+  .option('--columns <list>', 'comma-separated list of columns to select')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbCommand } = await import('./cli/commands/db');
+    return withEnvironment(dbCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # List all available tables
+  $ funcqc db --list
+  
+  # Show recent snapshots
+  $ funcqc db --table snapshots --limit 5
+  
+  # Query specific columns
+  $ funcqc db --table functions --columns "id,name,file_path" --limit 10
+  
+  # Filter with WHERE clause
+  $ funcqc db --table functions --where "cyclomatic_complexity > 10" --limit 5
+  
+  # JSON output for processing
+  $ funcqc db --table snapshots --json | jq '.rows[0]'
+
+Safety Features:
+  - Read-only access (SELECT statements only)
+  - Input validation and sanitization
+  - Row limits to prevent overwhelming output
+  - Designed for debugging and testing purposes
+`);
+
 // Add refactor command
 const refactorCommand = program
   .command('refactor')
