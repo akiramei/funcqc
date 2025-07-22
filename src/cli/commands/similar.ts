@@ -8,6 +8,8 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { BaseCommandOptions } from '../../types/command';
+import { ArchitectureConfigManager } from '../../config/architecture-config';
+import { LayerAssigner } from '../../analyzers/layer-assigner';
 
 export interface SimilarCommandOptions extends BaseCommandOptions {
   threshold?: string;
@@ -20,6 +22,7 @@ export interface SimilarCommandOptions extends BaseCommandOptions {
   consensus?: string;
   output?: string;
   limit?: string;
+  archAnalysis?: boolean; // Architecture rule analysis for refactoring guidance
 }
 
 interface DetectionConfig {
@@ -29,6 +32,19 @@ interface DetectionConfig {
   enabledDetectors: string[];
   consensusStrategy: ConsensusStrategy | undefined;
   crossFile: boolean;
+}
+
+interface ArchitectureAnalysis {
+  safe: boolean;
+  reason: string;
+  severity: 'safe' | 'caution' | 'violation';
+  recommendation: string;
+  layers: string[];
+  ruleViolations: string[];
+}
+
+interface AnalyzedSimilarityResult extends SimilarityResult {
+  architectureAnalysis?: ArchitectureAnalysis;
 }
 
 /**
@@ -43,7 +59,13 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
     try {
       const functions = await loadFunctions(env, options, spinner);
       const detectionConfig = parseDetectionOptions(options);
-      const results = await detectSimilarities(functions, detectionConfig, spinner, env);
+      let results = await detectSimilarities(functions, detectionConfig, spinner, env);
+      
+      // Add architecture analysis if requested
+      if (options.archAnalysis) {
+        results = await addArchitectureAnalysis(results, spinner);
+      }
+      
       const limitedResults = applyLimit(results, detectionConfig.limit);
 
       outputResults(limitedResults, options, env);
@@ -246,24 +268,28 @@ function outputJSON(
     version: '2.0', // Updated version for improved format
     timestamp: new Date().toISOString(),
     totalGroups: results.length,
-    groups: enrichedResults.map(result => ({
-      type: result.type,
-      similarity: result.similarity,
-      detector: result.detector,
-      priority: result.priority,
-      refactoringImpact: result.refactoringImpact,
-      functions: result.functions.map(func => ({
-        id: func.functionId,
-        name: func.functionName,
-        file: func.filePath,
-        lines: {
-          start: func.startLine,
-          end: func.endLine,
-        },
-        metrics: func.originalFunction?.metrics,
-      })),
-      metadata: result.metadata,
-    })),
+    groups: enrichedResults.map(result => {
+      const analyzedResult = result as AnalyzedSimilarityResult;
+      return {
+        type: result.type,
+        similarity: result.similarity,
+        detector: result.detector,
+        priority: result.priority,
+        refactoringImpact: result.refactoringImpact,
+        architectureAnalysis: analyzedResult.architectureAnalysis,
+        functions: result.functions.map(func => ({
+          id: func.functionId,
+          name: func.functionName,
+          file: func.filePath,
+          lines: {
+            start: func.startLine,
+            end: func.endLine,
+          },
+          metrics: func.originalFunction?.metrics,
+        })),
+        metadata: result.metadata,
+      };
+    }),
   };
 
   const jsonString = JSON.stringify(output, null, 2);
@@ -297,13 +323,15 @@ function outputJSONLines(
   results: Array<SimilarityResult & { priority: number; refactoringImpact: string }>,
   outputPath?: string
 ): void {
-  const lines = results.map(result =>
-    JSON.stringify({
+  const lines = results.map(result => {
+    const analyzedResult = result as AnalyzedSimilarityResult & { priority: number; refactoringImpact: string };
+    return JSON.stringify({
       type: result.type,
       similarity: result.similarity,
       detector: result.detector,
       priority: result.priority,
       refactoringImpact: result.refactoringImpact,
+      architectureAnalysis: analyzedResult.architectureAnalysis,
       functions: result.functions.map(func => ({
         id: func.functionId,
         name: func.functionName,
@@ -315,8 +343,8 @@ function outputJSONLines(
         metrics: func.originalFunction?.metrics,
       })),
       metadata: result.metadata,
-    })
-  );
+    });
+  });
 
   const output = lines.join('\n');
 
@@ -337,10 +365,17 @@ function displayResults(results: SimilarityResult[], logger: import('../../utils
   console.log(chalk.bold('\nSimilar Function Groups:\n'));
 
   results.forEach((result, index) => {
+    const analyzedResult = result as AnalyzedSimilarityResult;
     const detectorInfo = getDetectorInfo(result.detector);
+    
     console.log(chalk.yellow(`Group ${index + 1}`) + chalk.gray(` (${detectorInfo.name})`));
     console.log(chalk.cyan(`Similarity: ${(result.similarity * 100).toFixed(1)}%`));
     console.log(chalk.blue(`Algorithm: ${detectorInfo.description}`));
+
+    // Show architecture analysis if available
+    if (analyzedResult.architectureAnalysis) {
+      displayArchitectureAnalysis(analyzedResult.architectureAnalysis);
+    }
 
     // Explain why they are similar
     const reason = getSimilarityReason(result);
@@ -556,4 +591,181 @@ function getSimilarityReason(result: SimilarityResult): string | null {
   }
 
   return null;
+}
+
+/**
+ * Add architecture analysis to similarity results for AI refactoring guidance
+ */
+async function addArchitectureAnalysis(
+  results: SimilarityResult[], 
+  spinner: ReturnType<typeof ora>
+): Promise<AnalyzedSimilarityResult[]> {
+  spinner.start('Analyzing architecture compliance...');
+  
+  try {
+    const archConfig = new ArchitectureConfigManager();
+    const config = archConfig.load();
+    const layerAssigner = new LayerAssigner(config);
+    
+    const analyzedResults: AnalyzedSimilarityResult[] = [];
+    
+    for (const result of results) {
+      const analysis = await analyzeGroupArchitecture(result, layerAssigner, config);
+      analyzedResults.push({
+        ...result,
+        architectureAnalysis: analysis
+      });
+    }
+    
+    spinner.succeed(`Analyzed ${analyzedResults.length} similarity groups for architecture compliance`);
+    return analyzedResults;
+    
+  } catch (error) {
+    spinner.warn('Architecture analysis failed, continuing without it');
+    // Return original results if architecture analysis fails
+    return results as AnalyzedSimilarityResult[];
+  }
+}
+
+/**
+ * Analyze architecture implications of a similarity group
+ */
+async function analyzeGroupArchitecture(
+  result: SimilarityResult,
+  layerAssigner: LayerAssigner,
+  config: any
+): Promise<ArchitectureAnalysis> {
+  const functions = result.functions;
+  const layers = new Set<string>();
+  
+  // Determine layer for each function
+  for (const func of functions) {
+    const layer = layerAssigner.getLayer(func.filePath);
+    if (layer) {
+      layers.add(layer);
+    }
+  }
+  
+  const layerList = Array.from(layers);
+  
+  // Same layer - generally safe to refactor
+  if (layerList.length === 1) {
+    return {
+      safe: true,
+      reason: `All functions are in the same layer (${layerList[0]})`,
+      severity: 'safe',
+      recommendation: 'Safe to extract common functionality within this layer',
+      layers: layerList,
+      ruleViolations: []
+    };
+  }
+  
+  // Multiple layers - check for rule violations
+  const violations = checkArchitectureRules(layerList, config.rules || []);
+  
+  if (violations.length > 0) {
+    return {
+      safe: false,
+      reason: `Cross-layer refactoring may violate architecture rules`,
+      severity: 'violation',
+      recommendation: 'Consider keeping functions separate or create interface/contract layer',
+      layers: layerList,
+      ruleViolations: violations
+    };
+  }
+  
+  // Cross-layer but no violations - caution needed
+  return {
+    safe: false,
+    reason: `Functions span multiple layers: ${layerList.join(', ')}`,
+    severity: 'caution',
+    recommendation: 'Consider architectural implications before refactoring across layers',
+    layers: layerList,
+    ruleViolations: []
+  };
+}
+
+/**
+ * Check if layer combinations violate architecture rules
+ */
+function checkArchitectureRules(layers: string[], rules: any[]): string[] {
+  const violations: string[] = [];
+  
+  for (const rule of rules) {
+    if (rule.type !== 'forbid') continue;
+    
+    const fromLayers = Array.isArray(rule.from) ? rule.from : [rule.from];
+    const toLayers = Array.isArray(rule.to) ? rule.to : [rule.to];
+    
+    for (const fromLayer of layers) {
+      for (const toLayer of layers) {
+        if (fromLayer !== toLayer) {
+          // Check if this combination is forbidden
+          if (matchesPattern(fromLayer, fromLayers) && matchesPattern(toLayer, toLayers)) {
+            violations.push(`${rule.description || `${fromLayer} → ${toLayer}`}`);
+          }
+        }
+      }
+    }
+  }
+  
+  return violations;
+}
+
+/**
+ * Check if layer matches pattern (supports wildcards)
+ */
+function matchesPattern(layer: string, patterns: string[]): boolean {
+  return patterns.some(pattern => {
+    if (pattern === '*') return true;
+    if (pattern === layer) return true;
+    // Simple wildcard support
+    if (pattern.endsWith('*')) {
+      return layer.startsWith(pattern.slice(0, -1));
+    }
+    return false;
+  });
+}
+
+/**
+ * Display architecture analysis information
+ */
+function displayArchitectureAnalysis(analysis: ArchitectureAnalysis): void {
+  // Show severity indicator
+  let severityIcon: string;
+  let severityColor: (text: string) => string;
+  
+  switch (analysis.severity) {
+    case 'safe':
+      severityIcon = '✅ SAFE';
+      severityColor = chalk.green;
+      break;
+    case 'caution':
+      severityIcon = '⚠️  CAUTION';
+      severityColor = chalk.yellow;
+      break;
+    case 'violation':
+      severityIcon = '❌ VIOLATION';
+      severityColor = chalk.red;
+      break;
+  }
+  
+  console.log(severityColor(`Refactoring: ${severityIcon}`));
+  console.log(chalk.gray(`Reason: ${analysis.reason}`));
+  
+  // Show layers involved
+  if (analysis.layers.length > 0) {
+    console.log(chalk.gray(`Layers: ${analysis.layers.join(', ')}`));
+  }
+  
+  // Show rule violations if any
+  if (analysis.ruleViolations.length > 0) {
+    console.log(chalk.red(`Rule violations:`));
+    analysis.ruleViolations.forEach(violation => {
+      console.log(chalk.red(`  • ${violation}`));
+    });
+  }
+  
+  // Show recommendation
+  console.log(chalk.blue(`Recommendation: ${analysis.recommendation}`));
 }

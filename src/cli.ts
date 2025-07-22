@@ -318,6 +318,7 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
+  .option('--arch-analysis', 'analyze architecture rule compliance for refactoring guidance')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { similarCommand } = await import('./cli/commands/similar');

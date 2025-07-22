@@ -140,6 +140,33 @@ export class LayerAssigner {
   }
 
   /**
+   * Get the layer name for a given file path
+   */
+  getLayer(filePath: string): string | null {
+    const normalizedPath = this.normalizePath(filePath);
+    
+    // Find matching layers with their confidence scores
+    const matches: Array<{ layer: string; confidence: number }> = [];
+
+    for (const [layerName, patterns] of Object.entries(this.config.layers)) {
+      for (const pattern of patterns) {
+        const confidence = this.calculateMatchConfidence(normalizedPath, pattern);
+        if (confidence > 0) {
+          matches.push({ layer: layerName, confidence });
+        }
+      }
+    }
+
+    if (matches.length === 0) {
+      return null;
+    }
+
+    // Return the layer with the highest confidence
+    matches.sort((a, b) => b.confidence - a.confidence);
+    return matches[0].layer;
+  }
+
+  /**
    * Get all layer names defined in the configuration
    */
   getLayerNames(): string[] {
