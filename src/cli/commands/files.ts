@@ -3,6 +3,7 @@ import { FilesCommandOptions } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import { formatBytes, formatNumber } from '../../utils/format-utils';
 
 /**
  * Files command to list and display source files in snapshots
@@ -220,36 +221,32 @@ function calculateFileStats(sourceFiles: import('../../types').SourceFile[]) {
   };
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B';
-  
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
 function displayFilesTable(files: import('../../types').SourceFile[]): void {
-  // Display files in a formatted table
+  // Display files in a formatted table with improved alignment
   const maxPathLength = 50;
+  const langWidth = 10;
+  const sizeWidth = 10;
+  const linesWidth = 7;
+  const funcsWidth = 6;
   
+  // Header
   console.log(
     chalk.gray(
       'Path'.padEnd(maxPathLength) + ' ' +
-      'Lang'.padEnd(10) + ' ' +
-      'Size'.padStart(8) + ' ' +
-      'Lines'.padStart(6) + ' ' +
-      'Funcs'.padStart(6)
+      'Lang'.padEnd(langWidth) + ' ' +
+      'Size'.padStart(sizeWidth) + ' ' +
+      'Lines'.padStart(linesWidth) + ' ' +
+      'Funcs'.padStart(funcsWidth)
     )
   );
   
+  // Separator
   console.log(
     '─'.repeat(maxPathLength) + ' ' +
-    '─'.repeat(10) + ' ' +
-    '─'.repeat(8) + ' ' +
-    '─'.repeat(6) + ' ' +
-    '─'.repeat(6)
+    '─'.repeat(langWidth) + ' ' +
+    '─'.repeat(sizeWidth) + ' ' +
+    '─'.repeat(linesWidth) + ' ' +
+    '─'.repeat(funcsWidth)
   );
   
   files.forEach(file => {
@@ -257,18 +254,33 @@ function displayFilesTable(files: import('../../types').SourceFile[]): void {
       ? '...' + file.filePath.slice(-(maxPathLength - 3))
       : file.filePath;
     
-    const sizeColor = file.fileSizeBytes > 50000 ? chalk.red : 
-                     file.fileSizeBytes > 20000 ? chalk.yellow : chalk.white;
+    // Size color thresholds (more realistic for code files)
+    const sizeColor = file.fileSizeBytes > 100000 ? chalk.red :      // 100KB+ = red
+                     file.fileSizeBytes > 50000 ? chalk.yellow :      // 50KB+ = yellow  
+                     chalk.white;                                     // <50KB = white
     
-    const funcColor = file.functionCount > 20 ? chalk.cyan : 
-                     file.functionCount > 10 ? chalk.blue : chalk.gray;
+    // Lines color thresholds (new - for code maintainability)
+    const linesColor = file.lineCount > 2000 ? chalk.red :           // 2000+ lines = red
+                      file.lineCount > 1000 ? chalk.yellow :         // 1000+ lines = yellow
+                      chalk.white;                                    // <1000 lines = white
+    
+    // Function count thresholds (more realistic for large files)
+    const funcColor = file.functionCount > 50 ? chalk.red :          // 50+ functions = red
+                     file.functionCount > 25 ? chalk.yellow :         // 25+ functions = yellow
+                     file.functionCount > 10 ? chalk.cyan :           // 10+ functions = cyan
+                     chalk.gray;                                      // <10 functions = gray
+    
+    // Format numbers with proper alignment
+    const formattedSize = formatBytes(file.fileSizeBytes);
+    const formattedLines = formatNumber(file.lineCount);
+    const formattedFuncs = file.functionCount.toString();
     
     console.log(
       displayPath.padEnd(maxPathLength) + ' ' +
-      file.language.padEnd(10) + ' ' +
-      sizeColor(formatBytes(file.fileSizeBytes)).padStart(8) + ' ' +
-      file.lineCount.toString().padStart(6) + ' ' +
-      funcColor(file.functionCount.toString()).padStart(6)
+      file.language.padEnd(langWidth) + ' ' +
+      sizeColor(formattedSize.padStart(sizeWidth)) + ' ' +
+      linesColor(formattedLines.padStart(linesWidth)) + ' ' +
+      funcColor(formattedFuncs.padStart(funcsWidth))
     );
   });
 }

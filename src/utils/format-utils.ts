@@ -80,3 +80,23 @@ export function formatLineRange(startLine: number, endLine: number): string {
   }
   return `L${startLine}-${endLine}`;
 }
+
+/**
+ * Format number with thousand separators for better readability
+ */
+export function formatNumber(num: number): string {
+  return num.toLocaleString();
+}
+
+/**
+ * Format bytes in human-readable format (alternative implementation)
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}

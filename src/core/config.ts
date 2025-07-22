@@ -29,6 +29,33 @@ const DEFAULT_CONFIG: FuncqcConfig = {
     '**/dist/**',
     '**/build/**',
   ],
+  // デフォルトスコープ設定
+  scopes: {
+    src: {
+      roots: ['src'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/__tests__/**',
+      ],
+      description: 'Production source code'
+    },
+    test: {
+      roots: ['test', 'tests', '__tests__', 'src/__tests__'],
+      include: ['**/*.test.ts', '**/*.spec.ts', '**/*.test.js', '**/*.spec.js'],
+      exclude: [],
+      description: 'Test code files'
+    },
+    all: {
+      roots: ['src', 'test', 'tests', '__tests__'],
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/build/**',
+      ],
+      description: 'All source and test code'
+    }
+  },
   storage: {
     type: 'pglite',
     path: '.funcqc/funcqc.db',
@@ -266,6 +293,62 @@ export class ConfigManager {
         ...thresholds,
       } as QualityScorerThresholds;
     }
+  }
+
+  /**
+   * Resolve scope configuration to get scan paths and filters
+   */
+  resolveScopeConfig(scopeName?: string): { roots: string[]; exclude: string[]; include?: string[]; description?: string } {
+    if (!scopeName) {
+      scopeName = 'src'; // Default scope
+    }
+
+    const config = this.config || this.getDefaults();
+    
+    // Check if scope exists in configuration
+    if (config.scopes && config.scopes[scopeName]) {
+      const scopeConfig = config.scopes[scopeName];
+      const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
+        roots: scopeConfig.roots,
+        exclude: scopeConfig.exclude || []
+      };
+      
+      // Only include optional properties if they are defined
+      if (scopeConfig.include) {
+        result.include = scopeConfig.include;
+      }
+      if (scopeConfig.description) {
+        result.description = scopeConfig.description;
+      }
+      
+      return result;
+    }
+
+    // If scope doesn't exist, fall back to default configuration
+    if (scopeName === 'src' || scopeName === 'default') {
+      const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
+        roots: config.roots,
+        exclude: config.exclude,
+        description: 'Default scope configuration'
+      };
+      
+      // Only include optional properties if they are defined
+      if (config.include) {
+        result.include = config.include;
+      }
+      
+      return result;
+    }
+
+    throw new Error(`Unknown scope: ${scopeName}. Available scopes: ${Object.keys(config.scopes || {}).join(', ')}`);
+  }
+
+  /**
+   * Get available scope names
+   */
+  getAvailableScopes(): string[] {
+    const config = this.config || this.getDefaults();
+    return Object.keys(config.scopes || { src: {} });
   }
 
   /**

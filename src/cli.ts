@@ -6,6 +6,13 @@ import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
 
+// Static imports for frequently used commands (optimization)
+import { withEnvironment } from './cli/cli-wrapper';
+import { listCommand } from './cli/commands/list';
+import { showCommand } from './cli/commands/show';
+import { filesCommand } from './cli/commands/files';
+import { healthCommand } from './cli/commands/health';
+
 const program = new Command();
 
 program
@@ -89,6 +96,7 @@ program
   .description('Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
+  .option('--scope <name>', 'scan specific scope (src, test, all, or custom scope)')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -106,9 +114,8 @@ program
   .option('--cc-ge <num>', 'filter functions with complexity >= N')
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
+  .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { listCommand } = await import('./cli/commands/list');
     return withEnvironment(listCommand)(options, command);
   });
 
@@ -129,8 +136,6 @@ program
   .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
   .action(async (namePattern: string | undefined, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { showCommand } = await import('./cli/commands/show');
     return withEnvironment(showCommand(namePattern || ''))(options, command);
   })
   .addHelpText('after', `
@@ -175,8 +180,6 @@ program
   .option('--stats', 'show file statistics')
   .option('--json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { filesCommand } = await import('./cli/commands/files');
     return withEnvironment(filesCommand())(options, command);
   })
   .addHelpText('after', `
@@ -221,10 +224,9 @@ program
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
+  .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
   .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { healthCommand } = await import('./cli/commands/health');
     return withEnvironment(healthCommand)(options, command);
   });
 

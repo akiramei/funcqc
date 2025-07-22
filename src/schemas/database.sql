@@ -42,12 +42,16 @@ CREATE TABLE snapshots (
   git_tag TEXT,                          -- Git tag (if any)
   project_root TEXT NOT NULL DEFAULT '', -- プロジェクトルートパス
   config_hash TEXT NOT NULL DEFAULT '',  -- 設定ファイルのハッシュ
+  scope TEXT NOT NULL DEFAULT 'src',     -- スコープ識別子 ('src', 'test', 'all', etc.)
   metadata JSONB DEFAULT '{}'            -- JSON形式の追加情報
 );
 
 CREATE INDEX idx_snapshots_created_at ON snapshots(created_at);
 CREATE INDEX idx_snapshots_git_commit ON snapshots(git_commit);
 CREATE INDEX idx_snapshots_git_branch ON snapshots(git_branch);
+CREATE INDEX idx_snapshots_scope ON snapshots(scope);
+-- Composite index for scope-aware queries
+CREATE INDEX idx_snapshots_scope_created_at ON snapshots(scope, created_at DESC);
 
 -- -----------------------------------------------------------------------------
 -- Refactoring Sessions: Workflow management

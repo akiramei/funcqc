@@ -368,8 +368,14 @@ async function getTargetSnapshotAndFunctions(
       throw new Error(`Snapshot not found: ${snapshotId}`);
     }
   } else {
-    // Use latest snapshot
-    const snapshots = await env.storage.getSnapshots({ limit: 1 });
+    // Use latest snapshot for the specified scope
+    const snapshotOptions: { limit: number; scope?: string } = { limit: 1 };
+    
+    if (options.scope) {
+      snapshotOptions.scope = options.scope;
+    }
+    
+    const snapshots = await env.storage.getSnapshots(snapshotOptions);
     if (snapshots.length > 0) {
       targetSnapshot = snapshots[0];
     }

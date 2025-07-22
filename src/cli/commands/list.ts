@@ -13,9 +13,15 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      let functions = await env.storage.queryFunctions({
-        sort: 'file_path,start_line',
-      });
+      const queryOptions: { sort: string; scope?: string } = {
+        sort: 'file_path,start_line'
+      };
+      
+      if (options.scope) {
+        queryOptions.scope = options.scope;
+      }
+      
+      let functions = await env.storage.queryFunctions(queryOptions);
 
       if (functions.length === 0) {
         console.log('No functions found. Run `funcqc scan` first.');

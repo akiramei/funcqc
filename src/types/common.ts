@@ -41,6 +41,7 @@ export interface SnapshotRow {
   git_tag?: string;
   project_root: string;
   config_hash: string;
+  scope: string;  // スコープ識別子 ('src', 'test', 'all', etc.)
   metadata: {
     totalFunctions: number;
     totalFiles: number;
@@ -50,6 +51,9 @@ export interface SnapshotRow {
     asyncFunctions: number;
     complexityDistribution: Record<number, number>;
     fileExtensions: Record<string, number>;
+    analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
+    basicAnalysisCompleted?: boolean;
+    callGraphAnalysisCompleted?: boolean;
   }; // JSONB is automatically parsed by PGLite
 }
 

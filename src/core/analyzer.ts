@@ -389,6 +389,126 @@ export class FunctionAnalyzer {
   }
 
   /**
+   * Analyze call graph from stored file content (for fast scan deferred analysis)
+   */
+  async analyzeCallGraphFromContent(
+    fileContentMap: Map<string, string>, 
+    functions: FunctionInfo[]
+  ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
+    this.logger.debug('Starting call graph analysis from stored content...');
+    
+    try {
+      // Create a temporary project with virtual files from stored content
+      const virtualProject = new Project({
+        skipAddingFilesFromTsConfig: true,
+        skipLoadingLibFiles: true,
+        useInMemoryFileSystem: true // Use in-memory filesystem for virtual files
+      });
+      
+      // Add virtual source files from stored content
+      const virtualPaths = new Map<string, string>();
+      for (const [filePath, content] of fileContentMap) {
+        // Create a virtual path to avoid conflicts with real filesystem
+        const virtualPath = `/virtual${filePath}`;
+        virtualPaths.set(filePath, virtualPath);
+        virtualProject.createSourceFile(virtualPath, content, { overwrite: true });
+      }
+      
+      this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
+      
+      // Initialize ideal call graph analyzer with virtual project
+      const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { logger: this.logger });
+      
+      try {
+        // Perform call graph analysis on virtual project
+        const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
+        
+        // Convert to legacy format for compatibility
+        const callEdges = this.convertCallEdges(callGraphResult.edges);
+        
+        // Perform internal call analysis on virtual project
+        const internalCallEdges = await this.analyzeInternalCallsFromVirtualProject(
+          virtualProject, 
+          functions, 
+          virtualPaths
+        );
+        
+        return {
+          callEdges,
+          internalCallEdges
+        };
+        
+      } finally {
+        // Clean up ideal analyzer
+        idealCallGraphAnalyzer.dispose();
+      }
+      
+    } catch (error) {
+      this.logger.debug('Call graph analysis from content failed:', error);
+      
+      // Return empty results on failure
+      return {
+        callEdges: [],
+        internalCallEdges: []
+      };
+    }
+  }
+
+  /**
+   * Analyze internal calls from virtual project created from stored content
+   */
+  private async analyzeInternalCallsFromVirtualProject(
+    virtualProject: Project,
+    functions: FunctionInfo[],
+    virtualPaths: Map<string, string>
+  ): Promise<import('../types').InternalCallEdge[]> {
+    this.logger.debug(`Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
+
+    const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const internalCallAnalyzer = new InternalCallAnalyzer(virtualProject, debugLogger);
+    const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
+
+    try {
+      // Group functions by file for efficient analysis
+      const functionsByFile = new Map<string, FunctionInfo[]>();
+      for (const func of functions) {
+        if (!functionsByFile.has(func.filePath)) {
+          functionsByFile.set(func.filePath, []);
+        }
+        functionsByFile.get(func.filePath)!.push(func);
+      }
+
+      // Analyze each file for internal function calls using virtual paths
+      for (const [realFilePath, fileFunctions] of functionsByFile.entries()) {
+        if (fileFunctions.length > 1) { // Only analyze files with multiple functions
+          try {
+            // Map real file path to virtual path for analysis
+            const virtualPath = virtualPaths.get(realFilePath);
+            if (!virtualPath) {
+              this.logger.debug(`No virtual path found for ${realFilePath}, skipping internal call analysis`);
+              continue;
+            }
+            
+            const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
+              virtualPath, // Use virtual path for analysis
+              fileFunctions,
+              'temp' // snapshotId will be set later in scan.ts
+            );
+            allInternalCallEdges.push(...internalEdges);
+          } catch (error) {
+            this.logger.debug(`Failed to analyze internal calls in ${realFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      return allInternalCallEdges;
+    } finally {
+      internalCallAnalyzer.dispose();
+    }
+  }
+
+  /**
    * Get the ts-morph Project instance for shared usage
    */
   getProject(): Project | null {

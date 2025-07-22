@@ -184,6 +184,65 @@ export class TypeScriptAnalyzer {
   }
 
   /**
+   * Analyze TypeScript content from string instead of file
+   * Used for analyzing stored file content
+   */
+  async analyzeContent(content: string, virtualPath: string): Promise<FunctionInfo[]> {
+    const functions: FunctionInfo[] = [];
+    
+    try {
+      // Create virtual source file from content
+      const sourceFile = this.project.createSourceFile(virtualPath, content, {
+        overwrite: true,
+      });
+      
+      const relativePath = path.relative(process.cwd(), virtualPath);
+      const fileHash = this.calculateFileHash(content);
+      
+      // Extract all function types
+      sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).forEach(func => {
+        const info = this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, content);
+        if (info) functions.push(info);
+      });
+      
+      sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration).forEach(method => {
+        const info = this.extractMethodInfo(method, relativePath, fileHash, sourceFile, content);
+        if (info) functions.push(info);
+      });
+      
+      sourceFile.getClasses().forEach(classDecl => {
+        classDecl.getConstructors().forEach(constructor => {
+          const info = this.extractConstructorInfo(
+            constructor,
+            relativePath,
+            fileHash,
+            sourceFile,
+            content
+          );
+          if (info) functions.push(info);
+        });
+      });
+      
+      // Arrow functions and function expressions
+      this.extractVariableFunctions(sourceFile, relativePath, fileHash, content).forEach(
+        info => {
+          functions.push(info);
+        }
+      );
+      
+      // Clean up virtual source file
+      this.project.removeSourceFile(sourceFile);
+      this.manageMemory();
+      
+      return functions;
+    } catch (error) {
+      throw new Error(
+        `Failed to analyze content for ${virtualPath}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
    * Analyze multiple files in batches for optimal memory usage
    */
   async analyzeFilesBatch(
@@ -342,7 +401,19 @@ export class TypeScriptAnalyzer {
     const name = method.getName();
     if (!name) return null;
 
-    const className = (method.getParent() as ClassDeclaration)?.getName() || 'Unknown';
+    // Safely get the parent class name
+    const parent = method.getParent();
+    let className = 'Unknown';
+    
+    // Check if the parent is a ClassDeclaration
+    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
+      const classDecl = parent as ClassDeclaration;
+      const parentName = classDecl.getName();
+      if (parentName) {
+        className = parentName;
+      }
+    }
+    
     const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
     const signature = this.getMethodSignature(method, className);
     const startPos = method.getBody()?.getStart() || method.getStart();
@@ -351,10 +422,10 @@ export class TypeScriptAnalyzer {
     const astHash = this.calculateASTHash(methodBody);
     const signatureHash = this.calculateSignatureHash(signature);
 
-    const parent = method.getParent();
+    const methodParent = method.getParent();
     let isClassExported = false;
-    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
-      isClassExported = (parent as ClassDeclaration).isExported();
+    if (methodParent && methodParent.getKind() === SyntaxKind.ClassDeclaration) {
+      isClassExported = (methodParent as ClassDeclaration).isExported();
     }
 
     const returnType = this.extractMethodReturnType(method);

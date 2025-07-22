@@ -139,6 +139,7 @@ export class SnapshotManager {
         gitTag: gitInfo.tag || '',
         projectRoot: this.projectRoot,
         configHash: await this.calculateConfigHash(),
+        scope: 'src', // Default scope for legacy compatibility
         metadata: {
           ...analysisMetadata,
           ...options.metadata,
