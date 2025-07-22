@@ -5343,11 +5343,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
             export_count, import_count, file_modified_time
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
           ON CONFLICT (id) DO UPDATE SET
-            snapshot_id = $2,
-            file_path = $3,
-            function_count = $10,
-            export_count = $11,
-            import_count = $12`,
+            snapshot_id = EXCLUDED.snapshot_id,
+            file_path = EXCLUDED.file_path,
+            file_content = EXCLUDED.file_content,
+            file_hash = EXCLUDED.file_hash,
+            encoding = EXCLUDED.encoding,
+            file_size_bytes = EXCLUDED.file_size_bytes,
+            line_count = EXCLUDED.line_count,
+            language = EXCLUDED.language,
+            function_count = EXCLUDED.function_count,
+            export_count = EXCLUDED.export_count,
+            import_count = EXCLUDED.import_count,
+            file_modified_time = EXCLUDED.file_modified_time`,
           data
         );
       }

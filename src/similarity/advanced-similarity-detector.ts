@@ -646,8 +646,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
         signatureHash,
         functionNode,
       };
-    } catch {
-      // Error generating fingerprint (error suppressed)
+    } catch (error) {
+      // Log error for debugging while preventing detection failure
+      if (process.env['DEBUG']) {
+        console.error(`Failed to generate fingerprint for ${func.name}:`, error);
+      }
       return null;
     }
   }

@@ -513,7 +513,10 @@ function groupFunctionsByFile(functions: FunctionInfo[]): Map<string, FunctionIn
     if (!grouped.has(filePath)) {
       grouped.set(filePath, []);
     }
-    grouped.get(filePath)!.push(func);
+    const fileGroup = grouped.get(filePath);
+    if (fileGroup) {
+      fileGroup.push(func);
+    }
   }
   
   return grouped;
@@ -527,7 +530,10 @@ function groupFunctionChangesByFile(functions: FunctionChange[]): Map<string, Fu
     if (!grouped.has(filePath)) {
       grouped.set(filePath, []);
     }
-    grouped.get(filePath)!.push(func);
+    const fileGroup = grouped.get(filePath);
+    if (fileGroup) {
+      fileGroup.push(func);
+    }
   }
   
   return grouped;
