@@ -1,15 +1,5 @@
 import { PGlite } from '@electric-sql/pglite';
-import { 
-  Kysely, 
-  DatabaseConnection, 
-  CompiledQuery, 
-  QueryResult,
-  Driver,
-  Dialect,
-  PostgresQueryCompiler,
-  PostgresIntrospector,
-  PostgresAdapter
-} from 'kysely';
+import { Kysely } from 'kysely';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
 import { readFileSync, existsSync } from 'fs';
@@ -49,147 +39,15 @@ import {
   TransactionalBatchProcessor,
   BatchTransactionProcessor,
 } from '../utils/batch-processor';
+// Import separated modules
+import { PGliteDialect } from './dialects/pglite-dialect';
+import { DatabaseError, hasTestTrackingProperty, isTestTrackingFunction } from './errors/database-error';
+import { Database, InternalCallEdgeTable } from './types/kysely-types';
 import { ErrorCode } from '../utils/error-handler';
 
-// PGlite Kysely Dialect Implementation
-interface PGliteDialectConfig {
-  database: PGlite;
-}
+// Re-export for backward compatibility
+export { DatabaseError };
 
-class PGliteConnection implements DatabaseConnection {
-  readonly #config: PGliteDialectConfig;
-
-  public constructor(config: PGliteDialectConfig) {
-    this.#config = config;
-  }
-
-  public async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
-    const results = await this.#config.database.query(
-      compiledQuery.sql,
-      [...compiledQuery.parameters],
-    );
-
-    return {
-      rows: results.rows as R[],
-      ...(results.affectedRows
-        ? { numAffectedRows: BigInt(results.affectedRows) }
-        : {}),
-    };
-  }
-
-  public async *streamQuery<R>(
-    _compiledQuery: CompiledQuery,
-    _chunkSize?: number
-  ): AsyncIterableIterator<QueryResult<R>> {
-    throw new Error(`PGliteDriver doesn't support streaming.`);
-  }
-}
-
-class PGliteDriver implements Driver {
-  readonly #config: PGliteDialectConfig;
-
-  constructor(config: PGliteDialectConfig) {
-    this.#config = config;
-  }
-
-  async init(): Promise<void> {
-    // PGliteは既に初期化済みなので何もしない
-  }
-
-  async acquireConnection(): Promise<DatabaseConnection> {
-    return new PGliteConnection(this.#config);
-  }
-
-  async beginTransaction(connection: DatabaseConnection): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw('BEGIN'));
-  }
-
-  async commitTransaction(connection: DatabaseConnection): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw('COMMIT'));
-  }
-
-  async rollbackTransaction(connection: DatabaseConnection): Promise<void> {
-    await connection.executeQuery(CompiledQuery.raw('ROLLBACK'));
-  }
-
-  async releaseConnection(): Promise<void> {
-    // PGliteはコネクションプールを持たないので何もしない
-  }
-
-  async destroy(): Promise<void> {
-    // PGliteの破棄は外部で管理されるので何もしない
-  }
-}
-
-class PGliteDialect implements Dialect {
-  readonly #config: PGliteDialectConfig;
-
-  constructor(config: PGliteDialectConfig) {
-    this.#config = config;
-  }
-
-  createDriver(): Driver {
-    return new PGliteDriver(this.#config);
-  }
-
-  createQueryCompiler() {
-    return new PostgresQueryCompiler();
-  }
-
-  createAdapter() {
-    return new PostgresAdapter();
-  }
-
-  createIntrospector(db: Kysely<Database>) {
-    return new PostgresIntrospector(db);
-  }
-}
-
-// Kysely database types
-interface CallEdgeTable {
-  id: string;
-  snapshot_id: string;
-  caller_function_id: string;
-  callee_function_id: string | null;
-  callee_name: string;
-  callee_signature: string | null;
-  caller_class_name: string | null;
-  callee_class_name: string | null;
-  call_type: string;
-  call_context: string | null;
-  line_number: number;
-  column_number: number;
-  is_async: boolean;
-  is_chained: boolean;
-  confidence_score: number;
-  metadata: object;
-  created_at: string;
-}
-
-interface InternalCallEdgeTable {
-  id: string;
-  snapshot_id: string;
-  file_path: string;
-  caller_function_id: string;
-  callee_function_id: string;
-  caller_name: string;
-  callee_name: string;
-  caller_class_name: string | null;
-  callee_class_name: string | null;
-  line_number: number;
-  column_number: number;
-  call_type: 'direct' | 'conditional' | 'async' | 'dynamic' | null;
-  call_context: string | null;
-  confidence_score: number;
-  detected_by: string;
-  created_at: string;
-}
-
-interface Database {
-  call_edges: CallEdgeTable;
-  internal_call_edges: InternalCallEdgeTable;
-  // 他のテーブルは必要に応じて追加
-}
 
 import {
   prepareBulkInsertData,
@@ -198,33 +56,6 @@ import {
   calculateOptimalBatchSize,
 } from './bulk-insert-utils';
 
-/**
- * Custom error class for database operations with ErrorCode
- */
-export class DatabaseError extends Error {
-  constructor(
-    public readonly code: ErrorCode,
-    message: string,
-    public readonly originalError?: Error
-  ) {
-    super(message);
-    this.name = 'DatabaseError';
-  }
-}
-
-/**
- * Type guard for checking if global has test tracking properties
- */
-function hasTestTrackingProperty(obj: unknown, property: string): obj is Record<string, unknown> {
-  return obj !== null && typeof obj === 'object' && property in obj;
-}
-
-/**
- * Type guard for test connection tracking functions
- */
-function isTestTrackingFunction(value: unknown): value is (connection: { close(): Promise<void> }) => void {
-  return typeof value === 'function';
-}
 
 /**
  * Database row types for refactoring health engine
