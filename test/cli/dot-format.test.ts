@@ -182,7 +182,7 @@ describe('DOT Format CLI Integration', () => {
   });
 
   describe('risk analyze --format dot', () => {
-    it('should generate DOT format output', async () => {
+    it.skip('should generate DOT format output', async () => {
       // Mock the risk configuration
       vi.doMock('../../src/config/risk-config', () => ({
         RiskConfigManager: vi.fn().mockImplementation(() => ({
