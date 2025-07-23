@@ -347,9 +347,8 @@ export class StagedAnalysisEngine {
       existing.push(func);
       this.state.fileToFunctionsMap.set(func.filePath, existing);
 
-      // Build function lookup map
-      const startColumn = 0; // Use 0 as default since startColumn is not available in FunctionMetadata
-      const key = `${func.filePath}:${func.startLine}:${startColumn}`;
+      // Build function lookup map (line-only for consistency)
+      const key = `${func.filePath}:${func.startLine}`;
       this.state.functionLookupMap.set(key, id);
     }
 

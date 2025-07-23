@@ -43,8 +43,8 @@ export class ImportExactAnalysisStage {
     this.functionLookupMap.clear();
     
     for (const [id, func] of functions) {
-      const startColumn = 0; // Use 0 as default since startColumn is not available in FunctionMetadata
-      const key = `${func.filePath}:${this.getPositionId(func.startLine, startColumn)}`;
+      // Use line-only key for consistency since FunctionMetadata doesn't have startColumn
+      const key = `${func.filePath}:${func.startLine}`;
       this.functionLookupMap.set(key, id);
     }
     
@@ -203,12 +203,10 @@ export class ImportExactAnalysisStage {
         const sourceFile = declaration.getSourceFile();
         const filePath = sourceFile.getFilePath();
         
-        // Try to find function by position
+        // Try to find function by position (line-only for consistency)
         const startLine = declaration.getStartLineNumber();
-        const startColumn = declaration.getStart() - declaration.getStartLinePos();
-        const positionId = this.getPositionId(startLine, startColumn);
         
-        const lookupKey = `${filePath}:${positionId}`;
+        const lookupKey = `${filePath}:${startLine}`;
         const functionId = this.functionLookupMap.get(lookupKey);
         
         if (functionId && functions.has(functionId)) {
@@ -252,10 +250,8 @@ export class ImportExactAnalysisStage {
         const filePath = sourceFile.getFilePath();
         
         const startLine = declaration.getStartLineNumber();
-        const startColumn = declaration.getStart() - declaration.getStartLinePos();
-        const positionId = this.getPositionId(startLine, startColumn);
         
-        const lookupKey = `${filePath}:${positionId}`;
+        const lookupKey = `${filePath}:${startLine}`;
         const functionId = this.functionLookupMap.get(lookupKey);
         
         if (functionId && functions.has(functionId)) {
@@ -353,10 +349,8 @@ export class ImportExactAnalysisStage {
           Node.isConstructorDeclaration(current)) {
         
         const startLine = current.getStartLineNumber();
-        const startColumn = current.getStart() - current.getStartLinePos();
-        const positionId = this.getPositionId(startLine, startColumn);
         
-        const lookupKey = `${filePath}:${positionId}`;
+        const lookupKey = `${filePath}:${startLine}`;
         const functionId = this.functionLookupMap.get(lookupKey);
         
         if (functionId && functions.has(functionId)) {
@@ -368,13 +362,6 @@ export class ImportExactAnalysisStage {
     }
 
     return undefined;
-  }
-
-  /**
-   * Generate position ID for function lookup
-   */
-  private getPositionId(line: number, column: number): string {
-    return `${line}:${column}`;
   }
 
   /**
