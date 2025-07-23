@@ -46,6 +46,7 @@ export class PGliteConnection implements DatabaseConnection {
     _compiledQuery: CompiledQuery,
     _chunkSize?: number
   ): AsyncIterableIterator<QueryResult<R>> {
+    // This method is intentionally not implemented as PGlite doesn't support streaming
     throw new Error(`PGliteDriver doesn't support streaming.`);
   }
 }
