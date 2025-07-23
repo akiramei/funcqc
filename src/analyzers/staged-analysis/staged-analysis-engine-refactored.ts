@@ -29,10 +29,10 @@ import { StagedAnalysisOptions, AnalysisState, AnalysisStatistics } from './type
 
 export class StagedAnalysisEngine {
   private project: Project;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
   private logger: Logger;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   // Core analyzers

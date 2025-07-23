@@ -12,7 +12,7 @@ import { AnalysisState, InstantiationEvent } from '../types';
 export class RTAAnalysisStage {
   private rtaAnalyzer: RTAAnalyzer;
   private logger: Logger;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   constructor(rtaAnalyzer: RTAAnalyzer, logger?: Logger) {

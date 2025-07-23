@@ -4,14 +4,23 @@
  */
 
 import { RuntimeTraceIntegrator } from '../../runtime-trace-integrator';
-import { IdealCallEdge, FunctionMetadata } from '../../ideal-call-graph-analyzer';
+import { IdealCallEdge, FunctionMetadata, ResolutionLevel } from '../../ideal-call-graph-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { generateStableEdgeId } from '../../../utils/edge-id-generator';
+
+// Runtime trace types
+interface RuntimeTrace {
+  callerFunctionId: string;
+  calleeFunctionId: string;
+  calleeName?: string;
+  lineNumber?: number;
+  columnNumber?: number;
+}
 
 export class RuntimeTraceIntegrationStage {
   private runtimeTraceIntegrator: RuntimeTraceIntegrator;
   private logger: Logger;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   constructor(runtimeTraceIntegrator: RuntimeTraceIntegrator, logger?: Logger) {
@@ -80,7 +89,7 @@ export class RuntimeTraceIntegrationStage {
    */
   validateTraces(
     staticEdges: IdealCallEdge[],
-    runtimeTraces: any[]
+    runtimeTraces: RuntimeTrace[]
   ): {
     confirmedEdges: IdealCallEdge[];
     contradictedEdges: IdealCallEdge[];
@@ -129,7 +138,7 @@ export class RuntimeTraceIntegrationStage {
           createdAt: new Date().toISOString(),
           candidates: [trace.calleeFunctionId],
           confidenceScore: 1.0,
-          resolutionLevel: 'runtime_confirmed' as any,
+          resolutionLevel: ResolutionLevel.RUNTIME_CONFIRMED,
           resolutionSource: 'runtime_verified',
           runtimeConfirmed: true,
           analysisMetadata: {

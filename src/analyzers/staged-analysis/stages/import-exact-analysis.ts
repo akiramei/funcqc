@@ -14,13 +14,13 @@ import { SymbolCache } from '../../../utils/symbol-cache';
 export class ImportExactAnalysisStage {
   private logger: Logger;
   private _debug: boolean;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _project: Project;
   private symbolCache: SymbolCache;
   private functionLookupMap: Map<string, string> = new Map();
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _positionIdCache: WeakMap<Node, string> = new WeakMap();
 
   constructor(

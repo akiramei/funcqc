@@ -11,7 +11,7 @@ import { AnalysisState } from '../types';
 export class CHAAnalysisStage {
   private chaAnalyzer: CHAAnalyzer;
   private logger: Logger;
-  // @ts-ignore - Reserved for future use
+  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   constructor(chaAnalyzer: CHAAnalyzer, logger?: Logger) {
