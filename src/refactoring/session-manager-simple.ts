@@ -130,7 +130,7 @@ export class SessionManager {
    * Get all refactoring sessions (active, completed, and cancelled)
    */
   async getAllSessions(): Promise<RefactoringSession[]> {
-    return await this.storage.getAllRefactoringSessions();
+    return await this.storage.getRefactoringSessions();
   }
 
   /**

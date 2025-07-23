@@ -2,13 +2,13 @@
  * Core database operations and transaction management
  */
 
-import { PGlite } from '@electric-sql/pglite';
 import { Kysely } from 'kysely';
 import { readFileSync, existsSync } from 'fs';
 import * as path from 'path';
 import { PGliteDialect } from '../dialects/pglite-dialect';
 import { Database } from '../types/kysely-types';
 import { DatabaseError } from '../errors/database-error';
+import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, TransactionHandler } from './types';
 
 export class DatabaseCore {
@@ -22,6 +22,9 @@ export class DatabaseCore {
    */
   async initialize(): Promise<void> {
     try {
+      // Wait for PGlite to be ready first
+      await this.context.db.waitReady;
+      
       // Create Kysely instance with PGLite dialect
       this.context.kysely = new Kysely<Database>({
         dialect: new PGliteDialect({
@@ -33,9 +36,33 @@ export class DatabaseCore {
       await this.initializeSchema();
     } catch (error) {
       throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
         'Failed to initialize database',
-        'CONNECTION_ERROR',
-        error
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Lightweight initialization without schema validation
+   * Used for health checks and basic operations
+   */
+  async lightweightInit(): Promise<void> {
+    try {
+      // Wait for PGlite to be ready
+      await this.context.db.waitReady;
+
+      // Create Kysely instance with minimal setup
+      this.context.kysely = new Kysely<Database>({
+        dialect: new PGliteDialect({
+          database: this.context.db,
+        }),
+      });
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        'Failed to lightweight initialize database',
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -60,7 +87,7 @@ export class DatabaseCore {
         AND table_name = 'snapshots'
       `);
 
-      if (result.rows[0]?.count > 0) {
+      if ((result.rows[0] as any)?.count > 0) {
         DatabaseCore.schemaCache.set(cacheKey, true);
         return;
       }
@@ -78,9 +105,9 @@ export class DatabaseCore {
       this.context.logger?.log('Database schema initialized successfully');
     } catch (error) {
       throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
         'Failed to initialize database schema',
-        'SCHEMA_INIT_ERROR',
-        error
+        error instanceof Error ? error : undefined
       );
     }
   }
@@ -106,9 +133,9 @@ export class DatabaseCore {
       }
       
       throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
         'Transaction failed',
-        'TRANSACTION_ERROR',
-        error
+        error instanceof Error ? error : undefined
       );
     }
   }

@@ -12,7 +12,6 @@ import { Database } from '../types/kysely-types';
  */
 export interface StorageOperationModule {
   readonly db: PGlite;
-  readonly kysely: Kysely<Database>;
 }
 
 /**

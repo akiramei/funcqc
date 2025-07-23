@@ -16,13 +16,13 @@ import { StorageContext, StorageOperationModule } from './types';
 
 export class SnapshotOperations implements StorageOperationModule {
   readonly db;
-  readonly kysely;
   private git;
   private logger;
+  
+  // Unused kysely access removed
 
-  constructor(private context: StorageContext) {
+  constructor(context: StorageContext) {
     this.db = context.db;
-    this.kysely = context.kysely;
     this.git = context.git;
     this.logger = context.logger;
   }
@@ -123,9 +123,10 @@ export class SnapshotOperations implements StorageOperationModule {
       const row = result.rows[0] as { metadata: unknown };
       const metadata = this.parseMetadata(row.metadata);
       
-      metadata.analysisLevel = level;
-      metadata.basicAnalysisCompleted = level === 'BASIC' || level === 'CALL_GRAPH';
-      metadata.callGraphAnalysisCompleted = level === 'CALL_GRAPH';
+      // Store analysis level and completion flags in metadata but not as part of SnapshotMetadata interface
+      metadata['analysisLevel'] = level;
+      metadata['basicAnalysisCompleted'] = level === 'BASIC' || level === 'CALL_GRAPH';
+      metadata['callGraphAnalysisCompleted'] = level === 'CALL_GRAPH';
       
       await this.db.query(
         'UPDATE snapshots SET metadata = $1 WHERE id = $2',
@@ -169,7 +170,7 @@ export class SnapshotOperations implements StorageOperationModule {
       return result.rows.map(row => this.mapRowToSnapshotInfo(row as SnapshotRow));
     } catch (error) {
       throw new DatabaseError(
-        ErrorCode.STORAGE_READ_ERROR,
+        ErrorCode.STORAGE_ERROR,
         `Failed to get snapshots: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
@@ -190,7 +191,7 @@ export class SnapshotOperations implements StorageOperationModule {
       return this.mapRowToSnapshotInfo(result.rows[0] as SnapshotRow);
     } catch (error) {
       throw new DatabaseError(
-        ErrorCode.STORAGE_READ_ERROR,
+        ErrorCode.STORAGE_ERROR,
         `Failed to get snapshot: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
@@ -206,7 +207,7 @@ export class SnapshotOperations implements StorageOperationModule {
       return (result as unknown as { changes: number }).changes > 0;
     } catch (error) {
       throw new DatabaseError(
-        ErrorCode.STORAGE_DELETE_ERROR,
+        ErrorCode.STORAGE_WRITE_ERROR,
         `Failed to delete snapshot: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
@@ -231,7 +232,7 @@ export class SnapshotOperations implements StorageOperationModule {
       return this.mapRowToSnapshotInfo(result.rows[0] as SnapshotRow);
     } catch (error) {
       throw new DatabaseError(
-        ErrorCode.STORAGE_READ_ERROR,
+        ErrorCode.STORAGE_ERROR,
         `Failed to get latest snapshot: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -253,7 +254,7 @@ export class SnapshotOperations implements StorageOperationModule {
       return (result.rows[0] as { config_hash: string }).config_hash;
     } catch (error) {
       throw new DatabaseError(
-        ErrorCode.STORAGE_READ_ERROR,
+        ErrorCode.STORAGE_ERROR,
         `Failed to get last config hash: ${error instanceof Error ? error.message : String(error)}`
       );
     }
@@ -299,13 +300,13 @@ export class SnapshotOperations implements StorageOperationModule {
     );
   }
 
-  private async recalculateSnapshotMetadata(snapshotId: string): Promise<void> {
+  private async recalculateSnapshotMetadata(_snapshotId: string): Promise<void> {
     // This method needs access to function operations, so it will be implemented
     // in the main adapter that coordinates between modules
     this.logger?.warn('recalculateSnapshotMetadata needs to be implemented in main adapter');
   }
 
-  private createInitialMetadata(analysisLevel?: string): SnapshotMetadata {
+  private createInitialMetadata(_analysisLevel?: string): SnapshotMetadata {
     return {
       totalFunctions: 0,
       totalFiles: 0,
@@ -313,22 +314,15 @@ export class SnapshotOperations implements StorageOperationModule {
       maxComplexity: 0,
       exportedFunctions: 0,
       asyncFunctions: 0,
-      complexityDistribution: {},
       fileExtensions: {},
-      analysisLevel: analysisLevel || 'NONE',
-      basicAnalysisCompleted: false,
-      callGraphAnalysisCompleted: false,
+      // complexityDistribution uses number keys as per interface
+      complexityDistribution: {} as Record<number, number>,
     };
   }
 
   private calculateSnapshotMetadata(functions: FunctionInfo[]): SnapshotMetadata {
     const fileSet = new Set<string>();
-    const complexityDistribution: Record<string, number> = {
-      low: 0,
-      medium: 0,
-      high: 0,
-      veryHigh: 0,
-    };
+    const complexityDistribution: Record<number, number> = {};
     const fileExtensions: Record<string, number> = {};
 
     let totalComplexity = 0;
@@ -338,17 +332,18 @@ export class SnapshotOperations implements StorageOperationModule {
 
     for (const func of functions) {
       fileSet.add(func.filePath);
-      totalComplexity += func.complexity;
-      maxComplexity = Math.max(maxComplexity, func.complexity);
+      const funcComplexity = func.metrics?.cyclomaticComplexity || 1;
+      totalComplexity += funcComplexity;
+      maxComplexity = Math.max(maxComplexity, funcComplexity);
 
       if (func.isExported) exportedFunctions++;
       if (func.isAsync) asyncFunctions++;
 
-      // Update complexity distribution
-      if (func.complexity <= 5) complexityDistribution.low++;
-      else if (func.complexity <= 10) complexityDistribution.medium++;
-      else if (func.complexity <= 20) complexityDistribution.high++;
-      else complexityDistribution.veryHigh++;
+      // Update complexity distribution (using number keys)
+      if (funcComplexity <= 5) complexityDistribution[1] = (complexityDistribution[1] || 0) + 1;
+      else if (funcComplexity <= 10) complexityDistribution[2] = (complexityDistribution[2] || 0) + 1;
+      else if (funcComplexity <= 20) complexityDistribution[3] = (complexityDistribution[3] || 0) + 1;
+      else complexityDistribution[4] = (complexityDistribution[4] || 0) + 1;
 
       // Update file extensions
       const ext = func.filePath.split('.').pop() || 'unknown';
@@ -388,17 +383,17 @@ export class SnapshotOperations implements StorageOperationModule {
     
     return {
       id: row.id,
-      label: row.label || undefined,
-      comment: row.comment || undefined,
-      gitCommit: row.git_commit || undefined,
-      gitBranch: row.git_branch || undefined,
-      gitTag: row.git_tag || undefined,
-      createdAt: row.created_at,
+      ...(row.label ? { label: row.label } : {}),
+      ...(row.comment ? { comment: row.comment } : {}),
+      ...(row.git_commit ? { gitCommit: row.git_commit } : {}),
+      ...(row.git_branch ? { gitBranch: row.git_branch } : {}),
+      ...(row.git_tag ? { gitTag: row.git_tag } : {}),
+      createdAt: new Date(row.created_at).getTime(),
       projectRoot: row.project_root || process.cwd(),
       configHash: row.config_hash || 'unknown',
       scope: row.scope || 'src',
-      analysisLevel: metadata.analysisLevel || 'NONE',
-      metadata,
+      analysisLevel: metadata['analysisLevel'] || 'NONE',
+      metadata: metadata as SnapshotMetadata,
     };
   }
 

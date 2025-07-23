@@ -1,0 +1,992 @@
+/**
+ * Function operations module for PGLite storage
+ */
+
+import { 
+  FunctionInfo, 
+  QueryOptions, 
+  FunctionRow,
+  MetricsRow,
+  ParameterInfo,
+  QualityMetrics
+} from '../../types';
+import { DatabaseError } from '../errors/database-error';
+import { ErrorCode } from '../../utils/error-handler';
+import { StorageContext, StorageOperationModule } from './types';
+import { 
+  BatchProcessor,
+  TransactionalBatchProcessor,
+  BatchTransactionProcessor 
+} from '../../utils/batch-processor';
+
+export class FunctionOperations implements StorageOperationModule {
+  readonly db;
+  private logger;
+  
+  // Access kysely dynamically through context
+  private get kysely() {
+    return this.context.kysely;
+  }
+
+  // Field mappings for query building
+  private readonly fieldMapping = new Map([
+    // Functions table fields (f alias)
+    ['name', 'f.name'],
+    ['file_path', 'f.file_path'],
+    ['start_line', 'f.start_line'],
+    ['is_exported', 'f.is_exported'],
+    ['is_async', 'f.is_async'],
+    ['display_name', 'f.display_name'],
+    // Quality metrics table fields (q alias)
+    ['cyclomatic_complexity', 'q.cyclomatic_complexity'],
+    ['cognitive_complexity', 'q.cognitive_complexity'],
+    ['lines_of_code', 'q.lines_of_code'],
+    ['total_lines', 'q.total_lines'],
+    ['parameter_count', 'q.parameter_count'],
+    ['max_nesting_level', 'q.max_nesting_level'],
+    ['return_statement_count', 'q.return_statement_count'],
+    ['branch_count', 'q.branch_count'],
+    ['loop_count', 'q.loop_count'],
+    ['try_catch_count', 'q.try_catch_count'],
+    ['async_await_count', 'q.async_await_count'],
+    ['callback_count', 'q.callback_count'],
+    ['comment_lines', 'q.comment_lines'],
+    ['code_to_comment_ratio', 'q.code_to_comment_ratio'],
+    ['halstead_volume', 'q.halstead_volume'],
+    ['halstead_difficulty', 'q.halstead_difficulty'],
+    ['maintainability_index', 'q.maintainability_index'],
+  ]);
+
+  // Valid sort fields mapping
+  private readonly validSortFields = new Map([
+    ['name', 'f.name'],
+    ['file_path', 'f.file_path'],
+    ['start_line', 'f.start_line'],
+    ['complexity', 'q.cyclomatic_complexity'],
+    ['lines_of_code', 'q.lines_of_code'],
+    ['parameter_count', 'q.parameter_count'],
+    ['is_exported', 'f.is_exported'],
+    ['is_async', 'f.is_async'],
+    ['display_name', 'f.display_name'],
+  ]);
+
+  constructor(private context: StorageContext) {
+    this.db = context.db;
+    this.logger = context.logger;
+  }
+
+  /**
+   * Get functions for a snapshot with filtering and pagination
+   */
+  async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      const isListCommand = !options?.includeFullData;
+      
+      let sql = this.buildFunctionQuery(isListCommand);
+      const params: (string | number | unknown)[] = [snapshotId];
+
+      // Add filters
+      if (options?.filters && options.filters.length > 0) {
+        const filterClause = this.buildFilterClause(options.filters, params);
+        sql += ' AND ' + filterClause;
+      }
+
+      // Add sorting
+      sql += this.buildOrderByClause(options?.sort);
+
+      // Add pagination
+      if (options?.limit) {
+        sql += ` LIMIT $${params.length + 1}`;
+        params.push(options.limit);
+      }
+
+      if (options?.offset) {
+        sql += ` OFFSET $${params.length + 1}`;
+        params.push(options.offset);
+      }
+
+      const result = await this.db.query(sql, params);
+
+      // Get parameters for each function
+      const functions = await Promise.all(
+        result.rows.map(async row => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get functions: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Get a single function by ID
+   */
+  async getFunction(functionId: string): Promise<FunctionInfo | null> {
+    try {
+      const result = await this.db.query(
+        `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        WHERE f.id = $1 OR f.semantic_id = $1
+        LIMIT 1
+        `,
+        [functionId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as FunctionRow & Partial<MetricsRow>;
+      const parameters = await this.getFunctionParameters(row.id);
+      return this.mapRowToFunctionInfo(row, parameters);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get function: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Get all functions for a snapshot
+   */
+  async getFunctionsBySnapshot(snapshotId: string): Promise<FunctionInfo[]> {
+    try {
+      const result = await this.db.query(
+        this.buildFunctionQuery(false) + ' ORDER BY f.start_line',
+        [snapshotId]
+      );
+
+      const functions = await Promise.all(
+        result.rows.map(async row => {
+          const parameters = await this.getFunctionParameters((row as FunctionRow).id);
+          return this.mapRowToFunctionInfo(row as FunctionRow & Partial<MetricsRow>, parameters);
+        })
+      );
+
+      return functions;
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get functions for snapshot: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Save functions for a snapshot
+   */
+  async saveFunctions(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    if (functions.length === 0) return;
+
+    try {
+      // Use optimal batch size based on function count
+      const batchSize = BatchProcessor.calculateFunctionBatchSize(functions);
+
+      // Create transaction processor
+      const processor: BatchTransactionProcessor<FunctionInfo> = {
+        processBatch: async (batch: FunctionInfo[]) => {
+          await this.saveFunctionsBatch(snapshotId, batch);
+        },
+        onError: async (error: Error, batch: FunctionInfo[]) => {
+          this.logger?.warn(`Failed to save batch of ${batch.length} functions: ${error.message}`);
+        },
+        onSuccess: async (_batch: FunctionInfo[]) => {
+          // Optional: Log successful batch processing
+        },
+      };
+
+      // Process all functions in batches with transaction support
+      await TransactionalBatchProcessor.processWithTransaction(functions, processor, batchSize);
+
+      // Verify save in development
+      if (process.env['NODE_ENV'] !== 'production' && functions.length < 100) {
+        await this.verifySavedFunctions(snapshotId, functions.length);
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to save functions: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Save a batch of functions
+   */
+  private async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    // Use bulk insert for better performance when batch size is large enough
+    if (functions.length >= 10) {
+      await this.saveFunctionsBulk(snapshotId, functions);
+    } else {
+      // For small batches, use individual inserts
+      for (const func of functions) {
+        await this.saveSingleFunction(func, snapshotId);
+      }
+    }
+  }
+
+  /**
+   * Save functions using bulk insert
+   */
+  private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    // Prepare bulk insert data
+    const functionRows = functions.map(func => ({
+      id: func.id,
+      semantic_id: func.semanticId,
+      content_id: func.contentId,
+      snapshot_id: snapshotId,
+      name: func.name,
+      display_name: func.displayName,
+      signature: func.signature,
+      signature_hash: func.signatureHash,
+      file_path: func.filePath,
+      file_hash: func.fileHash,
+      start_line: func.startLine,
+      end_line: func.endLine,
+      start_column: func.startColumn,
+      end_column: func.endColumn,
+      ast_hash: func.astHash,
+      context_path: func.contextPath,
+      function_type: func.functionType,
+      modifiers: func.modifiers,
+      nesting_level: func.nestingLevel,
+      is_exported: func.isExported,
+      is_async: func.isAsync,
+      is_generator: func.isGenerator,
+      is_arrow_function: func.isArrowFunction,
+      is_method: func.isMethod,
+      is_constructor: func.isConstructor,
+      is_static: func.isStatic,
+      access_modifier: func.accessModifier,
+      source_code: func.sourceCode,
+    }));
+
+    // Use direct SQL for bulk insert of functions
+    for (const row of functionRows) {
+      await this.db.query(`
+        INSERT INTO functions (
+          id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
+          file_path, file_hash, start_line, end_line, start_column, end_column,
+          ast_hash, context_path, function_type, modifiers, nesting_level,
+          is_exported, is_async, is_generator, is_arrow_function,
+          is_method, is_constructor, is_static, access_modifier, source_code
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+        )
+      `, [
+        row.id, row.semantic_id, row.content_id, row.snapshot_id, row.name,
+        row.display_name, row.signature, row.signature_hash, row.file_path,
+        row.file_hash, row.start_line, row.end_line, row.start_column,
+        row.end_column, row.ast_hash, row.context_path, row.function_type,
+        row.modifiers, row.nesting_level, row.is_exported, row.is_async,
+        row.is_generator, row.is_arrow_function, row.is_method,
+        row.is_constructor, row.is_static, row.access_modifier, row.source_code
+      ]);
+    }
+
+    // Bulk insert parameters and metrics
+    await this.bulkInsertParameters(functions);
+    await this.bulkInsertMetrics(functions);
+  }
+
+  /**
+   * Save a single function
+   */
+  private async saveSingleFunction(func: FunctionInfo, snapshotId: string): Promise<void> {
+    await this.insertFunctionRecord(func, snapshotId);
+    await this.insertFunctionParameters(func);
+    await this.insertFunctionMetrics(func);
+  }
+
+  /**
+   * Insert function record
+   */
+  private async insertFunctionRecord(func: FunctionInfo, snapshotId: string): Promise<void> {
+    await this.db.query(
+      `
+      INSERT INTO functions (
+        id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
+        file_path, file_hash, start_line, end_line, start_column, end_column,
+        ast_hash, context_path, function_type, modifiers, nesting_level,
+        is_exported, is_async, is_generator, is_arrow_function,
+        is_method, is_constructor, is_static, access_modifier,
+        source_code
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+      )
+      `,
+      [
+        func.id,
+        func.semanticId,
+        func.contentId,
+        snapshotId,
+        func.name,
+        func.displayName,
+        func.signature,
+        func.signatureHash,
+        func.filePath,
+        func.fileHash,
+        func.startLine,
+        func.endLine,
+        func.startColumn,
+        func.endColumn,
+        func.astHash,
+        func.contextPath,
+        func.functionType,
+        func.modifiers,
+        func.nestingLevel,
+        func.isExported,
+        func.isAsync,
+        func.isGenerator,
+        func.isArrowFunction,
+        func.isMethod,
+        func.isConstructor,
+        func.isStatic,
+        func.accessModifier,
+        func.sourceCode,
+      ]
+    );
+  }
+
+  /**
+   * Insert function parameters
+   */
+  private async insertFunctionParameters(func: FunctionInfo): Promise<void> {
+    if (!func.parameters || func.parameters.length === 0) {
+      return;
+    }
+
+    for (let i = 0; i < func.parameters.length; i++) {
+      const param = func.parameters[i];
+      await this.db.query(
+        `
+        INSERT INTO function_parameters (
+          function_id, name, type, type_simple, position, is_optional, default_value
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `,
+        [func.id, param.name, param.type, param.typeSimple, i, param.isOptional, param.defaultValue]
+      );
+    }
+  }
+
+  /**
+   * Insert function metrics
+   */
+  private async insertFunctionMetrics(func: FunctionInfo): Promise<void> {
+    if (!func.metrics) {
+      return;
+    }
+
+    await this.db.query(
+      `
+      INSERT INTO quality_metrics (
+        function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+        max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
+        try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
+        halstead_volume, halstead_difficulty, maintainability_index
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+      )
+      `,
+      [
+        func.id,
+        func.metrics.linesOfCode,
+        func.metrics.totalLines,
+        func.metrics.cyclomaticComplexity,
+        func.metrics.cognitiveComplexity,
+        func.metrics.maxNestingLevel,
+        func.metrics.parameterCount,
+        func.metrics.returnStatementCount,
+        func.metrics.branchCount,
+        func.metrics.loopCount,
+        func.metrics.tryCatchCount,
+        func.metrics.asyncAwaitCount,
+        func.metrics.callbackCount,
+        func.metrics.commentLines,
+        func.metrics.codeToCommentRatio,
+        func.metrics.halsteadVolume || null,
+        func.metrics.halsteadDifficulty || null,
+        func.metrics.maintainabilityIndex || null,
+      ]
+    );
+  }
+
+  /**
+   * Bulk insert parameters
+   */
+  private async bulkInsertParameters(functions: FunctionInfo[]): Promise<void> {
+    const parameterRows: any[] = [];
+    
+    for (const func of functions) {
+      if (func.parameters) {
+        func.parameters.forEach((param, i) => {
+          parameterRows.push({
+            function_id: func.id,
+            name: param.name,
+            type: param.type,
+            type_simple: param.typeSimple,
+            position: i,
+            is_optional: param.isOptional,
+            default_value: param.defaultValue,
+          });
+        });
+      }
+    }
+
+    if (parameterRows.length > 0) {
+      for (const row of parameterRows) {
+        await this.db.query(`
+          INSERT INTO function_parameters (
+            function_id, name, type, type_simple, position, is_optional, default_value
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          row.function_id, row.name, row.type, row.type_simple,
+          row.position, row.is_optional, row.default_value
+        ]);
+      }
+    }
+  }
+
+  /**
+   * Bulk insert metrics
+   */
+  private async bulkInsertMetrics(functions: FunctionInfo[]): Promise<void> {
+    const metricsRows = functions
+      .filter(func => func.metrics)
+      .map(func => ({
+        function_id: func.id,
+        lines_of_code: func.metrics!.linesOfCode,
+        total_lines: func.metrics!.totalLines,
+        cyclomatic_complexity: func.metrics!.cyclomaticComplexity,
+        cognitive_complexity: func.metrics!.cognitiveComplexity,
+        max_nesting_level: func.metrics!.maxNestingLevel,
+        parameter_count: func.metrics!.parameterCount,
+        return_statement_count: func.metrics!.returnStatementCount,
+        branch_count: func.metrics!.branchCount,
+        loop_count: func.metrics!.loopCount,
+        try_catch_count: func.metrics!.tryCatchCount,
+        async_await_count: func.metrics!.asyncAwaitCount,
+        callback_count: func.metrics!.callbackCount,
+        comment_lines: func.metrics!.commentLines,
+        code_to_comment_ratio: func.metrics!.codeToCommentRatio,
+        halstead_volume: func.metrics!.halsteadVolume || null,
+        halstead_difficulty: func.metrics!.halsteadDifficulty || null,
+        maintainability_index: func.metrics!.maintainabilityIndex || null,
+      }));
+
+    if (metricsRows.length > 0) {
+      for (const row of metricsRows) {
+        await this.db.query(`
+          INSERT INTO quality_metrics (
+            function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+            max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
+            try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
+            halstead_volume, halstead_difficulty, maintainability_index
+          ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+          )
+        `, [
+          row.function_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
+          row.cognitive_complexity, row.max_nesting_level, row.parameter_count,
+          row.return_statement_count, row.branch_count, row.loop_count,
+          row.try_catch_count, row.async_await_count, row.callback_count,
+          row.comment_lines, row.code_to_comment_ratio, row.halstead_volume,
+          row.halstead_difficulty, row.maintainability_index
+        ]);
+      }
+    }
+  }
+
+  /**
+   * Get function parameters
+   */
+  private async getFunctionParameters(functionId: string): Promise<ParameterInfo[]> {
+    const result = await this.db.query(
+      'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
+      [functionId]
+    );
+
+    return result.rows.map((row: any) => ({
+      name: row.name,
+      type: row.type || undefined,
+      typeSimple: row.type_simple || undefined,
+      position: row.position || 0,
+      isOptional: row.is_optional || false,
+      isRest: row.is_rest || false,
+      defaultValue: row.default_value || undefined,
+    }));
+  }
+
+  /**
+   * Build function query based on whether full data is needed
+   */
+  private buildFunctionQuery(isListCommand: boolean): string {
+    if (isListCommand) {
+      return `
+        SELECT 
+          f.id, f.name, f.file_path, f.start_line, f.end_line,
+          f.is_exported, f.is_async,
+          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        WHERE f.snapshot_id = $1
+      `;
+    } else {
+      return `
+        SELECT 
+          f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
+          f.signature, f.signature_hash, f.file_path, f.file_hash, f.start_line, f.end_line,
+          f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
+          f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
+          f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
+          f.access_modifier, f.source_code, f.created_at,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        WHERE f.snapshot_id = $1
+      `;
+    }
+  }
+
+  /**
+   * Build filter clause from query filters
+   */
+  private buildFilterClause(filters: any[], params: any[]): string {
+    const filterClauses = filters.map(filter => {
+      if (filter.operator === 'KEYWORD') {
+        // Handle keyword search across multiple fields
+        params.push(`%${filter.value}%`);
+        params.push(`%${filter.value}%`);
+        return `(
+          f.name ILIKE $${params.length - 1} OR 
+          f.source_code ILIKE $${params.length}
+        )`;
+      } else {
+        // Use field mapping to get correct table alias and column name
+        const mappedField = this.fieldMapping.get(filter.field) || `f.${filter.field}`;
+        params.push(filter.value);
+        return `${mappedField} ${filter.operator} $${params.length}`;
+      }
+    });
+
+    return filterClauses.join(' AND ');
+  }
+
+  /**
+   * Build order by clause
+   */
+  private buildOrderByClause(sort?: string): string {
+    let orderByClause = ' ORDER BY f.start_line'; // default
+
+    if (sort) {
+      const sortFields = sort.split(',').map(field => field.trim());
+      const validOrderByFields: string[] = [];
+
+      for (const field of sortFields) {
+        if (this.validSortFields.has(field)) {
+          validOrderByFields.push(this.validSortFields.get(field)!);
+        }
+      }
+
+      if (validOrderByFields.length > 0) {
+        orderByClause = ' ORDER BY ' + validOrderByFields.join(', ');
+      }
+    }
+
+    return orderByClause;
+  }
+
+  /**
+   * Map database row to FunctionInfo
+   */
+  private mapRowToFunctionInfo(
+    row: FunctionRow & Partial<MetricsRow>,
+    parameters: ParameterInfo[]
+  ): FunctionInfo {
+    const base: FunctionInfo = {
+      id: row.id,
+      semanticId: row.semantic_id,
+      contentId: row.content_id,
+      name: row.name,
+      displayName: row.display_name || row.name,
+      signature: row.signature,
+      signatureHash: row.signature_hash,
+      filePath: row.file_path,
+      fileHash: row.file_hash,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      startColumn: row.start_column,
+      endColumn: row.end_column,
+      astHash: row.ast_hash,
+      contextPath: row.context_path || [],
+      functionType: (row.function_type as 'function' | 'method' | 'arrow' | 'local') || 'function',
+      modifiers: Array.isArray(row.modifiers) 
+        ? row.modifiers 
+        : (row.modifiers && typeof (row.modifiers as any) === 'string' ? (row.modifiers as string).split(',') : []),
+      nestingLevel: row.nesting_level || 0,
+      isExported: row.is_exported || false,
+      isAsync: row.is_async || false,
+      isGenerator: row.is_generator || false,
+      isArrowFunction: row.is_arrow_function || false,
+      isMethod: row.is_method || false,
+      isConstructor: row.is_constructor || false,
+      isStatic: row.is_static || false,
+      ...(row.access_modifier ? { accessModifier: row.access_modifier as 'public' | 'private' | 'protected' } : {}),
+      sourceCode: row.source_code || '',
+      parameters,
+    };
+
+    // Add metrics if available
+    if (row.lines_of_code !== undefined) {
+      const metrics = this.mapMetrics(row);
+      if (metrics) {
+        base.metrics = metrics;
+      }
+    }
+
+    return base;
+  }
+
+  /**
+   * Map metrics from database row
+   */
+  private mapMetrics(row: Partial<MetricsRow>): QualityMetrics | undefined {
+    if (!row.lines_of_code) return undefined;
+
+    const metrics: QualityMetrics = {
+      linesOfCode: row.lines_of_code!,
+      totalLines: row.total_lines || row.lines_of_code!,
+      cyclomaticComplexity: row.cyclomatic_complexity || 1,
+      cognitiveComplexity: row.cognitive_complexity || 0,
+      maxNestingLevel: row.max_nesting_level || 0,
+      parameterCount: row.parameter_count || 0,
+      returnStatementCount: row.return_statement_count || 0,
+      branchCount: row.branch_count || 0,
+      loopCount: row.loop_count || 0,
+      tryCatchCount: row.try_catch_count || 0,
+      asyncAwaitCount: row.async_await_count || 0,
+      callbackCount: row.callback_count || 0,
+      commentLines: row.comment_lines || 0,
+      codeToCommentRatio: row.code_to_comment_ratio || 0,
+    };
+    
+    // Only add optional properties if they have values
+    if (row.halstead_volume !== null && row.halstead_volume !== undefined) {
+      metrics.halsteadVolume = row.halstead_volume;
+    }
+    if (row.halstead_difficulty !== null && row.halstead_difficulty !== undefined) {
+      metrics.halsteadDifficulty = row.halstead_difficulty;
+    }
+    if (row.maintainability_index !== null && row.maintainability_index !== undefined) {
+      metrics.maintainabilityIndex = row.maintainability_index;
+    }
+    
+    return metrics;
+  }
+
+  /**
+   * Query functions with options, using latest snapshot if no snapshotId specified
+   */
+  async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
+    try {
+      if (!this.kysely) {
+        throw new Error('Database not initialized. kysely is null.');
+      }
+      
+      // Get the latest snapshot for the specified scope
+      let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC LIMIT 1';
+      const params: any[] = [];
+      
+      if (options?.scope) {
+        sql = 'SELECT * FROM snapshots WHERE scope = $1 ORDER BY created_at DESC LIMIT 1';
+        params.push(options.scope);
+      }
+      
+      const snapshotResult = await this.db.query(sql, params);
+      const snapshots = snapshotResult.rows;
+      
+      if (snapshots.length === 0) {
+        return [];
+      }
+
+      // Use the latest snapshot to get functions
+      return await this.getFunctions((snapshots[0] as any).id, options);
+    } catch (error) {
+      throw new Error(
+        `Failed to query functions: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Verify saved functions count
+   */
+  private async verifySavedFunctions(snapshotId: string, expectedCount: number): Promise<void> {
+    const savedCount = await this.db.query(
+      'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+    const actualCount = parseInt((savedCount.rows[0] as { count: string }).count);
+
+    if (actualCount !== expectedCount) {
+      this.logger?.warn(`Function count mismatch: expected ${expectedCount}, got ${actualCount}`);
+    }
+  }
+
+  // ========================================
+  // ADDITIONAL METHODS FOR COMPATIBILITY
+  // ========================================
+
+  async getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>> {
+    const result = new Map<string, FunctionInfo>();
+    
+    // Process in batches to avoid query limits
+    const batchSize = 100;
+    for (let i = 0; i < functionIds.length; i += batchSize) {
+      const batch = functionIds.slice(i, i + batchSize);
+      const placeholders = batch.map((_, i) => `$${i + 1}`).join(', ');
+      const queryResult = await this.db.query(`
+        SELECT f.*, q.*
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        WHERE f.id IN (${placeholders})
+      `, batch);
+      
+      const functions = await Promise.all(
+        queryResult.rows.map(async row => {
+          const functionInfo = await this.buildFunctionInfo(row as any);
+          return functionInfo;
+        })
+      );
+      
+      functions.forEach(func => {
+        if (func) {
+          result.set(func.id, func);
+        }
+      });
+    }
+    
+    return result;
+  }
+
+  async storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void> {
+    return this.saveFunctions(snapshotId, functions);
+  }
+
+  async getFunctionsWithDescriptions(snapshotId: string, _options?: QueryOptions): Promise<FunctionInfo[]> {
+    const result = await this.db.query(`
+      SELECT f.*, q.*, fd.description
+      FROM functions f
+      LEFT JOIN quality_metrics q ON f.id = q.function_id
+      INNER JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
+      WHERE f.snapshot_id = $1
+      ORDER BY f.start_line
+    `, [snapshotId]);
+    
+    return Promise.all(
+      result.rows.map(async row => {
+        return this.buildFunctionInfo(row as any);
+      })
+    );
+  }
+
+  async getFunctionsWithoutDescriptions(snapshotId: string, _options?: QueryOptions): Promise<FunctionInfo[]> {
+    const result = await this.db.query(`
+      SELECT f.*, q.*
+      FROM functions f
+      LEFT JOIN quality_metrics q ON f.id = q.function_id
+      LEFT JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
+      WHERE f.snapshot_id = $1 AND fd.semantic_id IS NULL
+      ORDER BY f.start_line
+    `, [snapshotId]);
+    
+    return Promise.all(
+      result.rows.map(async row => {
+        return this.buildFunctionInfo(row as any);
+      })
+    );
+  }
+
+  async getFunctionsNeedingDescriptions(snapshotId: string, _options?: QueryOptions): Promise<FunctionInfo[]> {
+    const result = await this.db.query(`
+      SELECT f.*, q.*
+      FROM functions f
+      LEFT JOIN quality_metrics q ON f.id = q.function_id
+      LEFT JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
+      WHERE f.snapshot_id = $1 AND (fd.semantic_id IS NULL OR fd.needs_update = true)
+      ORDER BY f.start_line
+    `, [snapshotId]);
+    
+    return Promise.all(
+      result.rows.map(async row => {
+        return this.buildFunctionInfo(row as any);
+      })
+    );
+  }
+
+  async extractFunctionSourceCode(_functionId: string): Promise<string | null> {
+    // This would require reading the actual source file
+    // For now, return null as placeholder
+    return null;
+  }
+
+  async saveFunctionDescription(description: any): Promise<void> {
+    await this.db.query(`
+      INSERT INTO function_descriptions (
+        semantic_id, description, source, model, content_id, needs_update, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (semantic_id) DO UPDATE SET
+        description = EXCLUDED.description,
+        source = EXCLUDED.source,
+        model = EXCLUDED.model,
+        needs_update = EXCLUDED.needs_update,
+        updated_at = EXCLUDED.updated_at
+    `, [
+      description.semanticId,
+      description.description,
+      description.source || 'manual',
+      description.model,
+      description.contentId,
+      false,
+      new Date().toISOString(),
+      new Date().toISOString()
+    ]);
+  }
+
+  async getFunctionDescription(semanticId: string): Promise<any | null> {
+    const result = await this.db.query('SELECT * FROM function_descriptions WHERE semantic_id = $1', [semanticId]);
+    
+    if (result.rows.length === 0) {
+      return null;
+    }
+
+    const row = result.rows[0] as any;
+    return {
+      semanticId: row.semantic_id,
+      description: row.description,
+      source: row.source,
+      model: row.model,
+      contentId: row.content_id,
+      needsUpdate: row.needs_update,
+      createdAt: (row as any).created_at || new Date(),
+      updatedAt: row.updated_at
+    };
+  }
+
+  async searchFunctionsByDescription(keyword: string, _options?: QueryOptions): Promise<FunctionInfo[]> {
+    const result = await this.db.query(`
+      SELECT f.*, q.*, fd.description
+      FROM functions f
+      LEFT JOIN quality_metrics q ON f.id = q.function_id
+      INNER JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
+      WHERE fd.description LIKE $1
+      ORDER BY f.start_line
+    `, [`%${keyword}%`]);
+    
+    return Promise.all(
+      result.rows.map(async row => {
+        return this.buildFunctionInfo(row as any);
+      })
+    );
+  }
+
+  // Helper method to build FunctionInfo from database row
+  private async buildFunctionInfo(row: any): Promise<FunctionInfo> {
+    // Get parameters for this function
+    const parametersResult = await this.db.query(
+      'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
+      [row.id]
+    );
+    
+    const parameters = parametersResult.rows.map((param: any) => ({
+      name: param.name,
+      type: param.type,
+      typeSimple: param.type_simple,
+      position: param.position,
+      isOptional: param.is_optional,
+      isRest: param.is_rest || false,
+      defaultValue: param.default_value
+    }));
+
+    return {
+      id: row.id,
+      semanticId: row.semantic_id,
+      contentId: row.content_id,
+      name: row.name,
+      displayName: row.display_name,
+      signature: row.signature,
+      signatureHash: row.signature_hash,
+      filePath: row.file_path,
+      fileHash: row.file_hash,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      startColumn: row.start_column,
+      endColumn: row.end_column,
+      isExported: row.is_exported,
+      isAsync: row.is_async,
+      isGenerator: row.is_generator,
+      isArrowFunction: row.is_arrow_function,
+      isMethod: row.is_method,
+      isConstructor: row.is_constructor,
+      isStatic: row.is_static || false,
+      astHash: row.ast_hash || '',
+      modifiers: Array.isArray(row.modifiers) 
+        ? row.modifiers 
+        : (row.modifiers && typeof (row.modifiers as any) === 'string' ? (row.modifiers as string).split(',') : []),
+      parameters,
+      returnType: row.return_type,
+      jsDoc: row.js_doc,
+      sourceCode: row.source_code,
+      ...(row.cyclomatic_complexity ? {
+        metrics: {
+          cyclomaticComplexity: row.cyclomatic_complexity,
+          linesOfCode: row.lines_of_code || 0,
+          totalLines: row.total_lines || row.lines_of_code || 0,
+          parameterCount: row.parameter_count || 0,
+          maxNestingLevel: row.nesting_depth || 0,
+          branchCount: row.branch_count || 0,
+          loopCount: row.loop_count || 0,
+          returnStatementCount: 0,
+          tryCatchCount: 0,
+          asyncAwaitCount: 0,
+          callbackCount: 0,
+          commentLines: 0,
+          codeToCommentRatio: 0,
+          cognitiveComplexity: row.cognitive_complexity || 0,
+          ...(row.halstead_volume !== null && row.halstead_volume !== undefined ? { halsteadVolume: row.halstead_volume } : {}),
+          ...(row.halstead_difficulty !== null && row.halstead_difficulty !== undefined ? { halsteadDifficulty: row.halstead_difficulty } : {}),
+          ...(row.maintainability_index !== null && row.maintainability_index !== undefined ? { maintainabilityIndex: row.maintainability_index } : {})
+        }
+      } : {}),
+      // createdAt and updatedAt are not part of FunctionInfo interface
+    };
+  }
+
+}
