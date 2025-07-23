@@ -6,8 +6,8 @@ import { PathNormalizer } from '../utils/path-normalizer';
 import { FunctionIndex } from './function-index';
 import * as path from 'path';
 
-// Import InstantiationEvent from staged-analysis-engine
-import type { InstantiationEvent } from './staged-analysis-engine';
+// Import InstantiationEvent from staged-analysis types
+import type { InstantiationEvent } from './staged-analysis/types';
 
 /**
  * Rapid Type Analysis (RTA) Analyzer
