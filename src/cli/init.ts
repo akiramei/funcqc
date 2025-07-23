@@ -75,9 +75,10 @@ async function resetConfig(): Promise<void> {
 }
 
 async function createConfig(options: InitCommandOptions): Promise<void> {
-  const config: FuncqcConfig = { ...DEFAULT_CONFIG };
+  // Generate intelligent configuration based on project structure
+  const config: FuncqcConfig = await generateIntelligentConfig(options);
 
-  // Apply command line options
+  // Apply command line options (override intelligent detection)
   if (options.root) {
     config.roots = options.root.split(',').map(r => r.trim());
   }
@@ -110,10 +111,22 @@ async function createConfig(options: InitCommandOptions): Promise<void> {
   console.log(`  Roots: ${config.roots.join(', ')}`);
   console.log(`  Database: ${config.storage.path}`);
   console.log(`  Exclude: ${config.exclude.length} patterns`);
+  
+  if (config.scopes) {
+    console.log(chalk.blue('Scopes detected:'));
+    Object.entries(config.scopes).forEach(([name, scope]: [string, any]) => {
+      console.log(`  ${chalk.cyan(name)}: ${scope.description}`);
+      console.log(`    Roots: ${scope.roots.join(', ')}`);
+    });
+  }
+  
   console.log();
   console.log(chalk.blue('Next steps:'));
   console.log(chalk.gray('  1. Run `funcqc scan` to analyze your functions'));
   console.log(chalk.gray('  2. Run `funcqc list` to view the results'));
+  if (config.scopes) {
+    console.log(chalk.gray('  3. Use `funcqc scan --scope <name>` to analyze specific scopes'));
+  }
 }
 
 async function createConfigFile(config: FuncqcConfig): Promise<void> {
@@ -149,3 +162,177 @@ async function fileExists(filePath: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Generate intelligent configuration based on project structure
+ */
+async function generateIntelligentConfig(_options: InitCommandOptions): Promise<FuncqcConfig> {
+  const config: FuncqcConfig = { ...DEFAULT_CONFIG };
+  
+  // Detect project structure
+  const projectStructure = await detectProjectStructure();
+  
+  // Generate scopes based on detected structure
+  if (projectStructure.hasComplexStructure) {
+    config.scopes = await generateScopes(projectStructure);
+  }
+  
+  // Update roots based on detected structure
+  if (projectStructure.srcDirs.length > 0) {
+    config.roots = projectStructure.srcDirs;
+  }
+  
+  // Enhanced exclude patterns based on detected files
+  config.exclude = [
+    ...DEFAULT_CONFIG.exclude,
+    ...projectStructure.excludePatterns
+  ];
+  
+  return config;
+}
+
+/**
+ * Detect project directory structure
+ */
+async function detectProjectStructure() {
+  const structure = {
+    srcDirs: [] as string[],
+    testDirs: [] as string[],
+    docsDirs: [] as string[],
+    scriptsDirs: [] as string[],
+    hasComplexStructure: false,
+    excludePatterns: [] as string[]
+  };
+  
+  // Check for common source directories
+  const possibleSrcDirs = ['src', 'lib', 'source'];
+  for (const dir of possibleSrcDirs) {
+    if (await fileExists(dir)) {
+      structure.srcDirs.push(dir);
+    }
+  }
+  
+  // Check for test directories
+  const possibleTestDirs = ['test', 'tests', '__tests__', 'spec'];
+  for (const dir of possibleTestDirs) {
+    if (await fileExists(dir)) {
+      structure.testDirs.push(dir);
+    }
+  }
+  
+  // Check for documentation directories
+  const possibleDocsDirs = ['docs', 'doc', 'documentation'];
+  for (const dir of possibleDocsDirs) {
+    if (await fileExists(dir)) {
+      structure.docsDirs.push(dir);
+    }
+  }
+  
+  // Check for scripts directories
+  const possibleScriptsDirs = ['scripts', 'tools', 'bin'];
+  for (const dir of possibleScriptsDirs) {
+    if (await fileExists(dir)) {
+      structure.scriptsDirs.push(dir);
+    }
+  }
+  
+  // Determine if this is a complex structure warranting scopes
+  structure.hasComplexStructure = 
+    structure.testDirs.length > 0 || 
+    structure.docsDirs.length > 0 || 
+    structure.scriptsDirs.length > 0;
+  
+  // Add common exclude patterns based on detected structure
+  structure.excludePatterns = [
+    '**/dist/**',
+    '**/build/**',
+    '**/coverage/**',
+    '**/.git/**'
+  ];
+  
+  return structure;
+}
+
+/**
+ * Generate scopes configuration based on project structure
+ */
+async function generateScopes(structure: any) {
+  const scopes: any = {};
+  
+  // Source code scope
+  if (structure.srcDirs.length > 0) {
+    scopes.src = {
+      roots: structure.srcDirs,
+      exclude: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/__tests__/**'
+      ],
+      description: 'Production source code'
+    };
+  }
+  
+  // Test code scope
+  if (structure.testDirs.length > 0) {
+    const testRoots = [...structure.testDirs];
+    if (structure.srcDirs.includes('src')) {
+      testRoots.push('src/__tests__');
+    }
+    
+    scopes.test = {
+      roots: testRoots,
+      include: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/*.test.js',
+        '**/*.spec.js'
+      ],
+      exclude: [],
+      description: 'Test code files'
+    };
+  }
+  
+  // Documentation scope
+  if (structure.docsDirs.length > 0) {
+    scopes.docs = {
+      roots: structure.docsDirs,
+      include: ['**/*.ts', '**/*.js'],
+      exclude: [],
+      description: 'Documentation and examples'
+    };
+  }
+  
+  // Scripts scope
+  if (structure.scriptsDirs.length > 0) {
+    scopes.scripts = {
+      roots: structure.scriptsDirs,
+      include: ['**/*.ts', '**/*.js'],
+      exclude: [],
+      description: 'Build scripts and tools'
+    };
+  }
+  
+  // All scope (comprehensive view)
+  const allRoots = [
+    ...structure.srcDirs,
+    ...structure.testDirs,
+    ...structure.docsDirs,
+    ...structure.scriptsDirs
+  ].filter((dir, index, arr) => arr.indexOf(dir) === index);
+  
+  if (allRoots.length > 1) {
+    scopes.all = {
+      roots: allRoots,
+      exclude: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/coverage/**'
+      ],
+      description: 'All source, test, and utility code'
+    };
+  }
+  
+  return scopes;
+}
+
