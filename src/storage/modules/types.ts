@@ -55,6 +55,6 @@ export interface OperationResult<T> {
   error?: {
     code: StorageErrorCode;
     message: string;
-    details?: any;
+    details?: Record<string, unknown>;
   };
 }

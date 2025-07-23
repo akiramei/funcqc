@@ -9,6 +9,7 @@ import {
   MetricsRow,
   ParameterInfo
 } from '../../types';
+import { SnapshotRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
@@ -90,14 +91,21 @@ export class EmbeddingOperations implements StorageOperationModule {
         return null;
       }
 
-      const row = result.rows[0] as any;
+      const row = result.rows[0] as {
+        semantic_id: string;
+        embedding_model: string;
+        vector_dimension: number;
+        embedding: number[];
+        created_at: string;
+        updated_at: string;
+      };
       return {
         semanticId: row.semantic_id,
         embeddingModel: row.embedding_model,
         vectorDimension: row.vector_dimension,
         embedding: row.embedding,
-        createdAt: (row as any).created_at || new Date(),
-        updatedAt: row.updated_at,
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at),
       };
     } catch (error) {
       throw new DatabaseError(
@@ -149,7 +157,7 @@ export class EmbeddingOperations implements StorageOperationModule {
         LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
         WHERE f.snapshot_id = $1
         `,
-        [(snapshots.rows[0] as any).id]
+        [(snapshots.rows[0] as SnapshotRow).id]
       );
 
       // Calculate similarities and filter
@@ -225,7 +233,7 @@ export class EmbeddingOperations implements StorageOperationModule {
         return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
       }).join(', ');
       
-      const params: any[] = [];
+      const params: unknown[] = [];
       for (const value of values) {
         params.push(value.semantic_id, value.embedding_model, value.vector_dimension, value.embedding);
       }
@@ -256,7 +264,7 @@ export class EmbeddingOperations implements StorageOperationModule {
   async getFunctionsWithoutEmbeddings(snapshotId?: string): Promise<FunctionInfo[]> {
     try {
       let whereClause = 'WHERE e.semantic_id IS NULL';
-      const params: any[] = [];
+      const params: unknown[] = [];
       
       if (snapshotId) {
         whereClause += ' AND f.snapshot_id = $1';
@@ -301,7 +309,7 @@ export class EmbeddingOperations implements StorageOperationModule {
   async getFunctionsWithEmbeddings(snapshotId?: string): Promise<FunctionInfo[]> {
     try {
       let whereClause = 'WHERE e.semantic_id IS NOT NULL';
-      const params: any[] = [];
+      const params: unknown[] = [];
       
       if (snapshotId) {
         whereClause += ' AND f.snapshot_id = $1';
@@ -368,13 +376,20 @@ export class EmbeddingOperations implements StorageOperationModule {
       let avgDimension = 0;
 
       for (const row of embeddingResult.rows) {
-        const rowData = row as any;
+        const rowData = row as {
+          embedding_model: string;
+          total_embeddings: string;
+          avg_dimension: string;
+        };
         byModel[rowData.embedding_model] = parseInt(rowData.total_embeddings);
         totalEmbeddings += parseInt(rowData.total_embeddings);
         avgDimension = parseFloat(rowData.avg_dimension) || 0;
       }
 
-      const functionData = functionResult.rows[0] as any;
+      const functionData = functionResult.rows[0] as {
+        with_embeddings: string;
+        without_embeddings: string;
+      };
 
       return {
         totalEmbeddings,
@@ -420,7 +435,7 @@ export class EmbeddingOperations implements StorageOperationModule {
     model?: string
   ): Promise<void> {
     const updates: string[] = [];
-    const values: any[] = [];
+    const values: unknown[] = [];
     let paramIndex = 1;
 
     updates.push(`embedding = $${paramIndex++}`);
@@ -463,7 +478,7 @@ export class EmbeddingOperations implements StorageOperationModule {
       [functionId]
     );
 
-    return result.rows.map((row: any) => ({
+    return result.rows.map((row: Record<string, unknown>) => ({
       name: row.name,
       type: row.type || undefined,
       typeSimple: row.type_simple || undefined,
@@ -497,7 +512,7 @@ export class EmbeddingOperations implements StorageOperationModule {
       functionType: (row.function_type as 'function' | 'method' | 'arrow' | 'local') || 'function',
       modifiers: Array.isArray(row.modifiers) 
         ? row.modifiers 
-        : (row.modifiers && typeof (row.modifiers as any) === 'string' ? (row.modifiers as string).split(',') : []),
+        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
       nestingLevel: row.nesting_level || 0,
       isExported: row.is_exported || false,
       isAsync: row.is_async || false,

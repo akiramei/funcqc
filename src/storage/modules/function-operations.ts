@@ -10,6 +10,7 @@ import {
   ParameterInfo,
   QualityMetrics
 } from '../../types';
+import { SnapshotRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
@@ -438,7 +439,7 @@ export class FunctionOperations implements StorageOperationModule {
    * Bulk insert parameters
    */
   private async bulkInsertParameters(functions: FunctionInfo[]): Promise<void> {
-    const parameterRows: any[] = [];
+    const parameterRows: ParameterRow[] = [];
     
     for (const func of functions) {
       if (func.parameters) {
@@ -529,7 +530,7 @@ export class FunctionOperations implements StorageOperationModule {
       [functionId]
     );
 
-    return result.rows.map((row: any) => ({
+    return result.rows.map((row: ParameterRow) => ({
       name: row.name,
       type: row.type || undefined,
       typeSimple: row.type_simple || undefined,
@@ -578,7 +579,7 @@ export class FunctionOperations implements StorageOperationModule {
   /**
    * Build filter clause from query filters
    */
-  private buildFilterClause(filters: any[], params: any[]): string {
+  private buildFilterClause(filters: Array<{ field: string; operator: string; value: unknown }>, params: unknown[]): string {
     const filterClauses = filters.map(filter => {
       if (filter.operator === 'KEYWORD') {
         // Handle keyword search across multiple fields
@@ -649,7 +650,7 @@ export class FunctionOperations implements StorageOperationModule {
       functionType: (row.function_type as 'function' | 'method' | 'arrow' | 'local') || 'function',
       modifiers: Array.isArray(row.modifiers) 
         ? row.modifiers 
-        : (row.modifiers && typeof (row.modifiers as any) === 'string' ? (row.modifiers as string).split(',') : []),
+        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
       nestingLevel: row.nesting_level || 0,
       isExported: row.is_exported || false,
       isAsync: row.is_async || false,
@@ -722,7 +723,7 @@ export class FunctionOperations implements StorageOperationModule {
       
       // Get the latest snapshot for the specified scope
       let sql = 'SELECT * FROM snapshots ORDER BY created_at DESC LIMIT 1';
-      const params: any[] = [];
+      const params: unknown[] = [];
       
       if (options?.scope) {
         sql = 'SELECT * FROM snapshots WHERE scope = $1 ORDER BY created_at DESC LIMIT 1';
@@ -737,7 +738,7 @@ export class FunctionOperations implements StorageOperationModule {
       }
 
       // Use the latest snapshot to get functions
-      return await this.getFunctions((snapshots[0] as any).id, options);
+      return await this.getFunctions((snapshots[0] as SnapshotRow).id, options);
     } catch (error) {
       throw new Error(
         `Failed to query functions: ${error instanceof Error ? error.message : String(error)}`
@@ -781,7 +782,7 @@ export class FunctionOperations implements StorageOperationModule {
       
       const functions = await Promise.all(
         queryResult.rows.map(async row => {
-          const functionInfo = await this.buildFunctionInfo(row as any);
+          const functionInfo = await this.buildFunctionInfo(row as FunctionRow & MetricsRow);
           return functionInfo;
         })
       );
@@ -812,7 +813,7 @@ export class FunctionOperations implements StorageOperationModule {
     
     return Promise.all(
       result.rows.map(async row => {
-        return this.buildFunctionInfo(row as any);
+        return this.buildFunctionInfo(row as FunctionRow & MetricsRow & { description?: string });
       })
     );
   }
@@ -829,7 +830,7 @@ export class FunctionOperations implements StorageOperationModule {
     
     return Promise.all(
       result.rows.map(async row => {
-        return this.buildFunctionInfo(row as any);
+        return this.buildFunctionInfo(row as FunctionRow & MetricsRow);
       })
     );
   }
@@ -846,7 +847,7 @@ export class FunctionOperations implements StorageOperationModule {
     
     return Promise.all(
       result.rows.map(async row => {
-        return this.buildFunctionInfo(row as any);
+        return this.buildFunctionInfo(row as FunctionRow & MetricsRow);
       })
     );
   }
@@ -857,7 +858,16 @@ export class FunctionOperations implements StorageOperationModule {
     return null;
   }
 
-  async saveFunctionDescription(description: any): Promise<void> {
+  async saveFunctionDescription(description: {
+    semanticId: string;
+    description: string;
+    source: string;
+    model?: string;
+    contentId?: string;
+    needsUpdate?: boolean;
+    createdAt?: Date;
+    updatedAt?: Date;
+  }): Promise<void> {
     await this.db.query(`
       INSERT INTO function_descriptions (
         semantic_id, description, source, model, content_id, needs_update, created_at, updated_at
@@ -880,14 +890,32 @@ export class FunctionOperations implements StorageOperationModule {
     ]);
   }
 
-  async getFunctionDescription(semanticId: string): Promise<any | null> {
+  async getFunctionDescription(semanticId: string): Promise<{
+    semanticId: string;
+    description: string;
+    source: string;
+    model: string;
+    contentId: string;
+    needsUpdate: boolean;
+    createdAt: Date;
+    updatedAt: string;
+  } | null> {
     const result = await this.db.query('SELECT * FROM function_descriptions WHERE semantic_id = $1', [semanticId]);
     
     if (result.rows.length === 0) {
       return null;
     }
 
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as {
+      semantic_id: string;
+      description: string;
+      source: string;
+      model: string;
+      content_id: string;
+      needs_update: boolean;
+      created_at: string;
+      updated_at: string;
+    };
     return {
       semanticId: row.semantic_id,
       description: row.description,
@@ -895,7 +923,7 @@ export class FunctionOperations implements StorageOperationModule {
       model: row.model,
       contentId: row.content_id,
       needsUpdate: row.needs_update,
-      createdAt: (row as any).created_at || new Date(),
+      createdAt: row.created_at || new Date(),
       updatedAt: row.updated_at
     };
   }
@@ -912,20 +940,20 @@ export class FunctionOperations implements StorageOperationModule {
     
     return Promise.all(
       result.rows.map(async row => {
-        return this.buildFunctionInfo(row as any);
+        return this.buildFunctionInfo(row as FunctionRow & MetricsRow & { description?: string });
       })
     );
   }
 
   // Helper method to build FunctionInfo from database row
-  private async buildFunctionInfo(row: any): Promise<FunctionInfo> {
+  private async buildFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string }): Promise<FunctionInfo> {
     // Get parameters for this function
     const parametersResult = await this.db.query(
       'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
       [row.id]
     );
     
-    const parameters = parametersResult.rows.map((param: any) => ({
+    const parameters = parametersResult.rows.map((param: ParameterRow) => ({
       name: param.name,
       type: param.type,
       typeSimple: param.type_simple,
@@ -959,7 +987,7 @@ export class FunctionOperations implements StorageOperationModule {
       astHash: row.ast_hash || '',
       modifiers: Array.isArray(row.modifiers) 
         ? row.modifiers 
-        : (row.modifiers && typeof (row.modifiers as any) === 'string' ? (row.modifiers as string).split(',') : []),
+        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
       parameters,
       returnType: row.return_type,
       jsDoc: row.js_doc,

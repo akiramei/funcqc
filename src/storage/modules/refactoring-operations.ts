@@ -121,7 +121,7 @@ export class RefactoringOperations implements StorageOperationModule {
   async getRefactoringSessions(options?: QueryOptions): Promise<RefactoringSession[]> {
     try {
       let sql = 'SELECT * FROM refactoring_sessions';
-      const params: any[] = [];
+      const params: unknown[] = [];
       let paramIndex = 1;
 
       // Add filters
@@ -195,7 +195,7 @@ export class RefactoringOperations implements StorageOperationModule {
   ): Promise<boolean> {
     try {
       const setClauses: string[] = [];
-      const values: any[] = [];
+      const values: unknown[] = [];
       let paramIndex = 1;
 
       // Build dynamic update query
@@ -275,18 +275,18 @@ export class RefactoringOperations implements StorageOperationModule {
           updated_at = EXCLUDED.updated_at
       `, [
         changeset.id,
-        (changeset as any).sessionId || changeset.id,
-        (changeset as any).changesetType || 'update',
-        changeset.parentFunctionId,
-        (changeset as any).sourceSnapshotId || '',
-        (changeset as any).targetSnapshotId || null,
-        (changeset as any).changeDescription || '',
-        (changeset as any).status || 'draft',
-        (changeset as any).confidenceScore || 0.5,
-        JSON.stringify((changeset as any).riskAssessment || {}),
-        JSON.stringify((changeset as any).metadata || {}),
-        (changeset as any).createdAt ? new Date((changeset as any).createdAt).toISOString() : new Date().toISOString(),
-        (changeset as any).updatedAt ? new Date((changeset as any).updatedAt).toISOString() : new Date().toISOString(),
+        changeset.sessionId,
+        changeset.operationType || 'update',
+        changeset.parentFunctionId || '',
+        changeset.beforeSnapshotId,
+        changeset.afterSnapshotId || null,
+        `${changeset.operationType} operation`,
+        'draft',
+        0.5,
+        JSON.stringify({}),
+        JSON.stringify({}),
+        changeset.createdAt ? new Date(changeset.createdAt).toISOString() : new Date().toISOString(),
+        changeset.updatedAt ? new Date(changeset.updatedAt).toISOString() : new Date().toISOString(),
       ]);
     } catch (error) {
       throw new DatabaseError(
@@ -350,11 +350,11 @@ export class RefactoringOperations implements StorageOperationModule {
   ): Promise<boolean> {
     try {
       const setClauses: string[] = [];
-      const values: any[] = [];
+      const values: unknown[] = [];
       let paramIndex = 1;
 
       // Build dynamic update query using type assertion
-      const updateData = updates as any;
+      const updateData = updates as Record<string, unknown>;
       
       if (updateData.changeset_type !== undefined) {
         setClauses.push(`changeset_type = $${paramIndex++}`);
@@ -471,7 +471,7 @@ export class RefactoringOperations implements StorageOperationModule {
       let totalSessions = 0;
 
       for (const row of sessionResult.rows) {
-        const rowData = row as any;
+        const rowData = row as { status: string; status_count: string };
         byStatus[rowData.status] = parseInt(rowData.status_count);
         totalSessions += parseInt(rowData.status_count);
       }
@@ -481,7 +481,7 @@ export class RefactoringOperations implements StorageOperationModule {
       let avgConfidenceScore = 0;
 
       for (const row of changesetResult.rows) {
-        const rowData = row as any;
+        const rowData = row as { status: string; status_count: string; avg_confidence: string };
         changesetsByStatus[rowData.status] = parseInt(rowData.status_count);
         totalChangesets += parseInt(rowData.status_count);
         avgConfidenceScore = parseFloat(rowData.avg_confidence) || 0;

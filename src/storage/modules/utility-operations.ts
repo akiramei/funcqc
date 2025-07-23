@@ -90,6 +90,7 @@ export class UtilityOperations implements StorageOperationModule {
    * Generate a unique identifier
    */
   generateId(): string {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     return require('crypto').randomUUID();
   }
 
@@ -137,7 +138,7 @@ export class UtilityOperations implements StorageOperationModule {
   /**
    * Build SQL IN clause with proper parameter placeholders
    */
-  buildInClause(values: any[], startIndex: number = 1): { clause: string; params: any[] } {
+  buildInClause(values: unknown[], startIndex: number = 1): { clause: string; params: unknown[] } {
     if (values.length === 0) {
       return { clause: 'FALSE', params: [] };
     }
@@ -285,7 +286,7 @@ export class UtilityOperations implements StorageOperationModule {
   /**
    * Check if a value is a valid date
    */
-  isValidDate(date: any): date is Date {
+  isValidDate(date: unknown): date is Date {
     return date instanceof Date && !isNaN(date.getTime());
   }
 
@@ -318,7 +319,7 @@ export class UtilityOperations implements StorageOperationModule {
   /**
    * Create a debounced version of a function
    */
-  debounce<T extends (...args: any[]) => any>(
+  debounce<T extends (...args: unknown[]) => unknown>(
     func: T,
     wait: number
   ): (...args: Parameters<T>) => void {
@@ -333,7 +334,7 @@ export class UtilityOperations implements StorageOperationModule {
   /**
    * Throttle function execution
    */
-  throttle<T extends (...args: any[]) => any>(
+  throttle<T extends (...args: unknown[]) => unknown>(
     func: T,
     limit: number
   ): (...args: Parameters<T>) => void {
@@ -352,7 +353,15 @@ export class UtilityOperations implements StorageOperationModule {
   // SOURCE FILE OPERATIONS
   // ========================================
 
-  async saveSourceFiles(sourceFiles: any[], snapshotId: string): Promise<void> {
+  async saveSourceFiles(sourceFiles: Array<{
+    id: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    size: number;
+    functionCount: number;
+    createdAt?: Date;
+  }>, snapshotId: string): Promise<void> {
     if (sourceFiles.length === 0) return;
 
     const rows = sourceFiles.map(file => ({
@@ -377,14 +386,32 @@ export class UtilityOperations implements StorageOperationModule {
     }
   }
 
-  async getSourceFile(id: string): Promise<any | null> {
+  async getSourceFile(id: string): Promise<{
+    id: string;
+    snapshotId: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    size: number;
+    functionCount: number;
+    createdAt: Date;
+  } | null> {
     const result = await this.db.query('SELECT * FROM source_files WHERE id = $1', [id]);
     
     if (result.rows.length === 0) {
       return null;
     }
 
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as {
+      id: string;
+      snapshot_id: string;
+      file_path: string;
+      content: string;
+      hash: string;
+      size: number;
+      function_count: number;
+      created_at: string;
+    };
     return {
       id: row.id,
       snapshotId: row.snapshot_id,
@@ -397,11 +424,29 @@ export class UtilityOperations implements StorageOperationModule {
     };
   }
 
-  async getSourceFilesBySnapshot(snapshotId: string): Promise<any[]> {
+  async getSourceFilesBySnapshot(snapshotId: string): Promise<Array<{
+    id: string;
+    snapshotId: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    size: number;
+    functionCount: number;
+    createdAt: Date;
+  }>> {
     const result = await this.db.query('SELECT * FROM source_files WHERE snapshot_id = $1', [snapshotId]);
     
     return result.rows.map(row => {
-      const r = row as any;
+      const r = row as {
+        id: string;
+        snapshot_id: string;
+        file_path: string;
+        content: string;
+        hash: string;
+        size: number;
+        function_count: number;
+        created_at: string;
+      };
       return {
         id: r.id,
         snapshotId: r.snapshot_id,
@@ -415,14 +460,32 @@ export class UtilityOperations implements StorageOperationModule {
     });
   }
 
-  async getSourceFileByPath(filePath: string, snapshotId: string): Promise<any | null> {
+  async getSourceFileByPath(filePath: string, snapshotId: string): Promise<{
+    id: string;
+    snapshotId: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    size: number;
+    functionCount: number;
+    createdAt: Date;
+  } | null> {
     const result = await this.db.query('SELECT * FROM source_files WHERE file_path = $1 AND snapshot_id = $2', [filePath, snapshotId]);
     
     if (result.rows.length === 0) {
       return null;
     }
 
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as {
+      id: string;
+      snapshot_id: string;
+      file_path: string;
+      content: string;
+      hash: string;
+      size: number;
+      function_count: number;
+      created_at: string;
+    };
     return {
       id: row.id,
       snapshotId: row.snapshot_id,
@@ -472,7 +535,7 @@ export class UtilityOperations implements StorageOperationModule {
     return 0;
   }
 
-  async backup(_options: any): Promise<string> {
+  async backup(_options: Record<string, unknown>): Promise<string> {
     // This is a stub - actual implementation would export the database
     return JSON.stringify({ message: 'Backup not implemented' });
   }

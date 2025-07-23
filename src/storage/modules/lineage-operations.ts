@@ -24,7 +24,7 @@ interface LineageRow {
   approved_by: string | null;
   approved_at: string | null;
   git_commit: string | null;
-  metadata: any;
+  metadata: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }
@@ -129,7 +129,7 @@ export class LineageOperations implements StorageOperationModule {
   async queryLineages(query: LineageQuery): Promise<Lineage[]> {
     try {
       let sql = 'SELECT * FROM lineages WHERE 1=1';
-      const params: any[] = [];
+      const params: unknown[] = [];
       let paramIndex = 1;
 
       // Add filters based on query
@@ -264,7 +264,7 @@ export class LineageOperations implements StorageOperationModule {
         WHERE $1 = ANY(from_ids) OR $1 = ANY(to_ids) 
         ORDER BY created_at DESC
       `;
-      const params: any[] = [functionId];
+      const params: unknown[] = [functionId];
 
       if (limit) {
         sql += ' LIMIT $2';
@@ -334,7 +334,18 @@ export class LineageOperations implements StorageOperationModule {
         FROM lineages
       `);
 
-      const row = result.rows[0] as any;
+      const row = result.rows[0] as {
+        total_lineages: string;
+        draft_count: string;
+        confirmed_count: string;
+        final_count: string;
+        created_count: string;
+        modified_count: string;
+        deleted_count: string;
+        moved_count: string;
+        avg_confidence: string;
+        avg_risk: string;
+      };
       return {
         totalLineages: parseInt(row.total_lineages) || 0,
         byStatus: {

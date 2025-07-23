@@ -187,7 +187,7 @@ export class MetricsOperations implements StorageOperationModule {
   ): Promise<void> {
     try {
       const setClauses: string[] = [];
-      const values: any[] = [];
+      const values: unknown[] = [];
       let paramIndex = 1;
 
       // Build dynamic update query
@@ -266,7 +266,17 @@ export class MetricsOperations implements StorageOperationModule {
         [snapshotId]
       );
 
-      const row = result.rows[0] as any;
+      const row = result.rows[0] as {
+        total_functions: string;
+        avg_complexity: string;
+        max_complexity: string;
+        avg_lines: string;
+        total_lines: string;
+        low_complexity: string;
+        medium_complexity: string;
+        high_complexity: string;
+        very_high_complexity: string;
+      };
       return {
         totalFunctions: parseInt(row.total_functions) || 0,
         avgComplexity: parseFloat(row.avg_complexity) || 0,
@@ -303,7 +313,7 @@ export class MetricsOperations implements StorageOperationModule {
   }): Promise<string[]> {
     try {
       const conditions: string[] = [];
-      const params: any[] = [];
+      const params: unknown[] = [];
       let paramIndex = 1;
 
       if (options.snapshotId) {
@@ -480,7 +490,7 @@ export class MetricsOperations implements StorageOperationModule {
   // NAMING EVALUATION METHODS
   // ========================================
 
-  async saveNamingEvaluation(evaluation: any): Promise<void> {
+  async saveNamingEvaluation(evaluation: Record<string, unknown>): Promise<void> {
     try {
       await this.db.query(
         `
@@ -517,7 +527,14 @@ export class MetricsOperations implements StorageOperationModule {
     }
   }
 
-  async getNamingEvaluation(functionId: string): Promise<any | null> {
+  async getNamingEvaluation(functionId: string): Promise<{
+    functionId: string;
+    rating: number;
+    issues: string[];
+    suggestions: string[];
+    createdAt: Date;
+    updatedAt: Date;
+  } | null> {
     try {
       const result = await this.db.query(
         'SELECT * FROM naming_evaluations WHERE function_id = $1',
@@ -528,7 +545,14 @@ export class MetricsOperations implements StorageOperationModule {
         return null;
       }
 
-      const row = result.rows[0] as any;
+      const row = result.rows[0] as {
+        function_id: string;
+        rating: number;
+        issues: string;
+        suggestions: string;
+        created_at: string;
+        updated_at: string;
+      };
       return {
         functionId: row.function_id,
         rating: row.rating,
@@ -549,7 +573,7 @@ export class MetricsOperations implements StorageOperationModule {
     }
   }
 
-  async getFunctionsNeedingEvaluation(snapshotId: string, options?: any): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
+  async getFunctionsNeedingEvaluation(snapshotId: string, options?: { limit?: number }): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
     try {
       let sql = `
         SELECT f.id as functionId, f.name as functionName, f.updated_at as lastModified
@@ -559,7 +583,7 @@ export class MetricsOperations implements StorageOperationModule {
         AND (ne.function_id IS NULL OR ne.revision_needed = true)
       `;
       
-      const params: any[] = [snapshotId];
+      const params: unknown[] = [snapshotId];
       
       if (options?.limit) {
         sql += ' LIMIT $2';
@@ -569,11 +593,15 @@ export class MetricsOperations implements StorageOperationModule {
       const result = await this.db.query(sql, params);
       
       return result.rows.map(row => {
-        const r = row as any;
+        const r = row as {
+          functionid: string;
+          functionname: string;
+          lastmodified: string;
+        };
         return {
-          functionId: r.functionId,
-          functionName: r.functionName,
-          lastModified: new Date(r.lastModified).getTime()
+          functionId: r.functionid,
+          functionName: r.functionname,
+          lastModified: new Date(r.lastmodified).getTime()
         };
       });
     } catch (error) {
@@ -585,7 +613,17 @@ export class MetricsOperations implements StorageOperationModule {
     }
   }
 
-  async getFunctionsWithEvaluations(snapshotId: string, options?: any): Promise<Array<{ functionId: string; evaluation: any }>> {
+  async getFunctionsWithEvaluations(snapshotId: string, options?: { limit?: number }): Promise<Array<{ 
+    functionId: string; 
+    evaluation: {
+      functionId: string;
+      rating: number;
+      issues: string[];
+      suggestions: string[];
+      createdAt: Date;
+      updatedAt: Date;
+    }
+  }>> {
     try {
       let sql = `
         SELECT ne.*
@@ -594,7 +632,7 @@ export class MetricsOperations implements StorageOperationModule {
         WHERE f.snapshot_id = $1
       `;
       
-      const params: any[] = [snapshotId];
+      const params: unknown[] = [snapshotId];
       
       if (options?.limit) {
         sql += ' LIMIT $2';
@@ -604,19 +642,27 @@ export class MetricsOperations implements StorageOperationModule {
       const result = await this.db.query(sql, params);
       
       return result.rows.map(row => {
-        const r = row as any;
+        const r = row as {
+          function_id: string;
+          rating: number;
+          explanation: string;
+          suggestions: string;
+          confidence: number;
+          model: string;
+          revision_needed: boolean;
+          created_at: string;
+          updated_at: string;
+          issues: string;
+        };
         return {
           functionId: r.function_id,
           evaluation: {
             functionId: r.function_id,
             rating: r.rating,
-            explanation: r.explanation,
+            issues: JSON.parse(r.issues || '[]'),
             suggestions: JSON.parse(r.suggestions || '[]'),
-            confidence: r.confidence,
-            model: r.model,
-            revisionNeeded: r.revision_needed,
-            createdAt: r.created_at,
-            updatedAt: r.updated_at
+            createdAt: new Date(r.created_at),
+            updatedAt: new Date(r.updated_at)
           }
         };
       });
@@ -644,7 +690,14 @@ export class MetricsOperations implements StorageOperationModule {
     }
   }
 
-  async batchSaveEvaluations(evaluations: any[]): Promise<void> {
+  async batchSaveEvaluations(evaluations: Array<{
+    functionId: string;
+    rating: number;
+    issues: string[];
+    suggestions: string[];
+    createdAt: Date;
+    updatedAt: Date;
+  }>): Promise<void> {
     if (evaluations.length === 0) return;
     
     try {
@@ -682,7 +735,15 @@ export class MetricsOperations implements StorageOperationModule {
     `;
 
     const result = await this.db.query(query, [snapshotId]);
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as {
+      total: string;
+      with_evaluations: string;
+      needing_evaluation: string;
+      average_rating: string;
+      rating_1: string;
+      rating_2: string;
+      rating_3: string;
+    };
 
     return {
       total: parseInt(row.total) || 0,

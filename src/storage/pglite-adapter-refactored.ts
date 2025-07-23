@@ -75,7 +75,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Create storage context
     this.context = {
       db: this.db,
-      kysely: null as any, // Will be initialized in init()
+      kysely: null as unknown as Kysely<Database>, // Will be initialized in init()
       git: this.git,
       dbPath: this.dbPath,
       ...(this.logger && { logger: this.logger }),
@@ -728,7 +728,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         }
 
         // Process results into the map
-        for (const row of result.rows as any[]) {
+        for (const row of result.rows as Record<string, unknown>[]) {
           // Get the function using the proper method
           const func = await this.functionOps.getFunction(row.id);
           if (func) {

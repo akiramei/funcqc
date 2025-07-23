@@ -362,7 +362,7 @@ export class SnapshotOperations implements StorageOperationModule {
     };
   }
 
-  private parseMetadata(metadata: unknown): Record<string, any> {
+  private parseMetadata(metadata: unknown): Record<string, unknown> {
     if (typeof metadata === 'string') {
       try {
         return JSON.parse(metadata);
@@ -372,7 +372,7 @@ export class SnapshotOperations implements StorageOperationModule {
     }
     
     if (typeof metadata === 'object' && metadata !== null) {
-      return metadata as Record<string, any>;
+      return metadata as Record<string, unknown>;
     }
     
     return {};

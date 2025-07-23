@@ -6,6 +6,7 @@
 import { 
   CallEdge
 } from '../../types';
+import { CallEdgeRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
@@ -62,6 +63,7 @@ export class CallEdgeOperations implements StorageOperationModule {
    */
   private async insertCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       id: edge.id || require('uuid').v4(),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
@@ -207,7 +209,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         [callerFunctionId]
       );
 
-      return result.rows.map(row => this.mapRowToCallEdge(row as any));
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -231,7 +233,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         [calleeFunctionId]
       );
 
-      return result.rows.map(row => this.mapRowToCallEdge(row as any));
+      return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -255,7 +257,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         [snapshotId]
       );
 
-      return result.rows.map(row => this.mapRowToInternalCallEdge(row as any));
+      return result.rows.map(row => this.mapRowToInternalCallEdge(row as CallEdgeRow));
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -279,7 +281,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         [callerFunctionId]
       );
 
-      return result.rows.map(row => (row as any).callee_function_id);
+      return result.rows.map(row => (row as { callee_function_id: string }).callee_function_id);
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -303,7 +305,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         [functionId]
       );
 
-      return parseInt((result.rows[0] as any).count) > 0;
+      return parseInt((result.rows[0] as { count: string }).count) > 0;
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -343,7 +345,12 @@ export class CallEdgeOperations implements StorageOperationModule {
         `, [snapshotId])
       ]);
 
-      const stats = edgeStats.rows[0] as any;
+      const stats = edgeStats.rows[0] as {
+        total_call_edges: string;
+        internal_call_edges: string;
+        external_call_edges: string;
+        distinct_callers: string;
+      };
       const totalFunctions = await this.getTotalFunctionsCount(snapshotId);
 
       return {
@@ -354,11 +361,18 @@ export class CallEdgeOperations implements StorageOperationModule {
           ? (parseInt(stats.total_call_edges) || 0) / totalFunctions 
           : 0,
         functionsWithNoCalls: totalFunctions - (parseInt(stats.distinct_callers) || 0),
-        functionsWithMostCalls: topCallers.rows.map(row => ({
-          functionId: (row as any).caller_function_id,
-          functionName: (row as any).function_name,
-          callCount: parseInt((row as any).call_count),
-        })),
+        functionsWithMostCalls: topCallers.rows.map(row => {
+          const typedRow = row as {
+            caller_function_id: string;
+            function_name: string;
+            call_count: string;
+          };
+          return {
+            functionId: typedRow.caller_function_id,
+            functionName: typedRow.function_name,
+            callCount: parseInt(typedRow.call_count),
+          };
+        }),
       };
     } catch (error) {
       throw new DatabaseError(
@@ -418,7 +432,7 @@ export class CallEdgeOperations implements StorageOperationModule {
         WHERE ce.snapshot_id = $1
       `;
 
-      const params: any[] = [snapshotId];
+      const params: unknown[] = [snapshotId];
 
       if (!options?.includeExternal) {
         query += ' AND ce.is_internal = true';
@@ -432,7 +446,15 @@ export class CallEdgeOperations implements StorageOperationModule {
       const result = await this.db.query(query, params);
 
       for (const row of result.rows) {
-        const rowData = row as any;
+        const rowData = row as {
+          caller_function_id: string;
+          callee_function_id?: string;
+          callee_name: string;
+          is_internal: boolean;
+          call_type: string;
+          caller_name?: string;
+          callee_name_internal?: string;
+        };
         
         // Add caller node
         if (!nodes.has(rowData.caller_function_id)) {
@@ -481,10 +503,10 @@ export class CallEdgeOperations implements StorageOperationModule {
       'SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1',
       [snapshotId]
     );
-    return parseInt((result.rows[0] as any).count) || 0;
+    return parseInt((result.rows[0] as { count: string }).count) || 0;
   }
 
-  private mapRowToCallEdge(row: any): CallEdge {
+  private mapRowToCallEdge(row: CallEdgeRow): CallEdge {
     return {
       id: row.id || undefined,
       callerFunctionId: row.caller_function_id,
@@ -501,7 +523,7 @@ export class CallEdgeOperations implements StorageOperationModule {
     };
   }
 
-  private mapRowToInternalCallEdge(row: any): CallEdge {
+  private mapRowToInternalCallEdge(row: CallEdgeRow): CallEdge {
     return {
       id: row.id || undefined,
       callerFunctionId: row.caller_function_id,
@@ -563,9 +585,9 @@ export class CallEdgeOperations implements StorageOperationModule {
       query.offset(options.offset);
     }
 
-    const result = await this.db.query(query.compile().sql, query.compile().parameters as any[]);
+    const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
     
-    return result.rows.map(row => this.mapRowToCallEdge(row as any));
+    return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
   }
 
 
@@ -575,20 +597,20 @@ export class CallEdgeOperations implements StorageOperationModule {
       .selectAll()
       .where('snapshot_id', '=', snapshotId);
 
-    const result = await this.db.query(query.compile().sql, query.compile().parameters as any[]);
+    const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
     
-    return result.rows.map(row => this.mapRowToCallEdge(row as any));
+    return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
   }
 
-  async getInternalCallEdgesBySnapshot(snapshotId: string): Promise<any[]> {
+  async getInternalCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
     const query = this.kysely
       .selectFrom('internal_call_edges')
       .selectAll()
       .where('snapshot_id', '=', snapshotId);
 
-    const result = await this.db.query(query.compile().sql, query.compile().parameters as any[]);
+    const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
     
-    return result.rows.map(row => this.mapRowToInternalCallEdge(row as any));
+    return result.rows.map(row => this.mapRowToInternalCallEdge(row as CallEdgeRow));
   }
 
 
