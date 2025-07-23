@@ -9,6 +9,7 @@ import {
   MetricsRow,
   ParameterInfo
 } from '../../types';
+import { ParameterRow } from '../../types/common';
 import { SnapshotRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
@@ -473,19 +474,19 @@ export class EmbeddingOperations implements StorageOperationModule {
   // Private helper methods
 
   private async getFunctionParameters(functionId: string): Promise<ParameterInfo[]> {
-    const result = await this.db.query(
+    const result = await this.db.query<ParameterRow>(
       'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
       [functionId]
     );
 
-    return result.rows.map((row: Record<string, unknown>) => ({
+    return result.rows.map((row: ParameterRow) => ({
       name: row.name,
-      type: row.type || undefined,
-      typeSimple: row.type_simple || undefined,
-      position: row.position || 0,
-      isOptional: row.is_optional || false,
-      isRest: row.is_rest || false,
-      defaultValue: row.default_value || undefined,
+      type: row.type || 'unknown',
+      typeSimple: row.type_simple || 'unknown',
+      position: row.position,
+      isOptional: row.is_optional,
+      isRest: row.is_rest,
+      ...(row.default_value ? { defaultValue: row.default_value } : {}),
     }));
   }
 

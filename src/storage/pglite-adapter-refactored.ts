@@ -6,8 +6,10 @@
  */
 
 import { PGlite } from '@electric-sql/pglite';
+import { Kysely } from 'kysely';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
+import { Database } from './types/kysely-types';
 import {
   FunctionInfo,
   SnapshotInfo,
@@ -730,9 +732,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         // Process results into the map
         for (const row of result.rows as Record<string, unknown>[]) {
           // Get the function using the proper method
-          const func = await this.functionOps.getFunction(row.id);
+          const func = await this.functionOps.getFunction(row['id'] as string);
           if (func) {
-            functionPresenceMap.set(row.snapshot_id, func);
+            functionPresenceMap.set(row['snapshot_id'] as string, func);
           }
         }
       }

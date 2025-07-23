@@ -392,8 +392,20 @@ export class SnapshotOperations implements StorageOperationModule {
       projectRoot: row.project_root || process.cwd(),
       configHash: row.config_hash || 'unknown',
       scope: row.scope || 'src',
-      analysisLevel: metadata['analysisLevel'] || 'NONE',
-      metadata: metadata as SnapshotMetadata,
+      analysisLevel: (metadata['analysisLevel'] as 'NONE' | 'BASIC' | 'CALL_GRAPH') || 'NONE',
+      metadata: {
+        totalFunctions: Number(metadata['totalFunctions'] || 0),
+        totalFiles: Number(metadata['totalFiles'] || 0),
+        avgComplexity: Number(metadata['avgComplexity'] || 0),
+        maxComplexity: Number(metadata['maxComplexity'] || 0),
+        exportedFunctions: Number(metadata['exportedFunctions'] || 0),
+        asyncFunctions: Number(metadata['asyncFunctions'] || 0),
+        complexityDistribution: (metadata['complexityDistribution'] || {}) as Record<number, number>,
+        fileExtensions: (metadata['fileExtensions'] || {}) as Record<string, number>,
+        analysisLevel: (metadata['analysisLevel'] as 'NONE' | 'BASIC' | 'CALL_GRAPH') || 'NONE',
+        basicAnalysisCompleted: Boolean(metadata['basicAnalysisCompleted']),
+        callGraphAnalysisCompleted: Boolean(metadata['callGraphAnalysisCompleted']),
+      } as SnapshotMetadata,
     };
   }
 

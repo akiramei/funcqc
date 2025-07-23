@@ -356,39 +356,39 @@ export class RefactoringOperations implements StorageOperationModule {
       // Build dynamic update query using type assertion
       const updateData = updates as Record<string, unknown>;
       
-      if (updateData.changeset_type !== undefined) {
+      if (updateData['changeset_type'] !== undefined) {
         setClauses.push(`changeset_type = $${paramIndex++}`);
-        values.push(updateData.changeset_type);
+        values.push(updateData['changeset_type']);
       }
 
-      if (updateData.change_description !== undefined) {
+      if (updateData['change_description'] !== undefined) {
         setClauses.push(`change_description = $${paramIndex++}`);
-        values.push(updateData.change_description);
+        values.push(updateData['change_description']);
       }
 
-      if (updateData.status !== undefined) {
+      if (updateData['status'] !== undefined) {
         setClauses.push(`status = $${paramIndex++}`);
-        values.push(updateData.status);
+        values.push(updateData['status']);
       }
 
-      if (updateData.confidence_score !== undefined) {
+      if (updateData['confidence_score'] !== undefined) {
         setClauses.push(`confidence_score = $${paramIndex++}`);
-        values.push(updateData.confidence_score);
+        values.push(updateData['confidence_score']);
       }
 
-      if (updateData.risk_assessment !== undefined) {
+      if (updateData['risk_assessment'] !== undefined) {
         setClauses.push(`risk_assessment = $${paramIndex++}`);
-        values.push(JSON.stringify(updateData.risk_assessment));
+        values.push(JSON.stringify(updateData['risk_assessment']));
       }
 
-      if (updateData.metadata !== undefined) {
+      if (updateData['metadata'] !== undefined) {
         setClauses.push(`metadata = $${paramIndex++}`);
-        values.push(JSON.stringify(updateData.metadata));
+        values.push(JSON.stringify(updateData['metadata']));
       }
 
-      if (updateData.target_snapshot_id !== undefined) {
+      if (updateData['target_snapshot_id'] !== undefined) {
         setClauses.push(`target_snapshot_id = $${paramIndex++}`);
-        values.push(updateData.target_snapshot_id);
+        values.push(updateData['target_snapshot_id']);
       }
 
       if (setClauses.length === 0) {

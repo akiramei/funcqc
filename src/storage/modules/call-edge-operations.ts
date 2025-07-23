@@ -508,45 +508,38 @@ export class CallEdgeOperations implements StorageOperationModule {
 
   private mapRowToCallEdge(row: CallEdgeRow): CallEdge {
     return {
-      id: row.id || undefined,
+      id: row.id,
       callerFunctionId: row.caller_function_id,
       calleeFunctionId: row.callee_function_id || undefined,
       calleeName: row.callee_name,
-      lineNumber: row.line_number || undefined,
-      columnNumber: row.column_number || undefined,
+      lineNumber: row.line_number,
+      columnNumber: row.column_number,
       callType: row.call_type || 'direct',
       isAsync: row.is_async || false,
       isChained: row.is_chained || false,
       confidenceScore: row.confidence_score || 1.0,
-      metadata: row.metadata ? this.parseJsonSafely(row.metadata, {}) : {},
-      createdAt: row.created_at ? row.created_at : new Date().toISOString(),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+      createdAt: row.created_at || new Date().toISOString(),
     };
   }
 
   private mapRowToInternalCallEdge(row: CallEdgeRow): CallEdge {
     return {
-      id: row.id || undefined,
+      id: row.id,
       callerFunctionId: row.caller_function_id,
-      calleeFunctionId: row.callee_function_id,
+      calleeFunctionId: row.callee_function_id ?? undefined,
       calleeName: row.callee_name,
-      lineNumber: row.line_number || undefined,
-      columnNumber: row.column_number || undefined,
+      lineNumber: row.line_number,
+      columnNumber: row.column_number,
       callType: row.call_type || 'direct',
       isAsync: row.is_async || false,
       isChained: row.is_chained || false,
       confidenceScore: row.confidence_score || 1.0,
-      metadata: row.metadata ? this.parseJsonSafely(row.metadata, {}) : {},
-      createdAt: row.created_at ? row.created_at : new Date().toISOString(),
+      metadata: row.metadata && typeof row.metadata === 'object' ? row.metadata : {},
+      createdAt: row.created_at || new Date().toISOString(),
     };
   }
 
-  private parseJsonSafely<T>(jsonString: string, fallback: T): T {
-    try {
-      return JSON.parse(jsonString);
-    } catch {
-      return fallback;
-    }
-  }
 
   // ========================================
   // ADDITIONAL CALL EDGE METHODS

@@ -87,7 +87,7 @@ export class DatabaseCore {
         AND table_name = 'snapshots'
       `);
 
-      if ((result.rows[0] as { count: string })?.count > 0) {
+      if (parseInt((result.rows[0] as { count: string })?.count || '0') > 0) {
         DatabaseCore.schemaCache.set(cacheKey, true);
         return;
       }

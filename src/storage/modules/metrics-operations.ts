@@ -507,13 +507,13 @@ export class MetricsOperations implements StorageOperationModule {
           updated_at = CURRENT_TIMESTAMP
         `,
         [
-          evaluation.functionId,
-          evaluation.rating,
-          evaluation.explanation,
-          JSON.stringify(evaluation.suggestions || []),
-          evaluation.confidence,
-          evaluation.model,
-          evaluation.revisionNeeded || false,
+          evaluation['functionId'],
+          evaluation['rating'],
+          evaluation['explanation'],
+          JSON.stringify(evaluation['suggestions'] || []),
+          evaluation['confidence'],
+          evaluation['model'],
+          evaluation['revisionNeeded'] || false,
           new Date().toISOString(),
           new Date().toISOString()
         ]
@@ -548,21 +548,22 @@ export class MetricsOperations implements StorageOperationModule {
       const row = result.rows[0] as {
         function_id: string;
         rating: number;
-        issues: string;
+        explanation: string;
         suggestions: string;
+        confidence: number;
+        model: string;
+        revision_needed: boolean;
         created_at: string;
         updated_at: string;
+        issues?: string;
       };
       return {
         functionId: row.function_id,
         rating: row.rating,
-        explanation: row.explanation,
+        issues: row.issues ? JSON.parse(row.issues) : [row.explanation],
         suggestions: JSON.parse(row.suggestions || '[]'),
-        confidence: row.confidence,
-        model: row.model,
-        revisionNeeded: row.revision_needed,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
+        createdAt: new Date(row.created_at),
+        updatedAt: new Date(row.updated_at)
       };
     } catch (error) {
       throw new DatabaseError(

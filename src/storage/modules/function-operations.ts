@@ -10,7 +10,7 @@ import {
   ParameterInfo,
   QualityMetrics
 } from '../../types';
-import { SnapshotRow } from '../../types/common';
+import { SnapshotRow, ParameterRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
@@ -444,15 +444,19 @@ export class FunctionOperations implements StorageOperationModule {
     for (const func of functions) {
       if (func.parameters) {
         func.parameters.forEach((param, i) => {
-          parameterRows.push({
+          const paramRow: ParameterRow = {
             function_id: func.id,
             name: param.name,
             type: param.type,
             type_simple: param.typeSimple,
             position: i,
             is_optional: param.isOptional,
-            default_value: param.defaultValue,
-          });
+            is_rest: param.isRest,
+          };
+          if (param.defaultValue !== undefined) {
+            paramRow.default_value = param.defaultValue;
+          }
+          parameterRows.push(paramRow);
         });
       }
     }
@@ -530,10 +534,10 @@ export class FunctionOperations implements StorageOperationModule {
       [functionId]
     );
 
-    return result.rows.map((row: ParameterRow) => ({
+    return (result.rows as ParameterRow[]).map((row) => ({
       name: row.name,
-      type: row.type || undefined,
-      typeSimple: row.type_simple || undefined,
+      type: row.type || 'unknown',
+      typeSimple: row.type_simple || 'unknown',
       position: row.position || 0,
       isOptional: row.is_optional || false,
       isRest: row.is_rest || false,
@@ -923,8 +927,8 @@ export class FunctionOperations implements StorageOperationModule {
       model: row.model,
       contentId: row.content_id,
       needsUpdate: row.needs_update,
-      createdAt: row.created_at || new Date(),
-      updatedAt: row.updated_at
+      createdAt: row.created_at ? new Date(row.created_at) : new Date(),
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date()
     };
   }
 
@@ -953,14 +957,14 @@ export class FunctionOperations implements StorageOperationModule {
       [row.id]
     );
     
-    const parameters = parametersResult.rows.map((param: ParameterRow) => ({
+    const parameters = (parametersResult.rows as ParameterRow[]).map((param) => ({
       name: param.name,
-      type: param.type,
-      typeSimple: param.type_simple,
+      type: param.type || 'unknown',
+      typeSimple: param.type_simple || 'unknown',
       position: param.position,
       isOptional: param.is_optional,
       isRest: param.is_rest || false,
-      defaultValue: param.default_value
+      defaultValue: param.default_value || undefined
     }));
 
     return {
@@ -989,7 +993,6 @@ export class FunctionOperations implements StorageOperationModule {
         ? row.modifiers 
         : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
       parameters,
-      returnType: row.return_type,
       jsDoc: row.js_doc,
       sourceCode: row.source_code,
       ...(row.cyclomatic_complexity ? {
@@ -998,7 +1001,7 @@ export class FunctionOperations implements StorageOperationModule {
           linesOfCode: row.lines_of_code || 0,
           totalLines: row.total_lines || row.lines_of_code || 0,
           parameterCount: row.parameter_count || 0,
-          maxNestingLevel: row.nesting_depth || 0,
+          maxNestingLevel: row.max_nesting_level || 0,
           branchCount: row.branch_count || 0,
           loopCount: row.loop_count || 0,
           returnStatementCount: 0,
