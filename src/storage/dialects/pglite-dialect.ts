@@ -112,7 +112,7 @@ export class PGliteDialect implements Dialect {
     return new PostgresAdapter();
   }
 
-  createIntrospector(db: Kysely<any>) {
+  createIntrospector(db: Kysely<unknown>) {
     return new PostgresIntrospector(db);
   }
 }

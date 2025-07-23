@@ -114,7 +114,7 @@ async function createConfig(options: InitCommandOptions): Promise<void> {
   
   if (config.scopes) {
     console.log(chalk.blue('Scopes detected:'));
-    Object.entries(config.scopes).forEach(([name, scope]: [string, any]) => {
+    Object.entries(config.scopes).forEach(([name, scope]) => {
       console.log(`  ${chalk.cyan(name)}: ${scope.description}`);
       console.log(`    Roots: ${scope.roots.join(', ')}`);
     });
@@ -194,7 +194,7 @@ async function generateIntelligentConfig(_options: InitCommandOptions): Promise<
 /**
  * Detect project directory structure
  */
-async function detectProjectStructure() {
+async function detectProjectStructure(): Promise<ProjectStructure> {
   const structure = {
     srcDirs: [] as string[],
     testDirs: [] as string[],
@@ -254,14 +254,36 @@ async function detectProjectStructure() {
 }
 
 /**
+ * Project structure analysis result
+ */
+interface ProjectStructure {
+  srcDirs: string[];
+  testDirs: string[];
+  docsDirs: string[];
+  scriptsDirs: string[];
+  hasComplexStructure: boolean;
+  excludePatterns: string[];
+}
+
+/**
+ * Scope configuration
+ */
+interface ScopeConfig {
+  roots: string[];
+  exclude?: string[];
+  include?: string[];
+  description: string;
+}
+
+/**
  * Generate scopes configuration based on project structure
  */
-async function generateScopes(structure: any) {
-  const scopes: any = {};
+async function generateScopes(structure: ProjectStructure): Promise<Record<string, ScopeConfig>> {
+  const scopes: Record<string, ScopeConfig> = {};
   
   // Source code scope
   if (structure.srcDirs.length > 0) {
-    scopes.src = {
+    scopes['src'] = {
       roots: structure.srcDirs,
       exclude: [
         '**/*.test.ts',
@@ -279,7 +301,7 @@ async function generateScopes(structure: any) {
       testRoots.push('src/__tests__');
     }
     
-    scopes.test = {
+    scopes['test'] = {
       roots: testRoots,
       include: [
         '**/*.test.ts',
@@ -294,7 +316,7 @@ async function generateScopes(structure: any) {
   
   // Documentation scope
   if (structure.docsDirs.length > 0) {
-    scopes.docs = {
+    scopes['docs'] = {
       roots: structure.docsDirs,
       include: ['**/*.ts', '**/*.js'],
       exclude: [],
@@ -304,7 +326,7 @@ async function generateScopes(structure: any) {
   
   // Scripts scope
   if (structure.scriptsDirs.length > 0) {
-    scopes.scripts = {
+    scopes['scripts'] = {
       roots: structure.scriptsDirs,
       include: ['**/*.ts', '**/*.js'],
       exclude: [],
@@ -321,7 +343,7 @@ async function generateScopes(structure: any) {
   ].filter((dir, index, arr) => arr.indexOf(dir) === index);
   
   if (allRoots.length > 1) {
-    scopes.all = {
+    scopes['all'] = {
       roots: allRoots,
       exclude: [
         '**/node_modules/**',
