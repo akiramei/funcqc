@@ -335,12 +335,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveFunctionDescription(description: FunctionDescription): Promise<void> {
     await this.ensureInitialized();
-    return this.functionOps.saveFunctionDescription(description);
+    return this.functionOps.saveFunctionDescription({
+      ...description,
+      source: description.source || 'unknown'
+    });
   }
 
   async getFunctionDescription(semanticId: string): Promise<FunctionDescription | null> {
     await this.ensureInitialized();
-    return this.functionOps.getFunctionDescription(semanticId);
+    const result = this.functionOps.getFunctionDescription(semanticId);
+    return result as Promise<FunctionDescription | null>;
   }
 
   async searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]> {
@@ -398,7 +402,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void> {
     await this.ensureInitialized();
-    return this.metricsOps.saveNamingEvaluation(evaluation);
+    return this.metricsOps.saveNamingEvaluation(evaluation as Record<string, unknown>);
   }
 
   async getNamingEvaluation(functionId: string): Promise<NamingEvaluation | null> {
@@ -511,22 +515,33 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<void> {
     await this.ensureInitialized();
-    return this.utilityOps.saveSourceFiles(sourceFiles, snapshotId);
+    const mappedFiles = sourceFiles.map(file => ({
+      id: file.id || '',
+      filePath: file.filePath,
+      content: file.fileContent || '',
+      hash: file.fileHash || '',
+      size: file.fileSizeBytes || 0,
+      functionCount: file.functionCount || 0
+    }));
+    return this.utilityOps.saveSourceFiles(mappedFiles, snapshotId);
   }
 
   async getSourceFile(id: string): Promise<SourceFile | null> {
     await this.ensureInitialized();
-    return this.utilityOps.getSourceFile(id);
+    const result = this.utilityOps.getSourceFile(id);
+    return result as Promise<SourceFile | null>;
   }
 
   async getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]> {
     await this.ensureInitialized();
-    return this.utilityOps.getSourceFilesBySnapshot(snapshotId);
+    const result = this.utilityOps.getSourceFilesBySnapshot(snapshotId);
+    return result as Promise<SourceFile[]>;
   }
 
   async getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null> {
     await this.ensureInitialized();
-    return this.utilityOps.getSourceFileByPath(filePath, snapshotId);
+    const result = this.utilityOps.getSourceFileByPath(filePath, snapshotId);
+    return result as Promise<SourceFile | null>;
   }
 
   async findExistingSourceFile(compositeId: string): Promise<string | null> {
@@ -563,28 +578,32 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     offset?: number;
   }): Promise<CallEdge[]> {
     await this.ensureInitialized();
-    return this.callEdgeOps.getCallEdges(options);
+    const result = this.callEdgeOps.getCallEdges(options);
+    return result as Promise<CallEdge[]>;
   }
 
   async getCallEdgesByCaller(callerFunctionId: string, snapshotId: string): Promise<CallEdge[]> {
     await this.ensureInitialized();
-    return this.callEdgeOps.getCallEdges({
+    const result = this.callEdgeOps.getCallEdges({
       callerFunctionId,
       snapshotId
     });
+    return result as Promise<CallEdge[]>;
   }
 
   async getCallEdgesByCallee(calleeFunctionId: string, snapshotId: string): Promise<CallEdge[]> {
     await this.ensureInitialized();
-    return this.callEdgeOps.getCallEdges({
+    const result = this.callEdgeOps.getCallEdges({
       calleeFunctionId,
       snapshotId
     });
+    return result as Promise<CallEdge[]>;
   }
 
   async getCallEdgesBySnapshot(snapshotId: string): Promise<CallEdge[]> {
     await this.ensureInitialized();
-    return this.callEdgeOps.getCallEdgesBySnapshot(snapshotId);
+    const result = this.callEdgeOps.getCallEdgesBySnapshot(snapshotId);
+    return result as Promise<CallEdge[]>;
   }
 
   async getInternalCallEdgesBySnapshot(snapshotId: string): Promise<InternalCallEdge[]> {
@@ -657,7 +676,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async backup(options: BackupOptions): Promise<string> {
     await this.ensureInitialized();
-    return this.utilityOps.backup(options);
+    return this.utilityOps.backup(options as Record<string, unknown>);
   }
 
   async restore(backupData: string): Promise<void> {
