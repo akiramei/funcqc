@@ -895,10 +895,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
     // For Windows paths, check if the directory exists
     if (/^[A-Z]:/i.test(dbPath) && !dbPath.startsWith('postgres://') && !dbPath.startsWith('postgresql://')) {
-      const path = dbPath.substring(0, dbPath.lastIndexOf('\\') || dbPath.lastIndexOf('/'));
-      if (path && path !== dbPath) {
-        // Note: In the actual implementation, we would check if directory exists
-        // For now, we'll skip this check as it requires fs module
+      const lastSeparator = Math.max(dbPath.lastIndexOf('\\'), dbPath.lastIndexOf('/'));
+      if (lastSeparator > 0) {
+        const dirPath = dbPath.substring(0, lastSeparator);
+        // Note: Directory existence check would be implemented here in a production environment
+        // For now, we validate the path format but don't check filesystem access
+        // This avoids adding fs dependencies in environments where it might not be available
+        if (this.logger) {
+          this.logger.log(`Database will be created at: ${dirPath}`);
+        }
       }
     }
   }
