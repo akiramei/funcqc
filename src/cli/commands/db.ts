@@ -62,7 +62,8 @@ async function listTables(env: CommandEnvironment): Promise<void> {
     console.log(chalk.cyan('📋 Available Tables:'));
     console.log();
     
-    const tables = result.rows.map(row => (row as { table_name: string }).table_name);
+    const resultArray = result as Array<{ rows: { table_name: string }[] }>;
+    const tables = resultArray[0]?.rows?.map(row => row.table_name) || [];
     
     if (tables.length === 0) {
       console.log(chalk.yellow('No tables found. Run `funcqc scan` to create data.'));
@@ -116,21 +117,26 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
     // Add LIMIT with validation
     const limit = validateAndParseLimit(options.limit);
     if (limit > 0) {
-      query += ` LIMIT $${params.length + 1}`;
-      params.push(limit);
+      if (params.length > 0) {
+        query += ` LIMIT $${params.length + 1}`;
+        params.push(limit);
+      } else {
+        query += ` LIMIT ${limit}`;
+      }
     }
 
-    const result = await env.storage.query(query, params);
+    const result = await env.storage.query(query, params) as Array<{ rows: unknown[] }>;
+    const rows = result[0]?.rows || [];
     
-    if (result.rows.length === 0) {
+    if (rows.length === 0) {
       console.log(chalk.yellow(`No data found in table '${tableName}'.`));
       return;
     }
 
     if (options.json) {
-      outputJSON(result.rows, tableName);
+      outputJSON(rows, tableName);
     } else {
-      outputTable(result.rows, tableName, limit);
+      outputTable(rows, tableName, limit);
     }
   } catch (error) {
     throw new Error(`Failed to query table '${tableName}': ${error instanceof Error ? error.message : String(error)}`);

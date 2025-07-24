@@ -73,7 +73,7 @@ export class FunctionOperations implements StorageOperationModule {
     this.logger = context.logger;
   }
 
-  private get kysely() {
+  get kysely() {
     return this.context.kysely;
   }
 

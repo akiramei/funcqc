@@ -58,16 +58,16 @@ export class EmbeddingOperations implements StorageOperationModule {
 
       await this.db.query(
         `
-        INSERT INTO function_embeddings (semantic_id, embedding_model, vector_dimension, embedding)
+        INSERT INTO function_embeddings (function_id, embedding, model_name, model_version)
         VALUES ($1, $2, $3, $4)
-        ON CONFLICT (semantic_id) 
+        ON CONFLICT (function_id) 
         DO UPDATE SET 
-          embedding_model = EXCLUDED.embedding_model,
-          vector_dimension = EXCLUDED.vector_dimension,
           embedding = EXCLUDED.embedding,
+          model_name = EXCLUDED.model_name,
+          model_version = EXCLUDED.model_version,
           updated_at = CURRENT_TIMESTAMP
         `,
-        [semanticId, model, embedding.length, embeddingStr]
+        [semanticId, embeddingStr, model || 'text-embedding-ada-002', '1.0']
       );
     } catch (error) {
       throw new DatabaseError(
@@ -84,7 +84,7 @@ export class EmbeddingOperations implements StorageOperationModule {
   async getEmbedding(semanticId: string): Promise<EmbeddingInfo | null> {
     try {
       const result = await this.db.query(
-        'SELECT * FROM function_embeddings WHERE semantic_id = $1',
+        'SELECT * FROM function_embeddings WHERE function_id = $1',
         [semanticId]
       );
 
@@ -93,17 +93,17 @@ export class EmbeddingOperations implements StorageOperationModule {
       }
 
       const row = result.rows[0] as {
-        semantic_id: string;
-        embedding_model: string;
-        vector_dimension: number;
+        function_id: string;
         embedding: number[];
+        model_name: string;
+        model_version: string;
         created_at: string;
         updated_at: string;
       };
       return {
-        semanticId: row.semantic_id,
-        embeddingModel: row.embedding_model,
-        vectorDimension: row.vector_dimension,
+        semanticId: row.function_id,
+        embeddingModel: row.model_name,
+        vectorDimension: row.embedding?.length || 0,
         embedding: row.embedding,
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at),
@@ -222,9 +222,9 @@ export class EmbeddingOperations implements StorageOperationModule {
 
     try {
       const values = embeddings.map(({ semanticId, embedding, model = 'text-embedding-ada-002' }) => ({
-        semantic_id: semanticId,
-        embedding_model: model,
-        vector_dimension: embedding.length,
+        function_id: semanticId,
+        model_name: model,
+        model_version: '1.0',
         embedding: `{${embedding.join(',')}}`,
       }));
 
@@ -236,16 +236,16 @@ export class EmbeddingOperations implements StorageOperationModule {
       
       const params: unknown[] = [];
       for (const value of values) {
-        params.push(value.semantic_id, value.embedding_model, value.vector_dimension, value.embedding);
+        params.push(value.function_id, value.embedding, value.model_name, value.model_version);
       }
       
       await this.db.query(`
-        INSERT INTO function_embeddings (semantic_id, embedding_model, vector_dimension, embedding)
+        INSERT INTO function_embeddings (function_id, embedding, model_name, model_version)
         VALUES ${placeholders}
-        ON CONFLICT (semantic_id) DO UPDATE SET
-          embedding_model = EXCLUDED.embedding_model,
-          vector_dimension = EXCLUDED.vector_dimension,
+        ON CONFLICT (function_id) DO UPDATE SET
           embedding = EXCLUDED.embedding,
+          model_name = EXCLUDED.model_name,
+          model_version = EXCLUDED.model_version,
           updated_at = CURRENT_TIMESTAMP
       `, params);
 
@@ -264,7 +264,7 @@ export class EmbeddingOperations implements StorageOperationModule {
    */
   async getFunctionsWithoutEmbeddings(snapshotId?: string): Promise<FunctionInfo[]> {
     try {
-      let whereClause = 'WHERE e.semantic_id IS NULL';
+      let whereClause = 'WHERE e.function_id IS NULL';
       const params: unknown[] = [];
       
       if (snapshotId) {
@@ -276,7 +276,7 @@ export class EmbeddingOperations implements StorageOperationModule {
         `
         SELECT f.*, q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity
         FROM functions f
-        LEFT JOIN function_embeddings e ON f.semantic_id = e.semantic_id
+        LEFT JOIN function_embeddings e ON f.id = e.function_id
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         ${whereClause}
         ORDER BY f.start_line
@@ -358,17 +358,17 @@ export class EmbeddingOperations implements StorageOperationModule {
         this.db.query(`
           SELECT 
             COUNT(*) as total_embeddings,
-            embedding_model,
-            AVG(vector_dimension) as avg_dimension
+            model_name,
+            AVG(array_length(embedding, 1)) as avg_dimension
           FROM function_embeddings
-          GROUP BY embedding_model
+          GROUP BY model_name
         `),
         this.db.query(`
           SELECT 
-            COUNT(CASE WHEN e.semantic_id IS NOT NULL THEN 1 END) as with_embeddings,
-            COUNT(CASE WHEN e.semantic_id IS NULL THEN 1 END) as without_embeddings
+            COUNT(CASE WHEN e.function_id IS NOT NULL THEN 1 END) as with_embeddings,
+            COUNT(CASE WHEN e.function_id IS NULL THEN 1 END) as without_embeddings
           FROM functions f
-          LEFT JOIN function_embeddings e ON f.semantic_id = e.semantic_id
+          LEFT JOIN function_embeddings e ON f.id = e.function_id
         `)
       ]);
 
@@ -378,11 +378,11 @@ export class EmbeddingOperations implements StorageOperationModule {
 
       for (const row of embeddingResult.rows) {
         const rowData = row as {
-          embedding_model: string;
+          model_name: string;
           total_embeddings: string;
           avg_dimension: string;
         };
-        byModel[rowData.embedding_model] = parseInt(rowData.total_embeddings);
+        byModel[rowData.model_name] = parseInt(rowData.total_embeddings);
         totalEmbeddings += parseInt(rowData.total_embeddings);
         avgDimension = parseFloat(rowData.avg_dimension) || 0;
       }
@@ -442,12 +442,11 @@ export class EmbeddingOperations implements StorageOperationModule {
     updates.push(`embedding = $${paramIndex++}`);
     values.push(`{${embedding.join(',')}}`);
 
-    updates.push(`vector_dimension = $${paramIndex++}`);
-    values.push(embedding.length);
-
     if (model) {
-      updates.push(`embedding_model = $${paramIndex++}`);
+      updates.push(`model_name = $${paramIndex++}`);
       values.push(model);
+      updates.push(`model_version = $${paramIndex++}`);
+      values.push('1.0');
     }
 
     updates.push(`updated_at = CURRENT_TIMESTAMP`);
@@ -455,12 +454,12 @@ export class EmbeddingOperations implements StorageOperationModule {
 
     try {
       const result = await this.db.query(
-        `UPDATE function_embeddings SET ${updates.join(', ')} WHERE semantic_id = $${paramIndex}`,
+        `UPDATE function_embeddings SET ${updates.join(', ')} WHERE function_id = $${paramIndex}`,
         values
       );
 
       if ((result as unknown as { changes: number }).changes === 0) {
-        throw new Error(`No embedding found for semantic_id: ${semanticId}`);
+        throw new Error(`No embedding found for function_id: ${semanticId}`);
       }
     } catch (error) {
       throw new DatabaseError(
