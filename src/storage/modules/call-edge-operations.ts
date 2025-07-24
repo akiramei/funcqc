@@ -10,6 +10,7 @@ import { CallEdgeRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
+import { v4 as uuidv4 } from 'uuid';
 
 export interface CallEdgeStats {
   totalCallEdges: number;
@@ -42,7 +43,8 @@ export class CallEdgeOperations implements StorageOperationModule {
     if (callEdges.length === 0) return;
 
     try {
-      if (callEdges.length >= 50) {
+      // Temporarily use individual inserts to avoid bulk insert issues
+      if (false && callEdges.length >= 50) {
         await this.insertCallEdgesBulk(snapshotId, callEdges);
       } else {
         await this.insertCallEdgesIndividual(snapshotId, callEdges);
@@ -63,27 +65,35 @@ export class CallEdgeOperations implements StorageOperationModule {
    */
   private async insertCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      id: edge.id || require('uuid').v4(),
+      id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
       callee_name: edge.calleeName,
-      line_number: edge.lineNumber,
-      column_number: edge.columnNumber,
-      is_internal: edge.callType === 'direct',
+      callee_signature: edge.calleeSignature || null,
+      caller_class_name: edge.callerClassName || null,
+      callee_class_name: edge.calleeClassName || null,
+      call_type: edge.callType || 'direct',
+      call_context: this.mapCallContext(edge.callContext),
+      line_number: edge.lineNumber || 0,
+      column_number: edge.columnNumber || 0,
       is_async: edge.isAsync || false,
       is_chained: edge.isChained || false,
       confidence_score: edge.confidenceScore || 1.0,
-      call_type: edge.callType || 'direct',
-      metadata: edge.metadata ? JSON.stringify(edge.metadata) : {},
+      metadata: edge.metadata || {},
       created_at: new Date().toISOString(),
     }));
 
-    await this.kysely
-      .insertInto('call_edges')
-      .values(callEdgeRows)
-      .execute();
+    try {
+      await this.kysely
+        .insertInto('call_edges')
+        .values(callEdgeRows)
+        .execute();
+    } catch (error) {
+      this.logger?.error(`Failed to bulk insert call edges: ${error}`);
+      this.logger?.error(`Sample row data: ${JSON.stringify(callEdgeRows[0], null, 2)}`);
+      throw error;
+    }
   }
 
   /**
@@ -91,25 +101,40 @@ export class CallEdgeOperations implements StorageOperationModule {
    */
   private async insertCallEdgesIndividual(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     for (const edge of callEdges) {
-      await this.db.query(
-        `
-        INSERT INTO call_edges (
-          snapshot_id, caller_function_id, callee_function_id, callee_name,
-          line_number, column_number, is_internal, call_type, metadata
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-        `,
-        [
-          snapshotId,
-          edge.callerFunctionId,
-          edge.calleeFunctionId,
-          edge.calleeName,
-          edge.lineNumber || null,
-          edge.columnNumber || null,
-          edge.callType === 'direct',
-          edge.callType || 'direct',
-          edge.metadata ? JSON.stringify(edge.metadata) : null,
-        ]
-      );
+      const params = [
+        edge.id || uuidv4(),
+        snapshotId,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.calleeName,
+        edge.calleeSignature || null,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.callType || 'direct',
+        this.mapCallContext(edge.callContext),
+        edge.lineNumber || 0,
+        edge.columnNumber || 0,
+        edge.isAsync || false,
+        edge.isChained || false,
+        edge.confidenceScore || 1.0,
+        edge.metadata ? JSON.stringify(edge.metadata) : '{}',
+      ];
+      
+      try {
+        await this.db.query(
+          `
+          INSERT INTO call_edges (
+            id, snapshot_id, caller_function_id, callee_function_id, callee_name,
+            callee_signature, caller_class_name, callee_class_name, call_type, call_context,
+            line_number, column_number, is_async, is_chained, confidence_score, metadata
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          `,
+          params
+        );
+      } catch (error) {
+        this.logger?.error(`Failed to insert call edge: ${error}, params: ${JSON.stringify(params.slice(0, 5))}`);
+        throw error;
+      }
     }
   }
 
@@ -143,6 +168,7 @@ export class CallEdgeOperations implements StorageOperationModule {
    */
   private async insertInternalCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const internalCallEdgeRows = callEdges.map(edge => ({
+      id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId!,
@@ -150,20 +176,19 @@ export class CallEdgeOperations implements StorageOperationModule {
       line_number: edge.lineNumber,
       column_number: edge.columnNumber,
       call_type: edge.callType || 'direct',
-      metadata: edge.metadata ? JSON.stringify(edge.metadata) : null,
     }));
 
     // Use direct SQL instead of Kysely for now to avoid type issues
     for (const row of internalCallEdgeRows) {
       await this.db.query(
         `INSERT INTO internal_call_edges (
-          snapshot_id, caller_function_id, callee_function_id, callee_name,
-          line_number, column_number, call_type, metadata
+          id, snapshot_id, caller_function_id, callee_function_id, callee_name,
+          line_number, column_number, call_type
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
-          row.snapshot_id, row.caller_function_id, row.callee_function_id,
+          row.id, row.snapshot_id, row.caller_function_id, row.callee_function_id,
           row.callee_name, row.line_number, row.column_number,
-          row.call_type, row.metadata
+          row.call_type
         ]
       );
     }
@@ -177,11 +202,12 @@ export class CallEdgeOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO internal_call_edges (
-          snapshot_id, caller_function_id, callee_function_id, callee_name,
-          line_number, column_number, call_type, metadata
+          id, snapshot_id, caller_function_id, callee_function_id, callee_name,
+          line_number, column_number, call_type
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
         [
+          edge.id || uuidv4(),
           snapshotId,
           edge.callerFunctionId,
           edge.calleeFunctionId,
@@ -189,7 +215,6 @@ export class CallEdgeOperations implements StorageOperationModule {
           edge.lineNumber || null,
           edge.columnNumber || null,
           edge.callType || 'direct',
-          edge.metadata ? JSON.stringify(edge.metadata) : null,
         ]
       );
     }
@@ -604,6 +629,32 @@ export class CallEdgeOperations implements StorageOperationModule {
     const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
     
     return result.rows.map(row => this.mapRowToInternalCallEdge(row as CallEdgeRow));
+  }
+
+  /**
+   * Map call context to valid database values
+   */
+  private mapCallContext(context?: string): string {
+    if (!context) return 'normal';
+    
+    // Map analysis contexts to database-valid contexts
+    switch (context) {
+      case 'local_exact':
+      case 'import_exact':
+      case 'cha':
+      case 'rta':
+        return 'normal';
+      case 'conditional':
+        return 'conditional';
+      case 'loop':
+        return 'loop';
+      case 'try':
+        return 'try';
+      case 'catch':
+        return 'catch';
+      default:
+        return 'normal';
+    }
   }
 
 

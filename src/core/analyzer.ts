@@ -308,7 +308,98 @@ export class FunctionAnalyzer {
   }
 
   /**
-   * Convert ideal call edges to legacy format
+   * Create mapping between virtual project function IDs and real database function IDs
+   */
+  private createFunctionIdMapping(
+    virtualFunctions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>, 
+    realFunctions: FunctionInfo[]
+  ): Map<string, string> {
+    const mapping = new Map<string, string>();
+    
+    // Create a lookup for real functions by signature
+    const realFunctionMap = new Map<string, FunctionInfo>();
+    for (const realFunc of realFunctions) {
+      // Create a signature key based on file path, function name, and line
+      const key = `${realFunc.filePath}:${realFunc.name}:${realFunc.startLine}`;
+      realFunctionMap.set(key, realFunc);
+    }
+    
+    // Convert Map to Array
+    const virtualFuncArray = Array.from(virtualFunctions.values());
+    
+    // Map virtual functions to real functions
+    for (const virtualFunc of virtualFuncArray) {
+      // Check if filePath is defined
+      if (!virtualFunc.filePath) {
+        this.logger.debug(`Skipping virtual function ${virtualFunc.id} (${virtualFunc.name}): no filePath`);
+        continue;
+      }
+      
+      // Convert virtual path back to real path
+      const realPath = virtualFunc.filePath.replace('/virtual', '');
+      const key = `${realPath}:${virtualFunc.name}:${virtualFunc.startLine || 0}`;
+      
+      const realFunc = realFunctionMap.get(key);
+      if (realFunc) {
+        mapping.set(virtualFunc.id, realFunc.id);
+      } else {
+        // Log warning for unmapped functions
+        this.logger.debug(`Could not map virtual function ${virtualFunc.id} (${virtualFunc.name}) to real function at ${key}`);
+      }
+    }
+    
+    return mapping;
+  }
+
+  /**
+   * Convert ideal call edges to legacy format with ID mapping
+   */
+  private convertCallEdgesWithMapping(
+    edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[], 
+    functionIdMapping: Map<string, string>
+  ): CallEdge[] {
+    return edges.map((edge, index) => {
+      // Map virtual function IDs to real function IDs
+      const realCallerFunctionId = functionIdMapping.get(edge.callerFunctionId);
+      const realCalleeFunctionId = edge.calleeFunctionId ? functionIdMapping.get(edge.calleeFunctionId) : undefined;
+      
+      // Skip edges where caller function mapping is missing (required)
+      if (!realCallerFunctionId) {
+        this.logger.debug(`Skipping edge ${index}: caller function ${edge.callerFunctionId} (${edge.calleeName || 'unknown'}) not mapped`);
+        return null;
+      }
+      
+      return {
+        id: edge.id || `edge_${index}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+        callerFunctionId: realCallerFunctionId,
+        calleeFunctionId: realCalleeFunctionId,
+        calleeName: edge.calleeName || edge.calleeFunctionId || 'unknown',
+        calleeSignature: edge.calleeSignature || '', 
+        callType: edge.callType || 'direct' as const,
+        callContext: edge.resolutionSource,
+        lineNumber: edge.lineNumber || 0,
+        columnNumber: edge.columnNumber || 0,
+        isAsync: edge.isAsync || false,
+        isChained: edge.isChained || false,
+        confidenceScore: edge.confidenceScore,
+        metadata: {
+          resolutionLevel: edge.resolutionLevel,
+          resolutionSource: edge.resolutionSource,
+          runtimeConfirmed: edge.runtimeConfirmed
+        },
+        createdAt: new Date().toISOString(),
+        
+        // Extensions for ideal system
+        calleeCandidates: edge.candidates,
+        resolutionLevel: edge.resolutionLevel,
+        resolutionSource: edge.resolutionSource,
+        runtimeConfirmed: edge.runtimeConfirmed
+      };
+    }).filter((edge): edge is NonNullable<typeof edge> => edge !== null); // Remove null entries
+  }
+
+  /**
+   * Convert ideal call edges to legacy format (deprecated - use convertCallEdgesWithMapping)
    */
   private convertCallEdges(edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]): CallEdge[] {
     return edges.map((edge, index) => ({
@@ -316,13 +407,13 @@ export class FunctionAnalyzer {
       callerFunctionId: edge.callerFunctionId,
       calleeFunctionId: edge.calleeFunctionId,
       calleeName: edge.calleeFunctionId || 'unknown',
-      calleeSignature: '', // Not available in ideal system
-      callType: 'direct' as const,
+      calleeSignature: edge.calleeSignature || '',
+      callType: edge.callType || 'direct' as const,
       callContext: edge.resolutionSource,
-      lineNumber: 0, // Not available in ideal system
-      columnNumber: 0, // Not available in ideal system
-      isAsync: false, // Not available in ideal system
-      isChained: false, // Not available in ideal system
+      lineNumber: edge.lineNumber || 0,
+      columnNumber: edge.columnNumber || 0,
+      isAsync: edge.isAsync || false,
+      isChained: edge.isChained || false,
       confidenceScore: edge.confidenceScore,
       metadata: {
         resolutionLevel: edge.resolutionLevel,
@@ -417,14 +508,21 @@ export class FunctionAnalyzer {
       this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
+      console.log(`📊 Initializing ideal call graph analyzer with ${virtualProject.getSourceFiles().length} virtual files`);
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { logger: this.logger });
       
       try {
         // Perform call graph analysis on virtual project
         const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
         
-        // Convert to legacy format for compatibility
-        const callEdges = this.convertCallEdges(callGraphResult.edges);
+        // Create mapping between virtual functions and real functions
+        const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
+        const virtualFunctionCount = callGraphResult.functions.size;
+        console.log(`📊 Created function ID mapping for ${functionIdMapping.size} functions out of ${virtualFunctionCount} virtual functions`);
+        
+        // Convert to legacy format for compatibility with ID mapping
+        const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
+        console.log(`📊 Converted ${callGraphResult.edges.length} virtual edges to ${callEdges.length} real edges`);
         
         // Perform internal call analysis on virtual project
         const internalCallEdges = await this.analyzeInternalCallsFromVirtualProject(
@@ -444,7 +542,7 @@ export class FunctionAnalyzer {
       }
       
     } catch (error) {
-      this.logger.debug('Call graph analysis from content failed:', error);
+      console.log(`❌ Call graph analysis from content failed:`, error);
       
       // Return empty results on failure
       return {
