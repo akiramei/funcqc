@@ -341,28 +341,41 @@ async function displayAddedFunctionsWithSimilarity(
 
   // Group by file
   const functionsByFile = groupFunctionsByFile(functions);
+  let globalFunctionIndex = 1;
 
   for (const [filePath, fileFunctions] of functionsByFile) {
     console.log(chalk.bold(`📁 ${filePath} (${fileFunctions.length} functions added)`));
     
     // Display function table header
-    console.log('Function Signature                                                CC   LOC');
-    console.log('────────────────────────────────────────────────────────────────── ──── ─────');
+    if (options.insights) {
+      console.log('No.  Function Signature                                           CC   LOC');
+      console.log('---- ────────────────────────────────────────────────────────────── ──── ─────');
+    } else {
+      console.log('Function Signature                                                CC   LOC');
+      console.log('────────────────────────────────────────────────────────────────── ──── ─────');
+    }
     
-    // Display each function
+    // Display each function with numbering for insights mode
+    const functionWithNumbers: Array<{func: FunctionInfo, number: number}> = [];
     for (const func of fileFunctions) {
       const signature = formatFunctionSignature(func);
       const cc = func.metrics?.cyclomaticComplexity || 0;
       const loc = func.metrics?.linesOfCode || 0;
       
-      console.log(`${signature.padEnd(66)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      if (options.insights) {
+        const number = globalFunctionIndex++;
+        functionWithNumbers.push({func, number});
+        console.log(`#${number.toString().padStart(2)}  ${signature.padEnd(62)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      } else {
+        console.log(`${signature.padEnd(66)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      }
     }
 
     console.log();
 
     // Perform similarity analysis for added functions only if insights are requested
     if (options.insights) {
-      await displaySimilarityAnalysisForAdded(fileFunctions, similarityManager);
+      await displaySimilarityAnalysisForAdded(functionWithNumbers, similarityManager);
     }
   }
 }
@@ -377,28 +390,41 @@ async function displayRemovedFunctionsWithSimilarity(
 
   // Group by file
   const functionsByFile = groupFunctionsByFile(functions);
+  let globalFunctionIndex = 1;
 
   for (const [filePath, fileFunctions] of functionsByFile) {
     console.log(chalk.bold(`📁 ${filePath} (${fileFunctions.length} functions removed)`));
     
     // Display function table header
-    console.log('Function Signature                                                CC   LOC');
-    console.log('────────────────────────────────────────────────────────────────── ──── ─────');
+    if (options.insights) {
+      console.log('No.  Function Signature                                           CC   LOC');
+      console.log('---- ────────────────────────────────────────────────────────────── ──── ─────');
+    } else {
+      console.log('Function Signature                                                CC   LOC');
+      console.log('────────────────────────────────────────────────────────────────── ──── ─────');
+    }
     
-    // Display each function
+    // Display each function with numbering for insights mode
+    const functionWithNumbers: Array<{func: FunctionInfo, number: number}> = [];
     for (const func of fileFunctions) {
       const signature = formatFunctionSignature(func);
       const cc = func.metrics?.cyclomaticComplexity || 0;
       const loc = func.metrics?.linesOfCode || 0;
       
-      console.log(`${signature.padEnd(66)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      if (options.insights) {
+        const number = globalFunctionIndex++;
+        functionWithNumbers.push({func, number});
+        console.log(`#${number.toString().padStart(2)}  ${signature.padEnd(62)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      } else {
+        console.log(`${signature.padEnd(66)} ${cc.toString().padStart(4)} ${loc.toString().padStart(5)}`);
+      }
     }
 
     console.log();
 
     // Perform similarity analysis for removed functions only if insights are requested
     if (options.insights) {
-      await displaySimilarityAnalysisForRemoved(fileFunctions, similarityManager);
+      await displaySimilarityAnalysisForRemoved(functionWithNumbers, similarityManager);
     }
   }
 }
@@ -413,15 +439,22 @@ async function displayModifiedFunctionsWithSimilarity(
 
   // Group by file
   const functionsByFile = groupFunctionChangesByFile(functions);
+  let globalFunctionIndex = 1;
 
   for (const [filePath, fileFunctions] of functionsByFile) {
     console.log(chalk.bold(`📁 ${filePath} (${fileFunctions.length} functions modified)`));
     
     // Display function table header
-    console.log('Function Signature                                                CC     LOC');
-    console.log('────────────────────────────────────────────────────────────────── ────── ─────');
+    if (options.insights) {
+      console.log('No.  Function Signature                                           CC     LOC');
+      console.log('---- ────────────────────────────────────────────────────────────── ────── ─────');
+    } else {
+      console.log('Function Signature                                                CC     LOC');
+      console.log('────────────────────────────────────────────────────────────────── ────── ─────');
+    }
     
-    // Display each function
+    // Display each function with numbering for insights mode
+    const functionWithNumbers: Array<{func: FunctionChange, number: number}> = [];
     for (const func of fileFunctions) {
       const signature = formatFunctionSignature(func.after);
       const ccBefore = func.before.metrics?.cyclomaticComplexity || 0;
@@ -432,14 +465,20 @@ async function displayModifiedFunctionsWithSimilarity(
       const ccChange = `${ccBefore}→${ccAfter}`;
       const locChange = `${locBefore}→${locAfter}`;
       
-      console.log(`${signature.padEnd(66)} ${ccChange.padStart(6)} ${locChange.padStart(5)}`);
+      if (options.insights) {
+        const number = globalFunctionIndex++;
+        functionWithNumbers.push({func, number});
+        console.log(`#${number.toString().padStart(2)}  ${signature.padEnd(62)} ${ccChange.padStart(6)} ${locChange.padStart(5)}`);
+      } else {
+        console.log(`${signature.padEnd(66)} ${ccChange.padStart(6)} ${locChange.padStart(5)}`);
+      }
     }
 
     console.log();
 
     // Perform similarity analysis for modified functions only if insights are requested
     if (options.insights) {
-      await displaySimilarityAnalysisForModified(fileFunctions, similarityManager);
+      await displaySimilarityAnalysisForModified(functionWithNumbers, similarityManager);
     }
   }
 }
@@ -449,23 +488,23 @@ async function displayModifiedFunctionsWithSimilarity(
 // ========================================
 
 async function displaySimilarityAnalysisForAdded(
-  functions: FunctionInfo[],
+  functionsWithNumbers: Array<{func: FunctionInfo, number: number}>,
   _similarityManager: SimilarityManager
 ): Promise<void> {
   console.log('Similar functions analysis:');
-  console.log('Function                              Sim%   Similar To                                        File                           Insight');
-  console.log('──────────────────────────────────── ────── ───────────────────────────────────────────────── ────────────────────────────── ──────────────────────');
+  console.log('No.  Function                         Sim%   Similar To                   File:Line                      Insight');
+  console.log('---- ────────────────────────────────── ────── ──────────────────────────── ────────────────────────────── ──────────────────────');
 
-  for (const func of functions) {
+  for (const {func, number} of functionsWithNumbers) {
     // TODO: Implement similarity detection for added functions
     // For now, show placeholder
     const hasNearDuplicate = Math.random() > 0.7; // Placeholder logic
     
     if (hasNearDuplicate) {
       const similarity = Math.floor(85 + Math.random() * 10);
-      console.log(`${func.name.substring(0, 36).padEnd(37)} ${similarity.toString().padStart(4)}%   ${'validateUserData(userData: UserData): boolean'.padEnd(47)} ${'src/utils/helpers.ts'.padEnd(30)} ${'Possible reinvention'.padEnd(21)}`);
+      console.log(`#${number.toString().padStart(2)}  ${func.name.substring(0, 32).padEnd(33)} ${similarity.toString().padStart(4)}%   ${'validateUserData'.padEnd(28)} ${'src/utils/helpers.ts:156'.padEnd(30)} ${'Possible reinvention'.padEnd(21)}`);
     } else {
-      console.log(`${func.name.substring(0, 36).padEnd(37)} ${'-'.padStart(4)}    ${'No similar functions found'.padEnd(47)} ${'-'.padEnd(30)} ${'✅ Unique implementation'.padEnd(21)}`);
+      console.log(`#${number.toString().padStart(2)}  ${func.name.substring(0, 32).padEnd(33)} ${'-'.padStart(4)}    ${'No similar functions found'.padEnd(28)} ${'-'.padEnd(30)} ${'✅ Unique implementation'.padEnd(21)}`);
     }
   }
 
@@ -473,40 +512,40 @@ async function displaySimilarityAnalysisForAdded(
 }
 
 async function displaySimilarityAnalysisForRemoved(
-  functions: FunctionInfo[],
+  functionsWithNumbers: Array<{func: FunctionInfo, number: number}>,
   _similarityManager: SimilarityManager
 ): Promise<void> {
   console.log('Remaining similar functions:');
-  console.log('Sim%   Function                                                  File                           Suggested Action');
-  console.log('────── ───────────────────────────────────────────────────────── ────────────────────────────── ──────────────────────');
+  console.log('No.  Sim%   Function                          File:Line                      Suggested Action');
+  console.log('---- ────── ────────────────────────────────────────── ────────────────────────────── ──────────────────────');
 
-  for (const _func of functions) {
+  for (const {number} of functionsWithNumbers) {
     // TODO: Implement similarity detection for remaining functions
     // For now, show placeholder for demonstration
     const similarity1 = Math.floor(80 + Math.random() * 10);
     const similarity2 = Math.floor(75 + Math.random() * 10);
     
-    console.log(`${similarity1.toString().padStart(4)}%   ${'checkInput(data: any): boolean'.padEnd(62)} ${'src/forms/validator.ts'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
-    console.log(`${similarity2.toString().padStart(4)}%   ${'validateForm(form: FormData): boolean'.padEnd(62)} ${'src/ui/forms.ts'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
+    console.log(`#${number.toString().padStart(2)}  ${similarity1.toString().padStart(4)}%   ${'checkInput'.padEnd(32)} ${'src/forms/validator.ts:23'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
+    console.log(`     ${similarity2.toString().padStart(4)}%   ${'validateForm'.padEnd(32)} ${'src/ui/forms.ts:89'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
   }
 
   console.log();
 }
 
 async function displaySimilarityAnalysisForModified(
-  functions: FunctionChange[],
+  functionsWithNumbers: Array<{func: FunctionChange, number: number}>,
   _similarityManager: SimilarityManager
 ): Promise<void> {
-  for (const func of functions) {
-    console.log(`Similarity changes for ${func.after.name}:`);
-    console.log('Timing   Sim%   Function                                         File                           Insight');
-    console.log('──────── ────── ──────────────────────────────────────────────── ────────────────────────────── ──────────────────────');
+  for (const {func, number} of functionsWithNumbers) {
+    console.log(`Similarity changes for #${number} ${func.after.name}:`);
+    console.log('Timing   Sim%   Function                          File:Line                      Insight');
+    console.log('──────── ────── ──────────────────────────────── ────────────────────────────── ──────────────────────');
 
     // TODO: Implement before/after similarity analysis
     // For now, show placeholder
-    console.log('Before    87%   calculateDiscount(amount: number, rate: number): number  src/pricing/discount.ts        Review for updates');
-    console.log('After     92%   calculateShipping(weight: number, distance: number): number  src/orders/shipping.ts         Consider merging');
-    console.log('After     84%   calculateFee(base: number): number               src/billing/fees.ts            Monitor changes');
+    console.log('Before    87%   calculateDiscount                 src/pricing/discount.ts:45     Review for updates');
+    console.log('After     92%   calculateShipping                 src/orders/shipping.ts:112     Consider merging');
+    console.log('After     84%   calculateFee                      src/billing/fees.ts:78         Monitor changes');
     console.log();
   }
 }
