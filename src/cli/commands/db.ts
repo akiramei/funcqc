@@ -76,7 +76,9 @@ async function listTables(env: CommandEnvironment): Promise<void> {
     
     console.log();
     console.log(chalk.gray('Usage: funcqc db --table <table_name> [options]'));
-    console.log(chalk.gray('Example: funcqc db --table snapshots --limit 5'));
+    console.log(chalk.gray('Examples:'));
+    console.log(chalk.gray('  funcqc db --table snapshots --limit 5'));
+    console.log(chalk.gray('  funcqc db --table source_contents --limit-all'));
   } catch (error) {
     throw new Error(`Failed to list tables: ${error instanceof Error ? error.message : String(error)}`);
   }
@@ -115,7 +117,7 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
     }
     
     // Add LIMIT with validation
-    const limit = validateAndParseLimit(options.limit);
+    const limit = validateAndParseLimit(options.limit, options.limitAll);
     if (limit > 0) {
       if (params.length > 0) {
         query += ` LIMIT $${params.length + 1}`;
@@ -249,7 +251,11 @@ function validateWhereClauseSafety(whereClause: string): void {
 /**
  * Validate and parse limit parameter
  */
-function validateAndParseLimit(limitStr?: string): number {
+function validateAndParseLimit(limitStr?: string, limitAll?: boolean): number {
+  if (limitAll) {
+    return 0; // No limit (0 means unlimited)
+  }
+  
   if (!limitStr) {
     return 10; // Default limit
   }
@@ -264,8 +270,8 @@ function validateAndParseLimit(limitStr?: string): number {
     throw new Error(`Invalid limit value: ${limit}. Must be non-negative.`);
   }
   
-  if (limit > 1000) {
-    throw new Error(`Limit too large: ${limit}. Maximum allowed is 1000.`);
+  if (limit > 10000) {
+    throw new Error(`Limit too large: ${limit}. Maximum allowed is 10000.`);
   }
   
   return limit;
@@ -288,7 +294,8 @@ function outputJSON(rows: unknown[], tableName: string): void {
  * Output query results as formatted table
  */
 function outputTable(rows: unknown[], tableName: string, limit: number): void {
-  console.log(chalk.cyan(`📊 Table: ${tableName} (showing ${rows.length} rows, limit: ${limit})`));
+  const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+  console.log(chalk.cyan(`📊 Table: ${tableName} (showing ${rows.length} rows, limit: ${limitDisplay})`));
   console.log();
   
   if (rows.length === 0) {
@@ -333,5 +340,5 @@ function outputTable(rows: unknown[], tableName: string, limit: number): void {
   }
   
   console.log();
-  console.log(chalk.gray(`💡 Use --json for complete data or --columns to select specific columns`));
+  console.log(chalk.gray(`💡 Use --json for complete data, --columns to select specific columns, or --limit-all for all rows`));
 }

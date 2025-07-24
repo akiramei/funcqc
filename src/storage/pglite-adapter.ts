@@ -41,6 +41,7 @@ import { EmbeddingOperations } from './modules/embedding-operations';
 import { RefactoringOperations } from './modules/refactoring-operations';
 import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
+import { SourceContentOperations } from './modules/source-content-operations';
 
 // Re-export DatabaseError for compatibility
 export { DatabaseError };
@@ -66,6 +67,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private refactoringOps: RefactoringOperations;
   private callEdgeOps: CallEdgeOperations;
   private utilityOps: UtilityOperations;
+  private sourceContentOps: SourceContentOperations;
   
   // Storage context shared by all modules
   private context: StorageContext;
@@ -97,6 +99,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.refactoringOps = new RefactoringOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.utilityOps = new UtilityOperations(this.context);
+    this.sourceContentOps = new SourceContentOperations(this.context);
   }
 
   /**
@@ -107,9 +110,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
     try {
       await this.databaseCore.initialize();
-      // kysely is now accessed through context in modules
+      // Verify Kysely is initialized
+      if (!this.context.kysely) {
+        throw new Error('Kysely was not initialized properly by DatabaseCore');
+      }
+      // Reinitialize modules with the updated context
+      this.sourceContentOps = new SourceContentOperations(this.context);
+      this.functionOps = new FunctionOperations(this.context);
+      this.utilityOps = new UtilityOperations(this.context);
+      
       this.isInitialized = true;
+      if (this.logger) {
+        this.logger.log('Storage adapter initialized successfully with N:1 design');
+      }
     } catch (error) {
+      if (this.logger) {
+        this.logger.error(`Storage initialization failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
         `Failed to initialize storage adapter: ${error instanceof Error ? error.message : String(error)}`,
@@ -126,7 +143,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     try {
       await this.databaseCore.lightweightInit();
-      // kysely is now accessed through context in modules
+      // Verify Kysely is initialized
+      if (!this.context.kysely) {
+        throw new Error('Kysely was not initialized properly by DatabaseCore');
+      }
+      // Reinitialize modules with the updated context
+      this.sourceContentOps = new SourceContentOperations(this.context);
+      this.functionOps = new FunctionOperations(this.context);
+      this.utilityOps = new UtilityOperations(this.context);
+      
       this.isInitialized = true;
     } catch (error) {
       throw new DatabaseError(
@@ -411,7 +436,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async extractFunctionSourceCode(functionId: string): Promise<string | null> {
     await this.ensureInitialized();
-    return this.functionOps.extractFunctionSourceCode(functionId);
+    return this.sourceContentOps.extractFunctionSourceCode(functionId);
   }
 
   // ========================================
@@ -612,6 +637,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<Map<string, string>> {
     await this.ensureInitialized();
+    
+    // TODO: N:1 design implementation - for now use legacy approach
     const mappedFiles = sourceFiles.map(file => ({
       id: file.id || '',
       filePath: file.filePath,
@@ -626,7 +653,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       importCount: file.importCount || 0,
       fileModifiedTime: file.fileModifiedTime || new Date(),
     }));
-    return this.utilityOps.saveSourceFiles(mappedFiles, snapshotId);
+    return this.sourceContentOps.saveSourceFiles(mappedFiles, snapshotId);
   }
 
   async getSourceFile(id: string): Promise<SourceFile | null> {
@@ -637,7 +664,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]> {
     await this.ensureInitialized();
-    const result = await this.utilityOps.getSourceFilesBySnapshot(snapshotId);
+    const result = await this.sourceContentOps.getSourceFilesBySnapshot(snapshotId);
     return result as unknown as SourceFile[];
   }
 
@@ -659,7 +686,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
     await this.ensureInitialized();
-    return this.utilityOps.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+    return this.sourceContentOps.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
   }
 
   // ========================================

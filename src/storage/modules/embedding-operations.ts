@@ -521,6 +521,7 @@ export class EmbeddingOperations implements StorageOperationModule {
       isStatic: row.is_static || false,
       accessModifier: (row.access_modifier as 'public' | 'private' | 'protected') || undefined,
       sourceCode: row.source_code || '',
+      sourceFileId: row.source_file_ref_id || '',
       parameters,
     };
   }

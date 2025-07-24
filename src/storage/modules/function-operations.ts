@@ -252,6 +252,7 @@ export class FunctionOperations implements StorageOperationModule {
    * Save functions using bulk insert
    */
   private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    
     // Prepare bulk insert data
     const functionRows = functions.map(func => ({
       id: func.id,
@@ -282,23 +283,13 @@ export class FunctionOperations implements StorageOperationModule {
       is_static: func.isStatic,
       access_modifier: func.accessModifier,
       source_code: func.sourceCode,
-      source_file_id: func.sourceFileId,
+      source_file_ref_id: func.sourceFileId,  // Maps to source_file_refs table
     }));
+    
 
     // Use direct SQL for bulk insert of functions
     for (const row of functionRows) {
-      await this.db.query(`
-        INSERT INTO functions (
-          id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
-          file_path, file_hash, start_line, end_line, start_column, end_column,
-          ast_hash, context_path, function_type, modifiers, nesting_level,
-          is_exported, is_async, is_generator, is_arrow_function,
-          is_method, is_constructor, is_static, access_modifier, source_code, source_file_id
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
-        )
-      `, [
+      const params = [
         row.id, row.semantic_id, row.content_id, row.snapshot_id, row.name,
         row.display_name, row.signature, row.signature_hash, row.file_path,
         row.file_hash, row.start_line, row.end_line, row.start_column,
@@ -306,8 +297,23 @@ export class FunctionOperations implements StorageOperationModule {
         row.modifiers, row.nesting_level, row.is_exported, row.is_async,
         row.is_generator, row.is_arrow_function, row.is_method,
         row.is_constructor, row.is_static, row.access_modifier, row.source_code,
-        row.source_file_id
-      ]);
+        row.source_file_ref_id
+      ];
+      
+      
+      await this.db.query(`
+        INSERT INTO functions (
+          id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
+          file_path, file_hash, start_line, end_line, start_column, end_column,
+          ast_hash, context_path, function_type, modifiers, nesting_level,
+          is_exported, is_async, is_generator, is_arrow_function,
+          is_method, is_constructor, is_static, access_modifier, source_code, source_file_ref_id
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
+        )
+      `, params);
+      
     }
 
     // Bulk insert parameters and metrics
@@ -336,7 +342,7 @@ export class FunctionOperations implements StorageOperationModule {
         ast_hash, context_path, function_type, modifiers, nesting_level,
         is_exported, is_async, is_generator, is_arrow_function,
         is_method, is_constructor, is_static, access_modifier,
-        source_code, source_file_id
+        source_code, source_file_ref_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
         $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
@@ -562,7 +568,7 @@ export class FunctionOperations implements StorageOperationModule {
       return `
         SELECT 
           f.id, f.name, f.file_path, f.start_line, f.end_line,
-          f.is_exported, f.is_async,
+          f.is_exported, f.is_async, f.source_file_ref_id,
           q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
@@ -576,7 +582,7 @@ export class FunctionOperations implements StorageOperationModule {
           f.start_column, f.end_column, f.ast_hash, f.context_path, f.function_type, 
           f.modifiers, f.nesting_level, f.is_exported, f.is_async, f.is_generator,
           f.is_arrow_function, f.is_method, f.is_constructor, f.is_static, 
-          f.access_modifier, f.source_code, f.created_at,
+          f.access_modifier, f.source_code, f.source_file_ref_id, f.created_at,
           q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
@@ -674,6 +680,7 @@ export class FunctionOperations implements StorageOperationModule {
       isStatic: row.is_static || false,
       ...(row.access_modifier ? { accessModifier: row.access_modifier as 'public' | 'private' | 'protected' } : {}),
       sourceCode: row.source_code || '',
+      ...(row.source_file_ref_id ? { sourceFileId: row.source_file_ref_id } : {}),
       parameters,
     };
 

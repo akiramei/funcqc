@@ -87,44 +87,51 @@ CREATE INDEX idx_refactoring_sessions_created_at ON refactoring_sessions(created
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- Source Files: Complete file content storage for enhanced analysis capabilities
+-- Source Contents: Deduplicated file content storage (N:1 design)
 -- -----------------------------------------------------------------------------
-CREATE TABLE source_files (
-  id TEXT PRIMARY KEY,                          -- File ID (UUID)
-  snapshot_id TEXT NOT NULL,                    -- Snapshot this file belongs to
-  file_path TEXT NOT NULL,                      -- Relative path from project root
-  file_content TEXT NOT NULL,                   -- Complete file source code
+CREATE TABLE source_contents (
+  id TEXT PRIMARY KEY,                          -- Content ID (hash_size composite)
+  content TEXT NOT NULL,                        -- Complete file source code
   file_hash TEXT NOT NULL,                      -- Content hash for deduplication
-  encoding TEXT DEFAULT 'utf-8',                -- File encoding
   file_size_bytes INTEGER NOT NULL,             -- Content size in bytes
   line_count INTEGER NOT NULL,                  -- Total lines in file
   language TEXT NOT NULL,                       -- Detected language (typescript, javascript, etc)
-  
-  -- Analysis metadata
-  function_count INTEGER DEFAULT 0,             -- Number of functions in this file
-  export_count INTEGER DEFAULT 0,               -- Number of exports
+  encoding TEXT DEFAULT 'utf-8',                -- File encoding
+  export_count INTEGER DEFAULT 0,               -- Number of exports 
   import_count INTEGER DEFAULT 0,               -- Number of imports
-  
-  -- Timestamps
-  file_modified_time TIMESTAMPTZ,               -- Original file modification time
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   
-  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+  UNIQUE(file_hash, file_size_bytes)            -- Ensure deduplication
 );
 
--- Indexes for source files
-CREATE INDEX idx_source_files_snapshot_id ON source_files(snapshot_id);
-CREATE INDEX idx_source_files_file_path ON source_files(file_path);
-CREATE INDEX idx_source_files_file_hash ON source_files(file_hash);
-CREATE INDEX idx_source_files_language ON source_files(language);
-CREATE INDEX idx_source_files_snapshot_path ON source_files(snapshot_id, file_path);
+-- Indexes for source contents
+CREATE INDEX idx_source_contents_file_hash ON source_contents(file_hash);
+CREATE INDEX idx_source_contents_language ON source_contents(language);
+CREATE INDEX idx_source_contents_created_at ON source_contents(created_at);
 
--- Hash-based deduplication index
-CREATE INDEX idx_source_files_hash_size ON source_files(file_hash, file_size_bytes);
+-- -----------------------------------------------------------------------------
+-- Source File References: Per-snapshot file references (N:1 design)
+-- -----------------------------------------------------------------------------
+CREATE TABLE source_file_refs (
+  id TEXT PRIMARY KEY,                          -- Reference ID (UUID)
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this reference belongs to
+  file_path TEXT NOT NULL,                      -- Relative path from project root
+  content_id TEXT NOT NULL,                     -- Reference to source_contents
+  file_modified_time TIMESTAMPTZ,               -- Original file modification time
+  function_count INTEGER DEFAULT 0,             -- Number of functions in this file
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (content_id) REFERENCES source_contents(id) ON DELETE RESTRICT,
+  
+  UNIQUE(snapshot_id, file_path)                -- One reference per file per snapshot
+);
 
--- Performance indexes for file queries
-CREATE INDEX idx_source_files_function_count ON source_files(function_count);
-CREATE INDEX idx_source_files_created_at ON source_files(created_at);
+-- Indexes for source file references
+CREATE INDEX idx_source_file_refs_snapshot_id ON source_file_refs(snapshot_id);
+CREATE INDEX idx_source_file_refs_file_path ON source_file_refs(file_path);
+CREATE INDEX idx_source_file_refs_content_id ON source_file_refs(content_id);
+CREATE INDEX idx_source_file_refs_function_count ON source_file_refs(function_count);
 
 -- -----------------------------------------------------------------------------
 -- Functions: Core function information with 3-dimensional identification
@@ -170,11 +177,11 @@ CREATE TABLE functions (
   file_hash TEXT NOT NULL,               -- ファイル内容のハッシュ
   file_content_hash TEXT,                -- ファイル変更検出高速化用
   
-  -- File relationship (New)
-  source_file_id TEXT,                   -- Reference to source_files table
+  -- File relationship (N:1 design)
+  source_file_ref_id TEXT,               -- Reference to source_file_refs table
   
   FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
-  FOREIGN KEY (source_file_id) REFERENCES source_files(id) ON DELETE SET NULL
+  FOREIGN KEY (source_file_ref_id) REFERENCES source_file_refs(id) ON DELETE SET NULL
 );
 
 -- 3次元識別に最適化されたインデックス
@@ -194,11 +201,8 @@ CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_
 CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
 CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
 
--- 重複検出用インデックス
-CREATE INDEX idx_content_duplication ON functions(content_id, snapshot_id);
-
--- File relationship index
-CREATE INDEX idx_functions_source_file_id ON functions(source_file_id);
+-- File relationship indexes (N:1 design)
+CREATE INDEX idx_functions_source_file_ref_id ON functions(source_file_ref_id);
 
 -- -----------------------------------------------------------------------------
 -- Function Descriptions: Semantic-based function documentation

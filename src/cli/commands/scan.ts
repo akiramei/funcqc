@@ -113,30 +113,35 @@ async function saveSourceFilesWithDeduplication(
 ): Promise<{ snapshotId: string; sourceFileIdMap: Map<string, string> }> {
   spinner.start('Checking for existing source files...');
   
-  // Check for existing source files and update IDs
-  const newSourceFiles: import('../../types').SourceFile[] = [];
-  const sourceFileIdMap = new Map<string, string>(); // filePath -> sourceFileId
+  // All files are saved as new records for each snapshot (correct behavior)
+  spinner.succeed(`Processing ${sourceFiles.length} files for snapshot`);
   
-  for (const sourceFile of sourceFiles) {
-    const existingId = await storage.findExistingSourceFile(sourceFile.id);
-    
-    if (existingId) {
-      // File already exists, use existing ID (same as sourceFile.id due to composite ID)
-      sourceFileIdMap.set(sourceFile.filePath, existingId);
-      // Reuse existing file (silent operation for cleaner output)
-    } else {
-      // New file, will be created
-      newSourceFiles.push(sourceFile);
-      sourceFileIdMap.set(sourceFile.filePath, sourceFile.id);
-    }
+  const snapshotId = await saveSourceFiles(sourceFiles, storage, options, spinner, configHash);
+  
+  // Get source file IDs for all files
+  const sourceFileIdMap = await getSourceFileIdMapping(storage, snapshotId);
+  
+  return { snapshotId, sourceFileIdMap };
+}
+
+/**
+ * Get source file ID mapping: filePath -> source_files.id
+ */
+async function getSourceFileIdMapping(
+  storage: CliComponents['storage'],
+  snapshotId: string
+): Promise<Map<string, string>> {
+  const resultMap = new Map<string, string>();
+  
+  // Get all source files for this snapshot
+  const savedSourceFiles = await storage.getSourceFilesBySnapshot(snapshotId);
+  
+  // Create mapping from filePath to source_files.id
+  for (const file of savedSourceFiles) {
+    resultMap.set(file.filePath, file.id);
   }
   
-  spinner.succeed(`Found ${newSourceFiles.length} new files, ${sourceFiles.length - newSourceFiles.length} existing files`);
-  
-  const snapshotId = await saveSourceFiles(newSourceFiles, storage, options, spinner, configHash);
-  
-  // Return both snapshotId and sourceFileIdMap for use in analysis
-  return { snapshotId, sourceFileIdMap };
+  return resultMap;
 }
 
 /**
@@ -212,8 +217,13 @@ export async function performBasicAnalysis(
       // Calculate metrics and set source file ID
       for (const func of functions) {
         func.metrics = components.qualityCalculator.calculate(func);
-        // Use sourceFileIdMap if available, otherwise fall back to sourceFile.id
-        func.sourceFileId = sourceFileIdMap?.get(func.filePath) || sourceFile.id;
+        // Use sourceFileIdMap from N:1 design (must exist)
+        const mappedId = sourceFileIdMap?.get(func.filePath);
+        if (!mappedId) {
+          throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
+        }
+        func.sourceFileId = mappedId;
+        
       }
       
       allFunctions.push(...functions);
@@ -691,11 +701,10 @@ async function collectSourceFiles(
       // Calculate file hash for deduplication
       const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
       
-      // Generate composite ID for collision resistance
-      // Format: {fileHash}_{fileSizeBytes}_{modifiedTimeMs}
+      // Generate content ID for deduplication
+      // Format: {fileHash}_{fileSizeBytes}
       const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
-      const modifiedTimeMs = fileStats.mtime.getTime();
-      const compositeId = `${fileHash}_${fileSizeBytes}_${modifiedTimeMs}`;
+      const contentId = `${fileHash}_${fileSizeBytes}`;
       
       // Count lines
       const lineCount = fileContent.split('\n').length;
@@ -708,7 +717,7 @@ async function collectSourceFiles(
       const importCount = (fileContent.match(/^import\s+/gm) || []).length;
       
       const sourceFile: import('../../types').SourceFile = {
-        id: compositeId, // Use composite ID for collision-resistant deduplication
+        id: contentId, // Use content ID for deduplication
         snapshotId: '', // Will be set when saved
         filePath: relativePath,
         fileContent,

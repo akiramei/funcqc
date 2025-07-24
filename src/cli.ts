@@ -668,7 +668,8 @@ program
   .description('Inspect database contents for debugging and testing')
   .option('--list', 'list all available tables')
   .option('--table <name>', 'table name to query')
-  .option('--limit <num>', 'limit number of rows (default: 10, max: 1000)')
+  .option('--limit <num>', 'limit number of rows (default: 10, max: 10000)')
+  .option('--limit-all', 'get all rows (no limit)')
   .option('--where <condition>', 'simple WHERE condition (e.g., "id = \'abc123\'")')
   .option('--columns <list>', 'comma-separated list of columns to select')
   .option('--json', 'output as JSON')
@@ -684,6 +685,9 @@ Examples:
   
   # Show recent snapshots
   $ funcqc db --table snapshots --limit 5
+  
+  # Show all source contents (no limit)
+  $ funcqc db --table source_contents --limit-all
   
   # Query specific columns
   $ funcqc db --table functions --columns "id,name,file_path" --limit 10

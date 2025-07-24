@@ -568,10 +568,18 @@ export class UtilityOperations implements StorageOperationModule {
 
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
     for (const [filePath, count] of functionCountByFile.entries()) {
+      // Update the source file that functions actually reference, not by snapshot_id
+      // Since source files are deduplicated, we need to find the actual source_file_id
+      // that functions in this snapshot are referencing for this file path
       await this.db.query(`
         UPDATE source_files 
         SET function_count = $1 
-        WHERE file_path = $2 AND snapshot_id = $3
+        WHERE id = (
+          SELECT DISTINCT f.source_file_id 
+          FROM functions f 
+          WHERE f.file_path = $2 AND f.snapshot_id = $3 
+          LIMIT 1
+        )
       `, [count, filePath, snapshotId]);
     }
   }
@@ -599,5 +607,49 @@ export class UtilityOperations implements StorageOperationModule {
   async restore(_backupData: string): Promise<void> {
     // This is a stub - actual implementation would restore the database
     return;
+  }
+
+  /**
+   * Extract function source code from source files
+   */
+  async extractFunctionSourceCode(functionId: string): Promise<string | null> {
+    try {
+      // Get function info with source file
+      const result = await this.db.query(`
+        SELECT 
+          f.start_line,
+          f.end_line,
+          f.start_column,
+          f.end_column,
+          sf.file_content
+        FROM functions f
+        JOIN source_files sf ON f.source_file_id = sf.id
+        WHERE f.id = $1
+      `, [functionId]);
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      const row = result.rows[0] as {
+        start_line: number;
+        end_line: number;
+        start_column: number;
+        end_column: number;
+        file_content: string;
+      };
+      
+      // Extract source code from content
+      return this.extractSourceFromContent(
+        row.file_content,
+        row.start_line,
+        row.end_line,
+        row.start_column,
+        row.end_column
+      );
+    } catch (error) {
+      this.logger?.error(`Failed to extract function source code: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 }

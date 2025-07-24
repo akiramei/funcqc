@@ -194,6 +194,30 @@ export interface SourceFile {
   createdAt: Date; // Database creation timestamp
 }
 
+// New interfaces for N:1 design
+export interface SourceContent {
+  id: string; // Content ID: "${fileHash}_${fileSizeBytes}"
+  content: string; // Complete file source code
+  fileHash: string; // SHA-256 hash of content
+  fileSizeBytes: number; // Content size in bytes
+  lineCount: number; // Total lines in content
+  language: string; // Detected language
+  encoding: string; // File encoding
+  exportCount: number; // Number of exports
+  importCount: number; // Number of imports
+  createdAt: Date; // Database creation timestamp
+}
+
+export interface SourceFileRef {
+  id: string; // Reference ID (UUID)
+  snapshotId: string; // Snapshot this reference belongs to
+  filePath: string; // Relative path from project root
+  contentId: string; // Reference to source_contents
+  fileModifiedTime?: Date; // Original file modification time
+  functionCount: number; // Number of functions in this file for this snapshot
+  createdAt: Date; // Database creation timestamp
+}
+
 export interface ParameterInfo {
   name: string;
   type: string;
@@ -543,6 +567,7 @@ export interface ExplainCommandOptions extends CommandOptions {
 export interface DbCommandOptions extends CommandOptions {
   table?: string; // Table name to query
   limit?: string; // Limit number of rows
+  limitAll?: boolean; // Get all rows (no limit)
   where?: string; // Simple WHERE condition
   columns?: string; // Columns to select (comma-separated)
   json?: boolean; // JSON output

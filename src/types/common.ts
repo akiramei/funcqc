@@ -99,6 +99,7 @@ export interface FunctionRow {
   access_modifier?: 'public' | 'private' | 'protected';
   js_doc?: string;
   source_code?: string;
+  source_file_ref_id?: string;  // Reference to source_file_refs table
 }
 
 export interface ParameterRow {
