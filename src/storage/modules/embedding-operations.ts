@@ -511,9 +511,7 @@ export class EmbeddingOperations implements StorageOperationModule {
       astHash: row.ast_hash,
       contextPath: row.context_path || [],
       functionType: (row.function_type as 'function' | 'method' | 'arrow' | 'local') || 'function',
-      modifiers: Array.isArray(row.modifiers) 
-        ? row.modifiers 
-        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
+      modifiers: this.parseModifiers(row.modifiers),
       nestingLevel: row.nesting_level || 0,
       isExported: row.is_exported || false,
       isAsync: row.is_async || false,
@@ -526,5 +524,14 @@ export class EmbeddingOperations implements StorageOperationModule {
       sourceCode: row.source_code || '',
       parameters,
     };
+  }
+
+  /**
+   * Parse modifiers from database row data
+   */
+  private parseModifiers(modifiers: unknown): string[] {
+    if (Array.isArray(modifiers)) return modifiers;
+    if (typeof modifiers === 'string') return modifiers.split(',');
+    return [];
   }
 }

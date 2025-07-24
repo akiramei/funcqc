@@ -13,6 +13,15 @@ import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
 
+/**
+ * Default values for changeset operations
+ */
+const DEFAULT_CHANGESET_VALUES = {
+  operationType: 'update',
+  status: 'draft',
+  confidenceScore: 0.5,
+} as const;
+
 interface RefactoringSessionRow {
   id: string;
   name: string;
@@ -276,13 +285,13 @@ export class RefactoringOperations implements StorageOperationModule {
       `, [
         changeset.id,
         changeset.sessionId,
-        changeset.operationType || 'update',
+        changeset.operationType || DEFAULT_CHANGESET_VALUES.operationType,
         changeset.parentFunctionId || '',
         changeset.beforeSnapshotId,
         changeset.afterSnapshotId || null,
-        `${changeset.operationType} operation`,
-        'draft',
-        0.5,
+        `${changeset.operationType || DEFAULT_CHANGESET_VALUES.operationType} operation`,
+        DEFAULT_CHANGESET_VALUES.status,
+        DEFAULT_CHANGESET_VALUES.confidenceScore,
         JSON.stringify({}),
         JSON.stringify({}),
         changeset.createdAt ? new Date(changeset.createdAt).toISOString() : new Date().toISOString(),

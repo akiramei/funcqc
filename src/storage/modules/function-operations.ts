@@ -22,12 +22,8 @@ import {
 
 export class FunctionOperations implements StorageOperationModule {
   readonly db;
+  readonly kysely;
   private logger;
-  
-  // Access kysely dynamically through context
-  private get kysely() {
-    return this.context.kysely;
-  }
 
   // Field mappings for query building
   private readonly fieldMapping = new Map([
@@ -71,8 +67,9 @@ export class FunctionOperations implements StorageOperationModule {
     ['display_name', 'f.display_name'],
   ]);
 
-  constructor(private context: StorageContext) {
+  constructor(context: StorageContext) {
     this.db = context.db;
+    this.kysely = context.kysely;
     this.logger = context.logger;
   }
 
@@ -861,10 +858,23 @@ export class FunctionOperations implements StorageOperationModule {
     );
   }
 
-  async extractFunctionSourceCode(_functionId: string): Promise<string | null> {
-    // This would require reading the actual source file
-    // For now, return null as placeholder
-    return null;
+  async extractFunctionSourceCode(functionId: string): Promise<string | null> {
+    try {
+      const result = await this.db.query(
+        'SELECT source_code FROM functions WHERE id = $1 LIMIT 1',
+        [functionId]
+      );
+      
+      if (result.rows.length === 0) {
+        return null;
+      }
+      
+      const row = result.rows[0] as { source_code?: string };
+      return row.source_code || null;
+    } catch (error) {
+      this.logger?.error(`Failed to extract function source code: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   async saveFunctionDescription(description: {

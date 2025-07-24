@@ -16,13 +16,13 @@ import { StorageContext, StorageOperationModule } from './types';
 
 export class SnapshotOperations implements StorageOperationModule {
   readonly db;
+  readonly kysely;
   private git;
   private logger;
-  
-  // Unused kysely access removed
 
   constructor(context: StorageContext) {
     this.db = context.db;
+    this.kysely = context.kysely;
     this.git = context.git;
     this.logger = context.logger;
   }
