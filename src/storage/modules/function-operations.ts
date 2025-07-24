@@ -534,15 +534,20 @@ export class FunctionOperations implements StorageOperationModule {
       [functionId]
     );
 
-    return (result.rows as ParameterRow[]).map((row) => ({
-      name: row.name,
-      type: row.type || 'unknown',
-      typeSimple: row.type_simple || 'unknown',
-      position: row.position || 0,
-      isOptional: row.is_optional || false,
-      isRest: row.is_rest || false,
-      defaultValue: row.default_value || undefined,
-    }));
+    return (result.rows as ParameterRow[]).map((row) => {
+      const param: ParameterInfo = {
+        name: row.name,
+        type: row.type || 'unknown',
+        typeSimple: row.type_simple || 'unknown',
+        position: row.position || 0,
+        isOptional: row.is_optional || false,
+        isRest: row.is_rest || false,
+      };
+      if (row.default_value) {
+        param.defaultValue = row.default_value;
+      }
+      return param;
+    });
   }
 
   /**
@@ -928,7 +933,7 @@ export class FunctionOperations implements StorageOperationModule {
       contentId: row.content_id,
       needsUpdate: row.needs_update,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date()
+      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
     };
   }
 
@@ -957,15 +962,20 @@ export class FunctionOperations implements StorageOperationModule {
       [row.id]
     );
     
-    const parameters = (parametersResult.rows as ParameterRow[]).map((param) => ({
-      name: param.name,
-      type: param.type || 'unknown',
-      typeSimple: param.type_simple || 'unknown',
-      position: param.position,
-      isOptional: param.is_optional,
-      isRest: param.is_rest || false,
-      defaultValue: param.default_value || undefined
-    }));
+    const parameters = (parametersResult.rows as ParameterRow[]).map((param) => {
+      const p: ParameterInfo = {
+        name: param.name,
+        type: param.type || 'unknown',
+        typeSimple: param.type_simple || 'unknown',
+        position: param.position,
+        isOptional: param.is_optional,
+        isRest: param.is_rest || false,
+      };
+      if (param.default_value) {
+        p.defaultValue = param.default_value;
+      }
+      return p;
+    });
 
     return {
       id: row.id,
@@ -993,8 +1003,8 @@ export class FunctionOperations implements StorageOperationModule {
         ? row.modifiers 
         : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
       parameters,
-      jsDoc: row.js_doc,
-      sourceCode: row.source_code,
+      ...(row.js_doc ? { jsDoc: row.js_doc } : {}),
+      ...(row.source_code ? { sourceCode: row.source_code } : {}),
       ...(row.cyclomatic_complexity ? {
         metrics: {
           cyclomaticComplexity: row.cyclomatic_complexity,
