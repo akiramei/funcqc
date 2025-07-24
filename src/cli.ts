@@ -244,6 +244,7 @@ program
   .option('--author <name>', 'filter by commit author')
   .option('--branch <name>', 'filter by git branch')
   .option('--label <text>', 'filter by snapshot label')
+  .option('--scope <name>', 'filter by analysis scope (src, test, etc.)')
   .option('--json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');

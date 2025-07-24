@@ -89,7 +89,6 @@ export class SourceContentOperations implements StorageOperationModule {
         .execute();
 
       resultMap.set(file.filePath, refId);
-      this.logger?.log(`Created file reference: ${file.filePath} -> ${refId}`);
     }
 
     return resultMap;

@@ -120,9 +120,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.utilityOps = new UtilityOperations(this.context);
       
       this.isInitialized = true;
-      if (this.logger) {
-        this.logger.log('Storage adapter initialized successfully with N:1 design');
-      }
     } catch (error) {
       if (this.logger) {
         this.logger.error(`Storage initialization failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -283,6 +280,14 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
     if (!toSnapshot) {
       throw new Error(`Snapshot ${toId} not found`);
+    }
+
+    // Warn if comparing snapshots with different scopes
+    if (fromSnapshot.scope !== toSnapshot.scope) {
+      console.warn(`⚠️  Warning: Comparing snapshots with different scopes:`);
+      console.warn(`   From: ${fromSnapshot.scope} (${fromSnapshot.metadata.totalFunctions} functions)`);
+      console.warn(`   To: ${toSnapshot.scope} (${toSnapshot.metadata.totalFunctions} functions)`);
+      console.warn(`   This comparison may not be meaningful.`);
     }
     
     // Get functions for both snapshots

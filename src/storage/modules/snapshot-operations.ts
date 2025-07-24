@@ -361,7 +361,6 @@ export class SnapshotOperations implements StorageOperationModule {
         [JSON.stringify(metadata), snapshotId]
       );
       
-      this.logger?.log(`Recalculated metadata for snapshot ${snapshotId}`);
     } catch (error) {
       this.logger?.warn(`Failed to recalculate snapshot metadata: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -79,6 +79,10 @@ function applySnapshotFilters(
     filtered = filtered.filter(s => s.label?.includes(options.label!));
   }
 
+  if (options.scope) {
+    filtered = filtered.filter(s => (s.scope || 'src') === options.scope);
+  }
+
   return filtered;
 }
 
@@ -121,7 +125,8 @@ function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
     snapshots: snapshots.map(snapshot => ({
       id: snapshot.id,
       label: snapshot.label || null,
-      comment: snapshot.comment || null,
+      comment: snapshot.comment || null,     
+      scope: snapshot.scope || 'src',
       createdAt: new Date(snapshot.createdAt).toISOString(),
       gitBranch: snapshot.gitBranch || null,
       gitCommit: snapshot.gitCommit || null,
@@ -178,29 +183,30 @@ function truncateWithEllipsis(str: string, maxLength: number): string {
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log(
-    'ID       Created       Label               Functions +/-      Files +/-    Size'
+    'ID       Created       Scope Label               Functions +/-      Files +/-    Size'
   );
   console.log(
-    '-------- ------------- ------------------- --------- -------- ----- ------ ----------'
+    '-------- ------------- ----- ------------------- --------- -------- ----- ------ ----------'
   );
 
   // Display each snapshot
   for (let i = 0; i < snapshots.length; i++) {
     const snapshot = snapshots[i];
-    const prevSnapshot = i < snapshots.length - 1 ? snapshots[i + 1] : null;
+    const prevSnapshot = findPreviousSnapshotWithSameScope(snapshots, i);
 
     const id = formatSnapshotIdForDisplay(snapshot.id);
     const created = formatRelativeDate(snapshot.createdAt).padEnd(13);
+    const scope = (snapshot.scope || 'src').padEnd(5);
     const label = truncateWithEllipsis(snapshot.label || '', 19).padEnd(19);
 
-    // Functions with diff
+    // Functions with diff (only compare with same scope)
     const currentFunctions = snapshot.metadata.totalFunctions;
     const prevFunctions = prevSnapshot?.metadata.totalFunctions || 0;
     const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
     const functionsDisplay = currentFunctions.toString().padStart(9);
     const functionsDiffDisplay = formatDiffValue(functionDiff, 8);
 
-    // Files count
+    // Files count (only compare with same scope)
     const currentFiles = snapshot.metadata.totalFiles;
     const prevFiles = prevSnapshot?.metadata.totalFiles || 0;
     const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
@@ -211,7 +217,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const sizeDisplay = formatSizeDisplay(snapshot.metadata);
 
     console.log(
-      `${id} ${created} ${label} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
+      `${id} ${created} ${scope} ${label} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
     );
   }
 }
@@ -222,7 +228,7 @@ async function displayDetailedHistory(
 ): Promise<void> {
   for (let i = 0; i < snapshots.length; i++) {
     const snapshot = snapshots[i];
-    const prevSnapshot = snapshots[i + 1];
+    const prevSnapshot = findPreviousSnapshotWithSameScope(snapshots, i);
 
     // Display basic snapshot info
     displaySnapshotInfo(snapshot);
@@ -231,7 +237,7 @@ async function displayDetailedHistory(
     console.log(`   Functions: ${snapshot.metadata.totalFunctions}`);
     console.log(`   Files: ${snapshot.metadata.totalFiles}`);
 
-    // Display changes since previous
+    // Display changes since previous (only if same scope)
     if (prevSnapshot) {
       await displaySnapshotChanges(prevSnapshot.id, snapshot.id, env);
     }
@@ -247,6 +253,7 @@ function displaySnapshotInfo(snapshot: SnapshotInfo): void {
     `   Comment: ${snapshot.comment ? chalk.green(snapshot.comment) : chalk.gray('(none)')}`
   );
   console.log(`   Created: ${formatDate(snapshot.createdAt)}`);
+  console.log(`   Scope: ${chalk.cyan(snapshot.scope || 'src')}`);
 
   if (snapshot.gitBranch) {
     console.log(
@@ -393,6 +400,26 @@ function formatDate(timestamp: number): string {
 
   // More than 7 days ago - show date
   return date.toLocaleDateString();
+}
+
+/**
+ * Find the previous snapshot with the same scope
+ */
+function findPreviousSnapshotWithSameScope(snapshots: SnapshotInfo[], currentIndex: number): SnapshotInfo | null {
+  const currentSnapshot = snapshots[currentIndex];
+  const currentScope = currentSnapshot.scope || 'src';
+  
+  // Look for the next snapshot (older) with the same scope
+  for (let i = currentIndex + 1; i < snapshots.length; i++) {
+    const candidateSnapshot = snapshots[i];
+    const candidateScope = candidateSnapshot.scope || 'src';
+    
+    if (candidateScope === currentScope) {
+      return candidateSnapshot;
+    }
+  }
+  
+  return null;
 }
 
 
