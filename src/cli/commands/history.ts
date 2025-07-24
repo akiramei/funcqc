@@ -437,10 +437,10 @@ async function displayFunctionHistory(
   const limit = options.limit ? parseInt(options.limit) : 20;
   const includeAbsent = options.all || false;
 
-  // Use the new efficient method
+  // Use the function history method
   const history = await env.storage.getFunctionHistory(functionId, {
-    limit: limit * 2, // Get more to allow for filtering
-    includeAbsent,
+    limit: limit * 2,
+    includeAbsent
   });
 
   if (history.length === 0) {

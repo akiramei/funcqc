@@ -192,13 +192,14 @@ export async function down(db: Kysely<Record<string, unknown>>): Promise<void> {
   describe('エラーハンドリングテスト', () => {
     it('should handle invalid migration gracefully', async () => {
       // 不正なマイグレーションファイルを作成
+      const invalidType = 'INVALID_TYPE';
       const invalidMigrationContent = `
 import { Kysely } from 'kysely';
 
 export async function up(db: Kysely<Record<string, unknown>>): Promise<void> {
   await db.schema
     .createTable('invalid_table')
-    .addColumn('id', 'INVALID_TYPE')  // 無効な型
+    .addColumn('id', '${invalidType}')  // 無効な型
     .execute();
 }
 
