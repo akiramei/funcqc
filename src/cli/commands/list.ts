@@ -154,8 +154,8 @@ function outputFormatted(
   }
 
   // Table format with headers including ID column
-  console.log('ID       Name                            CC LOC File                                     Location');
-  console.log('-------- ------------------------------- -- --- ---------------------------------------- --------');
+  console.log('ID       Name                            CC LOC File                                     Line');
+  console.log('-------- ------------------------------- -- --- ---------------------------------------- ----');
 
   functions.forEach(func => {
     const id = func.id.substring(0, 8);
@@ -163,9 +163,9 @@ function outputFormatted(
     const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
     const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
     const file = truncateString(func.filePath, 40).padEnd(40);
-    const location = `${func.startLine}-${func.endLine}`;
+    const line = func.startLine.toString().padStart(4);
     
-    console.log(`${id} ${name} ${cc} ${loc} ${file} ${location}`);
+    console.log(`${id} ${name} ${cc} ${loc} ${file} ${line}`);
   });
 }
 
