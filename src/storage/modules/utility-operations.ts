@@ -3,6 +3,7 @@
  * Contains helper functions and common utilities
  */
 
+import { randomUUID } from 'crypto';
 import { StorageContext, StorageOperationModule } from './types';
 
 export class UtilityOperations implements StorageOperationModule {
@@ -90,8 +91,7 @@ export class UtilityOperations implements StorageOperationModule {
    * Generate a unique identifier
    */
   generateId(): string {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require('crypto').randomUUID();
+    return randomUUID();
   }
 
   /**
@@ -504,10 +504,10 @@ export class UtilityOperations implements StorageOperationModule {
   }
 
   async deleteSourceFiles(snapshotId: string): Promise<number> {
-    await this.db.query('DELETE FROM source_files WHERE snapshot_id = $1', [snapshotId]);
+    const result = await this.db.query('DELETE FROM source_files WHERE snapshot_id = $1', [snapshotId]);
     
-    // Return 0 for now since PGLite doesn't return affected rows count easily
-    return 0;
+    // Try to get the changes count from the result
+    return (result as unknown as { changes?: number }).changes || 0;
   }
 
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {

@@ -193,16 +193,25 @@ export class LineageOperations implements StorageOperationModule {
   /**
    * Update lineage status
    */
-  async updateLineageStatus(id: string, status: LineageStatus, _note?: string): Promise<void> {
+  async updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void> {
     if (!this.statusValues.has(status)) {
       throw new Error(`Invalid status: ${status}. Must be one of: draft, confirmed, final, approved`);
     }
 
     try {
-      const result = await this.db.query(
-        'UPDATE lineages SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
-        [status, id]
-      );
+      let sql = 'UPDATE lineages SET status = $1';
+      const params: unknown[] = [status];
+      let paramIndex = 2;
+      
+      if (note !== undefined) {
+        sql += ', note = $' + paramIndex++;
+        params.push(note);
+      }
+      
+      sql += ', updated_at = CURRENT_TIMESTAMP WHERE id = $' + paramIndex;
+      params.push(id);
+      
+      const result = await this.db.query(sql, params);
       const changes = (result as unknown as { changes: number }).changes;
       if (changes === 0) {
         throw new Error(`Lineage with ID ${id} not found`);

@@ -300,10 +300,71 @@ export class SnapshotOperations implements StorageOperationModule {
     );
   }
 
-  private async recalculateSnapshotMetadata(_snapshotId: string): Promise<void> {
-    // This method needs access to function operations, so it will be implemented
-    // in the main adapter that coordinates between modules
-    this.logger?.warn('recalculateSnapshotMetadata needs to be implemented in main adapter');
+  private async recalculateSnapshotMetadata(snapshotId: string): Promise<void> {
+    try {
+      // Get functions for this snapshot to recalculate metadata
+      const functionsResult = await this.db.query(
+        'SELECT * FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      
+      const functions = functionsResult.rows.map(row => {
+        const functionRow = row as {
+          file_path: string;
+          metrics?: string;
+          is_exported?: boolean;
+          is_async?: boolean;
+        };
+        
+        const metrics = functionRow.metrics ? JSON.parse(functionRow.metrics) : {};
+        return {
+          filePath: functionRow.file_path,
+          metrics: {
+            cyclomaticComplexity: metrics.cyclomaticComplexity || 1
+          },
+          isExported: functionRow.is_exported || false,
+          isAsync: functionRow.is_async || false
+        };
+      });
+      
+      // Calculate basic metadata directly from the simplified function data
+      const fileSet = new Set<string>();
+      let totalComplexity = 0;
+      let maxComplexity = 0;
+      let exportedFunctions = 0;
+      let asyncFunctions = 0;
+      
+      for (const func of functions) {
+        fileSet.add(func.filePath);
+        const funcComplexity = func.metrics?.cyclomaticComplexity || 1;
+        totalComplexity += funcComplexity;
+        maxComplexity = Math.max(maxComplexity, funcComplexity);
+        
+        if (func.isExported) exportedFunctions++;
+        if (func.isAsync) asyncFunctions++;
+      }
+      
+      const metadata = {
+        totalFunctions: functions.length,
+        totalFiles: fileSet.size,
+        avgComplexity: functions.length > 0 ? totalComplexity / functions.length : 0,
+        maxComplexity,
+        exportedFunctions,
+        asyncFunctions,
+        complexityDistribution: {} as Record<number, number>,
+        fileExtensions: {} as Record<string, number>,
+      };
+      
+      // Update the snapshot metadata
+      await this.db.query(
+        'UPDATE snapshots SET metadata = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [JSON.stringify(metadata), snapshotId]
+      );
+      
+      this.logger?.log(`Recalculated metadata for snapshot ${snapshotId}`);
+    } catch (error) {
+      this.logger?.warn(`Failed to recalculate snapshot metadata: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private createInitialMetadata(_analysisLevel?: string): SnapshotMetadata {
