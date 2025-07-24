@@ -282,6 +282,7 @@ export class FunctionOperations implements StorageOperationModule {
       is_static: func.isStatic,
       access_modifier: func.accessModifier,
       source_code: func.sourceCode,
+      source_file_id: func.sourceFileId,
     }));
 
     // Use direct SQL for bulk insert of functions
@@ -292,10 +293,10 @@ export class FunctionOperations implements StorageOperationModule {
           file_path, file_hash, start_line, end_line, start_column, end_column,
           ast_hash, context_path, function_type, modifiers, nesting_level,
           is_exported, is_async, is_generator, is_arrow_function,
-          is_method, is_constructor, is_static, access_modifier, source_code
+          is_method, is_constructor, is_static, access_modifier, source_code, source_file_id
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
         )
       `, [
         row.id, row.semantic_id, row.content_id, row.snapshot_id, row.name,
@@ -304,7 +305,8 @@ export class FunctionOperations implements StorageOperationModule {
         row.end_column, row.ast_hash, row.context_path, row.function_type,
         row.modifiers, row.nesting_level, row.is_exported, row.is_async,
         row.is_generator, row.is_arrow_function, row.is_method,
-        row.is_constructor, row.is_static, row.access_modifier, row.source_code
+        row.is_constructor, row.is_static, row.access_modifier, row.source_code,
+        row.source_file_id
       ]);
     }
 
@@ -334,10 +336,10 @@ export class FunctionOperations implements StorageOperationModule {
         ast_hash, context_path, function_type, modifiers, nesting_level,
         is_exported, is_async, is_generator, is_arrow_function,
         is_method, is_constructor, is_static, access_modifier,
-        source_code
+        source_code, source_file_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28
+        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
       )
       `,
       [
@@ -369,6 +371,7 @@ export class FunctionOperations implements StorageOperationModule {
         func.isStatic,
         func.accessModifier,
         func.sourceCode,
+        func.sourceFileId,
       ]
     );
   }

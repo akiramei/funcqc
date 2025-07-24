@@ -455,37 +455,48 @@ export class UtilityOperations implements StorageOperationModule {
     };
   }
 
-  async getSourceFilesBySnapshot(snapshotId: string): Promise<Array<{
-    id: string;
-    snapshotId: string;
-    filePath: string;
-    content: string;
-    hash: string;
-    size: number;
-    functionCount: number;
-    createdAt: Date;
-  }>> {
-    const result = await this.db.query('SELECT * FROM source_files WHERE snapshot_id = $1', [snapshotId]);
+  async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../../types').SourceFile[]> {
+    // Get source files referenced by functions in this snapshot
+    // This correctly handles the source_files sharing mechanism
+    const result = await this.db.query(`
+      SELECT DISTINCT sf.* 
+      FROM source_files sf
+      INNER JOIN functions f ON sf.id = f.source_file_id
+      WHERE f.snapshot_id = $1
+      ORDER BY sf.file_path
+    `, [snapshotId]);
     
     return result.rows.map(row => {
       const r = row as {
         id: string;
         snapshot_id: string;
         file_path: string;
-        content: string;
-        hash: string;
-        size: number;
+        file_content: string;
+        file_hash: string;
+        file_size_bytes: number;
+        line_count: number;
+        language: string;
         function_count: number;
+        export_count: number;
+        import_count: number;
+        encoding: string;
+        file_modified_time: string;
         created_at: string;
       };
       return {
         id: r.id,
         snapshotId: r.snapshot_id,
         filePath: r.file_path,
-        content: r.content,
-        hash: r.hash,
-        size: r.size,
+        fileContent: r.file_content,
+        fileHash: r.file_hash,
+        encoding: r.encoding,
+        fileSizeBytes: r.file_size_bytes,
+        lineCount: r.line_count,
+        language: r.language,
         functionCount: r.function_count,
+        exportCount: r.export_count,
+        importCount: r.import_count,
+        fileModifiedTime: new Date(r.file_modified_time),
         createdAt: new Date(r.created_at)
       };
     });
