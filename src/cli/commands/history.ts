@@ -1,7 +1,6 @@
 import chalk from 'chalk';
 import { 
   HistoryCommandOptions, 
-  FunctionInfo, 
   SnapshotInfo, 
   SnapshotMetadata 
 } from '../../types';
@@ -20,13 +19,8 @@ export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      if (options.id) {
-        // Function tracking mode
-        await displayFunctionHistory(options.id, options, env);
-      } else {
-        // Standard snapshot history mode
-        await displaySnapshotHistory(options, env);
-      }
+      // Standard snapshot history mode
+      await displaySnapshotHistory(options, env);
     } catch (error) {
       if (error instanceof DatabaseError) {
         const funcqcError = errorHandler.createError(
@@ -161,13 +155,6 @@ function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
   console.log(JSON.stringify(output, null, 2));
 }
 
-function truncateWithEllipsis(str: string, maxLength: number): string {
-  if (!str || str.length <= maxLength) {
-    return str;
-  }
-  // Reserve 3 characters for ellipsis
-  return str.substring(0, maxLength - 3) + '...';
-}
 
 /**
  * Display a shortened version of snapshot ID for table display
@@ -177,13 +164,24 @@ function formatSnapshotIdForDisplay(id: string): string {
   return id.substring(0, 8);
 }
 
+/**
+ * Truncate string with ellipsis if it exceeds max length
+ */
+function truncateWithEllipsis(str: string, maxLength: number): string {
+  if (!str || str.length <= maxLength) {
+    return str;
+  }
+  // Reserve 3 characters for ellipsis
+  return str.substring(0, maxLength - 3) + '...';
+}
+
 function displayCompactHistory(snapshots: SnapshotInfo[]): void {
   // Display header with fixed-width columns
   console.log(
-    'ID       Created       Functions +/-      Files +/-    Size'
+    'ID       Created       Label               Functions +/-      Files +/-    Size'
   );
   console.log(
-    '-------- ------------- --------- -------- ----- ------ ----------'
+    '-------- ------------- ------------------- --------- -------- ----- ------ ----------'
   );
 
   // Display each snapshot
@@ -193,6 +191,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
 
     const id = formatSnapshotIdForDisplay(snapshot.id);
     const created = formatRelativeDate(snapshot.createdAt).padEnd(13);
+    const label = truncateWithEllipsis(snapshot.label || '', 19).padEnd(19);
 
     // Functions with diff
     const currentFunctions = snapshot.metadata.totalFunctions;
@@ -212,7 +211,7 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const sizeDisplay = formatSizeDisplay(snapshot.metadata);
 
     console.log(
-      `${id} ${created} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
+      `${id} ${created} ${label} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
     );
   }
 }
@@ -228,12 +227,9 @@ async function displayDetailedHistory(
     // Display basic snapshot info
     displaySnapshotInfo(snapshot);
 
-    // Display metadata
-    displaySnapshotMetadata(snapshot.metadata);
-
-    // Display distributions if available
-    displayComplexityDistribution(snapshot.metadata.complexityDistribution);
-    displayFileExtensions(snapshot.metadata.fileExtensions);
+    // Display file/function counts only
+    console.log(`   Functions: ${snapshot.metadata.totalFunctions}`);
+    console.log(`   Files: ${snapshot.metadata.totalFiles}`);
 
     // Display changes since previous
     if (prevSnapshot) {
@@ -259,36 +255,6 @@ function displaySnapshotInfo(snapshot: SnapshotInfo): void {
   }
 }
 
-function displaySnapshotMetadata(metadata: SnapshotMetadata): void {
-  console.log(`   Functions: ${metadata.totalFunctions}`);
-  console.log(`   Files: ${metadata.totalFiles}`);
-  console.log(`   Avg Complexity: ${metadata.avgComplexity.toFixed(1)}`);
-  console.log(`   Max Complexity: ${metadata.maxComplexity}`);
-  console.log(`   Exported: ${metadata.exportedFunctions}`);
-  console.log(`   Async: ${metadata.asyncFunctions}`);
-}
-
-function displayComplexityDistribution(distribution: Record<string, number> | undefined): void {
-  if (!distribution) return;
-
-  const formattedDist = Object.entries(distribution)
-    .sort(([a], [b]) => parseInt(a) - parseInt(b))
-    .map(([complexity, count]) => `${complexity}:${count}`)
-    .slice(0, 5) // Show top 5
-    .join(', ');
-
-  console.log(`   Complexity dist: ${formattedDist}`);
-}
-
-function displayFileExtensions(extensions: Record<string, number> | undefined): void {
-  if (!extensions) return;
-
-  const formattedExts = Object.entries(extensions)
-    .map(([ext, count]) => `${ext}:${count}`)
-    .join(', ');
-
-  console.log(`   Extensions: ${formattedExts}`);
-}
 
 async function displaySnapshotChanges(
   _prevSnapshotId: string,
@@ -429,332 +395,4 @@ function formatDate(timestamp: number): string {
   return date.toLocaleDateString();
 }
 
-async function displayFunctionHistory(
-  functionId: string,
-  options: HistoryCommandOptions,
-  env: CommandEnvironment
-): Promise<void> {
-  const limit = options.limit ? parseInt(options.limit) : 20;
-  const includeAbsent = options.all || false;
 
-  // Use the function history method
-  const history = await env.storage.getFunctionHistory(functionId, {
-    limit: limit * 2,
-    includeAbsent
-  });
-
-  if (history.length === 0) {
-    console.log(chalk.yellow(`No history found for function ID '${functionId}'.`));
-    return;
-  }
-
-  // Apply additional filters
-  const filteredHistory = applyFiltersToHistory(history, options);
-
-  if (filteredHistory.length === 0) {
-    console.log(
-      chalk.yellow(`No history found for function ID '${functionId}' with the specified filters.`)
-    );
-    return;
-  }
-
-  // Limit results
-  const limitedHistory = filteredHistory.slice(0, limit);
-
-  if (options.json) {
-    displayFunctionHistoryJSON(limitedHistory, functionId);
-  } else {
-    displayFunctionHistoryResults(limitedHistory, functionId, options);
-  }
-}
-
-// Helper function to display JSON output for function history
-function displayFunctionHistoryJSON(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  functionId: string
-): void {
-  const firstFunction = history.find(h => h.function)?.function;
-  const functionName = firstFunction ? firstFunction.displayName : 'Unknown Function';
-
-  const output = {
-    functionId,
-    functionName,
-    snapshots: history.map(h => ({
-      commitId: h.snapshot.gitCommit || 'unknown',
-      timestamp: new Date(h.snapshot.createdAt).toISOString(),
-      branch: h.snapshot.gitBranch || 'unknown',
-      complexity: h.function?.metrics?.cyclomaticComplexity || null,
-      linesOfCode: h.function?.metrics?.linesOfCode || null,
-      exists: h.isPresent,
-    })),
-    summary: {
-      totalSnapshots: history.length,
-      appearances: history.filter(h => h.isPresent).length,
-      firstSeen: history.find(h => h.isPresent)?.snapshot.createdAt
-        ? new Date(history.find(h => h.isPresent)!.snapshot.createdAt).toISOString()
-        : null,
-      lastSeen:
-        history.filter(h => h.isPresent).length > 0
-          ? new Date(history.filter(h => h.isPresent)[0].snapshot.createdAt).toISOString()
-          : null,
-    },
-  };
-
-  console.log(JSON.stringify(output, null, 2));
-}
-
-// Updated filter function to work with new data structure
-function applyFiltersToHistory(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  options: HistoryCommandOptions
-): Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }> {
-  const since = options.since ? new Date(options.since) : undefined;
-  const until = options.until ? new Date(options.until) : undefined;
-
-  let filtered = history;
-
-  if (since) {
-    filtered = filtered.filter(h => h.snapshot.createdAt >= since.getTime());
-  }
-  if (until) {
-    filtered = filtered.filter(h => h.snapshot.createdAt <= until.getTime());
-  }
-  if (options.branch) {
-    filtered = filtered.filter(h => h.snapshot.gitBranch === options.branch);
-  }
-  if (options.label) {
-    filtered = filtered.filter(h => h.snapshot.label && h.snapshot.label.includes(options.label!));
-  }
-
-  return filtered;
-}
-
-function displayFunctionHistoryResults(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  functionId: string,
-  options: HistoryCommandOptions
-): void {
-  const firstFunction = history.find(h => h.function)?.function;
-  const functionName = firstFunction ? firstFunction.displayName : 'Unknown Function';
-  const shortId = functionId.length > 8 ? functionId.substring(0, 8) : functionId;
-
-  console.log(chalk.cyan.bold(`\n🔍 Function History: ${functionName} [${shortId}]\n`));
-
-  const isVerboseMode = options.verbose || process.argv.includes('--verbose');
-  
-  if (isVerboseMode) {
-    displayDetailedFunctionHistory(history, functionName);
-  } else {
-    displayCompactFunctionHistory(history, functionName, options);
-  }
-
-  displayFunctionHistorySummary(history, functionName);
-}
-
-function displayCompactFunctionHistory(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  _functionName: string,
-  options: HistoryCommandOptions
-): void {
-  // Display header - cleaner format without snapshot ID
-  console.log('Commit   Date        Branch              CC   LOC');
-  console.log('-------- ----------- ----------------- ---- -----');
-
-  // Display each history entry
-  for (const entry of history) {
-    const snapshot = entry.snapshot;
-    const func = entry.function;
-
-    // Only show entries where function exists (unless --all is used)
-    if (!entry.isPresent && !options.all) {
-      continue;
-    }
-
-    const commit = (snapshot.gitCommit ? snapshot.gitCommit.substring(0, 7) : 'unknown').padEnd(8);
-    const date = formatDate(snapshot.createdAt).padEnd(11);
-    const branch = truncateWithEllipsis(snapshot.gitBranch || 'unknown', 17).padEnd(17);
-    const cc = (func?.metrics?.cyclomaticComplexity?.toString() || '-').padStart(4);
-    const loc = (func?.metrics?.linesOfCode?.toString() || '-').padStart(5);
-
-    console.log(`${commit} ${date} ${branch} ${cc} ${loc}`);
-  }
-}
-
-/**
- * Displays function presence status and location
- */
-function displayFunctionPresence(func: FunctionInfo): void {
-  console.log(chalk.green(`   ✓ Present in ${func.filePath}:${func.startLine}`));
-}
-
-/**
- * Displays function metrics if available
- */
-function displayFunctionMetrics(metrics: FunctionInfo['metrics']): void {
-  if (!metrics) return;
-  
-  console.log(
-    `   📈 Metrics: CC=${metrics.cyclomaticComplexity}, LOC=${metrics.linesOfCode}, Params=${metrics.parameterCount}`
-  );
-  
-  if (metrics.maintainabilityIndex) {
-    console.log(`   🔧 Maintainability: ${metrics.maintainabilityIndex.toFixed(1)}`);
-  }
-}
-
-/**
- * Displays signature changes between versions
- */
-function displaySignatureChange(
-  currentFunc: FunctionInfo,
-  prevFunc: FunctionInfo | null
-): void {
-  if (!prevFunc || prevFunc.signature === currentFunc.signature) return;
-  
-  console.log(chalk.blue(`   🔄 Signature changed from: ${prevFunc.signature}`));
-  console.log(chalk.blue(`   🔄                     to: ${currentFunc.signature}`));
-}
-
-/**
- * Displays git and snapshot information for history entries
- */
-function displayHistorySnapshotInfo(snapshot: SnapshotInfo): void {
-  if (snapshot.gitBranch) {
-    console.log(
-      chalk.gray(
-        `   Git: ${snapshot.gitBranch}@${snapshot.gitCommit?.substring(0, 7) || 'unknown'}`
-      )
-    );
-  }
-  if (snapshot.label) {
-    console.log(chalk.gray(`   Label: ${snapshot.label}`));
-  }
-}
-
-/**
- * Displays detailed information for a single history entry
- */
-function displayHistoryEntry(
-  entry: { snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean },
-  index: number,
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>
-): void {
-  const { snapshot, function: func, isPresent } = entry;
-  const number = (index + 1).toString().padStart(2, '0');
-
-  console.log(
-    chalk.yellow(`[${number}] ${formatDate(snapshot.createdAt)} - ${snapshot.id.substring(0, 8)}`)
-  );
-
-  if (isPresent && func) {
-    displayFunctionPresence(func);
-    
-    if (func.metrics) {
-      displayFunctionMetrics(func.metrics);
-    }
-
-    // Show signature changes
-    const prevEntry = history[index + 1];
-    displaySignatureChange(func, prevEntry?.function || null);
-  } else {
-    console.log(chalk.red(`   ✗ Not present (deleted or not analyzed)`));
-  }
-
-  displayHistorySnapshotInfo(snapshot);
-  console.log(); // Empty line
-}
-
-function displayDetailedFunctionHistory(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  _functionName: string
-): void {
-  history.forEach((entry, index) => {
-    displayHistoryEntry(entry, index, history);
-  });
-}
-
-function displayFunctionHistorySummary(
-  history: Array<{ snapshot: SnapshotInfo; function: FunctionInfo | null; isPresent: boolean }>,
-  functionName: string
-): void {
-  const presentCount = history.filter(h => h.isPresent).length;
-  const totalSnapshots = history.length;
-  const presenceRate = ((presentCount / totalSnapshots) * 100).toFixed(1);
-
-  const metricsHistory = history.filter(h => h.function?.metrics).map(h => h.function!.metrics!);
-
-  console.log(chalk.cyan('📈 Function Summary:'));
-  console.log(`   Function: ${functionName}`);
-  console.log(`   Presence: ${presentCount}/${totalSnapshots} snapshots (${presenceRate}%)`);
-
-  if (metricsHistory.length > 0) {
-    const firstMetrics = metricsHistory[metricsHistory.length - 1]; // Oldest
-    const lastMetrics = metricsHistory[0]; // Newest
-
-    const complexityChange = lastMetrics.cyclomaticComplexity - firstMetrics.cyclomaticComplexity;
-    const locChange = lastMetrics.linesOfCode - firstMetrics.linesOfCode;
-
-    console.log(
-      `   Complexity trend: ${formatChange(complexityChange)} (${firstMetrics.cyclomaticComplexity} → ${lastMetrics.cyclomaticComplexity})`
-    );
-    console.log(
-      `   LOC trend: ${formatChange(locChange)} (${firstMetrics.linesOfCode} → ${lastMetrics.linesOfCode})`
-    );
-
-    // Quality assessment
-    const qualityTrend = calculateOverallQualityTrend(
-      { avgComplexity: firstMetrics.cyclomaticComplexity, totalLines: firstMetrics.linesOfCode },
-      { avgComplexity: lastMetrics.cyclomaticComplexity, totalLines: lastMetrics.linesOfCode }
-    );
-    console.log(`   Overall quality: ${qualityTrend}`);
-  }
-
-  // Time span
-  if (history.length > 1) {
-    const timespan = formatDuration(
-      history[0].snapshot.createdAt - history[history.length - 1].snapshot.createdAt
-    );
-    console.log(`   Time span: ${timespan}`);
-  }
-}
-
-function formatChange(change: number): string {
-  if (change > 0) return chalk.red(`+${change}`);
-  if (change < 0) return chalk.green(`${change}`);
-  return chalk.gray('no change');
-}
-
-function calculateOverallQualityTrend(
-  oldMetrics: { avgComplexity: number; totalLines?: number },
-  newMetrics: { avgComplexity: number; totalLines?: number }
-): string {
-  const complexityChange = newMetrics.avgComplexity - oldMetrics.avgComplexity;
-  const locChange = 0; // SnapshotMetadata doesn't have linesOfCode
-  const paramChange = 0; // SnapshotMetadata doesn't have parameterCount;
-
-  let score = 0;
-
-  // Complexity change (negative is better)
-  if (complexityChange < 0) score += 2;
-  else if (complexityChange === 0) score += 1;
-  else score -= 1;
-
-  // LOC change (moderate decrease is good, large increase is bad)
-  if (locChange < -10)
-    score -= 1; // Too much reduction might indicate lost functionality
-  else if (locChange <= 0)
-    score += 1; // Slight reduction is good
-  else if (locChange <= 10)
-    score += 0; // Slight increase is neutral
-  else score -= 1; // Large increase is bad
-
-  // Parameter change (decrease is generally better)
-  if (paramChange < 0) score += 1;
-  else if (paramChange === 0) score += 0;
-  else score -= 1;
-
-  if (score >= 3) return chalk.green('📈 Improving');
-  if (score >= 1) return chalk.yellow('📊 Stable');
-  if (score >= -1) return chalk.yellow('📉 Slightly degrading');
-  return chalk.red('📉 Degrading');
-}

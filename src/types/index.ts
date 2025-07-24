@@ -542,8 +542,6 @@ export interface HistoryCommandOptions extends CommandOptions {
   author?: string;
   branch?: string;
   label?: string;
-  id?: string;
-  all?: boolean;
   json?: boolean;
 }
 
