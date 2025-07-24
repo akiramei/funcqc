@@ -358,30 +358,44 @@ export class UtilityOperations implements StorageOperationModule {
     filePath: string;
     content: string;
     hash: string;
+    encoding?: string;
     size: number;
+    lineCount?: number;
+    language?: string;
     functionCount: number;
+    exportCount?: number;
+    importCount?: number;
+    fileModifiedTime?: Date;
     createdAt?: Date;
   }>, snapshotId: string): Promise<void> {
     if (sourceFiles.length === 0) return;
 
     const rows = sourceFiles.map(file => ({
+      id: file.id,
       snapshot_id: snapshotId,
       file_path: file.filePath,
       content: file.content,
       hash: file.hash,
+      encoding: file.encoding || 'utf-8',
       size: file.size,
+      line_count: file.lineCount || 0,
+      language: file.language || 'typescript',
       function_count: file.functionCount || 0,
+      export_count: file.exportCount || 0,
+      import_count: file.importCount || 0,
+      file_modified_time: file.fileModifiedTime ? file.fileModifiedTime.toISOString() : new Date().toISOString(),
       created_at: new Date().toISOString()
     }));
 
     // Use direct SQL insertion for source files
     for (const row of rows) {
       await this.db.query(`
-        INSERT INTO source_files (snapshot_id, file_path, content, hash, size, function_count, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO source_files (id, snapshot_id, file_path, file_content, file_hash, encoding, file_size_bytes, line_count, language, function_count, export_count, import_count, file_modified_time, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
       `, [
-        row.snapshot_id, row.file_path, row.content, row.hash, 
-        row.size, row.function_count, row.created_at
+        row.id, row.snapshot_id, row.file_path, row.content, row.hash, 
+        row.encoding, row.size, row.line_count, row.language, row.function_count, 
+        row.export_count, row.import_count, row.file_modified_time, row.created_at
       ]);
     }
   }

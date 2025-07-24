@@ -22,7 +22,7 @@ import {
 
 export class FunctionOperations implements StorageOperationModule {
   readonly db;
-  readonly kysely;
+  private context: StorageContext;
   private logger;
 
   // Field mappings for query building
@@ -69,8 +69,12 @@ export class FunctionOperations implements StorageOperationModule {
 
   constructor(context: StorageContext) {
     this.db = context.db;
-    this.kysely = context.kysely;
+    this.context = context;
     this.logger = context.logger;
+  }
+
+  private get kysely() {
+    return this.context.kysely;
   }
 
   /**

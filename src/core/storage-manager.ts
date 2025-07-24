@@ -1,4 +1,4 @@
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter-refactored';
+import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from './config';
 import { Logger } from '../utils/cli-utils';
 

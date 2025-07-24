@@ -30,6 +30,7 @@ export async function createAppEnvironment(options?: {
     config.storage.path || '.funcqc/funcqc.db',
     logger
   );
+  
   await storage.init();
 
   return {

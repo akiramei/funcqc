@@ -5,11 +5,16 @@
 import { Kysely } from 'kysely';
 import { readFileSync, existsSync } from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { PGliteDialect } from '../dialects/pglite-dialect';
 import { Database } from '../types/kysely-types';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, TransactionHandler } from './types';
+
+// Get __dirname equivalent for ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class DatabaseCore {
   private transactionDepth: number = 0;
@@ -44,8 +49,7 @@ export class DatabaseCore {
   }
 
   /**
-   * Lightweight initialization without schema validation
-   * Used for health checks and basic operations
+   * Lightweight initialization for health checks and basic operations
    */
   async lightweightInit(): Promise<void> {
     try {
@@ -58,6 +62,9 @@ export class DatabaseCore {
           database: this.context.db,
         }),
       });
+
+      // Initialize schema if needed for database operations
+      await this.initializeSchema();
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
