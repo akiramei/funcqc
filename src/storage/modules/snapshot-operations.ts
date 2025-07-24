@@ -357,7 +357,7 @@ export class SnapshotOperations implements StorageOperationModule {
       
       // Update the snapshot metadata
       await this.db.query(
-        'UPDATE snapshots SET metadata = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
         [JSON.stringify(metadata), snapshotId]
       );
       

@@ -610,7 +610,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // SOURCE FILE OPERATIONS
   // ========================================
 
-  async saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<void> {
+  async saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<Map<string, string>> {
     await this.ensureInitialized();
     const mappedFiles = sourceFiles.map(file => ({
       id: file.id || '',

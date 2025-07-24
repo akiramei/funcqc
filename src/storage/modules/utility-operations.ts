@@ -367,8 +367,8 @@ export class UtilityOperations implements StorageOperationModule {
     importCount?: number;
     fileModifiedTime?: Date;
     createdAt?: Date;
-  }>, snapshotId: string): Promise<void> {
-    if (sourceFiles.length === 0) return;
+  }>, snapshotId: string): Promise<Map<string, string>> {
+    if (sourceFiles.length === 0) return new Map();
 
     const rows = sourceFiles.map(file => ({
       id: file.id,
@@ -387,17 +387,34 @@ export class UtilityOperations implements StorageOperationModule {
       created_at: new Date().toISOString()
     }));
 
-    // Use direct SQL insertion for source files
+    const resultMap = new Map<string, string>();
+    
+    // Insert source files using composite ID (already deduplicated at scan level)
     for (const row of rows) {
-      await this.db.query(`
-        INSERT INTO source_files (id, snapshot_id, file_path, file_content, file_hash, encoding, file_size_bytes, line_count, language, function_count, export_count, import_count, file_modified_time, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-      `, [
-        row.id, row.snapshot_id, row.file_path, row.content, row.hash, 
-        row.encoding, row.size, row.line_count, row.language, row.function_count, 
-        row.export_count, row.import_count, row.file_modified_time, row.created_at
-      ]);
+      try {
+        await this.db.query(`
+          INSERT INTO source_files (id, snapshot_id, file_path, file_content, file_hash, encoding, file_size_bytes, line_count, language, function_count, export_count, import_count, file_modified_time, created_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        `, [
+          row.id, row.snapshot_id, row.file_path, row.content, row.hash, 
+          row.encoding, row.size, row.line_count, row.language, row.function_count, 
+          row.export_count, row.import_count, row.file_modified_time, row.created_at
+        ]);
+        
+        resultMap.set(row.file_path, row.id);
+        this.logger?.log(`Inserted new source file: ${row.file_path}`);
+      } catch (error) {
+        // This should not happen with composite ID, but handle gracefully
+        if (error instanceof Error && error.message.includes('duplicate key')) {
+          this.logger?.warn(`Unexpected duplicate key for file ${row.file_path}, using existing entry`);
+          resultMap.set(row.file_path, row.id);
+          continue;
+        }
+        throw error;
+      }
     }
+    
+    return resultMap;
   }
 
   async getSourceFile(id: string): Promise<{
@@ -512,9 +529,23 @@ export class UtilityOperations implements StorageOperationModule {
     };
   }
 
-  async findExistingSourceFile(_compositeId: string): Promise<string | null> {
-    // This is a stub - actual implementation would depend on how composite IDs are structured
-    return null;
+  async findExistingSourceFile(compositeId: string): Promise<string | null> {
+    try {
+      const result = await this.db.query(`
+        SELECT id FROM source_files 
+        WHERE id = $1 
+        LIMIT 1
+      `, [compositeId]);
+      
+      if (result.rows.length > 0) {
+        return (result.rows[0] as { id: string }).id;
+      }
+      
+      return null;
+    } catch (error) {
+      this.logger?.error(`Failed to find existing source file: ${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    }
   }
 
   async deleteSourceFiles(snapshotId: string): Promise<number> {

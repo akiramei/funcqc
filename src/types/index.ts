@@ -697,7 +697,7 @@ export interface StorageAdapter {
   getFunctionsBySnapshotId(snapshotId: string): Promise<FunctionInfo[]>;
 
   // Source file operations (new)
-  saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<void>;
+  saveSourceFiles(sourceFiles: SourceFile[], snapshotId: string): Promise<Map<string, string>>;
   getSourceFile(id: string): Promise<SourceFile | null>;
   getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]>;
   getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null>;

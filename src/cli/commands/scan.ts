@@ -121,7 +121,7 @@ async function saveSourceFilesWithDeduplication(
     const existingId = await storage.findExistingSourceFile(sourceFile.id);
     
     if (existingId) {
-      // File already exists, use existing ID
+      // File already exists, use existing ID (same as sourceFile.id due to composite ID)
       sourceFileIdMap.set(sourceFile.filePath, existingId);
       // Reuse existing file (silent operation for cleaner output)
     } else {
