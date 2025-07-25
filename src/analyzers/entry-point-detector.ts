@@ -1,15 +1,18 @@
 import { FunctionInfo } from '../types';
 import { Node, SourceFile } from 'ts-morph';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { ArchitectureConfigManager } from '../config/architecture-config';
 
 export interface EntryPoint {
   functionId: string;
-  reason: 'exported' | 'main' | 'test' | 'cli' | 'handler' | 'index';
+  reason: 'exported' | 'main' | 'test' | 'cli' | 'handler' | 'index' | 'layer';
+  layerName?: string; // For layer-based entry points
 }
 
 export interface EntryPointDetectionOptions {
   verbose?: boolean;
   debug?: boolean;
+  layerEntryPoints?: string[]; // Layer names to treat as entry points
 }
 
 /**
@@ -18,6 +21,7 @@ export interface EntryPointDetectionOptions {
  */
 export class EntryPointDetector {
   private options: EntryPointDetectionOptions;
+  private layerPatterns: Map<string, string[]> | null = null;
   private readonly testFilePatterns = [
     /\.test\.[jt]sx?$/,        // .test.ts, .test.js, .test.tsx, .test.jsx
     /\.spec\.[jt]sx?$/,        // .spec.ts, .spec.js, .spec.tsx, .spec.jsx
@@ -58,6 +62,41 @@ export class EntryPointDetector {
 
   constructor(options: EntryPointDetectionOptions = {}) {
     this.options = options;
+    
+    // Load architecture configuration if layer entry points are specified
+    if (options.layerEntryPoints && options.layerEntryPoints.length > 0) {
+      this.loadLayerPatterns();
+    }
+  }
+
+  /**
+   * Load layer patterns from architecture configuration
+   */
+  private loadLayerPatterns(): void {
+    try {
+      const configManager = new ArchitectureConfigManager();
+      const archConfig = configManager.load();
+      
+      this.layerPatterns = new Map();
+      
+      // Load patterns for requested layers
+      for (const layerName of this.options.layerEntryPoints || []) {
+        if (archConfig.layers[layerName]) {
+          this.layerPatterns.set(layerName, archConfig.layers[layerName]);
+        } else {
+          console.warn(`⚠️  Layer '${layerName}' not found in architecture configuration`);
+        }
+      }
+      
+      if (this.options.debug) {
+        console.log(`📋 Loaded layer patterns for: ${Array.from(this.layerPatterns.keys()).join(', ')}`);
+      }
+    } catch (error) {
+      console.warn('⚠️  Failed to load architecture configuration for layer entry points:', error instanceof Error ? error.message : error);
+      if (this.options.debug) {
+        console.error('Full error:', error);
+      }
+    }
   }
 
   /**
@@ -86,13 +125,27 @@ export class EntryPointDetector {
       
       // A function can be an entry point for multiple reasons
       for (const reason of reasons) {
-        entryPoints.push({
+        const entryPoint: EntryPoint = {
           functionId: func.id,
           reason,
-        });
+        };
         
-        if (this.options.debug && reason === 'test') {
-          console.log(`  📋 Test entry point: ${func.name} (${func.filePath}:${func.startLine})`);
+        // Add layer name if this is a layer-based entry point
+        if (reason === 'layer' && this.layerPatterns) {
+          const layerName = this.getLayerForFunction(func);
+          if (layerName) {
+            entryPoint.layerName = layerName;
+          }
+        }
+        
+        entryPoints.push(entryPoint);
+        
+        if (this.options.debug) {
+          if (reason === 'test') {
+            console.log(`  📋 Test entry point: ${func.name} (${func.filePath}:${func.startLine})`);
+          } else if (reason === 'layer') {
+            console.log(`  🏷️  Layer entry point: ${func.name} (layer: ${entryPoint.layerName})`);
+          }
         }
       }
     }
@@ -161,6 +214,14 @@ export class EntryPointDetector {
       }
     }
 
+    // Check if function belongs to any specified layers
+    if (this.layerPatterns && this.layerPatterns.size > 0) {
+      const layerName = this.getLayerForFunction(func);
+      if (layerName) {
+        reasons.push('layer');
+      }
+    }
+
     return reasons;
   }
 
@@ -197,6 +258,54 @@ export class EntryPointDetector {
    */
   private isHandlerFunction(functionName: string): boolean {
     return this.handlerPatterns.some(pattern => pattern.test(functionName));
+  }
+
+  /**
+   * Get the layer name for a function based on its file path
+   */
+  private getLayerForFunction(func: FunctionInfo): string | null {
+    if (!this.layerPatterns) return null;
+    
+    const normalizedPath = PathNormalizer.normalize(func.filePath);
+    
+    for (const [layerName, patterns] of this.layerPatterns) {
+      for (const pattern of patterns) {
+        // Convert glob pattern to regex
+        const regexPattern = this.globToRegex(pattern);
+        if (regexPattern.test(normalizedPath)) {
+          if (this.options.debug) {
+            console.log(`  🏷️  Function ${func.name} in ${func.filePath} matches layer '${layerName}'`);
+          }
+          return layerName;
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Convert glob pattern to regex
+   */
+  private globToRegex(glob: string): RegExp {
+    // Normalize path separators
+    glob = glob.replace(/\\/g, '/');
+    
+    // Escape special regex characters except * and **
+    let regex = glob.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+    
+    // Replace ** with regex for any directory depth
+    regex = regex.replace(/\*\*/g, '.*');
+    
+    // Replace remaining * with regex for any characters except /
+    regex = regex.replace(/\*/g, '[^/]*');
+    
+    // Ensure the pattern matches from the beginning
+    if (!regex.startsWith('^')) {
+      regex = '.*' + regex;
+    }
+    
+    return new RegExp(regex);
   }
 
   /**

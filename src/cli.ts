@@ -1256,6 +1256,7 @@ depCommand.command('dead')
   .option('--threshold <num>', 'minimum function size to report', '3')
   .option('--format <format>', 'output format (table, json, dot)', 'table')
   .option('--show-reasons', 'show detailed reasons for dead code')
+  .option('--layer-entry-points <layers>', 'treat functions in specified layers as entry points (comma-separated)')
   .option('--verbose', 'show verbose output')
   .option('--snapshot <id>', 'analyze specific snapshot')
   .action(async (options: OptionValues) => {
@@ -1280,8 +1281,19 @@ Examples:
   # Generate DOT graph for visualization
   $ funcqc dep dead --format dot > deadcode.dot
 
+  # Use services layer as entry points
+  $ funcqc dep dead --layer-entry-points services
+
+  # Use multiple layers as entry points
+  $ funcqc dep dead --layer-entry-points services,api,orchestration
+
 Note: This command uses the same call graph analysis as other 'dep' commands,
-providing consistent and comprehensive dead code detection.`);
+providing consistent and comprehensive dead code detection.
+
+Layer Entry Points:
+  When --layer-entry-points is specified, functions in those layers (as defined
+  in .funcqc-arch.yaml) are treated as entry points. This is useful for analyzing
+  dead code in modular architectures where certain layers serve as public APIs.`);
 
 
 // Safe deletion command using high-confidence call graph analysis
