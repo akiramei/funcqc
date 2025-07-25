@@ -74,75 +74,50 @@ export class DatabaseCore {
   private async initializeSchema(): Promise<void> {
     const cacheKey = this.context.dbPath;
 
-    // Check schema cache first (disabled for N:1 design migration)
-    // if (DatabaseCore.schemaCache.get(cacheKey)) {
-    //   return;
-    // }
+    // Check schema cache first
+    if (DatabaseCore.schemaCache.get(cacheKey)) {
+      return;
+    }
 
     try {
-      // Check if N:1 design tables exist
+      // Check if basic tables already exist
       const result = await this.context.db.query(`
         SELECT COUNT(*) as count 
         FROM information_schema.tables 
         WHERE table_schema = 'public' 
-        AND table_name IN ('source_contents', 'source_file_refs')
+        AND table_name = 'snapshots'
       `);
 
-      const n1TablesExist = parseInt((result.rows[0] as { count: string })?.count || '0') >= 2;
-
-      if (!n1TablesExist) {
-        // N:1 design migration - add new tables only
-        this.context.logger?.log('Migrating to N:1 design - adding source_contents and source_file_refs tables');
+      const tablesExist = parseInt((result.rows[0] as { count: string })?.count || '0') >= 1;
+      
+      if (tablesExist) {
+        this.context.logger?.log('Database schema already exists');
+      } else {
+        this.context.logger?.log('Initializing database schema from database.sql');
         
-        await this.context.db.exec(`
-          -- Create source_contents table for deduplicated content
-          CREATE TABLE IF NOT EXISTS source_contents (
-            id TEXT PRIMARY KEY,
-            content TEXT NOT NULL,
-            file_hash TEXT NOT NULL,
-            file_size_bytes INTEGER NOT NULL,
-            line_count INTEGER NOT NULL,
-            language TEXT NOT NULL,
-            encoding TEXT DEFAULT 'utf-8',
-            export_count INTEGER DEFAULT 0,
-            import_count INTEGER DEFAULT 0,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(file_hash, file_size_bytes)
-          );
-
-          -- Create source_file_refs table for per-snapshot references
-          CREATE TABLE IF NOT EXISTS source_file_refs (
-            id TEXT PRIMARY KEY,
-            snapshot_id TEXT NOT NULL,
-            file_path TEXT NOT NULL,
-            content_id TEXT NOT NULL,
-            file_modified_time TIMESTAMPTZ,
-            function_count INTEGER DEFAULT 0,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
-            FOREIGN KEY (content_id) REFERENCES source_contents(id) ON DELETE RESTRICT,
-            UNIQUE(snapshot_id, file_path)
-          );
-
-          -- Add indexes
-          CREATE INDEX IF NOT EXISTS idx_source_contents_file_hash ON source_contents(file_hash);
-          CREATE INDEX IF NOT EXISTS idx_source_contents_language ON source_contents(language);
-          CREATE INDEX IF NOT EXISTS idx_source_contents_created_at ON source_contents(created_at);
-          CREATE INDEX IF NOT EXISTS idx_source_file_refs_snapshot_id ON source_file_refs(snapshot_id);
-          CREATE INDEX IF NOT EXISTS idx_source_file_refs_file_path ON source_file_refs(file_path);
-          CREATE INDEX IF NOT EXISTS idx_source_file_refs_content_id ON source_file_refs(content_id);
-          CREATE INDEX IF NOT EXISTS idx_source_file_refs_function_count ON source_file_refs(function_count);
-
-          -- Add new column to functions table if it doesn't exist
-          ALTER TABLE functions ADD COLUMN IF NOT EXISTS source_file_ref_id TEXT;
-          CREATE INDEX IF NOT EXISTS idx_functions_source_file_ref_id ON functions(source_file_ref_id);
-        `);
+        const path = await import('path');
+        const fs = await import('fs');
         
-        this.context.logger?.log('N:1 design migration completed successfully');
+        // Get the path to database.sql
+        const schemaPath = path.join(process.cwd(), 'src/schemas/database.sql');
+        
+        // Check if schema file exists
+        if (!fs.existsSync(schemaPath)) {
+          throw new Error(`Database schema file not found: ${schemaPath}`);
+        }
+
+        // Read schema content
+        const schemaContent = fs.readFileSync(schemaPath, 'utf-8');
+        
+        if (!schemaContent.trim()) {
+          throw new Error('Database schema file is empty');
+        }
+
+        // Execute the complete schema
+        await this.context.db.exec(schemaContent);
+        
+        this.context.logger?.log('Database schema initialized successfully');
       }
-
-      // TODO: Re-enable migration system after debugging
-      // await this.runMigrations();
 
       DatabaseCore.schemaCache.set(cacheKey, true);
     } catch (error) {

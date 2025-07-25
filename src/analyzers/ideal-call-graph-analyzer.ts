@@ -27,7 +27,8 @@ export enum ResolutionLevel {
   CHA_RESOLVED = 'cha_resolved',         // confidence: 0.8
   RTA_RESOLVED = 'rta_resolved',         // confidence: 0.9
   RUNTIME_CONFIRMED = 'runtime_confirmed', // confidence: 1.0
-  EXTERNAL_DETECTED = 'external_detected'  // confidence: 0.7-0.95
+  EXTERNAL_DETECTED = 'external_detected',  // confidence: 0.7-0.95
+  CALLBACK_REGISTRATION = 'callback_registration' // confidence: 0.8-0.95
 }
 
 export interface CallGraphResult {

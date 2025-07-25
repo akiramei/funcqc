@@ -62,6 +62,8 @@ export interface AnalysisStatistics {
   rtaResolvedCount: number;
   runtimeConfirmedCount: number;
   externalCallsCount: number;
+  callbackRegistrationsCount: number;
+  virtualEdgesCount: number;
   unresolvedCount: number;
   totalTime: number;
   stageTimings: {
@@ -71,5 +73,6 @@ export interface AnalysisStatistics {
     rta: number;
     runtime: number;
     external: number;
+    callbackRegistration: number;
   };
 }

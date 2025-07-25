@@ -321,7 +321,7 @@ CREATE TABLE call_edges (
   caller_class_name TEXT,                        -- Class name for caller if it's a method/constructor
   callee_class_name TEXT,                        -- Class name for callee if it's a method/constructor
   call_type TEXT NOT NULL CHECK (              -- Type of call relationship
-    call_type IN ('direct', 'conditional', 'async', 'external', 'dynamic')
+    call_type IN ('direct', 'conditional', 'async', 'external', 'dynamic', 'virtual')
   ),
   call_context TEXT,                            -- Context: 'normal', 'conditional', 'loop', 'try', 'catch'
   line_number INTEGER NOT NULL,                 -- Line where call occurs

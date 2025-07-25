@@ -526,6 +526,8 @@ interface DependencyTreeNode {
   }>;
   routes?: RouteComplexityInfo[];  // Route complexity analysis results
   isExternal?: boolean;  // Indicates if this is an external function node
+  isVirtual?: boolean;   // Indicates if this is a virtual callback function node
+  frameworkInfo?: string; // Framework name for virtual callback nodes
 }
 
 /**
@@ -671,7 +673,7 @@ function buildDependencyTree(
       // Outgoing dependencies (what this function calls)
       const outgoing = edges.filter(edge => 
         edge.callerFunctionId === currentId &&
-        (includeExternal || edge.callType !== 'external')
+        (includeExternal || (edge.callType !== 'external' && edge.callType !== 'virtual'))
       );
       
       result.dependencies.push(...outgoing.map(edge => {
@@ -681,14 +683,27 @@ function buildDependencyTree(
           // Internal function call - recurse
           subtree = buildTree(edge.calleeFunctionId, depth + 1, 'out', newPath);
         } else if (includeExternal && edge.calleeName) {
-          // External function call - create terminal node
-          subtree = {
-            id: `external:${edge.calleeName}`,
-            name: edge.calleeName,
-            depth: depth + 1,
-            dependencies: [],
-            isExternal: true
-          } as DependencyTreeNode & { isExternal: boolean };
+          // External or virtual function call - create terminal node
+          if (edge.callType === 'virtual') {
+            // Virtual callback function call
+            subtree = {
+              id: `virtual:${edge.calleeName}`,
+              name: edge.calleeName,
+              depth: depth + 1,
+              dependencies: [],
+              isVirtual: true,
+              frameworkInfo: (edge.metadata as Record<string, unknown>)?.['framework'] as string || 'unknown'
+            } as DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string };
+          } else {
+            // External function call
+            subtree = {
+              id: `external:${edge.calleeName}`,
+              name: edge.calleeName,
+              depth: depth + 1,
+              dependencies: [],
+              isExternal: true
+            } as DependencyTreeNode & { isExternal: boolean };
+          }
         }
         
         return {
@@ -820,10 +835,30 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
         const arrow = dep.direction === 'in' ? '←' : '→';
         const typeColor = getCallTypeColor(dep.edge.callType);
         
+        // Add framework info for virtual callback edges
+        // Framework-specific display (unused in current implementation)
+        if (dep.edge.callType === 'virtual' && (dep.edge.metadata as Record<string, unknown>)?.['framework']) {
+          // Framework-specific display could be used for enhanced visualization
+        }
+        
         console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);
         
         if (dep.subtree) {
-          printTree(dep.subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
+          // Add framework indicator for virtual nodes
+          let nodeDisplayName = dep.subtree.name;
+          if ((dep.subtree as { isVirtual?: boolean; frameworkInfo?: string }).isVirtual && (dep.subtree as { frameworkInfo?: string }).frameworkInfo) {
+            nodeDisplayName = `${dep.subtree.name} ${chalk.cyan(`[${dep.subtree.frameworkInfo}]`)}`;
+          } else if (dep.subtree.isExternal) {
+            nodeDisplayName = `${dep.subtree.name} ${chalk.gray('(external)')}`;
+          }
+          
+          // Print the node with appropriate indicators
+          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${nodeDisplayName}`);
+          
+          // Continue with recursive tree printing if there are more dependencies
+          if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
+            printTree(dep.subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
+          }
         }
       });
     }
@@ -846,6 +881,8 @@ function getCallTypeColor(type: string): (text: string) => string {
       return chalk.yellow;
     case 'external':
       return chalk.gray;
+    case 'virtual':
+      return chalk.magenta;
     default:
       return chalk.white;
   }

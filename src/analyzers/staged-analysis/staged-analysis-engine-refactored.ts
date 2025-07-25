@@ -24,6 +24,7 @@ import { CHAAnalysisStage } from './stages/cha-analysis';
 import { RTAAnalysisStage } from './stages/rta-analysis';
 import { RuntimeTraceIntegrationStage } from './stages/runtime-trace-integration';
 import { ExternalCallAnalysisStage } from './stages/external-call-analysis';
+import { CallbackRegistrationAnalysisStage } from '../callback-registration/callback-registration-stage';
 
 // Import types and constants
 import { StagedAnalysisOptions, AnalysisState, AnalysisStatistics } from './types';
@@ -49,6 +50,7 @@ export class StagedAnalysisEngine {
   private rtaStage: RTAAnalysisStage;
   private runtimeStage: RuntimeTraceIntegrationStage;
   private externalCallStage: ExternalCallAnalysisStage;
+  private callbackRegistrationStage: CallbackRegistrationAnalysisStage;
 
   // Analysis state
   private state!: AnalysisState;
@@ -76,6 +78,7 @@ export class StagedAnalysisEngine {
     this.rtaStage = new RTAAnalysisStage(this.rtaAnalyzer, this.logger);
     this.runtimeStage = new RuntimeTraceIntegrationStage(this.runtimeTraceIntegrator, this.logger);
     this.externalCallStage = new ExternalCallAnalysisStage(this.logger);
+    this.callbackRegistrationStage = new CallbackRegistrationAnalysisStage(this.logger);
   }
 
   /**
@@ -104,6 +107,8 @@ export class StagedAnalysisEngine {
       rtaResolvedCount: 0,
       runtimeConfirmedCount: 0,
       externalCallsCount: 0,
+      callbackRegistrationsCount: 0,
+      virtualEdgesCount: 0,
       unresolvedCount: 0,
       totalTime: 0,
       stageTimings: {
@@ -112,7 +117,8 @@ export class StagedAnalysisEngine {
         cha: 0,
         rta: 0,
         runtime: 0,
-        external: 0
+        external: 0,
+        callbackRegistration: 0
       }
     };
   }
@@ -173,6 +179,19 @@ export class StagedAnalysisEngine {
     this.logger.debug('Stage 6: External function call analysis...');
     const externalResult = await this.performExternalCallAnalysis(functions);
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
+
+    // Stage 7: Callback Registration Analysis
+    console.log('🔍 DEBUG: About to start Stage 7 - Callback Registration Analysis');
+    this.logger.debug('Stage 7: Callback registration analysis...');
+    const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
+    this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
+    this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
+    
+    // Debug: Log callback analysis results
+    this.logger.debug(`[CallbackRegistration] Stage 7 complete: ${callbackResult.totalRegistrations} registrations, ${callbackResult.totalVirtualEdges} virtual edges`);
+    if (callbackResult.totalVirtualEdges > 0) {
+      this.logger.debug(`[CallbackRegistration] Virtual edges found: ${callbackResult.totalVirtualEdges} edges`);
+    }
 
     // Calculate final statistics
     const endTime = performance.now();
@@ -408,6 +427,44 @@ export class StagedAnalysisEngine {
 
     this.logger.debug(`External analysis completed: ${totalExternalCalls} external calls found`);
     return { externalCallsCount: totalExternalCalls };
+  }
+
+  /**
+   * Perform callback registration analysis
+   */
+  private async performCallbackRegistrationAnalysis(
+    functions: Map<string, FunctionMetadata>
+  ): Promise<{ totalRegistrations: number; totalVirtualEdges: number }> {
+    const startTime = performance.now();
+    const sourceFiles = this.project.getSourceFiles();
+
+    try {
+      const result = await this.callbackRegistrationStage.analyzeProject(
+        sourceFiles,
+        functions,
+        this.state
+      );
+
+      // Convert virtual edges to ideal call edges and add them to the main collection
+      const idealEdges = this.callbackRegistrationStage.convertVirtualEdgesToIdealEdges(result.virtualEdges);
+      this.state.edges.push(...idealEdges);
+
+      const endTime = performance.now();
+      this.statistics.stageTimings.callbackRegistration = (endTime - startTime) / 1000;
+
+      this.logger.debug(`Callback registration analysis completed: ${result.totalRegistrations} registrations, ${result.totalVirtualEdges} virtual edges`);
+      
+      return {
+        totalRegistrations: result.totalRegistrations,
+        totalVirtualEdges: result.totalVirtualEdges
+      };
+    } catch (error) {
+      const endTime = performance.now();
+      this.statistics.stageTimings.callbackRegistration = (endTime - startTime) / 1000;
+      
+      this.logger.warn(`Callback registration analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+      return { totalRegistrations: 0, totalVirtualEdges: 0 };
+    }
   }
 
   /**
