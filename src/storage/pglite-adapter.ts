@@ -784,11 +784,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       lineNumber: edge.lineNumber,
       columnNumber: edge.columnNumber,
       callType: edge.callType,
-      isAsync: false,
-      isChained: false,
-      confidenceScore: 1.0,
-      metadata: {},
-      createdAt: new Date().toISOString()
+      isAsync: edge.isAsync || false,
+      isChained: edge.isChained || false,
+      confidenceScore: edge.confidenceScore || 1.0,
+      metadata: edge.metadata || {},  // Preserve metadata from database
+      createdAt: edge.createdAt || new Date().toISOString()
     } as CallEdge));
   }
 

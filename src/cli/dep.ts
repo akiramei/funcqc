@@ -322,12 +322,14 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
             start_line: targetFunction.startLine
           }, dependencies);
         } else {
+          // Create function map for file path lookups
+          const functionMap = new Map(functions.map(f => [f.id, f]));
           outputDepShowFormatted({
             id: targetFunction.id,
             name: targetFunction.name,
             file_path: targetFunction.filePath,
             start_line: targetFunction.startLine
-          }, dependencies, options);
+          }, dependencies, options, functionMap);
         }
       } else {
         // Global analysis - find top routes across all functions
@@ -616,7 +618,7 @@ function calculateRouteComplexity(
 function buildDependencyTree(
   functionId: string,
   edges: CallEdge[],
-  functions: Array<{ id: string; name: string }>,
+  functions: Array<{ id: string; name: string; contextPath?: string[] }>,
   direction: 'in' | 'out' | 'both',
   maxDepth: number,
   includeExternal: boolean,
@@ -670,9 +672,17 @@ function buildDependencyTree(
     const newPath = [...currentPath, currentId];
     
     const currentFunction = functions.find(f => f.id === currentId);
+    
+    // Enhance constructor display with class name for internal functions
+    let displayName = currentFunction?.name || 'unknown';
+    if (currentFunction?.name === 'constructor' && currentFunction.contextPath && currentFunction.contextPath.length > 0) {
+      // Use the first element of contextPath as the class name
+      displayName = `new ${currentFunction.contextPath[0]}`;
+    }
+    
     const result: DependencyTreeNode = {
       id: currentId,
-      name: currentFunction?.name || 'unknown',
+      name: displayName,
       depth,
       dependencies: [],
     };
@@ -733,9 +743,15 @@ function buildDependencyTree(
             } as DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string };
           } else {
             // External function call
+            // Enhance constructor display with class name
+            let displayName = edge.calleeName;
+            if (edge.calleeName === 'constructor' && edge.calleeClassName) {
+              displayName = `new ${edge.calleeClassName}`;
+            }
+            
             subtree = {
               id: `external:${edge.calleeName}`,
-              name: edge.calleeName,
+              name: displayName,
               depth: depth + 1,
               dependencies: [],
               isExternal: true
@@ -801,7 +817,12 @@ function outputDepShowJSON(func: { id: string; name: string; file_path?: string;
 /**
  * Output dependency show in formatted tree
  */
-function outputDepShowFormatted(func: { id: string; name: string; file_path?: string; start_line?: number }, dependencies: DependencyTreeNode, options: DepShowOptions): void {
+function outputDepShowFormatted(
+  func: { id: string; name: string; file_path?: string; start_line?: number }, 
+  dependencies: DependencyTreeNode, 
+  options: DepShowOptions,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): void {
   console.log(chalk.bold(`\nDependency Analysis for: ${chalk.cyan(func.name)}`));
   console.log(chalk.gray(`ID: ${func.id}`));
   console.log(chalk.gray(`File: ${func.file_path}:${func.start_line}`));
@@ -882,7 +903,14 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
           const programCall = `program.${triggerMethod || 'parseAsync'}`;
           
           // Insert program.parseAsync as intermediate step
-          console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);
+          let locationInfo = `line ${dep.edge.lineNumber}`;
+          if (functionMap && dep.edge.callerFunctionId) {
+            const callerFunc = functionMap.get(dep.edge.callerFunctionId);
+            if (callerFunc?.filePath) {
+              locationInfo = `${callerFunc.filePath}:${dep.edge.lineNumber}`;
+            }
+          }
+          console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(${locationInfo})`)}`);
           console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
           
           // Then show the actual command function
@@ -898,7 +926,21 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
           return; // Skip the normal rendering
         }
         
-        console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);
+        // Get file path for the edge
+        let locationInfo = `line ${dep.edge.lineNumber}`;
+        if (functionMap) {
+          // For outgoing calls, use caller's file path
+          // For incoming calls, use callee's file path
+          const relevantFuncId = dep.direction === 'out' ? dep.edge.callerFunctionId : dep.edge.calleeFunctionId;
+          if (relevantFuncId) {
+            const func = functionMap.get(relevantFuncId);
+            if (func?.filePath) {
+              locationInfo = `${func.filePath}:${dep.edge.lineNumber}`;
+            }
+          }
+        }
+        
+        console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(${locationInfo})`)}`);
         
         if (dep.subtree) {
           // Add framework indicator for virtual nodes

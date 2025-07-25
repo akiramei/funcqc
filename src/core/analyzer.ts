@@ -383,6 +383,9 @@ export class FunctionAnalyzer {
         isChained: edge.isChained || false,
         confidenceScore: edge.confidenceScore,
         metadata: {
+          // Preserve original edge metadata (includes framework-specific data like Commander.js metadata)
+          ...(edge.metadata || {}),
+          // Add analysis metadata (may override original values if they exist)
           resolutionLevel: edge.resolutionLevel,
           resolutionSource: edge.resolutionSource,
           runtimeConfirmed: edge.runtimeConfirmed
