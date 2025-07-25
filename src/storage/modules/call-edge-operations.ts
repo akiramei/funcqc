@@ -349,8 +349,8 @@ export class CallEdgeOperations implements StorageOperationModule {
         this.db.query(`
           SELECT 
             COUNT(*) as total_call_edges,
-            COUNT(CASE WHEN is_internal = true THEN 1 END) as internal_call_edges,
-            COUNT(CASE WHEN is_internal = false THEN 1 END) as external_call_edges,
+            COUNT(CASE WHEN call_type != 'external' THEN 1 END) as internal_call_edges,
+            COUNT(CASE WHEN call_type = 'external' THEN 1 END) as external_call_edges,
             COUNT(DISTINCT caller_function_id) as distinct_callers
           FROM call_edges
           WHERE snapshot_id = $1
@@ -447,7 +447,6 @@ export class CallEdgeOperations implements StorageOperationModule {
           ce.caller_function_id,
           ce.callee_function_id,
           ce.callee_name,
-          ce.is_internal,
           ce.call_type,
           f1.name as caller_name,
           f2.name as callee_name_internal
@@ -460,7 +459,7 @@ export class CallEdgeOperations implements StorageOperationModule {
       const params: unknown[] = [snapshotId];
 
       if (!options?.includeExternal) {
-        query += ' AND ce.is_internal = true';
+        query += ' AND ce.call_type != \'external\'';
       }
 
       if (options?.rootFunctionId) {
@@ -475,7 +474,6 @@ export class CallEdgeOperations implements StorageOperationModule {
           caller_function_id: string;
           callee_function_id?: string;
           callee_name: string;
-          is_internal: boolean;
           call_type: string;
           caller_name?: string;
           callee_name_internal?: string;
@@ -495,7 +493,7 @@ export class CallEdgeOperations implements StorageOperationModule {
           nodes.set(rowData.callee_function_id, {
             id: rowData.callee_function_id,
             name: rowData.callee_name_internal || rowData.callee_name || 'Unknown',
-            type: rowData.is_internal ? 'internal' : 'external'
+            type: rowData.call_type === 'external' ? 'external' : 'internal'
           });
         }
 

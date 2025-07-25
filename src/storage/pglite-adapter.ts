@@ -117,6 +117,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Reinitialize modules with the updated context
       this.sourceContentOps = new SourceContentOperations(this.context);
       this.functionOps = new FunctionOperations(this.context);
+      this.snapshotOps = new SnapshotOperations(this.context);
+      this.metricsOps = new MetricsOperations(this.context);
+      this.lineageOps = new LineageOperations(this.context);
+      this.embeddingOps = new EmbeddingOperations(this.context);
+      this.refactoringOps = new RefactoringOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
       this.isInitialized = true;
@@ -147,6 +153,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Reinitialize modules with the updated context
       this.sourceContentOps = new SourceContentOperations(this.context);
       this.functionOps = new FunctionOperations(this.context);
+      this.snapshotOps = new SnapshotOperations(this.context);
+      this.metricsOps = new MetricsOperations(this.context);
+      this.lineageOps = new LineageOperations(this.context);
+      this.embeddingOps = new EmbeddingOperations(this.context);
+      this.refactoringOps = new RefactoringOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
       this.isInitialized = true;

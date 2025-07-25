@@ -249,7 +249,7 @@ export interface CallEdge {
   
   // Extensions for ideal call graph system
   calleeCandidates?: string[]; // Function IDs of potential targets when calleeFunctionId is unresolved
-  resolutionLevel?: 'local_exact' | 'import_exact' | 'cha_resolved' | 'rta_resolved' | 'runtime_confirmed' | 'unresolved';
+  resolutionLevel?: 'local_exact' | 'import_exact' | 'cha_resolved' | 'rta_resolved' | 'runtime_confirmed' | 'external_detected' | 'unresolved';
   resolutionSource?: string; // Module or file where the target was found
   runtimeConfirmed?: boolean; // Whether edge is confirmed by runtime traces
 }

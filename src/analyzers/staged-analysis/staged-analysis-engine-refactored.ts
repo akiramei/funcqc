@@ -23,6 +23,7 @@ import { ImportExactAnalysisStage } from './stages/import-exact-analysis';
 import { CHAAnalysisStage } from './stages/cha-analysis';
 import { RTAAnalysisStage } from './stages/rta-analysis';
 import { RuntimeTraceIntegrationStage } from './stages/runtime-trace-integration';
+import { ExternalCallAnalysisStage } from './stages/external-call-analysis';
 
 // Import types and constants
 import { StagedAnalysisOptions, AnalysisState, AnalysisStatistics } from './types';
@@ -47,6 +48,7 @@ export class StagedAnalysisEngine {
   private chaStage: CHAAnalysisStage;
   private rtaStage: RTAAnalysisStage;
   private runtimeStage: RuntimeTraceIntegrationStage;
+  private externalCallStage: ExternalCallAnalysisStage;
 
   // Analysis state
   private state!: AnalysisState;
@@ -73,6 +75,7 @@ export class StagedAnalysisEngine {
     this.chaStage = new CHAAnalysisStage(this.chaAnalyzer, this.logger);
     this.rtaStage = new RTAAnalysisStage(this.rtaAnalyzer, this.logger);
     this.runtimeStage = new RuntimeTraceIntegrationStage(this.runtimeTraceIntegrator, this.logger);
+    this.externalCallStage = new ExternalCallAnalysisStage(this.logger);
   }
 
   /**
@@ -100,6 +103,7 @@ export class StagedAnalysisEngine {
       chaResolvedCount: 0,
       rtaResolvedCount: 0,
       runtimeConfirmedCount: 0,
+      externalCallsCount: 0,
       unresolvedCount: 0,
       totalTime: 0,
       stageTimings: {
@@ -107,7 +111,8 @@ export class StagedAnalysisEngine {
         importExact: 0,
         cha: 0,
         rta: 0,
-        runtime: 0
+        runtime: 0,
+        external: 0
       }
     };
   }
@@ -163,6 +168,11 @@ export class StagedAnalysisEngine {
     );
     this.state.edges = runtimeResult.integratedEdges;
     this.statistics.runtimeConfirmedCount = runtimeResult.enhancedEdgesCount;
+
+    // Stage 6: External Function Call Analysis
+    this.logger.debug('Stage 6: External function call analysis...');
+    const externalResult = await this.performExternalCallAnalysis(functions);
+    this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Calculate final statistics
     const endTime = performance.now();
@@ -356,13 +366,59 @@ export class StagedAnalysisEngine {
   }
 
   /**
+   * Perform external function call analysis
+   */
+  private async performExternalCallAnalysis(
+    functions: Map<string, FunctionMetadata>
+  ): Promise<{ externalCallsCount: number }> {
+    const startTime = performance.now();
+    const sourceFiles = this.project.getSourceFiles();
+    let totalExternalCalls = 0;
+
+    for (const sourceFile of sourceFiles) {
+      const filePath = sourceFile.getFilePath();
+      const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
+      
+      if (fileFunctions.length === 0) {
+        continue;
+      }
+
+      try {
+        const result = await this.externalCallStage.analyzeFile(
+          sourceFile,
+          fileFunctions,
+          functions,
+          this.state
+        );
+
+        // Add external call edges to the main edges collection
+        this.state.edges.push(...result.externalEdges);
+        totalExternalCalls += result.externalCallsCount;
+
+        if (result.externalCallsCount > 0) {
+          this.logger.debug(`External calls in ${filePath}: ${result.externalCallsCount}`);
+        }
+      } catch (error) {
+        this.logger.debug(`Error analyzing external calls in ${filePath}: ${error}`);
+      }
+    }
+
+    const endTime = performance.now();
+    this.statistics.stageTimings.external = (endTime - startTime) / 1000;
+
+    this.logger.debug(`External analysis completed: ${totalExternalCalls} external calls found`);
+    return { externalCallsCount: totalExternalCalls };
+  }
+
+  /**
    * Log final analysis statistics
    */
   private logFinalStatistics(): void {
     const total = this.statistics.localExactCount + 
                   this.statistics.importExactCount + 
                   this.statistics.chaResolvedCount + 
-                  this.statistics.rtaResolvedCount;
+                  this.statistics.rtaResolvedCount +
+                  this.statistics.externalCallsCount;
 
     this.logger.debug('=== Staged Analysis Results ===');
     this.logger.debug(`Local Exact:     ${this.statistics.localExactCount} edges`);
@@ -370,6 +426,7 @@ export class StagedAnalysisEngine {
     this.logger.debug(`CHA Resolved:    ${this.statistics.chaResolvedCount} edges`);
     this.logger.debug(`RTA Resolved:    ${this.statistics.rtaResolvedCount} edges`);
     this.logger.debug(`Runtime Enhanced: ${this.statistics.runtimeConfirmedCount} edges`);
+    this.logger.debug(`External Calls:  ${this.statistics.externalCallsCount} edges`);
     this.logger.debug(`Total Edges:     ${total} edges`);
     this.logger.debug(`Analysis Time:   ${this.statistics.totalTime.toFixed(2)}s`);
     this.logger.debug('==============================');

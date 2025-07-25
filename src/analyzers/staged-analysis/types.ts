@@ -61,6 +61,7 @@ export interface AnalysisStatistics {
   chaResolvedCount: number;
   rtaResolvedCount: number;
   runtimeConfirmedCount: number;
+  externalCallsCount: number;
   unresolvedCount: number;
   totalTime: number;
   stageTimings: {
@@ -69,5 +70,6 @@ export interface AnalysisStatistics {
     cha: number;
     rta: number;
     runtime: number;
+    external: number;
   };
 }

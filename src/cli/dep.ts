@@ -207,15 +207,51 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
 
       let targetFunction = null;
       if (functionRef) {
-        targetFunction = functions.find(f => 
-          f.id === functionRef || 
-          f.name === functionRef ||
-          f.name.includes(functionRef)
-        );
-
-        if (!targetFunction) {
-          console.log(chalk.red(`Function "${functionRef}" not found.`));
-          return;
+        // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
+        const candidates = functions.filter(f => f.id === functionRef);
+        
+        if (candidates.length > 0) {
+          // ID exact match found
+          targetFunction = candidates[0];
+        } else {
+          // Try exact name match
+          const exactMatches = functions.filter(f => f.name === functionRef);
+          
+          if (exactMatches.length === 1) {
+            targetFunction = exactMatches[0];
+          } else if (exactMatches.length > 1) {
+            // Multiple exact matches (overloads)
+            console.log(chalk.yellow(`Multiple functions named "${functionRef}" found:`));
+            exactMatches.forEach((func, index) => {
+              console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+            });
+            console.log(chalk.blue('\nPlease use the function ID for precise selection:'));
+            console.log(chalk.gray(`  funcqc dep show ${exactMatches[0].id}`));
+            return;
+          } else {
+            // Try partial name match as fallback
+            const partialMatches = functions.filter(f => f.name.includes(functionRef));
+            
+            if (partialMatches.length === 0) {
+              console.log(chalk.red(`Function "${functionRef}" not found.`));
+              return;
+            } else if (partialMatches.length === 1) {
+              targetFunction = partialMatches[0];
+              console.log(chalk.dim(`Found partial match: ${targetFunction.name}`));
+            } else {
+              // Multiple partial matches
+              console.log(chalk.yellow(`Multiple functions matching "${functionRef}" found:`));
+              partialMatches.slice(0, 10).forEach((func, index) => {
+                console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+              });
+              if (partialMatches.length > 10) {
+                console.log(chalk.gray(`  ... and ${partialMatches.length - 10} more`));
+              }
+              console.log(chalk.blue('\nPlease be more specific or use the function ID:'));
+              console.log(chalk.gray(`  funcqc dep show ${partialMatches[0].id}`));
+              return;
+            }
+          }
         }
       }
 
@@ -277,9 +313,19 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
 
         // Output results
         if (options.json) {
-          outputDepShowJSON(targetFunction, dependencies);
+          outputDepShowJSON({
+            id: targetFunction.id,
+            name: targetFunction.name,
+            file_path: targetFunction.filePath,
+            start_line: targetFunction.startLine
+          }, dependencies);
         } else {
-          outputDepShowFormatted(targetFunction, dependencies, options);
+          outputDepShowFormatted({
+            id: targetFunction.id,
+            name: targetFunction.name,
+            file_path: targetFunction.filePath,
+            start_line: targetFunction.startLine
+          }, dependencies, options);
         }
       } else {
         // Global analysis - find top routes across all functions
@@ -479,6 +525,7 @@ interface DependencyTreeNode {
     subtree: DependencyTreeNode | null;
   }>;
   routes?: RouteComplexityInfo[];  // Route complexity analysis results
+  isExternal?: boolean;  // Indicates if this is an external function node
 }
 
 /**
@@ -602,11 +649,22 @@ function buildDependencyTree(
         (includeExternal || edge.callType !== 'external')
       );
       
-      result.dependencies.push(...incoming.map(edge => ({
-        direction: 'in' as const,
-        edge,
-        subtree: buildTree(edge.callerFunctionId || '', depth + 1, 'in', newPath),
-      })).filter(dep => dep.subtree));
+      result.dependencies.push(...incoming.map(edge => {
+        let subtree = null;
+        
+        if (edge.callerFunctionId) {
+          // Internal function call - recurse
+          subtree = buildTree(edge.callerFunctionId, depth + 1, 'in', newPath);
+        }
+        // Note: For incoming dependencies, we don't typically have external callers
+        // as external functions calling our internal functions is less common
+        
+        return {
+          direction: 'in' as const,
+          edge,
+          subtree,
+        };
+      }).filter(dep => dep.subtree));
     }
     
     if (dir === 'out' || direction === 'both') {
@@ -616,11 +674,29 @@ function buildDependencyTree(
         (includeExternal || edge.callType !== 'external')
       );
       
-      result.dependencies.push(...outgoing.map(edge => ({
-        direction: 'out' as const,
-        edge,
-        subtree: buildTree(edge.calleeFunctionId || '', depth + 1, 'out', newPath),
-      })).filter(dep => dep.subtree));
+      result.dependencies.push(...outgoing.map(edge => {
+        let subtree = null;
+        
+        if (edge.calleeFunctionId) {
+          // Internal function call - recurse
+          subtree = buildTree(edge.calleeFunctionId, depth + 1, 'out', newPath);
+        } else if (includeExternal && edge.calleeName) {
+          // External function call - create terminal node
+          subtree = {
+            id: `external:${edge.calleeName}`,
+            name: edge.calleeName,
+            depth: depth + 1,
+            dependencies: [],
+            isExternal: true
+          } as DependencyTreeNode & { isExternal: boolean };
+        }
+        
+        return {
+          direction: 'out' as const,
+          edge,
+          subtree,
+        };
+      }).filter(dep => dep.subtree));
     }
     
     // Record route if this is a leaf node or if complexity analysis is enabled
@@ -730,16 +806,18 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
     if (!node) return;
 
     const connector = isLast ? '└── ' : '├── ';
-    const nameColor = node.depth === 0 ? chalk.bold.cyan : chalk.green;
+    const isExternal = node.isExternal;
+    const nameColor = node.depth === 0 ? chalk.bold.cyan : (isExternal ? chalk.dim : chalk.green);
+    const idDisplay = isExternal ? 'external' : node.id?.substring(0, 8);
     
-    console.log(`${prefix}${connector}${nameColor(node.name)} ${chalk.gray(`(${node.id?.substring(0, 8)})`)}`);
+    console.log(`${prefix}${connector}${nameColor(node.name)} ${chalk.gray(`(${idDisplay})`)}`);
     
     if (node.dependencies && node.dependencies.length > 0) {
       const newPrefix = prefix + (isLast ? '    ' : '│   ');
       
       node.dependencies.forEach((dep, index: number) => {
         const isLastDep = index === node.dependencies.length - 1;
-        const arrow = dep.direction === 'in' ? '→' : '←';
+        const arrow = dep.direction === 'in' ? '←' : '→';
         const typeColor = getCallTypeColor(dep.edge.callType);
         
         console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);

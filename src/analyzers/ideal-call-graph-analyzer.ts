@@ -1,6 +1,6 @@
 import { Project, TypeChecker } from 'ts-morph';
 import { FunctionRegistry } from './function-registry';
-import { StagedAnalysisEngine } from './staged-analysis-engine';
+import { StagedAnalysisEngine } from './staged-analysis/staged-analysis-engine-refactored';
 import { ConfidenceCalculator } from './confidence-calculator';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
 import { CallEdge } from '../types';
@@ -26,7 +26,8 @@ export enum ResolutionLevel {
   IMPORT_EXACT = 'import_exact',         // confidence: 0.95
   CHA_RESOLVED = 'cha_resolved',         // confidence: 0.8
   RTA_RESOLVED = 'rta_resolved',         // confidence: 0.9
-  RUNTIME_CONFIRMED = 'runtime_confirmed' // confidence: 1.0
+  RUNTIME_CONFIRMED = 'runtime_confirmed', // confidence: 1.0
+  EXTERNAL_DETECTED = 'external_detected'  // confidence: 0.7-0.95
 }
 
 export interface CallGraphResult {
