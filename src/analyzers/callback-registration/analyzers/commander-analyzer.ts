@@ -18,8 +18,8 @@ import {
 export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
   constructor(logger?: Logger) {
     super('commander', logger);
-    // Force debug for debugging this issue
-    this.debug = true;
+    // Debug disabled to reduce noise
+    this.debug = false;
   }
 
   /**
@@ -361,21 +361,52 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
    * Check if a registration is related to a trigger call
    */
   private areRegistrationsRelated(
-    _registration: CallbackRegistration,
+    registration: CallbackRegistration,
     triggerCall: CallExpression,
     _context: AnalysisContext
   ): boolean {
     // For Commander, registrations and triggers are related if they operate on the same program/command object
-    // This is a simplified heuristic - could be made more sophisticated
+    // This implementation reduces false positives by checking object chain similarity
     
     const triggerExpression = triggerCall.getExpression();
     if (!Node.isPropertyAccessExpression(triggerExpression)) {
       return false;
     }
 
-    // For now, assume all registrations in the same file are related to triggers in the same file
-    // This could be enhanced with more sophisticated object tracking
-    return true;
+    // Get the object chain for both registration and trigger
+    const triggerObjectChain = this.getObjectChain(triggerExpression);
+    const registrationObjectChain = registration.metadata?.['objectChain'];
+
+    // If we can't determine object chains, be conservative
+    if (!triggerObjectChain || !registrationObjectChain || typeof registrationObjectChain !== 'string') {
+      return false;
+    }
+
+    // Check if the object chains are similar (indicating same program/command instance)
+    return this.areObjectChainsSimilar(triggerObjectChain, registrationObjectChain);
+  }
+
+  /**
+   * Check if two object chains are similar enough to be considered related
+   */
+  private areObjectChainsSimilar(chain1: string, chain2: string): boolean {
+    // Exact match is ideal
+    if (chain1 === chain2) {
+      return true;
+    }
+
+    // For Commander.js, common patterns are:
+    // - "program" (main program object)
+    // - "program.command(...)" (subcommands)
+    // - chained calls like "program.command(...).option(...)"
+    
+    // Extract the base object (before first method call)
+    const base1 = chain1.split('.')[0];
+    const base2 = chain2.split('.')[0];
+    
+    // If base objects are the same, consider them related
+    // This handles cases where both use 'program' but have different chaining
+    return base1 === base2;
   }
 
   /**
