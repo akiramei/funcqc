@@ -20,7 +20,7 @@ import type {
 import { 
   generateEnhancedSuggestions,
   analyzeSourceCodeForSuggestions
-} from '../cli/commands/health';
+} from '../domain/health-analysis-logic';
 
 export class HealthAnalysisService implements IHealthAnalysisService {
   
