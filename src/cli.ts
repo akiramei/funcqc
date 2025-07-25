@@ -1170,6 +1170,7 @@ program
     console.log('  show     - Show detailed dependency information');
     console.log('  stats    - Show dependency statistics and metrics');
     console.log('  lint     - Lint architecture dependencies against rules');
+    console.log('  dead     - Detect dead code (unreachable functions)');
     console.log('\nExample: funcqc dep list');
   });
 
@@ -1248,10 +1249,45 @@ depCommand.command('lint')
     return withEnvironment(depLintCommand)(options);
   });
 
-// Dead code detection command
+depCommand.command('dead')
+  .description('Detect dead code (unreachable functions) using dependency analysis')
+  .option('--exclude-tests', 'exclude test functions from analysis')
+  .option('--exclude-exports', 'exclude exported functions from entry points')
+  .option('--exclude-small', 'exclude small functions from results')
+  .option('--threshold <num>', 'minimum function size to report', '3')
+  .option('--format <format>', 'output format (table, json, dot)', 'table')
+  .option('--show-reasons', 'show detailed reasons for dead code')
+  .option('--verbose', 'show verbose output')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depDeadCommand } = await import('./cli/dep');
+    return withEnvironment(depDeadCommand)(options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Basic dead code detection
+  $ funcqc dep dead
+
+  # Exclude test functions and small functions
+  $ funcqc dep dead --exclude-tests --exclude-small --threshold 5
+
+  # JSON output for automation
+  $ funcqc dep dead --format json
+
+  # Analyze specific snapshot
+  $ funcqc dep dead --snapshot abc123
+
+  # Generate DOT graph for visualization
+  $ funcqc dep dead --format dot > deadcode.dot
+
+Note: This command uses the same call graph analysis as other 'dep' commands,
+providing consistent and comprehensive dead code detection.`);
+
+// Dead code detection command (DEPRECATED - use 'dep dead' instead)
 program
   .command('dead')
-  .description('Detect dead code (unreachable functions)')
+  .description('Detect dead code (unreachable functions) [DEPRECATED: use "dep dead" instead]')
   .option('--exclude-tests', 'exclude test functions from analysis')
   .option('--exclude-exports', 'exclude exported functions from entry points')
   .option('--exclude-small', 'exclude small functions from results')
@@ -1260,6 +1296,11 @@ program
   .option('--show-reasons', 'show detailed reasons for dead code')
   .option('--verbose', 'show verbose output')
   .action(async (options: OptionValues, command) => {
+    // Show deprecation warning
+    console.log(chalk.yellow('⚠️  Warning: The "dead" command is deprecated.'));
+    console.log(chalk.yellow('   Please use "funcqc dep dead" instead for better integration with dependency analysis.'));
+    console.log(chalk.gray('   This command will be removed in a future version.\n'));
+    
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { deadCommand } = await import('./cli/dead');
     return withEnvironment(deadCommand)(options, command);
