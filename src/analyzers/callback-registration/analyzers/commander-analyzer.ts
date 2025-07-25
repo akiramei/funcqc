@@ -9,7 +9,8 @@ import { Logger } from '../../../utils/cli-utils';
 import { 
   CallbackRegistration, 
   CallbackTrigger, 
-  AnalysisContext 
+  AnalysisContext,
+  VirtualCallEdge
 } from '../types';
 
 /**
@@ -504,6 +505,62 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     return functionCalls;
   }
 
+
+  /**
+   * Override virtual edge creation for Commander.js-specific behavior
+   * Creates edges that appear to come from program.parseAsync rather than the calling function
+   */
+  protected override createVirtualEdge(
+    trigger: CallbackTrigger,
+    registration: CallbackRegistration,
+    _context: AnalysisContext
+  ): VirtualCallEdge | null {
+    if (!registration.callbackFunctionId) {
+      return null;
+    }
+
+    const edgeId = this.generateVirtualEdgeId(trigger, registration);
+
+    // For Commander.js, create virtual edge that appears to come from program.parseAsync
+    // This makes the call graph show: main → program.parseAsync → [command callbacks]
+    // instead of: main → [command callbacks]
+    return {
+      id: edgeId,
+      callerFunctionId: `external_${trigger.triggerMethod}`, // Use external trigger as caller
+      calleeFunctionId: registration.callbackFunctionId,
+      calleeName: registration.callbackFunctionName || 'unknown',
+      calleeSignature: registration.callbackFunctionName ? `${registration.callbackFunctionName}()` : 'unknown()',
+      callType: 'virtual',
+      virtualType: 'callback_registration',
+      framework: this.frameworkName,
+      registration,
+      callContext: 'callback',
+      lineNumber: trigger.lineNumber,
+      columnNumber: trigger.columnNumber,
+      isAsync: registration.triggerMethod === 'parseAsync',
+      isChained: false,
+      confidenceScore: registration.confidence,
+      resolutionLevel: 'callback_registration' as const,
+      resolutionSource: `${this.frameworkName}_callback`,
+      runtimeConfirmed: false,
+      candidates: [],
+      analysisMetadata: {
+        timestamp: Date.now(),
+        analysisVersion: '1.0.0',
+        sourceHash: '',
+        commanderTriggerOriginal: trigger.triggerFunctionId // Keep reference to original caller
+      },
+      metadata: {
+        framework: this.frameworkName,
+        registrationMethod: registration.registrationMethod,
+        triggerMethod: registration.triggerMethod,
+        originalTriggerFunction: trigger.triggerFunctionId,
+        externalCallPoint: `program.${trigger.triggerMethod}`,
+        ...registration.metadata
+      },
+      createdAt: new Date().toISOString()
+    } as VirtualCallEdge;
+  }
 
   /**
    * Override confidence scoring for Commander-specific patterns
