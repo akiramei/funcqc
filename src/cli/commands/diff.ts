@@ -489,64 +489,217 @@ async function displayModifiedFunctionsWithSimilarity(
 
 async function displaySimilarityAnalysisForAdded(
   functionsWithNumbers: Array<{func: FunctionInfo, number: number}>,
-  _similarityManager: SimilarityManager
+  similarityManager: SimilarityManager
 ): Promise<void> {
   console.log('Similar functions analysis:');
   console.log('No.  Function                         Sim%   Similar To                   File:Line                      Insight');
   console.log('---- ────────────────────────────────── ────── ──────────────────────────── ────────────────────────────── ──────────────────────');
 
   for (const {func, number} of functionsWithNumbers) {
-    // TODO: Implement similarity detection for added functions
-    // For now, show placeholder
-    const hasNearDuplicate = Math.random() > 0.7; // Placeholder logic
-    
-    if (hasNearDuplicate) {
-      const similarity = Math.floor(85 + Math.random() * 10);
-      console.log(`#${number.toString().padStart(2)}  ${func.name.substring(0, 32).padEnd(33)} ${similarity.toString().padStart(4)}%   ${'validateUserData'.padEnd(28)} ${'src/utils/helpers.ts:156'.padEnd(30)} ${'Possible reinvention'.padEnd(21)}`);
-    } else {
-      console.log(`#${number.toString().padStart(2)}  ${func.name.substring(0, 32).padEnd(33)} ${'-'.padStart(4)}    ${'No similar functions found'.padEnd(28)} ${'-'.padEnd(30)} ${'✅ Unique implementation'.padEnd(21)}`);
+    try {
+      // Get all functions and find similarity
+      // Note: This is a simplified approach. For production, consider caching all functions
+      const results = await similarityManager.detectSimilarities(
+        [func], // Target function
+        { threshold: 0.95 } // Only show very high similarity (95%+)
+      );
+
+      // Find results with high similarity functions
+      const highSimilarityResults = results.filter(result => 
+        result.similarity >= 0.95 && result.functions.length > 1
+      );
+
+      if (highSimilarityResults.length > 0) {
+        // Show the most similar function from the best result
+        const bestResult = highSimilarityResults[0];
+        const similarFunctions = bestResult.functions.filter(f => f.functionId !== func.id);
+        
+        if (similarFunctions.length > 0) {
+          const mostSimilar = similarFunctions[0];
+          const similarity = Math.round(bestResult.similarity * 100);
+          const functionName = func.name.substring(0, 32).padEnd(33);
+          const similarTo = mostSimilar.functionName.padEnd(28);
+          const location = `${mostSimilar.filePath}:${mostSimilar.startLine}`.padEnd(30);
+          const insight = getInsightForAddedFunction(similarity);
+          
+          console.log(`#${number.toString().padStart(2)}  ${functionName} ${similarity.toString().padStart(4)}%   ${similarTo} ${location} ${insight.padEnd(21)}`);
+        } else {
+          // No similar functions found (shouldn't happen but handle gracefully)
+          const functionName = func.name.substring(0, 32).padEnd(33);
+          console.log(`#${number.toString().padStart(2)}  ${functionName} ${'-'.padStart(4)}    ${'No similar functions found'.padEnd(28)} ${'-'.padEnd(30)} ${'✅ Unique implementation'.padEnd(21)}`);
+        }
+      } else {
+        // No highly similar functions found
+        const functionName = func.name.substring(0, 32).padEnd(33);
+        console.log(`#${number.toString().padStart(2)}  ${functionName} ${'-'.padStart(4)}    ${'No similar functions found'.padEnd(28)} ${'-'.padEnd(30)} ${'✅ Unique implementation'.padEnd(21)}`);
+      }
+    } catch {
+      // Silently continue if similarity analysis fails for a function
+      const functionName = func.name.substring(0, 32).padEnd(33);
+      console.log(`#${number.toString().padStart(2)}  ${functionName} ${'-'.padStart(4)}    ${'Analysis failed'.padEnd(28)} ${'-'.padEnd(30)} ${'⚠️ Check manually'.padEnd(21)}`);
     }
   }
 
   console.log();
 }
 
+function getInsightForAddedFunction(similarity: number): string {
+  if (similarity >= 98) {
+    return '🚨 Likely duplicate';
+  } else if (similarity >= 96) {
+    return '⚠️ Possible reinvention';
+  } else {
+    return '💡 Review similarity';
+  }
+}
+
 async function displaySimilarityAnalysisForRemoved(
   functionsWithNumbers: Array<{func: FunctionInfo, number: number}>,
-  _similarityManager: SimilarityManager
+  similarityManager: SimilarityManager
 ): Promise<void> {
   console.log('Remaining similar functions:');
   console.log('No.  Sim%   Function                          File:Line                      Suggested Action');
   console.log('---- ────── ────────────────────────────────────────── ────────────────────────────── ──────────────────────');
 
-  for (const {number} of functionsWithNumbers) {
-    // TODO: Implement similarity detection for remaining functions
-    // For now, show placeholder for demonstration
-    const similarity1 = Math.floor(80 + Math.random() * 10);
-    const similarity2 = Math.floor(75 + Math.random() * 10);
-    
-    console.log(`#${number.toString().padStart(2)}  ${similarity1.toString().padStart(4)}%   ${'checkInput'.padEnd(32)} ${'src/forms/validator.ts:23'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
-    console.log(`     ${similarity2.toString().padStart(4)}%   ${'validateForm'.padEnd(32)} ${'src/ui/forms.ts:89'.padEnd(30)} ${'Consider cleanup'.padEnd(20)}`);
+  let hasSimilarFunctions = false;
+
+  for (const {func, number} of functionsWithNumbers) {
+    try {
+      // Get similarity results for the removed function
+      const results = await similarityManager.detectSimilarities(
+        [func], // Target function
+        { threshold: 0.95 } // Only show very high similarity (95%+)
+      );
+
+      // Find results with high similarity functions
+      const highSimilarityResults = results.filter(result => 
+        result.similarity >= 0.95 && result.functions.length > 1
+      );
+
+      if (highSimilarityResults.length > 0) {
+        hasSimilarFunctions = true;
+        
+        // Show all similar functions from all results
+        for (const result of highSimilarityResults) {
+          const similarFunctions = result.functions.filter(f => f.functionId !== func.id);
+          
+          for (const similar of similarFunctions) {
+            const similarity = Math.round(result.similarity * 100);
+            const functionName = similar.functionName.padEnd(32);
+            const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
+            const action = getActionForSimilarity(similarity);
+            
+            console.log(`#${number.toString().padStart(2)}  ${similarity.toString().padStart(4)}%   ${functionName} ${location} ${action.padEnd(20)}`);
+          }
+        }
+      }
+    } catch {
+      // Silently continue if similarity analysis fails for a function
+      continue;
+    }
+  }
+
+  if (!hasSimilarFunctions) {
+    console.log('No highly similar functions found (threshold: 95%)');
   }
 
   console.log();
 }
 
+function getActionForSimilarity(similarity: number): string {
+  if (similarity >= 98) {
+    return 'Likely duplicate';
+  } else if (similarity >= 96) {
+    return 'Review for merge';
+  } else {
+    return 'Consider cleanup';
+  }
+}
+
 async function displaySimilarityAnalysisForModified(
   functionsWithNumbers: Array<{func: FunctionChange, number: number}>,
-  _similarityManager: SimilarityManager
+  similarityManager: SimilarityManager
 ): Promise<void> {
   for (const {func, number} of functionsWithNumbers) {
     console.log(`Similarity changes for #${number} ${func.after.name}:`);
     console.log('Timing   Sim%   Function                          File:Line                      Insight');
     console.log('──────── ────── ──────────────────────────────── ────────────────────────────── ──────────────────────');
 
-    // TODO: Implement before/after similarity analysis
-    // For now, show placeholder
-    console.log('Before    87%   calculateDiscount                 src/pricing/discount.ts:45     Review for updates');
-    console.log('After     92%   calculateShipping                 src/orders/shipping.ts:112     Consider merging');
-    console.log('After     84%   calculateFee                      src/billing/fees.ts:78         Monitor changes');
+    let hasAnySimilarity = false;
+
+    // Analyze similarity for the "before" version
+    try {
+      const beforeResults = await similarityManager.detectSimilarities(
+        [func.before],
+        { threshold: 0.95 } // Only show very high similarity (95%+)
+      );
+
+      const highSimilarityBefore = beforeResults.filter(result => 
+        result.similarity >= 0.95 && result.functions.length > 1
+      );
+
+      for (const result of highSimilarityBefore) {
+        const similarFunctions = result.functions.filter(f => f.functionId !== func.before.id);
+        
+        for (const similar of similarFunctions.slice(0, 2)) { // Limit to top 2 for readability
+          hasAnySimilarity = true;
+          const similarity = Math.round(result.similarity * 100);
+          const functionName = similar.functionName.substring(0, 32).padEnd(33);
+          const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
+          const insight = getInsightForModifiedFunction(similarity, 'before');
+          
+          console.log(`Before   ${similarity.toString().padStart(4)}%   ${functionName} ${location} ${insight}`);
+        }
+      }
+    } catch {
+      // Continue silently if analysis fails
+    }
+
+    // Analyze similarity for the "after" version  
+    try {
+      const afterResults = await similarityManager.detectSimilarities(
+        [func.after],
+        { threshold: 0.95 } // Only show very high similarity (95%+)
+      );
+
+      const highSimilarityAfter = afterResults.filter(result => 
+        result.similarity >= 0.95 && result.functions.length > 1
+      );
+
+      for (const result of highSimilarityAfter) {
+        const similarFunctions = result.functions.filter(f => f.functionId !== func.after.id);
+        
+        for (const similar of similarFunctions.slice(0, 2)) { // Limit to top 2 for readability
+          hasAnySimilarity = true;
+          const similarity = Math.round(result.similarity * 100);
+          const functionName = similar.functionName.substring(0, 32).padEnd(33);
+          const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
+          const insight = getInsightForModifiedFunction(similarity, 'after');
+          
+          console.log(`After    ${similarity.toString().padStart(4)}%   ${functionName} ${location} ${insight}`);
+        }
+      }
+    } catch {
+      // Continue silently if analysis fails
+    }
+
+    if (!hasAnySimilarity) {
+      console.log('No highly similar functions found (threshold: 95%)');
+    }
+
     console.log();
+  }
+}
+
+function getInsightForModifiedFunction(similarity: number, timing: 'before' | 'after'): string {
+  const prefix = timing === 'before' ? '🔄' : '🔍';
+  
+  if (similarity >= 98) {
+    return `${prefix} Likely duplicate`;
+  } else if (similarity >= 96) {
+    return `${prefix} Review for merge`;
+  } else {
+    return `${prefix} Monitor changes`;
   }
 }
 
