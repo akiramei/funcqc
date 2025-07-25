@@ -873,9 +873,29 @@ function outputDepShowFormatted(func: { id: string; name: string; file_path?: st
         const typeColor = getCallTypeColor(dep.edge.callType);
         
         // Add framework info for virtual callback edges
-        // Framework-specific display (unused in current implementation)
-        if (dep.edge.callType === 'virtual' && (dep.edge.metadata as Record<string, unknown>)?.['framework']) {
-          // Framework-specific display could be used for enhanced visualization
+        // Commander.js specific display: show program.parseAsync in the flow
+        if (dep.edge.callType === 'virtual' && 
+            (dep.edge.metadata as Record<string, unknown>)?.['framework'] === 'commander' &&
+            (dep.edge.metadata as Record<string, unknown>)?.['displayHint'] === 'commander_dispatch') {
+          
+          const triggerMethod = (dep.edge.metadata as Record<string, unknown>)?.['triggerMethod'] as string;
+          const programCall = `program.${triggerMethod || 'parseAsync'}`;
+          
+          // Insert program.parseAsync as intermediate step
+          console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);
+          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
+          
+          // Then show the actual command function
+          if (dep.subtree) {
+            const commandDisplayName = `${dep.subtree.name} ${chalk.cyan('[command]')}`;
+            console.log(`${newPrefix + (isLastDep ? '        ' : '│       ')}└── ${commandDisplayName}`);
+            
+            // Continue with recursive tree printing if there are more dependencies
+            if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
+              printTree(dep.subtree, newPrefix + (isLastDep ? '        ' : '│       '), true);
+            }
+          }
+          return; // Skip the normal rendering
         }
         
         console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(line ${dep.edge.lineNumber})`)}`);

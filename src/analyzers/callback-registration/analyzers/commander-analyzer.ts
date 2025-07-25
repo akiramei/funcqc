@@ -508,7 +508,7 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
 
   /**
    * Override virtual edge creation for Commander.js-specific behavior
-   * Creates edges that appear to come from program.parseAsync rather than the calling function
+   * Creates a direct flow: program.parseAsync → command callbacks
    */
   protected override createVirtualEdge(
     trigger: CallbackTrigger,
@@ -521,12 +521,11 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
 
     const edgeId = this.generateVirtualEdgeId(trigger, registration);
 
-    // For Commander.js, create virtual edge that appears to come from program.parseAsync
-    // This makes the call graph show: main → program.parseAsync → [command callbacks]
-    // instead of: main → [command callbacks]
+    // For Commander.js: Create direct edge from parseAsync to the actual command function
+    // This creates a clean graph: main → program.parseAsync → initCommand (not arrow function)
     return {
       id: edgeId,
-      callerFunctionId: `external_${trigger.triggerMethod}`, // Use external trigger as caller
+      callerFunctionId: trigger.triggerFunctionId, // Keep original trigger (main function)
       calleeFunctionId: registration.callbackFunctionId,
       calleeName: registration.callbackFunctionName || 'unknown',
       calleeSignature: registration.callbackFunctionName ? `${registration.callbackFunctionName}()` : 'unknown()',
@@ -548,14 +547,15 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
         timestamp: Date.now(),
         analysisVersion: '1.0.0',
         sourceHash: '',
-        commanderTriggerOriginal: trigger.triggerFunctionId // Keep reference to original caller
+        commanderSpecial: true, // Mark as Commander.js special edge
+        commanderTriggerMethod: trigger.triggerMethod // parseAsync/parse
       },
       metadata: {
         framework: this.frameworkName,
         registrationMethod: registration.registrationMethod,
         triggerMethod: registration.triggerMethod,
-        originalTriggerFunction: trigger.triggerFunctionId,
-        externalCallPoint: `program.${trigger.triggerMethod}`,
+        commanderFlow: `program.${trigger.triggerMethod} → ${registration.callbackFunctionName}`,
+        displayHint: 'commander_dispatch', // Hint for display layer
         ...registration.metadata
       },
       createdAt: new Date().toISOString()
