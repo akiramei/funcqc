@@ -1321,42 +1321,6 @@ Use --execute to perform actual deletion with confirmation prompts.
 Use --force to skip confirmation (not recommended).
 `);
 
-// Clean dead code command
-program
-  .command('clean')
-  .description('🧹 Safely remove dead code using AST-based analysis')
-  .option('--dry-run', 'Show what would be deleted without making changes', false)
-  .option('--verbose', 'Show detailed deletion process', false)
-  .option('--backup', 'Create backup files before deletion', true)
-  .option('--limit <number>', 'Maximum number of functions to delete')
-  .option('-y, --confirmed', 'Skip confirmation prompts', false)
-  .option('--skip-jsdoc', 'Skip removal of JSDoc comments', false)
-  .option('--interactive', 'Interactive function-by-function confirmation', false)
-  .option('--threshold <percentage>', 'Only delete if dead code percentage is below threshold (default: 90)', '90')
-  .action(async (options: OptionValues) => {
-    const { executeCleanCommand } = await import('./cli/commands/clean');
-    return executeCleanCommand(options);
-  })
-  .addHelpText('after', `
-Examples:
-  # Dry run to see what would be deleted
-  $ funcqc clean --dry-run
-
-  # Delete up to 50 dead functions with backup
-  $ funcqc clean --limit 50 --backup
-
-  # Interactive deletion with confirmation for each function
-  $ funcqc clean --interactive
-
-  # Auto-confirm deletion without prompts
-  $ funcqc clean -y --verbose
-
-  # Delete without creating backup files
-  $ funcqc clean --no-backup
-
-  # Custom threshold for safety (only clean if <80% dead code)
-  $ funcqc clean --threshold 80
-`);
 
 // Circular dependency detection command
 program
