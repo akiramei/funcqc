@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { depStatsCommand } from '../../src/cli/dep';
 import { riskAnalyzeCommand } from '../../src/cli/risk';
-import { deadCommand } from '../../src/cli/dead';
+import { depDeadCommand } from '../../src/cli/dep';
 import { CommandEnvironment } from '../../src/types/environment';
 import { FunctionInfo, CallEdge } from '../../src/types';
 import { DependencyMetrics } from '../../src/analyzers/dependency-metrics';
@@ -261,7 +261,7 @@ describe('DOT Format CLI Integration', () => {
         })),
       }));
 
-      const command = deadCommand({ format: 'dot' });
+      const command = depDeadCommand({ format: 'dot' });
       await command(mockEnv);
 
       // Verify that DOT format was output
