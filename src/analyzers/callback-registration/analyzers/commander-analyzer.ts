@@ -18,8 +18,8 @@ import {
 export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
   constructor(logger?: Logger) {
     super('commander', logger);
-    // Debug temporarily enabled to investigate virtual edge generation
-    this.debug = true;
+    // Debug disabled - using simplified relationship logic
+    this.debug = false;
   }
 
   /**
@@ -27,7 +27,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
    */
   override canAnalyze(context: AnalysisContext): boolean {
     const sourceCode = context.sourceFile.getFullText();
-    const filePath = context.sourceFile.getFilePath();
     
     // Check for Commander.js imports or usage patterns
     const hasCommanderImport = sourceCode.includes('from \'commander\'') || 
@@ -42,16 +41,7 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
 
     const canAnalyze = hasCommanderImport || hasCommanderUsage;
     
-    // Always log for main CLI file specifically and when patterns are found
-    if (filePath.includes('cli.ts') || hasCommanderImport || hasCommanderUsage) {
-      console.log(`🔍 [Commander] canAnalyze(${filePath}): ${canAnalyze} (import: ${hasCommanderImport}, usage: ${hasCommanderUsage})`);
-      if (hasCommanderImport) {
-        console.log(`🔍 [Commander] Found import patterns in ${filePath}`);
-      }
-      if (hasCommanderUsage) {
-        console.log(`🔍 [Commander] Found usage patterns in ${filePath}`);
-      }
-    }
+    // Debug logging disabled for cleaner output
 
     return canAnalyze;
   }
@@ -63,22 +53,16 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     const registrations: CallbackRegistration[] = [];
     const sourceFile = context.sourceFile;
     const registrationMethods = context.frameworkConfig.registrationMethods;
-    const filePath = sourceFile.getFilePath();
 
     // Find all call expressions in the file
     const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
     
-    console.log(`🔍 [Commander] detectCallbackRegistrations(${filePath}): ${callExpressions.length} call expressions found`);
-
     for (const callExpression of callExpressions) {
       const registration = this.analyzeCallExpression(callExpression, context, registrationMethods);
       if (registration) {
-        console.log(`🔍 [Commander] Found registration: ${registration.registrationMethod} -> ${registration.callbackFunctionName || 'anonymous'}`);
         registrations.push(registration);
       }
     }
-
-    console.log(`🔍 [Commander] detectCallbackRegistrations(${filePath}): ${registrations.length} registrations found`);
 
     return registrations;
   }
@@ -93,22 +77,16 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     const triggers: CallbackTrigger[] = [];
     const sourceFile = context.sourceFile;
     const triggerMethods = context.frameworkConfig.triggerMethods;
-    const filePath = sourceFile.getFilePath();
 
     // Find all call expressions that might be triggers
     const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
     
-    console.log(`🔍 [Commander] detectCallbackTriggers(${filePath}): ${callExpressions.length} call expressions, ${registrations.length} registrations, trigger methods: [${triggerMethods.join(', ')}]`);
-
     for (const callExpression of callExpressions) {
       const trigger = this.analyzeTriggerCallExpression(callExpression, context, triggerMethods, registrations);
       if (trigger) {
-        console.log(`🔍 [Commander] Found trigger: ${trigger.triggerMethod} with ${trigger.registrations.length} related registrations`);
         triggers.push(trigger);
       }
     }
-
-    console.log(`🔍 [Commander] detectCallbackTriggers(${filePath}): ${triggers.length} triggers found`);
 
     return triggers;
   }
@@ -131,17 +109,7 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     const methodName = expression.getName();
     const filePath = context.sourceFile.getFilePath();
     
-    // Debug: Log all property access expressions in main CLI file
-    if (filePath.includes('cli.ts') && (methodName === 'action' || methodName === 'hook')) {
-      console.log(`🔍 [Commander] Found ${methodName}() call in ${filePath} at line ${callExpression.getStartLineNumber()}`);
-      console.log(`🔍 [Commander] Registration methods config: [${registrationMethods.join(', ')}]`);
-      console.log(`🔍 [Commander] Method ${methodName} is in config: ${registrationMethods.includes(methodName)}`);
-      
-      // Debug object chain creation
-      const debugObjectChain = this.getObjectChain(expression);
-      console.log(`🔍 [Commander] Object chain for ${methodName}(): "${debugObjectChain}"`);
-      console.log(`🔍 [Commander] Expression text: "${expression.getText()}"`);
-    }
+    // Debug logging disabled for cleaner output
     
     if (!registrationMethods.includes(methodName)) {
       return null;
@@ -150,9 +118,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     // Get the callback function argument
     const args = callExpression.getArguments();
     if (args.length === 0) {
-      if (filePath.includes('cli.ts') && (methodName === 'action' || methodName === 'hook')) {
-        console.log(`🔍 [Commander] ${methodName}() at line ${callExpression.getStartLineNumber()} has no arguments - skipping`);
-      }
       return null;
     }
 
@@ -166,7 +131,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     // For Commander.js, .action() calls often occur at top-level (module scope)
     // Create a synthetic function entry for module-level registrations
     if (!containingFunction && (methodName === 'action' || methodName === 'hook')) {
-      console.log(`🔍 [Commander] ${methodName}() at line ${lineNumber} - creating synthetic module-level function`);
       containingFunction = {
         id: `module_${filePath.replace(/[^a-zA-Z0-9]/g, '_')}_${lineNumber}`,
         name: `<module-level-${methodName}>`,
@@ -183,10 +147,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     }
     
     if (!containingFunction) {
-      if (filePath.includes('cli.ts') && (methodName === 'action' || methodName === 'hook')) {
-        console.log(`🔍 [Commander] ${methodName}() at line ${lineNumber} - no containing function found even after synthetic creation`);
-        console.log(`🔍 [Commander] Available functions in file: ${context.fileFunctions.length}`);
-      }
       return null;
     }
 
@@ -280,20 +240,12 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
       const innerFunctionCalls = this.extractInnerFunctionCalls(callbackArg);
       const primaryCall = innerFunctionCalls[0]; // Use the first/main function call
       
-      if (this.debug && innerFunctionCalls.length > 0) {
-        console.log(`🔍 [Commander] Extracted inner function calls: ${innerFunctionCalls.map(f => f.functionName).join(', ')}`);
-        console.log(`🔍 [Commander] Primary call: ${primaryCall?.functionName}`);
-      }
-      
       // Try to resolve the function ID from the function name
       let functionId = primaryCall?.functionId;
       if (!functionId && primaryCall?.functionName) {
         const resolvedFunction = this.findFunctionByName(primaryCall.functionName, context.allFunctions);
         if (resolvedFunction) {
           functionId = (resolvedFunction as { id: string }).id;
-          if (this.debug) {
-            console.log(`🔍 [Commander] Resolved function ID for ${primaryCall.functionName}: ${functionId}`);
-          }
         }
       }
       
@@ -321,9 +273,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
         const resolvedFunction = this.findFunctionByName(primaryCall.functionName, context.allFunctions);
         if (resolvedFunction) {
           functionId = (resolvedFunction as { id: string }).id;
-          if (this.debug) {
-            console.log(`🔍 [Commander] Resolved function ID for ${primaryCall.functionName}: ${functionId}`);
-          }
         }
       }
       
@@ -436,31 +385,55 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
 
   /**
    * Check if a registration is related to a trigger call
+   * 
+   * For Commander.js, this is simplified based on the framework's nature:
+   * - All .action() registrations in a file are potentially triggered by .parseAsync()/.parse()
+   * - Commander.js acts like a dynamic switch statement where any registered command can be called
    */
   private areRegistrationsRelated(
     registration: CallbackRegistration,
     triggerCall: CallExpression,
-    _context: AnalysisContext
+    context: AnalysisContext
   ): boolean {
-    // For Commander, registrations and triggers are related if they operate on the same program/command object
-    // This implementation reduces false positives by checking object chain similarity
+    // Commander.js Simplification: Same file + same framework = related
+    // This reflects the reality that parseAsync() can potentially call any registered action
+    const triggerFilePath = context.sourceFile.getFilePath();
+    const registrationFilePath = registration.metadata?.['filePath'] || 
+                                 this.findRegistrationFilePath(registration, context);
     
+    if (triggerFilePath === registrationFilePath) {
+      return true;
+    }
+    
+    // Cross-file relationships are less common but possible
+    // Fall back to basic program instance matching
     const triggerExpression = triggerCall.getExpression();
     if (!Node.isPropertyAccessExpression(triggerExpression)) {
       return false;
     }
 
-    // Get the object chain for both registration and trigger
     const triggerObjectChain = this.getObjectChain(triggerExpression);
     const registrationObjectChain = registration.metadata?.['objectChain'];
 
-    // If we can't determine object chains, be conservative
     if (!triggerObjectChain || !registrationObjectChain || typeof registrationObjectChain !== 'string') {
       return false;
     }
 
-    // Check if the object chains are similar (indicating same program/command instance)
-    return this.areObjectChainsSimilar(triggerObjectChain, registrationObjectChain);
+    // Simple base object comparison (e.g., both use 'program')
+    const triggerBase = triggerObjectChain.split('.')[0];
+    const registrationBase = registrationObjectChain.split('.')[0];
+    return triggerBase === registrationBase;
+  }
+
+  /**
+   * Find the file path for a registration (helper method)
+   */
+  private findRegistrationFilePath(registration: CallbackRegistration, context: AnalysisContext): string {
+    // Try to find the function in context.fileFunctions to get its file path
+    const func = context.fileFunctions.find(f => 
+      (f as { id: string }).id === registration.registrarFunctionId
+    );
+    return (func as { filePath?: string })?.filePath || context.sourceFile.getFilePath();
   }
 
   /**
@@ -531,32 +504,6 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     return functionCalls;
   }
 
-  /**
-   * Check if two object chains are similar enough to be considered related
-   */
-  private areObjectChainsSimilar(chain1: string, chain2: string): boolean {
-    // Exact match is ideal
-    if (chain1 === chain2) {
-      console.log(`🔍 [Commander] Object chains exact match: "${chain1}" === "${chain2}" -> true`);
-      return true;
-    }
-
-    // For Commander.js, common patterns are:
-    // - "program" (main program object)
-    // - "program.command(...)" (subcommands)
-    // - chained calls like "program.command(...).option(...)"
-    
-    // Extract the base object (before first method call)
-    const base1 = chain1.split('.')[0];
-    const base2 = chain2.split('.')[0];
-    
-    const result = base1 === base2;
-    console.log(`🔍 [Commander] Object chain comparison: "${chain1}" (base: "${base1}") vs "${chain2}" (base: "${base2}") -> ${result}`);
-    
-    // If base objects are the same, consider them related
-    // This handles cases where both use 'program' but have different chaining
-    return result;
-  }
 
   /**
    * Override confidence scoring for Commander-specific patterns
