@@ -21,7 +21,10 @@ export const dbCommand: VoidCommand<DbCommandOptions> = (options) =>
 
       if (!options.table) {
         console.log(chalk.yellow('Please specify a table name with --table, or use --list to see available tables.'));
-        console.log(chalk.gray('Example: funcqc db --table snapshots --limit 5'));
+        console.log(chalk.gray('Examples:'));
+        console.log(chalk.gray('  funcqc db --list  # Show all tables'));
+        console.log(chalk.gray('  funcqc db --table snapshots --limit 5'));
+        console.log(chalk.gray('  funcqc db --table call_edges --where "call_type=\'external\'" --limit 5'));
         return;
       }
 
@@ -78,6 +81,8 @@ async function listTables(env: CommandEnvironment): Promise<void> {
     console.log(chalk.gray('Usage: funcqc db --table <table_name> [options]'));
     console.log(chalk.gray('Examples:'));
     console.log(chalk.gray('  funcqc db --table snapshots --limit 5'));
+    console.log(chalk.gray('  funcqc db --table call_edges --where "call_type=\'external\'" --limit 10'));
+    console.log(chalk.gray('  funcqc db --table functions --where "cyclomatic_complexity>10" --json'));
     console.log(chalk.gray('  funcqc db --table source_contents --limit-all'));
   } catch (error) {
     throw new Error(`Failed to list tables: ${error instanceof Error ? error.message : String(error)}`);
@@ -106,6 +111,14 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
       const { whereClause, whereParams } = buildParameterizedWhereClause(options.where, params.length);
       query += ` WHERE ${whereClause}`;
       params.push(...whereParams);
+      
+      // Debug logging
+      if (process.env['DEBUG_DB']) {
+        console.log(`Debug: WHERE clause: "${whereClause}"`);
+        console.log(`Debug: WHERE params: [${whereParams.join(', ')}]`);
+        console.log(`Debug: Full query: ${query}`);
+        console.log(`Debug: All params: [${params.join(', ')}]`);
+      }
     }
     
     // Add ORDER BY for consistent results (if the column exists)
@@ -127,8 +140,18 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
       }
     }
 
-    const result = await env.storage.query(query, params) as Array<{ rows: unknown[] }>;
-    const rows = result[0]?.rows || [];
+    const result = await env.storage.query(query, params);
+    
+    // Debug logging for parameterized queries
+    if (process.env['DEBUG_DB']) {
+      console.log(`Debug: Query executed successfully`);
+      console.log(`Debug: Result rows count: ${result && typeof result === 'object' && 'rows' in result ? (result as { rows: unknown[] }).rows.length : 0}`);
+    }
+    
+    // PGLite returns an object with rows property: { rows: [...], fields: [...], affectedRows: ... }
+    const rows = (result && typeof result === 'object' && 'rows' in result) 
+      ? (result as { rows: unknown[] }).rows || []
+      : [];
     
     if (rows.length === 0) {
       console.log(chalk.yellow(`No data found in table '${tableName}'.`));
@@ -192,14 +215,25 @@ function buildParameterizedWhereClause(whereClause: string, paramOffset: number)
   // Replace simple patterns like column='value' or column=123
   // This is a basic implementation - for complex queries, consider a proper SQL parser
   const patterns = [
-    // String values: column='value' or column="value"
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(['"])([^'"]*)(\3)/g,
+    // String values with single quotes: column='value'
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)'([^']*)'/g,
+    // String values with double quotes: column="value"
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)"([^"]*)"/g,
     // Numeric values: column=123 or column>456  
     /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(\d+(?:\.\d+)?)/g
   ];
   
-  // Handle string values
-  parameterizedClause = parameterizedClause.replace(patterns[0], (_match, column, operator, _quote, value) => {
+  // Handle string values with single quotes
+  parameterizedClause = parameterizedClause.replace(patterns[0], (_match, column, operator, value) => {
+    if (!isValidColumnName(column)) {
+      throw new Error(`Invalid column name in WHERE clause: ${column}`);
+    }
+    params.push(value);
+    return `${column}${operator}$${currentParamIndex++}`;
+  });
+  
+  // Handle string values with double quotes
+  parameterizedClause = parameterizedClause.replace(patterns[1], (_match, column, operator, value) => {
     if (!isValidColumnName(column)) {
       throw new Error(`Invalid column name in WHERE clause: ${column}`);
     }
@@ -208,7 +242,7 @@ function buildParameterizedWhereClause(whereClause: string, paramOffset: number)
   });
   
   // Handle numeric values
-  parameterizedClause = parameterizedClause.replace(patterns[1], (_match, column, operator, value) => {
+  parameterizedClause = parameterizedClause.replace(patterns[2], (_match, column, operator, value) => {
     if (!isValidColumnName(column)) {
       throw new Error(`Invalid column name in WHERE clause: ${column}`);
     }
@@ -341,4 +375,9 @@ function outputTable(rows: unknown[], tableName: string, limit: number): void {
   
   console.log();
   console.log(chalk.gray(`💡 Use --json for complete data, --columns to select specific columns, or --limit-all for all rows`));
+  
+  // Show quick debug suggestions if result count is low
+  if (rows.length < 5 && limit >= 5) {
+    console.log(chalk.yellow(`💡 Debug tip: Try removing WHERE clause or increasing --limit for more data`));
+  }
 }

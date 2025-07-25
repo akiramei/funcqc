@@ -902,9 +902,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // Compatibility methods that may be used internally
   async query(sql: string, params?: unknown[]): Promise<unknown> {
     await this.ensureInitialized();
-    // PGlite exec method - cast db to handle type mismatch
-    const db = this.db as unknown as { exec(sql: string, params?: unknown[]): Promise<unknown> };
-    return db.exec(sql, params);
+    // Use PGlite query method for parameterized queries
+    if (params && params.length > 0) {
+      return this.db.query(sql, params);
+    } else {
+      // Use exec for queries without parameters
+      return this.db.exec(sql);
+    }
   }
 
   async getFunctionHistory(
