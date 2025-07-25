@@ -91,9 +91,9 @@ export class DatabaseCore {
       const tablesExist = parseInt((result.rows[0] as { count: string })?.count || '0') >= 1;
       
       if (tablesExist) {
-        this.context.logger?.log('Database schema already exists');
+        this.context.logger?.debug('Database schema already exists');
       } else {
-        this.context.logger?.log('Initializing database schema from database.sql');
+        this.context.logger?.debug('Initializing database schema from database.sql');
         
         const path = await import('path');
         const fs = await import('fs');
@@ -116,7 +116,7 @@ export class DatabaseCore {
         // Execute the complete schema
         await this.context.db.exec(schemaContent);
         
-        this.context.logger?.log('Database schema initialized successfully');
+        this.context.logger?.debug('Database schema initialized successfully');
       }
 
       DatabaseCore.schemaCache.set(cacheKey, true);

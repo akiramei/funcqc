@@ -47,6 +47,7 @@ interface DepShowOptions extends BaseCommandOptions {
   direction?: 'in' | 'out' | 'both';
   depth?: string;
   includeExternal?: boolean;
+  externalFilter?: 'all' | 'transit' | 'none';
   showComplexity?: boolean;    // Show complexity metrics for each function in routes
   rankByLength?: boolean;      // Sort routes by depth (longest first)
   maxRoutes?: string;          // Limit number of displayed routes
@@ -308,6 +309,7 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
             rankByLength: options.rankByLength,
             maxRoutes,
             qualityMetrics: qualityMetricsMap,
+            externalFilter: options.externalFilter || 'transit',
           }
         );
 
@@ -623,10 +625,41 @@ function buildDependencyTree(
     rankByLength?: boolean | undefined;
     maxRoutes?: number | undefined;
     qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
+    externalFilter?: 'all' | 'transit' | 'none';
   }
 ): DependencyTreeNode {
   const visited = new Set<string>();
   const routes: RouteComplexityInfo[] = [];
+  const externalFilter = options?.externalFilter || 'transit';
+  
+  // Helper function to check if an external node should be included
+  function shouldIncludeExternal(edge: CallEdge): boolean {
+    if (!includeExternal) return false;
+    if (externalFilter === 'none') return false;
+    if (externalFilter === 'all') return true;
+    
+    // For 'transit' mode, check if this external call leads back to internal code
+    if (externalFilter === 'transit') {
+      // Virtual calls (like Commander callbacks) are considered transit nodes
+      if (edge.callType === 'virtual') return true;
+      
+      // Check if this external function is called by internal code and calls internal code
+      // This requires looking ahead in the call graph
+      // For now, we'll include common patterns like event handlers and callbacks
+      const transitPatterns = [
+        'parseAsync', 'parse', // Commander.js
+        'on', 'once', 'emit',  // EventEmitter
+        'then', 'catch'        // Promises
+        // Array methods removed - they're too noisy
+      ];
+      
+      return edge.calleeName ? transitPatterns.some(pattern => 
+        edge.calleeName!.includes(pattern)
+      ) : false;
+    }
+    
+    return false;
+  }
   
   function buildTree(currentId: string, depth: number, dir: 'in' | 'out', currentPath: string[] = []): DependencyTreeNode | null {
     if (depth > maxDepth || visited.has(currentId)) {
@@ -646,10 +679,11 @@ function buildDependencyTree(
     
     if (dir === 'in' || direction === 'both') {
       // Incoming dependencies (who calls this function)
-      const incoming = edges.filter(edge => 
-        edge.calleeFunctionId === currentId &&
-        (includeExternal || edge.callType !== 'external')
-      );
+      const incoming = edges.filter(edge => {
+        if (edge.calleeFunctionId !== currentId) return false;
+        if (edge.callType === 'external') return shouldIncludeExternal(edge);
+        return true;
+      });
       
       result.dependencies.push(...incoming.map(edge => {
         let subtree = null;
@@ -671,10 +705,13 @@ function buildDependencyTree(
     
     if (dir === 'out' || direction === 'both') {
       // Outgoing dependencies (what this function calls)
-      const outgoing = edges.filter(edge => 
-        edge.callerFunctionId === currentId &&
-        (includeExternal || (edge.callType !== 'external' && edge.callType !== 'virtual'))
-      );
+      const outgoing = edges.filter(edge => {
+        if (edge.callerFunctionId !== currentId) return false;
+        if (edge.callType === 'external' || edge.callType === 'virtual') {
+          return shouldIncludeExternal(edge);
+        }
+        return true;
+      });
       
       result.dependencies.push(...outgoing.map(edge => {
         let subtree = null;
@@ -1522,6 +1559,7 @@ async function performGlobalRouteAnalysis(
           rankByLength: options.rankByLength,
           maxRoutes: 50, // Get more routes for global analysis
           qualityMetrics: qualityMetricsMap,
+          externalFilter: options.externalFilter || 'all',
         }
       );
 

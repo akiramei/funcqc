@@ -18,8 +18,8 @@ import {
 export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
   constructor(logger?: Logger) {
     super('commander', logger);
-    // Debug disabled to reduce noise
-    this.debug = false;
+    // Debug temporarily enabled to investigate virtual edge generation
+    this.debug = true;
   }
 
   /**
@@ -136,6 +136,11 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
       console.log(`🔍 [Commander] Found ${methodName}() call in ${filePath} at line ${callExpression.getStartLineNumber()}`);
       console.log(`🔍 [Commander] Registration methods config: [${registrationMethods.join(', ')}]`);
       console.log(`🔍 [Commander] Method ${methodName} is in config: ${registrationMethods.includes(methodName)}`);
+      
+      // Debug object chain creation
+      const debugObjectChain = this.getObjectChain(expression);
+      console.log(`🔍 [Commander] Object chain for ${methodName}(): "${debugObjectChain}"`);
+      console.log(`🔍 [Commander] Expression text: "${expression.getText()}"`);
     }
     
     if (!registrationMethods.includes(methodName)) {
@@ -272,18 +277,67 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
   ): { functionId?: string; functionName?: string; isArrowFunction: boolean; isInlineFunction: boolean } {
     // Arrow function: (args) => { ... }
     if (Node.isArrowFunction(callbackArg)) {
-      return {
+      const innerFunctionCalls = this.extractInnerFunctionCalls(callbackArg);
+      const primaryCall = innerFunctionCalls[0]; // Use the first/main function call
+      
+      if (this.debug && innerFunctionCalls.length > 0) {
+        console.log(`🔍 [Commander] Extracted inner function calls: ${innerFunctionCalls.map(f => f.functionName).join(', ')}`);
+        console.log(`🔍 [Commander] Primary call: ${primaryCall?.functionName}`);
+      }
+      
+      // Try to resolve the function ID from the function name
+      let functionId = primaryCall?.functionId;
+      if (!functionId && primaryCall?.functionName) {
+        const resolvedFunction = this.findFunctionByName(primaryCall.functionName, context.allFunctions);
+        if (resolvedFunction) {
+          functionId = (resolvedFunction as { id: string }).id;
+          if (this.debug) {
+            console.log(`🔍 [Commander] Resolved function ID for ${primaryCall.functionName}: ${functionId}`);
+          }
+        }
+      }
+      
+      const result: { functionId?: string; functionName?: string; isArrowFunction: boolean; isInlineFunction: boolean } = {
         isArrowFunction: true,
         isInlineFunction: true
       };
+      if (functionId) {
+        result.functionId = functionId;
+      }
+      if (primaryCall?.functionName) {
+        result.functionName = primaryCall.functionName;
+      }
+      return result;
     }
 
     // Function expression: function(args) { ... }
     if (Node.isFunctionExpression(callbackArg)) {
-      return {
+      const innerFunctionCalls = this.extractInnerFunctionCalls(callbackArg);
+      const primaryCall = innerFunctionCalls[0]; // Use the first/main function call
+      
+      // Try to resolve the function ID from the function name
+      let functionId = primaryCall?.functionId;
+      if (!functionId && primaryCall?.functionName) {
+        const resolvedFunction = this.findFunctionByName(primaryCall.functionName, context.allFunctions);
+        if (resolvedFunction) {
+          functionId = (resolvedFunction as { id: string }).id;
+          if (this.debug) {
+            console.log(`🔍 [Commander] Resolved function ID for ${primaryCall.functionName}: ${functionId}`);
+          }
+        }
+      }
+      
+      const result: { functionId?: string; functionName?: string; isArrowFunction: boolean; isInlineFunction: boolean } = {
         isArrowFunction: false,
         isInlineFunction: true
       };
+      if (functionId) {
+        result.functionId = functionId;
+      }
+      if (primaryCall?.functionName) {
+        result.functionName = primaryCall.functionName;
+      }
+      return result;
     }
 
     // Function reference: someFunction or this.someMethod
@@ -292,12 +346,15 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
       const functionMetadata = this.findFunctionByName(functionName, context.allFunctions);
       
       const functionId = (functionMetadata as { id?: string } | null)?.id;
-      return {
-        ...(functionId && { functionId }),
+      const result: { functionId?: string; functionName: string; isArrowFunction: boolean; isInlineFunction: boolean } = {
         functionName,
         isArrowFunction: false,
         isInlineFunction: false
       };
+      if (functionId) {
+        result.functionId = functionId;
+      }
+      return result;
     }
 
     // Property access: this.someMethod, obj.method
@@ -308,12 +365,15 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
                               this.findFunctionByName(fullName, context.allFunctions);
       
       const functionId = (functionMetadata as { id?: string } | null)?.id;
-      return {
-        ...(functionId && { functionId }),
+      const result: { functionId?: string; functionName: string; isArrowFunction: boolean; isInlineFunction: boolean } = {
         functionName: fullName,
         isArrowFunction: false,
         isInlineFunction: false
       };
+      if (functionId) {
+        result.functionId = functionId;
+      }
+      return result;
     }
 
     return {
@@ -345,16 +405,33 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     const parts: string[] = [];
     let current: Node = expression;
 
+    // Traverse up the chain to collect all parts
     while (Node.isPropertyAccessExpression(current)) {
       parts.unshift(current.getName());
       current = current.getExpression();
     }
 
+    // Add the base identifier (e.g., 'program')
     if (Node.isIdentifier(current)) {
       parts.unshift(current.getText());
+    } else if (Node.isCallExpression(current)) {
+      // Handle chained method calls like program.command('init')
+      const innerExpr = current.getExpression();
+      if (Node.isPropertyAccessExpression(innerExpr)) {
+        const innerChain = this.getObjectChain(innerExpr);
+        parts.unshift(innerChain);
+      } else if (Node.isIdentifier(innerExpr)) {
+        parts.unshift(innerExpr.getText());
+      }
     }
 
-    return parts.join('.');
+    // For Commander.js, we mainly care about the base object (program)
+    // So we simplify the chain to focus on the base identifier
+    const result = parts.join('.');
+    
+    // Extract the base object (first part before any method calls)
+    const baseMatch = result.match(/^([^.]+)/);
+    return baseMatch ? baseMatch[1] : result;
   }
 
   /**
@@ -387,11 +464,80 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
   }
 
   /**
+   * Extract inner function calls from a callback function body
+   */
+  private extractInnerFunctionCalls(callbackNode: Node): Array<{ functionId?: string; functionName?: string }> {
+    const functionCalls: Array<{ functionId?: string; functionName?: string }> = [];
+    
+    // Look for patterns like: const { initCommand } = await import('./cli/init'); return initCommand(options);
+    const variableDeclarations = callbackNode.getDescendantsOfKind(SyntaxKind.VariableDeclaration);
+    const importedFunctions = new Set<string>();
+    
+    // First pass: collect imported function names from destructuring assignments
+    for (const varDecl of variableDeclarations) {
+      const initializer = varDecl.getInitializer();
+      if (initializer && Node.isAwaitExpression(initializer)) {
+        const awaitedExpr = initializer.getExpression();
+        if (Node.isCallExpression(awaitedExpr)) {
+          const importExpr = awaitedExpr.getExpression();
+          if (Node.isIdentifier(importExpr) && importExpr.getText() === 'import') {
+            // This is a dynamic import with destructuring
+            const nameBinding = varDecl.getNameNode();
+            if (Node.isObjectBindingPattern(nameBinding)) {
+              for (const element of nameBinding.getElements()) {
+                if (Node.isBindingElement(element)) {
+                  const name = element.getName();
+                  if (name) {
+                    importedFunctions.add(name);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    
+    // Second pass: find call expressions and match with imported functions
+    const callExpressions = callbackNode.getDescendantsOfKind(SyntaxKind.CallExpression);
+    
+    for (const callExpr of callExpressions) {
+      const expression = callExpr.getExpression();
+      
+      // Handle direct function calls like initCommand(options)
+      if (Node.isIdentifier(expression)) {
+        const functionName = expression.getText();
+        
+        // Skip import() calls and common JavaScript functions
+        if (functionName === 'import' || functionName === 'require' || functionName === 'console') {
+          continue;
+        }
+        
+        // Prioritize imported functions
+        if (importedFunctions.has(functionName)) {
+          functionCalls.unshift({ functionName }); // Add to front as primary function
+        } else {
+          functionCalls.push({ functionName });
+        }
+      }
+      
+      // Handle property access calls like utils.someFunction()
+      else if (Node.isPropertyAccessExpression(expression)) {
+        const functionName = expression.getName();
+        functionCalls.push({ functionName });
+      }
+    }
+    
+    return functionCalls;
+  }
+
+  /**
    * Check if two object chains are similar enough to be considered related
    */
   private areObjectChainsSimilar(chain1: string, chain2: string): boolean {
     // Exact match is ideal
     if (chain1 === chain2) {
+      console.log(`🔍 [Commander] Object chains exact match: "${chain1}" === "${chain2}" -> true`);
       return true;
     }
 
@@ -404,9 +550,12 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     const base1 = chain1.split('.')[0];
     const base2 = chain2.split('.')[0];
     
+    const result = base1 === base2;
+    console.log(`🔍 [Commander] Object chain comparison: "${chain1}" (base: "${base1}") vs "${chain2}" (base: "${base2}") -> ${result}`);
+    
     // If base objects are the same, consider them related
     // This handles cases where both use 'program' but have different chaining
-    return base1 === base2;
+    return result;
   }
 
   /**

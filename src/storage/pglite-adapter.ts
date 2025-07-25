@@ -54,7 +54,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // private kysely!: Kysely<any>; // Accessed through context
   private git: SimpleGit;
   private dbPath: string;
-  private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void } | undefined;
+  private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void; debug: (msg: string) => void } | undefined;
   private isInitialized: boolean = false;
 
   // Operation modules
@@ -72,7 +72,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // Storage context shared by all modules
   private context: StorageContext;
 
-  constructor(dbPath: string, logger?: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void }) {
+  constructor(dbPath: string, logger?: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void; debug: (msg: string) => void }) {
     this.validateDbPath(dbPath);
     this.logger = logger;
     // Store original path if needed later

@@ -27,6 +27,7 @@ export interface StorageContext {
     log: (msg: string) => void;
     warn: (msg: string) => void;
     error: (msg: string) => void;
+    debug: (msg: string) => void;
   };
 }
 
