@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { Project } from 'ts-morph';
-import { StagedAnalysisEngine } from '../../src/analyzers/staged-analysis-engine';
+import { StagedAnalysisEngine } from '../../src/analyzers/staged-analysis/staged-analysis-engine-refactored';
 import { FunctionRegistry } from '../../src/analyzers/function-registry';
 import { FunctionMetadata, IdealCallEdge } from '../../src/analyzers/ideal-call-graph-analyzer';
 

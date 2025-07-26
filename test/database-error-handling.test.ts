@@ -45,7 +45,7 @@ describe('Database Error Handling', () => {
       expect(() => new PGLiteStorageAdapter('D:')).toThrow(DatabaseError);
       
       // Test specific error message
-      expect(() => new PGLiteStorageAdapter('C:')).toThrow(/Drive letters alone are not valid database paths/);
+      expect(() => new PGLiteStorageAdapter('C:')).toThrow(/Drive letter only is not a valid path/);
     });
 
     it('should handle Unix-style paths', () => {
@@ -117,7 +117,7 @@ describe('Database Error Handling', () => {
         expect.fail('Should have thrown an error');
       } catch (error) {
         expect(error).toBeInstanceOf(DatabaseError);
-        expect((error as DatabaseError).message).toContain('Drive letters alone are not valid');
+        expect((error as DatabaseError).message).toContain('Drive letter only is not a valid path');
         expect((error as DatabaseError).message).toContain('Use a full path like');
       }
     });

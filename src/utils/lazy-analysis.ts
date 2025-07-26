@@ -286,7 +286,7 @@ export async function loadCallGraphWithLazyAnalysis(
   
   return {
     snapshot,
-    callEdges: callGraphResult.callEdges,
+    callEdges: callGraphResult.callEdges || [],
     functions,
     ...(lazyAnalysisPerformed !== undefined && { lazyAnalysisPerformed })
   };
