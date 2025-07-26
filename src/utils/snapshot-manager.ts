@@ -9,8 +9,6 @@ import {
   SnapshotInfo,
   FuncqcConfig,
   StorageAdapter,
-  RefactoringSession,
-  RefactoringOperation,
   SnapshotMetadata,
   FunctionInfo,
 } from '../types/index.js';
@@ -165,82 +163,6 @@ export class SnapshotManager {
     }
   }
 
-  /**
-   * Create automatic snapshot before refactoring operation
-   */
-  async createBeforeSnapshot(
-    session: RefactoringSession,
-    operation?: RefactoringOperation
-  ): Promise<string | null> {
-    if (!this.config.enabled || !this.config.beforeRefactoring) {
-      this.logger.debug('Before snapshot creation disabled');
-      return null;
-    }
-
-    try {
-      const snapshot = await this.createSnapshot({
-        label: `Before refactoring - Session ${session.id}`,
-        comment: `Automatic snapshot before refactoring operation${operation ? ` (${operation.type})` : ''}`,
-        includeGitInfo: true,
-        sessionId: session.id,
-        operationType: 'before',
-      });
-
-      this.logger.info(`Before snapshot created for session ${session.id}`, {
-        snapshotId: snapshot.id,
-      });
-
-      return snapshot.id;
-    } catch (error) {
-      this.logger.error('Failed to create before snapshot', {
-        sessionId: session.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      
-      // Don't fail the refactoring operation if snapshot creation fails
-      return null;
-    }
-  }
-
-  /**
-   * Create automatic snapshot after refactoring operation
-   */
-  async createAfterSnapshot(
-    session: RefactoringSession,
-    beforeSnapshotId?: string,
-    operation?: RefactoringOperation
-  ): Promise<string | null> {
-    if (!this.config.enabled || !this.config.afterRefactoring) {
-      this.logger.debug('After snapshot creation disabled');
-      return null;
-    }
-
-    try {
-      const snapshot = await this.createSnapshot({
-        label: `After refactoring - Session ${session.id}`,
-        comment: `Automatic snapshot after refactoring operation${operation ? ` (${operation.type})` : ''}${beforeSnapshotId ? ` - Pair: ${beforeSnapshotId}` : ''}`,
-        includeGitInfo: true,
-        sessionId: session.id,
-        operationType: 'after',
-      });
-
-      this.logger.info(`After snapshot created for session ${session.id}`, {
-        snapshotId: snapshot.id,
-        beforeSnapshotId,
-      });
-
-      return snapshot.id;
-    } catch (error) {
-      this.logger.error('Failed to create after snapshot', {
-        sessionId: session.id,
-        beforeSnapshotId,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      
-      // Don't fail the refactoring operation if snapshot creation fails
-      return null;
-    }
-  }
 
   /**
    * Cleanup old automatic snapshots based on retention policy

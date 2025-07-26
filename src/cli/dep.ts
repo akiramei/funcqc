@@ -89,6 +89,7 @@ interface DepDeadOptions extends BaseCommandOptions {
   showReasons?: boolean;
   verbose?: boolean;
   snapshot?: string;
+  layerEntryPoints?: string; // Comma-separated list of layer names
 }
 
 /**
@@ -1626,6 +1627,7 @@ function outputDepDeadJSON(
       excludeExports: options.excludeExports || false,
       excludeSmall: options.excludeSmall || false,
       threshold: options.threshold || 3,
+      layerEntryPoints: options.layerEntryPoints?.split(',').map(s => s.trim()) || [],
     },
   };
 
@@ -1648,6 +1650,13 @@ function outputDepDeadTable(
   const coverage = (reachabilityResult.reachable.size / totalFunctions) * 100;
   console.log(`Total functions:      ${chalk.cyan(totalFunctions)}`);
   console.log(`Entry points:         ${chalk.green(reachabilityResult.entryPoints.size)}`);
+  
+  // Show layer entry points if specified
+  if (options.layerEntryPoints) {
+    const layers = options.layerEntryPoints.split(',').map(s => s.trim());
+    console.log(`Layer entry points:   ${chalk.blue(layers.join(', '))}`);
+  }
+  
   console.log(`Reachable functions:  ${chalk.green(reachabilityResult.reachable.size)} (${coverage.toFixed(1)}%)`);
   console.log(`Unreachable functions: ${chalk.red(reachabilityResult.unreachable.size)} (${(100 - coverage).toFixed(1)}%)`);
   console.log(`Dead code found:      ${chalk.yellow(deadCodeInfo.length)} functions`);
@@ -1847,10 +1856,16 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
 
       spinner.text = 'Detecting entry points...';
 
+      // Parse layer entry points if specified
+      const layerEntryPoints = options.layerEntryPoints
+        ? options.layerEntryPoints.split(',').map(s => s.trim()).filter(s => s.length > 0)
+        : undefined;
+      
       // Detect entry points
       const entryPointDetector = new EntryPointDetector({
         ...(options.verbose !== undefined && { verbose: options.verbose }),
-        ...(options.verbose !== undefined && { debug: options.verbose })
+        ...(options.verbose !== undefined && { debug: options.verbose }),
+        ...(layerEntryPoints && { layerEntryPoints })
       });
       let entryPoints = entryPointDetector.detectEntryPoints(functions);
 
