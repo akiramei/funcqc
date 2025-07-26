@@ -4,16 +4,24 @@ import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import { ensureCallGraphData } from '../../utils/lazy-analysis';
 
 /**
  * Database CLI command for inspecting PGLite database contents
  * Provides read-only access to database tables for debugging and testing
+ * This is a heavy command that ensures complete analysis is available
  */
 export const dbCommand: VoidCommand<DbCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
+      // Ensure call graph data is available for comprehensive database queries
+      await ensureCallGraphData(env, { showProgress: true });
+      
+      // Show completion message for AI collaboration workflow
+      console.log(chalk.blue('💡 Database is ready with complete analysis data (including call graph).'));
+      console.log();
       if (options.list) {
         await listTables(env);
         return;
@@ -92,6 +100,129 @@ async function listTables(env: CommandEnvironment): Promise<void> {
 /**
  * Query a specific table with filtering options
  */
+/**
+ * Build the base SELECT query with columns
+ */
+function buildSelectQuery(tableName: string, columns: string): string {
+  return `SELECT ${columns} FROM ${tableName}`;
+}
+
+/**
+ * Add WHERE clause to query with parameters
+ */
+function addWhereClause(
+  query: string, 
+  whereCondition: string, 
+  params: (string | number)[]
+): { query: string; params: (string | number)[] } {
+  const { whereClause, whereParams } = buildParameterizedWhereClause(whereCondition, params.length);
+  const updatedQuery = `${query} WHERE ${whereClause}`;
+  const updatedParams = [...params, ...whereParams];
+  
+  logWhereClause(whereClause, whereParams, updatedQuery, updatedParams);
+  
+  return { query: updatedQuery, params: updatedParams };
+}
+
+/**
+ * Add ORDER BY clause based on table type
+ */
+function addOrderByClause(query: string, tableName: string): string {
+  if (tableName === 'snapshots' || tableName === 'functions') {
+    return `${query} ORDER BY created_at DESC`;
+  } else {
+    return `${query} ORDER BY 1`;
+  }
+}
+
+/**
+ * Add LIMIT clause with proper parameterization
+ */
+function addLimitClause(
+  query: string, 
+  params: (string | number)[], 
+  limit: number
+): { query: string; params: (string | number)[] } {
+  if (limit <= 0) {
+    return { query, params };
+  }
+  
+  if (params.length > 0) {
+    return {
+      query: `${query} LIMIT $${params.length + 1}`,
+      params: [...params, limit]
+    };
+  } else {
+    return {
+      query: `${query} LIMIT ${limit}`,
+      params
+    };
+  }
+}
+
+/**
+ * Log WHERE clause debug information
+ */
+function logWhereClause(
+  whereClause: string, 
+  whereParams: (string | number)[], 
+  fullQuery: string, 
+  allParams: (string | number)[]
+): void {
+  if (process.env['DEBUG_DB']) {
+    console.log(`Debug: WHERE clause: "${whereClause}"`);
+    console.log(`Debug: WHERE params: [${whereParams.join(', ')}]`);
+    console.log(`Debug: Full query: ${fullQuery}`);
+    console.log(`Debug: All params: [${allParams.join(', ')}]`);
+  }
+}
+
+/**
+ * Log query execution results
+ */
+function logQueryResults(result: unknown): void {
+  if (process.env['DEBUG_DB']) {
+    console.log(`Debug: Query executed successfully`);
+    const rowCount = result && typeof result === 'object' && 'rows' in result 
+      ? (result as { rows: unknown[] }).rows.length 
+      : 0;
+    console.log(`Debug: Result rows count: ${rowCount}`);
+  }
+}
+
+/**
+ * Extract rows from PGLite query result
+ */
+function extractRows(result: unknown): unknown[] {
+  return (result && typeof result === 'object' && 'rows' in result) 
+    ? (result as { rows: unknown[] }).rows || []
+    : [];
+}
+
+/**
+ * Handle query results output
+ */
+function handleQueryOutput(
+  rows: unknown[], 
+  tableName: string, 
+  limit: number, 
+  options: DbCommandOptions
+): void {
+  if (rows.length === 0) {
+    console.log(chalk.yellow(`No data found in table '${tableName}'.`));
+    return;
+  }
+
+  if (options.json) {
+    outputJSON(rows, tableName);
+  } else {
+    outputTable(rows, tableName, limit);
+  }
+}
+
+/**
+ * Execute a table query with all options
+ */
 async function queryTable(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
   const tableName = options.table!;
   
@@ -101,68 +232,35 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
   }
 
   try {
-    // Validate and build column list
+    // Build base query
     const columns = options.columns ? validateAndBuildColumns(options.columns) : '*';
-    let query = `SELECT ${columns} FROM ${tableName}`;
-    const params: (string | number)[] = [];
+    let query = buildSelectQuery(tableName, columns);
+    let params: (string | number)[] = [];
     
-    // Add WHERE clause with parameterized queries
+    // Add WHERE clause if specified
     if (options.where) {
-      const { whereClause, whereParams } = buildParameterizedWhereClause(options.where, params.length);
-      query += ` WHERE ${whereClause}`;
-      params.push(...whereParams);
-      
-      // Debug logging
-      if (process.env['DEBUG_DB']) {
-        console.log(`Debug: WHERE clause: "${whereClause}"`);
-        console.log(`Debug: WHERE params: [${whereParams.join(', ')}]`);
-        console.log(`Debug: Full query: ${query}`);
-        console.log(`Debug: All params: [${params.join(', ')}]`);
-      }
+      const whereResult = addWhereClause(query, options.where, params);
+      query = whereResult.query;
+      params = whereResult.params;
     }
     
-    // Add ORDER BY for consistent results (if the column exists)
-    if (tableName === 'snapshots' || tableName === 'functions') {
-      query += ` ORDER BY created_at DESC`;
-    } else {
-      // For tables without created_at, use the first column
-      query += ` ORDER BY 1`;
-    }
+    // Add ORDER BY clause
+    query = addOrderByClause(query, tableName);
     
-    // Add LIMIT with validation
+    // Add LIMIT clause
     const limit = validateAndParseLimit(options.limit, options.limitAll);
-    if (limit > 0) {
-      if (params.length > 0) {
-        query += ` LIMIT $${params.length + 1}`;
-        params.push(limit);
-      } else {
-        query += ` LIMIT ${limit}`;
-      }
-    }
+    const limitResult = addLimitClause(query, params, limit);
+    query = limitResult.query;
+    params = limitResult.params;
 
+    // Execute query
     const result = await env.storage.query(query, params);
+    logQueryResults(result);
     
-    // Debug logging for parameterized queries
-    if (process.env['DEBUG_DB']) {
-      console.log(`Debug: Query executed successfully`);
-      console.log(`Debug: Result rows count: ${result && typeof result === 'object' && 'rows' in result ? (result as { rows: unknown[] }).rows.length : 0}`);
-    }
+    // Process and output results
+    const rows = extractRows(result);
+    handleQueryOutput(rows, tableName, limit, options);
     
-    // PGLite returns an object with rows property: { rows: [...], fields: [...], affectedRows: ... }
-    const rows = (result && typeof result === 'object' && 'rows' in result) 
-      ? (result as { rows: unknown[] }).rows || []
-      : [];
-    
-    if (rows.length === 0) {
-      console.log(chalk.yellow(`No data found in table '${tableName}'.`));
-      return;
-    }
-
-    if (options.json) {
-      outputJSON(rows, tableName);
-    } else {
-      outputTable(rows, tableName, limit);
-    }
   } catch (error) {
     throw new Error(`Failed to query table '${tableName}': ${error instanceof Error ? error.message : String(error)}`);
   }

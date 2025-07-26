@@ -96,7 +96,39 @@ async function outputFriendly(
   sourceFiles: import('../../types').SourceFile[], 
   options: FilesCommandOptions
 ): Promise<void> {
+  // Apply filters and sorting
+  const processedFiles = processFileList(sourceFiles, options);
+  
+  // Display results
+  displayFileResults(sourceFiles, processedFiles, options);
+}
+
+/**
+ * Apply filters, sorting, and limits to the file list
+ */
+function processFileList(
+  sourceFiles: import('../../types').SourceFile[], 
+  options: FilesCommandOptions
+): import('../../types').SourceFile[] {
   // Apply filters
+  let filteredFiles = applyFileFilters(sourceFiles, options);
+  
+  // Sort files
+  filteredFiles = sortFileList(filteredFiles, options);
+  
+  // Apply limit
+  filteredFiles = applyFileLimit(filteredFiles, options);
+  
+  return filteredFiles;
+}
+
+/**
+ * Apply language and path filters to source files
+ */
+function applyFileFilters(
+  sourceFiles: import('../../types').SourceFile[], 
+  options: FilesCommandOptions
+): import('../../types').SourceFile[] {
   let filteredFiles = sourceFiles;
   
   if (options.language) {
@@ -111,38 +143,21 @@ async function outputFriendly(
     );
   }
   
-  // Sort files
+  return filteredFiles;
+}
+
+/**
+ * Sort files by the specified criteria
+ */
+function sortFileList(
+  files: import('../../types').SourceFile[], 
+  options: FilesCommandOptions
+): import('../../types').SourceFile[] {
   const sortField = options.sort || 'filePath';
   const sortOrder = options.desc ? -1 : 1;
   
-  filteredFiles.sort((a, b) => {
-    let aVal: string | number, bVal: string | number;
-    
-    switch (sortField) {
-      case 'size':
-        aVal = a.fileSizeBytes;
-        bVal = b.fileSizeBytes;
-        break;
-      case 'lines':
-        aVal = a.lineCount;
-        bVal = b.lineCount;
-        break;
-      case 'functions':
-        aVal = a.functionCount;
-        bVal = b.functionCount;
-        break;
-      case 'language':
-        aVal = a.language;
-        bVal = b.language;
-        break;
-      case 'modified':
-        aVal = a.fileModifiedTime?.getTime() || 0;
-        bVal = b.fileModifiedTime?.getTime() || 0;
-        break;
-      default:
-        aVal = a.filePath;
-        bVal = b.filePath;
-    }
+  return files.sort((a, b) => {
+    const { aVal, bVal } = extractSortValues(a, b, sortField);
     
     if (typeof aVal === 'string' && typeof bVal === 'string') {
       return aVal.localeCompare(bVal) * sortOrder;
@@ -150,28 +165,69 @@ async function outputFriendly(
       return ((aVal as number) - (bVal as number)) * sortOrder;
     }
   });
-  
-  // Apply limit
-  const limit = options.limit ? parseInt(options.limit) : undefined;
-  if (limit) {
-    filteredFiles = filteredFiles.slice(0, limit);
+}
+
+/**
+ * Extract sort values from two files based on sort field
+ */
+function extractSortValues(
+  a: import('../../types').SourceFile, 
+  b: import('../../types').SourceFile, 
+  sortField: string
+): { aVal: string | number; bVal: string | number } {
+  switch (sortField) {
+    case 'size':
+      return { aVal: a.fileSizeBytes, bVal: b.fileSizeBytes };
+    case 'lines':
+      return { aVal: a.lineCount, bVal: b.lineCount };
+    case 'functions':
+      return { aVal: a.functionCount, bVal: b.functionCount };
+    case 'language':
+      return { aVal: a.language, bVal: b.language };
+    case 'modified':
+      return { 
+        aVal: a.fileModifiedTime?.getTime() || 0, 
+        bVal: b.fileModifiedTime?.getTime() || 0 
+      };
+    default:
+      return { aVal: a.filePath, bVal: b.filePath };
   }
-  
+}
+
+/**
+ * Apply limit to the file list
+ */
+function applyFileLimit(
+  files: import('../../types').SourceFile[], 
+  options: FilesCommandOptions
+): import('../../types').SourceFile[] {
+  const limit = options.limit ? parseInt(options.limit) : undefined;
+  return limit ? files.slice(0, limit) : files;
+}
+
+/**
+ * Display the file results with header, stats, table, and summary
+ */
+function displayFileResults(
+  originalFiles: import('../../types').SourceFile[], 
+  processedFiles: import('../../types').SourceFile[], 
+  options: FilesCommandOptions
+): void {
   // Display header
-  console.log(chalk.blue.bold(`\n📁 Source Files (${filteredFiles.length}/${sourceFiles.length})`));
+  console.log(chalk.blue.bold(`\n📁 Source Files (${processedFiles.length}/${originalFiles.length})`));
   console.log('─'.repeat(80));
   
   if (options.stats) {
-    displayStats(sourceFiles);
+    displayStats(originalFiles);
     console.log('─'.repeat(80));
   }
   
   // Display files table
-  displayFilesTable(filteredFiles);
+  displayFilesTable(processedFiles);
   
   // Display summary
-  if (filteredFiles.length !== sourceFiles.length) {
-    console.log(chalk.gray(`\nShowing ${filteredFiles.length} of ${sourceFiles.length} files`));
+  if (processedFiles.length !== originalFiles.length) {
+    console.log(chalk.gray(`\nShowing ${processedFiles.length} of ${originalFiles.length} files`));
   }
 }
 

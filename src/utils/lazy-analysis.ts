@@ -80,97 +80,26 @@ export async function ensureCallGraphData(
   }
 
   try {
-    // Check if call graph analysis is required
-    const analysisCheck = await isCallGraphAnalysisRequired(env.storage);
-    
-    if (!analysisCheck.snapshot) {
-      if (spinner) spinner.fail('No snapshots found. Run `funcqc scan` first.');
-      return {
-        success: false,
-        snapshot: null,
-        callEdges: [],
-        message: 'No snapshots found'
-      };
+    const analysisStatus = await checkAnalysisStatus(env.storage, spinner);
+    if (!analysisStatus.snapshot) {
+      return createErrorResult('No snapshots found', null, spinner);
     }
 
-    // If call graph analysis is not required, load existing data
-    if (!analysisCheck.required) {
-      if (spinner) {
-        spinner.text = 'Loading existing call graph data...';
-      }
-      
-      const callEdges = await env.storage.getCallEdgesBySnapshot(analysisCheck.snapshot.id);
-      
-      // Return existing data, even if empty
-      if (spinner) {
-        spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
-      }
-      
-      return {
-        success: true,
-        snapshot: analysisCheck.snapshot,
-        callEdges,
-        message: 'Existing call graph data loaded'
-      };
+    if (!analysisStatus.required) {
+      return await loadExistingCallGraphData(env, analysisStatus.snapshot, spinner);
     }
 
-    // Call graph analysis is required
     if (!requireCallGraph) {
-      if (spinner) {
-        spinner.warn('Call graph analysis required but not requested');
-      }
-      return {
-        success: false,
-        snapshot: analysisCheck.snapshot,
-        callEdges: [],
-        message: 'Call graph analysis required'
-      };
+      return createCallGraphRequiredResult(analysisStatus.snapshot, spinner);
     }
 
-    if (spinner) {
-      spinner.text = 'Performing call graph analysis...';
-    }
-
-    // Perform call graph analysis
-    const result = await performLazyCallGraphAnalysis(
-      env,
-      analysisCheck.snapshot.id,
+    return await performNewCallGraphAnalysis(env, analysisStatus.snapshot, spinner);
+  } catch (error) {
+    return createErrorResult(
+      error instanceof Error ? error.message : String(error),
+      null,
       spinner
     );
-
-    if (result.success) {
-      if (spinner) {
-        spinner.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
-      }
-      return {
-        success: true,
-        snapshot: analysisCheck.snapshot,
-        callEdges: result.callEdges,
-        message: 'Call graph analysis completed'
-      };
-    } else {
-      if (spinner) {
-        spinner.fail('Call graph analysis failed');
-      }
-      return {
-        success: false,
-        snapshot: analysisCheck.snapshot,
-        callEdges: [],
-        message: result.error || 'Call graph analysis failed'
-      };
-    }
-
-  } catch (error) {
-    if (spinner) {
-      spinner.fail('Error during call graph analysis');
-    }
-    
-    return {
-      success: false,
-      snapshot: null,
-      callEdges: [],
-      message: error instanceof Error ? error.message : String(error)
-    };
   }
 }
 
@@ -325,4 +254,135 @@ export function validateCallGraphRequirements(
     console.log(chalk.blue('💡 Try running `funcqc scan` to re-analyze your project.'));
     throw new Error('Insufficient call graph data for analysis');
   }
+}
+
+// ================== Helper Functions for Refactored ensureCallGraphData ==================
+
+type CallGraphResult = {
+  success: boolean;
+  snapshot: import('../types').SnapshotInfo | null;
+  callEdges: import('../types').CallEdge[];
+  message?: string;
+};
+
+/**
+ * Check if call graph analysis is required and return status
+ */
+async function checkAnalysisStatus(
+  storage: StorageAdapter,
+  spinner?: Ora
+): Promise<{ snapshot: import('../types').SnapshotInfo | null; required: boolean }> {
+  const analysisCheck = await isCallGraphAnalysisRequired(storage);
+  
+  if (!analysisCheck.snapshot) {
+    if (spinner) spinner.fail('No snapshots found. Run `funcqc scan` first.');
+  }
+  
+  return analysisCheck;
+}
+
+/**
+ * Load existing call graph data from storage
+ */
+async function loadExistingCallGraphData(
+  env: CommandEnvironment,
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): Promise<CallGraphResult> {
+  if (spinner) {
+    spinner.text = 'Loading existing call graph data...';
+  }
+  
+  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
+  
+  if (spinner) {
+    spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
+  }
+  
+  return {
+    success: true,
+    snapshot,
+    callEdges,
+    message: 'Existing call graph data loaded'
+  };
+}
+
+/**
+ * Create result when call graph analysis is required but not requested
+ */
+function createCallGraphRequiredResult(
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): CallGraphResult {
+  if (spinner) {
+    spinner.warn('Call graph analysis required but not requested');
+  }
+  
+  return {
+    success: false,
+    snapshot,
+    callEdges: [],
+    message: 'Call graph analysis required'
+  };
+}
+
+/**
+ * Perform new call graph analysis
+ */
+async function performNewCallGraphAnalysis(
+  env: CommandEnvironment,
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): Promise<CallGraphResult> {
+  if (spinner) {
+    spinner.text = 'Performing call graph analysis...';
+  }
+
+  const result = await performLazyCallGraphAnalysis(
+    env,
+    snapshot.id,
+    spinner
+  );
+
+  if (result.success) {
+    if (spinner) {
+      spinner.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
+    }
+    return {
+      success: true,
+      snapshot,
+      callEdges: result.callEdges,
+      message: 'Call graph analysis completed'
+    };
+  } else {
+    if (spinner) {
+      spinner.fail('Call graph analysis failed');
+    }
+    return {
+      success: false,
+      snapshot,
+      callEdges: [],
+      message: result.error || 'Call graph analysis failed'
+    };
+  }
+}
+
+/**
+ * Create error result with consistent format
+ */
+function createErrorResult(
+  message: string,
+  snapshot: import('../types').SnapshotInfo | null,
+  spinner?: Ora
+): CallGraphResult {
+  if (spinner) {
+    spinner.fail('Error during call graph analysis');
+  }
+  
+  return {
+    success: false,
+    snapshot,
+    callEdges: [],
+    message
+  };
 }

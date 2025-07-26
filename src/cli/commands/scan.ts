@@ -93,8 +93,8 @@ async function executeScanCommand(
       console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
     }
     
-    // Step 3: Call graph analysis is always deferred
-    console.log(chalk.gray('📊 Call graph analysis will be performed when needed by dep/dead/clean commands.'));
+    // Step 3: Call graph analysis - deferred until needed by heavy commands
+    console.log(chalk.gray('📊 Call graph analysis will be performed when needed by dep/dead/clean/db commands.'));
     
     showCompletionMessage();
   } catch (error) {
@@ -844,13 +844,13 @@ function showCompletionMessage(): void {
   console.log();
   console.log(chalk.blue('Next steps:'));
   console.log(chalk.gray('  • Run `funcqc list` to view functions'));
-  console.log(chalk.gray('  • Run `funcqc list --complexity ">5"` to find complex functions'));
-  console.log(chalk.gray('  • Run `funcqc status` to see overall statistics'));
+  console.log(chalk.gray('  • Run `funcqc list --cc-ge 10` to find complex functions'));
+  console.log(chalk.gray('  • Run `funcqc health` to see overall quality analysis'));
+  console.log(chalk.gray('  • Run `funcqc dep show <function>` to analyze dependencies'));
   console.log();
-  console.log(chalk.blue('💡 Performance tips:'));
-  console.log(
-    chalk.gray('  • Set NODE_OPTIONS="--max-old-space-size=4096" for very large projects')
-  );
+  console.log(chalk.blue('💡 Tips:'));
+  console.log(chalk.gray('  • Use `funcqc db` to ensure complete analysis for AI collaboration'));
+  console.log(chalk.gray('  • Set NODE_OPTIONS="--max-old-space-size=4096" for very large projects'));
 }
 
 function handleScanError(

@@ -1,11 +1,11 @@
 // Removed unused import: OptionValues
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import { VoidCommand, BaseCommandOptions } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
-import { CallEdge } from '../types';
+import { CallEdge, FunctionInfo } from '../types';
 import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats, DependencyOptions } from '../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
@@ -1226,95 +1226,7 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
     const spinner = ora('Calculating dependency metrics...').start();
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
-        showProgress: false, // We manage progress with our own spinner
-        snapshotId: options.snapshot
-      });
-
-      // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep stats');
-
-      spinner.text = 'Loading functions and call graph...';
-
-      if (functions.length === 0) {
-        spinner.fail(chalk.yellow('No functions found in the snapshot.'));
-        return;
-      }
-
-      spinner.text = 'Detecting entry points...';
-
-      // Detect entry points
-      const entryPointDetector = new EntryPointDetector();
-      const entryPoints = entryPointDetector.detectEntryPoints(functions);
-      const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
-
-      spinner.text = 'Detecting circular dependencies...';
-
-      // Detect circular dependencies
-      const reachabilityAnalyzer = new ReachabilityAnalyzer();
-      const cycles = reachabilityAnalyzer.findCircularDependencies(callEdges);
-      const cyclicFunctions = new Set<string>();
-      cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
-
-      spinner.text = 'Calculating dependency metrics...';
-
-      // Calculate dependency metrics
-      const metricsCalculator = new DependencyMetricsCalculator();
-      const metrics = metricsCalculator.calculateMetrics(
-        functions,
-        callEdges,
-        entryPointIds,
-        cyclicFunctions
-      );
-
-      // Create dependency options from CLI arguments
-      const dependencyOptions: DependencyOptions = {};
-      if (options.hubThreshold) {
-        const parsed = parseInt(options.hubThreshold, 10);
-        if (isNaN(parsed) || parsed < 0) {
-          spinner.fail(`Invalid hub threshold: ${options.hubThreshold}`);
-          return;
-        }
-        dependencyOptions.hubThreshold = parsed;
-      }
-      if (options.utilityThreshold) {
-        const parsed = parseInt(options.utilityThreshold, 10);
-        if (isNaN(parsed) || parsed < 0) {
-          spinner.fail(`Invalid utility threshold: ${options.utilityThreshold}`);
-          return;
-        }
-        dependencyOptions.utilityThreshold = parsed;
-      }
-      if (options.maxHubFunctions) {
-        const parsed = parseInt(options.maxHubFunctions, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          spinner.fail(`Invalid max hub functions: ${options.maxHubFunctions}`);
-          return;
-        }
-        dependencyOptions.maxHubFunctions = parsed;
-      }
-      if (options.maxUtilityFunctions) {
-        const parsed = parseInt(options.maxUtilityFunctions, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          spinner.fail(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
-          return;
-        }
-        dependencyOptions.maxUtilityFunctions = parsed;
-      }
-      
-      const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
-
-      spinner.succeed('Dependency metrics calculated');
-
-      // Output results
-      if (options.format === 'dot') {
-        outputDepStatsDot(functions, callEdges, metrics, options);
-      } else if (options.json || options.format === 'json') {
-        outputDepStatsJSON(metrics, stats, options);
-      } else {
-        outputDepStatsTable(metrics, stats, options);
-      }
+      await executeDepStatsAnalysis(env, options, spinner);
     } catch (error) {
       spinner.fail('Failed to calculate dependency metrics');
       if (error instanceof DatabaseError) {
@@ -1330,6 +1242,186 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
       }
     }
   };
+
+/**
+ * Execute the complete dependency statistics analysis
+ */
+async function executeDepStatsAnalysis(
+  env: CommandEnvironment, 
+  options: DepStatsOptions, 
+  spinner: Ora
+): Promise<void> {
+  // Load call graph data
+  const { callEdges, functions } = await loadCallGraphData(env, options, spinner);
+  
+  // Analyze dependencies
+  const { entryPointIds, cyclicFunctions } = await analyzeDependencyStructure(functions, callEdges, spinner);
+  
+  // Calculate metrics
+  const { metrics, stats } = await calculateDependencyMetrics(
+    functions, 
+    callEdges, 
+    entryPointIds, 
+    cyclicFunctions, 
+    options, 
+    spinner
+  );
+  
+  spinner.succeed('Dependency metrics calculated');
+  
+  // Output results
+  outputDepStatsResults(functions, callEdges, metrics, stats, options);
+}
+
+/**
+ * Load and validate call graph data
+ */
+async function loadCallGraphData(
+  env: CommandEnvironment, 
+  options: DepStatsOptions, 
+  spinner: Ora
+): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[] }> {
+  // Use lazy analysis to ensure call graph data is available
+  const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+    showProgress: false, // We manage progress with our own spinner
+    snapshotId: options.snapshot
+  });
+
+  // Validate that we have sufficient call graph data
+  validateCallGraphRequirements(callEdges, 'dep stats');
+
+  spinner.text = 'Loading functions and call graph...';
+
+  if (functions.length === 0) {
+    spinner.fail(chalk.yellow('No functions found in the snapshot.'));
+    throw new Error('No functions found in the snapshot.');
+  }
+  
+  return { callEdges, functions };
+}
+
+/**
+ * Analyze dependency structure (entry points and cycles)
+ */
+async function analyzeDependencyStructure(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  spinner: Ora
+): Promise<{ entryPointIds: Set<string>; cyclicFunctions: Set<string> }> {
+  spinner.text = 'Detecting entry points...';
+
+  // Detect entry points
+  const entryPointDetector = new EntryPointDetector();
+  const entryPoints = entryPointDetector.detectEntryPoints(functions);
+  const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
+
+  spinner.text = 'Detecting circular dependencies...';
+
+  // Detect circular dependencies
+  const reachabilityAnalyzer = new ReachabilityAnalyzer();
+  const cycles = reachabilityAnalyzer.findCircularDependencies(callEdges);
+  const cyclicFunctions = new Set<string>();
+  cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
+  
+  return { entryPointIds, cyclicFunctions };
+}
+
+/**
+ * Calculate dependency metrics and generate statistics
+ */
+async function calculateDependencyMetrics(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  entryPointIds: Set<string>,
+  cyclicFunctions: Set<string>,
+  options: DepStatsOptions,
+  spinner: Ora
+): Promise<{ metrics: DependencyMetrics[]; stats: DependencyStats }> {
+  spinner.text = 'Calculating dependency metrics...';
+
+  // Calculate dependency metrics
+  const metricsCalculator = new DependencyMetricsCalculator();
+  const metrics = metricsCalculator.calculateMetrics(
+    functions,
+    callEdges,
+    entryPointIds,
+    cyclicFunctions
+  );
+
+  // Parse CLI options into dependency options
+  const dependencyOptions = parseDependencyOptions(options, spinner);
+  
+  const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
+  
+  return { metrics, stats };
+}
+
+/**
+ * Parse and validate CLI options into DependencyOptions
+ */
+function parseDependencyOptions(
+  options: DepStatsOptions, 
+  spinner: Ora
+): DependencyOptions {
+  const dependencyOptions: DependencyOptions = {};
+  
+  if (options.hubThreshold) {
+    const parsed = parseInt(options.hubThreshold, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      spinner.fail(`Invalid hub threshold: ${options.hubThreshold}`);
+      throw new Error(`Invalid hub threshold: ${options.hubThreshold}`);
+    }
+    dependencyOptions.hubThreshold = parsed;
+  }
+  
+  if (options.utilityThreshold) {
+    const parsed = parseInt(options.utilityThreshold, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      spinner.fail(`Invalid utility threshold: ${options.utilityThreshold}`);
+      throw new Error(`Invalid utility threshold: ${options.utilityThreshold}`);
+    }
+    dependencyOptions.utilityThreshold = parsed;
+  }
+  
+  if (options.maxHubFunctions) {
+    const parsed = parseInt(options.maxHubFunctions, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      spinner.fail(`Invalid max hub functions: ${options.maxHubFunctions}`);
+      throw new Error(`Invalid max hub functions: ${options.maxHubFunctions}`);
+    }
+    dependencyOptions.maxHubFunctions = parsed;
+  }
+  
+  if (options.maxUtilityFunctions) {
+    const parsed = parseInt(options.maxUtilityFunctions, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      spinner.fail(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
+      throw new Error(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
+    }
+    dependencyOptions.maxUtilityFunctions = parsed;
+  }
+  
+  return dependencyOptions;
+}
+
+/**
+ * Output dependency statistics results in the requested format
+ */
+function outputDepStatsResults(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  stats: DependencyStats,
+  options: DepStatsOptions
+): void {
+  if (options.format === 'dot') {
+    outputDepStatsDot(functions, callEdges, metrics, options);
+  } else if (options.json || options.format === 'json') {
+    outputDepStatsJSON(metrics, stats, options);
+  } else {
+    outputDepStatsTable(metrics, stats, options);
+  }
+}
 
 /**
  * Output dependency stats as JSON
@@ -1376,54 +1468,90 @@ function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats
  * Output dependency stats as formatted table
  */
 function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
+  displayStatsSummary(stats);
+  displayHubFunctions(stats, options);
+  displayUtilityFunctions(stats, options);
+  displayIsolatedFunctions(stats, options);
+  displayTopFunctionsTable(metrics, options);
+}
+
+/**
+ * Display statistical summary
+ */
+function displayStatsSummary(stats: DependencyStats): void {
   console.log(chalk.bold('\n📊 Dependency Statistics\n'));
-  
-  // Summary
   console.log(`Total functions: ${chalk.cyan(stats.totalFunctions)}`);
   console.log(`Average fan-in: ${chalk.yellow(stats.avgFanIn.toFixed(1))}`);
   console.log(`Average fan-out: ${chalk.yellow(stats.avgFanOut.toFixed(1))}`);
   console.log(`Maximum fan-in: ${chalk.red(stats.maxFanIn)}`);
   console.log(`Maximum fan-out: ${chalk.red(stats.maxFanOut)}`);
   console.log();
+}
 
-  // Hub functions (high fan-in)
-  if (options.showHubs && stats.hubFunctions.length > 0) {
-    console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
-    stats.hubFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
-    });
-    console.log();
+/**
+ * Display hub functions (high fan-in)
+ */
+function displayHubFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showHubs || stats.hubFunctions.length === 0) {
+    return;
   }
-
-  // Utility functions (high fan-out)
-  if (options.showUtility && stats.utilityFunctions.length > 0) {
-    console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
-    stats.utilityFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
-    });
-    console.log();
-  }
-
-  // Isolated functions
-  if (options.showIsolated && stats.isolatedFunctions.length > 0) {
-    console.log(chalk.bold('🏝️ Isolated Functions:'));
-    stats.isolatedFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
-    });
-    console.log();
-  }
-
-  // Top functions by sort criteria
-  let limit = 20;
-  if (options.limit) {
-    const parsed = parseInt(options.limit, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      limit = parsed;
-    }
-  }
-  const sortField = options.sort || 'fanin';
   
-  const sortedMetrics = [...metrics].sort((a, b) => {
+  console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
+  stats.hubFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
+  });
+  console.log();
+}
+
+/**
+ * Display utility functions (high fan-out)
+ */
+function displayUtilityFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showUtility || stats.utilityFunctions.length === 0) {
+    return;
+  }
+  
+  console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
+  stats.utilityFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
+  });
+  console.log();
+}
+
+/**
+ * Display isolated functions
+ */
+function displayIsolatedFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showIsolated || stats.isolatedFunctions.length === 0) {
+    return;
+  }
+  
+  console.log(chalk.bold('🏝️ Isolated Functions:'));
+  stats.isolatedFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
+  });
+  console.log();
+}
+
+/**
+ * Parse display limit from options
+ */
+function parseDisplayLimit(options: DepStatsOptions): number {
+  const defaultLimit = 20;
+  
+  if (!options.limit) {
+    return defaultLimit;
+  }
+  
+  const parsed = parseInt(options.limit, 10);
+  return (!isNaN(parsed) && parsed > 0) ? parsed : defaultLimit;
+}
+
+/**
+ * Sort metrics by specified criteria
+ */
+function sortMetricsByCriteria(metrics: DependencyMetrics[], sortField: string): DependencyMetrics[] {
+  return [...metrics].sort((a, b) => {
     switch (sortField) {
       case 'fanin':
         return b.fanIn - a.fanIn;
@@ -1437,20 +1565,36 @@ function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStat
         return 0;
     }
   });
+}
+
+/**
+ * Display top functions table
+ */
+function displayTopFunctionsTable(metrics: DependencyMetrics[], options: DepStatsOptions): void {
+  const limit = parseDisplayLimit(options);
+  const sortField = options.sort || 'fanin';
+  const sortedMetrics = sortMetricsByCriteria(metrics, sortField);
 
   console.log(chalk.bold(`📈 Top ${limit} Functions (by ${sortField}):`));
   console.log(chalk.bold('Name                     Fan-In  Fan-Out  Depth  Cyclic'));
   console.log('─'.repeat(60));
 
   sortedMetrics.slice(0, limit).forEach((metric: DependencyMetrics) => {
-    const name = metric.functionName.padEnd(25).substring(0, 25);
-    const fanIn = metric.fanIn.toString().padStart(6);
-    const fanOut = metric.fanOut.toString().padStart(8);
-    const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
-    const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
-
-    console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
+    displayMetricRow(metric);
   });
+}
+
+/**
+ * Display a single metric row in the table
+ */
+function displayMetricRow(metric: DependencyMetrics): void {
+  const name = metric.functionName.padEnd(25).substring(0, 25);
+  const fanIn = metric.fanIn.toString().padStart(6);
+  const fanOut = metric.fanOut.toString().padStart(8);
+  const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
+  const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
+
+  console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
 }
 
 /**
@@ -1586,26 +1730,21 @@ function outputArchLintJSON(
 }
 
 /**
- * Output architecture lint results as formatted table
+ * Output architecture lint report header and summary
  */
-function outputArchLintTable(
-  analysisResult: ArchitectureAnalysisResult,
-  violations: ArchitectureViolation[],
-  options: DepLintOptions
-): void {
-  const { summary } = analysisResult;
-
-  // Header
+function displayArchLintHeader(summary: ArchitectureAnalysisResult['summary']): void {
   console.log(chalk.bold('\n🏗️  Architecture Lint Report\n'));
-
-  // Summary
   console.log(`Total functions: ${chalk.cyan(summary.totalFunctions)}`);
   console.log(`Total layers: ${chalk.cyan(summary.totalLayers)}`);
   console.log(`Total rules: ${chalk.cyan(summary.totalRules)}`);
   console.log(`Layer coverage: ${chalk.yellow((summary.layerCoverage * 100).toFixed(1))}%`);
   console.log();
+}
 
-  // Violation summary
+/**
+ * Display violation summary statistics
+ */
+function displayViolationSummary(summary: ArchitectureAnalysisResult['summary']): void {
   const violationSummary = [
     { label: 'Error violations', count: summary.errorViolations, color: chalk.red },
     { label: 'Warning violations', count: summary.warningViolations, color: chalk.yellow },
@@ -1619,22 +1758,26 @@ function outputArchLintTable(
     }
   });
   console.log();
+}
 
-  if (violations.length === 0) {
-    console.log(chalk.green('✅ No architecture violations found!'));
-    return;
-  }
-
-  // Group violations by severity
-  const violationsBySeverity = violations.reduce((groups, violation) => {
+/**
+ * Group violations by severity level
+ */
+function groupViolationsBySeverity(violations: ArchitectureViolation[]): Record<string, ArchitectureViolation[]> {
+  return violations.reduce((groups, violation) => {
     if (!groups[violation.severity]) {
       groups[violation.severity] = [];
     }
     groups[violation.severity].push(violation);
     return groups;
   }, {} as Record<string, ArchitectureViolation[]>);
+}
 
-  // Display violations by severity
+/**
+ * Display violations organized by severity and file
+ */
+function displayViolationDetails(violations: ArchitectureViolation[]): void {
+  const violationsBySeverity = groupViolationsBySeverity(violations);
   const severityOrder: Array<'error' | 'warning' | 'info'> = ['error', 'warning', 'info'];
   const severityIcons = { error: '❌', warning: '⚠️', info: 'ℹ️' };
   const severityColors = { error: chalk.red, warning: chalk.yellow, info: chalk.blue };
@@ -1646,72 +1789,85 @@ function outputArchLintTable(
     console.log(severityColors[severity].bold(`${severityIcons[severity]} ${severity.toUpperCase()} Violations (${severityViolations.length}):`));
     console.log();
 
-    // Group by file for better readability
-    const violationsByFile = severityViolations.reduce((groups, violation) => {
-      const file = violation.source.filePath;
-      if (!groups[file]) {
-        groups[file] = [];
-      }
-      groups[file].push(violation);
-      return groups;
-    }, {} as Record<string, ArchitectureViolation[]>);
+    displayViolationsByFile(severityViolations, severityColors[severity]);
+  }
+}
 
-    for (const [filePath, fileViolations] of Object.entries(violationsByFile)) {
-      console.log(chalk.underline(filePath));
+/**
+ * Group and display violations by file
+ */
+function displayViolationsByFile(violations: ArchitectureViolation[], severityColor: typeof chalk.red): void {
+  const violationsByFile = violations.reduce((groups, violation) => {
+    const file = violation.source.filePath;
+    if (!groups[file]) {
+      groups[file] = [];
+    }
+    groups[file].push(violation);
+    return groups;
+  }, {} as Record<string, ArchitectureViolation[]>);
+
+  for (const [filePath, fileViolations] of Object.entries(violationsByFile)) {
+    console.log(chalk.underline(filePath));
+    
+    fileViolations.forEach(violation => {
+      const { source, target, message, context } = violation;
       
-      fileViolations.forEach(violation => {
-        const { source, target, message, context } = violation;
-        
-        console.log(`  ${severityColors[severity]('●')} ${chalk.cyan(source.functionName)} → ${chalk.green(target.functionName)}`);
-        console.log(`    ${chalk.gray('Layer:')} ${source.layer} → ${target.layer}`);
-        console.log(`    ${chalk.gray('Rule:')} ${message}`);
-        
-        if (context?.lineNumber) {
-          console.log(`    ${chalk.gray('Line:')} ${context.lineNumber}`);
-        }
-        
-        if (context?.callType) {
-          console.log(`    ${chalk.gray('Call type:')} ${getCallTypeColor(context.callType)(context.callType)}`);
-        }
-        
-        console.log();
+      console.log(`  ${severityColor('●')} ${chalk.cyan(source.functionName)} → ${chalk.green(target.functionName)}`);
+      console.log(`    ${chalk.gray('Layer:')} ${source.layer} → ${target.layer}`);
+      console.log(`    ${chalk.gray('Rule:')} ${message}`);
+      
+      if (context?.lineNumber) {
+        console.log(`    ${chalk.gray('Line:')} ${context.lineNumber}`);
+      }
+      
+      if (context?.callType) {
+        console.log(`    ${chalk.gray('Call type:')} ${getCallTypeColor(context.callType)(context.callType)}`);
+      }
+      
+      console.log();
+    });
+  }
+}
+
+/**
+ * Display architecture metrics if enabled
+ */
+function displayArchitectureMetrics(metrics: NonNullable<ArchitectureAnalysisResult['metrics']>): void {
+  console.log(chalk.bold('📈 Architecture Metrics:'));
+  console.log();
+  
+  const { layerCoupling, layerCohesion } = metrics;
+  
+  // Layer cohesion
+  console.log(chalk.bold('Layer Cohesion (higher is better):'));
+  for (const [layer, cohesion] of Object.entries(layerCohesion)) {
+    const cohesionValue = cohesion as number;
+    const percentage = (cohesionValue * 100).toFixed(1);
+    const color = cohesionValue > 0.7 ? chalk.green : cohesionValue > 0.4 ? chalk.yellow : chalk.red;
+    console.log(`  ${layer}: ${color(percentage)}%`);
+  }
+  console.log();
+  
+  // Layer coupling matrix
+  console.log(chalk.bold('Layer Coupling Matrix:'));
+  const layers = Object.keys(layerCoupling);
+  if (layers.length > 0) {
+    console.log(`${''.padEnd(12)} ${layers.map(l => l.padEnd(8)).join('')}`);
+    
+    for (const fromLayer of layers) {
+      const row = layers.map(toLayer => {
+        const count = layerCoupling[fromLayer]?.[toLayer] || 0;
+        return count.toString().padEnd(8);
       });
+      console.log(`${fromLayer.padEnd(12)} ${row.join('')}`);
     }
   }
+}
 
-  // Metrics summary if requested
-  if (options.includeMetrics && analysisResult.metrics) {
-    console.log(chalk.bold('📈 Architecture Metrics:'));
-    console.log();
-    
-    const { layerCoupling, layerCohesion } = analysisResult.metrics;
-    
-    // Layer cohesion
-    console.log(chalk.bold('Layer Cohesion (higher is better):'));
-    for (const [layer, cohesion] of Object.entries(layerCohesion)) {
-      const percentage = (cohesion * 100).toFixed(1);
-      const color = cohesion > 0.7 ? chalk.green : cohesion > 0.4 ? chalk.yellow : chalk.red;
-      console.log(`  ${layer}: ${color(percentage)}%`);
-    }
-    console.log();
-    
-    // Layer coupling matrix
-    console.log(chalk.bold('Layer Coupling Matrix:'));
-    const layers = Object.keys(layerCoupling);
-    if (layers.length > 0) {
-      console.log(`${''.padEnd(12)} ${layers.map(l => l.padEnd(8)).join('')}`);
-      
-      for (const fromLayer of layers) {
-        const row = layers.map(toLayer => {
-          const count = layerCoupling[fromLayer]?.[toLayer] || 0;
-          return count.toString().padEnd(8);
-        });
-        console.log(`${fromLayer.padEnd(12)} ${row.join('')}`);
-      }
-    }
-  }
-
-  // Suggestions
+/**
+ * Display helpful suggestions based on analysis results
+ */
+function displayArchLintSuggestions(summary: ArchitectureAnalysisResult['summary'], violationCount: number): void {
   console.log(chalk.dim('─'.repeat(60)));
   
   if (summary.layerCoverage < 0.8) {
@@ -1722,9 +1878,36 @@ function outputArchLintTable(
     console.log(chalk.dim('💡 Fix error violations to pass architecture validation'));
   }
   
-  if (violations.length > 10) {
+  if (violationCount > 10) {
     console.log(chalk.dim('💡 Use --max-violations to limit output or --severity to filter by level'));
   }
+}
+
+/**
+ * Output architecture lint results as formatted table
+ */
+function outputArchLintTable(
+  analysisResult: ArchitectureAnalysisResult,
+  violations: ArchitectureViolation[],
+  options: DepLintOptions
+): void {
+  const { summary } = analysisResult;
+
+  displayArchLintHeader(summary);
+  displayViolationSummary(summary);
+
+  if (violations.length === 0) {
+    console.log(chalk.green('✅ No architecture violations found!'));
+    return;
+  }
+
+  displayViolationDetails(violations);
+
+  if (options.includeMetrics && analysisResult.metrics) {
+    displayArchitectureMetrics(analysisResult.metrics);
+  }
+
+  displayArchLintSuggestions(summary, violations.length);
 }
 
 /**
