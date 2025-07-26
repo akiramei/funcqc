@@ -627,6 +627,218 @@ function calculateRouteComplexity(
 /**
  * Build dependency tree with specified depth and optional complexity analysis
  */
+/**
+ * Configuration for dependency tree building
+ */
+interface DependencyTreeConfig {
+  functionId: string;
+  edges: CallEdge[];
+  functions: Array<{ id: string; name: string; contextPath?: string[] }>;
+  direction: 'in' | 'out' | 'both';
+  maxDepth: number;
+  includeExternal: boolean;
+  options?: {
+    showComplexity?: boolean | undefined;
+    rankByLength?: boolean | undefined;
+    maxRoutes?: number | undefined;
+    qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
+    externalFilter?: 'all' | 'transit' | 'none';
+  };
+}
+
+/**
+ * Check if an external node should be included based on filter settings
+ */
+function shouldIncludeExternalNode(
+  edge: CallEdge,
+  includeExternal: boolean,
+  externalFilter: 'all' | 'transit' | 'none'
+): boolean {
+  if (!includeExternal) return false;
+  if (externalFilter === 'none') return false;
+  if (externalFilter === 'all') return true;
+  
+  // For 'transit' mode, check if this external call leads back to internal code
+  if (externalFilter === 'transit') {
+    // Virtual calls (like Commander callbacks) are considered transit nodes
+    if (edge.callType === 'virtual') return true;
+    
+    // Check if this external function is called by internal code and calls internal code
+    // This requires looking ahead in the call graph
+    // For now, we'll include common patterns like event handlers and callbacks
+    const transitPatterns = [
+      'parseAsync', 'parse', // Commander.js
+      'on', 'once', 'emit',  // EventEmitter
+      'then', 'catch'        // Promises
+      // Array methods removed - they're too noisy
+    ];
+    
+    return edge.calleeName ? transitPatterns.some(pattern => 
+      edge.calleeName!.includes(pattern)
+    ) : false;
+  }
+  
+  return false;
+}
+
+/**
+ * Create a display name for function, handling constructors specially
+ */
+function createFunctionDisplayName(
+  functionInfo: { id: string; name: string; contextPath?: string[] } | undefined
+): string {
+  if (!functionInfo) return 'unknown';
+  
+  // Enhance constructor display with class name for internal functions
+  if (functionInfo.name === 'constructor' && functionInfo.contextPath && functionInfo.contextPath.length > 0) {
+    return `new ${functionInfo.contextPath[0]}`;
+  }
+  
+  return functionInfo.name;
+}
+
+/**
+ * Create external dependency node
+ */
+function createExternalDependencyNode(
+  edge: CallEdge,
+  depth: number
+): DependencyTreeNode & { isExternal: boolean } {
+  // Enhance constructor display with class name
+  let displayName = edge.calleeName || 'unknown';
+  if (edge.calleeName === 'constructor' && edge.calleeClassName) {
+    displayName = `new ${edge.calleeClassName}`;
+  }
+  
+  return {
+    id: `external:${edge.calleeName}`,
+    name: displayName,
+    depth: depth + 1,
+    dependencies: [],
+    isExternal: true
+  };
+}
+
+/**
+ * Create virtual dependency node
+ */
+function createVirtualDependencyNode(
+  edge: CallEdge,
+  depth: number
+): DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string } {
+  return {
+    id: `virtual:${edge.calleeName}`,
+    name: edge.calleeName || 'unknown',
+    depth: depth + 1,
+    dependencies: [],
+    isVirtual: true,
+    frameworkInfo: (edge.metadata as Record<string, unknown>)?.['framework'] as string || 'unknown'
+  };
+}
+
+/**
+ * Process incoming dependencies for a function
+ */
+function processIncomingDependencies(
+  currentId: string,
+  edges: CallEdge[],
+  shouldIncludeExternal: (edge: CallEdge) => boolean,
+  buildTreeFn: (id: string, depth: number, dir: 'in' | 'out', path: string[]) => DependencyTreeNode | null,
+  depth: number,
+  newPath: string[]
+): Array<{ direction: 'in'; edge: CallEdge; subtree: DependencyTreeNode | null }> {
+  const incoming = edges.filter(edge => {
+    if (edge.calleeFunctionId !== currentId) return false;
+    if (edge.callType === 'external') return shouldIncludeExternal(edge);
+    return true;
+  });
+  
+  return incoming.map(edge => {
+    let subtree = null;
+    
+    if (edge.callerFunctionId) {
+      // Internal function call - recurse
+      subtree = buildTreeFn(edge.callerFunctionId, depth + 1, 'in', newPath);
+    }
+    // Note: For incoming dependencies, we don't typically have external callers
+    
+    return {
+      direction: 'in' as const,
+      edge,
+      subtree,
+    };
+  }).filter(dep => dep.subtree);
+}
+
+/**
+ * Process outgoing dependencies for a function
+ */
+function processOutgoingDependencies(
+  currentId: string,
+  edges: CallEdge[],
+  shouldIncludeExternal: (edge: CallEdge) => boolean,
+  buildTreeFn: (id: string, depth: number, dir: 'in' | 'out', path: string[]) => DependencyTreeNode | null,
+  depth: number,
+  newPath: string[],
+  includeExternal: boolean
+): Array<{ direction: 'out'; edge: CallEdge; subtree: DependencyTreeNode | null }> {
+  const outgoing = edges.filter(edge => {
+    if (edge.callerFunctionId !== currentId) return false;
+    if (edge.callType === 'external' || edge.callType === 'virtual') {
+      return shouldIncludeExternal(edge);
+    }
+    return true;
+  });
+  
+  return outgoing.map(edge => {
+    let subtree = null;
+    
+    if (edge.calleeFunctionId) {
+      // Internal function call - recurse
+      subtree = buildTreeFn(edge.calleeFunctionId, depth + 1, 'out', newPath);
+    } else if (includeExternal && edge.calleeName) {
+      // External or virtual function call - create terminal node
+      if (edge.callType === 'virtual') {
+        subtree = createVirtualDependencyNode(edge, depth);
+      } else {
+        subtree = createExternalDependencyNode(edge, depth);
+      }
+    }
+    
+    return {
+      direction: 'out' as const,
+      edge,
+      subtree,
+    };
+  }).filter(dep => dep.subtree);
+}
+
+/**
+ * Finalize dependency tree with route analysis
+ */
+function finalizeDependencyTreeWithRoutes(
+  result: DependencyTreeNode,
+  routes: RouteComplexityInfo[],
+  options?: DependencyTreeConfig['options']
+): DependencyTreeNode {
+  // Add route analysis results if complexity analysis is enabled
+  if (options?.showComplexity && routes.length > 0) {
+    // Sort routes by length if requested
+    const sortedRoutes = options.rankByLength 
+      ? routes.sort((a, b) => b.totalDepth - a.totalDepth)
+      : routes;
+    
+    // Apply route limit
+    const limitedRoutes = options.maxRoutes 
+      ? sortedRoutes.slice(0, options.maxRoutes)
+      : sortedRoutes;
+      
+    result.routes = limitedRoutes;
+  }
+  
+  return result;
+}
+
 function buildDependencyTree(
   functionId: string,
   edges: CallEdge[],
@@ -647,33 +859,8 @@ function buildDependencyTree(
   const externalFilter = options?.externalFilter || 'transit';
   
   // Helper function to check if an external node should be included
-  function shouldIncludeExternal(edge: CallEdge): boolean {
-    if (!includeExternal) return false;
-    if (externalFilter === 'none') return false;
-    if (externalFilter === 'all') return true;
-    
-    // For 'transit' mode, check if this external call leads back to internal code
-    if (externalFilter === 'transit') {
-      // Virtual calls (like Commander callbacks) are considered transit nodes
-      if (edge.callType === 'virtual') return true;
-      
-      // Check if this external function is called by internal code and calls internal code
-      // This requires looking ahead in the call graph
-      // For now, we'll include common patterns like event handlers and callbacks
-      const transitPatterns = [
-        'parseAsync', 'parse', // Commander.js
-        'on', 'once', 'emit',  // EventEmitter
-        'then', 'catch'        // Promises
-        // Array methods removed - they're too noisy
-      ];
-      
-      return edge.calleeName ? transitPatterns.some(pattern => 
-        edge.calleeName!.includes(pattern)
-      ) : false;
-    }
-    
-    return false;
-  }
+  const shouldIncludeExternal = (edge: CallEdge) => 
+    shouldIncludeExternalNode(edge, includeExternal, externalFilter);
   
   function buildTree(currentId: string, depth: number, dir: 'in' | 'out', currentPath: string[] = []): DependencyTreeNode | null {
     if (depth > maxDepth || visited.has(currentId)) {
@@ -684,13 +871,7 @@ function buildDependencyTree(
     const newPath = [...currentPath, currentId];
     
     const currentFunction = functions.find(f => f.id === currentId);
-    
-    // Enhance constructor display with class name for internal functions
-    let displayName = currentFunction?.name || 'unknown';
-    if (currentFunction?.name === 'constructor' && currentFunction.contextPath && currentFunction.contextPath.length > 0) {
-      // Use the first element of contextPath as the class name
-      displayName = `new ${currentFunction.contextPath[0]}`;
-    }
+    const displayName = createFunctionDisplayName(currentFunction);
     
     const result: DependencyTreeNode = {
       id: currentId,
@@ -700,83 +881,17 @@ function buildDependencyTree(
     };
     
     if (dir === 'in' || direction === 'both') {
-      // Incoming dependencies (who calls this function)
-      const incoming = edges.filter(edge => {
-        if (edge.calleeFunctionId !== currentId) return false;
-        if (edge.callType === 'external') return shouldIncludeExternal(edge);
-        return true;
-      });
-      
-      result.dependencies.push(...incoming.map(edge => {
-        let subtree = null;
-        
-        if (edge.callerFunctionId) {
-          // Internal function call - recurse
-          subtree = buildTree(edge.callerFunctionId, depth + 1, 'in', newPath);
-        }
-        // Note: For incoming dependencies, we don't typically have external callers
-        // as external functions calling our internal functions is less common
-        
-        return {
-          direction: 'in' as const,
-          edge,
-          subtree,
-        };
-      }).filter(dep => dep.subtree));
+      const incomingDeps = processIncomingDependencies(
+        currentId, edges, shouldIncludeExternal, buildTree, depth, newPath
+      );
+      result.dependencies.push(...incomingDeps);
     }
     
     if (dir === 'out' || direction === 'both') {
-      // Outgoing dependencies (what this function calls)
-      const outgoing = edges.filter(edge => {
-        if (edge.callerFunctionId !== currentId) return false;
-        if (edge.callType === 'external' || edge.callType === 'virtual') {
-          return shouldIncludeExternal(edge);
-        }
-        return true;
-      });
-      
-      result.dependencies.push(...outgoing.map(edge => {
-        let subtree = null;
-        
-        if (edge.calleeFunctionId) {
-          // Internal function call - recurse
-          subtree = buildTree(edge.calleeFunctionId, depth + 1, 'out', newPath);
-        } else if (includeExternal && edge.calleeName) {
-          // External or virtual function call - create terminal node
-          if (edge.callType === 'virtual') {
-            // Virtual callback function call
-            subtree = {
-              id: `virtual:${edge.calleeName}`,
-              name: edge.calleeName,
-              depth: depth + 1,
-              dependencies: [],
-              isVirtual: true,
-              frameworkInfo: (edge.metadata as Record<string, unknown>)?.['framework'] as string || 'unknown'
-            } as DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string };
-          } else {
-            // External function call
-            // Enhance constructor display with class name
-            let displayName = edge.calleeName;
-            if (edge.calleeName === 'constructor' && edge.calleeClassName) {
-              displayName = `new ${edge.calleeClassName}`;
-            }
-            
-            subtree = {
-              id: `external:${edge.calleeName}`,
-              name: displayName,
-              depth: depth + 1,
-              dependencies: [],
-              isExternal: true
-            } as DependencyTreeNode & { isExternal: boolean };
-          }
-        }
-        
-        return {
-          direction: 'out' as const,
-          edge,
-          subtree,
-        };
-      }).filter(dep => dep.subtree));
+      const outgoingDeps = processOutgoingDependencies(
+        currentId, edges, shouldIncludeExternal, buildTree, depth, newPath, includeExternal
+      );
+      result.dependencies.push(...outgoingDeps);
     }
     
     // Record route if this is a leaf node or if complexity analysis is enabled
@@ -797,22 +912,7 @@ function buildDependencyTree(
     dependencies: [],
   };
   
-  // Add route analysis results if complexity analysis is enabled
-  if (options?.showComplexity && routes.length > 0) {
-    // Sort routes by length if requested
-    const sortedRoutes = options.rankByLength 
-      ? routes.sort((a, b) => b.totalDepth - a.totalDepth)
-      : routes;
-    
-    // Apply route limit
-    const limitedRoutes = options.maxRoutes 
-      ? sortedRoutes.slice(0, options.maxRoutes)
-      : sortedRoutes;
-      
-    result.routes = limitedRoutes;
-  }
-  
-  return result;
+  return finalizeDependencyTreeWithRoutes(result, routes, options);
 }
 
 /**
@@ -829,64 +929,87 @@ function outputDepShowJSON(func: { id: string; name: string; file_path?: string;
 /**
  * Output dependency show in formatted tree
  */
-function outputDepShowFormatted(
-  func: { id: string; name: string; file_path?: string; start_line?: number }, 
-  dependencies: DependencyTreeNode, 
-  options: DepShowOptions,
-  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+/**
+ * Display header information for dependency analysis
+ */
+function displayDependencyAnalysisHeader(
+  func: { id: string; name: string; file_path?: string; start_line?: number }
 ): void {
   console.log(chalk.bold(`\nDependency Analysis for: ${chalk.cyan(func.name)}`));
   console.log(chalk.gray(`ID: ${func.id}`));
   console.log(chalk.gray(`File: ${func.file_path}:${func.start_line}`));
   console.log();
+}
 
-  // Show route complexity analysis if available
-  if (options.showComplexity && dependencies.routes && dependencies.routes.length > 0) {
-    console.log(chalk.bold('📊 Longest Routes (by depth):'));
-    console.log();
+/**
+ * Display individual route with complexity breakdown
+ */
+function displayRouteComplexityBreakdown(route: RouteComplexityInfo, index: number): void {
+  console.log(chalk.bold(`Route ${index + 1} (Depth: ${route.totalDepth}, Total Complexity: ${route.totalComplexity})`));
+  
+  route.complexityBreakdown.forEach((breakdown, pathIndex) => {
+    const isLast = pathIndex === route.complexityBreakdown.length - 1;
+    const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
+    const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
     
-    dependencies.routes.forEach((route, index) => {
-      console.log(chalk.bold(`Route ${index + 1} (Depth: ${route.totalDepth}, Total Complexity: ${route.totalComplexity})`));
-      
-      // Display route path with complexity breakdown
-      route.complexityBreakdown.forEach((breakdown, pathIndex) => {
-        const isLast = pathIndex === route.complexityBreakdown.length - 1;
-        const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
-        const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
-        
-        if (pathIndex === 0) {
-          console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
-        } else {
-          console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
-        }
-      });
-      
-      console.log();
-    });
-    
-    // Summary statistics
-    if (dependencies.routes.length > 1) {
-      const maxComplexity = Math.max(...dependencies.routes.map(r => r.totalComplexity));
-      const avgComplexity = dependencies.routes.reduce((sum, r) => sum + r.totalComplexity, 0) / dependencies.routes.length;
-      const maxComplexityRoute = dependencies.routes.find(r => r.totalComplexity === maxComplexity);
-      
-      console.log(chalk.bold('📈 Complexity Summary:'));
-      if (maxComplexityRoute) {
-        console.log(`  Highest complexity route: Route ${dependencies.routes.indexOf(maxComplexityRoute) + 1} (${maxComplexity})`);
-      }
-      console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
-      
-      const allFunctions = dependencies.routes.flatMap(r => r.complexityBreakdown);
-      if (allFunctions.length > 0) {
-        const mostComplexFunction = allFunctions.reduce((max, current) => 
-          current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
-        );
-        console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
-      }
-      console.log();
+    if (pathIndex === 0) {
+      console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
+    } else {
+      console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
     }
-  }
+  });
+  
+  console.log();
+}
 
+/**
+ * Calculate and display complexity summary statistics
+ */
+function displayComplexitySummary(routes: RouteComplexityInfo[]): void {
+  if (routes.length <= 1) return;
+
+  const maxComplexity = Math.max(...routes.map(r => r.totalComplexity));
+  const avgComplexity = routes.reduce((sum, r) => sum + r.totalComplexity, 0) / routes.length;
+  const maxComplexityRoute = routes.find(r => r.totalComplexity === maxComplexity);
+  
+  console.log(chalk.bold('📈 Complexity Summary:'));
+  if (maxComplexityRoute) {
+    console.log(`  Highest complexity route: Route ${routes.indexOf(maxComplexityRoute) + 1} (${maxComplexity})`);
+  }
+  console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
+  
+  const allFunctions = routes.flatMap(r => r.complexityBreakdown);
+  if (allFunctions.length > 0) {
+    const mostComplexFunction = allFunctions.reduce((max, current) => 
+      current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
+    );
+    console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
+  }
+  console.log();
+}
+
+/**
+ * Display route complexity analysis for all routes
+ */
+function displayRouteComplexityAnalysis(routes: RouteComplexityInfo[]): void {
+  console.log(chalk.bold('📊 Longest Routes (by depth):'));
+  console.log();
+  
+  routes.forEach((route, index) => {
+    displayRouteComplexityBreakdown(route, index);
+  });
+  
+  displayComplexitySummary(routes);
+}
+
+/**
+ * Display dependency tree structure recursively
+ */
+function displayDependencyTree(
+  dependencies: DependencyTreeNode,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): void {
+  
   function printTree(node: DependencyTreeNode | null, prefix: string = '', isLast: boolean = true): void {
     if (!node) return;
 
@@ -905,71 +1028,21 @@ function outputDepShowFormatted(
         const arrow = dep.direction === 'in' ? '←' : '→';
         const typeColor = getCallTypeColor(dep.edge.callType);
         
-        // Add framework info for virtual callback edges
-        // Commander.js specific display: show program.parseAsync in the flow
+        // Handle virtual callback edges (Commander.js specific)
         if (dep.edge.callType === 'virtual' && 
             (dep.edge.metadata as Record<string, unknown>)?.['framework'] === 'commander' &&
             (dep.edge.metadata as Record<string, unknown>)?.['displayHint'] === 'commander_dispatch') {
           
-          const triggerMethod = (dep.edge.metadata as Record<string, unknown>)?.['triggerMethod'] as string;
-          const programCall = `program.${triggerMethod || 'parseAsync'}`;
-          
-          // Insert program.parseAsync as intermediate step
-          let locationInfo = `line ${dep.edge.lineNumber}`;
-          if (functionMap && dep.edge.callerFunctionId) {
-            const callerFunc = functionMap.get(dep.edge.callerFunctionId);
-            if (callerFunc?.filePath) {
-              locationInfo = `${callerFunc.filePath}:${dep.edge.lineNumber}`;
-            }
-          }
-          console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(${locationInfo})`)}`);
-          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
-          
-          // Then show the actual command function
-          if (dep.subtree) {
-            const commandDisplayName = `${dep.subtree.name} ${chalk.cyan('[command]')}`;
-            console.log(`${newPrefix + (isLastDep ? '        ' : '│       ')}└── ${commandDisplayName}`);
-            
-            // Continue with recursive tree printing if there are more dependencies
-            if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
-              printTree(dep.subtree, newPrefix + (isLastDep ? '        ' : '│       '), true);
-            }
-          }
-          return; // Skip the normal rendering
+          displayCommanderVirtualEdge(dep, newPrefix, isLastDep, arrow, functionMap, printTree);
+          return;
         }
         
         // Get file path for the edge
-        let locationInfo = `line ${dep.edge.lineNumber}`;
-        if (functionMap) {
-          // For outgoing calls, use caller's file path
-          // For incoming calls, use callee's file path
-          const relevantFuncId = dep.direction === 'out' ? dep.edge.callerFunctionId : dep.edge.calleeFunctionId;
-          if (relevantFuncId) {
-            const func = functionMap.get(relevantFuncId);
-            if (func?.filePath) {
-              locationInfo = `${func.filePath}:${dep.edge.lineNumber}`;
-            }
-          }
-        }
-        
+        const locationInfo = getEdgeLocationInfo(dep, functionMap);
         console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(${locationInfo})`)}`);
         
         if (dep.subtree) {
-          // Add framework indicator for virtual nodes
-          let nodeDisplayName = dep.subtree.name;
-          if ((dep.subtree as { isVirtual?: boolean; frameworkInfo?: string }).isVirtual && (dep.subtree as { frameworkInfo?: string }).frameworkInfo) {
-            nodeDisplayName = `${dep.subtree.name} ${chalk.cyan(`[${dep.subtree.frameworkInfo}]`)}`;
-          } else if (dep.subtree.isExternal) {
-            nodeDisplayName = `${dep.subtree.name} ${chalk.gray('(external)')}`;
-          }
-          
-          // Print the node with appropriate indicators
-          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${nodeDisplayName}`);
-          
-          // Continue with recursive tree printing if there are more dependencies
-          if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
-            printTree(dep.subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
-          }
+          displaySubtreeNode(dep.subtree, newPrefix, isLastDep, printTree);
         }
       });
     }
@@ -977,6 +1050,100 @@ function outputDepShowFormatted(
 
   printTree(dependencies);
   console.log();
+}
+
+/**
+ * Display Commander.js virtual callback edge
+ */
+function displayCommanderVirtualEdge(
+  dep: { direction: 'in' | 'out'; edge: CallEdge; subtree: DependencyTreeNode | null },
+  newPrefix: string,
+  isLastDep: boolean,
+  arrow: string,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>,
+  printTree?: (node: DependencyTreeNode | null, prefix: string, isLast: boolean) => void
+): void {
+  const triggerMethod = (dep.edge.metadata as Record<string, unknown>)?.['triggerMethod'] as string;
+  const programCall = `program.${triggerMethod || 'parseAsync'}`;
+  
+  let locationInfo = `line ${dep.edge.lineNumber}`;
+  if (functionMap && dep.edge.callerFunctionId) {
+    const callerFunc = functionMap.get(dep.edge.callerFunctionId);
+    if (callerFunc?.filePath) {
+      locationInfo = `${callerFunc.filePath}:${dep.edge.lineNumber}`;
+    }
+  }
+  
+  console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(${locationInfo})`)}`);
+  console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
+  
+  if (dep.subtree) {
+    const commandDisplayName = `${dep.subtree.name} ${chalk.cyan('[command]')}`;
+    console.log(`${newPrefix + (isLastDep ? '        ' : '│       ')}└── ${commandDisplayName}`);
+    
+    if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0 && printTree) {
+      printTree(dep.subtree, newPrefix + (isLastDep ? '        ' : '│       '), true);
+    }
+  }
+}
+
+/**
+ * Get location information for edge display
+ */
+function getEdgeLocationInfo(
+  dep: { direction: 'in' | 'out'; edge: CallEdge; subtree: DependencyTreeNode | null },
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): string {
+  let locationInfo = `line ${dep.edge.lineNumber}`;
+  if (functionMap) {
+    const relevantFuncId = dep.direction === 'out' ? dep.edge.callerFunctionId : dep.edge.calleeFunctionId;
+    if (relevantFuncId) {
+      const func = functionMap.get(relevantFuncId);
+      if (func?.filePath) {
+        locationInfo = `${func.filePath}:${dep.edge.lineNumber}`;
+      }
+    }
+  }
+  return locationInfo;
+}
+
+/**
+ * Display subtree node with appropriate indicators
+ */
+function displaySubtreeNode(
+  subtree: DependencyTreeNode,
+  newPrefix: string,
+  isLastDep: boolean,
+  printTree: (node: DependencyTreeNode | null, prefix: string, isLast: boolean) => void
+): void {
+  let nodeDisplayName = subtree.name;
+  if ((subtree as { isVirtual?: boolean; frameworkInfo?: string }).isVirtual && (subtree as { frameworkInfo?: string }).frameworkInfo) {
+    nodeDisplayName = `${subtree.name} ${chalk.cyan(`[${subtree.frameworkInfo}]`)}`;
+  } else if (subtree.isExternal) {
+    nodeDisplayName = `${subtree.name} ${chalk.gray('(external)')}`;
+  }
+  
+  console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${nodeDisplayName}`);
+  
+  if (subtree.dependencies && subtree.dependencies.length > 0) {
+    printTree(subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
+  }
+}
+
+function outputDepShowFormatted(
+  func: { id: string; name: string; file_path?: string; start_line?: number }, 
+  dependencies: DependencyTreeNode, 
+  options: DepShowOptions,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): void {
+  displayDependencyAnalysisHeader(func);
+
+  // Show route complexity analysis if available
+  if (options.showComplexity && dependencies.routes && dependencies.routes.length > 0) {
+    displayRouteComplexityAnalysis(dependencies.routes);
+  }
+
+  displayDependencyTree(dependencies, functionMap);
 }
 
 /**
