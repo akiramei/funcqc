@@ -17,11 +17,11 @@
 --
 -- ## Table Dependencies (Creation Order)
 --
--- Level 1: snapshots, refactoring_sessions (independent base tables)
+-- Level 1: snapshots (independent base tables)
 -- Level 2: functions, function_descriptions (core entities)
 -- Level 3: function_parameters, quality_metrics, call_edges, function_embeddings, 
---          naming_evaluations, session_functions, refactoring_opportunities
--- Level 4: lineages, ann_index_metadata (independent)
+--          naming_evaluations
+-- Level 4: ann_index_metadata (independent)
 --
 -- =============================================================================
 
@@ -53,34 +53,6 @@ CREATE INDEX idx_snapshots_scope ON snapshots(scope);
 -- Composite index for scope-aware queries
 CREATE INDEX idx_snapshots_scope_created_at ON snapshots(scope, created_at DESC);
 
--- -----------------------------------------------------------------------------
--- Refactoring Sessions: Workflow management
--- -----------------------------------------------------------------------------
-CREATE TABLE refactoring_sessions (
-  id TEXT PRIMARY KEY,                                                      -- セッションID
-  name TEXT NOT NULL,                                                       -- セッション名
-  description TEXT NOT NULL,                                                -- セッション説明
-  start_time TIMESTAMPTZ NOT NULL,                                          -- 開始時刻
-  end_time TIMESTAMPTZ,                                                     -- 終了時刻
-  target_branch TEXT,                                                       -- 作業ブランチ
-  initial_commit TEXT,                                                      -- 開始時commit
-  final_commit TEXT,                                                        -- 終了時commit
-  status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'cancelled')) DEFAULT 'active', -- セッション状態
-  metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
-  health_baseline JSONB DEFAULT '{}',                                       -- healthエンジンベースライン
-  final_assessment JSONB DEFAULT '{}',                                      -- 最終評価結果
-  improvement_verified BOOLEAN DEFAULT FALSE,                               -- 改善検証済みフラグ
-  total_complexity_before INTEGER,                                          -- 変更前総複雑度
-  total_complexity_after INTEGER,                                           -- 変更後総複雑度
-  genuine_improvement_score REAL,                                           -- 真の改善度スコア
-  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,               -- 作成日時
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP                -- 更新日時
-);
-
-CREATE INDEX idx_refactoring_sessions_status ON refactoring_sessions(status);
-CREATE INDEX idx_refactoring_sessions_target_branch ON refactoring_sessions(target_branch);
-CREATE INDEX idx_refactoring_sessions_start_time ON refactoring_sessions(start_time);
-CREATE INDEX idx_refactoring_sessions_created_at ON refactoring_sessions(created_at);
 
 -- =============================================================================
 -- LEVEL 2: CORE ENTITIES
@@ -426,132 +398,13 @@ CREATE INDEX idx_naming_evaluations_evaluated_by ON naming_evaluations(evaluated
 CREATE INDEX idx_naming_evaluations_revision_needed ON naming_evaluations(revision_needed) WHERE revision_needed = TRUE;
 CREATE INDEX idx_naming_evaluations_evaluated_at ON naming_evaluations(evaluated_at);
 
--- -----------------------------------------------------------------------------
--- Session Functions: Functions tracked within refactoring sessions
--- -----------------------------------------------------------------------------
-CREATE TABLE session_functions (
-  session_id TEXT NOT NULL,                                                 -- セッションID参照
-  function_id TEXT NOT NULL,                                                -- 関数ID参照
-  tracked_at TIMESTAMPTZ NOT NULL,                                          -- 追跡開始時刻
-  role TEXT NOT NULL CHECK (role IN ('source', 'target', 'intermediate')) DEFAULT 'source', -- 関数の役割
-  metadata JSONB DEFAULT '{}',                                              -- 追加メタデータ
-  PRIMARY KEY (session_id, function_id),
-  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-);
 
-CREATE INDEX idx_session_functions_session_id ON session_functions(session_id);
-CREATE INDEX idx_session_functions_function_id ON session_functions(function_id);
-CREATE INDEX idx_session_functions_role ON session_functions(role);
 
--- -----------------------------------------------------------------------------
--- Refactoring Opportunities: Automated improvement detection
--- -----------------------------------------------------------------------------
-CREATE TABLE refactoring_opportunities (
-  id TEXT PRIMARY KEY,                                                      -- 機会ID
-  pattern TEXT NOT NULL CHECK (pattern IN ('extract-method', 'split-function', 'reduce-parameters', 'extract-class', 'inline-function', 'rename-function')), -- パターン種別
-  function_id TEXT NOT NULL,                                                -- 対象関数ID
-  severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')) DEFAULT 'medium', -- 深刻度
-  impact_score INTEGER NOT NULL CHECK (impact_score >= 0 AND impact_score <= 100), -- 影響度スコア
-  detected_at TIMESTAMPTZ NOT NULL,                                         -- 検出時刻
-  resolved_at TIMESTAMPTZ,                                                  -- 解決時刻
-  session_id TEXT,                                                          -- 関連セッション
-  metadata JSONB DEFAULT '{}',                                              -- 検出詳細
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 更新日時
-  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE SET NULL
-);
-
-CREATE INDEX idx_refactoring_opportunities_pattern ON refactoring_opportunities(pattern);
-CREATE INDEX idx_refactoring_opportunities_severity ON refactoring_opportunities(severity);
-CREATE INDEX idx_refactoring_opportunities_function_id ON refactoring_opportunities(function_id);
-CREATE INDEX idx_refactoring_opportunities_resolved ON refactoring_opportunities(resolved_at) WHERE resolved_at IS NULL;
-
--- -----------------------------------------------------------------------------
--- Refactoring Changesets: 変更セット管理とhealth評価統合
--- -----------------------------------------------------------------------------
-CREATE TABLE refactoring_changesets (
-  id TEXT PRIMARY KEY,
-  session_id TEXT NOT NULL,                                                 -- セッションID参照
-  operation_type TEXT NOT NULL CHECK (operation_type IN ('split', 'extract', 'merge', 'rename')), -- 操作種別
-  intent TEXT NOT NULL CHECK (intent IN ('cleanup', 'split', 'extend', 'rename', 'extract')), -- リファクタリング意図
-  parent_function_id TEXT,                                                  -- 親関数ID
-  child_function_ids TEXT[],                                                -- 子関数IDの配列
-  before_snapshot_id TEXT NOT NULL,                                         -- 変更前スナップショット
-  after_snapshot_id TEXT NOT NULL,                                          -- 変更後スナップショット
-  health_assessment JSONB DEFAULT '{}',                                     -- ThresholdEvaluator結果
-  improvement_metrics JSONB DEFAULT '{}',                                   -- 改善度データ
-  is_genuine_improvement BOOLEAN,                                           -- 真の改善かどうか
-  function_explosion_score REAL,                                            -- 関数爆発係数
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 作成日時
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,                        -- 更新日時
-  FOREIGN KEY (session_id) REFERENCES refactoring_sessions(id) ON DELETE CASCADE,
-  FOREIGN KEY (parent_function_id) REFERENCES functions(id) ON DELETE SET NULL,
-  FOREIGN KEY (before_snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
-  FOREIGN KEY (after_snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_changesets_session ON refactoring_changesets(session_id);
-CREATE INDEX idx_changesets_parent ON refactoring_changesets(parent_function_id);
-CREATE INDEX idx_changesets_operation ON refactoring_changesets(operation_type);
-CREATE INDEX idx_changesets_genuine ON refactoring_changesets(is_genuine_improvement);
-CREATE INDEX idx_changesets_created_at ON refactoring_changesets(created_at);
 
 -- =============================================================================
 -- LEVEL 4: INDEPENDENT TABLES
 -- =============================================================================
 
--- -----------------------------------------------------------------------------
--- Lineages: Function evolution tracking
--- -----------------------------------------------------------------------------
-CREATE TABLE lineages (
-  -- 基本識別情報
-  id TEXT PRIMARY KEY,                          -- 系譜ID (UUID)
-  
-  -- 関数関係マッピング
-  from_ids TEXT[] NOT NULL,                     -- 変更前関数IDの配列
-  to_ids TEXT[] NOT NULL,                       -- 変更後関数IDの配列
-  
-  -- 変更分類
-  kind TEXT NOT NULL CHECK (
-    kind IN ('rename', 'signature-change', 'inline', 'split')
-  ),                                            -- 変更種別
-  
-  -- レビューワークフロー
-  status TEXT NOT NULL CHECK (
-    status IN ('draft', 'approved', 'rejected')
-  ),                                            -- レビュー状態
-  confidence REAL CHECK (
-    confidence >= 0.0 AND confidence <= 1.0
-  ),                                            -- 信頼度（0.0-1.0）
-  note TEXT,                                    -- 人間による注記
-  
-  -- Git統合
-  git_commit TEXT NOT NULL,                     -- 関連Git commit hash
-  
-  -- タイムスタンプ
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- 作成日時
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP   -- 更新日時
-);
-
--- Performance indexes
-CREATE INDEX idx_lineages_status ON lineages(status);
-CREATE INDEX idx_lineages_kind ON lineages(kind);
-CREATE INDEX idx_lineages_confidence ON lineages(confidence);
-CREATE INDEX idx_lineages_git_commit ON lineages(git_commit);
-CREATE INDEX idx_lineages_created_at ON lineages(created_at);
-CREATE INDEX idx_lineages_updated_at ON lineages(updated_at);
-
--- Array operation GIN indexes
-CREATE INDEX idx_lineages_from_ids ON lineages USING GIN(from_ids);
-CREATE INDEX idx_lineages_to_ids ON lineages USING GIN(to_ids);
-
--- Composite indexes for common query patterns
-CREATE INDEX idx_lineages_status_kind ON lineages(status, kind);
-CREATE INDEX idx_lineages_status_created_at ON lineages(status, created_at DESC);
-CREATE INDEX idx_lineages_kind_created_at ON lineages(kind, created_at DESC);
-CREATE INDEX idx_lineages_confidence_created_at ON lineages(confidence DESC, created_at DESC);
 
 -- -----------------------------------------------------------------------------
 -- ANN Index Metadata: Vector index management
@@ -587,11 +440,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER update_refactoring_sessions_updated_at BEFORE UPDATE ON refactoring_sessions
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_refactoring_opportunities_updated_at BEFORE UPDATE ON refactoring_opportunities
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_evaluations
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -599,8 +447,6 @@ CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_eval
 CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function_descriptions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_lineages_updated_at BEFORE UPDATE ON lineages
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_ann_index_metadata_updated_at BEFORE UPDATE ON ann_index_metadata
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
@@ -611,8 +457,6 @@ CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_e
 CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_refactoring_changesets_updated_at BEFORE UPDATE ON refactoring_changesets
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- -----------------------------------------------------------------------------
 -- Content change detection trigger

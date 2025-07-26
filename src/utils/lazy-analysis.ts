@@ -101,22 +101,17 @@ export async function ensureCallGraphData(
       
       const callEdges = await env.storage.getCallEdgesBySnapshot(analysisCheck.snapshot.id);
       
-      // If no call edges found, force re-analysis
-      if (callEdges.length === 0) {
-        console.log(`📊 No call edges found in existing data, forcing re-analysis`);
-        // Continue to perform analysis below instead of returning here
-      } else {
-        if (spinner) {
-          spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
-        }
-        
-        return {
-          success: true,
-          snapshot: analysisCheck.snapshot,
-          callEdges,
-          message: 'Existing call graph data loaded'
-        };
+      // Return existing data, even if empty
+      if (spinner) {
+        spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
       }
+      
+      return {
+        success: true,
+        snapshot: analysisCheck.snapshot,
+        callEdges,
+        message: 'Existing call graph data loaded'
+      };
     }
 
     // Call graph analysis is required
@@ -279,14 +274,15 @@ export async function loadCallGraphWithLazyAnalysis(
   const callGraphResult = await ensureCallGraphData(env, { showProgress });
 
   if (!callGraphResult.success) {
-    throw new Error(callGraphResult.message || 'Failed to load call graph data');
+    throw new Error('Failed to load call graph data');
   }
 
-  const lazyAnalysisPerformed = callGraphResult.message?.includes('completed');
+  const messageStr = callGraphResult.message ? String(callGraphResult.message) : '';
+  const lazyAnalysisPerformed = messageStr.includes('completed');
   
   return {
     snapshot,
-    callEdges: callGraphResult.callEdges,
+    callEdges: callGraphResult.callEdges || [],
     functions,
     ...(lazyAnalysisPerformed !== undefined && { lazyAnalysisPerformed })
   };

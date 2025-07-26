@@ -17,13 +17,8 @@ import {
   QueryOptions,
   SnapshotDiff,
   FunctionChange,
-  LineageQuery,
-  Lineage,
-  LineageStatus,
   FunctionDescription,
   NamingEvaluation,
-  RefactoringSession,
-  RefactoringChangeset,
   CallEdge,
   InternalCallEdge,
   SourceFile,
@@ -36,9 +31,7 @@ import { DatabaseCore } from './modules/database-core';
 import { SnapshotOperations } from './modules/snapshot-operations';
 import { FunctionOperations } from './modules/function-operations';
 import { MetricsOperations } from './modules/metrics-operations';
-import { LineageOperations } from './modules/lineage-operations';
 import { EmbeddingOperations } from './modules/embedding-operations';
-import { RefactoringOperations } from './modules/refactoring-operations';
 import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
@@ -62,9 +55,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private snapshotOps: SnapshotOperations;
   private functionOps: FunctionOperations;
   private metricsOps: MetricsOperations;
-  private lineageOps: LineageOperations;
   private embeddingOps: EmbeddingOperations;
-  private refactoringOps: RefactoringOperations;
   private callEdgeOps: CallEdgeOperations;
   private utilityOps: UtilityOperations;
   private sourceContentOps: SourceContentOperations;
@@ -94,9 +85,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.snapshotOps = new SnapshotOperations(this.context);
     this.functionOps = new FunctionOperations(this.context);
     this.metricsOps = new MetricsOperations(this.context);
-    this.lineageOps = new LineageOperations(this.context);
     this.embeddingOps = new EmbeddingOperations(this.context);
-    this.refactoringOps = new RefactoringOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
@@ -119,9 +108,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-      this.lineageOps = new LineageOperations(this.context);
       this.embeddingOps = new EmbeddingOperations(this.context);
-      this.refactoringOps = new RefactoringOperations(this.context);
       this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
@@ -155,9 +142,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-      this.lineageOps = new LineageOperations(this.context);
       this.embeddingOps = new EmbeddingOperations(this.context);
-      this.refactoringOps = new RefactoringOperations(this.context);
       this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
@@ -373,49 +358,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     };
   }
 
-  // ========================================
-  // LINEAGE OPERATIONS (to be modularized)
-  // ========================================
-
-  async saveLineage(lineage: Lineage): Promise<void> {
-    await this.ensureInitialized();
-    await this.lineageOps.saveLineage(lineage);
-  }
-
-  async getLineage(id: string): Promise<Lineage | null> {
-    await this.ensureInitialized();
-    return this.lineageOps.getLineage(id);
-  }
-
-  async queryLineages(query: LineageQuery): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.queryLineages(query);
-  }
-
-  async updateLineageStatus(id: string, status: LineageStatus, note?: string): Promise<void> {
-    await this.ensureInitialized();
-    await this.lineageOps.updateLineageStatus(id, status, note);
-  }
-
-  async deleteLineage(id: string): Promise<boolean> {
-    await this.ensureInitialized();
-    return this.lineageOps.deleteLineage(id);
-  }
-
-  async getLineagesByCommit(gitCommit: string): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.getLineagesByCommit(gitCommit);
-  }
-
-  async getFunctionLineageHistory(functionId: string, limit?: number): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.getFunctionLineageHistory(functionId, limit);
-  }
-
-  async pruneOldLineages(daysToKeep: number): Promise<number> {
-    await this.ensureInitialized();
-    return this.lineageOps.pruneOldLineages(daysToKeep);
-  }
 
   // ========================================
   // FUNCTION OPERATIONS - Additional Methods
@@ -580,73 +522,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.metricsOps.getEvaluationStatistics(snapshotId);
   }
 
-  // ========================================
-  // LINEAGE OPERATIONS - Additional Methods
-  // ========================================
 
-  async getLineages(query?: LineageQuery): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.getLineages(query);
-  }
-
-  async getLineagesWithFunctionFilter(fromFunctionPattern?: string, toFunctionPattern?: string, query?: LineageQuery): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.getLineagesWithFunctionFilter(fromFunctionPattern, toFunctionPattern, query);
-  }
-
-  async getLineagesByFunctionId(functionId: string): Promise<Lineage[]> {
-    await this.ensureInitialized();
-    return this.lineageOps.getLineagesByFunctionId(functionId);
-  }
-
-  async pruneDraftLineages(olderThanDays: number): Promise<number> {
-    await this.ensureInitialized();
-    return this.lineageOps.pruneDraftLineages(olderThanDays);
-  }
-
-  // ========================================
-  // REFACTORING OPERATIONS
-  // ========================================
-
-  async saveRefactoringSession(session: RefactoringSession): Promise<void> {
-    await this.ensureInitialized();
-    return this.refactoringOps.saveRefactoringSession(session);
-  }
-
-  async getRefactoringSession(id: string): Promise<RefactoringSession | null> {
-    await this.ensureInitialized();
-    return this.refactoringOps.getRefactoringSession(id);
-  }
-
-  async updateRefactoringSession(id: string, updates: Partial<RefactoringSession>): Promise<void> {
-    await this.ensureInitialized();
-    await this.refactoringOps.updateRefactoringSession(id, updates);
-  }
-
-  async getRefactoringSessions(query?: QueryOptions): Promise<RefactoringSession[]> {
-    await this.ensureInitialized();
-    return this.refactoringOps.getRefactoringSessions(query);
-  }
-
-  async saveRefactoringChangeset(changeset: RefactoringChangeset): Promise<void> {
-    await this.ensureInitialized();
-    return this.refactoringOps.saveRefactoringChangeset(changeset);
-  }
-
-  async getRefactoringChangeset(id: string): Promise<RefactoringChangeset | null> {
-    await this.ensureInitialized();
-    return this.refactoringOps.getRefactoringChangeset(id);
-  }
-
-  async getRefactoringChangesetsBySession(sessionId: string): Promise<RefactoringChangeset[]> {
-    await this.ensureInitialized();
-    return this.refactoringOps.getRefactoringChangesetsBySession(sessionId);
-  }
-
-  async updateRefactoringChangeset(id: string, updates: Partial<RefactoringChangeset>): Promise<void> {
-    await this.ensureInitialized();
-    await this.refactoringOps.updateRefactoringChangeset(id, updates);
-  }
 
   // ========================================
   // SOURCE FILE OPERATIONS
@@ -996,10 +872,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
-  async getAllRefactoringSessions(): Promise<RefactoringSession[]> {
-    await this.ensureInitialized();
-    return this.refactoringOps.getRefactoringSessions();
-  }
 
   // ========================================
   // PRIVATE HELPER METHODS
