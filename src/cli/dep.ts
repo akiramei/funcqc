@@ -189,6 +189,161 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
   };
 
 /**
+ * Find function by reference with priority-based matching
+ */
+function findTargetFunction(
+  functionRef: string,
+  functions: import('../types').FunctionInfo[]
+): import('../types').FunctionInfo | null {
+  // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
+  const candidates = functions.filter(f => f.id === functionRef);
+  
+  if (candidates.length > 0) {
+    return candidates[0];
+  }
+  
+  // Try exact name match
+  const exactMatches = functions.filter(f => f.name === functionRef);
+  
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  } else if (exactMatches.length > 1) {
+    displayMultipleExactMatches(functionRef, exactMatches);
+    return null;
+  }
+  
+  // Try partial name match as fallback
+  const partialMatches = functions.filter(f => f.name.includes(functionRef));
+  
+  if (partialMatches.length === 0) {
+    console.log(chalk.red(`Function "${functionRef}" not found.`));
+    return null;
+  } else if (partialMatches.length === 1) {
+    const targetFunction = partialMatches[0];
+    console.log(chalk.dim(`Found partial match: ${targetFunction.name}`));
+    return targetFunction;
+  } else {
+    displayMultiplePartialMatches(functionRef, partialMatches);
+    return null;
+  }
+}
+
+/**
+ * Display multiple exact function name matches
+ */
+function displayMultipleExactMatches(
+  functionRef: string,
+  exactMatches: import('../types').FunctionInfo[]
+): void {
+  console.log(chalk.yellow(`Multiple functions named "${functionRef}" found:`));
+  exactMatches.forEach((func, index) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+  });
+  console.log(chalk.blue('\nPlease use the function ID for precise selection:'));
+  console.log(chalk.gray(`  funcqc dep show ${exactMatches[0].id}`));
+}
+
+/**
+ * Display multiple partial function name matches
+ */
+function displayMultiplePartialMatches(
+  functionRef: string,
+  partialMatches: import('../types').FunctionInfo[]
+): void {
+  console.log(chalk.yellow(`Multiple functions matching "${functionRef}" found:`));
+  partialMatches.slice(0, 10).forEach((func, index) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+  });
+  if (partialMatches.length > 10) {
+    console.log(chalk.gray(`  ... and ${partialMatches.length - 10} more`));
+  }
+  console.log(chalk.blue('\nPlease be more specific or use the function ID:'));
+  console.log(chalk.gray(`  funcqc dep show ${partialMatches[0].id}`));
+}
+
+/**
+ * Create quality metrics map for complexity analysis
+ */
+function createQualityMetricsMap(
+  functions: import('../types').FunctionInfo[]
+): Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> {
+  return new Map(
+    functions
+      .filter(f => f.metrics)
+      .map(f => [
+        f.id, 
+        { 
+          cyclomaticComplexity: f.metrics?.cyclomaticComplexity ?? 1, 
+          cognitiveComplexity: f.metrics?.cognitiveComplexity ?? 1 
+        }
+      ])
+  );
+}
+
+/**
+ * Parse and validate numeric option
+ */
+function parseNumericOption(value: string | undefined, defaultValue: number, optionName: string): number | null {
+  if (!value) {
+    return defaultValue;
+  }
+  
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 1) {
+    console.log(chalk.red(`Invalid ${optionName}: ${value}`));
+    return null;
+  }
+  
+  return parsed;
+}
+
+/**
+ * Perform single function dependency analysis
+ */
+function performSingleFunctionAnalysis(
+  targetFunction: import('../types').FunctionInfo,
+  callEdges: CallEdge[],
+  functions: import('../types').FunctionInfo[],
+  options: DepShowOptions,
+  maxDepth: number,
+  maxRoutes: number,
+  qualityMetricsMap?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
+): void {
+  const dependencies = buildDependencyTree(
+    targetFunction.id,
+    callEdges,
+    functions,
+    options.direction || 'both',
+    maxDepth,
+    options.includeExternal || false,
+    {
+      showComplexity: options.showComplexity,
+      rankByLength: options.rankByLength,
+      maxRoutes,
+      qualityMetrics: qualityMetricsMap,
+      externalFilter: options.externalFilter || 'transit',
+    }
+  );
+
+  if (options.json) {
+    outputDepShowJSON({
+      id: targetFunction.id,
+      name: targetFunction.name,
+      file_path: targetFunction.filePath,
+      start_line: targetFunction.startLine
+    }, dependencies);
+  } else {
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+    outputDepShowFormatted({
+      id: targetFunction.id,
+      name: targetFunction.name,
+      file_path: targetFunction.filePath,
+      start_line: targetFunction.startLine
+    }, dependencies, options, functionMap);
+  }
+}
+
+/**
  * Show detailed dependency information for a function
  * 
  * @param functionRef - Optional function ID or name. If provided, overrides the --name option.
@@ -209,142 +364,38 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Use lazy analysis to ensure call graph data is available
       const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
         showProgress: true,
         snapshotId: options.snapshot
       });
 
-      // Validate that we have sufficient call graph data
       validateCallGraphRequirements(callEdges, 'dep show');
 
-      let targetFunction = null;
-      if (functionRef) {
-        // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
-        const candidates = functions.filter(f => f.id === functionRef);
-        
-        if (candidates.length > 0) {
-          // ID exact match found
-          targetFunction = candidates[0];
-        } else {
-          // Try exact name match
-          const exactMatches = functions.filter(f => f.name === functionRef);
-          
-          if (exactMatches.length === 1) {
-            targetFunction = exactMatches[0];
-          } else if (exactMatches.length > 1) {
-            // Multiple exact matches (overloads)
-            console.log(chalk.yellow(`Multiple functions named "${functionRef}" found:`));
-            exactMatches.forEach((func, index) => {
-              console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
-            });
-            console.log(chalk.blue('\nPlease use the function ID for precise selection:'));
-            console.log(chalk.gray(`  funcqc dep show ${exactMatches[0].id}`));
-            return;
-          } else {
-            // Try partial name match as fallback
-            const partialMatches = functions.filter(f => f.name.includes(functionRef));
-            
-            if (partialMatches.length === 0) {
-              console.log(chalk.red(`Function "${functionRef}" not found.`));
-              return;
-            } else if (partialMatches.length === 1) {
-              targetFunction = partialMatches[0];
-              console.log(chalk.dim(`Found partial match: ${targetFunction.name}`));
-            } else {
-              // Multiple partial matches
-              console.log(chalk.yellow(`Multiple functions matching "${functionRef}" found:`));
-              partialMatches.slice(0, 10).forEach((func, index) => {
-                console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
-              });
-              if (partialMatches.length > 10) {
-                console.log(chalk.gray(`  ... and ${partialMatches.length - 10} more`));
-              }
-              console.log(chalk.blue('\nPlease be more specific or use the function ID:'));
-              console.log(chalk.gray(`  funcqc dep show ${partialMatches[0].id}`));
-              return;
-            }
-          }
-        }
+      const targetFunction = functionRef ? findTargetFunction(functionRef, functions) : null;
+      if (functionRef && !targetFunction) {
+        return;
       }
 
-      // Get quality metrics if complexity analysis is requested
-      let qualityMetricsMap: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
-      if (options.showComplexity) {
-        // Quality metrics are already included in FunctionInfo from getFunctionsBySnapshot
-        qualityMetricsMap = new Map(
-          functions
-            .filter(f => f.metrics)
-            .map(f => [
-              f.id, 
-              { 
-                cyclomaticComplexity: f.metrics?.cyclomaticComplexity ?? 1, 
-                cognitiveComplexity: f.metrics?.cognitiveComplexity ?? 1 
-              }
-            ])
-        );
-      }
-
-      // Apply depth filtering if needed
-      let maxDepth = 2;
-      if (options.depth) {
-        const parsed = parseInt(options.depth, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          console.log(chalk.red(`Invalid depth: ${options.depth}`));
-          return;
-        }
-        maxDepth = parsed;
-      }
-
-      // Parse maxRoutes option
-      let maxRoutes = 5; // default
-      if (options.maxRoutes) {
-        const parsed = parseInt(options.maxRoutes, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          console.log(chalk.red(`Invalid maxRoutes: ${options.maxRoutes}`));
-          return;
-        }
-        maxRoutes = parsed;
+      const qualityMetricsMap = options.showComplexity ? createQualityMetricsMap(functions) : undefined;
+      
+      const maxDepth = parseNumericOption(options.depth, 2, 'depth');
+      const maxRoutes = parseNumericOption(options.maxRoutes, 5, 'maxRoutes');
+      
+      if (maxDepth === null || maxRoutes === null) {
+        return;
       }
 
       if (targetFunction) {
-        // Single function analysis
-        const dependencies = buildDependencyTree(
-          targetFunction.id,
+        performSingleFunctionAnalysis(
+          targetFunction,
           callEdges,
           functions,
-          options.direction || 'both',
+          options,
           maxDepth,
-          options.includeExternal || false,
-          {
-            showComplexity: options.showComplexity,
-            rankByLength: options.rankByLength,
-            maxRoutes,
-            qualityMetrics: qualityMetricsMap,
-            externalFilter: options.externalFilter || 'transit',
-          }
+          maxRoutes,
+          qualityMetricsMap
         );
-
-        // Output results
-        if (options.json) {
-          outputDepShowJSON({
-            id: targetFunction.id,
-            name: targetFunction.name,
-            file_path: targetFunction.filePath,
-            start_line: targetFunction.startLine
-          }, dependencies);
-        } else {
-          // Create function map for file path lookups
-          const functionMap = new Map(functions.map(f => [f.id, f]));
-          outputDepShowFormatted({
-            id: targetFunction.id,
-            name: targetFunction.name,
-            file_path: targetFunction.filePath,
-            start_line: targetFunction.startLine
-          }, dependencies, options, functionMap);
-        }
       } else {
-        // Global analysis - find top routes across all functions
         await performGlobalRouteAnalysis(
           functions, 
           callEdges, 
@@ -1677,6 +1728,107 @@ function outputArchLintTable(
 }
 
 /**
+ * Apply function type filters (hub/utility/isolated) to functions and call edges
+ */
+function applyFunctionTypeFilters(
+  functions: import('../types').FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  options: DepStatsOptions
+): { filteredFunctions: import('../types').FunctionInfo[]; filteredCallEdges: CallEdge[] } {
+  if (!options.showHubs && !options.showUtility && !options.showIsolated) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const hubThreshold = options.hubThreshold ? parseInt(options.hubThreshold, 10) : 5;
+  const utilityThreshold = options.utilityThreshold ? parseInt(options.utilityThreshold, 10) : 5;
+  const metricsMap = new Map(metrics.map(m => [m.functionId, m]));
+  
+  const filteredFunctions = functions.filter(func => {
+    const metric = metricsMap.get(func.id);
+    if (!metric) return false;
+    
+    const isHub = metric.fanIn >= hubThreshold;
+    const isUtility = metric.fanOut >= utilityThreshold;
+    const isIsolated = metric.fanIn === 0 && metric.fanOut === 0;
+    
+    return (
+      (options.showHubs && isHub) ||
+      (options.showUtility && isUtility) ||
+      (options.showIsolated && isIsolated) ||
+      (!options.showHubs && !options.showUtility && !options.showIsolated)
+    );
+  });
+  
+  const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    remainingFunctionIds.has(edge.callerFunctionId) && 
+    remainingFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  return { filteredFunctions, filteredCallEdges };
+}
+
+/**
+ * Apply connectivity-based limit filter to functions and call edges
+ */
+function applyConnectivityLimitFilter(
+  functions: import('../types').FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  limitOption: string | undefined
+): { filteredFunctions: import('../types').FunctionInfo[]; filteredCallEdges: CallEdge[] } {
+  if (!limitOption) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const limit = parseInt(limitOption, 10);
+  if (isNaN(limit) || limit <= 0) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const sortedMetrics = metrics
+    .map(m => ({
+      ...m,
+      totalConnectivity: m.fanIn + m.fanOut
+    }))
+    .sort((a, b) => b.totalConnectivity - a.totalConnectivity)
+    .slice(0, limit);
+  
+  const topFunctionIds = new Set(sortedMetrics.map(m => m.functionId));
+  const filteredFunctions = functions.filter(f => topFunctionIds.has(f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    topFunctionIds.has(edge.callerFunctionId) && 
+    topFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  return { filteredFunctions, filteredCallEdges };
+}
+
+/**
+ * Create DOT generation options for dependency graph
+ */
+function createDotGraphOptions(): {
+  title: string;
+  rankdir: 'LR';
+  nodeShape: 'box';
+  includeMetrics: boolean;
+  clusterBy: 'file';
+  showLabels: boolean;
+  maxLabelLength: number;
+} {
+  return {
+    title: 'Dependency Graph',
+    rankdir: 'LR' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: true,
+    clusterBy: 'file' as const,
+    showLabels: true,
+    maxLabelLength: 25,
+  };
+}
+
+/**
  * Output dependency stats as DOT format
  */
 function outputDepStatsDot(
@@ -1687,79 +1839,22 @@ function outputDepStatsDot(
 ): void {
   const dotGenerator = new DotGenerator();
   
-  // Apply filters based on options
-  let filteredFunctions = functions;
-  let filteredCallEdges = callEdges;
+  // Apply function type filters
+  const typeFiltered = applyFunctionTypeFilters(functions, callEdges, metrics, options);
   
-  // Filter by hub/utility/isolated functions if requested
-  if (options.showHubs || options.showUtility || options.showIsolated) {
-    const hubThreshold = options.hubThreshold ? parseInt(options.hubThreshold, 10) : 5;
-    const utilityThreshold = options.utilityThreshold ? parseInt(options.utilityThreshold, 10) : 5;
-    
-    const metricsMap = new Map(metrics.map(m => [m.functionId, m]));
-    
-    filteredFunctions = functions.filter(func => {
-      const metric = metricsMap.get(func.id);
-      if (!metric) return false;
-      
-      const isHub = metric.fanIn >= hubThreshold;
-      const isUtility = metric.fanOut >= utilityThreshold;
-      const isIsolated = metric.fanIn === 0 && metric.fanOut === 0;
-      
-      return (
-        (options.showHubs && isHub) ||
-        (options.showUtility && isUtility) ||
-        (options.showIsolated && isIsolated) ||
-        (!options.showHubs && !options.showUtility && !options.showIsolated)
-      );
-    });
-    
-    // Filter edges to only include those between remaining functions
-    const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
-    filteredCallEdges = callEdges.filter(edge => 
-      remainingFunctionIds.has(edge.callerFunctionId) && 
-      remainingFunctionIds.has(edge.calleeFunctionId || '')
-    );
-  }
+  // Apply connectivity limit filter
+  const limitFiltered = applyConnectivityLimitFilter(
+    typeFiltered.filteredFunctions,
+    typeFiltered.filteredCallEdges,
+    metrics,
+    options.limit
+  );
   
-  // Apply limit if specified
-  if (options.limit) {
-    const limit = parseInt(options.limit, 10);
-    if (!isNaN(limit) && limit > 0) {
-      // Sort by fanIn + fanOut (total connectivity) and take top N
-      const sortedMetrics = metrics
-        .map(m => ({
-          ...m,
-          totalConnectivity: m.fanIn + m.fanOut
-        }))
-        .sort((a, b) => b.totalConnectivity - a.totalConnectivity)
-        .slice(0, limit);
-      
-      const topFunctionIds = new Set(sortedMetrics.map(m => m.functionId));
-      filteredFunctions = filteredFunctions.filter(f => topFunctionIds.has(f.id));
-      
-      // Filter edges to only include those between top functions
-      filteredCallEdges = callEdges.filter(edge => 
-        topFunctionIds.has(edge.callerFunctionId) && 
-        topFunctionIds.has(edge.calleeFunctionId || '')
-      );
-    }
-  }
-  
-  // Generate DOT graph
-  const dotOptions = {
-    title: 'Dependency Graph',
-    rankdir: 'LR' as const,
-    nodeShape: 'box' as const,
-    includeMetrics: true,
-    clusterBy: 'file' as const,
-    showLabels: true,
-    maxLabelLength: 25,
-  };
-  
+  // Generate and output DOT graph
+  const dotOptions = createDotGraphOptions();
   const dotOutput = dotGenerator.generateDependencyGraph(
-    filteredFunctions,
-    filteredCallEdges,
+    limitFiltered.filteredFunctions,
+    limitFiltered.filteredCallEdges,
     metrics,
     dotOptions
   );
@@ -1802,23 +1897,21 @@ function outputDepDeadJSON(
 }
 
 /**
- * Output dead code results as a formatted table (for dep dead subcommand)
+ * Display dead code analysis summary header
  */
-function outputDepDeadTable(
-  deadCodeInfo: DeadCodeInfo[],
-  unusedExportInfo: DeadCodeInfo[],
+function displayDeadCodeSummary(
   reachabilityResult: ReachabilityResult,
   totalFunctions: number,
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
   options: DepDeadOptions
 ): void {
-  // Summary
   console.log(chalk.bold('\n📊 Dead Code Analysis Summary\n'));
   
   const coverage = (reachabilityResult.reachable.size / totalFunctions) * 100;
   console.log(`Total functions:      ${chalk.cyan(totalFunctions)}`);
   console.log(`Entry points:         ${chalk.green(reachabilityResult.entryPoints.size)}`);
   
-  // Show layer entry points if specified
   if (options.layerEntryPoints) {
     const layers = options.layerEntryPoints.split(',').map(s => s.trim());
     console.log(`Layer entry points:   ${chalk.blue(layers.join(', '))}`);
@@ -1828,91 +1921,97 @@ function outputDepDeadTable(
   console.log(`Unreachable functions: ${chalk.red(reachabilityResult.unreachable.size)} (${(100 - coverage).toFixed(1)}%)`);
   console.log(`Dead code found:      ${chalk.yellow(deadCodeInfo.length)} functions`);
   console.log(`Unused exports:       ${chalk.yellow(unusedExportInfo.length)} functions\n`);
+}
 
-  if (deadCodeInfo.length === 0) {
-    console.log(chalk.green('✅ No dead code found with current filters!'));
-    return;
-  }
-
-  // Group by file
-  const deadCodeByFile = new Map<string, typeof deadCodeInfo>();
+/**
+ * Group dead code information by file path
+ */
+function groupDeadCodeByFile(deadCodeInfo: DeadCodeInfo[]): Map<string, DeadCodeInfo[]> {
+  const deadCodeByFile = new Map<string, DeadCodeInfo[]>();
   for (const info of deadCodeInfo) {
     if (!deadCodeByFile.has(info.filePath)) {
       deadCodeByFile.set(info.filePath, []);
     }
     deadCodeByFile.get(info.filePath)!.push(info);
   }
+  return deadCodeByFile;
+}
 
+/**
+ * Get reason icon and text for dead code reason
+ */
+function getReasonDisplay(reason: string): { icon: string; text: string } {
+  switch (reason) {
+    case 'no-callers':
+      return { icon: '🚫', text: 'no-callers' };
+    case 'unreachable':
+      return { icon: '🔗', text: 'unreachable' };
+    case 'test-only':
+      return { icon: '🧪', text: 'test-only' };
+    default:
+      return { icon: '❓', text: reason };
+  }
+}
+
+/**
+ * Display dead code details grouped by file
+ */
+function displayDeadCodeDetails(deadCodeByFile: Map<string, DeadCodeInfo[]>, options: DepDeadOptions): void {
   console.log(chalk.bold('🚫 Dead Code Details\n'));
 
-  // Display by file
   for (const [filePath, functions] of deadCodeByFile) {
     console.log(chalk.underline(filePath));
     
     for (const func of functions) {
       const location = `${func.startLine}-${func.endLine}`;
       const size = `${func.size} lines`;
-      
-      let reasonIcon = '❓';
-      let reasonText = func.reason;
-      
-      switch (func.reason) {
-        case 'no-callers':
-          reasonIcon = '🚫';
-          reasonText = 'no-callers';
-          break;
-        case 'unreachable':
-          reasonIcon = '🔗';
-          reasonText = 'unreachable';
-          break;
-        case 'test-only':
-          reasonIcon = '🧪';
-          reasonText = 'test-only';
-          break;
-      }
+      const reasonDisplay = getReasonDisplay(func.reason);
 
-      const line = `  ${reasonIcon} ${chalk.yellow(func.functionName)} ${chalk.gray(`(${location}, ${size})`)}`;
+      const line = `  ${reasonDisplay.icon} ${chalk.yellow(func.functionName)} ${chalk.gray(`(${location}, ${size})`)}`;
       console.log(line);
       
       if (options.showReasons && options.verbose) {
-        console.log(chalk.gray(`     Reason: ${reasonText}`));
+        console.log(chalk.gray(`     Reason: ${reasonDisplay.text}`));
       }
     }
     
     console.log(); // Empty line between files
   }
+}
 
-  // Display unused export functions
-  if (unusedExportInfo.length > 0) {
-    console.log(chalk.bold('⚠️  Unused Export Functions (Review Required)\n'));
+/**
+ * Display unused export functions
+ */
+function displayUnusedExports(unusedExportInfo: DeadCodeInfo[]): void {
+  console.log(chalk.bold('⚠️  Unused Export Functions (Review Required)\n'));
+  
+  const unusedExportsByFile = groupDeadCodeByFile(unusedExportInfo);
+  
+  for (const [filePath, functions] of unusedExportsByFile) {
+    console.log(chalk.underline(filePath));
     
-    // Group unused exports by file
-    const unusedExportsByFile = new Map<string, typeof unusedExportInfo>();
-    for (const info of unusedExportInfo) {
-      if (!unusedExportsByFile.has(info.filePath)) {
-        unusedExportsByFile.set(info.filePath, []);
-      }
-      unusedExportsByFile.get(info.filePath)!.push(info);
+    for (const func of functions) {
+      const location = `${func.startLine}-${func.endLine}`;
+      const size = `${func.size} lines`;
+      
+      console.log(`  📦 ${chalk.yellow(func.functionName)} (${chalk.gray(location)}, ${chalk.gray(size)})`);
     }
     
-    for (const [filePath, functions] of unusedExportsByFile) {
-      console.log(chalk.underline(filePath));
-      
-      for (const func of functions) {
-        const location = `${func.startLine}-${func.endLine}`;
-        const size = `${func.size} lines`;
-        
-        console.log(`  📦 ${chalk.yellow(func.functionName)} (${chalk.gray(location)}, ${chalk.gray(size)})`);
-      }
-      
-      console.log(); // Empty line between files
-    }
-    
-    console.log(chalk.dim('💡 These export functions are not used internally but may be public APIs.'));
-    console.log(chalk.dim('💡 Review manually to determine if they should be removed or kept.\n'));
+    console.log(); // Empty line between files
   }
+  
+  console.log(chalk.dim('💡 These export functions are not used internally but may be public APIs.'));
+  console.log(chalk.dim('💡 Review manually to determine if they should be removed or kept.\n'));
+}
 
-  // Summary statistics
+/**
+ * Display summary statistics and suggestions
+ */
+function displaySummaryAndSuggestions(
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  options: DepDeadOptions
+): void {
   const totalLines = deadCodeInfo.reduce((sum, info) => sum + info.size, 0);
   console.log(chalk.dim('─'.repeat(50)));
   console.log(chalk.bold(`Total dead code: ${deadCodeInfo.length} functions, ${totalLines} lines`));
@@ -1922,7 +2021,6 @@ function outputDepDeadTable(
     console.log(chalk.bold(`Unused exports: ${unusedExportInfo.length} functions, ${unusedExportLines} lines`));
   }
 
-  // Suggestions
   if (!options.excludeTests && deadCodeInfo.some(info => info.reason === 'test-only')) {
     console.log(chalk.dim('\n💡 Tip: Use --exclude-tests to hide test-only functions'));
   }
@@ -1930,6 +2028,33 @@ function outputDepDeadTable(
   if (!options.excludeSmall && deadCodeInfo.some(info => info.size < 5)) {
     console.log(chalk.dim('💡 Tip: Use --exclude-small to hide small functions'));
   }
+}
+
+/**
+ * Output dead code results as a formatted table (for dep dead subcommand)
+ */
+function outputDepDeadTable(
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  reachabilityResult: ReachabilityResult,
+  totalFunctions: number,
+  options: DepDeadOptions
+): void {
+  displayDeadCodeSummary(reachabilityResult, totalFunctions, deadCodeInfo, unusedExportInfo, options);
+
+  if (deadCodeInfo.length === 0) {
+    console.log(chalk.green('✅ No dead code found with current filters!'));
+    return;
+  }
+
+  const deadCodeByFile = groupDeadCodeByFile(deadCodeInfo);
+  displayDeadCodeDetails(deadCodeByFile, options);
+
+  if (unusedExportInfo.length > 0) {
+    displayUnusedExports(unusedExportInfo);
+  }
+
+  displaySummaryAndSuggestions(deadCodeInfo, unusedExportInfo, options);
 }
 
 /**
