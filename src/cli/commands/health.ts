@@ -891,7 +891,11 @@ async function displayTopRisks(
   };
   
   console.log(`  Threshold Violations: Critical: ${violationCounts.critical}, Error: ${violationCounts.error}, Warning: ${violationCounts.warning}`);
-  console.log(`  Critical Functions: ${enhancedRiskStats.criticalCount} (${(enhancedRiskStats.criticalCount / functions.length * 100).toFixed(1)}%)`);
+  
+  // Calculate actual critical risk level functions (not violations count)
+  const criticalRiskFunctions = riskAssessments.filter(a => a.riskLevel === 'critical').length;
+  
+  console.log(`  Critical Risk Functions: ${criticalRiskFunctions} (${(criticalRiskFunctions / functions.length * 100).toFixed(1)}%)`);
   console.log(`  High-Risk Functions: ${enhancedRiskStats.highRiskCount} (${(enhancedRiskStats.highRiskCount / functions.length * 100).toFixed(1)}%)`);
 
   if (topRisks.length > 0) {
