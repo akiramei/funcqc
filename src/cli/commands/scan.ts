@@ -15,6 +15,7 @@ import { ConfigManager } from '../../core/config';
 import { TypeScriptAnalyzer } from '../../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../../metrics/quality-calculator';
 import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/parallel-processor';
+import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
@@ -196,7 +197,7 @@ export async function performBasicAnalysis(
 ): Promise<void> {
   spinner.start('Performing basic function analysis...');
   
-  const components = await initializeComponents(env, spinner);
+  const components = await initializeComponents(env, spinner, sourceFiles.length);
   const allFunctions: FunctionInfo[] = [];
   
   // Analyze each stored file
@@ -256,7 +257,11 @@ export async function performBasicAnalysis(
   }
   
   spinner.succeed(`Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`);
-  showAnalysisSummary(allFunctions);
+  
+  // Skip heavy summary calculation for performance unless explicitly requested
+  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || allFunctions.length < 100) {
+    showAnalysisSummary(allFunctions);
+  }
 }
 
 /**
@@ -366,19 +371,29 @@ async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Pro
 
 async function initializeComponents(
   env: CommandEnvironment,
-  spinner: SpinnerInterface
+  spinner: SpinnerInterface,
+  projectSize?: number
 ): Promise<CliComponents> {
   spinner.start('Initializing funcqc scan...');
 
-  // Configure analyzer based on expected project size
-  // Parse NODE_OPTIONS to check for increased memory allocation
-  const nodeOptions = process.env['NODE_OPTIONS'] || '';
-  const hasIncreasedMemory = /--max-old-space-size[= ](\d+)/.test(nodeOptions);
-  const maxSourceFilesInMemory = hasIncreasedMemory ? 100 : 50;
-  const analyzer = new TypeScriptAnalyzer(maxSourceFilesInMemory);
+  // Get optimal configuration based on system resources
+  const resourceManager = SystemResourceManager.getInstance();
+  const optimalConfig = resourceManager.getOptimalConfig(projectSize);
+  
+  // Log system information in debug mode
+  if (process.env['DEBUG'] === 'true') {
+    resourceManager.logSystemInfo(optimalConfig);
+  }
+
+  // Configure analyzer with optimal settings
+  const analyzer = new TypeScriptAnalyzer(
+    optimalConfig.maxSourceFilesInMemory,
+    true, // Enable cache
+    env.logger
+  );
   const qualityCalculator = new QualityCalculator();
 
-  spinner.succeed('Components initialized');
+  spinner.succeed(`Components initialized (${optimalConfig.maxSourceFilesInMemory} files in memory, ${optimalConfig.maxWorkers} workers)`);
 
   return { 
     analyzer, 

@@ -8,6 +8,7 @@ import * as os from 'os';
 import { fileURLToPath } from 'url';
 import { FunctionInfo } from '../types';
 import { WorkerInput, WorkerOutput } from '../workers/analysis-worker';
+import { SystemResourceManager } from './system-resource-manager';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -35,9 +36,40 @@ export class ParallelFileProcessor {
   private maxSourceFilesInMemory: number;
 
   constructor(options: ParallelProcessingOptions = {}) {
+    // Use SystemResourceManager for optimal configuration
+    const resourceManager = SystemResourceManager.getInstance();
+    const optimalConfig = resourceManager.getOptimalConfig();
+    
     // Default to CPU count, but cap at 8 workers to avoid resource exhaustion
-    this.maxWorkers = Math.min(options.maxWorkers || os.cpus().length, 8);
-    this.maxSourceFilesInMemory = options.maxSourceFilesInMemory || 50;
+    this.maxWorkers = Math.min(options.maxWorkers || optimalConfig.maxWorkers, 8);
+    this.maxSourceFilesInMemory = options.maxSourceFilesInMemory || optimalConfig.maxSourceFilesInMemory;
+  }
+
+  /**
+   * Calculate dynamic timeout based on project size and system resources
+   */
+  private calculateWorkerTimeout(fileCount: number): number {
+    const resourceManager = SystemResourceManager.getInstance();
+    const systemInfo = resourceManager.getSystemInfo();
+    
+    // Base timeout: 30 seconds for small projects
+    let timeoutMs = 30 * 1000;
+    
+    // Scale with file count (500ms per file base)
+    const fileTimeoutMs = fileCount * 500;
+    
+    // Adjust for system performance
+    const cpuFactor = Math.max(0.5, systemInfo.cpuCount / 8); // Normalize to 8 cores
+    const memoryFactor = Math.max(0.5, systemInfo.totalMemoryGB / 8); // Normalize to 8GB
+    const systemFactor = (cpuFactor + memoryFactor) / 2;
+    
+    // Calculate adjusted timeout
+    timeoutMs = Math.max(timeoutMs, fileTimeoutMs / systemFactor);
+    
+    // Apply bounds: min 30s, max 15 minutes
+    timeoutMs = Math.max(30 * 1000, Math.min(timeoutMs, 15 * 60 * 1000));
+    
+    return Math.round(timeoutMs);
   }
 
   /**
@@ -121,14 +153,17 @@ export class ParallelFileProcessor {
         workerData: workerInput,
       });
 
-      // Add timeout to prevent hanging workers
+      // Calculate dynamic timeout based on file count and system resources
+      const timeoutMs = this.calculateWorkerTimeout(filePaths.length);
+      const timeoutMinutes = Math.round(timeoutMs / 60000 * 10) / 10; // Round to 1 decimal
+      
       const timeout = setTimeout(
         () => {
           worker.terminate();
-          reject(new Error(`Worker ${workerIndex} timed out after 5 minutes`));
+          reject(new Error(`Worker ${workerIndex} timed out after ${timeoutMinutes} minutes (${filePaths.length} files, dynamic timeout)`));
         },
-        5 * 60 * 1000
-      ); // 5 minutes
+        timeoutMs
+      );
 
       worker.on('message', (result: WorkerOutput) => {
         clearTimeout(timeout);
@@ -185,10 +220,9 @@ export class ParallelFileProcessor {
   /**
    * Determine if parallel processing is beneficial
    */
-  static shouldUseParallelProcessing(_fileCount: number): boolean {
-    // Temporarily disable parallel processing until worker compilation is resolved
-    return false;
-    // return fileCount >= 20 && os.cpus().length > 1;
+  static shouldUseParallelProcessing(fileCount: number): boolean {
+    // Enable parallel processing for better performance on multi-core systems
+    return fileCount >= 20 && os.cpus().length > 1;
   }
 
   /**

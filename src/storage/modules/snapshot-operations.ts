@@ -14,6 +14,11 @@ import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
 
+// Type for PGLite transaction object
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 export class SnapshotOperations implements StorageOperationModule {
   readonly db;
   readonly kysely;
@@ -61,6 +66,52 @@ export class SnapshotOperations implements StorageOperationModule {
 
   /**
    * Create a new empty snapshot
+   */
+  /**
+   * Create a new snapshot within a transaction for atomic operations
+   */
+  async createSnapshotInTransaction(trx: PGTransaction, options: { 
+    label?: string; 
+    comment?: string; 
+    analysisLevel?: string; 
+    scope?: string; 
+    configHash?: string 
+  }): Promise<string> {
+    const snapshotId = this.generateSnapshotId();
+    const [gitCommit, gitBranch, gitTag] = await Promise.all([
+      this.getGitCommit(),
+      this.getGitBranch(),
+      this.getGitTag()
+    ]);
+    
+    try {
+      await trx.query(
+        `INSERT INTO snapshots (
+          id, label, comment, git_commit, git_branch, git_tag,
+          project_root, config_hash, scope, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          snapshotId,
+          options.label || null,
+          options.comment || null,
+          gitCommit,
+          gitBranch,
+          gitTag,
+          process.cwd(),
+          options.configHash || null,
+          options.scope || 'src',
+          '{}' // Empty metadata initially
+        ]
+      );
+      
+      return snapshotId;
+    } catch (error) {
+      throw new Error(`Failed to create snapshot in transaction: ${error}`);
+    }
+  }
+
+  /**
+   * Create a new snapshot (non-transactional version)
    */
   async createSnapshot(options: { 
     label?: string; 
@@ -302,67 +353,111 @@ export class SnapshotOperations implements StorageOperationModule {
 
   private async recalculateSnapshotMetadata(snapshotId: string): Promise<void> {
     try {
-      // Get functions for this snapshot to recalculate metadata
-      const functionsResult = await this.db.query(
-        'SELECT * FROM functions WHERE snapshot_id = $1',
-        [snapshotId]
-      );
+      // Use SQL aggregation functions to calculate all metadata in a single query
+      // This is dramatically faster than JavaScript-side processing
+      await this.db.query(`
+        WITH function_metrics AS (
+          SELECT 
+            f.file_path,
+            f.is_exported,
+            f.is_async,
+            COALESCE(qm.cyclomatic_complexity, 1) AS complexity,
+            -- Extract file extension for distribution analysis
+            CASE 
+              WHEN f.file_path LIKE '%.ts' THEN 'ts'
+              WHEN f.file_path LIKE '%.js' THEN 'js'
+              WHEN f.file_path LIKE '%.tsx' THEN 'tsx'
+              WHEN f.file_path LIKE '%.jsx' THEN 'jsx'
+              ELSE 'other'
+            END AS file_extension
+          FROM functions f
+          LEFT JOIN quality_metrics qm ON f.id = qm.function_id
+          WHERE f.snapshot_id = $1
+        ),
+        basic_aggregates AS (
+          SELECT
+            COUNT(*) AS total_functions,
+            COUNT(DISTINCT file_path) AS total_files,
+            ROUND(AVG(complexity)::numeric, 2) AS avg_complexity,
+            MAX(complexity) AS max_complexity,
+            SUM(CASE WHEN is_exported THEN 1 ELSE 0 END) AS exported_functions,
+            SUM(CASE WHEN is_async THEN 1 ELSE 0 END) AS async_functions
+          FROM function_metrics
+        ),
+        complexity_dist AS (
+          SELECT jsonb_object_agg(complexity::text, count) AS complexity_distribution
+          FROM (
+            SELECT complexity, COUNT(*) as count
+            FROM function_metrics
+            WHERE complexity IS NOT NULL
+            GROUP BY complexity
+          ) dist
+        ),
+        file_ext_dist AS (
+          SELECT jsonb_object_agg(file_extension, count) AS file_extensions
+          FROM (
+            SELECT file_extension, COUNT(*) as count
+            FROM function_metrics
+            WHERE file_extension IS NOT NULL
+            GROUP BY file_extension
+          ) ext
+        )
+        UPDATE snapshots 
+        SET metadata = jsonb_build_object(
+          'totalFunctions', ba.total_functions,
+          'totalFiles', ba.total_files,
+          'avgComplexity', ba.avg_complexity,
+          'maxComplexity', ba.max_complexity,
+          'exportedFunctions', ba.exported_functions,
+          'asyncFunctions', ba.async_functions,
+          'complexityDistribution', COALESCE(cd.complexity_distribution, '{}'::jsonb),
+          'fileExtensions', COALESCE(fed.file_extensions, '{}'::jsonb)
+        )
+        FROM basic_aggregates ba, complexity_dist cd, file_ext_dist fed
+        WHERE snapshots.id = $1
+        RETURNING metadata;
+      `, [snapshotId]);
       
-      const functions = functionsResult.rows.map(row => {
-        const functionRow = row as {
-          file_path: string;
-          metrics?: string;
-          is_exported?: boolean;
-          is_async?: boolean;
-        };
-        
-        const metrics = functionRow.metrics ? JSON.parse(functionRow.metrics) : {};
-        return {
-          filePath: functionRow.file_path,
-          metrics: {
-            cyclomaticComplexity: metrics.cyclomaticComplexity || 1
-          },
-          isExported: functionRow.is_exported || false,
-          isAsync: functionRow.is_async || false
-        };
-      });
-      
-      // Calculate basic metadata directly from the simplified function data
-      const fileSet = new Set<string>();
-      let totalComplexity = 0;
-      let maxComplexity = 0;
-      let exportedFunctions = 0;
-      let asyncFunctions = 0;
-      
-      for (const func of functions) {
-        fileSet.add(func.filePath);
-        const funcComplexity = func.metrics?.cyclomaticComplexity || 1;
-        totalComplexity += funcComplexity;
-        maxComplexity = Math.max(maxComplexity, funcComplexity);
-        
-        if (func.isExported) exportedFunctions++;
-        if (func.isAsync) asyncFunctions++;
-      }
-      
-      const metadata = {
-        totalFunctions: functions.length,
-        totalFiles: fileSet.size,
-        avgComplexity: functions.length > 0 ? totalComplexity / functions.length : 0,
-        maxComplexity,
-        exportedFunctions,
-        asyncFunctions,
-        complexityDistribution: {} as Record<number, number>,
-        fileExtensions: {} as Record<string, number>,
-      };
-      
-      // Update the snapshot metadata
-      await this.db.query(
-        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(metadata), snapshotId]
-      );
+      this.logger?.debug(`Updated snapshot metadata with SQL aggregation for snapshot ${snapshotId}`);
       
     } catch (error) {
       this.logger?.warn(`Failed to recalculate snapshot metadata: ${error instanceof Error ? error.message : String(error)}`);
+      // Fallback to basic metadata if complex aggregation fails
+      await this.setBasicMetadata(snapshotId);
+    }
+  }
+
+  /**
+   * Fallback method for basic metadata calculation
+   */
+  private async setBasicMetadata(snapshotId: string): Promise<void> {
+    try {
+      await this.db.query(`
+        WITH basic_stats AS (
+          SELECT
+            COUNT(*) AS total_functions,
+            COUNT(DISTINCT file_path) AS total_files
+          FROM functions
+          WHERE snapshot_id = $1
+        )
+        UPDATE snapshots 
+        SET metadata = jsonb_build_object(
+          'totalFunctions', bs.total_functions,
+          'totalFiles', bs.total_files,
+          'avgComplexity', 0,
+          'maxComplexity', 0,
+          'exportedFunctions', 0,
+          'asyncFunctions', 0,
+          'complexityDistribution', '{}'::jsonb,
+          'fileExtensions', '{}'::jsonb
+        )
+        FROM basic_stats bs
+        WHERE snapshots.id = $1;
+      `, [snapshotId]);
+      
+      this.logger?.debug(`Set basic metadata for snapshot ${snapshotId}`);
+    } catch (error) {
+      this.logger?.error(`Failed to set basic metadata: ${error}`);
     }
   }
 

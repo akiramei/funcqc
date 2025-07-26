@@ -36,6 +36,11 @@ import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
 
+// Type for PGLite transaction object
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 // Re-export DatabaseError for compatibility
 export { DatabaseError };
 
@@ -175,18 +180,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   ): Promise<string> {
     await this.ensureInitialized();
     
-    // For now, we need to handle the full snapshot save here
-    // because it involves both snapshot and function operations
-    const snapshotId = await this.snapshotOps.createSnapshot({
-      ...(label && { label }),
-      ...(comment && { comment }),
-      ...(configHash && { configHash }),
-    });
+    // Execute snapshot creation and function saving within a single transaction
+    // This ensures atomicity: either both operations succeed or both fail
+    return await this.db.transaction(async (trx: PGTransaction) => {
+      // 1. Create snapshot within transaction
+      const snapshotId = await this.snapshotOps.createSnapshotInTransaction(trx, {
+        ...(label && { label }),
+        ...(comment && { comment }),
+        ...(configHash && { configHash }),
+      });
 
-    // Save functions using function operations module
-    await this.functionOps.saveFunctions(snapshotId, functions);
+      // 2. Save functions within the same transaction
+      await this.functionOps.saveFunctionsInTransaction(trx, snapshotId, functions);
 
-    return snapshotId;
+      return snapshotId;
+    }) as string;
   }
 
   async createSnapshot(options: { 
@@ -813,15 +821,36 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       // Use a Map to store function presence by snapshot
       const functionPresenceMap = new Map<string, FunctionInfo | null>();
 
-      // Fetch functions for all snapshots in a single query using the IN operator
+      // Fetch function history using optimized JOIN query (eliminates N+1 problem)
       if (snapshots.length > 0) {
         const snapshotIds = snapshots.map(s => s.id);
         const query = `
-          SELECT f.*, s.id as snapshot_id
-          FROM functions f
-          JOIN snapshots s ON f.snapshot_id = s.id
+          SELECT 
+            s.id AS snapshot_id,
+            s.label AS snapshot_label,
+            s.created_at AS snapshot_created_at,
+            f.id AS function_id,
+            f.name,
+            f.display_name,
+            f.signature,
+            f.file_path,
+            f.start_line,
+            f.end_line,
+            f.is_exported,
+            f.is_async,
+            f.source_code,
+            -- Quality metrics with LEFT JOIN
+            qm.cyclomatic_complexity,
+            qm.cognitive_complexity,
+            qm.lines_of_code,
+            qm.total_lines,
+            -- Indicate presence
+            CASE WHEN f.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_present
+          FROM snapshots s
+          LEFT JOIN functions f ON s.id = f.snapshot_id 
+            AND (f.id = $2 OR f.semantic_id = $2 OR f.id LIKE $3)
+          LEFT JOIN quality_metrics qm ON f.id = qm.function_id
           WHERE s.id = ANY($1::text[])
-            AND (f.id = $2 OR f.id LIKE $3)
           ORDER BY s.created_at DESC
         `;
         
@@ -832,15 +861,68 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         ]);
         
         if (this.logger) {
-          this.logger.log(`getFunctionHistory query returned ${result.rows.length} rows for functionId: ${functionId}`);
+          this.logger.log(`getFunctionHistory optimized query returned ${result.rows.length} rows for functionId: ${functionId}`);
         }
 
-        // Process results into the map
+        // Process results into the map (no additional queries needed!)
         for (const row of result.rows as Record<string, unknown>[]) {
-          // Get the function using the proper method
-          const func = await this.functionOps.getFunction(row['id'] as string);
-          if (func) {
-            functionPresenceMap.set(row['snapshot_id'] as string, func);
+          const snapshotId = row['snapshot_id'] as string;
+          
+          if (row['function_id']) {
+            // Function exists in this snapshot - build FunctionInfo from the row
+            const func: FunctionInfo = {
+              id: row['function_id'] as string,
+              semanticId: '', // Will be populated if needed
+              contentId: '', // Will be populated if needed
+              name: row['name'] as string,
+              displayName: row['display_name'] as string,
+              signature: row['signature'] as string,
+              signatureHash: '',
+              filePath: row['file_path'] as string,
+              fileHash: '',
+              startLine: row['start_line'] as number,
+              endLine: row['end_line'] as number,
+              startColumn: 0,
+              endColumn: 0,
+              positionId: '',
+              astHash: '',
+              contextPath: [],
+              functionType: 'function',
+              modifiers: [],
+              nestingLevel: 0,
+              isExported: row['is_exported'] as boolean,
+              isAsync: row['is_async'] as boolean,
+              isGenerator: false,
+              isArrowFunction: false,
+              isMethod: false,
+              isConstructor: false,
+              isStatic: false,
+              sourceCode: row['source_code'] as string,
+              parameters: [], // Could be populated with another JOIN if needed
+              metrics: {
+                cyclomaticComplexity: row['cyclomatic_complexity'] as number || 1,
+                cognitiveComplexity: row['cognitive_complexity'] as number || 0,
+                linesOfCode: row['lines_of_code'] as number || 0,
+                totalLines: row['total_lines'] as number || 0,
+                parameterCount: 0,
+                maxNestingLevel: 0,
+                returnStatementCount: 0,
+                branchCount: 0,
+                loopCount: 0,
+                tryCatchCount: 0,
+                asyncAwaitCount: 0,
+                callbackCount: 0,
+                commentLines: 0,
+                codeToCommentRatio: 0,
+                halsteadVolume: 0,
+                halsteadDifficulty: 0,
+                maintainabilityIndex: 0
+              }
+            };
+            functionPresenceMap.set(snapshotId, func);
+          } else {
+            // Function doesn't exist in this snapshot
+            functionPresenceMap.set(snapshotId, null);
           }
         }
       }

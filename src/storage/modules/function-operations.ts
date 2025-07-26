@@ -19,6 +19,17 @@ import {
   TransactionalBatchProcessor,
   BatchTransactionProcessor 
 } from '../../utils/batch-processor';
+import { 
+  prepareBulkInsertData,
+  generateBulkInsertSQL,
+  splitIntoBatches,
+  calculateOptimalBatchSize
+} from '../bulk-insert-utils';
+
+// Type for PGLite transaction object
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
 
 export class FunctionOperations implements StorageOperationModule {
   readonly db;
@@ -195,7 +206,71 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Save functions for a snapshot
+   * Save functions within a transaction for atomic operations
+   */
+  async saveFunctionsInTransaction(trx: PGTransaction, snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    if (functions.length === 0) return;
+
+    try {
+      // Prepare all bulk insert data
+      const bulkData = prepareBulkInsertData(functions, snapshotId);
+      
+      // Execute all inserts within the provided transaction
+      // 1. Bulk insert functions
+      await this.executeBulkInsertInTransaction(
+        trx,
+        'functions',
+        [
+          'id', 'semantic_id', 'content_id', 'snapshot_id', 'name', 'display_name',
+          'signature', 'signature_hash', 'file_path', 'file_hash', 'start_line',
+          'end_line', 'start_column', 'end_column', 'ast_hash', 'context_path',
+          'function_type', 'modifiers', 'nesting_level', 'is_exported', 'is_async',
+          'is_generator', 'is_arrow_function', 'is_method', 'is_constructor',
+          'is_static', 'access_modifier', 'source_code', 'source_file_ref_id'
+        ],
+        bulkData.functions
+      );
+      
+      // 2. Bulk insert parameters (if any)
+      if (bulkData.parameters.length > 0) {
+        await this.executeBulkInsertInTransaction(
+          trx,
+          'function_parameters',
+          [
+            'function_id', 'name', 'type', 'type_simple', 'position',
+            'is_optional', 'is_rest', 'default_value', 'description'
+          ],
+          bulkData.parameters
+        );
+      }
+      
+      // 3. Bulk insert metrics (if any)
+      if (bulkData.metrics.length > 0) {
+        await this.executeBulkInsertInTransaction(
+          trx,
+          'quality_metrics',
+          [
+            'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+            'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+            'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+            'async_await_count', 'callback_count', 'comment_lines',
+            'code_to_comment_ratio', 'halstead_volume', 'halstead_difficulty',
+            'maintainability_index'
+          ],
+          bulkData.metrics
+        );
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to save functions in transaction: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Save functions for a snapshot (non-transactional version)
    */
   async saveFunctions(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
     if (functions.length === 0) return;
@@ -249,76 +324,59 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Save functions using bulk insert
+   * Save functions using true bulk insert with transaction
    */
   private async saveFunctionsBulk(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
+    // Prepare all bulk insert data
+    const bulkData = prepareBulkInsertData(functions, snapshotId);
     
-    // Prepare bulk insert data
-    const functionRows = functions.map(func => ({
-      id: func.id,
-      semantic_id: func.semanticId,
-      content_id: func.contentId,
-      snapshot_id: snapshotId,
-      name: func.name,
-      display_name: func.displayName,
-      signature: func.signature,
-      signature_hash: func.signatureHash,
-      file_path: func.filePath,
-      file_hash: func.fileHash,
-      start_line: func.startLine,
-      end_line: func.endLine,
-      start_column: func.startColumn,
-      end_column: func.endColumn,
-      ast_hash: func.astHash,
-      context_path: func.contextPath,
-      function_type: func.functionType,
-      modifiers: func.modifiers,
-      nesting_level: func.nestingLevel,
-      is_exported: func.isExported,
-      is_async: func.isAsync,
-      is_generator: func.isGenerator,
-      is_arrow_function: func.isArrowFunction,
-      is_method: func.isMethod,
-      is_constructor: func.isConstructor,
-      is_static: func.isStatic,
-      access_modifier: func.accessModifier,
-      source_code: func.sourceCode,
-      source_file_ref_id: func.sourceFileId,  // Maps to source_file_refs table
-    }));
-    
-
-    // Use direct SQL for bulk insert of functions
-    for (const row of functionRows) {
-      const params = [
-        row.id, row.semantic_id, row.content_id, row.snapshot_id, row.name,
-        row.display_name, row.signature, row.signature_hash, row.file_path,
-        row.file_hash, row.start_line, row.end_line, row.start_column,
-        row.end_column, row.ast_hash, row.context_path, row.function_type,
-        row.modifiers, row.nesting_level, row.is_exported, row.is_async,
-        row.is_generator, row.is_arrow_function, row.is_method,
-        row.is_constructor, row.is_static, row.access_modifier, row.source_code,
-        row.source_file_ref_id
-      ];
+    // Execute all inserts within a single transaction
+    await this.db.transaction(async (trx: PGTransaction) => {
+      // 1. Bulk insert functions
+      await this.executeBulkInsert(
+        trx,
+        'functions',
+        [
+          'id', 'semantic_id', 'content_id', 'snapshot_id', 'name', 'display_name',
+          'signature', 'signature_hash', 'file_path', 'file_hash', 'start_line',
+          'end_line', 'start_column', 'end_column', 'ast_hash', 'context_path',
+          'function_type', 'modifiers', 'nesting_level', 'is_exported', 'is_async',
+          'is_generator', 'is_arrow_function', 'is_method', 'is_constructor',
+          'is_static', 'access_modifier', 'source_code', 'source_file_ref_id'
+        ],
+        bulkData.functions
+      );
       
+      // 2. Bulk insert parameters (if any)
+      if (bulkData.parameters.length > 0) {
+        await this.executeBulkInsert(
+          trx,
+          'function_parameters',
+          [
+            'function_id', 'name', 'type', 'type_simple', 'position',
+            'is_optional', 'is_rest', 'default_value', 'description'
+          ],
+          bulkData.parameters
+        );
+      }
       
-      await this.db.query(`
-        INSERT INTO functions (
-          id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
-          file_path, file_hash, start_line, end_line, start_column, end_column,
-          ast_hash, context_path, function_type, modifiers, nesting_level,
-          is_exported, is_async, is_generator, is_arrow_function,
-          is_method, is_constructor, is_static, access_modifier, source_code, source_file_ref_id
-        ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-          $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
-        )
-      `, params);
-      
-    }
-
-    // Bulk insert parameters and metrics
-    await this.bulkInsertParameters(functions);
-    await this.bulkInsertMetrics(functions);
+      // 3. Bulk insert metrics (if any)
+      if (bulkData.metrics.length > 0) {
+        await this.executeBulkInsert(
+          trx,
+          'quality_metrics',
+          [
+            'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+            'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+            'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+            'async_await_count', 'callback_count', 'comment_lines',
+            'code_to_comment_ratio', 'halstead_volume', 'halstead_difficulty',
+            'maintainability_index'
+          ],
+          bulkData.metrics
+        );
+      }
+    });
   }
 
   /**
@@ -446,94 +504,43 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Bulk insert parameters
+   * Execute bulk insert within a transaction with optimal batching
    */
-  private async bulkInsertParameters(functions: FunctionInfo[]): Promise<void> {
-    const parameterRows: ParameterRow[] = [];
+  private async executeBulkInsertInTransaction(
+    trx: PGTransaction,
+    tableName: string,
+    columns: string[],
+    data: unknown[][]
+  ): Promise<void> {
+    if (data.length === 0) return;
     
-    for (const func of functions) {
-      if (func.parameters) {
-        func.parameters.forEach((param, i) => {
-          const paramRow: ParameterRow = {
-            function_id: func.id,
-            name: param.name,
-            type: param.type,
-            type_simple: param.typeSimple,
-            position: i,
-            is_optional: param.isOptional,
-            is_rest: param.isRest,
-          };
-          if (param.defaultValue !== undefined) {
-            paramRow.default_value = param.defaultValue;
-          }
-          parameterRows.push(paramRow);
-        });
-      }
-    }
-
-    if (parameterRows.length > 0) {
-      for (const row of parameterRows) {
-        await this.db.query(`
-          INSERT INTO function_parameters (
-            function_id, name, type, type_simple, position, is_optional, default_value
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-        `, [
-          row.function_id, row.name, row.type, row.type_simple,
-          row.position, row.is_optional, row.default_value
-        ]);
-      }
+    // Calculate optimal batch size based on column count
+    const batchSize = calculateOptimalBatchSize(columns.length);
+    const batches = splitIntoBatches(data, batchSize);
+    
+    for (const batch of batches) {
+      const sql = generateBulkInsertSQL(tableName, columns, batch.length);
+      const flatParams = batch.flat();
+      
+      await trx.query(sql, flatParams);
     }
   }
 
   /**
-   * Bulk insert metrics
+   * Execute bulk insert with optimal batching (creates own transaction)
    */
-  private async bulkInsertMetrics(functions: FunctionInfo[]): Promise<void> {
-    const metricsRows = functions
-      .filter(func => func.metrics)
-      .map(func => ({
-        function_id: func.id,
-        lines_of_code: func.metrics!.linesOfCode,
-        total_lines: func.metrics!.totalLines,
-        cyclomatic_complexity: func.metrics!.cyclomaticComplexity,
-        cognitive_complexity: func.metrics!.cognitiveComplexity,
-        max_nesting_level: func.metrics!.maxNestingLevel,
-        parameter_count: func.metrics!.parameterCount,
-        return_statement_count: func.metrics!.returnStatementCount,
-        branch_count: func.metrics!.branchCount,
-        loop_count: func.metrics!.loopCount,
-        try_catch_count: func.metrics!.tryCatchCount,
-        async_await_count: func.metrics!.asyncAwaitCount,
-        callback_count: func.metrics!.callbackCount,
-        comment_lines: func.metrics!.commentLines,
-        code_to_comment_ratio: func.metrics!.codeToCommentRatio,
-        halstead_volume: func.metrics!.halsteadVolume || null,
-        halstead_difficulty: func.metrics!.halsteadDifficulty || null,
-        maintainability_index: func.metrics!.maintainabilityIndex || null,
-      }));
-
-    if (metricsRows.length > 0) {
-      for (const row of metricsRows) {
-        await this.db.query(`
-          INSERT INTO quality_metrics (
-            function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-            max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-            try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-            halstead_volume, halstead_difficulty, maintainability_index
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
-          )
-        `, [
-          row.function_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
-          row.cognitive_complexity, row.max_nesting_level, row.parameter_count,
-          row.return_statement_count, row.branch_count, row.loop_count,
-          row.try_catch_count, row.async_await_count, row.callback_count,
-          row.comment_lines, row.code_to_comment_ratio, row.halstead_volume,
-          row.halstead_difficulty, row.maintainability_index
-        ]);
-      }
-    }
+  private async executeBulkInsert(
+    trx: PGTransaction,
+    tableName: string,
+    columns: string[],
+    data: unknown[][]
+  ): Promise<void> {
+    // Delegate to transaction-aware version
+    await this.executeBulkInsertInTransaction(trx, tableName, columns, data);
   }
+
+  // Legacy bulk insert methods removed - functionality now handled by:
+  // saveFunctionsBulk -> executeBulkInsertInTransaction for true bulk operations
 
   /**
    * Get function parameters

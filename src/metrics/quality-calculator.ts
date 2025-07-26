@@ -1,9 +1,45 @@
 import * as ts from 'typescript';
 import { FunctionInfo, QualityMetrics } from '../types';
+import { FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration } from 'ts-morph';
 
 export class QualityCalculator {
   /**
-   * Calculate quality metrics for a function
+   * Calculate quality metrics directly from ts-morph node (optimized path)
+   */
+  calculateFromTsMorphNode(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration,
+    functionInfo: FunctionInfo
+  ): QualityMetrics {
+    // Convert ts-morph to TypeScript AST for metrics calculation
+    const sourceCode = node.getFullText();
+    const tsSourceFile = ts.createSourceFile(
+      'temp.ts',
+      sourceCode,
+      ts.ScriptTarget.Latest,
+      true
+    );
+
+    // Find the function node in the TypeScript AST
+    let tsNode: ts.FunctionLikeDeclaration | null = null;
+    const findFunction = (n: ts.Node) => {
+      if (this.isFunctionLike(n)) {
+        tsNode = n as ts.FunctionLikeDeclaration;
+        return;
+      }
+      ts.forEachChild(n, findFunction);
+    };
+    findFunction(tsSourceFile);
+
+    if (!tsNode) {
+      // Fallback to basic metrics from text analysis
+      return this.calculateFromText(functionInfo);
+    }
+
+    return this.calculateMetricsFromTsNode(tsNode, functionInfo);
+  }
+
+  /**
+   * Calculate quality metrics for a function (legacy method)
    */
   calculate(functionInfo: FunctionInfo): QualityMetrics {
     // Parse the source code to get AST
@@ -32,25 +68,32 @@ export class QualityCalculator {
       return this.calculateFromText(functionInfo);
     }
 
-    const linesOfCode = this.calculateLinesOfCode(functionNode);
-    const commentLines = this.calculateCommentLines(functionNode);
-    const cyclomaticComplexity = this.calculateCyclomaticComplexity(functionNode);
-    const halsteadVolume = this.calculateHalsteadVolume(functionNode);
-    const halsteadDifficulty = this.calculateHalsteadDifficulty(functionNode);
+    return this.calculateMetricsFromTsNode(functionNode, functionInfo);
+  }
+
+  /**
+   * Calculate metrics from TypeScript AST node (shared logic)
+   */
+  private calculateMetricsFromTsNode(tsNode: ts.FunctionLikeDeclaration, functionInfo: FunctionInfo): QualityMetrics {
+    const linesOfCode = this.calculateLinesOfCode(tsNode);
+    const commentLines = this.calculateCommentLines(tsNode);
+    const cyclomaticComplexity = this.calculateCyclomaticComplexity(tsNode);
+    const halsteadVolume = this.calculateHalsteadVolume(tsNode);
+    const halsteadDifficulty = this.calculateHalsteadDifficulty(tsNode);
 
     const metrics = {
       linesOfCode,
-      totalLines: this.calculateTotalLines(functionNode),
+      totalLines: this.calculateTotalLines(tsNode),
       cyclomaticComplexity,
-      cognitiveComplexity: this.calculateCognitiveComplexity(functionNode),
-      maxNestingLevel: this.calculateMaxNestingLevel(functionNode),
+      cognitiveComplexity: this.calculateCognitiveComplexity(tsNode),
+      maxNestingLevel: this.calculateMaxNestingLevel(tsNode),
       parameterCount: functionInfo.parameters.length,
-      returnStatementCount: this.countReturnStatements(functionNode),
-      branchCount: this.countBranches(functionNode),
-      loopCount: this.countLoops(functionNode),
-      tryCatchCount: this.countTryCatch(functionNode),
-      asyncAwaitCount: this.countAsyncAwait(functionNode),
-      callbackCount: this.countCallbacks(functionNode),
+      returnStatementCount: this.countReturnStatements(tsNode),
+      branchCount: this.countBranches(tsNode),
+      loopCount: this.countLoops(tsNode),
+      tryCatchCount: this.countTryCatch(tsNode),
+      asyncAwaitCount: this.countAsyncAwait(tsNode),
+      callbackCount: this.countCallbacks(tsNode),
       commentLines,
       codeToCommentRatio:
         linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,

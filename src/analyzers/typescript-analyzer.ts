@@ -14,12 +14,15 @@ import {
 } from 'ts-morph';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { CallGraphAnalyzer } from './call-graph-analyzer';
 import { Logger } from '../utils/cli-utils';
+import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
+import { BatchFileReader } from '../utils/batch-file-reader';
+import { globalHashCache } from '../utils/hash-cache';
 
 interface FunctionMetadata {
   signature: string;
@@ -43,10 +46,13 @@ export class TypeScriptAnalyzer {
   private cache: AnalysisCache;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
+  private unifiedAnalyzer: UnifiedASTAnalyzer;
+  private batchFileReader: BatchFileReader;
 
   constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true, logger?: Logger) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.logger = logger || new Logger(false, false);
+    this.unifiedAnalyzer = new UnifiedASTAnalyzer(maxSourceFilesInMemory);
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
@@ -78,17 +84,41 @@ export class TypeScriptAnalyzer {
     // Initialize call graph analyzer with shared Project instance
     // 🔧 CRITICAL FIX: Share Project instance to ensure consistent AST parsing and line numbers
     this.callGraphAnalyzer = new CallGraphAnalyzer(this.project, enableCache);
+    
+    // Initialize batch file reader for optimized I/O
+    this.batchFileReader = new BatchFileReader({
+      concurrency: Math.min(maxSourceFilesInMemory, 10),
+      encoding: 'utf-8',
+      maxFileSize: 10 * 1024 * 1024, // 10MB limit
+      timeout: 30000 // 30 second timeout per file
+    });
   }
 
   /**
    * Analyze a TypeScript file and extract function information
+   * Now uses UnifiedASTAnalyzer for improved performance  
    */
   async analyzeFile(filePath: string): Promise<FunctionInfo[]> {
+    // Read file content asynchronously
+    let fileContent: string;
     try {
-      if (!fs.existsSync(filePath)) {
+      fileContent = await fs.readFile(filePath, 'utf-8');
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
         throw new Error(`File does not exist: ${filePath}`);
       }
+      throw error;
+    }
 
+    return this.analyzeFileContent(filePath, fileContent);
+  }
+
+  /**
+   * Analyze file content (used internally to avoid duplicate I/O)
+   * Separated from analyzeFile to support BatchFileReader optimization
+   */
+  private async analyzeFileContent(filePath: string, fileContent: string): Promise<FunctionInfo[]> {
+    try {
       // Check cache first
       try {
         const cachedResult = await this.cache.get(filePath);
@@ -106,66 +136,23 @@ export class TypeScriptAnalyzer {
         );
       }
 
-      const sourceFile = this.project.addSourceFileAtPath(filePath);
-      const fileContent = sourceFile.getFullText();
-      const fileHash = this.calculateFileHash(fileContent);
-      const relativePath = path.relative(process.cwd(), filePath);
+      // Use UnifiedASTAnalyzer for combined analysis
+      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent);
+      
+      // Convert to FunctionInfo format and add missing fields
+      const functions: FunctionInfo[] = unifiedResults.map(result => {
+        const functionInfo = result.functionInfo;
+        const qualityMetrics = result.qualityMetrics;
+        
+        return {
+          ...functionInfo,
+          id: this.generatePhysicalId(), // Generate unique physical ID
+          metrics: qualityMetrics,
+          complexity: qualityMetrics.cyclomaticComplexity || 1
+        };
+      });
 
-      const functions: FunctionInfo[] = [];
-
-      try {
-        // Function declarations
-        sourceFile.getFunctions().forEach(func => {
-          const info = this.extractFunctionInfo(
-            func,
-            relativePath,
-            fileHash,
-            sourceFile,
-            fileContent
-          );
-          if (info) functions.push(info);
-        });
-
-        // Method declarations (class methods) and constructors
-        sourceFile.getClasses().forEach(cls => {
-          // Methods
-          cls.getMethods().forEach(method => {
-            const info = this.extractMethodInfo(
-              method,
-              relativePath,
-              fileHash,
-              sourceFile,
-              fileContent
-            );
-            if (info) functions.push(info);
-          });
-
-          // Constructors
-          cls.getConstructors().forEach(ctor => {
-            const info = this.extractConstructorInfo(
-              ctor,
-              relativePath,
-              fileHash,
-              sourceFile,
-              fileContent
-            );
-            if (info) functions.push(info);
-          });
-        });
-
-        // Arrow functions and function expressions assigned to variables
-        this.extractVariableFunctions(sourceFile, relativePath, fileHash, fileContent).forEach(
-          info => {
-            functions.push(info);
-          }
-        );
-      } finally {
-        // Note: Don't remove SourceFile here - it may still be referenced by other analyzers
-        // Project disposal will be handled by the parent FunctionAnalyzer
-        this.manageMemory();
-      }
-
-      // Cache the results
+      // Cache the results for future use
       try {
         await this.cache.set(filePath, functions);
       } catch (error) {
@@ -173,6 +160,12 @@ export class TypeScriptAnalyzer {
           `Cache storage failed for ${filePath}`,
           { error: error instanceof Error ? error.message : String(error) }
         );
+      }
+
+      // Remove source file from project to manage memory
+      const sourceFile = this.project.getSourceFile(filePath);
+      if (sourceFile) {
+        sourceFile.forget();
       }
 
       return functions;
@@ -244,6 +237,7 @@ export class TypeScriptAnalyzer {
 
   /**
    * Analyze multiple files in batches for optimal memory usage
+   * Uses BatchFileReader to eliminate duplicate I/O operations
    */
   async analyzeFilesBatch(
     filePaths: string[],
@@ -252,23 +246,42 @@ export class TypeScriptAnalyzer {
     const batchSize = Math.min(this.maxSourceFilesInMemory, 20); // Conservative batch size
     const allFunctions: FunctionInfo[] = [];
 
+    // First, batch read all files to eliminate duplicate I/O
+    this.logger.debug(`Reading ${filePaths.length} files in batches...`);
+    const fileResults = await this.batchFileReader.readFiles(filePaths);
+    
+    // Filter successful reads
+    const validFiles: Array<{ filePath: string; content: string }> = [];
+    for (const [filePath, result] of fileResults) {
+      if (result.exists && result.content && !result.error) {
+        validFiles.push({ filePath, content: result.content });
+      } else if (result.error) {
+        this.logger.warn(
+          `Failed to read ${filePath}`,
+          { error: result.error.message }
+        );
+      }
+    }
+
+    this.logger.debug(`Successfully read ${validFiles.length}/${filePaths.length} files`);
+
     // Process files in batches to control memory usage
     const results = await BatchProcessor.processWithProgress(
-      filePaths,
-      async (filePath: string) => {
+      validFiles,
+      async (fileData: { filePath: string; content: string }) => {
         try {
-          return await this.analyzeFile(filePath);
+          return await this.analyzeFileContent(fileData.filePath, fileData.content);
         } catch (error) {
           // Log the error with file path for debugging
           this.logger.warn(
-            `Failed to analyze ${filePath}`,
+            `Failed to analyze ${fileData.filePath}`,
             { error: error instanceof Error ? error.message : String(error) }
           );
           // Return empty array to continue processing other files
           return [];
         }
       },
-      onProgress,
+      onProgress ? (completed, _total) => onProgress(completed, filePaths.length) : undefined,
       batchSize
     );
 
@@ -328,8 +341,16 @@ export class TypeScriptAnalyzer {
     const startPos = func.getBody()?.getStart() || func.getStart();
     const endPos = func.getBody()?.getEnd() || func.getEnd();
     const functionBody = fileContent.substring(startPos, endPos);
-    const astHash = this.calculateASTHash(functionBody);
-    const signatureHash = this.calculateSignatureHash(signature);
+    
+    // Use optimized hash cache for all hash calculations
+    const hashes = globalHashCache.getOrCalculateHashes(
+      relativePath,
+      functionBody,
+      undefined, // No modification time available
+      signature
+    );
+    const astHash = hashes.astHash;
+    const signatureHash = hashes.signatureHash;
     const returnType = this.extractFunctionReturnType(func);
 
     // Extract comprehensive function context
@@ -419,8 +440,16 @@ export class TypeScriptAnalyzer {
     const startPos = method.getBody()?.getStart() || method.getStart();
     const endPos = method.getBody()?.getEnd() || method.getEnd();
     const methodBody = fileContent.substring(startPos, endPos);
-    const astHash = this.calculateASTHash(methodBody);
-    const signatureHash = this.calculateSignatureHash(signature);
+    
+    // Use optimized hash cache for all hash calculations
+    const hashes = globalHashCache.getOrCalculateHashes(
+      relativePath,
+      methodBody,
+      undefined, // No modification time available
+      signature
+    );
+    const astHash = hashes.astHash;
+    const signatureHash = hashes.signatureHash;
 
     const methodParent = method.getParent();
     let isClassExported = false;
@@ -508,8 +537,16 @@ export class TypeScriptAnalyzer {
     const startPos = ctor.getBody()?.getStart() || ctor.getStart();
     const endPos = ctor.getBody()?.getEnd() || ctor.getEnd();
     const constructorBody = fileContent.substring(startPos, endPos);
-    const astHash = this.calculateASTHash(constructorBody);
-    const signatureHash = this.calculateSignatureHash(signature);
+    
+    // Use optimized hash cache for all hash calculations
+    const hashes = globalHashCache.getOrCalculateHashes(
+      relativePath,
+      constructorBody,
+      undefined, // No modification time available
+      signature
+    );
+    const astHash = hashes.astHash;
+    const signatureHash = hashes.signatureHash;
 
     const parent = ctor.getParent();
     let isClassExported = false;
@@ -605,8 +642,16 @@ export class TypeScriptAnalyzer {
     const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
     const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
     const functionBody = fileContent.substring(startPos, endPos);
-    const astHash = this.calculateASTHash(functionBody);
-    const signatureHash = this.calculateSignatureHash(signature);
+    
+    // Use optimized hash cache for all hash calculations
+    const hashes = globalHashCache.getOrCalculateHashes(
+      'temp', // No file path available in this context
+      functionBody,
+      undefined, // No modification time available
+      signature
+    );
+    const astHash = hashes.astHash;
+    const signatureHash = hashes.signatureHash;
     const returnType = this.extractArrowFunctionReturnType(functionNode);
 
     const contextPath = this.extractContextPath(functionNode as ArrowFunction);
@@ -891,23 +936,19 @@ export class TypeScriptAnalyzer {
     return match?.[1];
   }
 
-  private calculateFileHash(content: string): string {
-    return crypto.createHash('md5').update(content).digest('hex');
+  private calculateFileHash(content: string, modifiedTime?: Date): string {
+    const hashes = globalHashCache.getOrCalculateHashes('temp', content, modifiedTime);
+    return hashes.fileHash;
   }
 
-  private calculateASTHash(content: string): string {
-    const normalized = content
-      .replace(/\s+/g, ' ')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
-      .trim();
+  // These methods are kept for backward compatibility but now use global hash cache
+  // private calculateASTHash(content: string): string {
+  //   return globalHashCache.getOrCalculateASTHash(content);
+  // }
 
-    return crypto.createHash('sha256').update(normalized).digest('hex').substring(0, 8);
-  }
-
-  private calculateSignatureHash(signature: string): string {
-    return crypto.createHash('sha256').update(signature).digest('hex');
-  }
+  // private calculateSignatureHash(signature: string): string {
+  //   return globalHashCache.getOrCalculateContentHash(signature);
+  // }
 
   /**
    * Generate a UUID for the physical function instance
@@ -1146,15 +1187,51 @@ export class TypeScriptAnalyzer {
   }
 
   /**
+   * Get hash cache statistics
+   */
+  getHashCacheStats() {
+    return globalHashCache.getStats();
+  }
+
+  /**
+   * Clear hash cache
+   */
+  clearHashCache(): void {
+    globalHashCache.clear();
+  }
+
+  /**
    * Analyze file and extract both functions and call edges
    * Returns comprehensive analysis including call graph relationships
    */
   async analyzeFileWithCallGraph(
     filePath: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
+    // Read file content asynchronously
+    let fileContent: string;
+    try {
+      fileContent = await fs.readFile(filePath, 'utf-8');
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        throw new Error(`File does not exist: ${filePath}`);
+      }
+      throw error;
+    }
+
+    return this.analyzeFileContentWithCallGraph(filePath, fileContent);
+  }
+
+  /**
+   * Analyze file content with call graph (used internally to avoid duplicate I/O)
+   * Separated to support BatchFileReader optimization
+   */
+  private async analyzeFileContentWithCallGraph(
+    filePath: string,
+    fileContent: string
+  ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     try {
       // First, analyze functions normally
-      const functions = await this.analyzeFile(filePath);
+      const functions = await this.analyzeFileContent(filePath, fileContent);
       
       // Create function map for call graph analysis
       const functionMap = new Map<string, { id: string; name: string; startLine: number; endLine: number }>();
@@ -1191,6 +1268,7 @@ export class TypeScriptAnalyzer {
 
   /**
    * Batch analyze files with call graph support
+   * Uses BatchFileReader to eliminate duplicate I/O operations
    */
   async analyzeFilesBatchWithCallGraph(
     filePaths: string[],
@@ -1200,20 +1278,37 @@ export class TypeScriptAnalyzer {
     const allFunctions: FunctionInfo[] = [];
     const allCallEdges: CallEdge[] = [];
 
+    // First, batch read all files to eliminate duplicate I/O
+    this.logger.debug(`Reading ${filePaths.length} files for call graph analysis...`);
+    const fileResults = await this.batchFileReader.readFiles(filePaths);
+    
+    // Filter successful reads
+    const validFiles: Array<{ filePath: string; content: string }> = [];
+    for (const [filePath, result] of fileResults) {
+      if (result.exists && result.content && !result.error) {
+        validFiles.push({ filePath, content: result.content });
+      } else if (result.error) {
+        this.logger.warn(
+          `Failed to read ${filePath}`,
+          { error: result.error.message }
+        );
+      }
+    }
+
     const results = await BatchProcessor.processWithProgress(
-      filePaths,
-      async (filePath: string) => {
+      validFiles,
+      async (fileData: { filePath: string; content: string }) => {
         try {
-          return await this.analyzeFileWithCallGraph(filePath);
+          return await this.analyzeFileContentWithCallGraph(fileData.filePath, fileData.content);
         } catch (error) {
           this.logger.warn(
-            `Failed to analyze ${filePath}`,
+            `Failed to analyze ${fileData.filePath}`,
             { error: error instanceof Error ? error.message : String(error) }
           );
           return { functions: [], callEdges: [] };
         }
       },
-      onProgress,
+      onProgress ? (completed, _total) => onProgress(completed, filePaths.length) : undefined,
       batchSize
     );
 
