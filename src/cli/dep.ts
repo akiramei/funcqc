@@ -13,7 +13,7 @@ import { ArchitectureConfigManager } from '../config/architecture-config';
 import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
 import { DotGenerator } from '../visualization/dot-generator';
-import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
+import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../utils/lazy-analysis';
 
 interface RouteComplexityInfo {
   path: string[];           // Function IDs in the route
@@ -100,43 +100,14 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { snapshot, callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: true,
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep list');
-
-      // Get internal call edges for the snapshot
-      if (!snapshot) {
-        throw new Error('Failed to load snapshot');
-      }
-      const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshot.id);
-
-      // Convert internal call edges to CallEdge format for unified processing
-      const convertedInternalEdges: CallEdge[] = internalCallEdges.map(edge => ({
-        id: edge.id,
-        callerFunctionId: edge.callerFunctionId,
-        calleeFunctionId: edge.calleeFunctionId,
-        calleeName: edge.calleeName,
-        calleeSignature: undefined,
-        callerClassName: edge.callerClassName,
-        calleeClassName: edge.calleeClassName,
-        callType: edge.callType,
-        callContext: edge.callContext,
-        lineNumber: edge.lineNumber,
-        columnNumber: edge.columnNumber,
-        isAsync: false,
-        isChained: false,
-        confidenceScore: edge.confidenceScore,
-        metadata: { source: 'internal', filePath: edge.filePath },
-        createdAt: edge.createdAt,
-      }));
-
-      // Combine all edges
-      const allEdges = [...callEdges, ...convertedInternalEdges];
+      validateCallGraphRequirements(allEdges, 'dep list');
 
       if (allEdges.length === 0) {
         console.log(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
@@ -364,12 +335,12 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: true,
         snapshotId: options.snapshot
       });
 
-      validateCallGraphRequirements(callEdges, 'dep show');
+      validateCallGraphRequirements(allEdges, 'dep show');
 
       const targetFunction = functionRef ? findTargetFunction(functionRef, functions) : null;
       if (functionRef && !targetFunction) {
@@ -388,7 +359,7 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
       if (targetFunction) {
         performSingleFunctionAnalysis(
           targetFunction,
-          callEdges,
+          allEdges,
           functions,
           options,
           maxDepth,
@@ -398,7 +369,7 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
       } else {
         await performGlobalRouteAnalysis(
           functions, 
-          callEdges, 
+          allEdges, 
           maxDepth, 
           maxRoutes, 
           options, 
@@ -1252,15 +1223,15 @@ async function executeDepStatsAnalysis(
   spinner: Ora
 ): Promise<void> {
   // Load call graph data
-  const { callEdges, functions } = await loadCallGraphData(env, options, spinner);
+  const { callEdges: allEdges, functions } = await loadCallGraphData(env, options, spinner);
   
   // Analyze dependencies
-  const { entryPointIds, cyclicFunctions } = await analyzeDependencyStructure(functions, callEdges, spinner);
+  const { entryPointIds, cyclicFunctions } = await analyzeDependencyStructure(functions, allEdges, spinner);
   
   // Calculate metrics
   const { metrics, stats } = await calculateDependencyMetrics(
     functions, 
-    callEdges, 
+    allEdges, 
     entryPointIds, 
     cyclicFunctions, 
     options, 
@@ -1270,7 +1241,7 @@ async function executeDepStatsAnalysis(
   spinner.succeed('Dependency metrics calculated');
   
   // Output results
-  outputDepStatsResults(functions, callEdges, metrics, stats, options);
+  outputDepStatsResults(functions, allEdges, metrics, stats, options);
 }
 
 /**
@@ -1281,14 +1252,14 @@ async function loadCallGraphData(
   options: DepStatsOptions, 
   spinner: Ora
 ): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[] }> {
-  // Use lazy analysis to ensure call graph data is available
-  const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+  // Use comprehensive call graph data including internal call edges
+  const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
     showProgress: false, // We manage progress with our own spinner
     snapshotId: options.snapshot
   });
 
   // Validate that we have sufficient call graph data
-  validateCallGraphRequirements(callEdges, 'dep stats');
+  validateCallGraphRequirements(allEdges, 'dep stats');
 
   spinner.text = 'Loading functions and call graph...';
 
@@ -1297,7 +1268,7 @@ async function loadCallGraphData(
     throw new Error('No functions found in the snapshot.');
   }
   
-  return { callEdges, functions };
+  return { callEdges: allEdges, functions };
 }
 
 /**
@@ -1305,7 +1276,7 @@ async function loadCallGraphData(
  */
 async function analyzeDependencyStructure(
   functions: FunctionInfo[],
-  callEdges: CallEdge[],
+  allEdges: CallEdge[],
   spinner: Ora
 ): Promise<{ entryPointIds: Set<string>; cyclicFunctions: Set<string> }> {
   spinner.text = 'Detecting entry points...';
@@ -1319,7 +1290,7 @@ async function analyzeDependencyStructure(
 
   // Detect circular dependencies
   const reachabilityAnalyzer = new ReachabilityAnalyzer();
-  const cycles = reachabilityAnalyzer.findCircularDependencies(callEdges);
+  const cycles = reachabilityAnalyzer.findCircularDependencies(allEdges);
   const cyclicFunctions = new Set<string>();
   cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
   
@@ -1628,14 +1599,14 @@ rules:
 
       spinner.text = 'Loading snapshot data...';
 
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep lint');
+      validateCallGraphRequirements(allEdges, 'dep lint');
 
       spinner.text = 'Loading functions and call graph...';
 
@@ -1644,7 +1615,7 @@ rules:
         return;
       }
 
-      if (callEdges.length === 0) {
+      if (allEdges.length === 0) {
         spinner.fail(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
         return;
       }
@@ -1653,7 +1624,7 @@ rules:
 
       // Validate architecture
       const validator = new ArchitectureValidator(archConfig);
-      const analysisResult = validator.analyzeArchitecture(functions, callEdges);
+      const analysisResult = validator.analyzeArchitecture(functions, allEdges);
 
       spinner.succeed('Architecture analysis complete');
 
@@ -2313,14 +2284,14 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
     const spinner = ora('Analyzing dead code...').start();
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep dead');
+      validateCallGraphRequirements(allEdges, 'dep dead');
 
       spinner.text = 'Loading functions and call graph...';
 
@@ -2361,7 +2332,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const reachabilityAnalyzer = new ReachabilityAnalyzer();
       const reachabilityResult = reachabilityAnalyzer.analyzeReachability(
         functions,
-        callEdges,
+        allEdges,
         entryPoints
       );
 
@@ -2369,7 +2340,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const deadCodeInfo = reachabilityAnalyzer.getDeadCodeInfo(
         reachabilityResult.unreachable,
         functions,
-        callEdges,
+        allEdges,
         {
           excludeTests: options.excludeTests ?? false,
           excludeSmallFunctions: options.excludeSmall ?? false,
@@ -2381,7 +2352,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const unusedExportInfo = reachabilityAnalyzer.getDeadCodeInfo(
         reachabilityResult.unusedExports,
         functions,
-        callEdges,
+        allEdges,
         {
           excludeTests: false,
           excludeSmallFunctions: false,
@@ -2395,7 +2366,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       if (options.format === 'dot') {
         outputDepDeadDot(
           functions,
-          callEdges,
+          allEdges,
           reachabilityResult,
           options
         );

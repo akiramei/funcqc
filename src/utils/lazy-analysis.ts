@@ -234,6 +234,66 @@ export async function loadCallGraphWithLazyAnalysis(
 }
 
 /**
+ * Load comprehensive call graph data including internal call edges
+ * This combines both external call_edges and internal_call_edges for complete analysis
+ */
+export async function loadComprehensiveCallGraphData(
+  env: CommandEnvironment,
+  options: {
+    showProgress?: boolean;
+    snapshotId?: string | undefined;
+  } = {}
+): Promise<{
+  snapshot: import('../types').SnapshotInfo | null;
+  callEdges: import('../types').CallEdge[];
+  internalCallEdges: import('../types').InternalCallEdge[];
+  allEdges: import('../types').CallEdge[]; // Combined and normalized
+  functions: import('../types').FunctionInfo[];
+  lazyAnalysisPerformed?: boolean;
+}> {
+  const { showProgress = true, snapshotId } = options;
+
+  // Get basic call graph data first
+  const basicResult = await loadCallGraphWithLazyAnalysis(env, { showProgress, snapshotId });
+  
+  if (!basicResult.snapshot) {
+    throw new Error('Failed to load snapshot');
+  }
+
+  // Get internal call edges for complete analysis
+  const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(basicResult.snapshot.id);
+
+  // Convert internal call edges to CallEdge format for unified processing
+  const convertedInternalEdges: import('../types').CallEdge[] = internalCallEdges.map(edge => ({
+    id: edge.id,
+    callerFunctionId: edge.callerFunctionId,
+    calleeFunctionId: edge.calleeFunctionId,
+    calleeName: edge.calleeName,
+    calleeSignature: undefined,
+    callerClassName: edge.callerClassName,
+    calleeClassName: edge.calleeClassName,
+    callType: edge.callType,
+    callContext: edge.callContext,
+    lineNumber: edge.lineNumber,
+    columnNumber: edge.columnNumber,
+    isAsync: false,
+    isChained: false,
+    confidenceScore: edge.confidenceScore,
+    metadata: { source: 'internal', filePath: edge.filePath },
+    createdAt: edge.createdAt,
+  }));
+
+  // Combine all edges for unified analysis
+  const allEdges = [...basicResult.callEdges, ...convertedInternalEdges];
+
+  return {
+    ...basicResult,
+    internalCallEdges,
+    allEdges
+  };
+}
+
+/**
  * Create a progress message for lazy analysis
  */
 export function createLazyAnalysisMessage(
