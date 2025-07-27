@@ -6,7 +6,7 @@
  */
 
 import * as ts from 'typescript';
-import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration } from 'ts-morph';
+import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration, ClassDeclaration, Node } from 'ts-morph';
 import { FunctionInfo, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../types';
 // import { createHash } from 'crypto'; // Now using globalHashCache
 import { QualityCalculator } from '../metrics/quality-calculator';
@@ -190,6 +190,11 @@ export class UnifiedASTAnalyzer {
     const isAsync = this.isAsyncFunction(node);
     const isExported = this.isExported(node);
     const modifiers = this.getModifiers(node);
+    
+    // Extract contextPath and accessModifier
+    const contextPath = this.extractContextPath(node);
+    const accessModifier = this.extractAccessModifier(node);
+    
 
     // Generate IDs using optimized hash cache
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -229,8 +234,16 @@ export class UnifiedASTAnalyzer {
       isArrowFunction: node instanceof ArrowFunction,
       isMethod: node instanceof MethodDeclaration,
       isConstructor: node instanceof ConstructorDeclaration,
-      isStatic: false
+      isStatic: false,
+      
+      // Add contextPath and accessModifier
+      contextPath
     };
+    
+    // Add accessModifier only if it's not public (to match expected behavior)
+    if (accessModifier && accessModifier !== 'public') {
+      (functionInfo as any).accessModifier = accessModifier;
+    }
 
     // Add description only if it exists
     if (description) {
@@ -399,5 +412,54 @@ export class UnifiedASTAnalyzer {
    */
   clearHashCache(): void {
     globalHashCache.clear();
+  }
+
+  /**
+   * Extract hierarchical context path for a function
+   */
+  private extractContextPath(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): string[] {
+    const path: string[] = [];
+    let current: Node | undefined = node.getParent();
+
+    while (current) {
+      // Use ts-morph's proper type checking
+      if (Node.isClassDeclaration(current)) {
+        const className = current.getName();
+        if (className) path.unshift(className);
+      } else if (Node.isModuleDeclaration(current)) {
+        const moduleName = current.getName();
+        if (moduleName) path.unshift(moduleName);
+      } else if (Node.isFunctionDeclaration(current)) {
+        const funcName = current.getName();
+        if (funcName) path.unshift(funcName);
+      }
+      current = current.getParent();
+    }
+
+    return path;
+  }
+
+  /**
+   * Extract access modifier for methods
+   */
+  private extractAccessModifier(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): string | undefined {
+    // Only methods can have access modifiers
+    if (!(node instanceof MethodDeclaration) && !(node instanceof ConstructorDeclaration)) {
+      return undefined;
+    }
+
+    const modifierElements = node.getModifiers();
+    const accessModifier = modifierElements.find(mod => {
+      const kind = mod.getKind();
+      return kind === 125 || // private
+             kind === 123 || // public 
+             kind === 124;   // protected
+    });
+
+    return accessModifier?.getText();
   }
 }

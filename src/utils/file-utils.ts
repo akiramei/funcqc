@@ -353,3 +353,18 @@ export async function calculateFileHash(filePath: string): Promise<string> {
     );
   }
 }
+
+/**
+ * Calculate maximum directory depth from source files
+ */
+export function calculateMaxDirectoryDepth(sourceFiles: Array<{ filePath: string }>): number {
+  let maxDepth = 0;
+  
+  for (const file of sourceFiles) {
+    const pathParts = file.filePath.split('/').filter((part: string) => part.length > 0);
+    const depth = pathParts.length - 1; // Subtract 1 for the filename itself
+    maxDepth = Math.max(maxDepth, depth);
+  }
+  
+  return maxDepth;
+}

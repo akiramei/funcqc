@@ -331,7 +331,7 @@ export class ThresholdEvaluator {
       threshold?: number;
       actual?: number;
     }>,
-    riskConfig: QualityThresholds
+    _riskConfig: QualityThresholds // Reserved for future dynamic risk configuration
   ): FunctionRiskAssessment {
     let riskScore = 0;
 
@@ -339,7 +339,7 @@ export class ThresholdEvaluator {
     violations.forEach(violation => {
       // Use riskConfig for dynamic scoring weight
       const baseWeight = this.getViolationWeight(violation.level);
-      const contextualWeight = this.calculateContextualWeight(violation, metrics, riskConfig);
+      const contextualWeight = this.calculateContextualWeight(violation);
       riskScore += baseWeight * contextualWeight;
     });
 
@@ -389,8 +389,7 @@ export class ThresholdEvaluator {
       ...thresholds,
       complexity: {
         critical: Math.ceil(thresholds.complexity.critical * sizeMultiplier),
-        high: Math.ceil(thresholds.complexity.high * sizeMultiplier),
-        medium: Math.ceil(thresholds.complexity.medium * sizeMultiplier)
+        high: Math.ceil(thresholds.complexity.high * sizeMultiplier)
       }
     };
   }
@@ -411,9 +410,7 @@ export class ThresholdEvaluator {
    * Calculate contextual weight based on violation context
    */
   private calculateContextualWeight(
-    violation: { type: string; threshold?: number; actual?: number },
-    metrics: QualityMetrics,
-    riskConfig: QualityThresholds
+    violation: { type: string; threshold?: number; actual?: number }
   ): number {
     // Base contextual weight
     let weight = 1.0;

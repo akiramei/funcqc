@@ -2,7 +2,7 @@
  * Structural analysis logic using SCC and dependency metrics
  */
 
-import { FunctionInfo, DynamicWeightConfig, EvaluationMode, CallEdge, SourceFile } from '../../../types';
+import { FunctionInfo, DynamicWeightConfig, EvaluationMode, CallEdge } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { SCCAnalyzer, SCCAnalysisResult } from '../../../analyzers/scc-analyzer';
 import { DependencyMetricsCalculator, DependencyMetrics } from '../../../analyzers/dependency-metrics';
@@ -12,6 +12,7 @@ import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight
 import { StructuralMetrics, PageRankMetrics } from './types';
 import { calculateStructuralPenaltyBreakdown } from './calculator';
 import { performLayerBasedPageRank } from './layer-based-pagerank';
+import { calculateMaxDirectoryDepth } from '../../../utils/file-utils';
 
 // In-memory cache for SCC analysis results
 interface SCCCacheEntry {
@@ -322,20 +323,6 @@ function cleanupExpiredCacheEntries(): void {
   }
 }
 
-/**
- * Phase 2: Calculate maximum directory depth from source files
- */
-export function calculateMaxDirectoryDepth(sourceFiles: SourceFile[]): number {
-  let maxDepth = 0;
-  
-  for (const file of sourceFiles) {
-    const pathParts = file.filePath.split('/').filter((part: string) => part.length > 0);
-    const depth = pathParts.length - 1; // Subtract 1 for the filename itself
-    maxDepth = Math.max(maxDepth, depth);
-  }
-  
-  return maxDepth;
-}
 
 /**
  * Get cache statistics for debugging

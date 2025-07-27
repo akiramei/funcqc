@@ -516,10 +516,7 @@ export class TypeScriptAnalyzer {
       functionInfo.returnType = returnType;
     }
 
-    const scope = method.getScope();
-    if (scope && scope !== 'public') {
-      functionInfo.accessModifier = scope;
-    }
+    // Note: accessModifier and contextPath are now handled by UnifiedASTAnalyzer
 
     return functionInfo;
   }

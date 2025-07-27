@@ -11,7 +11,8 @@ import { DatabaseError } from '../../../storage/pglite-adapter';
 import { resolveSnapshotId } from '../../../utils/snapshot-resolver';
 import { calculateQualityMetrics } from './calculator';
 import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from '../../../types';
-import { analyzeStructuralMetrics, getSCCCacheStats, calculateMaxDirectoryDepth } from './structural-analyzer';
+import { analyzeStructuralMetrics, getSCCCacheStats } from './structural-analyzer';
+import { calculateMaxDirectoryDepth } from '../../../utils/file-utils';
 import { displayHealthOverview, displayStructuralHealth, formatDateTime } from './display';
 import { defaultLayerDetector } from '../../../analyzers/architecture-layer-detector';
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
@@ -24,7 +25,9 @@ import {
 } from './risk-evaluator';
 import { generateRiskAnalysis } from './recommendations';
 import { displayTrendAnalysis } from './trend-analyzer';
-import { HealthDataForJSON, FunctionRiskAssessment } from './types';
+import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthData } from './types';
+import { FunctionContext } from '../../../types/dynamic-weights';
+import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 
 /**
  * Health command as a Reader function
@@ -79,12 +82,9 @@ async function executeHealthCommand(env: CommandEnvironment, options: HealthComm
 }
 
 /**
- * Display interactive health overview
+ * Display snapshot information header
  */
-async function displayHealthOverview_Interactive(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
-  // Get target snapshot and functions
-  const { targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
-
+function displaySnapshotInfo(targetSnapshot: SnapshotInfo, functions: FunctionInfo[], env: CommandEnvironment): void {
   console.log('funcqc Health Report');
   console.log('--------------------------------------------------');
   console.log('');
@@ -94,20 +94,63 @@ async function displayHealthOverview_Interactive(env: CommandEnvironment, option
   console.log(`  Last Analyzed: ${formatDateTime(targetSnapshot.createdAt)}`);
   console.log(`  Database: ${env.config.storage.path}`);
   console.log('');
+}
 
+/**
+ * Perform structural analysis and calculate quality metrics
+ */
+async function performStructuralAnalysis(
+  functions: FunctionInfo[],
+  targetSnapshot: SnapshotInfo,
+  env: CommandEnvironment,
+  mode: EvaluationMode
+): Promise<{ structuralData: StructuralMetrics; qualityData: HealthData }> {
   // Perform complete structural analysis for comprehensive health assessment
-  const mode = options.mode || 'static';
   const structuralData = await analyzeStructuralMetrics(functions, targetSnapshot.id, env, mode);
   
   // Calculate quality metrics and risk assessments
   const qualityData = await calculateQualityMetrics(functions, structuralData);
   
-  // Handle explain weight functionality
-  if (options.explainWeight) {
-    await handleExplainWeight(functions, targetSnapshot.id, options.explainWeight, mode, env);
-    return;
+  return { structuralData, qualityData };
+}
+
+/**
+ * Execute risk evaluation and generate assessments
+ */
+async function executeRiskEvaluation(functions: FunctionInfo[]): Promise<{
+  riskAssessments: FunctionRiskAssessment[];
+  enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>;
+} | null> {
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  if (functionsWithMetrics.length === 0) {
+    return null;
   }
 
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const thresholdEvaluator = new ThresholdEvaluator();
+  const allMetrics = functionsWithMetrics.map(f => f.metrics!);
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  const riskAssessments = await assessAllFunctions(functionsWithMetrics, projectStats, thresholds);
+  const enhancedRiskStats = calculateEnhancedRiskStats(riskAssessments, functions);
+  
+  return { riskAssessments, enhancedRiskStats };
+}
+
+/**
+ * Display all health analysis results
+ */
+async function displayHealthResults(
+  qualityData: HealthData,
+  structuralData: StructuralMetrics,
+  riskEvaluation: { riskAssessments: FunctionRiskAssessment[]; enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats> } | null,
+  functions: FunctionInfo[],
+  options: HealthCommandOptions,
+  env: CommandEnvironment,
+  targetSnapshot: SnapshotInfo
+): Promise<void> {
+  const mode = options.mode || 'static';
+  
   // Display health overview
   displayHealthOverview(qualityData);
   
@@ -121,25 +164,48 @@ async function displayHealthOverview_Interactive(env: CommandEnvironment, option
     displayStructuralHealth(structuralData, options.verbose);
   }
 
-  // RESTORED: Original risk assessment and recommendations from the screenshot
-  const functionsWithMetrics = functions.filter(f => f.metrics);
-  if (functionsWithMetrics.length > 0) {
-    const statisticalEvaluator = new StatisticalEvaluator();
-    const thresholdEvaluator = new ThresholdEvaluator();
-    const allMetrics = functionsWithMetrics.map(f => f.metrics!);
-    const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
-    const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
-    const riskAssessments = await assessAllFunctions(functionsWithMetrics, projectStats, thresholds);
-    const enhancedRiskStats = calculateEnhancedRiskStats(riskAssessments, functions);
-    
-    // Display original recommendation format exactly as in screenshot
-    await displayOriginalHealthFormat(functions, riskAssessments, enhancedRiskStats, options.verbose || false);
+  // Display risk assessment and recommendations
+  if (riskEvaluation) {
+    await displayOriginalHealthFormat(
+      functions,
+      riskEvaluation.riskAssessments,
+      riskEvaluation.enhancedRiskStats,
+      options.verbose || false
+    );
   }
   
   // Display cache statistics in debug mode
   if (process.env['NODE_ENV'] === 'development' || process.env['DEBUG']) {
     displayCacheStats();
   }
+}
+
+/**
+ * Display interactive health overview
+ */
+async function displayHealthOverview_Interactive(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
+  // Get target snapshot and functions
+  const { targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
+  
+  // Display snapshot information
+  displaySnapshotInfo(targetSnapshot, functions, env);
+  
+  const mode = options.mode || 'static';
+  
+  // Handle explain weight functionality early return
+  if (options.explainWeight) {
+    await handleExplainWeight(functions, targetSnapshot.id, options.explainWeight, mode, env);
+    return;
+  }
+  
+  // Perform structural analysis
+  const { structuralData, qualityData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
+  
+  // Execute risk evaluation
+  const riskEvaluation = await executeRiskEvaluation(functions);
+  
+  // Display all results
+  await displayHealthResults(qualityData, structuralData, riskEvaluation, functions, options, env, targetSnapshot);
   
   console.log('');
 }
@@ -257,6 +323,86 @@ async function handleJsonOutput(env: CommandEnvironment, options: HealthCommandO
 /**
  * Generate health data - RESTORED from original implementation
  */
+/**
+ * Generate snapshot data for health report
+ */
+function generateSnapshotData(targetSnapshot: SnapshotInfo, functions: FunctionInfo[]) {
+  return {
+    id: targetSnapshot.id,
+    createdAt: new Date(targetSnapshot.createdAt).toISOString(),
+    totalFunctions: functions.length,
+  };
+}
+
+/**
+ * Generate quality metrics data for health report
+ */
+function generateQualityMetricsData(
+  qualityData: Awaited<ReturnType<typeof calculateQualityMetrics>>,
+  riskDistribution: ReturnType<typeof calculateRiskDistribution>,
+  averageRiskScore: number,
+  totalFunctions: number
+) {
+  return {
+    overallGrade: qualityData.overallGrade,
+    overallScore: qualityData.overallScore,
+    healthIndex: qualityData.healthIndex,
+    healthGrade: qualityData.healthGrade,
+    structuralDanger: qualityData.structuralDangerScore,
+    highRiskRate: ((riskDistribution.high + riskDistribution.critical) / totalFunctions) * 100,
+    criticalViolationRate: (riskDistribution.critical / totalFunctions) * 100,
+    averageRiskScore,
+    complexity: {
+      grade: qualityData.complexity.grade,
+      score: qualityData.complexity.score,
+    },
+    maintainability: {
+      grade: qualityData.maintainability.grade,
+      score: qualityData.maintainability.score,
+    },
+    size: {
+      grade: qualityData.codeSize.grade,
+      score: qualityData.codeSize.score,
+    },
+  };
+}
+
+/**
+ * Generate risk analysis data for health report
+ */
+function generateRiskAnalysisData(
+  riskDistribution: ReturnType<typeof calculateRiskDistribution>,
+  averageRiskScore: number,
+  riskAssessments: Awaited<ReturnType<typeof assessAllFunctions>>,
+  functions: FunctionInfo[]
+) {
+  // Find highest risk function
+  const highestRiskAssessment = riskAssessments
+    .sort((a, b) => b.riskScore - a.riskScore)[0];
+  
+  const highestRiskFunction = highestRiskAssessment && functions.find(f => f.id === highestRiskAssessment.functionId);
+  const totalFunctions = functions.length;
+
+  return {
+    distribution: riskDistribution,
+    percentages: {
+      high: totalFunctions > 0 ? (riskDistribution.high / totalFunctions) * 100 : 0,
+      medium: totalFunctions > 0 ? (riskDistribution.medium / totalFunctions) * 100 : 0,
+      low: totalFunctions > 0 ? (riskDistribution.low / totalFunctions) * 100 : 0,
+      critical: totalFunctions > 0 ? (riskDistribution.critical / totalFunctions) * 100 : 0,
+    },
+    averageRiskScore,
+    highestRiskFunction: highestRiskFunction ? {
+      name: highestRiskFunction.displayName,
+      riskScore: Math.round(highestRiskAssessment.riskScore),
+      location: `${highestRiskFunction.filePath}:${highestRiskFunction.startLine}`,
+    } : undefined,
+  };
+}
+
+/**
+ * Generate comprehensive health data by orchestrating all analysis components
+ */
 async function generateHealthData(env: CommandEnvironment, options: HealthCommandOptions): Promise<HealthDataForJSON> {
   const { targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
   
@@ -267,14 +413,12 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
     };
   }
 
-  // Calculate structural data for complete health assessment
+  // Calculate structural data and quality metrics
   const mode = options.mode || 'static';
   const structuralData = await analyzeStructuralMetrics(functions, targetSnapshot.id, env, mode);
-  
-  // Calculate quality metrics with structural integration
   const qualityData = await calculateQualityMetrics(functions, structuralData);
   
-  // ThresholdEvaluator-based risk assessment
+  // Perform risk assessment
   const statisticalEvaluator = new StatisticalEvaluator();
   const thresholdEvaluator = new ThresholdEvaluator();
   
@@ -285,66 +429,21 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
   
   const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
   
-  // Generate recommendations and risk details
+  // Generate recommendations and calculate risk metrics
   const includeRisks = options.risks !== false;
   const { recommendations } = await generateRiskAnalysis(
     riskAssessments, functions, includeRisks
   );
 
-  // Calculate additional metrics for enhanced health data
   const riskDistribution = calculateRiskDistribution(riskAssessments);
   const averageRiskScore = calculateAverageRiskScore(riskAssessments);
   
-  // Find highest risk function
-  const highestRiskAssessment = riskAssessments
-    .sort((a, b) => b.riskScore - a.riskScore)[0];
-  
-  const highestRiskFunction = highestRiskAssessment && functions.find(f => f.id === highestRiskAssessment.functionId);
-
+  // Assemble final health data
   return {
     status: 'success',
-    snapshot: {
-      id: targetSnapshot.id,
-      createdAt: new Date(targetSnapshot.createdAt).toISOString(),
-      totalFunctions: functions.length,
-    },
-    quality: {
-      overallGrade: qualityData.overallGrade,
-      overallScore: qualityData.overallScore,
-      healthIndex: qualityData.healthIndex,
-      healthGrade: qualityData.healthGrade,
-      structuralDanger: qualityData.structuralDangerScore,
-      highRiskRate: ((riskDistribution.high + riskDistribution.critical) / functions.length) * 100,
-      criticalViolationRate: (riskDistribution.critical / functions.length) * 100,
-      averageRiskScore,
-      complexity: {
-        grade: qualityData.complexity.grade,
-        score: qualityData.complexity.score,
-      },
-      maintainability: {
-        grade: qualityData.maintainability.grade,
-        score: qualityData.maintainability.score,
-      },
-      size: {
-        grade: qualityData.codeSize.grade,
-        score: qualityData.codeSize.score,
-      },
-    },
-    risk: {
-      distribution: riskDistribution,
-      percentages: {
-        high: functions.length > 0 ? (riskDistribution.high / functions.length) * 100 : 0,
-        medium: functions.length > 0 ? (riskDistribution.medium / functions.length) * 100 : 0,
-        low: functions.length > 0 ? (riskDistribution.low / functions.length) * 100 : 0,
-        critical: functions.length > 0 ? (riskDistribution.critical / functions.length) * 100 : 0,
-      },
-      averageRiskScore,
-      highestRiskFunction: highestRiskFunction ? {
-        name: highestRiskFunction.displayName,
-        riskScore: Math.round(highestRiskAssessment.riskScore),
-        location: `${highestRiskFunction.filePath}:${highestRiskFunction.startLine}`,
-      } : undefined,
-    },
+    snapshot: generateSnapshotData(targetSnapshot, functions),
+    quality: generateQualityMetricsData(qualityData, riskDistribution, averageRiskScore, functions.length),
+    risk: generateRiskAnalysisData(riskDistribution, averageRiskScore, riskAssessments, functions),
     recommendations: recommendations,
   };
 }
@@ -385,6 +484,102 @@ async function getTargetSnapshotAndFunctions(env: CommandEnvironment, options: H
 }
 
 /**
+ * Find target function by ID or name
+ */
+function findTargetFunction(functions: FunctionInfo[], functionIdOrName: string): FunctionInfo | null {
+  return functions.find(f => 
+    f.id === functionIdOrName || 
+    f.name === functionIdOrName ||
+    f.id.startsWith(functionIdOrName)
+  ) || null;
+}
+
+/**
+ * Display function not found error with suggestions
+ */
+function displayFunctionNotFound(functionIdOrName: string, functions: FunctionInfo[]): void {
+  console.log(`❌ Function not found: ${functionIdOrName}`);
+  console.log();
+  console.log('💡 Available functions (showing first 10):');
+  functions.slice(0, 10).forEach(f => {
+    console.log(`  • ${f.name} (ID: ${f.id.slice(0, 8)})`);
+  });
+}
+
+/**
+ * Calculate dependency metrics for a specific function
+ */
+async function calculateDependencyMetrics(
+  functions: FunctionInfo[],
+  snapshotId: string,
+  targetFunction: FunctionInfo,
+  env: CommandEnvironment
+): Promise<{ fanIn: number; fanOut: number }> {
+  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+  const dependencyCalculator = new (await import('../../../analyzers/dependency-metrics')).DependencyMetricsCalculator();
+  const entryPoints = new Set<string>();
+  const cyclicFunctions = new Set<string>();
+  const depMetrics = dependencyCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
+  
+  const functionDepMetric = depMetrics.find(m => m.functionId === targetFunction.id);
+  return {
+    fanIn: functionDepMetric?.fanIn || 0,
+    fanOut: functionDepMetric?.fanOut || 0
+  };
+}
+
+/**
+ * Display function information section
+ */
+function displayFunctionInfo(targetFunction: FunctionInfo): void {
+  console.log(`📋 Function: ${targetFunction.name}`);
+  console.log(`📂 File: ${targetFunction.filePath}:${targetFunction.startLine}`);
+  console.log(`🆔 ID: ${targetFunction.id}`);
+  console.log();
+}
+
+/**
+ * Display function context information
+ */
+function displayFunctionContext(functionContext: FunctionContext): void {
+  console.log('📊 Function Context:');
+  console.log(`  ├── Layer: ${functionContext.layer}`);
+  console.log(`  ├── Role: ${functionContext.role}`);
+  console.log(`  ├── Criticality: ${functionContext.criticality}`);
+  console.log(`  ├── Fan-in: ${functionContext.fanIn}`);
+  console.log(`  └── Fan-out: ${functionContext.fanOut}`);
+  console.log();
+}
+
+/**
+ * Display project context information
+ */
+function displayProjectContext(dynamicConfig: DynamicWeightConfig): void {
+  console.log('🏗️  Project Context:');
+  console.log(`  ├── Size: ${dynamicConfig.projectSize} functions`);
+  console.log(`  ├── Architecture: ${dynamicConfig.architecturePattern}`);
+  console.log(`  ├── Domain Complexity: ${dynamicConfig.domainComplexity}`);
+  console.log(`  └── Team Experience: ${dynamicConfig.teamExperience}`);
+  console.log();
+}
+
+/**
+ * Display dynamic thresholds comparison
+ */
+function displayDynamicThresholds(mode: EvaluationMode, dynamicCalculator: DynamicWeightCalculator, dynamicConfig: DynamicWeightConfig): void {
+  if (mode === 'dynamic') {
+    const dynamicThresholds = dynamicCalculator.calculateDynamicThresholds(dynamicConfig);
+    console.log('🎯 Dynamic Thresholds (vs. Static):');
+    console.log(`  ├── Hub Threshold: ${dynamicThresholds.hubThreshold} (static: 5)`);
+    console.log(`  ├── Complexity Threshold: ${dynamicThresholds.complexityThreshold} (static: 10)`);
+    console.log(`  ├── LOC Threshold: ${dynamicThresholds.locThreshold} (static: 40)`);
+    console.log(`  └── Cognitive Complexity: ${dynamicThresholds.cognitiveComplexityThreshold} (static: 15)`);
+  } else {
+    console.log('📋 Static mode - using default thresholds without dynamic adjustment');
+  }
+}
+
+/**
  * Handle explain weight functionality
  */
 async function handleExplainWeight(
@@ -399,32 +594,15 @@ async function handleExplainWeight(
   console.log();
 
   // Find the target function
-  const targetFunction = functions.find(f => 
-    f.id === functionIdOrName || 
-    f.name === functionIdOrName ||
-    f.id.startsWith(functionIdOrName)
-  );
-
+  const targetFunction = findTargetFunction(functions, functionIdOrName);
+  
   if (!targetFunction) {
-    console.log(`❌ Function not found: ${functionIdOrName}`);
-    console.log();
-    console.log('💡 Available functions (showing first 10):');
-    functions.slice(0, 10).forEach(f => {
-      console.log(`  • ${f.name} (ID: ${f.id.slice(0, 8)})`);
-    });
+    displayFunctionNotFound(functionIdOrName, functions);
     return;
   }
 
-  // Get dependency metrics for the function
-  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
-  const dependencyCalculator = new (await import('../../../analyzers/dependency-metrics')).DependencyMetricsCalculator();
-  const entryPoints = new Set<string>();
-  const cyclicFunctions = new Set<string>();
-  const depMetrics = dependencyCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
-  
-  const functionDepMetric = depMetrics.find(m => m.functionId === targetFunction!.id);
-  const fanIn = functionDepMetric?.fanIn || 0;
-  const fanOut = functionDepMetric?.fanOut || 0;
+  // Calculate dependency metrics
+  const { fanIn, fanOut } = await calculateDependencyMetrics(functions, snapshotId, targetFunction, env);
 
   // Create function context
   const functionContext = defaultLayerDetector.createFunctionContext(
@@ -448,45 +626,17 @@ async function handleExplainWeight(
   const dynamicCalculator = createDynamicWeightCalculator(dynamicConfig);
   const explanations = dynamicCalculator.explainWeight(functionContext, 'complexity');
 
-  // Display function information
-  console.log(`📋 Function: ${targetFunction.name}`);
-  console.log(`📂 File: ${targetFunction.filePath}:${targetFunction.startLine}`);
-  console.log(`🆔 ID: ${targetFunction.id}`);
-  console.log();
-
-  // Display function context
-  console.log('📊 Function Context:');
-  console.log(`  ├── Layer: ${functionContext.layer}`);
-  console.log(`  ├── Role: ${functionContext.role}`);
-  console.log(`  ├── Criticality: ${functionContext.criticality}`);
-  console.log(`  ├── Fan-in: ${functionContext.fanIn}`);
-  console.log(`  └── Fan-out: ${functionContext.fanOut}`);
-  console.log();
-
-  // Display project context
-  console.log('🏗️  Project Context:');
-  console.log(`  ├── Size: ${dynamicConfig.projectSize} functions`);
-  console.log(`  ├── Architecture: ${dynamicConfig.architecturePattern}`);
-  console.log(`  ├── Domain Complexity: ${dynamicConfig.domainComplexity}`);
-  console.log(`  └── Team Experience: ${dynamicConfig.teamExperience}`);
-  console.log();
-
+  // Display all information sections
+  displayFunctionInfo(targetFunction);
+  displayFunctionContext(functionContext);
+  displayProjectContext(dynamicConfig);
+  
   // Display weight explanation
   explanations.forEach(line => console.log(line));
   console.log();
 
-  // Display dynamic thresholds if in dynamic mode
-  if (mode === 'dynamic') {
-    const dynamicThresholds = dynamicCalculator.calculateDynamicThresholds(dynamicConfig);
-    console.log('🎯 Dynamic Thresholds (vs. Static):');
-    console.log(`  ├── Hub Threshold: ${dynamicThresholds.hubThreshold} (static: 5)`);
-    console.log(`  ├── Complexity Threshold: ${dynamicThresholds.complexityThreshold} (static: 10)`);
-    console.log(`  ├── LOC Threshold: ${dynamicThresholds.locThreshold} (static: 40)`);
-    console.log(`  └── Cognitive Complexity: ${dynamicThresholds.cognitiveComplexityThreshold} (static: 15)`);
-  } else {
-    console.log('📋 Static mode - using default thresholds without dynamic adjustment');
-  }
-
+  // Display dynamic thresholds
+  displayDynamicThresholds(mode, dynamicCalculator, dynamicConfig);
   console.log();
 }
 
