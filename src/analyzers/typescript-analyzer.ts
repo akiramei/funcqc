@@ -37,6 +37,22 @@ interface FunctionMetadata {
 }
 
 /**
+ * Configuration constants for TypeScript analyzer
+ */
+const ANALYZER_CONSTANTS = {
+  // Memory management
+  DEFAULT_MAX_SOURCE_FILES: 50,
+  HIGH_MEMORY_USAGE_MULTIPLIER: 2,
+  
+  // TypeScript compiler options
+  TARGET_ES_VERSION: 99, // ESNext
+  JSX_MODE: 4, // Preserve
+  
+  // Performance thresholds
+  MEMORY_WARNING_THRESHOLD_FACTOR: 2,
+} as const;
+
+/**
  * TypeScript analyzer using ts-morph for robust AST parsing
  * Optimized for large-scale projects with streaming and memory management
  */
@@ -49,7 +65,7 @@ export class TypeScriptAnalyzer {
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
 
-  constructor(maxSourceFilesInMemory: number = 50, enableCache: boolean = true, logger?: Logger) {
+  constructor(maxSourceFilesInMemory: number = ANALYZER_CONSTANTS.DEFAULT_MAX_SOURCE_FILES, enableCache: boolean = true, logger?: Logger) {
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.logger = logger || new Logger(false, false);
     this.unifiedAnalyzer = new UnifiedASTAnalyzer(maxSourceFilesInMemory);
@@ -62,8 +78,8 @@ export class TypeScriptAnalyzer {
         skipLibCheck: true,
         noResolve: true,
         noLib: true,
-        target: 99, // ESNext
-        jsx: 4, // Preserve
+        target: ANALYZER_CONSTANTS.TARGET_ES_VERSION, // ESNext
+        jsx: ANALYZER_CONSTANTS.JSX_MODE, // Preserve
       },
     });
 
@@ -402,7 +418,7 @@ export class TypeScriptAnalyzer {
       isConstructor: false,
       isStatic: false,
       sourceCode: func.getFullText().trim(),
-      parameters: this.extractFunctionParameters(func),
+      parameters: this.extractParameters(func),
     };
 
     if (returnType) {
@@ -509,7 +525,7 @@ export class TypeScriptAnalyzer {
       isConstructor: false,
       isStatic: method.isStatic(),
       sourceCode: method.getFullText().trim(),
-      parameters: this.extractMethodParameters(method),
+      parameters: this.extractParameters(method),
     };
 
     if (returnType) {
@@ -603,7 +619,7 @@ export class TypeScriptAnalyzer {
       isConstructor: true,
       isStatic: false,
       sourceCode: ctor.getFullText().trim(),
-      parameters: this.extractConstructorParameters(ctor),
+      parameters: this.extractParameters(ctor),
     };
 
     const scope = ctor.getScope();
@@ -724,7 +740,7 @@ export class TypeScriptAnalyzer {
       isConstructor: false,
       isStatic: false,
       sourceCode: functionNode.getFullText().trim(),
-      parameters: this.extractArrowFunctionParameters(functionNode),
+      parameters: this.extractParameters(functionNode),
     };
 
     if (metadata.returnType) {
@@ -841,19 +857,6 @@ export class TypeScriptAnalyzer {
     });
   }
 
-  private extractFunctionParameters(func: FunctionDeclaration): ParameterInfo[] {
-    return this.extractParameters(func);
-  }
-
-  private extractMethodParameters(method: MethodDeclaration): ParameterInfo[] {
-    return this.extractParameters(method);
-  }
-
-  private extractArrowFunctionParameters(
-    func: ArrowFunction | FunctionExpression
-  ): ParameterInfo[] {
-    return this.extractParameters(func);
-  }
 
   private extractFunctionReturnType(func: FunctionDeclaration): ReturnTypeInfo | undefined {
     const returnTypeNode = func.getReturnTypeNode();
@@ -914,9 +917,6 @@ export class TypeScriptAnalyzer {
     return returnInfo;
   }
 
-  private extractConstructorParameters(ctor: ConstructorDeclaration): ParameterInfo[] {
-    return this.extractParameters(ctor);
-  }
 
   private simplifyType(typeText: string): string {
     if (typeText.includes('string')) return 'string';
@@ -1002,63 +1002,75 @@ export class TypeScriptAnalyzer {
    * Extract hierarchical context path for a function
    */
   private extractContextPath(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
   ): string[] {
-    const path: string[] = [];
-    let current = node.getParent();
-
-    while (current) {
-      if (current.getKind() === SyntaxKind.ClassDeclaration) {
-        const className = (current as ClassDeclaration).getName();
-        if (className) path.unshift(className);
-      } else if (current.getKind() === SyntaxKind.ModuleDeclaration) {
-        const moduleName = (current as ModuleDeclaration).getName();
-        path.unshift(moduleName);
-      } else if (current.getKind() === SyntaxKind.FunctionDeclaration) {
-        const funcName = (current as FunctionDeclaration).getName();
-        if (funcName) path.unshift(funcName);
+    return this.traverseParents(node, (parent) => {
+      if (parent.getKind() === SyntaxKind.ClassDeclaration) {
+        return (parent as ClassDeclaration).getName();
+      } else if (parent.getKind() === SyntaxKind.ModuleDeclaration) {
+        return (parent as ModuleDeclaration).getName();
+      } else if (parent.getKind() === SyntaxKind.FunctionDeclaration) {
+        return (parent as FunctionDeclaration).getName();
       }
-      const nextParent = current.getParent();
-      if (!nextParent) break;
-      current = nextParent;
-    }
-
-    return path;
+      return undefined;
+    });
   }
 
   /**
    * Extract function modifiers as string array
    */
   private extractModifiers(node: FunctionDeclaration | MethodDeclaration): string[] {
-    const modifiers: string[] = [];
-
     if (Node.isFunctionDeclaration(node)) {
-      if (node.isAsync()) modifiers.push('async');
-      if (node.isExported()) modifiers.push('exported');
-      if (node.getAsteriskToken()) modifiers.push('generator');
+      return this.extractFunctionModifiers(node);
     }
-
+    
     if (Node.isMethodDeclaration(node)) {
-      if (node.isAsync()) modifiers.push('async');
-      if (node.isStatic()) modifiers.push('static');
-      if (node.getAsteriskToken()) modifiers.push('generator');
-
-      const accessModifier = node
-        .getModifiers()
-        .find(m =>
-          [
-            SyntaxKind.PublicKeyword,
-            SyntaxKind.PrivateKeyword,
-            SyntaxKind.ProtectedKeyword,
-          ].includes(m.getKind())
-        );
-      if (accessModifier) {
-        modifiers.push(accessModifier.getText());
-      } else {
-        modifiers.push('public'); // Default access modifier
-      }
+      return this.extractMethodModifiers(node);
     }
+    
+    return [];
+  }
 
+  /**
+   * Extract modifiers specific to function declarations
+   */
+  private extractFunctionModifiers(node: FunctionDeclaration): string[] {
+    const modifiers: string[] = [];
+    
+    if (node.isAsync()) modifiers.push('async');
+    if (node.isExported()) modifiers.push('exported');
+    if (node.getAsteriskToken()) modifiers.push('generator');
+    
+    return modifiers;
+  }
+
+  /**
+   * Extract modifiers specific to method declarations
+   */
+  private extractMethodModifiers(node: MethodDeclaration): string[] {
+    const modifiers: string[] = [];
+    
+    if (node.isAsync()) modifiers.push('async');
+    if (node.isStatic()) modifiers.push('static');
+    if (node.getAsteriskToken()) modifiers.push('generator');
+
+    // Extract access modifier (public, private, protected)
+    const accessModifier = node
+      .getModifiers()
+      .find(m =>
+        [
+          SyntaxKind.PublicKeyword,
+          SyntaxKind.PrivateKeyword,
+          SyntaxKind.ProtectedKeyword,
+        ].includes(m.getKind())
+      );
+    
+    if (accessModifier) {
+      modifiers.push(accessModifier.getText());
+    } else {
+      modifiers.push('public'); // Default access modifier in TypeScript
+    }
+    
     return modifiers;
   }
 
@@ -1066,9 +1078,9 @@ export class TypeScriptAnalyzer {
    * Determine function type based on node type and context
    */
   private determineFunctionType(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
   ): 'function' | 'method' | 'arrow' | 'local' {
-    if (Node.isMethodDeclaration(node)) {
+    if (Node.isMethodDeclaration(node) || Node.isConstructorDeclaration(node)) {
       return 'method';
     }
     if (Node.isArrowFunction(node)) {
@@ -1081,7 +1093,8 @@ export class TypeScriptAnalyzer {
       if (
         Node.isFunctionDeclaration(parent) ||
         Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent)
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent)
       ) {
         return 'local';
       }
@@ -1097,25 +1110,17 @@ export class TypeScriptAnalyzer {
    * Calculate nesting level for the function
    */
   private calculateNestingLevel(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
   ): number {
-    let level = 0;
-    let parent = node.getParent();
-
-    while (parent && !Node.isSourceFile(parent)) {
-      if (
+    return this.countParents(node, (parent) => {
+      return (
         Node.isFunctionDeclaration(parent) ||
         Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent)
-      ) {
-        level++;
-      }
-      const nextParent = parent.getParent();
-      if (!nextParent) break;
-      parent = nextParent;
-    }
-
-    return level;
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent) ||
+        Node.isConstructorDeclaration(parent)
+      );
+    });
   }
 
   /**
@@ -1143,13 +1148,58 @@ export class TypeScriptAnalyzer {
   }
 
   /**
+   * Generic utility to traverse parent nodes and extract values
+   */
+  private traverseParents(
+    node: Node,
+    extractor: (parent: Node) => string | undefined
+  ): string[] {
+    const results: string[] = [];
+    let current = node.getParent();
+
+    while (current && !Node.isSourceFile(current)) {
+      const extracted = extractor(current);
+      if (extracted) {
+        results.unshift(extracted);
+      }
+      const nextParent = current.getParent();
+      if (!nextParent) break;
+      current = nextParent;
+    }
+
+    return results;
+  }
+
+  /**
+   * Generic utility to count parent nodes matching a condition
+   */
+  private countParents(
+    node: Node,
+    condition: (parent: Node) => boolean
+  ): number {
+    let count = 0;
+    let current = node.getParent();
+
+    while (current && !Node.isSourceFile(current)) {
+      if (condition(current)) {
+        count++;
+      }
+      const nextParent = current.getParent();
+      if (!nextParent) break;
+      current = nextParent;
+    }
+
+    return count;
+  }
+
+  /**
    * Manage memory by cleaning up project if too many source files are loaded
    */
   private manageMemory(): void {
     // Note: Memory management disabled - SourceFiles must remain available
     // for shared Project usage. Project disposal will be handled by parent FunctionAnalyzer
     const sourceFiles = this.project.getSourceFiles();
-    if (sourceFiles.length > this.maxSourceFilesInMemory * 2) {
+    if (sourceFiles.length > this.maxSourceFilesInMemory * ANALYZER_CONSTANTS.MEMORY_WARNING_THRESHOLD_FACTOR) {
       // Log warning if memory usage is very high
       this.logger.warn(`Warning: ${sourceFiles.length} SourceFiles in memory. Consider using smaller batch sizes.`);
     }

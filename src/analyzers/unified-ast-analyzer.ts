@@ -211,10 +211,7 @@ export class UnifiedASTAnalyzer {
       name,
       this.generateSignatureText(node),
       contextPath,
-      modifiers,
-      startLine,
-      endLine,
-      sourceCode
+      modifiers
     );
 
     const description = this.extractJsDocDescription(node);
@@ -363,10 +360,7 @@ export class UnifiedASTAnalyzer {
     name: string,
     signature: string,
     contextPath: string[],
-    modifiers: string[],
-    startLine: number,
-    endLine: number,
-    sourceCode: string
+    modifiers: string[]
   ): string {
     // セマンティックIDは関数の「意味的同一性」を表す
     // 実装内容が変わっても、ユーザーから見て「同じ関数」であることを識別する
