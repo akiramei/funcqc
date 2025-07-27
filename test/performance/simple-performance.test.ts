@@ -78,7 +78,7 @@ describe('Performance Optimization Tests', () => {
 
     // Measure save performance
     const startTime = Date.now();
-    await storage.saveSnapshot(testFunctions, 'performance-test');
+    await storage.saveSnapshot(testFunctions, 'performance-test', undefined, 'test-config-hash');
     const saveTime = Date.now() - startTime;
 
     console.log(`Saved ${testFunctions.length} functions in ${saveTime}ms`);
@@ -153,7 +153,7 @@ describe('Performance Optimization Tests', () => {
     }
 
     const startTime = Date.now();
-    await storage.saveSnapshot(largeBatch, 'large-batch-test');
+    await storage.saveSnapshot(largeBatch, 'large-batch-test', undefined, 'large-test-config-hash');
     const totalTime = Date.now() - startTime;
 
     console.log(`Large batch results:`);
