@@ -89,19 +89,28 @@ export async function calculateTrendAnalysis(env: CommandEnvironment, period: nu
     if (intervalSnapshots.length === 0) continue;
 
     const avgComplexity = intervalSnapshots.reduce((sum, s) => {
-      // Use snapshot's metadata directly
-      const metadata = s.metadata as { avgComplexity?: number };
-      return sum + (metadata?.avgComplexity || 0);
+      // Use snapshot's metadata with type guard for safety
+      const metadata = s.metadata;
+      const avgComplexity = (metadata && typeof metadata === 'object' && 'avgComplexity' in metadata && typeof metadata.avgComplexity === 'number') 
+        ? metadata.avgComplexity 
+        : 0;
+      return sum + avgComplexity;
     }, 0) / intervalSnapshots.length;
     
     const totalFunctions = intervalSnapshots.reduce((sum, s) => {
-      const metadata = s.metadata as { totalFunctions?: number };
-      return sum + (metadata?.totalFunctions || 0);
+      const metadata = s.metadata;
+      const totalFunctions = (metadata && typeof metadata === 'object' && 'totalFunctions' in metadata && typeof metadata.totalFunctions === 'number') 
+        ? metadata.totalFunctions 
+        : 0;
+      return sum + totalFunctions;
     }, 0) / intervalSnapshots.length;
     
     const highRiskCount = intervalSnapshots.reduce((sum, s) => {
-      const metadata = s.metadata as { complexityDistribution?: Record<string, number> };
-      const complexityDistribution = metadata?.complexityDistribution || {};
+      const metadata = s.metadata;
+      const complexityDistribution = (metadata && typeof metadata === 'object' && 'complexityDistribution' in metadata && 
+        metadata.complexityDistribution && typeof metadata.complexityDistribution === 'object') 
+        ? metadata.complexityDistribution as Record<string, number>
+        : {};
       const highRisk = Object.entries(complexityDistribution)
         .filter(([complexity]) => parseInt(complexity) >= 10)
         .reduce((count, [, functions]) => count + (functions || 0), 0);
