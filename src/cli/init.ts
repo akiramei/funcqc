@@ -72,16 +72,30 @@ async function showCurrentConfig(): Promise<void> {
       console.log(chalk.gray('But the configuration appears to be empty or invalid.'));
       
       // Try to load the file directly for troubleshooting
-      // Only attempt dynamic import for JavaScript files
-      if (result.filepath.endsWith('.js') || result.filepath.endsWith('.mjs')) {
-        try {
-          const { default: directLoad } = await import(result.filepath);
-          console.log(chalk.gray('Direct file content:'), JSON.stringify(directLoad, null, 2));
-        } catch (error) {
-          console.log(chalk.red(`Error loading configuration file: ${error instanceof Error ? error.message : String(error)}`));
+      try {
+        const ext = path.extname(result.filepath).toLowerCase();
+        let directLoad;
+        
+        if (ext === '.js' || ext === '.ts' || ext === '.mjs') {
+          const module = await import(result.filepath);
+          directLoad = module.default || module;
+        } else if (ext === '.json') {
+          const content = await fs.readFile(result.filepath, 'utf8');
+          directLoad = JSON.parse(content);
+        } else if (ext === '.yaml' || ext === '.yml') {
+          // YAML parsing would require a dependency like js-yaml
+          console.log(chalk.gray('YAML file detected - manual inspection required'));
+          return;
+        } else {
+          console.log(chalk.gray('Unsupported file type - using cosmiconfig result above'));
+          return;
         }
-      } else {
-        console.log(chalk.gray('Note: Dynamic import skipped for non-JS file. Use cosmiconfig result above.'));
+        
+        if (directLoad) {
+          console.log(chalk.gray('Direct file content:'), JSON.stringify(directLoad, null, 2));
+        }
+      } catch (error) {
+        console.log(chalk.red(`Error loading configuration file: ${error instanceof Error ? error.message : String(error)}`));
       }
     }
     return;
