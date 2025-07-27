@@ -21,6 +21,7 @@ import {
   ThresholdEvaluator, 
   assessAllFunctions, 
   calculateRiskDistribution,
+  calculateAverageRiskScore,
   calculateEnhancedRiskStats 
 } from './risk-evaluator';
 import { generateRiskAnalysis } from './recommendations';
@@ -448,15 +449,6 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
   };
 }
 
-/**
- * Calculate average risk score - RESTORED from original implementation
- */
-function calculateAverageRiskScore(riskAssessments: FunctionRiskAssessment[]): number {
-  if (riskAssessments.length === 0) return 0;
-  
-  const totalRiskScore = riskAssessments.reduce((sum, assessment) => sum + assessment.riskScore, 0);
-  return totalRiskScore / riskAssessments.length;
-}
 
 /**
  * Get target snapshot and functions

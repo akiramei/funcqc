@@ -19,7 +19,9 @@ export class ConfidenceCalculator {
     'import_exact': 0.95,
     'cha_resolved': 0.8,
     'rta_resolved': 0.9,
-    'runtime_confirmed': 1.0
+    'runtime_confirmed': 1.0,
+    'external_detected': 0.7,
+    'callback_registration': 0.8
   };
 
   /**

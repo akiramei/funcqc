@@ -5,7 +5,7 @@
 
 import { FunctionInfo } from '../../../types';
 import { FunctionRiskAssessment, RecommendedAction, RiskDistribution } from './types';
-import { calculateEnhancedRiskStats } from './risk-evaluator';
+import { calculateEnhancedRiskStats, calculateRiskDistribution, calculateAverageRiskScore } from './risk-evaluator';
 
 /**
  * Generate detailed risk analysis with specific recommendations
@@ -264,40 +264,6 @@ function generateStrategicRecommendations(
   return recommendations;
 }
 
-/**
- * Calculate risk distribution from assessments (local version for this module)
- */
-function calculateRiskDistribution(riskAssessments: FunctionRiskAssessment[]): RiskDistribution {
-  const distribution: RiskDistribution = { low: 0, medium: 0, high: 0, critical: 0 };
-  
-  riskAssessments.forEach(assessment => {
-    switch (assessment.riskLevel) {
-      case 'low':
-        distribution.low++;
-        break;
-      case 'medium':
-        distribution.medium++;
-        break;
-      case 'high':
-        distribution.high++;
-        break;
-      case 'critical':
-        distribution.critical++;
-        break;
-    }
-  });
-  
-  return distribution;
-}
-
-/**
- * Calculate average risk score (local version for this module)
- */
-function calculateAverageRiskScore(riskAssessments: FunctionRiskAssessment[]): number {
-  if (riskAssessments.length === 0) return 0;
-  const totalScore = riskAssessments.reduce((sum, assessment) => sum + assessment.riskScore, 0);
-  return Math.round((totalScore / riskAssessments.length) * 100) / 100;
-}
 
 /**
  * Display top risk functions with detailed information
