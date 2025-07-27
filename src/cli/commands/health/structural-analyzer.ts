@@ -325,7 +325,7 @@ function cleanupExpiredCacheEntries(): void {
 /**
  * Phase 2: Calculate maximum directory depth from source files
  */
-function calculateMaxDirectoryDepth(sourceFiles: SourceFile[]): number {
+export function calculateMaxDirectoryDepth(sourceFiles: SourceFile[]): number {
   let maxDepth = 0;
   
   for (const file of sourceFiles) {

@@ -11,7 +11,7 @@ import { DatabaseError } from '../../../storage/pglite-adapter';
 import { resolveSnapshotId } from '../../../utils/snapshot-resolver';
 import { calculateQualityMetrics } from './calculator';
 import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from '../../../types';
-import { analyzeStructuralMetrics, getSCCCacheStats } from './structural-analyzer';
+import { analyzeStructuralMetrics, getSCCCacheStats, calculateMaxDirectoryDepth } from './structural-analyzer';
 import { displayHealthOverview, displayStructuralHealth, formatDateTime } from './display';
 import { defaultLayerDetector } from '../../../analyzers/architecture-layer-detector';
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
@@ -188,20 +188,6 @@ async function displayPhase2Analysis(env: CommandEnvironment, snapshotId: string
   console.log(`📋 Structure Complexity: ${getStructureComplexity(maxDirectoryDepth)}`);
 }
 
-/**
- * Calculate maximum directory depth from source files
- */
-function calculateMaxDirectoryDepth(sourceFiles: Array<{ filePath: string }>): number {
-  let maxDepth = 0;
-  
-  for (const file of sourceFiles) {
-    const pathParts = file.filePath.split('/').filter((part: string) => part.length > 0);
-    const depth = pathParts.length - 1; // Subtract 1 for the filename itself
-    maxDepth = Math.max(maxDepth, depth);
-  }
-  
-  return maxDepth;
-}
 
 /**
  * Get project scale category
