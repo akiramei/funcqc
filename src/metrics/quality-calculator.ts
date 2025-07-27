@@ -18,6 +18,7 @@ export class QualityCalculator {
    * Calculate quality metrics for a function (legacy method)
    */
   calculate(functionInfo: FunctionInfo): QualityMetrics {
+    
     // Parse the source code to get AST
     const sourceFile = ts.createSourceFile(
       'temp.ts',
@@ -31,8 +32,12 @@ export class QualityCalculator {
 
     const findFunction = (node: ts.Node) => {
       if (this.isFunctionLike(node)) {
-        functionNode = node as ts.FunctionLikeDeclaration;
-        return;
+        // Check if this is the function we're looking for
+        const nodeName = this.getFunctionName(node);
+        if (nodeName === functionInfo.name) {
+          functionNode = node as ts.FunctionLikeDeclaration;
+          return;
+        }
       }
       ts.forEachChild(node, findFunction);
     };
@@ -1100,5 +1105,27 @@ export class QualityCalculator {
     mi = Math.max(0, Math.min(100, mi));
 
     return Math.round(mi * 100) / 100;
+  }
+
+  /**
+   * Extract function name from TypeScript AST node
+   */
+  private getFunctionName(node: ts.Node): string | null {
+    if (ts.isFunctionDeclaration(node)) {
+      return node.name?.text || null;
+    }
+    if (ts.isMethodDeclaration(node)) {
+      if (ts.isIdentifier(node.name)) {
+        return node.name.text;
+      }
+    }
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+      // For anonymous functions, we can't get a name
+      return null;
+    }
+    if (ts.isConstructorDeclaration(node)) {
+      return 'constructor';
+    }
+    return null;
   }
 }

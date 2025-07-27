@@ -209,19 +209,19 @@ export class TypeScriptAnalyzer {
       const fileHash = this.calculateFileHash(content);
       
       // Extract all function types
-      sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration).forEach(func => {
-        const info = this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, content);
+      for (const func of sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
+        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, content);
         if (info) functions.push(info);
-      });
+      }
       
-      sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration).forEach(method => {
-        const info = this.extractMethodInfo(method, relativePath, fileHash, sourceFile, content);
+      for (const method of sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
+        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile, content);
         if (info) functions.push(info);
-      });
+      }
       
-      sourceFile.getClasses().forEach(classDecl => {
-        classDecl.getConstructors().forEach(constructor => {
-          const info = this.extractConstructorInfo(
+      for (const classDecl of sourceFile.getClasses()) {
+        for (const constructor of classDecl.getConstructors()) {
+          const info = await this.extractConstructorInfo(
             constructor,
             relativePath,
             fileHash,
@@ -229,15 +229,14 @@ export class TypeScriptAnalyzer {
             content
           );
           if (info) functions.push(info);
-        });
-      });
+        }
+      }
       
       // Arrow functions and function expressions
-      this.extractVariableFunctions(sourceFile, relativePath, fileHash, content).forEach(
-        info => {
-          functions.push(info);
-        }
-      );
+      const variableFunctions = await this.extractVariableFunctions(sourceFile, relativePath, fileHash, content);
+      for (const info of variableFunctions) {
+        functions.push(info);
+      }
       
       // Clean up virtual source file
       this.project.removeSourceFile(sourceFile);
@@ -343,13 +342,13 @@ export class TypeScriptAnalyzer {
     }
   }
 
-  private extractFunctionInfo(
+  private async extractFunctionInfo(
     func: FunctionDeclaration,
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
     fileContent: string
-  ): FunctionInfo | null {
+  ): Promise<FunctionInfo | null> {
     const name = func.getName();
     if (!name) return null;
 
@@ -386,6 +385,8 @@ export class TypeScriptAnalyzer {
     );
     const contentId = this.generateContentId(astHash, functionBody);
 
+    const sourceCodeText = func.getFullText().trim();
+
     const functionInfo: FunctionInfo = {
       id: physicalId,
       semanticId,
@@ -417,7 +418,7 @@ export class TypeScriptAnalyzer {
       isMethod: false,
       isConstructor: false,
       isStatic: false,
-      sourceCode: func.getFullText().trim(),
+      sourceCode: sourceCodeText,
       parameters: this.extractParameters(func),
     };
 
@@ -425,16 +426,20 @@ export class TypeScriptAnalyzer {
       functionInfo.returnType = returnType;
     }
 
+    // Calculate metrics directly from ts-morph node while we have it
+    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(func, functionInfo);
+
     return functionInfo;
   }
 
-  private extractMethodInfo(
+  private async extractMethodInfo(
     method: MethodDeclaration,
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
     fileContent: string
-  ): FunctionInfo | null {
+  ): Promise<FunctionInfo | null> {
     const name = method.getName();
     if (!name) return null;
 
@@ -534,16 +539,20 @@ export class TypeScriptAnalyzer {
 
     // Note: accessModifier and contextPath are now handled by UnifiedASTAnalyzer
 
+    // Calculate metrics directly from ts-morph node while we have it
+    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(method, functionInfo);
+
     return functionInfo;
   }
 
-  private extractConstructorInfo(
+  private async extractConstructorInfo(
     ctor: ConstructorDeclaration,
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
     fileContent: string
-  ): FunctionInfo | null {
+  ): Promise<FunctionInfo | null> {
     const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
     const fullName = `${className}.constructor`;
     const signature = this.getConstructorSignature(ctor, className);
@@ -626,6 +635,10 @@ export class TypeScriptAnalyzer {
     if (scope && scope !== 'public') {
       functionInfo.accessModifier = scope;
     }
+
+    // Calculate metrics directly from ts-morph node while we have it
+    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(ctor, functionInfo);
 
     return functionInfo;
   }
@@ -750,18 +763,18 @@ export class TypeScriptAnalyzer {
     return functionInfo;
   }
 
-  private extractVariableFunctions(
+  private async extractVariableFunctions(
     sourceFile: SourceFile,
     relativePath: string,
     fileHash: string,
     fileContent: string
-  ): FunctionInfo[] {
+  ): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
 
-    sourceFile.getVariableStatements().forEach(stmt => {
-      stmt.getDeclarations().forEach(decl => {
+    for (const stmt of sourceFile.getVariableStatements()) {
+      for (const decl of stmt.getDeclarations()) {
         const initializer = decl.getInitializer();
-        if (!initializer) return;
+        if (!initializer) continue;
 
         const name = decl.getName();
         const functionNode = this.extractFunctionNodeFromVariable(initializer);
@@ -771,8 +784,8 @@ export class TypeScriptAnalyzer {
           const functionInfo = this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
           functions.push(functionInfo);
         }
-      });
-    });
+      }
+    }
 
     return functions;
   }

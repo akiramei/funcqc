@@ -217,7 +217,11 @@ export async function performBasicAnalysis(
       
       // Calculate metrics and set source file ID
       for (const func of functions) {
-        func.metrics = components.qualityCalculator.calculate(func);
+        // Only calculate metrics if not already calculated during extraction
+        if (!func.metrics) {
+          func.metrics = components.qualityCalculator.calculate(func);
+        }
+        
         // Use sourceFileIdMap from N:1 design (must exist)
         const mappedId = sourceFileIdMap?.get(func.filePath);
         if (!mappedId) {
@@ -453,6 +457,7 @@ async function performFullAnalysis(
   
   try {
     spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
+    console.log('🔍 DEBUG: Starting ideal call graph analysis...');
     const result = await functionAnalyzer.analyzeFilesWithIdealCallGraph(files);
     
     spinner.text = `Ideal analysis completed: ${result.functions.length} functions, ${result.callEdges.length} call edges`;
@@ -484,6 +489,7 @@ async function performFullAnalysis(
   } catch (error) {
     console.warn('⚠️  Ideal call graph analysis failed, falling back to legacy analysis');
     console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    console.log('🔍 DEBUG: Falling back to legacy analysis - sourceCode should be properly set there');
     
     // Fallback to legacy analysis
     const fallbackResult = await performLegacyAnalysis(files, components, spinner);
