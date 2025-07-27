@@ -72,11 +72,16 @@ async function showCurrentConfig(): Promise<void> {
       console.log(chalk.gray('But the configuration appears to be empty or invalid.'));
       
       // Try to load the file directly for troubleshooting
-      try {
-        const { default: directLoad } = await import(result.filepath);
-        console.log(chalk.gray('Direct file content:'), JSON.stringify(directLoad, null, 2));
-      } catch (error) {
-        console.log(chalk.red(`Error loading configuration file: ${error instanceof Error ? error.message : String(error)}`));
+      // Only attempt dynamic import for JavaScript files
+      if (result.filepath.endsWith('.js') || result.filepath.endsWith('.mjs')) {
+        try {
+          const { default: directLoad } = await import(result.filepath);
+          console.log(chalk.gray('Direct file content:'), JSON.stringify(directLoad, null, 2));
+        } catch (error) {
+          console.log(chalk.red(`Error loading configuration file: ${error instanceof Error ? error.message : String(error)}`));
+        }
+      } else {
+        console.log(chalk.gray('Note: Dynamic import skipped for non-JS file. Use cosmiconfig result above.'));
       }
     }
     return;

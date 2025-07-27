@@ -116,7 +116,7 @@ const ROLE_CRITERIA: RoleDetectionCriteria[] = [
   },
   {
     role: 'support',
-    predicate: (fanIn, fanOut, _total) => fanIn >= 1 && fanOut >= 1
+    predicate: (fanIn, fanOut, total) => fanIn >= Math.max(1, total * 0.001) && fanOut >= 1
   }
 ];
 

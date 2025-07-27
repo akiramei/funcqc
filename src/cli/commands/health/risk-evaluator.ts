@@ -195,7 +195,7 @@ export class ThresholdEvaluator {
   evaluateFunctionThresholds(
     metrics: QualityMetrics,
     thresholds: QualityThresholds,
-    _projectStats: ProjectStatistics
+    projectStats: ProjectStatistics
   ): Array<{
     type: string;
     level: 'info' | 'warning' | 'error' | 'critical';
@@ -205,21 +205,24 @@ export class ThresholdEvaluator {
   }> {
     const violations = [];
 
+    // Apply project-size adjustments to thresholds
+    const adjustedThresholds = this.adjustThresholdsForProject(thresholds, projectStats);
+
     // Complexity violations
-    if (metrics.cyclomaticComplexity >= thresholds.complexity.critical) {
+    if (metrics.cyclomaticComplexity >= adjustedThresholds.complexity.critical) {
       violations.push({
         type: 'complexity',
         level: 'critical' as const,
         message: 'Critical complexity level',
-        threshold: thresholds.complexity.critical,
+        threshold: adjustedThresholds.complexity.critical,
         actual: metrics.cyclomaticComplexity
       });
-    } else if (metrics.cyclomaticComplexity >= thresholds.complexity.high) {
+    } else if (metrics.cyclomaticComplexity >= adjustedThresholds.complexity.high) {
       violations.push({
         type: 'complexity',
         level: 'error' as const,
         message: 'High complexity level',
-        threshold: thresholds.complexity.high,
+        threshold: adjustedThresholds.complexity.high,
         actual: metrics.cyclomaticComplexity
       });
     }
@@ -328,26 +331,16 @@ export class ThresholdEvaluator {
       threshold?: number;
       actual?: number;
     }>,
-    _riskConfig: QualityThresholds
+    riskConfig: QualityThresholds
   ): FunctionRiskAssessment {
     let riskScore = 0;
 
-    // Calculate risk score based on violations
+    // Calculate risk score based on violations and configuration
     violations.forEach(violation => {
-      switch (violation.level) {
-        case 'critical':
-          riskScore += 4;
-          break;
-        case 'error':
-          riskScore += 2;
-          break;
-        case 'warning':
-          riskScore += 1;
-          break;
-        case 'info':
-          riskScore += 0.5;
-          break;
-      }
+      // Use riskConfig for dynamic scoring weight
+      const baseWeight = this.getViolationWeight(violation.level);
+      const contextualWeight = this.calculateContextualWeight(violation, metrics, riskConfig);
+      riskScore += baseWeight * contextualWeight;
     });
 
     // Determine risk level
@@ -380,6 +373,58 @@ export class ThresholdEvaluator {
         nestingDepth: metrics.maxNestingLevel
       }
     };
+  }
+
+  /**
+   * Adjust thresholds based on project statistics
+   */
+  private adjustThresholdsForProject(
+    thresholds: QualityThresholds,
+    projectStats: ProjectStatistics
+  ): QualityThresholds {
+    // For large projects, be slightly more lenient with complexity
+    const sizeMultiplier = projectStats.totalFunctions > 1000 ? 1.1 : 1.0;
+    
+    return {
+      ...thresholds,
+      complexity: {
+        critical: Math.ceil(thresholds.complexity.critical * sizeMultiplier),
+        high: Math.ceil(thresholds.complexity.high * sizeMultiplier),
+        medium: Math.ceil(thresholds.complexity.medium * sizeMultiplier)
+      }
+    };
+  }
+
+  /**
+   * Get base weight for violation level
+   */
+  private getViolationWeight(level: 'info' | 'warning' | 'error' | 'critical'): number {
+    switch (level) {
+      case 'critical': return 4;
+      case 'error': return 2;
+      case 'warning': return 1;
+      case 'info': return 0.5;
+    }
+  }
+
+  /**
+   * Calculate contextual weight based on violation context
+   */
+  private calculateContextualWeight(
+    violation: { type: string; threshold?: number; actual?: number },
+    metrics: QualityMetrics,
+    riskConfig: QualityThresholds
+  ): number {
+    // Base contextual weight
+    let weight = 1.0;
+    
+    // If we have threshold and actual values, calculate severity
+    if (violation.threshold && violation.actual) {
+      const severity = violation.actual / violation.threshold;
+      weight *= Math.min(severity, 2.0); // Cap at 2x multiplier
+    }
+    
+    return weight;
   }
 }
 

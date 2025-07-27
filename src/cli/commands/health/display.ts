@@ -29,8 +29,19 @@ export function displayHealthOverview(healthData: HealthData): void {
   console.log(`  ├── Traditional Grade: ${healthData.overallGrade} (${healthData.overallScore}/100)`);
   
   // Calculate rates for display
-  console.log(`  ├── High Risk Function Rate: 2.6% (Good)`); // This would need actual calculation
-  console.log(`  ├── Critical Violation Rate: 1.94% (High)`); // This would need actual calculation
+  const highRiskRate = healthData.highRiskFunctionRate?.toFixed(2) ?? 'N/A';
+  const criticalViolationRate = healthData.criticalViolationRate?.toFixed(2) ?? 'N/A';
+  
+  // Determine status based on rates
+  const highRiskStatus = healthData.highRiskFunctionRate !== undefined 
+    ? (healthData.highRiskFunctionRate <= 5 ? 'Good' : healthData.highRiskFunctionRate <= 15 ? 'Fair' : 'Poor')
+    : 'Unknown';
+  const criticalStatus = healthData.criticalViolationRate !== undefined
+    ? (healthData.criticalViolationRate <= 2 ? 'Good' : healthData.criticalViolationRate <= 10 ? 'Fair' : 'High')
+    : 'Unknown';
+    
+  console.log(`  ├── High Risk Function Rate: ${highRiskRate}% (${highRiskStatus})`);
+  console.log(`  ├── Critical Violation Rate: ${criticalViolationRate}% (${criticalStatus})`);
   console.log(`  └── Structural Danger Score: ${healthData.structuralDangerScore.toFixed(2)}/100`);
   console.log('');
 
@@ -182,7 +193,7 @@ export function displayPageRankMetrics(pageRank: PageRankMetrics, verbose: boole
   
   const convergenceStatus = pageRank.converged 
     ? chalk.green(`✅ Converged in ${pageRank.iterations} iterations`)
-    : chalk.red(`❌ Did not converge (${pageRank.iterations}/${pageRank.iterations} iterations)`);
+    : chalk.red(`❌ Did not converge after ${pageRank.iterations} iterations`);
   
   console.log(`  ├── Convergence: ${convergenceStatus}`);
   console.log(`  ├── Functions Analyzed: ${pageRank.totalFunctions}`);

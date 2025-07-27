@@ -20,6 +20,10 @@ export interface HealthData {
   structuralDangerScore: number;
   structure?: StructuralMetrics;
   rawHealthIndex?: number; // Before risk multiplier adjustment
+  // Additional rate calculations
+  highRiskFunctionRate?: number; // Percentage of high risk functions
+  criticalViolationRate?: number; // Percentage of critical violations
+  totalFunctionCount?: number; // Total number of functions analyzed
 }
 
 export interface StructuralMetrics {

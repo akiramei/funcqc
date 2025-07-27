@@ -246,7 +246,7 @@ export class DynamicWeightCalculator {
    * Calculate project size weight
    */
   private calculateProjectSizeWeight(projectSize: number): number {
-    for (const [_key, config] of Object.entries(PROJECT_SIZE_MULTIPLIERS)) {
+    for (const config of Object.values(PROJECT_SIZE_MULTIPLIERS)) {
       if (projectSize < config.threshold) {
         return config.multiplier;
       }
