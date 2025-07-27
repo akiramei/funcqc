@@ -11,6 +11,7 @@ import { defaultLayerDetector } from '../../../analyzers/architecture-layer-dete
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 import { StructuralMetrics, PageRankMetrics } from './types';
 import { calculateStructuralPenaltyBreakdown } from './calculator';
+import { performLayerBasedPageRank } from './layer-based-pagerank';
 
 // In-memory cache for SCC analysis results
 interface SCCCacheEntry {
@@ -113,6 +114,25 @@ export async function analyzeStructuralMetrics(
     // Calculate structural risk level
     const structuralRisk = calculateStructuralRisk(sccResult, hubFunctions, maxFanIn, maxFanOut);
     
+    // Perform layer-based PageRank analysis (optional)
+    let layerBasedAnalysis;
+    try {
+      const layerAnalysis = await performLayerBasedPageRank(functions, callEdges);
+      layerBasedAnalysis = {
+        overallMetrics: layerAnalysis.overallMetrics,
+        layerResults: layerAnalysis.layerResults.map(result => ({
+          layerName: result.layerName,
+          functionCount: result.functionCount,
+          topFunctions: result.topFunctions,
+          giniCoefficient: result.giniCoefficient
+        })),
+        crossLayerInsights: layerAnalysis.crossLayerInsights
+      };
+    } catch (error) {
+      // Layer-based analysis is optional, log error but continue
+      env.commandLogger.debug('Layer-based PageRank analysis failed:', error);
+    }
+    
     // Create PageRank metrics object
     const pageRankMetrics: PageRankMetrics = {
       totalFunctions: pageRankResult.totalFunctions,
@@ -123,7 +143,8 @@ export async function analyzeStructuralMetrics(
       centralityVariance: centralityMetrics.centralityVariance,
       centralityGini: centralityMetrics.centralityGini,
       importanceDistribution: pageRankResult.importanceDistribution,
-      topCentralFunctions: centralityMetrics.topCentralFunctions
+      topCentralFunctions: centralityMetrics.topCentralFunctions,
+      ...(layerBasedAnalysis && { layerBasedAnalysis })
     };
 
     // Create base structural metrics object

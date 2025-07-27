@@ -58,8 +58,31 @@ export interface PageRankMetrics {
   topCentralFunctions: Array<{
     functionId: string;
     functionName: string;
+    filePath: string;
+    startLine: number;
     centrality: number;
   }>;
+  // Layer-based analysis (optional)
+  layerBasedAnalysis?: {
+    overallMetrics: {
+      totalFunctions: number;
+      totalLayers: number;
+      analyzedLayers: number;
+    };
+    layerResults: Array<{
+      layerName: string;
+      functionCount: number;
+      topFunctions: Array<{
+        functionId: string;
+        functionName: string;
+        filePath: string;
+        startLine: number;
+        centrality: number;
+      }>;
+      giniCoefficient: number;
+    }>;
+    crossLayerInsights: string[];
+  };
 }
 
 export interface StructuralPenaltyBreakdown {
@@ -106,4 +129,122 @@ export interface TrendPoint {
   healthIndex: number;
   overallScore: number;
   highRiskCount: number;
+}
+
+export interface RecommendedAction {
+  priority: number;
+  functionName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  riskScore: number;
+  action: string;
+  suggestions: string[];
+  metrics: {
+    cyclomaticComplexity: number;
+    linesOfCode: number;
+  };
+}
+
+export interface RiskDistribution {
+  low: number;
+  medium: number;
+  high: number;
+  critical: number;
+}
+
+// RESTORED: Original HealthData interface for JSON output
+export interface HealthDataForJSON {
+  status: 'success' | 'no-data';
+  message?: string;
+  snapshot?: {
+    id: string;
+    createdAt: string;
+    totalFunctions: number;
+  };
+  quality?: {
+    overallGrade: string;
+    overallScore: number;
+    // NEW: Integrated health scoring
+    healthIndex?: number;
+    healthGrade?: string;
+    structuralDanger?: number;
+    highRiskRate?: number;
+    criticalViolationRate?: number;
+    averageRiskScore?: number;
+    complexity: {
+      grade: string;
+      score: number;
+    };
+    maintainability: {
+      grade: string;
+      score: number;
+    };
+    size: {
+      grade: string;
+      score: number;
+    };
+  };
+  risk?: {
+    distribution: RiskDistribution;
+    percentages: {
+      high: number;
+      medium: number;
+      low: number;
+      critical: number;
+    };
+    averageRiskScore?: number;
+    highestRiskFunction?: {
+      name: string;
+      riskScore: number;
+      location: string;
+    } | undefined;
+  };
+  git?: unknown;
+  recommendations?: RecommendedAction[] | undefined;
+}
+
+export interface FunctionRiskAssessment {
+  functionId: string;
+  functionName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  riskScore: number;
+  violations: Array<{
+    type: string;
+    level: 'info' | 'warning' | 'error' | 'critical';
+    message: string;
+    threshold?: number;
+    actual?: number;
+  }>;
+  metrics: {
+    cyclomaticComplexity: number;
+    cognitiveComplexity: number;
+    linesOfCode: number;
+    maintainabilityIndex: number;
+    parameterCount: number;
+    nestingDepth: number;
+  };
+}
+
+// RESTORED: Trend analysis types from original implementation
+export interface TrendData {
+  period: string;
+  snapshots: Array<{ id: string; createdAt: number; metadata?: { avgComplexity?: number; totalFunctions?: number; complexityDistribution?: Record<string, number> } }>;
+  avgComplexity: number;
+  totalFunctions: number;
+  highRiskCount: number;
+  qualityScore: number;
+  healthIndex?: number;
+  structuralDanger?: number;
+  trend: 'improving' | 'stable' | 'degrading';
+}
+
+export interface TrendAnalysis {
+  periods: TrendData[];
+  overallTrend: 'improving' | 'stable' | 'degrading';
+  keyInsights: string[];
+  recommendations: string[];
 }

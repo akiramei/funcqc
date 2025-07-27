@@ -17,6 +17,7 @@ export interface PageRankScore {
   functionId: string;
   functionName: string;
   filePath: string;
+  startLine: number;
   score: number;
   rank: number;               // 1-based ranking
   normalizedScore: number;    // Score normalized to 0-1 range
@@ -238,6 +239,7 @@ export class PageRankCalculator {
         functionId: item.functionId,
         functionName: item.functionInfo.name,
         filePath: item.functionInfo.filePath,
+        startLine: item.functionInfo.startLine,
         score: item.score,
         rank: index + 1,
         normalizedScore,
@@ -304,7 +306,7 @@ export class PageRankCalculator {
     callEdges: CallEdge[]
   ): {
     centralityScores: Map<string, number>;
-    topCentralFunctions: Array<{ functionId: string; functionName: string; centrality: number }>;
+    topCentralFunctions: Array<{ functionId: string; functionName: string; filePath: string; startLine: number; centrality: number }>;
     centralityVariance: number;
     centralityGini: number;
   } {
@@ -343,6 +345,8 @@ export class PageRankCalculator {
       .map(score => ({
         functionId: score.functionId,
         functionName: score.functionName,
+        filePath: score.filePath,
+        startLine: score.startLine,
         centrality: score.normalizedScore
       }));
 

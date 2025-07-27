@@ -12,9 +12,19 @@ import { resolveSnapshotId } from '../../../utils/snapshot-resolver';
 import { calculateQualityMetrics } from './calculator';
 import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from '../../../types';
 import { analyzeStructuralMetrics, getSCCCacheStats } from './structural-analyzer';
-import { displayHealthOverview, displayStructuralHealth, displayRiskDistribution, formatDateTime } from './display';
+import { displayHealthOverview, displayStructuralHealth, formatDateTime } from './display';
 import { defaultLayerDetector } from '../../../analyzers/architecture-layer-detector';
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
+import { 
+  StatisticalEvaluator, 
+  ThresholdEvaluator, 
+  assessAllFunctions, 
+  calculateRiskDistribution,
+  calculateEnhancedRiskStats 
+} from './risk-evaluator';
+import { generateRiskAnalysis } from './recommendations';
+import { displayTrendAnalysis } from './trend-analyzer';
+import { HealthDataForJSON, FunctionRiskAssessment } from './types';
 
 /**
  * Health command as a Reader function
@@ -60,6 +70,11 @@ async function executeHealthCommand(env: CommandEnvironment, options: HealthComm
     await handleJsonOutput(env, options);
   } else {
     await displayHealthOverview_Interactive(env, options);
+    
+    // RESTORED: Trend analysis functionality
+    if (options.trend) {
+      await displayTrendAnalysis(env, options);
+    }
   }
 }
 
@@ -103,14 +118,23 @@ async function displayHealthOverview_Interactive(env: CommandEnvironment, option
 
   // Display structural health
   if (structuralData) {
-    displayStructuralHealth(structuralData);
+    displayStructuralHealth(structuralData, options.verbose);
   }
 
-  // Display risk distribution (simplified for now)
-  const riskCounts = { critical: 0, high: 59, medium: 49, low: 2162 }; // TODO: Calculate actual values
-  displayRiskDistribution(riskCounts, functions.length);
-
-  console.log('💡 Recommendation: Focus on refactoring the 59 high-risk functions to improve structural health.');
+  // RESTORED: Original risk assessment and recommendations from the screenshot
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  if (functionsWithMetrics.length > 0) {
+    const statisticalEvaluator = new StatisticalEvaluator();
+    const thresholdEvaluator = new ThresholdEvaluator();
+    const allMetrics = functionsWithMetrics.map(f => f.metrics!);
+    const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
+    const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+    const riskAssessments = await assessAllFunctions(functionsWithMetrics, projectStats, thresholds);
+    const enhancedRiskStats = calculateEnhancedRiskStats(riskAssessments, functions);
+    
+    // Display original recommendation format exactly as in screenshot
+    await displayOriginalHealthFormat(functions, riskAssessments, enhancedRiskStats, options.verbose || false);
+  }
   
   // Display cache statistics in debug mode
   if (process.env['NODE_ENV'] === 'development' || process.env['DEBUG']) {
@@ -118,6 +142,30 @@ async function displayHealthOverview_Interactive(env: CommandEnvironment, option
   }
   
   console.log('');
+}
+
+/**
+ * Display original health format exactly as shown in screenshot
+ */
+async function displayOriginalHealthFormat(
+  functions: FunctionInfo[],
+  riskAssessments: FunctionRiskAssessment[],
+  enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
+  verbose: boolean
+): Promise<void> {
+  // Calculate high-risk functions
+  const highRiskFunctions = riskAssessments.filter(a => a.riskLevel === 'high' || a.riskLevel === 'critical');
+  
+  // Display main recommendation
+  console.log(`🔸 ${chalk.yellow('Recommendation')}: Focus on refactoring the ${highRiskFunctions.length} high-risk functions to improve structural health.`);
+  console.log('');
+  
+  // Display top high-risk functions header
+  console.log(`🔸 ${chalk.yellow('Top High-Risk Functions')}:`);
+  
+  // Import and call the detailed recommendations display
+  const { displayTopRisksWithDetails } = await import('./detailed-recommendations');
+  await displayTopRisksWithDetails(functions, riskAssessments, enhancedRiskStats, verbose);
 }
 
 /**
@@ -209,11 +257,120 @@ function displayCacheStats(): void {
 }
 
 /**
- * Handle JSON output mode
+ * Handle JSON output mode - RESTORED from original implementation
  */
-async function handleJsonOutput(_env: CommandEnvironment, _options: HealthCommandOptions): Promise<void> {
-  // TODO: Implement JSON output logic
-  throw new Error('JSON output not implemented yet');
+async function handleJsonOutput(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
+  if (options.aiOptimized) {
+    env.commandLogger.warn('Warning: --ai-optimized option is deprecated. Use --json instead.');
+  }
+
+  const health = await generateHealthData(env, options);
+  console.log(JSON.stringify(health, null, 2));
+}
+
+/**
+ * Generate health data - RESTORED from original implementation
+ */
+async function generateHealthData(env: CommandEnvironment, options: HealthCommandOptions): Promise<HealthDataForJSON> {
+  const { targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
+  
+  if (!targetSnapshot) {
+    return {
+      status: 'no-data',
+      message: 'No snapshots found. Run `funcqc scan` to create your first snapshot.',
+    };
+  }
+
+  // Calculate structural data for complete health assessment
+  const mode = options.mode || 'static';
+  const structuralData = await analyzeStructuralMetrics(functions, targetSnapshot.id, env, mode);
+  
+  // Calculate quality metrics with structural integration
+  const qualityData = await calculateQualityMetrics(functions, structuralData);
+  
+  // ThresholdEvaluator-based risk assessment
+  const statisticalEvaluator = new StatisticalEvaluator();
+  const thresholdEvaluator = new ThresholdEvaluator();
+  
+  const functionsWithMetrics = functions.filter(f => f.metrics);
+  const allMetrics = functionsWithMetrics.map(f => f.metrics!);
+  const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
+  const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+  
+  const riskAssessments = await assessAllFunctions(functions, projectStats, thresholds);
+  
+  // Generate recommendations and risk details
+  const includeRisks = options.risks !== false;
+  const { recommendations } = await generateRiskAnalysis(
+    riskAssessments, functions, includeRisks
+  );
+
+  // Calculate additional metrics for enhanced health data
+  const riskDistribution = calculateRiskDistribution(riskAssessments);
+  const averageRiskScore = calculateAverageRiskScore(riskAssessments);
+  
+  // Find highest risk function
+  const highestRiskAssessment = riskAssessments
+    .sort((a, b) => b.riskScore - a.riskScore)[0];
+  
+  const highestRiskFunction = highestRiskAssessment && functions.find(f => f.id === highestRiskAssessment.functionId);
+
+  return {
+    status: 'success',
+    snapshot: {
+      id: targetSnapshot.id,
+      createdAt: new Date(targetSnapshot.createdAt).toISOString(),
+      totalFunctions: functions.length,
+    },
+    quality: {
+      overallGrade: qualityData.overallGrade,
+      overallScore: qualityData.overallScore,
+      healthIndex: qualityData.healthIndex,
+      healthGrade: qualityData.healthGrade,
+      structuralDanger: qualityData.structuralDangerScore,
+      highRiskRate: ((riskDistribution.high + riskDistribution.critical) / functions.length) * 100,
+      criticalViolationRate: (riskDistribution.critical / functions.length) * 100,
+      averageRiskScore,
+      complexity: {
+        grade: qualityData.complexity.grade,
+        score: qualityData.complexity.score,
+      },
+      maintainability: {
+        grade: qualityData.maintainability.grade,
+        score: qualityData.maintainability.score,
+      },
+      size: {
+        grade: qualityData.codeSize.grade,
+        score: qualityData.codeSize.score,
+      },
+    },
+    risk: {
+      distribution: riskDistribution,
+      percentages: {
+        high: functions.length > 0 ? (riskDistribution.high / functions.length) * 100 : 0,
+        medium: functions.length > 0 ? (riskDistribution.medium / functions.length) * 100 : 0,
+        low: functions.length > 0 ? (riskDistribution.low / functions.length) * 100 : 0,
+        critical: functions.length > 0 ? (riskDistribution.critical / functions.length) * 100 : 0,
+      },
+      averageRiskScore,
+      highestRiskFunction: highestRiskFunction ? {
+        name: highestRiskFunction.displayName,
+        riskScore: Math.round(highestRiskAssessment.riskScore),
+        location: `${highestRiskFunction.filePath}:${highestRiskFunction.startLine}`,
+      } : undefined,
+    },
+    recommendations: recommendations,
+  };
+}
+
+/**
+ * Calculate average risk score - RESTORED from original implementation
+ */
+function calculateAverageRiskScore(riskAssessments: FunctionRiskAssessment[]): number {
+  if (riskAssessments.length === 0) return 0;
+  
+  const totalRiskScore = riskAssessments.reduce((sum, assessment) => sum + assessment.riskScore, 0);
+  return totalRiskScore / riskAssessments.length;
 }
 
 /**
@@ -346,3 +503,5 @@ async function handleExplainWeight(
 
   console.log();
 }
+
+

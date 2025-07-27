@@ -44,7 +44,7 @@ export function displayHealthOverview(healthData: HealthData): void {
 /**
  * Display structural health overview
  */
-export function displayStructuralHealth(structuralData: StructuralMetrics): void {
+export function displayStructuralHealth(structuralData: StructuralMetrics, verbose: boolean = false): void {
   console.log(chalk.yellow('🏗️  Structural Health Overview:'));
   
   const hubThreshold = structuralData.hubThreshold || 5;
@@ -62,7 +62,8 @@ export function displayStructuralHealth(structuralData: StructuralMetrics): void
   
   // Display PageRank metrics if available
   if (structuralData.pageRank) {
-    displayPageRankMetrics(structuralData.pageRank);
+    console.log('');  // Add spacing before PageRank section
+    displayPageRankMetrics(structuralData.pageRank, verbose);
   }
   
   console.log('');
@@ -133,9 +134,50 @@ export function formatDateTime(date: string | Date | number): string {
 }
 
 /**
+ * Display layer-based PageRank analysis
+ */
+function displayLayerBasedPageRank(layerAnalysis: NonNullable<PageRankMetrics['layerBasedAnalysis']>): void {
+  console.log('');
+  console.log(chalk.cyan('📊 Layer-Based PageRank Analysis:'));
+  console.log(`  ├── Total Layers: ${layerAnalysis.overallMetrics.totalLayers}`);
+  console.log(`  ├── Analyzed Layers: ${layerAnalysis.overallMetrics.analyzedLayers}`);
+  console.log(`  └── Total Functions: ${layerAnalysis.overallMetrics.totalFunctions}`);
+  
+  // Display each layer's results
+  for (const layer of layerAnalysis.layerResults) {
+    console.log('');
+    console.log(chalk.yellow(`  🏗️  Layer: ${layer.layerName}`));
+    console.log(`  ├── Functions: ${layer.functionCount}`);
+    console.log(`  ├── Gini Coefficient: ${(layer.giniCoefficient * 100).toFixed(1)}% ${getGiniRiskIndicator(layer.giniCoefficient)}`);
+    
+    if (layer.topFunctions.length > 0) {
+      console.log(`  └── Top Central Functions:`);
+      layer.topFunctions.forEach((func, index) => {
+        const centralityPct = (func.centrality * 100).toFixed(1);
+        const icon = index === 0 ? '👑' : index < 2 ? '⭐' : '🟢';
+        const isLast = index === layer.topFunctions.length - 1;
+        console.log(`      ${isLast ? '└──' : '├──'} ${icon} ${func.functionName} (${func.filePath}:${func.startLine}) [${centralityPct}%]`);
+      });
+    } else {
+      console.log(`  └── No significant central functions`);
+    }
+  }
+  
+  // Display cross-layer insights
+  if (layerAnalysis.crossLayerInsights.length > 0) {
+    console.log('');
+    console.log(chalk.yellow('  💡 Cross-Layer Insights:'));
+    layerAnalysis.crossLayerInsights.forEach((insight, index) => {
+      const isLast = index === layerAnalysis.crossLayerInsights.length - 1;
+      console.log(`  ${isLast ? '└──' : '├──'} ${insight}`);
+    });
+  }
+}
+
+/**
  * Display PageRank centrality metrics
  */
-export function displayPageRankMetrics(pageRank: PageRankMetrics): void {
+export function displayPageRankMetrics(pageRank: PageRankMetrics, verbose: boolean = false): void {
   console.log(chalk.yellow('🎯 PageRank Centrality Analysis:'));
   
   const convergenceStatus = pageRank.converged 
@@ -170,8 +212,14 @@ export function displayPageRankMetrics(pageRank: PageRankMetrics): void {
     topFunctions.forEach((func, index) => {
       const centralityPct = (func.centrality * 100).toFixed(1);
       const icon = index === 0 ? '👑' : index < 3 ? '⭐' : '🟢';
-      console.log(`  ${index === topFunctions.length - 1 ? '└──' : '├──'} ${icon} ${func.functionName} (${centralityPct}%)`);
+      const location = func.filePath && func.startLine ? ` (${func.filePath}:${func.startLine})` : '';
+      console.log(`  ${index === topFunctions.length - 1 ? '└──' : '├──'} ${icon} ${func.functionName}${location} (${centralityPct}%)`);
     });
+  }
+  
+  // Display layer-based analysis if available (only in verbose mode)
+  if (verbose && pageRank.layerBasedAnalysis) {
+    displayLayerBasedPageRank(pageRank.layerBasedAnalysis);
   }
 }
 
