@@ -32,6 +32,8 @@ export class CHAAnalysisStage {
     chaCandidates: Map<string, MethodInfo[]>;
     unresolvedMethodCallsForRTA: UnresolvedMethodCall[];
   }> {
+    this.logger.debug(`CHA received ${unresolvedMethodCalls.length} unresolved method calls`);
+    
     if (unresolvedMethodCalls.length === 0) {
       this.logger.debug('No unresolved method calls for CHA analysis');
       return {
@@ -39,6 +41,11 @@ export class CHAAnalysisStage {
         chaCandidates: new Map(),
         unresolvedMethodCallsForRTA: []
       };
+    }
+
+    // Debug: Log unresolved method calls for debugging
+    for (const call of unresolvedMethodCalls.slice(0, 5)) { // Log first 5 calls
+      console.log(`🐛 Unresolved call: ${call.methodName} on ${call.receiverType || 'unknown'} from ${call.callerFunctionId}`);
     }
 
     try {

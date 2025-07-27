@@ -4,6 +4,7 @@ import { StagedAnalysisEngine } from '../../src/analyzers/staged-analysis/staged
 import { FunctionRegistry } from '../../src/analyzers/function-registry';
 import { CHAAnalyzer } from '../../src/analyzers/cha-analyzer';
 import { RTAAnalyzer } from '../../src/analyzers/rta-analyzer';
+import { Logger } from '../../src/utils/cli-utils';
 
 // Skip entire suite in CI to prevent CI failures
 describe.skipIf(process.env.CI === 'true')('CHA/RTA Method Call Resolution Integration', () => {
@@ -27,7 +28,8 @@ describe.skipIf(process.env.CI === 'true')('CHA/RTA Method Call Resolution Integ
     });
     
     const typeChecker = project.getTypeChecker();
-    engine = new StagedAnalysisEngine(project, typeChecker);
+    const debugLogger = new Logger(true, true); // Enable debug and verbose
+    engine = new StagedAnalysisEngine(project, typeChecker, { logger: debugLogger });
     functionRegistry = new FunctionRegistry(project);
     chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     rtaAnalyzer = new RTAAnalyzer(project, typeChecker);

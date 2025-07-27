@@ -6,7 +6,7 @@
  */
 
 import * as ts from 'typescript';
-import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration, ClassDeclaration, Node } from 'ts-morph';
+import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration, Node } from 'ts-morph';
 import { FunctionInfo, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../types';
 // import { createHash } from 'crypto'; // Now using globalHashCache
 import { QualityCalculator } from '../metrics/quality-calculator';
@@ -194,6 +194,8 @@ export class UnifiedASTAnalyzer {
     // Extract contextPath and accessModifier
     const contextPath = this.extractContextPath(node);
     const accessModifier = this.extractAccessModifier(node);
+    const functionType = this.determineFunctionType(node);
+    const nestingLevel = this.calculateNestingLevel(node);
     
 
     // Generate IDs using optimized hash cache
@@ -235,14 +237,16 @@ export class UnifiedASTAnalyzer {
       isMethod: node instanceof MethodDeclaration,
       isConstructor: node instanceof ConstructorDeclaration,
       isStatic: false,
+      functionType,
+      nestingLevel,
       
-      // Add contextPath and accessModifier
+      // Add contextPath and accessModifier  
       contextPath
     };
     
     // Add accessModifier only if it's not public (to match expected behavior)
     if (accessModifier && accessModifier !== 'public') {
-      (functionInfo as any).accessModifier = accessModifier;
+      (functionInfo as Record<string, unknown>).accessModifier = accessModifier;
     }
 
     // Add description only if it exists
@@ -377,6 +381,63 @@ export class UnifiedASTAnalyzer {
     const asyncModifier = this.isAsyncFunction(node) ? 'async ' : '';
     
     return `${asyncModifier}${name}(${params}): ${returnType}`;
+  }
+
+  /**
+   * Determine function type based on node type and context
+   */
+  private determineFunctionType(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): 'function' | 'method' | 'arrow' | 'local' {
+    if (Node.isMethodDeclaration(node) || Node.isConstructorDeclaration(node)) {
+      return 'method';
+    }
+    if (Node.isArrowFunction(node)) {
+      return 'arrow';
+    }
+    // Check if it's a local function (inside another function)
+    let parent = node.getParent();
+    while (parent && !Node.isSourceFile(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent)
+      ) {
+        return 'local';
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    return 'function';
+  }
+
+  /**
+   * Calculate nesting level for the function
+   */
+  private calculateNestingLevel(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let level = 0;
+    let parent = node.getParent();
+    
+    while (parent && !Node.isSourceFile(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent) ||
+        Node.isConstructorDeclaration(parent)
+      ) {
+        level++;
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    
+    return level;
   }
 
   /**

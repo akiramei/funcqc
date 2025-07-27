@@ -144,6 +144,7 @@ export class StagedAnalysisEngine {
 
     // Stage 3: CHA Analysis
     this.logger.debug('Stage 3: CHA analysis...');
+    console.log(`🐛 DEBUG: unresolvedMethodCalls length: ${this.state.unresolvedMethodCalls.length}`);
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
