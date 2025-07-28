@@ -103,6 +103,11 @@ function buildParameterRows(func: FunctionInfo): unknown[][] {
 }
 
 function buildMetricsRow(func: FunctionInfo): unknown[] {
+  // Debug: log the actual metrics structure
+  if (process.env['DEBUG_METRICS']) {
+    console.log('DEBUG_METRICS: func.metrics structure:', JSON.stringify(func.metrics, null, 2));
+  }
+  
   return [
     func.id,
     func.metrics!.linesOfCode,
