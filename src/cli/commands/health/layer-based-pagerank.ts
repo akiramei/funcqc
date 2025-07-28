@@ -188,7 +188,6 @@ export async function performLayerBasedPageRank(
   // Generate cross-layer insights
   const crossLayerInsights = generateCrossLayerInsights(
     layerResults,
-    functionsByLayer,
     callEdges,
     functionLayerMap
   );
@@ -209,7 +208,6 @@ export async function performLayerBasedPageRank(
  */
 function generateCrossLayerInsights(
   layerResults: LayerPageRankResult[],
-  _functionsByLayer: Map<string, FunctionInfo[]>,
   callEdges: CallEdge[],
   functionLayerMap: Map<string, string>
 ): string[] {

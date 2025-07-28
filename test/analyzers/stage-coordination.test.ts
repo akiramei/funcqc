@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { Project, Node, CallExpression, PropertyAccessExpression } from 'ts-morph';
+import { Project, Node, CallExpression, PropertyAccessExpression, SyntaxKind } from 'ts-morph';
 import { LocalExactAnalysisStage } from '../../src/analyzers/staged-analysis/stages/local-exact-analysis';
 import { ImportExactAnalysisStage } from '../../src/analyzers/staged-analysis/stages/import-exact-analysis';
 import { SymbolCache } from '../../src/utils/symbol-cache';
@@ -67,7 +67,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
         }
       `);
 
-      const callExpressions = sourceFile.getDescendantsOfKind(207) as CallExpression[];
+      const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression) as CallExpression[];
       
       // Act & Assert
       callExpressions.forEach(callExpr => {
@@ -269,7 +269,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
 
       importStage.buildFunctionLookupMap(functions);
 
-      const callExpressions = sourceFile.getDescendantsOfKind(207) as CallExpression[];
+      const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression) as CallExpression[];
       const newExpressions = sourceFile.getDescendantsOfKind(208) as any[];
 
       // Act
@@ -483,7 +483,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
           // Then import stage for remaining calls
           importStage.buildFunctionLookupMap(functions);
           
-          const callExpressions = sourceFile.getDescendantsOfKind(207) as CallExpression[];
+          const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression) as CallExpression[];
           const newExpressions = sourceFile.getDescendantsOfKind(208) as any[];
           
           return importStage.analyzeImportCalls(callExpressions, newExpressions, functions, state);
@@ -557,7 +557,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
         .then(() => {
           importStage.buildFunctionLookupMap(functions);
           
-          const callExpressions = sourceFile.getDescendantsOfKind(207) as CallExpression[];
+          const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression) as CallExpression[];
           const newExpressions = sourceFile.getDescendantsOfKind(208) as any[];
           
           return importStage.analyzeImportCalls(callExpressions, newExpressions, functions, state);
@@ -646,7 +646,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
         .then(() => {
           importStage.buildFunctionLookupMap(functions);
           
-          const callExpressions = sourceFile.getDescendantsOfKind(207) as CallExpression[];
+          const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression) as CallExpression[];
           const newExpressions = sourceFile.getDescendantsOfKind(208) as any[];
           
           return importStage.analyzeImportCalls(callExpressions, newExpressions, functions, state);

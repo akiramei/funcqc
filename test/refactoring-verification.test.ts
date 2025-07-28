@@ -150,8 +150,8 @@ describe('Refactoring Verification', () => {
     expect(updateUser?.parameters[0].name).toBe('id');
 
     // Verify constructor parameters
-    const constructor = functions.find(f => f.name === 'constructor');
-    expect(constructor?.parameters).toHaveLength(2);
+    const constructorFunc = functions.find(f => f.name === 'constructor');
+    expect(constructorFunc?.parameters).toHaveLength(2);
 
     // Verify arrow function parameters
     const calculateTotal = functions.find(f => f.name === 'calculateTotal');
