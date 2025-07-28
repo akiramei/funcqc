@@ -710,37 +710,63 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.ensureInitialized();
     if (edges.length === 0) return;
     
-    // Insert directly into internal_call_edges table with correct schema
-    for (const edge of edges) {
-      await this.db.query(
-        `INSERT INTO internal_call_edges (
+    // Use transaction for atomic insertion
+    await this.db.transaction(async (trx) => {
+      // Prepare batch insert values
+      const values = edges.map(edge => [
+        edge.id,
+        edge.snapshotId,
+        edge.filePath,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.callerName,
+        edge.calleeName,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.lineNumber,
+        edge.columnNumber,
+        edge.callType,
+        edge.callContext || null,
+        edge.confidenceScore,
+        edge.detectedBy,
+        edge.createdAt || new Date().toISOString()
+      ]);
+      
+      // Batch insert using unnest for better performance
+      const query = `
+        INSERT INTO internal_call_edges (
           id, snapshot_id, file_path, caller_function_id, callee_function_id,
           caller_name, callee_name, caller_class_name, callee_class_name,
           line_number, column_number, call_type, call_context, 
           confidence_score, detected_by, created_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
-        [
-          edge.id,
-          edge.snapshotId,
-          edge.filePath,
-          edge.callerFunctionId,
-          edge.calleeFunctionId,
-          edge.callerName,
-          edge.calleeName,
-          edge.callerClassName || null,
-          edge.calleeClassName || null,
-          edge.lineNumber,
-          edge.columnNumber,
-          edge.callType,
-          edge.callContext || null,
-          edge.confidenceScore,
-          edge.detectedBy,
-          edge.createdAt || new Date().toISOString()
-        ]
-      );
-    }
+        ) 
+        SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                            $6::text[], $7::text[], $8::text[], $9::text[],
+                            $10::int[], $11::int[], $12::text[], $13::text[],
+                            $14::float[], $15::text[], $16::timestamptz[])
+      `;
+      
+      await trx.query(query, [
+        values.map(v => v[0]),  // ids
+        values.map(v => v[1]),  // snapshot_ids
+        values.map(v => v[2]),  // file_paths
+        values.map(v => v[3]),  // caller_function_ids
+        values.map(v => v[4]),  // callee_function_ids
+        values.map(v => v[5]),  // caller_names
+        values.map(v => v[6]),  // callee_names
+        values.map(v => v[7]),  // caller_class_names
+        values.map(v => v[8]),  // callee_class_names
+        values.map(v => v[9]),  // line_numbers
+        values.map(v => v[10]), // column_numbers
+        values.map(v => v[11]), // call_types
+        values.map(v => v[12]), // call_contexts
+        values.map(v => v[13]), // confidence_scores
+        values.map(v => v[14]), // detected_by
+        values.map(v => v[15])  // created_at
+      ]);
+    });
     
-    console.log(`Inserted ${edges.length} internal call edges`);
+    console.log(`Batch inserted ${edges.length} internal call edges`);
   }
 
   async getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]> {
