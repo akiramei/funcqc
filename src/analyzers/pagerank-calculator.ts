@@ -337,7 +337,7 @@ export class PageRankCalculator {
       giniSum += (2 * (i + 1) - n - 1) * sortedCentrality[i];
     }
     
-    const centralityGini = n > 1 ? giniSum / (n * avgCentrality * (n - 1)) : 0;
+    const centralityGini = (n > 1 && avgCentrality > 0) ? giniSum / (n * avgCentrality * (n - 1)) : 0;
 
     // Get top central functions
     const topCentralFunctions = result.scores

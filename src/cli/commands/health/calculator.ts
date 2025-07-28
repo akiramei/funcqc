@@ -141,6 +141,36 @@ export async function calculateQualityMetrics(
     throw new Error('No functions with metrics found');
   }
 
+  // Calculate risk assessment for high-risk and critical function rates
+  let highRiskFunctionRate: number | undefined;
+  let criticalViolationRate: number | undefined;
+  
+  try {
+    // Import risk evaluator components
+    const { StatisticalEvaluator, ThresholdEvaluator, assessAllFunctions, calculateRiskDistribution } = 
+      await import('./risk-evaluator');
+    
+    // Perform risk assessment
+    const statisticalEvaluator = new StatisticalEvaluator();
+    const thresholdEvaluator = new ThresholdEvaluator();
+    const projectStats = statisticalEvaluator.calculateProjectStatistics(allMetrics);
+    const thresholds = thresholdEvaluator.getDefaultQualityThresholds();
+    const riskAssessments = await assessAllFunctions(functionsWithMetrics, projectStats, thresholds);
+    const riskDistribution = calculateRiskDistribution(riskAssessments);
+    
+    // Calculate rates as percentages
+    const totalFunctions = functions.length;
+    highRiskFunctionRate = totalFunctions > 0 
+      ? ((riskDistribution.high + riskDistribution.critical) / totalFunctions) * 100 
+      : 0;
+    criticalViolationRate = totalFunctions > 0 
+      ? (riskDistribution.critical / totalFunctions) * 100 
+      : 0;
+  } catch (error) {
+    // If risk assessment fails, leave rates as undefined to show N/A
+    console.warn('Risk assessment failed, some metrics will show as N/A:', error);
+  }
+
   // Calculate individual component scores
   const complexityScores = allMetrics.map(m => Math.max(0, 100 - (m.cyclomaticComplexity * 4)));
   const maintainabilityScore = calculateCompositeMaintainability(allMetrics);
@@ -189,7 +219,10 @@ export async function calculateQualityMetrics(
     maintainability,
     codeSize,
     structuralDangerScore,
-    rawHealthIndex: Math.round(rawHealthIndex * 100) / 100 // For debugging/transparency
+    rawHealthIndex: Math.round(rawHealthIndex * 100) / 100, // For debugging/transparency
+    ...(highRiskFunctionRate !== undefined && { highRiskFunctionRate }),
+    ...(criticalViolationRate !== undefined && { criticalViolationRate }),
+    totalFunctionCount: functions.length
   };
 
   if (structuralData) {
