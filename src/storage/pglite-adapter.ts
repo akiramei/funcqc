@@ -766,7 +766,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ]);
     });
     
-    console.log(`Batch inserted ${edges.length} internal call edges`);
   }
 
   async getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]> {

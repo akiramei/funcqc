@@ -144,7 +144,6 @@ export class StagedAnalysisEngine {
 
     // Stage 3: CHA Analysis
     this.logger.debug('Stage 3: CHA analysis...');
-    console.log(`🐛 DEBUG: unresolvedMethodCalls length: ${this.state.unresolvedMethodCalls.length}`);
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
@@ -182,7 +181,6 @@ export class StagedAnalysisEngine {
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Stage 7: Callback Registration Analysis
-    console.log('🔍 DEBUG: About to start Stage 7 - Callback Registration Analysis');
     this.logger.debug('Stage 7: Callback registration analysis...');
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;

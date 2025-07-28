@@ -48,19 +48,14 @@ export class CHAAnalyzer {
     functions: Map<string, FunctionMetadata>,
     unresolvedEdges: UnresolvedMethodCall[]
   ): Promise<IdealCallEdge[]> {
-    console.log('   🏗️  Building class hierarchy graph...');
     this.buildInheritanceGraph();
     
-    console.log('   ⚡ Building method membership set...');
     this.buildMethodMembershipSet(functions);
     
-    console.log('   📚 Indexing methods and properties...');
     this.buildMethodIndex();
     
-    console.log('   🎯 Resolving method calls via CHA...');
     const resolvedEdges = this.resolveMethodCalls(functions, unresolvedEdges);
     
-    console.log(`   ✅ CHA resolved ${resolvedEdges.length} method calls`);
     return resolvedEdges;
   }
 
@@ -79,7 +74,6 @@ export class CHAAnalyzer {
       }
     }
     
-    console.log(`   📊 Built membership set with ${this.methodMembershipSet.size} method entries`);
   }
 
   /**

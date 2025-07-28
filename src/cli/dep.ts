@@ -142,7 +142,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       if (options.json) {
         outputDepJSON(limitedEdges, filteredEdges.length, allEdges.length);
       } else {
-        outputDepFormatted(limitedEdges, filteredEdges.length, allEdges.length, options);
+        outputDepFormatted(limitedEdges, filteredEdges.length, allEdges.length, functions, options);
       }
     } catch (error) {
       if (error instanceof DatabaseError) {
@@ -515,39 +515,75 @@ function outputDepJSON(edges: CallEdge[], totalFiltered: number, totalOriginal: 
 /**
  * Output dependency list in formatted table
  */
-function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOriginal: number, _options: DepListOptions): void {
+function outputDepFormatted(edges: CallEdge[], totalFiltered: number, totalOriginal: number, functions: FunctionInfo[], _options: DepListOptions): void {
   if (edges.length === 0) {
     console.log(chalk.yellow('No dependencies found matching the criteria.'));
     return;
   }
 
+  // Create function lookup maps for better performance
+  const functionNameMap = new Map(functions.map(f => [f.id, f.name]));
+  const functionFileMap = new Map(functions.map(f => [f.id, f.filePath]));
+  
+  // Helper function to get function name from ID
+  const getFunctionName = (functionId: string): string => {
+    return functionNameMap.get(functionId) || functionId.substring(0, 8);
+  };
+
+  // Helper function to get file path from function ID
+  const getFunctionFilePath = (functionId: string): string => {
+    return functionFileMap.get(functionId) || 'unknown';
+  };
+
+  // Helper function to format callee name for display
+  const formatCalleeName = (calleeName: string, maxLength: number = 40): string => {
+    if (!calleeName || calleeName === 'unknown') return calleeName;
+    
+    // Remove generic type parameters to save space
+    let formatted = calleeName.replace(/<[^>]*>/g, '<T>');
+    
+    // Truncate very long names
+    if (formatted.length > maxLength) {
+      formatted = formatted.substring(0, maxLength - 3) + '...';
+    }
+    
+    return formatted;
+  };
+
   console.log(chalk.bold('\nFunction Dependencies:'));
   console.log(chalk.gray(`Showing ${edges.length} of ${totalFiltered} dependencies (${totalOriginal} total)\n`));
 
-  // Table header
-  const headers = ['Caller', 'Callee', 'Type', 'Line', 'Context'];
-  console.log(headers.map(h => chalk.bold(h)).join('\t'));
-  console.log(headers.map(() => '─'.repeat(10)).join('\t'));
+  // Table header with consistent column widths
+  const headers = ['Caller', 'Callee', 'Type', 'File', 'Line'];
+  const columnWidths = [30, 40, 12, 50, 6];
+  
+  console.log(headers.map((h, i) => chalk.bold(h.padEnd(columnWidths[i]))).join(''));
+  console.log(headers.map((_, i) => '─'.repeat(columnWidths[i])).join(''));
 
   // Table rows
   edges.forEach(edge => {
-    const callerWithClass = edge.callerClassName ? `${edge.callerClassName}::${edge.callerFunctionId?.substring(0, 8)}` : (edge.callerFunctionId ? edge.callerFunctionId.substring(0, 8) : 'unknown');
-    const calleeWithClass = edge.calleeClassName ? `${edge.calleeClassName}::${edge.calleeName}` : (edge.calleeName || 'unknown');
+    const callerName = edge.callerFunctionId ? getFunctionName(edge.callerFunctionId) : 'unknown';
+    const callerWithClass = edge.callerClassName ? `${edge.callerClassName}::${callerName}` : callerName;
+    const formattedCalleeName = formatCalleeName(edge.calleeName || 'unknown');
+    const calleeWithClass = edge.calleeClassName ? `${edge.calleeClassName}::${formattedCalleeName}` : formattedCalleeName;
     const type = edge.callType || 'unknown';
     
     
     const line = (edge.lineNumber && edge.lineNumber > 0) ? edge.lineNumber.toString() : '-';
-    const context = edge.callContext || 'normal';
+    const filePath = edge.callerFunctionId ? getFunctionFilePath(edge.callerFunctionId) : 'unknown';
 
     const typeColor = getCallTypeColor(type);
     
-    console.log([
-      chalk.cyan(callerWithClass),
-      chalk.green(calleeWithClass),
-      typeColor(type),
-      chalk.gray(line),
-      chalk.dim(context),
-    ].join('\t'));
+    // Format each column with consistent width - order: Caller, Callee, Type, File, Line
+    const columns = [
+      chalk.cyan(callerWithClass.substring(0, columnWidths[0] - 1).padEnd(columnWidths[0])),
+      chalk.green(calleeWithClass.substring(0, columnWidths[1] - 1).padEnd(columnWidths[1])),
+      typeColor(type.padEnd(columnWidths[2])),
+      chalk.dim(filePath.substring(0, columnWidths[3] - 1).padEnd(columnWidths[3])),
+      chalk.gray(line.padEnd(columnWidths[4])),
+    ];
+    
+    console.log(columns.join(''));
   });
 
   console.log();
