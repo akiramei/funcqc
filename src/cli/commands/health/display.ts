@@ -28,17 +28,21 @@ export function displayHealthOverview(healthData: HealthData): void {
   console.log(chalk.yellow('📊 Health Breakdown:'));
   console.log(`  ├── Traditional Grade: ${healthData.overallGrade} (${healthData.overallScore}/100)`);
   
-  // Calculate rates for display
-  const highRiskRate = healthData.highRiskFunctionRate?.toFixed(2) ?? 'N/A';
-  const criticalViolationRate = healthData.criticalViolationRate?.toFixed(2) ?? 'N/A';
+  // Calculate rates for display with improved N/A handling
+  const highRiskRate = healthData.highRiskFunctionRate !== undefined 
+    ? formatPercentage(healthData.highRiskFunctionRate)
+    : 'N/A';
+  const criticalViolationRate = healthData.criticalViolationRate !== undefined 
+    ? formatPercentage(healthData.criticalViolationRate)
+    : 'N/A';
   
   // Determine status based on rates
   const highRiskStatus = healthData.highRiskFunctionRate !== undefined 
     ? (healthData.highRiskFunctionRate <= 5 ? 'Good' : healthData.highRiskFunctionRate <= 15 ? 'Fair' : 'Poor')
-    : 'Unknown';
+    : 'Calculating...';
   const criticalStatus = healthData.criticalViolationRate !== undefined
     ? (healthData.criticalViolationRate <= 2 ? 'Good' : healthData.criticalViolationRate <= 10 ? 'Fair' : 'High')
-    : 'Unknown';
+    : 'Calculating...';
     
   console.log(`  ├── High Risk Function Rate: ${highRiskRate}% (${highRiskStatus})`);
   console.log(`  ├── Critical Violation Rate: ${criticalViolationRate}% (${criticalStatus})`);
@@ -159,7 +163,7 @@ function displayLayerBasedPageRank(layerAnalysis: NonNullable<PageRankMetrics['l
     console.log('');
     console.log(chalk.yellow(`  🏗️  Layer: ${layer.layerName}`));
     console.log(`  ├── Functions: ${layer.functionCount}`);
-    console.log(`  ├── Gini Coefficient: ${(layer.giniCoefficient * 100).toFixed(1)}% ${getGiniRiskIndicator(layer.giniCoefficient)}`);
+    console.log(`  ├── Gini Coefficient: ${formatPercentage(layer.giniCoefficient * 100)}% ${getGiniRiskIndicator(layer.giniCoefficient)}`);
     
     if (layer.topFunctions.length > 0) {
       console.log(`  └── Top Central Functions:`);
@@ -201,8 +205,8 @@ export function displayPageRankMetrics(pageRank: PageRankMetrics, verbose: boole
   console.log(`  ├── Max Score: ${pageRank.maxScore.toFixed(4)}`);
   
   // Display centrality distribution metrics
-  const giniFormatted = (pageRank.centralityGini * 100).toFixed(1);
-  const varianceFormatted = (pageRank.centralityVariance * 100).toFixed(2);
+  const giniFormatted = formatPercentage(pageRank.centralityGini * 100);
+  const varianceFormatted = formatPercentage(pageRank.centralityVariance * 100);
   
   console.log(`  ├── Centrality Gini Coefficient: ${giniFormatted}% ${getGiniRiskIndicator(pageRank.centralityGini)}`);
   console.log(`  ├── Centrality Variance: ${varianceFormatted}% ${getVarianceRiskIndicator(pageRank.centralityVariance)}`);
@@ -235,9 +239,22 @@ export function displayPageRankMetrics(pageRank: PageRankMetrics, verbose: boole
 }
 
 /**
+ * Format percentage with validation to prevent NaN/Infinity display
+ */
+function formatPercentage(value: number): string {
+  if (!isFinite(value) || isNaN(value)) {
+    return '0.0';
+  }
+  return value.toFixed(1);
+}
+
+/**
  * Get risk indicator for Gini coefficient
  */
 function getGiniRiskIndicator(gini: number): string {
+  if (!isFinite(gini) || isNaN(gini)) {
+    return chalk.green('✅ Even distribution');
+  }
   if (gini > 0.8) return chalk.red('⚠️ High inequality');
   if (gini > 0.6) return chalk.yellow('⚠️ Moderate inequality');
   if (gini > 0.4) return chalk.yellow('Balanced');
