@@ -101,7 +101,7 @@ export class SourceContentOperations implements StorageOperationModule {
         }
       } catch (error) {
         // Log the error but continue since ON CONFLICT DO NOTHING handles duplicates
-        this.logger?.debug(`Content insertion handled for ${file.filePath}: ${contentId}`, error);
+        this.logger?.debug(`Content insertion handled for ${file.filePath}: ${contentId} - ${error instanceof Error ? error.message : String(error)}`);
       }
 
       // Step 2: Create file reference for this snapshot
