@@ -100,7 +100,7 @@ export class DynamicWeightCalculator {
   calculateWeight(
     baseMetric: number,
     context: FunctionContext,
-    metricType: 'fanIn' | 'fanOut' | 'complexity' | 'loc' = 'complexity'
+    _metricType: 'fanIn' | 'fanOut' | 'complexity' | 'loc' = 'complexity'
   ): WeightCalculationResult {
     const config = this.options.config;
     
@@ -151,7 +151,7 @@ export class DynamicWeightCalculator {
       roleWeight: finalRoleWeight,
       criticalityWeight: finalCriticalityWeight,
       domainWeight: finalDomainWeight,
-      appliedRules: this.generateAppliedRules(context, config, metricType)
+      appliedRules: this.generateAppliedRules(context, config)
     };
 
     return {
@@ -290,7 +290,7 @@ export class DynamicWeightCalculator {
       return 1.0; // No data available, use default
     }
 
-    for (const [_key, structConfig] of Object.entries(FILE_STRUCTURE_MULTIPLIERS)) {
+    for (const structConfig of Object.values(FILE_STRUCTURE_MULTIPLIERS)) {
       if (config.maxDirectoryDepth <= structConfig.maxDepth) {
         return structConfig.multiplier;
       }
@@ -340,8 +340,7 @@ export class DynamicWeightCalculator {
    */
   private generateAppliedRules(
     context: FunctionContext, 
-    config: DynamicWeightConfig,
-    metricType: 'fanIn' | 'fanOut' | 'complexity' | 'loc'
+    config: DynamicWeightConfig
   ): Array<{ rule: string; multiplier: number; reason: string }> {
     const rules = [];
     
@@ -358,7 +357,7 @@ export class DynamicWeightCalculator {
     // Layer-specific rules
     const layerMultiplier = this.calculateLayerWeight(context.layer);
     if (layerMultiplier !== 1.0) {
-      const reason = this.getLayerRuleReason(context.layer, metricType);
+      const reason = this.getLayerRuleReason(context.layer);
       rules.push({
         rule: `${context.layer} Layer Rule`,
         multiplier: layerMultiplier,
@@ -369,7 +368,7 @@ export class DynamicWeightCalculator {
     // Role-specific rules
     const roleMultiplier = this.calculateRoleWeight(context.role);
     if (roleMultiplier !== 1.0) {
-      const reason = this.getRoleRuleReason(context.role, metricType);
+      const reason = this.getRoleRuleReason(context.role);
       rules.push({
         rule: `${context.role} Role Rule`,
         multiplier: roleMultiplier,
@@ -393,7 +392,7 @@ export class DynamicWeightCalculator {
   /**
    * Get explanation for layer-specific rules
    */
-  private getLayerRuleReason(layer: string, _metricType: 'fanIn' | 'fanOut' | 'complexity' | 'loc'): string {
+  private getLayerRuleReason(layer: string): string {
     const reasons: Record<string, string> = {
       presentation: 'Presentation layer functions can have higher fan-out for coordination',
       business: 'Business logic requires stricter quality standards',
@@ -408,7 +407,7 @@ export class DynamicWeightCalculator {
   /**
    * Get explanation for role-specific rules
    */
-  private getRoleRuleReason(role: string, _metricType: 'fanIn' | 'fanOut' | 'complexity' | 'loc'): string {
+  private getRoleRuleReason(role: string): string {
     const reasons: Record<string, string> = {
       core: 'Core business functions require highest quality standards',
       support: 'Supporting functions use standard evaluation',

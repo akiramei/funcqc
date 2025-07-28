@@ -171,7 +171,7 @@ export class ArchitectureLayerDetector {
    * Extract criticality from JSDoc comments
    */
   detectCriticality(functionInfo: FunctionInfo): CriticalityLevel {
-    const sourceCode = functionInfo.sourceCode || '';
+    const jsDocContent = functionInfo.jsDoc || '';
     
     // Check for JSDoc annotations
     const criticalityPatterns = [
@@ -182,7 +182,7 @@ export class ArchitectureLayerDetector {
     ];
     
     for (const { pattern, level } of criticalityPatterns) {
-      if (pattern.test(sourceCode)) {
+      if (pattern.test(jsDocContent)) {
         return level;
       }
     }

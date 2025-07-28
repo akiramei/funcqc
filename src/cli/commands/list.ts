@@ -29,7 +29,6 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
       }
 
       // Apply filters
-      const originalCount = functions.length;
       functions = applyFilters(functions, options);
 
       // Apply sorting
@@ -42,7 +41,7 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
       if (options.json) {
         outputJSON(limitedFunctions);
       } else {
-        outputFormatted(limitedFunctions, functions.length, originalCount, options);
+        outputFormatted(limitedFunctions);
       }
     } catch (error) {
       if (error instanceof DatabaseError) {
@@ -143,10 +142,7 @@ function outputJSON(functions: FunctionInfo[]): void {
 }
 
 function outputFormatted(
-  functions: FunctionInfo[],
-  _filteredCount: number,
-  _totalCount: number,
-  _options: ListCommandOptions
+  functions: FunctionInfo[]
 ): void {
   if (functions.length === 0) {
     console.log('No functions match the criteria.');

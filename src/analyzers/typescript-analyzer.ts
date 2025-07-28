@@ -296,7 +296,7 @@ export class TypeScriptAnalyzer {
           return [];
         }
       },
-      onProgress ? (completed, _total) => onProgress(completed, filePaths.length) : undefined,
+      onProgress ? (completed) => onProgress(completed, filePaths.length) : undefined,
       batchSize
     );
 
@@ -1368,7 +1368,7 @@ export class TypeScriptAnalyzer {
           return { functions: [], callEdges: [] };
         }
       },
-      onProgress ? (completed, _total) => onProgress(completed, filePaths.length) : undefined,
+      onProgress ? (completed) => onProgress(completed, filePaths.length) : undefined,
       batchSize
     );
 
