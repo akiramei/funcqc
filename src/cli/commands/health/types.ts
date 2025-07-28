@@ -2,6 +2,8 @@
  * Type definitions for health command
  */
 
+import { RiskDistribution } from '../../../types';
+
 // Type definitions for health command
 
 export interface ComponentScore {
@@ -150,12 +152,6 @@ export interface RecommendedAction {
   };
 }
 
-export interface RiskDistribution {
-  low: number;
-  medium: number;
-  high: number;
-  critical: number;
-}
 
 // RESTORED: Original HealthData interface for JSON output
 export interface HealthDataForJSON {

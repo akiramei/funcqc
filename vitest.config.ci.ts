@@ -43,7 +43,7 @@ export default defineConfig({
     passWithNoTests: false, // テストが見つからない場合は失敗
     // メモリ集約的なテストのための環境変数（最小限設定）
     env: {
-      NODE_OPTIONS: '--max-old-space-size=2048',
+      NODE_OPTIONS: '--max-old-space-size=2048 --disable-wasm-trap-handler',
       WASM_DISABLE_TIER_UP: '1',
       V8_FLAGS: '--no-wasm-tier-up --no-wasm-lazy-compilation',
       CI: 'true', // CI環境フラグ

@@ -3,8 +3,8 @@
  * Restores the sophisticated risk assessment capabilities that were removed
  */
 
-import { FunctionInfo, QualityMetrics } from '../../../types';
-import { FunctionRiskAssessment, RiskDistribution } from './types';
+import { FunctionInfo, QualityMetrics, RiskDistribution } from '../../../types';
+import { FunctionRiskAssessment } from './types';
 
 // Risk configuration constants
 const DEFAULT_RISK_CONFIG = {

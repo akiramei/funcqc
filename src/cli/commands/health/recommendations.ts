@@ -3,8 +3,8 @@
  * Restores the sophisticated recommendation generation that was removed
  */
 
-import { FunctionInfo } from '../../../types';
-import { FunctionRiskAssessment, RecommendedAction, RiskDistribution } from './types';
+import { FunctionInfo, RiskDistribution } from '../../../types';
+import { FunctionRiskAssessment, RecommendedAction } from './types';
 import { calculateEnhancedRiskStats, calculateRiskDistribution, calculateAverageRiskScore } from './risk-evaluator';
 
 /**
