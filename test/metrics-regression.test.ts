@@ -301,10 +301,10 @@ export class TestClass {
 }`;
 
       const functions = await analyzer.analyzeContent(code, 'constructor.ts');
-      const constructor = functions.find(f => f.isConstructor);
+      const constructorFunc = functions.find(f => f.isConstructor);
       
-      expect(constructor).toBeDefined();
-      expect(constructor?.metrics?.cyclomaticComplexity).toBe(3); // 1 + 2 ifs
+      expect(constructorFunc).toBeDefined();
+      expect(constructorFunc?.metrics?.cyclomaticComplexity).toBe(3); // 1 + 2 ifs
     });
   });
 

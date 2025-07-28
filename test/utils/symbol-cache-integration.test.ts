@@ -226,8 +226,8 @@ describe('SymbolCache Integration - Type Resolution Safety', () => {
       `);
 
       // Act - Process both files
-      const file1PropAccess = file1.getDescendantsOfKind(278)[0] as PropertyAccessExpression;
-      const file2PropAccess = file2.getDescendantsOfKind(278)[0] as PropertyAccessExpression;
+      const file1PropAccess = file1.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)[0] as PropertyAccessExpression;
+      const file2PropAccess = file2.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)[0] as PropertyAccessExpression;
 
       const type1 = (() => {
         const objectExpr = file1PropAccess.getExpression();

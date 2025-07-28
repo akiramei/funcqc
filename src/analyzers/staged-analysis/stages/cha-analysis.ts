@@ -11,7 +11,6 @@ import { AnalysisState } from '../types';
 export class CHAAnalysisStage {
   private chaAnalyzer: CHAAnalyzer;
   private logger: Logger;
-  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   constructor(chaAnalyzer: CHAAnalyzer, logger?: Logger) {
@@ -44,8 +43,10 @@ export class CHAAnalysisStage {
     }
 
     // Debug: Log unresolved method calls for debugging
-    for (const call of unresolvedMethodCalls.slice(0, 5)) { // Log first 5 calls
-      console.log(`🐛 Unresolved call: ${call.methodName} on ${call.receiverType || 'unknown'} from ${call.callerFunctionId}`);
+    if (this._debug) {
+      for (const call of unresolvedMethodCalls.slice(0, 5)) { // Log first 5 calls
+        this.logger.debug(`🐛 Unresolved call: ${call.methodName} on ${call.receiverType || 'unknown'} from ${call.callerFunctionId}`);
+      }
     }
 
     try {
