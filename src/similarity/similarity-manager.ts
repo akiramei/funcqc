@@ -101,18 +101,6 @@ export class SimilarityManager {
       try {
         const isAvailable = await detector.isAvailable();
         if (isAvailable) {
-          console.log(`Using detector: ${detectorName}`);
-
-          // Suggest performance optimization if using slower detector
-          if (detectorName === 'ast-structural') {
-            console.log(
-              '💡 Tip: For faster results, consider using "funcqc vectorize" to enable semantic search'
-            );
-          } else if (detectorName === 'advanced-structural') {
-            console.log(
-              '🚀 Using advanced similarity detection with AST canonicalization and SimHash'
-            );
-          }
           const results = await detector.detect(functions, options);
 
           // If we get good results, return them

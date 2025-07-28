@@ -41,6 +41,60 @@ funcqc list --sort complexity:desc --limit 10
 funcqc diff main feature/refactor --lineage
 ```
 
+## 強化されたdiffコマンド
+
+funcqc の diff コマンドは、単純な追加・削除の表示を超えて、関数の **シグネチャ変更**、**リネーム**、**移動** を自動検出します。
+
+### 基本的な使用方法
+
+```bash
+# 基本的な差分表示
+funcqc diff HEAD~1 HEAD
+
+# カスタム類似度閾値で変更検出（デフォルト: 0.95）
+funcqc diff HEAD~1 HEAD --similarity-threshold 0.85
+
+# インサイトモードで詳細分析
+funcqc diff HEAD~1 HEAD --insights --similarity-threshold 0.8
+
+# JSON形式で出力
+funcqc diff HEAD~1 HEAD --json
+```
+
+### 検出される変更の種類
+
+| 変更タイプ | 説明 | 検出条件 |
+|-----------|------|----------|
+| **シグネチャ変更** | 関数名は同じだがシグネチャが変更 | 同名・同ファイル・シグネチャ違い |
+| **リネーム** | 関数名が変更されたが実装は類似 | 異名・類似度が閾値以上 |
+| **移動** | ファイル間での関数移動 | 同名・異ファイル・類似度が閾値以上 |
+| **真の追加** | 完全に新しい関数 | 類似する古い関数が存在しない |
+| **真の削除** | 完全に削除された関数 | 類似する新しい関数が存在しない |
+
+### 出力例
+
+```
+🔄 Function Changes Detected
+
+📝 Signature Changes (1):
+  • calculateTotal in src/math.ts
+    - Old: calculateTotal(a: number): number
+    + New: calculateTotal(a: number, b: number): number
+
+🏷️  Renames (1):
+  • src/utils.ts: processData → transformData (similarity: 0.92)
+
+📁 Moves (1):
+  • helper: src/utils.ts → src/helpers/utils.ts (similarity: 0.98)
+
+➕ True Additions (2):
+  • newFeature in src/features.ts
+  • validateInput in src/validation.ts
+
+➖ True Removals (1):
+  • oldLegacyFunction in src/legacy.ts
+```
+
 ## 主要コマンド
 
 | コマンド | 説明 |
@@ -50,7 +104,7 @@ funcqc diff main feature/refactor --lineage
 | `funcqc list` | 関数一覧・検索 |
 | `funcqc describe` | 関数説明管理 |
 | `funcqc history` | スナップショット履歴 |
-| `funcqc diff` | 変更差分表示 |
+| `funcqc diff` | 変更差分表示（シグネチャ変更・リネーム・移動の検出付き） |
 | `funcqc diff --lineage` | 関数系譜分析・リファクタリング追跡 |
 | `funcqc lineage list` | 系譜レコード一覧・フィルタリング |
 | `funcqc lineage show` | 系譜詳細表示 |

@@ -267,6 +267,7 @@ program
   .option('--json', 'output as JSON')
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--insights', 'show suggested actions and insights for similarity analysis')
+  .option('--similarity-threshold <num>', 'similarity threshold for function matching (0-1, default: 0.95)', '0.95')
   .action(async (from: string, to: string, options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { diffCommand } = await import('./cli/commands/diff');
