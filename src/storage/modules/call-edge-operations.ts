@@ -10,6 +10,11 @@ import { CallEdgeRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
+
+// Type for PGLite transaction object
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
 import { v4 as uuidv4 } from 'uuid';
 
 export interface CallEdgeStats {
@@ -55,6 +60,24 @@ export class CallEdgeOperations implements StorageOperationModule {
       throw new DatabaseError(
         ErrorCode.STORAGE_WRITE_ERROR,
         `Failed to insert call edges: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
+   * Insert call edges within a transaction for atomic operations
+   */
+  async insertCallEdgesInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    if (callEdges.length === 0) return;
+
+    try {
+      await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+      this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId} in transaction`);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to insert call edges in transaction: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -135,6 +158,43 @@ export class CallEdgeOperations implements StorageOperationModule {
         this.logger?.error(`Failed to insert call edge: ${error}, params: ${JSON.stringify(params.slice(0, 5))}`);
         throw error;
       }
+    }
+  }
+
+  /**
+   * Insert call edges individually within a transaction
+   */
+  private async insertCallEdgesIndividualInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    for (const edge of callEdges) {
+      const params = [
+        edge.id || uuidv4(),
+        snapshotId,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.calleeName,
+        edge.calleeSignature || null,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.callType || 'direct',
+        this.mapCallContext(edge.callContext),
+        edge.lineNumber || 0,
+        edge.columnNumber || 0,
+        edge.isAsync || false,
+        edge.isChained || false,
+        edge.confidenceScore || 1.0,
+        edge.metadata ? JSON.stringify(edge.metadata) : '{}',
+      ];
+      
+      await trx.query(
+        `
+        INSERT INTO call_edges (
+          id, snapshot_id, caller_function_id, callee_function_id, callee_name,
+          callee_signature, caller_class_name, callee_class_name, call_type, call_context,
+          line_number, column_number, is_async, is_chained, confidence_score, metadata
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        `,
+        params
+      );
     }
   }
 

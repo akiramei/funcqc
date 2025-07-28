@@ -193,6 +193,42 @@ export class SnapshotOperations implements StorageOperationModule {
   }
 
   /**
+   * Update analysis level within a transaction
+   */
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+    try {
+      // TODO: Add transactional version of recalculateSnapshotMetadata
+      // Currently, metadata recalculation is skipped in transaction context
+      // to avoid mixing transaction and non-transaction queries
+      
+      // Get current metadata to update analysis level
+      const result = await trx.query('SELECT metadata FROM snapshots WHERE id = $1', [snapshotId]);
+      if (result.rows.length === 0) {
+        throw new Error(`Snapshot ${snapshotId} not found`);
+      }
+      
+      const row = result.rows[0] as { metadata: unknown };
+      const metadata = this.parseMetadata(row.metadata);
+      
+      // Store analysis level and completion flags in metadata
+      metadata['analysisLevel'] = level;
+      metadata['basicAnalysisCompleted'] = level === 'BASIC' || level === 'CALL_GRAPH';
+      metadata['callGraphAnalysisCompleted'] = level === 'CALL_GRAPH';
+      
+      await trx.query(
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+        [JSON.stringify(metadata), snapshotId]
+      );
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to update analysis level in transaction: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
    * Get all snapshots with optional filtering
    */
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {

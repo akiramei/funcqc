@@ -5,6 +5,7 @@ import chalk from 'chalk';
 import { Logger } from './utils/cli-utils';
 import { SystemChecker } from './utils/system-checker';
 import { createErrorHandler, setupGlobalErrorHandlers, ErrorCode } from './utils/error-handler';
+import { GracefulShutdown } from './utils/graceful-shutdown';
 
 
 // Dynamic imports for all commands to improve startup performance
@@ -1097,6 +1098,14 @@ function handleHelpDisplay(): void {
 // Main execution
 async function main() {
   try {
+    // Initialize graceful shutdown handler
+    const gracefulShutdown = GracefulShutdown.getInstance();
+    
+    // Add general cleanup handler
+    gracefulShutdown.addCleanupHandler('general', async () => {
+      // General cleanup tasks can be added here if needed
+    });
+    
     // Handle help display for no arguments
     handleHelpDisplay();
     
