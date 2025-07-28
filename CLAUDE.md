@@ -147,21 +147,46 @@ Default scan excludes: `node_modules`, `dist`, `build`, `.git`
 
 **pr-get**ツール（`scripts/pr-get.ts`）は、GitHub PRのレビューコメントを体系的に管理し、対応漏れを防ぐためのファイルベース管理システムです。
 
-### 📋 基本的なワークフロー
+### 📋 効率的なワークフロー（改訂版）
 
+#### **Phase 1: 初期取得・分類**
 ```bash
 # Step 1: PRレビューコメントを取得
 npx tsx scripts/pr-get.ts <PR番号> --repo <owner/repo>
 
-# Step 2: コメントがpr/XX/comments/に個別ファイルとして保存される
-# 例: pr/237/comments/comment-001-src-storage-pglite-adapter-ts.md
+# Step 2: 即座に全コメントを一括分析して分類
+# 🚨 IMPORTANT: 個別対応ではなく一括分析を最初に実行
+# - 既に対応済みのコメントを特定
+# - 具体的コード提案があるコメントを特定
+# - 本当に先送りが必要なコメントを特定
+```
 
-# Step 3: 各コメントを確認して対応
-# 対応完了: pr/XX/comments/accepts/へ移動
-# 不採用: pr/XX/comments/rejects/へ移動（理由を明記）
+#### **Phase 2: 効率的な一括処理**
+```bash
+# Step 3a: 既に対応済みコメントを一括移動
+# 作業前に全コメントを確認し、既に実装済みの項目をまとめて移動
+for file in pr/XX/comments/comment-*.md; do
+  # 既に対応済みかチェックして accepts へ移動
+done
 
-# Step 4: コミット前に未対応確認
-ls pr/XX/comments/*.md  # 残っているファイル = 未対応
+# Step 3b: 実装可能なコメントを親フォルダに移動して実装
+# 具体的コード提案があるものを優先的に実装
+mv pr/XX/comments/rejects/comment-具体的提案.md pr/XX/comments/
+
+# Step 3c: 修正実装後に accepts へ移動
+mv pr/XX/comments/comment-具体的提案.md pr/XX/comments/accepts/
+```
+
+#### **Phase 3: 品質保証**
+```bash
+# Step 4: 最終確認
+echo "未対応: $(ls pr/XX/comments/*.md 2>/dev/null | wc -l)件"
+echo "対応済み: $(ls pr/XX/comments/accepts/*.md 2>/dev/null | wc -l)件"  
+echo "不採用: $(ls pr/XX/comments/rejects/*.md 2>/dev/null | wc -l)件"
+
+# Step 5: 不採用理由の詳細文書化（README.mdは rejects フォルダ外に配置）
+# 🚨 IMPORTANT: README.mdをrejectsフォルダ内に置くとコメント件数にカウントされる
+mv pr/XX/comments/rejects/README.md pr/XX/README.md
 ```
 
 ### 📁 ディレクトリ構造
@@ -213,21 +238,34 @@ line: 744
 - [ ] テスト確認
 ```
 
-### ✅ 対応状況の管理
+### ✅ 効率化のポイント
 
-#### **対応完了（accepts）**
+#### **🎯 一括分析の重要性**
+- 個別コメントを順次処理するのではなく、全コメントを一括で分析
+- 既に対応済みの項目をまとめて特定・移動
+- 実装可能な項目（具体的コード提案あり）を優先的に特定
+
+#### **🔄 作業フロー最適化**
 ```bash
-# 対応したコメントをacceptsフォルダへ移動
-mv pr/237/comments/comment-001-*.md pr/237/comments/accepts/
+# ❌ 非効率: 個別に rejects から parent に移動して作業
+mv pr/XX/comments/rejects/comment-A.md pr/XX/comments/
+# 作業...
+mv pr/XX/comments/comment-A.md pr/XX/comments/accepts/
+
+# ✅ 効率的: 実装可能な項目を事前に特定して一括処理
+# 1. 全コメント分析
+# 2. 実装可能項目を一括で parent に移動
+# 3. まとめて実装
+# 4. 完了項目を一括で accepts に移動
 ```
 
-#### **不採用（rejects）**
+#### **📋 README.md配置の注意**
 ```bash
-# 不採用コメントをrejectsフォルダへ移動
-mv pr/237/comments/comment-002-*.md pr/237/comments/rejects/
+# ❌ 問題: rejects フォルダ内だとコメント件数にカウントされる
+pr/XX/comments/rejects/README.md
 
-# 理由を明記（rejects/README.md）
-echo "PR範囲外のため次回対応" >> pr/237/comments/rejects/README.md
+# ✅ 解決: rejects フォルダ外に配置
+pr/XX/README.md
 ```
 
 ### 📊 進捗確認
@@ -239,35 +277,53 @@ echo "対応済み: $(ls pr/237/comments/accepts/*.md 2>/dev/null | wc -l)件"
 echo "不採用: $(ls pr/237/comments/rejects/*.md 2>/dev/null | wc -l)件"
 ```
 
-### 🚨 コミット前チェック
+### 🚨 品質保証チェックリスト
 
+#### **コミット前必須チェック**
 ```bash
-# 未対応コメントの確認
-if [ $(ls pr/237/comments/*.md 2>/dev/null | wc -l) -gt 0 ]; then
+# 1. 未対応コメント確認
+if [ $(ls pr/XX/comments/*.md 2>/dev/null | wc -l) -gt 0 ]; then
   echo "⚠️ 未対応のレビューコメントが残っています"
-  ls pr/237/comments/*.md
+  ls pr/XX/comments/*.md
   exit 1
 fi
 
-# 不採用理由の確認
-if [ -d pr/237/comments/rejects ] && [ ! -f pr/237/comments/rejects/README.md ]; then
-  echo "⚠️ 不採用理由の説明が必要です"
+# 2. 不採用理由文書化確認
+if [ -d pr/XX/comments/rejects ] && [ ! -f pr/XX/README.md ]; then
+  echo "⚠️ 不採用理由の詳細説明が必要です (pr/XX/README.md)"
+  exit 1
+fi
+
+# 3. README.md配置確認
+if [ -f pr/XX/comments/rejects/README.md ]; then
+  echo "⚠️ README.mdがrejectsフォルダ内にあります（件数カウント対象になります）"
+  echo "正しい配置: pr/XX/README.md"
   exit 1
 fi
 ```
 
-### 💡 メリット
+#### **効率性向上のための教訓**
 
-1. **見落とし防止**: 物理ファイルの存在により対応漏れが不可能
-2. **進捗可視化**: フォルダ構造で対応状況が一目瞭然
-3. **説明責任**: 不採用理由の明文化を強制
-4. **監査証跡**: レビュー対応の履歴が残る
+1. **一括分析の優先**: 個別処理より全体把握が重要
+2. **Task tool活用**: 複数ファイル分析にはTask toolを使用
+3. **分類の事前実施**: 対応・不採用の判断を早期に実施
+4. **文書化の適切な配置**: README.mdの配置場所に注意
 
-### ⚠️ 注意事項
+### 💡 ワークフロー改善効果
 
-- `pr/`ディレクトリは`.gitignore`に追加済み（コミット対象外）
-- レビューコメントには機密情報が含まれる可能性があるため適切に管理
-- 大規模PRでは多数のファイルが生成されるため、定期的なクリーンアップを推奨
+| 項目 | 旧手順 | 新手順 | 改善効果 |
+|------|--------|--------|----------|
+| 分析方法 | 個別順次処理 | 一括分析 | 全体把握が早い |
+| 移動回数 | 個別移動 | 一括移動 | 作業効率向上 |
+| 既対応特定 | 手動確認 | 体系的特定 | 見落とし防止 |
+| README配置 | rejects内 | フォルダ外 | 件数カウント正確性 |
+
+### ⚠️ 重要な注意事項
+
+- **物理ファイル管理**: 対応漏れ防止の核心
+- **README.md配置**: rejectsフォルダ外に配置必須
+- **Git管理**: `pr/`ディレクトリは`.gitignore`対象
+- **機密情報**: レビューコメントの適切な管理が必要
 
 ## funcqc使い方ガイド（開発時の品質管理ツール）
 
