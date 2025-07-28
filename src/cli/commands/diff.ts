@@ -4,6 +4,7 @@ import {
   SnapshotDiff,
   FunctionChange,
   FunctionInfo,
+  SimilarFunction,
 } from '../../types';
 import { SimilarityManager } from '../../similarity/similarity-manager';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
@@ -537,90 +538,115 @@ async function classifyFunctionChanges(
     trueRemovals: [...filtered.removed]
   };
 
-  // Check for signature changes (same name, same file)
-  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
-    const added = classification.trueAdditions[i];
-    
-    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
-      const removed = classification.trueRemovals[j];
-      
-      if (added.name === removed.name && added.filePath === removed.filePath) {
-        // Calculate similarity between function bodies
-        const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
-        
-        if (similarity >= threshold) {
-          classification.signatureChanges.push({
-            functionName: added.name,
-            filePath: added.filePath,
-            oldSignature: formatFunctionSignature(removed),
-            newSignature: formatFunctionSignature(added),
-            similarity
-          });
-          
-          // Remove from true additions/removals
-          classification.trueAdditions.splice(i, 1);
-          classification.trueRemovals.splice(j, 1);
-          break;
-        }
-      }
-    }
-  }
-
-  // Check for renames (different name, same file, high similarity)
-  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
-    const added = classification.trueAdditions[i];
-    
-    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
-      const removed = classification.trueRemovals[j];
-      
-      if (added.name !== removed.name && added.filePath === removed.filePath) {
-        const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
-        
-        if (similarity >= threshold) {
-          classification.renames.push({
-            oldName: removed.name,
-            newName: added.name,
-            filePath: added.filePath,
-            similarity
-          });
-          
-          // Remove from true additions/removals
-          classification.trueAdditions.splice(i, 1);
-          classification.trueRemovals.splice(j, 1);
-          break;
-        }
-      }
-    }
-  }
-
-  // Check for moves (different file, high similarity)
-  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
-    const added = classification.trueAdditions[i];
-    
-    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
-      const removed = classification.trueRemovals[j];
-      
-      if (added.filePath !== removed.filePath) {
-        const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
-        
-        if (similarity >= threshold) {
-          classification.moves.push({
-            functionName: added.name === removed.name ? added.name : `${removed.name} → ${added.name}`,
-            fromFile: removed.filePath,
-            toFile: added.filePath,
-            similarity
-          });
-          
-          // Remove from true additions/removals
-          classification.trueAdditions.splice(i, 1);
-          classification.trueRemovals.splice(j, 1);
-          break;
-        }
-      }
-    }
-  }
+  // Classify changes in order of specificity
+  await classifySignatureChanges(classification, threshold, similarityManager);
+  await classifyFunctionRenames(classification, threshold, similarityManager);
+  await classifyFunctionMoves(classification, threshold, similarityManager);
 
   return classification;
+}
+
+async function classifySignatureChanges(
+  classification: FunctionClassification,
+  threshold: number,
+  similarityManager: SimilarityManager
+): Promise<void> {
+  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
+    const added = classification.trueAdditions[i];
+    
+    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
+      const removed = classification.trueRemovals[j];
+      
+      if (!isSameNameAndFile(added, removed)) continue;
+      
+      const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
+      if (similarity < threshold) continue;
+      
+      classification.signatureChanges.push({
+        functionName: added.name,
+        filePath: added.filePath,
+        oldSignature: formatFunctionSignature(removed),
+        newSignature: formatFunctionSignature(added),
+        similarity
+      });
+      
+      classification.trueAdditions.splice(i, 1);
+      classification.trueRemovals.splice(j, 1);
+      break;
+    }
+  }
+}
+
+async function classifyFunctionRenames(
+  classification: FunctionClassification,
+  threshold: number,
+  similarityManager: SimilarityManager
+): Promise<void> {
+  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
+    const added = classification.trueAdditions[i];
+    
+    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
+      const removed = classification.trueRemovals[j];
+      
+      if (!isDifferentNameSameFile(added, removed)) continue;
+      
+      const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
+      if (similarity < threshold) continue;
+      
+      classification.renames.push({
+        oldName: removed.name,
+        newName: added.name,
+        filePath: added.filePath,
+        similarity
+      });
+      
+      classification.trueAdditions.splice(i, 1);
+      classification.trueRemovals.splice(j, 1);
+      break;
+    }
+  }
+}
+
+async function classifyFunctionMoves(
+  classification: FunctionClassification,
+  threshold: number,
+  similarityManager: SimilarityManager
+): Promise<void> {
+  for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
+    const added = classification.trueAdditions[i];
+    
+    for (let j = classification.trueRemovals.length - 1; j >= 0; j--) {
+      const removed = classification.trueRemovals[j];
+      
+      if (!isDifferentFile(added, removed)) continue;
+      
+      const similarity = await calculateFunctionSimilarity(added, removed, similarityManager);
+      if (similarity < threshold) continue;
+      
+      classification.moves.push({
+        functionName: added.name === removed.name ? added.name : `${removed.name} → ${added.name}`,
+        fromFile: removed.filePath,
+        toFile: added.filePath,
+        similarity
+      });
+      
+      classification.trueAdditions.splice(i, 1);
+      classification.trueRemovals.splice(j, 1);
+      break;
+    }
+  }
+}
+
+function isSameNameAndFile(func1: FunctionInfo, func2: FunctionInfo): boolean {
+  return func1.name === func2.name && func1.filePath === func2.filePath;
+}
+
+function isDifferentNameSameFile(func1: FunctionInfo, func2: FunctionInfo): boolean {
+  return func1.name !== func2.name && func1.filePath === func2.filePath;
+}
+
+function isDifferentFile(func1: FunctionInfo, func2: FunctionInfo): boolean {
+  return func1.filePath !== func2.filePath;
 }
 
 async function calculateFunctionSimilarity(
@@ -840,70 +866,56 @@ async function displaySimilarityAnalysisForModified(
     console.log('Timing   Sim%   Function                          File:Line                      Insight');
     console.log('──────── ────── ──────────────────────────────── ────────────────────────────── ──────────────────────');
 
-    let hasAnySimilarity = false;
+    const hasBeforeSimilarity = await displayVersionSimilarity(func.before, 'Before', threshold, similarityManager);
+    const hasAfterSimilarity = await displayVersionSimilarity(func.after, 'After', threshold, similarityManager);
 
-    // Analyze similarity for the "before" version
-    try {
-      const beforeResults = await similarityManager.detectSimilarities(
-        [func.before],
-        { threshold } // Use configurable threshold
-      );
-
-      const highSimilarityBefore = beforeResults.filter(result => 
-        result.similarity >= threshold && result.functions.length > 1
-      );
-
-      for (const result of highSimilarityBefore) {
-        const similarFunctions = result.functions.filter(f => f.functionId !== func.before.id);
-        
-        for (const similar of similarFunctions.slice(0, 2)) { // Limit to top 2 for readability
-          hasAnySimilarity = true;
-          const similarity = Math.round(result.similarity * 100);
-          const functionName = similar.functionName.substring(0, 32).padEnd(33);
-          const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
-          const insight = getInsightForModifiedFunction(similarity, 'before');
-          
-          console.log(`Before   ${similarity.toString().padStart(4)}%   ${functionName} ${location} ${insight}`);
-        }
-      }
-    } catch {
-      // Continue silently if analysis fails
-    }
-
-    // Analyze similarity for the "after" version  
-    try {
-      const afterResults = await similarityManager.detectSimilarities(
-        [func.after],
-        { threshold } // Use configurable threshold
-      );
-
-      const highSimilarityAfter = afterResults.filter(result => 
-        result.similarity >= threshold && result.functions.length > 1
-      );
-
-      for (const result of highSimilarityAfter) {
-        const similarFunctions = result.functions.filter(f => f.functionId !== func.after.id);
-        
-        for (const similar of similarFunctions.slice(0, 2)) { // Limit to top 2 for readability
-          hasAnySimilarity = true;
-          const similarity = Math.round(result.similarity * 100);
-          const functionName = similar.functionName.substring(0, 32).padEnd(33);
-          const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
-          const insight = getInsightForModifiedFunction(similarity, 'after');
-          
-          console.log(`After    ${similarity.toString().padStart(4)}%   ${functionName} ${location} ${insight}`);
-        }
-      }
-    } catch {
-      // Continue silently if analysis fails
-    }
-
-    if (!hasAnySimilarity) {
-      console.log('No highly similar functions found (threshold: 95%)');
+    if (!hasBeforeSimilarity && !hasAfterSimilarity) {
+      console.log('No similar functions found (below threshold or unique implementation)');
     }
 
     console.log();
   }
+}
+
+async function displayVersionSimilarity(
+  version: FunctionInfo,
+  timing: 'Before' | 'After',
+  threshold: number,
+  similarityManager: SimilarityManager
+): Promise<boolean> {
+  try {
+    const results = await similarityManager.detectSimilarities([version], { threshold });
+    const highSimilarityResults = results.filter(result => 
+      result.similarity >= threshold && result.functions.length > 1
+    );
+
+    let hasSimilarity = false;
+    for (const result of highSimilarityResults) {
+      const similarFunctions = result.functions.filter(f => f.functionId !== version.id);
+      
+      for (const similar of similarFunctions.slice(0, 2)) {
+        hasSimilarity = true;
+        displaySimilarityResult(result.similarity, similar, timing);
+      }
+    }
+    
+    return hasSimilarity;
+  } catch {
+    return false;
+  }
+}
+
+function displaySimilarityResult(
+  similarity: number, 
+  similar: SimilarFunction, 
+  timing: 'Before' | 'After'
+): void {
+  const similarityPercent = Math.round(similarity * 100);
+  const functionName = similar.functionName.substring(0, 32).padEnd(33);
+  const location = `${similar.filePath}:${similar.startLine}`.padEnd(30);
+  const insight = getInsightForModifiedFunction(similarityPercent, timing.toLowerCase() as 'before' | 'after');
+  
+  console.log(`${timing.padEnd(8)} ${similarityPercent.toString().padStart(4)}%   ${functionName} ${location} ${insight}`);
 }
 
 function getInsightForModifiedFunction(similarity: number, timing: 'before' | 'after'): string {
