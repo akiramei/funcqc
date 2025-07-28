@@ -340,6 +340,9 @@ npm run dev -- diff <from> <to>
 
 # 類似関数の洞察付き
 npm run dev -- diff <from> <to> --insights
+
+# カスタム類似度閾値（デフォルト: 0.95）
+npm run dev -- diff <from> <to> --similarity-threshold 0.8
 ```
 
 #### files - ファイル分析
@@ -400,6 +403,9 @@ npm run dev -- list --file src/cli/dep.ts --cc-ge 10
 ```bash
 # 変更前後の差分と類似関数
 npm run dev -- diff HEAD~1 HEAD --insights
+
+# 新規追加された関数の品質確認（コミット前チェック）
+npm run dev -- diff <ブランチ開始時のラベル> HEAD
 ```
 
 #### 3. 重複コードの発見
@@ -407,6 +413,57 @@ npm run dev -- diff HEAD~1 HEAD --insights
 # 類似関数のグループを表示
 npm run dev -- similar
 ```
+
+### 🎯 diffコマンドによる品質チェック手法
+
+**開発ワークフロー**: ブランチ作業開始時にスナップショットを取得し、作業完了後にdiffコマンドで品質変化を確認
+
+#### 基本的な手順
+```bash
+# 1. ブランチ開始時にベースラインスナップショット作成
+git checkout -b feature/my-feature
+npm run dev -- scan --label feature/my-feature
+
+# 2. 開発作業を実施
+# [コーディング作業]
+
+# 3. 作業完了後にスナップショット作成
+npm run dev -- scan --label feature/my-feature-final
+
+# 4. 品質変化の確認（重要）
+npm run dev -- diff feature/my-feature HEAD
+```
+
+#### 品質チェックのポイント
+- **新規追加関数の複雑度**: CC（Cyclomatic Complexity）が10以下であることを確認
+- **High Risk関数の増加**: 新たにHigh Risk関数が生成されていないことを確認
+- **関数の分類**: 真の追加か、既存関数の変更・移動・リネームかを把握
+- **全体的な品質トレンド**: 品質が改善方向に向かっているかを確認
+
+#### 実際の出力例と対応
+```bash
+npm run dev -- diff feature/improve-diff-command HEAD
+# 出力: +15 functions added, -3 functions removed (CC改善)
+# → 高複雑度関数(CC: 18,13,11)を低複雑度関数(CC: 1-10)にリファクタリングした証拠
+```
+
+#### 品質問題発見時の対応
+```bash
+# 問題のある関数を特定
+npm run dev -- list --cc-ge 10 --limit 10
+
+# 特定の関数の詳細確認
+npm run dev -- describe <function-name>
+
+# リファクタリング実施後に再確認
+npm run dev -- diff <before-label> HEAD
+```
+
+#### メリット
+1. **客観的な品質評価**: 数値による定量的な品質変化の把握
+2. **リファクタリング効果の可視化**: 複雑度改善の証拠を残せる
+3. **品質劣化の早期発見**: コミット前に品質問題を検出
+4. **レビュー時の情報提供**: PRレビューで品質変化を明示可能
 
 ### ⚠️ 注意事項
 
