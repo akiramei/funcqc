@@ -59,7 +59,7 @@ export abstract class FrameworkCallbackAnalyzer {
     try {
       const registrations = await this.detectCallbackRegistrations(context);
       const triggers = await this.detectCallbackTriggers(context, registrations);
-      const virtualEdges = await this.generateVirtualEdges(context, registrations, triggers);
+      const virtualEdges = await this.generateVirtualEdges(context, triggers);
 
       const result: CallbackAnalysisResult = {
         registrations,
@@ -101,7 +101,6 @@ export abstract class FrameworkCallbackAnalyzer {
    */
   protected async generateVirtualEdges(
     context: AnalysisContext,
-    _registrations: CallbackRegistration[],
     triggers: CallbackTrigger[]
   ): Promise<VirtualCallEdge[]> {
     const edges: VirtualCallEdge[] = [];
