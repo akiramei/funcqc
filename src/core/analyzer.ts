@@ -259,6 +259,16 @@ export class FunctionAnalyzer {
           const startIndex = Math.max(0, func.startLine - 1); // Convert to 0-based
           const endIndex = Math.min(lines.length, func.endLine); // endLine is inclusive
           sourceCode = lines.slice(startIndex, endIndex).join('\n');
+          
+          // Debug: Check if sourceCode is properly extracted
+          if (func.name === 'extractFunctionInfo') {
+            console.log(`🔍 DEBUG: Extracting sourceCode for ${func.name} (${func.startLine}-${func.endLine}):`);
+            console.log(`  - File content length: ${fileContent.length}`);
+            console.log(`  - Total lines: ${lines.length}`);
+            console.log(`  - StartIndex: ${startIndex}, EndIndex: ${endIndex}`);
+            console.log(`  - SourceCode length: ${sourceCode.length}`);
+            console.log(`  - SourceCode preview: ${sourceCode.substring(0, 100)}...`);
+          }
         }
         
         const legacyFunc: FunctionInfo = {
@@ -563,6 +573,8 @@ export class FunctionAnalyzer {
     functions: FunctionInfo[],
     virtualPaths: Map<string, string>
   ): Promise<import('../types').InternalCallEdge[]> {
+    console.log(`🚀 DEBUG: Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
+    console.log(`🚀 DEBUG: Total functions to analyze: ${functions.length}`);
     this.logger.debug(`Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
 
     const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
@@ -580,9 +592,16 @@ export class FunctionAnalyzer {
         functionsByFile.get(func.filePath)!.push(func);
       }
 
+      console.log(`🚀 DEBUG: Functions grouped by file:`);
+      for (const [filePath, fileFunctions] of functionsByFile.entries()) {
+        console.log(`  📁 ${filePath}: ${fileFunctions.length} functions`);
+      }
+
       // Analyze each file for internal function calls using virtual paths
       for (const [realFilePath, fileFunctions] of functionsByFile.entries()) {
+        console.log(`🚀 DEBUG: Processing file ${realFilePath} with ${fileFunctions.length} functions`);
         if (fileFunctions.length > 1) { // Only analyze files with multiple functions
+          console.log(`✅ DEBUG: File ${realFilePath} qualifies for internal call analysis (${fileFunctions.length} > 1)`);
           try {
             // Map real file path to virtual path for analysis
             const virtualPath = virtualPaths.get(realFilePath);
@@ -596,13 +615,22 @@ export class FunctionAnalyzer {
               fileFunctions,
               'temp' // snapshotId will be set later in scan.ts
             );
+            console.log(`📊 DEBUG: Found ${internalEdges.length} internal call edges in ${realFilePath}`);
+            if (internalEdges.length > 0) {
+              console.log(`📋 DEBUG: Internal edges details:`, internalEdges.map(edge => 
+                `${edge.callerName} -> ${edge.calleeName} at line ${edge.lineNumber}`
+              ));
+            }
             allInternalCallEdges.push(...internalEdges);
           } catch (error) {
             this.logger.debug(`Failed to analyze internal calls in ${realFilePath}: ${error instanceof Error ? error.message : String(error)}`);
           }
+        } else {
+          console.log(`❌ DEBUG: File ${realFilePath} skipped - only ${fileFunctions.length} function(s)`);
         }
       }
 
+      console.log(`🎯 DEBUG: Internal call analysis completed. Total internal call edges found: ${allInternalCallEdges.length}`);
       return allInternalCallEdges;
     } finally {
       internalCallAnalyzer.dispose();

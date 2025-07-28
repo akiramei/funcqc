@@ -80,97 +80,26 @@ export async function ensureCallGraphData(
   }
 
   try {
-    // Check if call graph analysis is required
-    const analysisCheck = await isCallGraphAnalysisRequired(env.storage);
-    
-    if (!analysisCheck.snapshot) {
-      if (spinner) spinner.fail('No snapshots found. Run `funcqc scan` first.');
-      return {
-        success: false,
-        snapshot: null,
-        callEdges: [],
-        message: 'No snapshots found'
-      };
+    const analysisStatus = await checkAnalysisStatus(env.storage, spinner);
+    if (!analysisStatus.snapshot) {
+      return createErrorResult('No snapshots found', null, spinner);
     }
 
-    // If call graph analysis is not required, load existing data
-    if (!analysisCheck.required) {
-      if (spinner) {
-        spinner.text = 'Loading existing call graph data...';
-      }
-      
-      const callEdges = await env.storage.getCallEdgesBySnapshot(analysisCheck.snapshot.id);
-      
-      // Return existing data, even if empty
-      if (spinner) {
-        spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
-      }
-      
-      return {
-        success: true,
-        snapshot: analysisCheck.snapshot,
-        callEdges,
-        message: 'Existing call graph data loaded'
-      };
+    if (!analysisStatus.required) {
+      return await loadExistingCallGraphData(env, analysisStatus.snapshot, spinner);
     }
 
-    // Call graph analysis is required
     if (!requireCallGraph) {
-      if (spinner) {
-        spinner.warn('Call graph analysis required but not requested');
-      }
-      return {
-        success: false,
-        snapshot: analysisCheck.snapshot,
-        callEdges: [],
-        message: 'Call graph analysis required'
-      };
+      return createCallGraphRequiredResult(analysisStatus.snapshot, spinner);
     }
 
-    if (spinner) {
-      spinner.text = 'Performing call graph analysis...';
-    }
-
-    // Perform call graph analysis
-    const result = await performLazyCallGraphAnalysis(
-      env,
-      analysisCheck.snapshot.id,
+    return await performNewCallGraphAnalysis(env, analysisStatus.snapshot, spinner);
+  } catch (error) {
+    return createErrorResult(
+      error instanceof Error ? error.message : String(error),
+      null,
       spinner
     );
-
-    if (result.success) {
-      if (spinner) {
-        spinner.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
-      }
-      return {
-        success: true,
-        snapshot: analysisCheck.snapshot,
-        callEdges: result.callEdges,
-        message: 'Call graph analysis completed'
-      };
-    } else {
-      if (spinner) {
-        spinner.fail('Call graph analysis failed');
-      }
-      return {
-        success: false,
-        snapshot: analysisCheck.snapshot,
-        callEdges: [],
-        message: result.error || 'Call graph analysis failed'
-      };
-    }
-
-  } catch (error) {
-    if (spinner) {
-      spinner.fail('Error during call graph analysis');
-    }
-    
-    return {
-      success: false,
-      snapshot: null,
-      callEdges: [],
-      message: error instanceof Error ? error.message : String(error)
-    };
   }
 }
 
@@ -221,9 +150,25 @@ async function performLazyCallGraphAnalysis(
     console.log(`📊 Call graph analysis completed with ${result.callEdges.length} call edges`);
 
     // Store call graph results
+    console.log(`📊 About to insert ${result.callEdges.length} call edges and ${result.internalCallEdges.length} internal call edges`);
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
-    // TODO: Fix internal call edges schema mismatch - skip for now
-    // await env.storage.insertInternalCallEdges(result.internalCallEdges);
+    console.log(`✅ Successfully inserted ${result.callEdges.length} call edges`);
+    
+    console.log(`📊 About to insert ${result.internalCallEdges.length} internal call edges with snapshotId: ${snapshotId}`);
+    try {
+      // Update the snapshot_id from 'temp' to the actual snapshot ID
+      const internalCallEdgesWithCorrectSnapshotId = result.internalCallEdges.map(edge => ({
+        ...edge,
+        snapshotId: snapshotId
+      }));
+      
+      await env.storage.insertInternalCallEdges(internalCallEdgesWithCorrectSnapshotId);
+      console.log(`✅ Successfully inserted ${internalCallEdgesWithCorrectSnapshotId.length} internal call edges`);
+    } catch (error) {
+      console.error(`❌ Failed to insert internal call edges:`, error);
+      throw error;
+    }
+    
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
 
     return {
@@ -289,6 +234,66 @@ export async function loadCallGraphWithLazyAnalysis(
 }
 
 /**
+ * Load comprehensive call graph data including internal call edges
+ * This combines both external call_edges and internal_call_edges for complete analysis
+ */
+export async function loadComprehensiveCallGraphData(
+  env: CommandEnvironment,
+  options: {
+    showProgress?: boolean;
+    snapshotId?: string | undefined;
+  } = {}
+): Promise<{
+  snapshot: import('../types').SnapshotInfo | null;
+  callEdges: import('../types').CallEdge[];
+  internalCallEdges: import('../types').InternalCallEdge[];
+  allEdges: import('../types').CallEdge[]; // Combined and normalized
+  functions: import('../types').FunctionInfo[];
+  lazyAnalysisPerformed?: boolean;
+}> {
+  const { showProgress = true, snapshotId } = options;
+
+  // Get basic call graph data first
+  const basicResult = await loadCallGraphWithLazyAnalysis(env, { showProgress, snapshotId });
+  
+  if (!basicResult.snapshot) {
+    throw new Error('Failed to load snapshot');
+  }
+
+  // Get internal call edges for complete analysis
+  const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(basicResult.snapshot.id);
+
+  // Convert internal call edges to CallEdge format for unified processing
+  const convertedInternalEdges: import('../types').CallEdge[] = internalCallEdges.map(edge => ({
+    id: edge.id,
+    callerFunctionId: edge.callerFunctionId,
+    calleeFunctionId: edge.calleeFunctionId,
+    calleeName: edge.calleeName,
+    calleeSignature: undefined,
+    callerClassName: edge.callerClassName,
+    calleeClassName: edge.calleeClassName,
+    callType: edge.callType,
+    callContext: edge.callContext,
+    lineNumber: edge.lineNumber,
+    columnNumber: edge.columnNumber,
+    isAsync: false,
+    isChained: false,
+    confidenceScore: edge.confidenceScore,
+    metadata: { source: 'internal', filePath: edge.filePath },
+    createdAt: edge.createdAt,
+  }));
+
+  // Combine all edges for unified analysis
+  const allEdges = [...basicResult.callEdges, ...convertedInternalEdges];
+
+  return {
+    ...basicResult,
+    internalCallEdges,
+    allEdges
+  };
+}
+
+/**
  * Create a progress message for lazy analysis
  */
 export function createLazyAnalysisMessage(
@@ -325,4 +330,135 @@ export function validateCallGraphRequirements(
     console.log(chalk.blue('💡 Try running `funcqc scan` to re-analyze your project.'));
     throw new Error('Insufficient call graph data for analysis');
   }
+}
+
+// ================== Helper Functions for Refactored ensureCallGraphData ==================
+
+type CallGraphResult = {
+  success: boolean;
+  snapshot: import('../types').SnapshotInfo | null;
+  callEdges: import('../types').CallEdge[];
+  message?: string;
+};
+
+/**
+ * Check if call graph analysis is required and return status
+ */
+async function checkAnalysisStatus(
+  storage: StorageAdapter,
+  spinner?: Ora
+): Promise<{ snapshot: import('../types').SnapshotInfo | null; required: boolean }> {
+  const analysisCheck = await isCallGraphAnalysisRequired(storage);
+  
+  if (!analysisCheck.snapshot) {
+    if (spinner) spinner.fail('No snapshots found. Run `funcqc scan` first.');
+  }
+  
+  return analysisCheck;
+}
+
+/**
+ * Load existing call graph data from storage
+ */
+async function loadExistingCallGraphData(
+  env: CommandEnvironment,
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): Promise<CallGraphResult> {
+  if (spinner) {
+    spinner.text = 'Loading existing call graph data...';
+  }
+  
+  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
+  
+  if (spinner) {
+    spinner.succeed(`Call graph data loaded: ${callEdges.length} edges`);
+  }
+  
+  return {
+    success: true,
+    snapshot,
+    callEdges,
+    message: 'Existing call graph data loaded'
+  };
+}
+
+/**
+ * Create result when call graph analysis is required but not requested
+ */
+function createCallGraphRequiredResult(
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): CallGraphResult {
+  if (spinner) {
+    spinner.warn('Call graph analysis required but not requested');
+  }
+  
+  return {
+    success: false,
+    snapshot,
+    callEdges: [],
+    message: 'Call graph analysis required'
+  };
+}
+
+/**
+ * Perform new call graph analysis
+ */
+async function performNewCallGraphAnalysis(
+  env: CommandEnvironment,
+  snapshot: import('../types').SnapshotInfo,
+  spinner?: Ora
+): Promise<CallGraphResult> {
+  if (spinner) {
+    spinner.text = 'Performing call graph analysis...';
+  }
+
+  const result = await performLazyCallGraphAnalysis(
+    env,
+    snapshot.id,
+    spinner
+  );
+
+  if (result.success) {
+    if (spinner) {
+      spinner.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
+    }
+    return {
+      success: true,
+      snapshot,
+      callEdges: result.callEdges,
+      message: 'Call graph analysis completed'
+    };
+  } else {
+    if (spinner) {
+      spinner.fail('Call graph analysis failed');
+    }
+    return {
+      success: false,
+      snapshot,
+      callEdges: [],
+      message: result.error || 'Call graph analysis failed'
+    };
+  }
+}
+
+/**
+ * Create error result with consistent format
+ */
+function createErrorResult(
+  message: string,
+  snapshot: import('../types').SnapshotInfo | null,
+  spinner?: Ora
+): CallGraphResult {
+  if (spinner) {
+    spinner.fail('Error during call graph analysis');
+  }
+  
+  return {
+    success: false,
+    snapshot,
+    callEdges: [],
+    message
+  };
 }

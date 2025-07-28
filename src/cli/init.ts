@@ -47,12 +47,57 @@ export async function initCommand(options: InitCommandOptions): Promise<void> {
 }
 
 async function showCurrentConfig(): Promise<void> {
-  const explorer = cosmiconfigSync('funcqc');
+  const explorer = cosmiconfigSync('funcqc', {
+    searchPlaces: [
+      '.funcqcrc',
+      '.funcqcrc.json', 
+      '.funcqcrc.yaml',
+      '.funcqcrc.yml',
+      '.funcqcrc.js',
+      'funcqc.config.js',
+      '.funcqc.config.js',
+      'package.json'
+    ]
+  });
+  
   const result = explorer.search();
 
-  if (!result) {
-    console.log(chalk.yellow('No configuration found.'));
+  if (!result || !result.config || Object.keys(result.config).length === 0) {
+    console.log(chalk.yellow('No configuration found or configuration is empty.'));
     console.log(chalk.blue('Run `funcqc init` to create a configuration file.'));
+    
+    // Debug information
+    if (result) {
+      console.log(chalk.gray(`Configuration file found at: ${result.filepath}`));
+      console.log(chalk.gray('But the configuration appears to be empty or invalid.'));
+      
+      // Try to load the file directly for troubleshooting
+      try {
+        const ext = path.extname(result.filepath).toLowerCase();
+        let directLoad;
+        
+        if (ext === '.js' || ext === '.ts' || ext === '.mjs') {
+          const module = await import(result.filepath);
+          directLoad = module.default || module;
+        } else if (ext === '.json') {
+          const content = await fs.readFile(result.filepath, 'utf8');
+          directLoad = JSON.parse(content);
+        } else if (ext === '.yaml' || ext === '.yml') {
+          // YAML parsing would require a dependency like js-yaml
+          console.log(chalk.gray('YAML file detected - manual inspection required'));
+          return;
+        } else {
+          console.log(chalk.gray('Unsupported file type - using cosmiconfig result above'));
+          return;
+        }
+        
+        if (directLoad) {
+          console.log(chalk.gray('Direct file content:'), JSON.stringify(directLoad, null, 2));
+        }
+      } catch (error) {
+        console.log(chalk.red(`Error loading configuration file: ${error instanceof Error ? error.message : String(error)}`));
+      }
+    }
     return;
   }
 

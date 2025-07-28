@@ -1058,7 +1058,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
 
     // Log LSH bucket size distribution for tuning optimization
-    this.logLSHBucketDistribution(lshBuckets, fingerprints.length);
+    this.logLSHBucketDistribution();
 
     // Check candidates within each bucket - ONLY small buckets for O(n) performance
     for (const [, candidates] of lshBuckets) {
@@ -1123,10 +1123,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   /**
    * Log LSH bucket size distribution for performance tuning
    */
-  private logLSHBucketDistribution(
-    _lshBuckets: Map<string, FunctionFingerprint[]>,
-    _totalFunctions: number
-  ): void {
+  private logLSHBucketDistribution(): void {
     // LSH distribution statistics collection disabled
   }
 

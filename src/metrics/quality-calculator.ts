@@ -1,6 +1,6 @@
 import * as ts from 'typescript';
 import { FunctionInfo, QualityMetrics } from '../types';
-import { FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration } from 'ts-morph';
+import { FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, Node, SyntaxKind } from 'ts-morph';
 
 export class QualityCalculator {
   /**
@@ -10,38 +10,15 @@ export class QualityCalculator {
     node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration,
     functionInfo: FunctionInfo
   ): QualityMetrics {
-    // Convert ts-morph to TypeScript AST for metrics calculation
-    const sourceCode = node.getFullText();
-    const tsSourceFile = ts.createSourceFile(
-      'temp.ts',
-      sourceCode,
-      ts.ScriptTarget.Latest,
-      true
-    );
-
-    // Find the function node in the TypeScript AST
-    let tsNode: ts.FunctionLikeDeclaration | null = null;
-    const findFunction = (n: ts.Node) => {
-      if (this.isFunctionLike(n)) {
-        tsNode = n as ts.FunctionLikeDeclaration;
-        return;
-      }
-      ts.forEachChild(n, findFunction);
-    };
-    findFunction(tsSourceFile);
-
-    if (!tsNode) {
-      // Fallback to basic metrics from text analysis
-      return this.calculateFromText(functionInfo);
-    }
-
-    return this.calculateMetricsFromTsNode(tsNode, functionInfo);
+    // Direct calculation from ts-morph node without re-parsing
+    return this.calculateMetricsFromTsMorphNode(node, functionInfo);
   }
 
   /**
    * Calculate quality metrics for a function (legacy method)
    */
   calculate(functionInfo: FunctionInfo): QualityMetrics {
+    
     // Parse the source code to get AST
     const sourceFile = ts.createSourceFile(
       'temp.ts',
@@ -55,8 +32,16 @@ export class QualityCalculator {
 
     const findFunction = (node: ts.Node) => {
       if (this.isFunctionLike(node)) {
-        functionNode = node as ts.FunctionLikeDeclaration;
-        return;
+        // Check if this is the function we're looking for
+        const nodeName = this.getFunctionName(node);
+        if (nodeName === functionInfo.name) {
+          functionNode = node as ts.FunctionLikeDeclaration;
+          return;
+        }
+        // If no exact match found yet, keep the first function-like node as fallback
+        if (!functionNode) {
+          functionNode = node as ts.FunctionLikeDeclaration;
+        }
       }
       ts.forEachChild(node, findFunction);
     };
@@ -141,6 +126,9 @@ export class QualityCalculator {
       callbackCount: 0,
       commentLines: 0,
       codeToCommentRatio: 0,
+      halsteadVolume: 0,
+      halsteadDifficulty: 0,
+      maintainabilityIndex: 100, // Default high maintainability for simple functions
     };
   }
 
@@ -170,55 +158,367 @@ export class QualityCalculator {
     return node.getFullText().split('\n').length;
   }
 
-  private isBasicControlFlowNode(kind: ts.SyntaxKind): boolean {
-    return [
-      ts.SyntaxKind.IfStatement,
-      ts.SyntaxKind.WhileStatement,
-      ts.SyntaxKind.DoStatement,
-      ts.SyntaxKind.ForStatement,
-      ts.SyntaxKind.ForInStatement,
-      ts.SyntaxKind.ForOfStatement,
-      ts.SyntaxKind.CaseClause,
-      ts.SyntaxKind.CatchClause,
-      ts.SyntaxKind.ConditionalExpression
-    ].includes(kind);
-  }
+  /**
+   * Calculate quality metrics directly from ts-morph node (NEW: no re-parsing)
+   */
+  private calculateMetricsFromTsMorphNode(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration,
+    functionInfo: FunctionInfo
+  ): QualityMetrics {
+    // Calculate metrics directly from ts-morph node
+    const linesOfCode = this.calculateLinesOfCodeFromTsMorph(node);
+    const totalLines = this.calculateTotalLinesFromTsMorph(node);
+    const cyclomaticComplexity = this.calculateCyclomaticComplexityFromTsMorph(node);
+    const cognitiveComplexity = this.calculateCognitiveComplexityFromTsMorph(node);
+    const maxNestingLevel = this.calculateMaxNestingLevelFromTsMorph(node);
+    const parameterCount = functionInfo.parameters.length;
 
-  private isLogicalBinaryExpression(node: ts.Node): boolean {
-    if (node.kind !== ts.SyntaxKind.BinaryExpression) {
-      return false;
-    }
+    // Count other metrics
+    const returnStatementCount = this.countReturnStatementsFromTsMorph(node);
+    const branchCount = this.countBranchesFromTsMorph(node);
+    const loopCount = this.countLoopsFromTsMorph(node);
+    const tryCatchCount = this.countTryCatchFromTsMorph(node);
+    const asyncAwaitCount = this.countAsyncAwaitFromTsMorph(node);
+    const callbackCount = this.countCallbacksFromTsMorph(node);
     
-    const binExpr = node as ts.BinaryExpression;
-    return (
-      binExpr.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-      binExpr.operatorToken.kind === ts.SyntaxKind.BarBarToken
+    // Calculate Halstead metrics and other advanced metrics
+    // For these metrics, we need to parse the source code as TypeScript AST
+    // because they require detailed token analysis
+    const sourceFile = ts.createSourceFile(
+      'temp.ts',
+      functionInfo.sourceCode || node.getFullText(),
+      ts.ScriptTarget.Latest,
+      true
     );
+    
+    // Find the function node in the parsed AST
+    let tsNode: ts.FunctionLikeDeclaration | null = null;
+    const findFunction = (node: ts.Node) => {
+      if (this.isFunctionLike(node)) {
+        tsNode = node as ts.FunctionLikeDeclaration;
+        return;
+      }
+      ts.forEachChild(node, findFunction);
+    };
+    findFunction(sourceFile);
+    
+    const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
+    const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
+    const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
+    const codeToCommentRatio = linesOfCode > 0 && commentLines > 0 ? linesOfCode / commentLines : 0;
+    
+    // Calculate maintainability index
+    const maintainabilityIndex = this.calculateMaintainabilityIndex({
+      cyclomaticComplexity,
+      linesOfCode,
+      halsteadVolume
+    });
+
+    return {
+      linesOfCode,
+      totalLines,
+      cyclomaticComplexity,
+      cognitiveComplexity,
+      maxNestingLevel,
+      parameterCount,
+      returnStatementCount,
+      branchCount,
+      loopCount,
+      tryCatchCount,
+      asyncAwaitCount,
+      callbackCount,
+      commentLines,
+      codeToCommentRatio,
+      halsteadVolume,
+      halsteadDifficulty,
+      maintainabilityIndex,
+    };
   }
 
-  private shouldIncrementComplexity(node: ts.Node): boolean {
-    return this.isBasicControlFlowNode(node.kind) || this.isLogicalBinaryExpression(node);
-  }
-
-  private calculateCyclomaticComplexity(node: ts.FunctionLikeDeclaration): number {
+  /**
+   * Calculate cyclomatic complexity using ts-morph (McCabe standard)
+   * Based on provided reference implementation
+   */
+  private calculateCyclomaticComplexityFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
     let complexity = 1; // Base complexity
 
+    // Count decision points using ts-morph traversal
+    node.forEachDescendant((descendant) => {
+      if (this.isDecisionNodeTsMorph(descendant)) {
+        complexity++;
+      }
+    });
+
+    return complexity;
+  }
+
+  /**
+   * Determine if a ts-morph node is a decision point (based on reference implementation)
+   */
+  private isDecisionNodeTsMorph(node: Node): boolean {
+    const kind = node.getKind();
+    
+    switch (kind) {
+      // Basic control flow
+      case SyntaxKind.IfStatement:
+      case SyntaxKind.WhileStatement:
+      case SyntaxKind.DoStatement:
+      case SyntaxKind.ForStatement:
+      case SyntaxKind.ForInStatement:
+      case SyntaxKind.ForOfStatement:
+      case SyntaxKind.CaseClause:         // switch case
+      case SyntaxKind.DefaultClause:      // switch default
+      case SyntaxKind.CatchClause:
+      case SyntaxKind.ConditionalExpression: // ternary operator ?:
+        return true;
+
+      // Logical operators (short-circuit evaluation)
+      case SyntaxKind.BinaryExpression: {
+        if (!Node.isBinaryExpression(node)) return false;
+        const op = node.getOperatorToken().getKind();
+        return (
+          op === SyntaxKind.AmpersandAmpersandToken ||  // &&
+          op === SyntaxKind.BarBarToken ||              // ||
+          op === SyntaxKind.QuestionQuestionToken       // ??
+        );
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  // Helper methods for ts-morph based calculations
+  private calculateLinesOfCodeFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    const text = node.getFullText();
+    const lines = text.split('\n');
+    
+    let count = 0;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (
+        trimmed.length > 0 &&
+        !trimmed.startsWith('//') &&
+        !trimmed.startsWith('/*') &&
+        !trimmed.startsWith('*') &&
+        !trimmed.endsWith('*/')
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  private calculateTotalLinesFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    return node.getFullText().split('\n').length;
+  }
+
+  private calculateCognitiveComplexityFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    // Simplified cognitive complexity - can be enhanced later
+    return this.calculateCyclomaticComplexityFromTsMorph(node);
+  }
+
+  private calculateMaxNestingLevelFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let maxNesting = 0;
+    let currentNesting = 0;
+
+    const countNesting = (n: Node) => {
+      const kind = n.getKind();
+      const isNestingNode = [
+        SyntaxKind.IfStatement,
+        SyntaxKind.WhileStatement,
+        SyntaxKind.DoStatement,
+        SyntaxKind.ForStatement,
+        SyntaxKind.ForInStatement,
+        SyntaxKind.ForOfStatement,
+        SyntaxKind.SwitchStatement,
+        SyntaxKind.TryStatement
+      ].includes(kind);
+
+      if (isNestingNode) {
+        currentNesting++;
+        maxNesting = Math.max(maxNesting, currentNesting);
+      }
+
+      n.forEachChild(countNesting);
+
+      if (isNestingNode) {
+        currentNesting--;
+      }
+    };
+
+    countNesting(node);
+    return maxNesting;
+  }
+
+  private countReturnStatementsFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      if (descendant.getKind() === SyntaxKind.ReturnStatement) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private countBranchesFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      const kind = descendant.getKind();
+      if ([
+        SyntaxKind.IfStatement,
+        SyntaxKind.SwitchStatement,
+        SyntaxKind.ConditionalExpression
+      ].includes(kind)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private countLoopsFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      const kind = descendant.getKind();
+      if ([
+        SyntaxKind.WhileStatement,
+        SyntaxKind.DoStatement,
+        SyntaxKind.ForStatement,
+        SyntaxKind.ForInStatement,
+        SyntaxKind.ForOfStatement
+      ].includes(kind)) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private countTryCatchFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      if (descendant.getKind() === SyntaxKind.TryStatement) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private countAsyncAwaitFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      if (descendant.getKind() === SyntaxKind.AwaitExpression) {
+        count++;
+      }
+    });
+    return count;
+  }
+
+  private countCallbacksFromTsMorph(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    // Count function expressions and arrow functions passed as arguments
+    let count = 0;
+    node.forEachDescendant((descendant) => {
+      const kind = descendant.getKind();
+      if (kind === SyntaxKind.ArrowFunction || kind === SyntaxKind.FunctionExpression) {
+        // Check if this is a callback (function passed as argument)
+        const parent = descendant.getParent();
+        if (parent && Node.isCallExpression(parent)) {
+          count++;
+        }
+      }
+    });
+    return count;
+  }
+
+
+
+  private calculateCyclomaticComplexity(root: ts.FunctionLikeDeclaration): number {
+    let complexity = 1; // Base complexity (McCabe standard)
+
     const visit = (node: ts.Node) => {
-      if (this.shouldIncrementComplexity(node)) {
+      // Skip nested functions to avoid counting their control structures
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
+      // Use improved decision point detection (based on reference implementation)
+      if (this.shouldIncrementComplexityImproved(node)) {
         complexity++;
       }
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return complexity;
   }
 
-  private calculateCognitiveComplexity(node: ts.FunctionLikeDeclaration): number {
+  /**
+   * Improved decision point detection matching reference implementation
+   */
+  private shouldIncrementComplexityImproved(node: ts.Node): boolean {
+    const kind = node.kind;
+    
+    switch (kind) {
+      // Basic control flow
+      case ts.SyntaxKind.IfStatement:
+      case ts.SyntaxKind.WhileStatement:
+      case ts.SyntaxKind.DoStatement:
+      case ts.SyntaxKind.ForStatement:
+      case ts.SyntaxKind.ForInStatement:
+      case ts.SyntaxKind.ForOfStatement:
+      case ts.SyntaxKind.CaseClause:         // switch case
+      case ts.SyntaxKind.DefaultClause:      // switch default
+      case ts.SyntaxKind.CatchClause:
+      case ts.SyntaxKind.ConditionalExpression: // ternary operator ?:
+        return true;
+
+      // Logical operators (short-circuit evaluation)
+      case ts.SyntaxKind.BinaryExpression: {
+        const binExpr = node as ts.BinaryExpression;
+        const op = binExpr.operatorToken.kind;
+        return (
+          op === ts.SyntaxKind.AmpersandAmpersandToken ||  // &&
+          op === ts.SyntaxKind.BarBarToken ||              // ||
+          op === ts.SyntaxKind.QuestionQuestionToken       // ??
+        );
+      }
+
+      default:
+        return false;
+    }
+  }
+
+  private calculateCognitiveComplexity(root: ts.FunctionLikeDeclaration): number {
     let complexity = 0;
     let nestingLevel = 0;
 
     const visit = (node: ts.Node, isNested: boolean = false) => {
+      // Skip nested functions to avoid counting their control structures
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       const complexityInfo = this.getCognitiveComplexityInfo(node);
 
       // Add nesting bonus for complexity increment
@@ -252,7 +552,7 @@ export class QualityCalculator {
       }
     };
 
-    visit(node);
+    visit(root);
     return complexity;
   }
 
@@ -505,11 +805,16 @@ export class QualityCalculator {
     );
   }
 
-  private calculateMaxNestingLevel(node: ts.FunctionLikeDeclaration): number {
+  private calculateMaxNestingLevel(root: ts.FunctionLikeDeclaration): number {
     let maxLevel = 0;
     let currentLevel = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their nesting structures
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       const isNestingNode = this.isNestingNode(node);
 
       if (isNestingNode) {
@@ -524,7 +829,7 @@ export class QualityCalculator {
       }
     };
 
-    visit(node);
+    visit(root);
     return maxLevel;
   }
 
@@ -538,43 +843,57 @@ export class QualityCalculator {
       ts.isForOfStatement(node) ||
       ts.isSwitchStatement(node) ||
       ts.isTryStatement(node) ||
-      ts.isCatchClause(node) ||
-      ts.isBlock(node)
+      ts.isCatchClause(node)
     );
   }
 
-  private countReturnStatements(node: ts.FunctionLikeDeclaration): number {
+  private countReturnStatements(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their return statements
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       if (ts.isReturnStatement(node)) {
         count++;
       }
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
-  private countBranches(node: ts.FunctionLikeDeclaration): number {
+  private countBranches(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their branches
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       if (ts.isIfStatement(node) || ts.isSwitchStatement(node)) {
         count++;
       }
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
-  private countLoops(node: ts.FunctionLikeDeclaration): number {
+  private countLoops(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their loops
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       if (
         ts.isForStatement(node) ||
         ts.isForInStatement(node) ||
@@ -587,53 +906,68 @@ export class QualityCalculator {
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
-  private countTryCatch(node: ts.FunctionLikeDeclaration): number {
+  private countTryCatch(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their try-catch statements
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       if (ts.isTryStatement(node)) {
         count++;
       }
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
-  private countAsyncAwait(node: ts.FunctionLikeDeclaration): number {
+  private countAsyncAwait(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
+      // Skip nested functions to avoid counting their await expressions
+      if (node !== root && this.isFunctionLike(node)) {
+        return;
+      }
+
       if (node.kind === ts.SyntaxKind.AwaitExpression) {
         count++;
       }
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
-  private countCallbacks(node: ts.FunctionLikeDeclaration): number {
+  private countCallbacks(root: ts.FunctionLikeDeclaration): number {
     let count = 0;
 
     const visit = (node: ts.Node) => {
-      // Count function expressions and arrow functions passed as arguments
-      if (
-        (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) &&
-        ts.isCallExpression(node.parent)
-      ) {
-        count++;
+      // Skip nested functions (but still count them as callbacks if they are direct children)
+      if (node !== root && this.isFunctionLike(node)) {
+        // Count function expressions and arrow functions passed as arguments
+        if (
+          (ts.isFunctionExpression(node) || ts.isArrowFunction(node)) &&
+          ts.isCallExpression(node.parent)
+        ) {
+          count++;
+        }
+        return; // Don't traverse into nested functions
       }
+
       ts.forEachChild(node, visit);
     };
 
-    visit(node);
+    visit(root);
     return count;
   }
 
@@ -814,5 +1148,27 @@ export class QualityCalculator {
     mi = Math.max(0, Math.min(100, mi));
 
     return Math.round(mi * 100) / 100;
+  }
+
+  /**
+   * Extract function name from TypeScript AST node
+   */
+  private getFunctionName(node: ts.Node): string | null {
+    if (ts.isFunctionDeclaration(node)) {
+      return node.name?.text || null;
+    }
+    if (ts.isMethodDeclaration(node)) {
+      if (ts.isIdentifier(node.name)) {
+        return node.name.text;
+      }
+    }
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+      // For anonymous functions, we can't get a name
+      return null;
+    }
+    if (ts.isConstructorDeclaration(node)) {
+      return 'constructor';
+    }
+    return null;
   }
 }

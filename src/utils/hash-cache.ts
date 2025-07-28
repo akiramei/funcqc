@@ -92,7 +92,9 @@ export class HashCache {
    * Calculate individual content hash with caching
    */
   getOrCalculateContentHash(content: string, modifiedTime?: Date): string {
-    const quickKey = `content:${content.length}:${modifiedTime?.getTime() || 0}`;
+    // Use a more unique cache key that includes a quick hash of the content
+    const quickContentHash = this.calculateQuickHash(content);
+    const quickKey = `content:${content.length}:${quickContentHash}:${modifiedTime?.getTime() || 0}`;
     const cached = this.cache.get(quickKey);
     
     if (cached && cached.contentLength === content.length) {

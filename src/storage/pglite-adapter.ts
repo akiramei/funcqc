@@ -708,18 +708,65 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async insertInternalCallEdges(edges: InternalCallEdge[]): Promise<void> {
     await this.ensureInitialized();
-    // Need snapshotId - extract from first edge or pass as parameter
     if (edges.length === 0) return;
-    const snapshotId = edges[0].snapshotId;
-    const callEdges = edges.map(edge => ({
-      callerFunctionId: edge.callerFunctionId,
-      calleeFunctionId: edge.calleeFunctionId,
-      calleeName: edge.calleeName,
-      lineNumber: edge.lineNumber,
-      columnNumber: edge.columnNumber,
-      callType: edge.callType
-    } as unknown as CallEdge));
-    return this.callEdgeOps.insertInternalCallEdges(snapshotId, callEdges);
+    
+    // Use transaction for atomic insertion
+    await this.db.transaction(async (trx) => {
+      // Prepare batch insert values
+      const values = edges.map(edge => [
+        edge.id,
+        edge.snapshotId,
+        edge.filePath,
+        edge.callerFunctionId,
+        edge.calleeFunctionId,
+        edge.callerName,
+        edge.calleeName,
+        edge.callerClassName || null,
+        edge.calleeClassName || null,
+        edge.lineNumber,
+        edge.columnNumber,
+        edge.callType,
+        edge.callContext || null,
+        edge.confidenceScore,
+        edge.detectedBy,
+        edge.createdAt || new Date().toISOString()
+      ]);
+      
+      // Batch insert using unnest for better performance
+      const query = `
+        INSERT INTO internal_call_edges (
+          id, snapshot_id, file_path, caller_function_id, callee_function_id,
+          caller_name, callee_name, caller_class_name, callee_class_name,
+          line_number, column_number, call_type, call_context, 
+          confidence_score, detected_by, created_at
+        ) 
+        SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                            $6::text[], $7::text[], $8::text[], $9::text[],
+                            $10::int[], $11::int[], $12::text[], $13::text[],
+                            $14::float[], $15::text[], $16::timestamptz[])
+      `;
+      
+      await trx.query(query, [
+        values.map(v => v[0]),  // ids
+        values.map(v => v[1]),  // snapshot_ids
+        values.map(v => v[2]),  // file_paths
+        values.map(v => v[3]),  // caller_function_ids
+        values.map(v => v[4]),  // callee_function_ids
+        values.map(v => v[5]),  // caller_names
+        values.map(v => v[6]),  // callee_names
+        values.map(v => v[7]),  // caller_class_names
+        values.map(v => v[8]),  // callee_class_names
+        values.map(v => v[9]),  // line_numbers
+        values.map(v => v[10]), // column_numbers
+        values.map(v => v[11]), // call_types
+        values.map(v => v[12]), // call_contexts
+        values.map(v => v[13]), // confidence_scores
+        values.map(v => v[14]), // detected_by
+        values.map(v => v[15])  // created_at
+      ]);
+    });
+    
+    console.log(`Batch inserted ${edges.length} internal call edges`);
   }
 
   async getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]> {
@@ -973,8 +1020,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Check for single drive letter (Windows)
-    if (/^[A-Z]:$/i.test(dbPath)) {
+    // Check for dangerous root paths
+    if (dbPath === '/' || dbPath === '//') {
+      throw new DatabaseError(
+        ErrorCode.INVALID_CONFIG,
+        'Root directory is not a valid database path. Use a specific directory like /tmp/funcqc/data'
+      );
+    }
+
+    // Check for single drive letter (Windows) - only when actually on Windows
+    if (process.platform === 'win32' && /^[A-Z]:$/i.test(dbPath)) {
       throw new DatabaseError(
         ErrorCode.INVALID_CONFIG,
         'Drive letter only is not a valid path. Use a full path like C:\\funcqc\\data'

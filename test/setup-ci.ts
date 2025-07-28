@@ -3,7 +3,7 @@
  * Handles WASM/PGLite stability issues in containerized environments
  */
 
-import { beforeAll, afterAll } from 'vitest';
+import { beforeAll, afterAll, vi } from 'vitest';
 
 // Track open connections to ensure proper cleanup
 const openConnections = new Set<unknown>();
@@ -20,14 +20,37 @@ global.__TEST_UNTRACK_CONNECTION__ = (connection: unknown) => {
 beforeAll(() => {
   console.log('🔧 Starting funcqc CI test suite...');
   
-  // Set environment variables for WASM stability
-  process.env.NODE_OPTIONS = '--max-old-space-size=4096';
+  // Set environment variables for WASM stability (最小限設定)
+  process.env.NODE_OPTIONS = '--max-old-space-size=2048';
   
   // Disable problematic WASM optimizations in CI
   if (process.env.CI) {
     process.env.WASM_DISABLE_TIER_UP = '1';
     process.env.V8_FLAGS = '--no-wasm-tier-up --no-wasm-lazy-compilation';
+    process.env.VITEST_SEGFAULT_RETRY = '0';
+    process.env.UV_THREADPOOL_SIZE = '4'; // デフォルトスレッドプールサイズ
   }
+
+  // Global PGLite mock for CI environment to prevent filesystem pollution
+  vi.mock('@electric-sql/pglite', () => ({
+    PGlite: vi.fn().mockImplementation((path: string) => {
+      console.log(`🚫 CI: PGLite mock intercepted dangerous path: ${path}`);
+      
+      // Prevent any actual filesystem operations
+      return {
+        query: vi.fn().mockResolvedValue({ rows: [] }),
+        close: vi.fn().mockResolvedValue(undefined),
+        exec: vi.fn().mockResolvedValue(undefined),
+        path: path,
+        transaction: vi.fn().mockImplementation((callback) => {
+          const mockTx = {
+            query: vi.fn().mockResolvedValue({ rows: [] }),
+          };
+          return callback(mockTx);
+        }),
+      };
+    }),
+  }));
 });
 
 afterAll(async () => {

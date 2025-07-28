@@ -98,7 +98,7 @@ export class SnapshotOperations implements StorageOperationModule {
           gitBranch,
           gitTag,
           process.cwd(),
-          options.configHash || null,
+          options.configHash || '',
           options.scope || 'src',
           '{}' // Empty metadata initially
         ]
@@ -141,7 +141,7 @@ export class SnapshotOperations implements StorageOperationModule {
           gitBranch,
           gitTag,
           process.cwd(),
-          options.configHash || 'pending',
+          options.configHash || '',
           options.scope || 'src',
           JSON.stringify(this.createInitialMetadata(options.analysisLevel)),
         ]

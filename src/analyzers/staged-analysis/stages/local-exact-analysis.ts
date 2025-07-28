@@ -5,6 +5,7 @@
 
 import { CallExpression, NewExpression, Node, SourceFile } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata, ResolutionLevel } from '../../ideal-call-graph-analyzer';
+import { UnresolvedMethodCall } from '../../cha-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES } from '../constants';
@@ -103,6 +104,12 @@ export class LocalExactAnalysisStage {
 
         this.addEdge(edge, state);
         localEdgesCount++;
+      } else {
+        // Call couldn't be resolved locally - add to unresolved method calls for CHA
+        const unresolvedCall = this.createUnresolvedMethodCall(node as CallExpression, callerFunction);
+        if (unresolvedCall) {
+          state.unresolvedMethodCalls.push(unresolvedCall);
+        }
       }
     }
 
@@ -258,6 +265,7 @@ export class LocalExactAnalysisStage {
 
   /**
    * Resolve local function calls within the same file
+   * Conservative approach: only resolve calls that are clearly local
    */
   private resolveLocalCall(
     callNode: CallExpression,
@@ -268,7 +276,7 @@ export class LocalExactAnalysisStage {
   ): string | undefined {
     const expression = callNode.getExpression();
 
-    // Handle direct function calls
+    // Handle direct function calls (e.g., myFunction())
     if (Node.isIdentifier(expression)) {
       const callName = expression.getText();
       const candidates = functionByName.get(callName);
@@ -282,11 +290,12 @@ export class LocalExactAnalysisStage {
       }
     }
 
-    // Handle method calls (this.methodName)
+    // Handle method calls on 'this' only (e.g., this.methodName())
     if (Node.isPropertyAccessExpression(expression)) {
       const objectExpr = expression.getExpression();
       const methodName = expression.getName();
 
+      // Only resolve 'this' method calls - let import stage handle other property access
       if (Node.isThisExpression(objectExpr) && callerFunction.className) {
         // Look for method in same class
         const candidates = functionByName.get(methodName);
@@ -295,6 +304,10 @@ export class LocalExactAnalysisStage {
         );
         return sameClassMethod?.id;
       }
+      
+      // Skip other property access expressions (e.g., obj.method()) 
+      // Let import stage handle these with proper TypeChecker support
+      return undefined;
     }
 
     return undefined;
@@ -321,6 +334,42 @@ export class LocalExactAnalysisStage {
     }
 
     return undefined;
+  }
+
+  /**
+   * Create unresolved method call for CHA analysis
+   * Local stage should not create unresolved calls for property access - let import stage handle those
+   */
+  private createUnresolvedMethodCall(
+    callNode: CallExpression,
+    callerFunction: FunctionMetadata
+  ): UnresolvedMethodCall | undefined {
+    const expression = callNode.getExpression();
+
+    // Extract method name and receiver type for CHA analysis
+    let methodName: string | undefined;
+    let receiverType: string | undefined;
+
+    if (Node.isPropertyAccessExpression(expression)) {
+      // Skip property access expressions - let import stage handle these with TypeChecker
+      // This prevents receiver type mismatches (variable name vs class name)
+      return undefined;
+    } else if (Node.isIdentifier(expression)) {
+      methodName = expression.getText();
+      // Function call without receiver - could be polymorphic
+    }
+
+    if (!methodName) {
+      return undefined;
+    }
+
+    return {
+      callerFunctionId: callerFunction.id,
+      methodName,
+      receiverType,
+      lineNumber: callNode.getStartLineNumber(),
+      columnNumber: callNode.getStart() - callNode.getStartLinePos()
+    };
   }
 
   /**

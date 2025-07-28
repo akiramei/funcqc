@@ -36,14 +36,21 @@ export class InternalCallAnalyzer {
       sourceFile.getFullText();
       const internalCallEdges: InternalCallEdge[] = [];
 
-      // Create lookup maps for efficient function resolution
-      const functionsByName = new Map<string, FunctionInfo[]>();
+      // Create lookup maps using qualified names for accurate resolution
+      const functionsByQualifiedName = new Map<string, FunctionInfo[]>();
 
       for (const func of functions) {
-        if (!functionsByName.has(func.name)) {
-          functionsByName.set(func.name, []);
-        }
-        functionsByName.get(func.name)!.push(func);
+        // Create qualified name considering context path
+        const qualifiedName = this.createQualifiedName(func);
+        const simpleName = func.name;
+        
+        // Map both qualified and simple names for flexible lookup
+        [qualifiedName, simpleName].forEach(name => {
+          if (!functionsByQualifiedName.has(name)) {
+            functionsByQualifiedName.set(name, []);
+          }
+          functionsByQualifiedName.get(name)!.push(func);
+        });
       }
 
       // Analyze each function for calls to other functions in the same file
@@ -51,7 +58,7 @@ export class InternalCallAnalyzer {
         const callEdges = await this.findInternalCallsInFunction(
           sourceFile,
           callerFunction,
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath
         );
@@ -73,7 +80,7 @@ export class InternalCallAnalyzer {
   private async findInternalCallsInFunction(
     sourceFile: SourceFile,
     callerFunction: FunctionInfo,
-    functionsByName: Map<string, FunctionInfo[]>,
+    functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
     filePath: string
   ): Promise<InternalCallEdge[]> {
@@ -94,11 +101,11 @@ export class InternalCallAnalyzer {
         ...functionExpressions
       ];
 
-      // Find the specific function node by line number matching
+      // Find the specific function node by exact line number matching
       const functionNode = functionNodes.find(node => {
         const start = node.getStartLineNumber();
         const end = node.getEndLineNumber();
-        return start >= callerFunction.startLine && end <= callerFunction.endLine;
+        return start === callerFunction.startLine && end === callerFunction.endLine;
       });
 
       if (!functionNode) {
@@ -115,7 +122,7 @@ export class InternalCallAnalyzer {
         const edge = this.analyzeCallExpression(
           callExpression as CallExpression,
           callerFunction,
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath
         );
@@ -129,7 +136,7 @@ export class InternalCallAnalyzer {
         const edge = this.analyzeNewExpression(
           newExpression as NewExpression,
           callerFunction,
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath
         );
@@ -147,10 +154,46 @@ export class InternalCallAnalyzer {
   /**
    * Analyze a call expression to create an internal call edge if it calls another function in the same file
    */
+  /**
+   * Create qualified name considering context path for accurate function resolution
+   */
+  private createQualifiedName(func: FunctionInfo): string {
+    if (func.contextPath && func.contextPath.length > 0) {
+      return `${func.contextPath.join('.')}.${func.name}`;
+    }
+    return func.name;
+  }
+
+  /**
+   * Resolve qualified method name considering receiver context
+   */
+  private resolveQualifiedMethodName(
+    receiver: Node,
+    methodName: string,
+    callerFunction: FunctionInfo
+  ): string {
+    // Handle 'this' receiver - use caller's class context
+    if (Node.isThisExpression(receiver)) {
+      if (callerFunction.contextPath && callerFunction.contextPath.length > 0) {
+        return `${callerFunction.contextPath[0]}.${methodName}`;
+      }
+    }
+    
+    // Handle identifier receiver (e.g., obj.method)
+    if (Node.isIdentifier(receiver)) {
+      const receiverName = receiver.getText();
+      // For now, return as-is, but could be enhanced with type analysis
+      return `${receiverName}.${methodName}`;
+    }
+    
+    // Default to method name only
+    return methodName;
+  }
+
   private analyzeCallExpression(
     callExpression: CallExpression,
     callerFunction: FunctionInfo,
-    functionsByName: Map<string, FunctionInfo[]>,
+    functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
     filePath: string
   ): InternalCallEdge | null {
@@ -164,20 +207,29 @@ export class InternalCallAnalyzer {
           callExpression,
           callerFunction,
           calleeName,
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath
         );
       }
 
-      // Handle method calls (property access)
+      // Handle method calls (property access) with context awareness
       if (Node.isPropertyAccessExpression(expression)) {
-        const calleeName = expression.getName();
+        const methodName = expression.getName();
+        const receiver = expression.getExpression();
+        
+        // Resolve qualified method name based on receiver
+        const qualifiedMethodName = this.resolveQualifiedMethodName(
+          receiver, 
+          methodName, 
+          callerFunction
+        );
+        
         return this.createCallEdgeIfInternal(
           callExpression,
           callerFunction,
-          calleeName,
-          functionsByName,
+          qualifiedMethodName,
+          functionsByQualifiedName,
           snapshotId,
           filePath
         );
@@ -198,39 +250,31 @@ export class InternalCallAnalyzer {
     callExpression: CallExpression | NewExpression,
     callerFunction: FunctionInfo,
     calleeName: string,
-    functionsByName: Map<string, FunctionInfo[]>,
+    functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
     filePath: string,
     className?: string
   ): InternalCallEdge | null {
     let candidateFunctions: FunctionInfo[] | undefined;
     
+    // Try qualified name first, then fallback to simple name
+    candidateFunctions = functionsByQualifiedName.get(calleeName);
+    
     // Special handling for constructor calls
     if (calleeName === 'constructor' && className) {
-      // For constructor calls, we need to find constructor functions that belong to the className
-      // funcqc might store constructors with various patterns, so we check multiple possibilities
-      candidateFunctions = functionsByName.get('constructor');
-      
-      if (!candidateFunctions) {
-        // Try to find by class name pattern
-        candidateFunctions = functionsByName.get(className);
-      }
-      
-      // If still not found, search through all functions for a constructor in the right class
-      if (!candidateFunctions) {
-        const allFunctions: FunctionInfo[] = [];
-        functionsByName.forEach(funcs => allFunctions.push(...funcs));
-        candidateFunctions = allFunctions.filter(func => 
-          func.name === 'constructor' && 
-          func.filePath === filePath
-        );
-      }
+      const qualifiedConstructorName = `${className}.constructor`;
+      candidateFunctions = functionsByQualifiedName.get(qualifiedConstructorName) || 
+                         functionsByQualifiedName.get('constructor');
       
       // Log for debugging
       this.logger.debug(`Looking for constructor of class ${className} in ${filePath}, found ${candidateFunctions?.length || 0} candidates`);
-    } else {
-      // Regular function call
-      candidateFunctions = functionsByName.get(calleeName);
+    }
+    
+    // If no qualified match found, try simple name
+    if (!candidateFunctions || candidateFunctions.length === 0) {
+      // Extract simple name from qualified name if needed
+      const simpleName = calleeName.includes('.') ? calleeName.split('.').pop()! : calleeName;
+      candidateFunctions = functionsByQualifiedName.get(simpleName);
     }
     
     if (!candidateFunctions || candidateFunctions.length === 0) {
@@ -388,7 +432,7 @@ export class InternalCallAnalyzer {
   private analyzeNewExpression(
     newExpression: NewExpression,
     callerFunction: FunctionInfo,
-    functionsByName: Map<string, FunctionInfo[]>,
+    functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
     filePath: string
   ): InternalCallEdge | null {
@@ -403,7 +447,7 @@ export class InternalCallAnalyzer {
           newExpression,
           callerFunction,
           'constructor', // Constructor functions are named 'constructor'
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath,
           className // Pass class name as additional context
@@ -417,7 +461,7 @@ export class InternalCallAnalyzer {
           newExpression,
           callerFunction,
           'constructor',
-          functionsByName,
+          functionsByQualifiedName,
           snapshotId,
           filePath,
           className

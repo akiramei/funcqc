@@ -6,7 +6,8 @@
  */
 
 import * as ts from 'typescript';
-import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration } from 'ts-morph';
+import * as crypto from 'crypto';
+import { SourceFile as TsMorphSourceFile, Project, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, VariableDeclaration, ParameterDeclaration, Node } from 'ts-morph';
 import { FunctionInfo, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../types';
 // import { createHash } from 'crypto'; // Now using globalHashCache
 import { QualityCalculator } from '../metrics/quality-calculator';
@@ -190,20 +191,32 @@ export class UnifiedASTAnalyzer {
     const isAsync = this.isAsyncFunction(node);
     const isExported = this.isExported(node);
     const modifiers = this.getModifiers(node);
+    
+    // Extract contextPath and accessModifier
+    const contextPath = this.extractContextPath(node);
+    const accessModifier = this.extractAccessModifier(node);
+    const functionType = this.determineFunctionType(node);
+    const nestingLevel = this.calculateNestingLevel(node);
+    
 
-    // Generate IDs using optimized hash cache
-    const hashes = globalHashCache.getOrCalculateHashes(
+    // Generate unique physical ID for this function instance
+    const physicalId = this.generatePhysicalId();
+    
+    // Generate content-based ID using source code
+    const contentId = this.generateContentId(sourceCode, filePath, startLine, endLine);
+    
+    // Generate proper semantic ID using comprehensive context information
+    const semanticId = this.generateSemanticId(
       filePath,
-      sourceCode,
-      undefined, // No modification time available at this level
-      this.generateSignatureText(node)
+      name,
+      this.generateSignatureText(node),
+      contextPath,
+      modifiers
     );
-    const contentId = hashes.contentHash;
-    const semanticId = this.generateSemanticId(filePath, name, startLine);
 
     const description = this.extractJsDocDescription(node);
     const functionInfo: FunctionInfo = {
-      id: contentId,
+      id: physicalId,
       name,
       filePath,
       startLine,
@@ -222,15 +235,25 @@ export class UnifiedASTAnalyzer {
       endColumn: 0,
       displayName: name,
       signature: this.generateSignatureText(node),
-      astHash: hashes.astHash,
-      signatureHash: hashes.signatureHash,
-      fileHash: hashes.fileHash,
+      astHash: this.generateASTHash(sourceCode),
+      signatureHash: this.generateSignatureHash(this.generateSignatureText(node)),
+      fileHash: this.generateFileHash(sourceCode),
       isGenerator: false,
       isArrowFunction: node instanceof ArrowFunction,
       isMethod: node instanceof MethodDeclaration,
       isConstructor: node instanceof ConstructorDeclaration,
-      isStatic: false
+      isStatic: false,
+      functionType,
+      nestingLevel,
+      
+      // Add contextPath and accessModifier  
+      contextPath
     };
+    
+    // Add accessModifier only if it's not public (to match expected behavior)
+    if (accessModifier && accessModifier !== 'public') {
+      (functionInfo as unknown as Record<string, unknown>)['accessModifier'] = accessModifier;
+    }
 
     // Add description only if it exists
     if (description) {
@@ -332,9 +355,62 @@ export class UnifiedASTAnalyzer {
     return jsDocs[0].getDescription().trim() || undefined;
   }
 
-  private generateSemanticId(filePath: string, name: string, startLine: number): string {
-    const data = `${filePath}#${name}#${startLine}`;
+  private generateSemanticId(
+    filePath: string,
+    name: string,
+    signature: string,
+    contextPath: string[],
+    modifiers: string[]
+  ): string {
+    // セマンティックIDは関数の「意味的同一性」を表す
+    // 実装内容が変わっても、ユーザーから見て「同じ関数」であることを識別する
+    const components = [
+      filePath,              // ファイル位置による識別
+      ...contextPath,        // クラス・名前空間による識別  
+      name || '<anonymous>', // 関数名による識別
+      signature,             // シグネチャ（パラメータ・戻り値）による識別
+      ...modifiers.sort()    // 修飾子（async, static等）による識別
+      // 注意：sourceCode（実装内容）は意図的に除外
+      // 注意：位置情報も除外（関数移動時の追跡のため）
+    ];
+
+    return globalHashCache.getOrCalculateContentHash(components.join('|'));
+  }
+
+  /**
+   * Generate a UUID for the physical function instance
+   */
+  private generatePhysicalId(): string {
+    return crypto.randomUUID();
+  }
+
+  /**
+   * Generate a content-based ID for the function
+   */
+  private generateContentId(sourceCode: string, filePath: string, startLine: number, endLine: number): string {
+    const data = `${filePath}:${startLine}-${endLine}:${sourceCode}`;
     return globalHashCache.getOrCalculateContentHash(data);
+  }
+
+  /**
+   * Generate AST hash
+   */
+  private generateASTHash(sourceCode: string): string {
+    return globalHashCache.getOrCalculateASTHash(sourceCode);
+  }
+
+  /**
+   * Generate signature hash
+   */
+  private generateSignatureHash(signature: string): string {
+    return globalHashCache.getOrCalculateContentHash(signature);
+  }
+
+  /**
+   * Generate file hash
+   */
+  private generateFileHash(sourceCode: string): string {
+    return crypto.createHash('md5').update(sourceCode).digest('hex');
   }
 
   /**
@@ -364,6 +440,63 @@ export class UnifiedASTAnalyzer {
     const asyncModifier = this.isAsyncFunction(node) ? 'async ' : '';
     
     return `${asyncModifier}${name}(${params}): ${returnType}`;
+  }
+
+  /**
+   * Determine function type based on node type and context
+   */
+  private determineFunctionType(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): 'function' | 'method' | 'arrow' | 'local' {
+    if (Node.isMethodDeclaration(node) || Node.isConstructorDeclaration(node)) {
+      return 'method';
+    }
+    if (Node.isArrowFunction(node)) {
+      return 'arrow';
+    }
+    // Check if it's a local function (inside another function)
+    let parent = node.getParent();
+    while (parent && !Node.isSourceFile(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent)
+      ) {
+        return 'local';
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    return 'function';
+  }
+
+  /**
+   * Calculate nesting level for the function
+   */
+  private calculateNestingLevel(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): number {
+    let level = 0;
+    let parent = node.getParent();
+    
+    while (parent && !Node.isSourceFile(parent)) {
+      if (
+        Node.isFunctionDeclaration(parent) ||
+        Node.isMethodDeclaration(parent) ||
+        Node.isArrowFunction(parent) ||
+        Node.isFunctionExpression(parent) ||
+        Node.isConstructorDeclaration(parent)
+      ) {
+        level++;
+      }
+      const nextParent = parent.getParent();
+      if (!nextParent) break;
+      parent = nextParent;
+    }
+    
+    return level;
   }
 
   /**
@@ -399,5 +532,54 @@ export class UnifiedASTAnalyzer {
    */
   clearHashCache(): void {
     globalHashCache.clear();
+  }
+
+  /**
+   * Extract hierarchical context path for a function
+   */
+  private extractContextPath(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): string[] {
+    const path: string[] = [];
+    let current: Node | undefined = node.getParent();
+
+    while (current) {
+      // Use ts-morph's proper type checking
+      if (Node.isClassDeclaration(current)) {
+        const className = current.getName();
+        if (className) path.unshift(className);
+      } else if (Node.isModuleDeclaration(current)) {
+        const moduleName = current.getName();
+        if (moduleName) path.unshift(moduleName);
+      } else if (Node.isFunctionDeclaration(current)) {
+        const funcName = current.getName();
+        if (funcName) path.unshift(funcName);
+      }
+      current = current.getParent();
+    }
+
+    return path;
+  }
+
+  /**
+   * Extract access modifier for methods
+   */
+  private extractAccessModifier(
+    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
+  ): string | undefined {
+    // Only methods can have access modifiers
+    if (!(node instanceof MethodDeclaration) && !(node instanceof ConstructorDeclaration)) {
+      return undefined;
+    }
+
+    const modifierElements = node.getModifiers();
+    const accessModifier = modifierElements.find(mod => {
+      const kind = mod.getKind();
+      return kind === 125 || // private
+             kind === 123 || // public 
+             kind === 124;   // protected
+    });
+
+    return accessModifier?.getText();
   }
 }

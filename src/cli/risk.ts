@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import { VoidCommand, BaseCommandOptions } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { FunctionInfo } from '../types';
@@ -50,132 +50,15 @@ export const riskAnalyzeCommand: VoidCommand<RiskAnalyzeOptions> = (options) =>
     const spinner = ora('Loading risk configuration...').start();
 
     try {
-      // Load risk configuration
-      const configManager = new RiskConfigManager();
-      const riskConfig = configManager.load(options.config);
-
-      spinner.text = 'Loading snapshot data...';
-
-      // Get the latest snapshot
-      const snapshot = options.snapshot ? 
-        await env.storage.getSnapshot(options.snapshot) :
-        await env.storage.getLatestSnapshot();
-
-      if (!snapshot) {
-        spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
-        return;
-      }
-
-      spinner.text = 'Loading functions and call graph...';
-
-      // Get all functions and call edges
-      const [functions, callEdges] = await Promise.all([
-        env.storage.getFunctionsBySnapshot(snapshot.id),
-        env.storage.getCallEdgesBySnapshot(snapshot.id),
-      ]);
-
-      if (functions.length === 0) {
-        spinner.fail(chalk.yellow('No functions found in the snapshot.'));
-        return;
-      }
-
-      spinner.text = 'Calculating dependency metrics...';
-
-      // Calculate dependency metrics
-      const metricsCalculator = new DependencyMetricsCalculator();
-      const dependencyMetrics = metricsCalculator.calculateMetrics(
-        functions,
-        callEdges,
-        new Set(), // entryPoints - empty for now
-        new Set()  // cyclicFunctions - empty for now
-      );
-
-      spinner.text = 'Detecting risk patterns...';
-
-      // Detect risk patterns
-      const riskDetector = new RiskDetector({
-        wrapperThreshold: riskConfig.detection.wrapperDetection.parameterMatchTolerance,
-        fakeSplitThreshold: riskConfig.detection.fakeSplitDetection.couplingThreshold,
-        complexityHotspotThreshold: riskConfig.detection.complexityHotspots.cyclomaticThreshold,
-        minFunctionSize: riskConfig.detection.isolatedFunctions.minSize,
-        includeIsolated: riskConfig.detection.isolatedFunctions.enabled,
-      });
-
-      const riskAnalysis = riskDetector.analyzeRisks(functions, callEdges, dependencyMetrics);
-
-      spinner.text = 'Analyzing strongly connected components...';
-
-      // Analyze SCCs
-      const sccAnalyzer = new SCCAnalyzer();
-      const sccResult = sccAnalyzer.findStronglyConnectedComponents(callEdges);
-
-      spinner.text = 'Calculating comprehensive risk scores...';
-
-      // Calculate comprehensive risk assessments
-      const riskScorer = new ComprehensiveRiskScorer(riskConfig.scoring);
-      const riskAssessments = riskScorer.assessRisks(
-        functions,
-        callEdges,
-        dependencyMetrics,
-        riskAnalysis.patterns,
-        sccResult.components
-      );
-
+      const riskConfig = loadRiskConfig(options.config);
+      const analysisData = await loadRiskAnalysisData(env, options, spinner);
+      const calculations = await performRiskCalculations(analysisData, riskConfig, spinner);
+      const filteredResults = applyRiskFilters(calculations.riskAssessments, options);
+      
       spinner.succeed('Risk analysis complete');
-
-      // Apply filters
-      let filteredAssessments = riskAssessments;
-
-      // Filter by severity
-      if (options.severity) {
-        filteredAssessments = filteredAssessments.filter(a => a.riskLevel === options.severity);
-      }
-
-      // Filter by pattern
-      if (options.pattern) {
-        filteredAssessments = filteredAssessments.filter(a => 
-          a.patterns.some(p => p.type === options.pattern)
-        );
-      }
-
-      // Filter by minimum score
-      if (options.minScore) {
-        const minScore = parseInt(options.minScore, 10);
-        if (!isNaN(minScore) && minScore >= 0 && minScore <= 100) {
-          filteredAssessments = filteredAssessments.filter(a => a.overallScore >= minScore);
-        }
-      }
-
-      // Apply limit
-      if (options.limit) {
-        const limit = parseInt(options.limit, 10);
-        if (!isNaN(limit) && limit > 0) {
-          filteredAssessments = filteredAssessments.slice(0, limit);
-        }
-      }
-
-      // Output results
-      if (options.format === 'dot') {
-        outputRiskAnalysisDot(functions, callEdges, filteredAssessments, options);
-      } else if (options.format === 'json') {
-        outputRiskAnalysisJSON(riskAnalysis, filteredAssessments, riskConfig, options);
-      } else {
-        outputRiskAnalysisTable(riskAnalysis, filteredAssessments, riskConfig, options);
-      }
-
+      outputRiskResults(calculations.riskAnalysis, filteredResults, riskConfig, analysisData, options);
     } catch (error) {
-      spinner.fail('Failed to analyze risks');
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
-      } else {
-        errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
-      }
+      handleRiskAnalysisError(spinner, errorHandler, error);
     }
   };
 
@@ -825,4 +708,179 @@ function outputRiskAnalysisDot(
   );
   
   console.log(dotOutput);
+}
+
+// ================== Helper Functions for Refactored riskAnalyzeCommand ==================
+
+interface RiskAnalysisData {
+  functions: import('../types').FunctionInfo[];
+  callEdges: import('../types').CallEdge[];
+  dependencyMetrics: import('../analyzers/dependency-metrics').DependencyMetrics[];
+}
+
+interface RiskCalculations {
+  riskAnalysis: RiskAnalysisResult;
+  riskAssessments: ComprehensiveRiskAssessment[];
+  sccResult: SCCAnalysisResult;
+}
+
+/**
+ * Load risk configuration
+ */
+function loadRiskConfig(configPath?: string): RiskConfig {
+  const configManager = new RiskConfigManager();
+  return configManager.load(configPath);
+}
+
+/**
+ * Load all data required for risk analysis
+ */
+async function loadRiskAnalysisData(
+  env: CommandEnvironment, 
+  options: RiskAnalyzeOptions, 
+  spinner: Ora
+): Promise<RiskAnalysisData> {
+  spinner.text = 'Loading snapshot data...';
+
+  const snapshot = options.snapshot ? 
+    await env.storage.getSnapshot(options.snapshot) :
+    await env.storage.getLatestSnapshot();
+
+  if (!snapshot) {
+    spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    throw new Error('No snapshots found');
+  }
+
+  spinner.text = 'Loading functions and call graph...';
+
+  const [functions, callEdges] = await Promise.all([
+    env.storage.getFunctionsBySnapshot(snapshot.id),
+    env.storage.getCallEdgesBySnapshot(snapshot.id),
+  ]);
+
+  if (functions.length === 0) {
+    spinner.fail(chalk.yellow('No functions found in the snapshot.'));
+    throw new Error('No functions found');
+  }
+
+  spinner.text = 'Calculating dependency metrics...';
+
+  const metricsCalculator = new DependencyMetricsCalculator();
+  const dependencyMetrics = metricsCalculator.calculateMetrics(
+    functions,
+    callEdges,
+    new Set(), // entryPoints - empty for now
+    new Set()  // cyclicFunctions - empty for now
+  );
+
+  return { functions, callEdges, dependencyMetrics };
+}
+
+/**
+ * Perform all risk calculations
+ */
+async function performRiskCalculations(
+  data: RiskAnalysisData,
+  riskConfig: RiskConfig,
+  spinner: Ora
+): Promise<RiskCalculations> {
+  spinner.text = 'Detecting risk patterns...';
+
+  const riskDetector = new RiskDetector({
+    wrapperThreshold: riskConfig.detection.wrapperDetection.parameterMatchTolerance,
+    fakeSplitThreshold: riskConfig.detection.fakeSplitDetection.couplingThreshold,
+    complexityHotspotThreshold: riskConfig.detection.complexityHotspots.cyclomaticThreshold,
+    minFunctionSize: riskConfig.detection.isolatedFunctions.minSize,
+    includeIsolated: riskConfig.detection.isolatedFunctions.enabled,
+  });
+
+  const riskAnalysis = riskDetector.analyzeRisks(data.functions, data.callEdges, data.dependencyMetrics);
+
+  spinner.text = 'Analyzing strongly connected components...';
+
+  const sccAnalyzer = new SCCAnalyzer();
+  const sccResult = sccAnalyzer.findStronglyConnectedComponents(data.callEdges);
+
+  spinner.text = 'Calculating comprehensive risk scores...';
+
+  const riskScorer = new ComprehensiveRiskScorer(riskConfig.scoring);
+  const riskAssessments = riskScorer.assessRisks(
+    data.functions,
+    data.callEdges,
+    data.dependencyMetrics,
+    riskAnalysis.patterns,
+    sccResult.components
+  );
+
+  return { riskAnalysis, riskAssessments, sccResult };
+}
+
+/**
+ * Apply filters to risk assessments
+ */
+function applyRiskFilters(riskAssessments: ComprehensiveRiskAssessment[], options: RiskAnalyzeOptions): ComprehensiveRiskAssessment[] {
+  let filteredAssessments = riskAssessments;
+
+  if (options.severity) {
+    filteredAssessments = filteredAssessments.filter(a => a.riskLevel === options.severity);
+  }
+
+  if (options.pattern) {
+    filteredAssessments = filteredAssessments.filter(a => 
+      a.patterns.some(p => p.type === options.pattern)
+    );
+  }
+
+  if (options.minScore) {
+    const minScore = parseInt(options.minScore, 10);
+    if (!isNaN(minScore) && minScore >= 0 && minScore <= 100) {
+      filteredAssessments = filteredAssessments.filter(a => a.overallScore >= minScore);
+    }
+  }
+
+  if (options.limit) {
+    const limit = parseInt(options.limit, 10);
+    if (!isNaN(limit) && limit > 0) {
+      filteredAssessments = filteredAssessments.slice(0, limit);
+    }
+  }
+
+  return filteredAssessments;
+}
+
+/**
+ * Output risk analysis results in the specified format
+ */
+function outputRiskResults(
+  riskAnalysis: RiskAnalysisResult,
+  filteredAssessments: ComprehensiveRiskAssessment[],
+  riskConfig: RiskConfig,
+  data: RiskAnalysisData,
+  options: RiskAnalyzeOptions
+): void {
+  if (options.format === 'dot') {
+    outputRiskAnalysisDot(data.functions, data.callEdges, filteredAssessments, options);
+  } else if (options.format === 'json') {
+    outputRiskAnalysisJSON(riskAnalysis, filteredAssessments, riskConfig, options);
+  } else {
+    outputRiskAnalysisTable(riskAnalysis, filteredAssessments, riskConfig, options);
+  }
+}
+
+/**
+ * Handle errors in risk analysis
+ */
+function handleRiskAnalysisError(spinner: Ora, errorHandler: ReturnType<typeof createErrorHandler>, error: unknown): void {
+  spinner.fail('Failed to analyze risks');
+  if (error instanceof DatabaseError) {
+    const funcqcError = errorHandler.createError(
+      error.code,
+      error.message,
+      {},
+      error.originalError
+    );
+    errorHandler.handleError(funcqcError);
+  } else {
+    errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
+  }
 }

@@ -5,6 +5,7 @@
 
 import { CallExpression, NewExpression, Node, TypeChecker, Project, PropertyAccessExpression } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata, ResolutionLevel } from '../../ideal-call-graph-analyzer';
+import { UnresolvedMethodCall } from '../../cha-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES, NODE_BUILTIN_MODULES } from '../constants';
@@ -14,7 +15,6 @@ import { SymbolCache } from '../../../utils/symbol-cache';
 export class ImportExactAnalysisStage {
   private logger: Logger;
   private _debug: boolean;
-  // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
   // @ts-expect-error - Reserved for future use
   private _project: Project;
@@ -65,42 +65,48 @@ export class ImportExactAnalysisStage {
     // Process call expressions
     for (const node of callExpressions) {
       const calleeId = this.resolveImportCall(node as CallExpression, functions);
-      if (calleeId) {
-        const callerFunction = this.findCallerFunction(node, functions);
-        if (callerFunction) {
-          const isOptional = this.isOptionalCallExpression(node);
-          const calleeFunction = functions.get(calleeId);
-          
-          const edge: IdealCallEdge = {
-            id: generateStableEdgeId(callerFunction.id, calleeId),
-            callerFunctionId: callerFunction.id,
-            calleeFunctionId: calleeId,
-            calleeName: calleeFunction?.name || 'unknown',
-            calleeSignature: undefined,
-            callerClassName: callerFunction.className,
-            calleeClassName: calleeFunction?.className,
-            callType: 'direct',
-            callContext: undefined,
-            lineNumber: node.getStartLineNumber(),
-            columnNumber: node.getStart() - node.getStartLinePos(),
-            isAsync: false,
-            isChained: false,
-            metadata: isOptional ? { optionalChaining: true } : {},
-            createdAt: new Date().toISOString(),
-            candidates: [calleeId],
-            confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
-            resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
-            resolutionSource: isOptional ? RESOLUTION_SOURCES.TYPECHECKER_IMPORT_OPTIONAL : RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
-            runtimeConfirmed: false,
-            analysisMetadata: {
-              timestamp: Date.now(),
-              analysisVersion: '1.0',
-              sourceHash: node.getSourceFile().getFilePath()
-            }
-          };
+      const callerFunction = this.findCallerFunction(node, functions);
+      
+      
+      if (calleeId && callerFunction) {
+        const isOptional = this.isOptionalCallExpression(node);
+        const calleeFunction = functions.get(calleeId);
+        
+        const edge: IdealCallEdge = {
+          id: generateStableEdgeId(callerFunction.id, calleeId),
+          callerFunctionId: callerFunction.id,
+          calleeFunctionId: calleeId,
+          calleeName: calleeFunction?.name || 'unknown',
+          calleeSignature: undefined,
+          callerClassName: callerFunction.className,
+          calleeClassName: calleeFunction?.className,
+          callType: 'direct',
+          callContext: undefined,
+          lineNumber: node.getStartLineNumber(),
+          columnNumber: node.getStart() - node.getStartLinePos(),
+          isAsync: false,
+          isChained: false,
+          metadata: isOptional ? { optionalChaining: true } : {},
+          createdAt: new Date().toISOString(),
+          candidates: [calleeId],
+          confidenceScore: isOptional ? CONFIDENCE_SCORES.IMPORT_EXACT_OPTIONAL : CONFIDENCE_SCORES.IMPORT_EXACT,
+          resolutionLevel: RESOLUTION_LEVELS.IMPORT_EXACT as ResolutionLevel,
+          resolutionSource: isOptional ? RESOLUTION_SOURCES.TYPECHECKER_IMPORT_OPTIONAL : RESOLUTION_SOURCES.TYPECHECKER_IMPORT,
+          runtimeConfirmed: false,
+          analysisMetadata: {
+            timestamp: Date.now(),
+            analysisVersion: '1.0',
+            sourceHash: node.getSourceFile().getFilePath()
+          }
+        };
 
-          this.addEdge(edge, state);
-          importEdgesCount++;
+        this.addEdge(edge, state);
+        importEdgesCount++;
+      } else if (callerFunction) {
+        // Call couldn't be resolved via imports - add to unresolved method calls for CHA
+        const unresolvedCall = this.createUnresolvedMethodCall(node as CallExpression, callerFunction);
+        if (unresolvedCall) {
+          state.unresolvedMethodCalls.push(unresolvedCall);
         }
       }
     }
@@ -233,12 +239,40 @@ export class ImportExactAnalysisStage {
 
   /**
    * Resolve property access calls (e.g., obj.method())
+   * Conservative approach: only resolve truly imported property access, not local variable method calls
    */
   private resolvePropertyAccessCall(
     propertyAccess: PropertyAccessExpression,
     functions: Map<string, FunctionMetadata>
   ): string | undefined {
     try {
+      const objectExpr = propertyAccess.getExpression();
+      
+      // Skip local variable property access - these should go to CHA
+      // Only resolve property access on imports, modules, or other non-local references
+      if (Node.isIdentifier(objectExpr)) {
+        
+        // Check if this identifier refers to an import
+        const objectSymbol = this.symbolCache.getSymbolAtLocation(objectExpr);
+        if (objectSymbol) {
+          const declarations = objectSymbol.getDeclarations();
+          if (declarations && declarations.length > 0) {
+            // Check if any declaration is from an import
+            const hasImportDeclaration = declarations.some(decl => {
+              const importDecl = decl.getFirstAncestorByKind(268); // ImportDeclaration
+              return importDecl && Node.isImportDeclaration(importDecl);
+            });
+            
+            // Only proceed if this is NOT a local variable (i.e., it's imported or from another module)
+            if (!hasImportDeclaration) {
+              // This is a local variable method call - let CHA handle it
+              return undefined;
+            }
+          }
+        }
+      }
+      
+      // Proceed with normal resolution for non-local property access
       const symbol = this.symbolCache.getSymbolAtLocation(propertyAccess);
       if (!symbol) return undefined;
 
@@ -362,6 +396,69 @@ export class ImportExactAnalysisStage {
     }
 
     return undefined;
+  }
+
+  /**
+   * Create unresolved method call for CHA analysis with proper type resolution
+   */
+  private createUnresolvedMethodCall(
+    callNode: CallExpression,
+    callerFunction: FunctionMetadata
+  ): UnresolvedMethodCall | undefined {
+    const expression = callNode.getExpression();
+
+    // Extract method name and receiver type for CHA analysis
+    let methodName: string | undefined;
+    let receiverType: string | undefined;
+
+    if (Node.isPropertyAccessExpression(expression)) {
+      methodName = expression.getName();
+      
+      // Try to extract receiver type using TypeChecker
+      const objectExpr = expression.getExpression();
+      if (Node.isIdentifier(objectExpr)) {
+        // Use TypeChecker to get the actual type, not the variable name
+        try {
+          const symbol = this.symbolCache.getSymbolAtLocation(objectExpr);
+          if (symbol) {
+            // Get type using TypeChecker directly since we have access to it
+            const type = this._typeChecker.getTypeAtLocation(objectExpr);
+            const typeText = type.getText();
+            
+            // Extract class name from type text (e.g., "Dog" from "Dog" or "import(...).Dog")
+            const classMatch = typeText.match(/(?:^|\.|\s)([A-Z][a-zA-Z0-9_]*)\s*$/);
+            if (classMatch) {
+              receiverType = classMatch[1];
+            } else {
+              // Fallback: use the type text as-is for simpler cases
+              receiverType = typeText;
+            }
+          } else {
+            receiverType = objectExpr.getText();
+          }
+        } catch {
+          // Fallback to variable name if TypeChecker fails
+          receiverType = objectExpr.getText();
+        }
+      } else if (Node.isThisExpression(objectExpr) && callerFunction.className) {
+        receiverType = callerFunction.className;
+      }
+    } else if (Node.isIdentifier(expression)) {
+      methodName = expression.getText();
+      // Function call without receiver - could be polymorphic
+    }
+
+    if (!methodName) {
+      return undefined;
+    }
+
+    return {
+      callerFunctionId: callerFunction.id,
+      methodName,
+      receiverType,
+      lineNumber: callNode.getStartLineNumber(),
+      columnNumber: callNode.getStart() - callNode.getStartLinePos()
+    };
   }
 
   /**

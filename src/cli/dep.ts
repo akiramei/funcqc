@@ -1,11 +1,11 @@
 // Removed unused import: OptionValues
 import chalk from 'chalk';
-import ora from 'ora';
+import ora, { Ora } from 'ora';
 import { VoidCommand, BaseCommandOptions } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { DatabaseError } from '../storage/pglite-adapter';
-import { CallEdge } from '../types';
+import { CallEdge, FunctionInfo } from '../types';
 import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats, DependencyOptions } from '../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../analyzers/reachability-analyzer';
 import { EntryPointDetector } from '../analyzers/entry-point-detector';
@@ -13,7 +13,7 @@ import { ArchitectureConfigManager } from '../config/architecture-config';
 import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
 import { DotGenerator } from '../visualization/dot-generator';
-import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
+import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../utils/lazy-analysis';
 
 interface RouteComplexityInfo {
   path: string[];           // Function IDs in the route
@@ -100,43 +100,14 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { snapshot, callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: true,
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep list');
-
-      // Get internal call edges for the snapshot
-      if (!snapshot) {
-        throw new Error('Failed to load snapshot');
-      }
-      const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshot.id);
-
-      // Convert internal call edges to CallEdge format for unified processing
-      const convertedInternalEdges: CallEdge[] = internalCallEdges.map(edge => ({
-        id: edge.id,
-        callerFunctionId: edge.callerFunctionId,
-        calleeFunctionId: edge.calleeFunctionId,
-        calleeName: edge.calleeName,
-        calleeSignature: undefined,
-        callerClassName: edge.callerClassName,
-        calleeClassName: edge.calleeClassName,
-        callType: edge.callType,
-        callContext: edge.callContext,
-        lineNumber: edge.lineNumber,
-        columnNumber: edge.columnNumber,
-        isAsync: false,
-        isChained: false,
-        confidenceScore: edge.confidenceScore,
-        metadata: { source: 'internal', filePath: edge.filePath },
-        createdAt: edge.createdAt,
-      }));
-
-      // Combine all edges
-      const allEdges = [...callEdges, ...convertedInternalEdges];
+      validateCallGraphRequirements(allEdges, 'dep list');
 
       if (allEdges.length === 0) {
         console.log(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
@@ -189,6 +160,161 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
   };
 
 /**
+ * Find function by reference with priority-based matching
+ */
+function findTargetFunction(
+  functionRef: string,
+  functions: import('../types').FunctionInfo[]
+): import('../types').FunctionInfo | null {
+  // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
+  const candidates = functions.filter(f => f.id === functionRef);
+  
+  if (candidates.length > 0) {
+    return candidates[0];
+  }
+  
+  // Try exact name match
+  const exactMatches = functions.filter(f => f.name === functionRef);
+  
+  if (exactMatches.length === 1) {
+    return exactMatches[0];
+  } else if (exactMatches.length > 1) {
+    displayMultipleExactMatches(functionRef, exactMatches);
+    return null;
+  }
+  
+  // Try partial name match as fallback
+  const partialMatches = functions.filter(f => f.name.includes(functionRef));
+  
+  if (partialMatches.length === 0) {
+    console.log(chalk.red(`Function "${functionRef}" not found.`));
+    return null;
+  } else if (partialMatches.length === 1) {
+    const targetFunction = partialMatches[0];
+    console.log(chalk.dim(`Found partial match: ${targetFunction.name}`));
+    return targetFunction;
+  } else {
+    displayMultiplePartialMatches(functionRef, partialMatches);
+    return null;
+  }
+}
+
+/**
+ * Display multiple exact function name matches
+ */
+function displayMultipleExactMatches(
+  functionRef: string,
+  exactMatches: import('../types').FunctionInfo[]
+): void {
+  console.log(chalk.yellow(`Multiple functions named "${functionRef}" found:`));
+  exactMatches.forEach((func, index) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+  });
+  console.log(chalk.blue('\nPlease use the function ID for precise selection:'));
+  console.log(chalk.gray(`  funcqc dep show ${exactMatches[0].id}`));
+}
+
+/**
+ * Display multiple partial function name matches
+ */
+function displayMultiplePartialMatches(
+  functionRef: string,
+  partialMatches: import('../types').FunctionInfo[]
+): void {
+  console.log(chalk.yellow(`Multiple functions matching "${functionRef}" found:`));
+  partialMatches.slice(0, 10).forEach((func, index) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+  });
+  if (partialMatches.length > 10) {
+    console.log(chalk.gray(`  ... and ${partialMatches.length - 10} more`));
+  }
+  console.log(chalk.blue('\nPlease be more specific or use the function ID:'));
+  console.log(chalk.gray(`  funcqc dep show ${partialMatches[0].id}`));
+}
+
+/**
+ * Create quality metrics map for complexity analysis
+ */
+function createQualityMetricsMap(
+  functions: import('../types').FunctionInfo[]
+): Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> {
+  return new Map(
+    functions
+      .filter(f => f.metrics)
+      .map(f => [
+        f.id, 
+        { 
+          cyclomaticComplexity: f.metrics?.cyclomaticComplexity ?? 1, 
+          cognitiveComplexity: f.metrics?.cognitiveComplexity ?? 1 
+        }
+      ])
+  );
+}
+
+/**
+ * Parse and validate numeric option
+ */
+function parseNumericOption(value: string | undefined, defaultValue: number, optionName: string): number | null {
+  if (!value) {
+    return defaultValue;
+  }
+  
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < 1) {
+    console.log(chalk.red(`Invalid ${optionName}: ${value}`));
+    return null;
+  }
+  
+  return parsed;
+}
+
+/**
+ * Perform single function dependency analysis
+ */
+function performSingleFunctionAnalysis(
+  targetFunction: import('../types').FunctionInfo,
+  callEdges: CallEdge[],
+  functions: import('../types').FunctionInfo[],
+  options: DepShowOptions,
+  maxDepth: number,
+  maxRoutes: number,
+  qualityMetricsMap?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
+): void {
+  const dependencies = buildDependencyTree(
+    targetFunction.id,
+    callEdges,
+    functions,
+    options.direction || 'both',
+    maxDepth,
+    options.includeExternal || false,
+    {
+      showComplexity: options.showComplexity,
+      rankByLength: options.rankByLength,
+      maxRoutes,
+      qualityMetrics: qualityMetricsMap,
+      externalFilter: options.externalFilter || 'transit',
+    }
+  );
+
+  if (options.json) {
+    outputDepShowJSON({
+      id: targetFunction.id,
+      name: targetFunction.name,
+      file_path: targetFunction.filePath,
+      start_line: targetFunction.startLine
+    }, dependencies);
+  } else {
+    const functionMap = new Map(functions.map(f => [f.id, f]));
+    outputDepShowFormatted({
+      id: targetFunction.id,
+      name: targetFunction.name,
+      file_path: targetFunction.filePath,
+      start_line: targetFunction.startLine
+    }, dependencies, options, functionMap);
+  }
+}
+
+/**
  * Show detailed dependency information for a function
  * 
  * @param functionRef - Optional function ID or name. If provided, overrides the --name option.
@@ -209,145 +335,41 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: true,
         snapshotId: options.snapshot
       });
 
-      // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep show');
+      validateCallGraphRequirements(allEdges, 'dep show');
 
-      let targetFunction = null;
-      if (functionRef) {
-        // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
-        const candidates = functions.filter(f => f.id === functionRef);
-        
-        if (candidates.length > 0) {
-          // ID exact match found
-          targetFunction = candidates[0];
-        } else {
-          // Try exact name match
-          const exactMatches = functions.filter(f => f.name === functionRef);
-          
-          if (exactMatches.length === 1) {
-            targetFunction = exactMatches[0];
-          } else if (exactMatches.length > 1) {
-            // Multiple exact matches (overloads)
-            console.log(chalk.yellow(`Multiple functions named "${functionRef}" found:`));
-            exactMatches.forEach((func, index) => {
-              console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
-            });
-            console.log(chalk.blue('\nPlease use the function ID for precise selection:'));
-            console.log(chalk.gray(`  funcqc dep show ${exactMatches[0].id}`));
-            return;
-          } else {
-            // Try partial name match as fallback
-            const partialMatches = functions.filter(f => f.name.includes(functionRef));
-            
-            if (partialMatches.length === 0) {
-              console.log(chalk.red(`Function "${functionRef}" not found.`));
-              return;
-            } else if (partialMatches.length === 1) {
-              targetFunction = partialMatches[0];
-              console.log(chalk.dim(`Found partial match: ${targetFunction.name}`));
-            } else {
-              // Multiple partial matches
-              console.log(chalk.yellow(`Multiple functions matching "${functionRef}" found:`));
-              partialMatches.slice(0, 10).forEach((func, index) => {
-                console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
-              });
-              if (partialMatches.length > 10) {
-                console.log(chalk.gray(`  ... and ${partialMatches.length - 10} more`));
-              }
-              console.log(chalk.blue('\nPlease be more specific or use the function ID:'));
-              console.log(chalk.gray(`  funcqc dep show ${partialMatches[0].id}`));
-              return;
-            }
-          }
-        }
+      const targetFunction = functionRef ? findTargetFunction(functionRef, functions) : null;
+      if (functionRef && !targetFunction) {
+        return;
       }
 
-      // Get quality metrics if complexity analysis is requested
-      let qualityMetricsMap: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
-      if (options.showComplexity) {
-        // Quality metrics are already included in FunctionInfo from getFunctionsBySnapshot
-        qualityMetricsMap = new Map(
-          functions
-            .filter(f => f.metrics)
-            .map(f => [
-              f.id, 
-              { 
-                cyclomaticComplexity: f.metrics?.cyclomaticComplexity ?? 1, 
-                cognitiveComplexity: f.metrics?.cognitiveComplexity ?? 1 
-              }
-            ])
-        );
-      }
-
-      // Apply depth filtering if needed
-      let maxDepth = 2;
-      if (options.depth) {
-        const parsed = parseInt(options.depth, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          console.log(chalk.red(`Invalid depth: ${options.depth}`));
-          return;
-        }
-        maxDepth = parsed;
-      }
-
-      // Parse maxRoutes option
-      let maxRoutes = 5; // default
-      if (options.maxRoutes) {
-        const parsed = parseInt(options.maxRoutes, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          console.log(chalk.red(`Invalid maxRoutes: ${options.maxRoutes}`));
-          return;
-        }
-        maxRoutes = parsed;
+      const qualityMetricsMap = options.showComplexity ? createQualityMetricsMap(functions) : undefined;
+      
+      const maxDepth = parseNumericOption(options.depth, 2, 'depth');
+      const maxRoutes = parseNumericOption(options.maxRoutes, 5, 'maxRoutes');
+      
+      if (maxDepth === null || maxRoutes === null) {
+        return;
       }
 
       if (targetFunction) {
-        // Single function analysis
-        const dependencies = buildDependencyTree(
-          targetFunction.id,
-          callEdges,
+        performSingleFunctionAnalysis(
+          targetFunction,
+          allEdges,
           functions,
-          options.direction || 'both',
+          options,
           maxDepth,
-          options.includeExternal || false,
-          {
-            showComplexity: options.showComplexity,
-            rankByLength: options.rankByLength,
-            maxRoutes,
-            qualityMetrics: qualityMetricsMap,
-            externalFilter: options.externalFilter || 'transit',
-          }
+          maxRoutes,
+          qualityMetricsMap
         );
-
-        // Output results
-        if (options.json) {
-          outputDepShowJSON({
-            id: targetFunction.id,
-            name: targetFunction.name,
-            file_path: targetFunction.filePath,
-            start_line: targetFunction.startLine
-          }, dependencies);
-        } else {
-          // Create function map for file path lookups
-          const functionMap = new Map(functions.map(f => [f.id, f]));
-          outputDepShowFormatted({
-            id: targetFunction.id,
-            name: targetFunction.name,
-            file_path: targetFunction.filePath,
-            start_line: targetFunction.startLine
-          }, dependencies, options, functionMap);
-        }
       } else {
-        // Global analysis - find top routes across all functions
         await performGlobalRouteAnalysis(
           functions, 
-          callEdges, 
+          allEdges, 
           maxDepth, 
           maxRoutes, 
           options, 
@@ -627,6 +649,218 @@ function calculateRouteComplexity(
 /**
  * Build dependency tree with specified depth and optional complexity analysis
  */
+/**
+ * Configuration for dependency tree building
+ */
+interface DependencyTreeConfig {
+  functionId: string;
+  edges: CallEdge[];
+  functions: Array<{ id: string; name: string; contextPath?: string[] }>;
+  direction: 'in' | 'out' | 'both';
+  maxDepth: number;
+  includeExternal: boolean;
+  options?: {
+    showComplexity?: boolean | undefined;
+    rankByLength?: boolean | undefined;
+    maxRoutes?: number | undefined;
+    qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }> | undefined;
+    externalFilter?: 'all' | 'transit' | 'none';
+  };
+}
+
+/**
+ * Check if an external node should be included based on filter settings
+ */
+function shouldIncludeExternalNode(
+  edge: CallEdge,
+  includeExternal: boolean,
+  externalFilter: 'all' | 'transit' | 'none'
+): boolean {
+  if (!includeExternal) return false;
+  if (externalFilter === 'none') return false;
+  if (externalFilter === 'all') return true;
+  
+  // For 'transit' mode, check if this external call leads back to internal code
+  if (externalFilter === 'transit') {
+    // Virtual calls (like Commander callbacks) are considered transit nodes
+    if (edge.callType === 'virtual') return true;
+    
+    // Check if this external function is called by internal code and calls internal code
+    // This requires looking ahead in the call graph
+    // For now, we'll include common patterns like event handlers and callbacks
+    const transitPatterns = [
+      'parseAsync', 'parse', // Commander.js
+      'on', 'once', 'emit',  // EventEmitter
+      'then', 'catch'        // Promises
+      // Array methods removed - they're too noisy
+    ];
+    
+    return edge.calleeName ? transitPatterns.some(pattern => 
+      edge.calleeName!.includes(pattern)
+    ) : false;
+  }
+  
+  return false;
+}
+
+/**
+ * Create a display name for function, handling constructors specially
+ */
+function createFunctionDisplayName(
+  functionInfo: { id: string; name: string; contextPath?: string[] } | undefined
+): string {
+  if (!functionInfo) return 'unknown';
+  
+  // Enhance constructor display with class name for internal functions
+  if (functionInfo.name === 'constructor' && functionInfo.contextPath && functionInfo.contextPath.length > 0) {
+    return `new ${functionInfo.contextPath[0]}`;
+  }
+  
+  return functionInfo.name;
+}
+
+/**
+ * Create external dependency node
+ */
+function createExternalDependencyNode(
+  edge: CallEdge,
+  depth: number
+): DependencyTreeNode & { isExternal: boolean } {
+  // Enhance constructor display with class name
+  let displayName = edge.calleeName || 'unknown';
+  if (edge.calleeName === 'constructor' && edge.calleeClassName) {
+    displayName = `new ${edge.calleeClassName}`;
+  }
+  
+  return {
+    id: `external:${edge.calleeName}`,
+    name: displayName,
+    depth: depth + 1,
+    dependencies: [],
+    isExternal: true
+  };
+}
+
+/**
+ * Create virtual dependency node
+ */
+function createVirtualDependencyNode(
+  edge: CallEdge,
+  depth: number
+): DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string } {
+  return {
+    id: `virtual:${edge.calleeName}`,
+    name: edge.calleeName || 'unknown',
+    depth: depth + 1,
+    dependencies: [],
+    isVirtual: true,
+    frameworkInfo: (edge.metadata as Record<string, unknown>)?.['framework'] as string || 'unknown'
+  };
+}
+
+/**
+ * Process incoming dependencies for a function
+ */
+function processIncomingDependencies(
+  currentId: string,
+  edges: CallEdge[],
+  shouldIncludeExternal: (edge: CallEdge) => boolean,
+  buildTreeFn: (id: string, depth: number, dir: 'in' | 'out', path: string[]) => DependencyTreeNode | null,
+  depth: number,
+  newPath: string[]
+): Array<{ direction: 'in'; edge: CallEdge; subtree: DependencyTreeNode | null }> {
+  const incoming = edges.filter(edge => {
+    if (edge.calleeFunctionId !== currentId) return false;
+    if (edge.callType === 'external') return shouldIncludeExternal(edge);
+    return true;
+  });
+  
+  return incoming.map(edge => {
+    let subtree = null;
+    
+    if (edge.callerFunctionId) {
+      // Internal function call - recurse
+      subtree = buildTreeFn(edge.callerFunctionId, depth + 1, 'in', newPath);
+    }
+    // Note: For incoming dependencies, we don't typically have external callers
+    
+    return {
+      direction: 'in' as const,
+      edge,
+      subtree,
+    };
+  }).filter(dep => dep.subtree);
+}
+
+/**
+ * Process outgoing dependencies for a function
+ */
+function processOutgoingDependencies(
+  currentId: string,
+  edges: CallEdge[],
+  shouldIncludeExternal: (edge: CallEdge) => boolean,
+  buildTreeFn: (id: string, depth: number, dir: 'in' | 'out', path: string[]) => DependencyTreeNode | null,
+  depth: number,
+  newPath: string[],
+  includeExternal: boolean
+): Array<{ direction: 'out'; edge: CallEdge; subtree: DependencyTreeNode | null }> {
+  const outgoing = edges.filter(edge => {
+    if (edge.callerFunctionId !== currentId) return false;
+    if (edge.callType === 'external' || edge.callType === 'virtual') {
+      return shouldIncludeExternal(edge);
+    }
+    return true;
+  });
+  
+  return outgoing.map(edge => {
+    let subtree = null;
+    
+    if (edge.calleeFunctionId) {
+      // Internal function call - recurse
+      subtree = buildTreeFn(edge.calleeFunctionId, depth + 1, 'out', newPath);
+    } else if (includeExternal && edge.calleeName) {
+      // External or virtual function call - create terminal node
+      if (edge.callType === 'virtual') {
+        subtree = createVirtualDependencyNode(edge, depth);
+      } else {
+        subtree = createExternalDependencyNode(edge, depth);
+      }
+    }
+    
+    return {
+      direction: 'out' as const,
+      edge,
+      subtree,
+    };
+  }).filter(dep => dep.subtree);
+}
+
+/**
+ * Finalize dependency tree with route analysis
+ */
+function finalizeDependencyTreeWithRoutes(
+  result: DependencyTreeNode,
+  routes: RouteComplexityInfo[],
+  options?: DependencyTreeConfig['options']
+): DependencyTreeNode {
+  // Add route analysis results if complexity analysis is enabled
+  if (options?.showComplexity && routes.length > 0) {
+    // Sort routes by length if requested
+    const sortedRoutes = options.rankByLength 
+      ? routes.sort((a, b) => b.totalDepth - a.totalDepth)
+      : routes;
+    
+    // Apply route limit
+    const limitedRoutes = options.maxRoutes 
+      ? sortedRoutes.slice(0, options.maxRoutes)
+      : sortedRoutes;
+      
+    result.routes = limitedRoutes;
+  }
+  
+  return result;
+}
+
 function buildDependencyTree(
   functionId: string,
   edges: CallEdge[],
@@ -647,33 +881,8 @@ function buildDependencyTree(
   const externalFilter = options?.externalFilter || 'transit';
   
   // Helper function to check if an external node should be included
-  function shouldIncludeExternal(edge: CallEdge): boolean {
-    if (!includeExternal) return false;
-    if (externalFilter === 'none') return false;
-    if (externalFilter === 'all') return true;
-    
-    // For 'transit' mode, check if this external call leads back to internal code
-    if (externalFilter === 'transit') {
-      // Virtual calls (like Commander callbacks) are considered transit nodes
-      if (edge.callType === 'virtual') return true;
-      
-      // Check if this external function is called by internal code and calls internal code
-      // This requires looking ahead in the call graph
-      // For now, we'll include common patterns like event handlers and callbacks
-      const transitPatterns = [
-        'parseAsync', 'parse', // Commander.js
-        'on', 'once', 'emit',  // EventEmitter
-        'then', 'catch'        // Promises
-        // Array methods removed - they're too noisy
-      ];
-      
-      return edge.calleeName ? transitPatterns.some(pattern => 
-        edge.calleeName!.includes(pattern)
-      ) : false;
-    }
-    
-    return false;
-  }
+  const shouldIncludeExternal = (edge: CallEdge) => 
+    shouldIncludeExternalNode(edge, includeExternal, externalFilter);
   
   function buildTree(currentId: string, depth: number, dir: 'in' | 'out', currentPath: string[] = []): DependencyTreeNode | null {
     if (depth > maxDepth || visited.has(currentId)) {
@@ -684,13 +893,7 @@ function buildDependencyTree(
     const newPath = [...currentPath, currentId];
     
     const currentFunction = functions.find(f => f.id === currentId);
-    
-    // Enhance constructor display with class name for internal functions
-    let displayName = currentFunction?.name || 'unknown';
-    if (currentFunction?.name === 'constructor' && currentFunction.contextPath && currentFunction.contextPath.length > 0) {
-      // Use the first element of contextPath as the class name
-      displayName = `new ${currentFunction.contextPath[0]}`;
-    }
+    const displayName = createFunctionDisplayName(currentFunction);
     
     const result: DependencyTreeNode = {
       id: currentId,
@@ -700,83 +903,17 @@ function buildDependencyTree(
     };
     
     if (dir === 'in' || direction === 'both') {
-      // Incoming dependencies (who calls this function)
-      const incoming = edges.filter(edge => {
-        if (edge.calleeFunctionId !== currentId) return false;
-        if (edge.callType === 'external') return shouldIncludeExternal(edge);
-        return true;
-      });
-      
-      result.dependencies.push(...incoming.map(edge => {
-        let subtree = null;
-        
-        if (edge.callerFunctionId) {
-          // Internal function call - recurse
-          subtree = buildTree(edge.callerFunctionId, depth + 1, 'in', newPath);
-        }
-        // Note: For incoming dependencies, we don't typically have external callers
-        // as external functions calling our internal functions is less common
-        
-        return {
-          direction: 'in' as const,
-          edge,
-          subtree,
-        };
-      }).filter(dep => dep.subtree));
+      const incomingDeps = processIncomingDependencies(
+        currentId, edges, shouldIncludeExternal, buildTree, depth, newPath
+      );
+      result.dependencies.push(...incomingDeps);
     }
     
     if (dir === 'out' || direction === 'both') {
-      // Outgoing dependencies (what this function calls)
-      const outgoing = edges.filter(edge => {
-        if (edge.callerFunctionId !== currentId) return false;
-        if (edge.callType === 'external' || edge.callType === 'virtual') {
-          return shouldIncludeExternal(edge);
-        }
-        return true;
-      });
-      
-      result.dependencies.push(...outgoing.map(edge => {
-        let subtree = null;
-        
-        if (edge.calleeFunctionId) {
-          // Internal function call - recurse
-          subtree = buildTree(edge.calleeFunctionId, depth + 1, 'out', newPath);
-        } else if (includeExternal && edge.calleeName) {
-          // External or virtual function call - create terminal node
-          if (edge.callType === 'virtual') {
-            // Virtual callback function call
-            subtree = {
-              id: `virtual:${edge.calleeName}`,
-              name: edge.calleeName,
-              depth: depth + 1,
-              dependencies: [],
-              isVirtual: true,
-              frameworkInfo: (edge.metadata as Record<string, unknown>)?.['framework'] as string || 'unknown'
-            } as DependencyTreeNode & { isVirtual: boolean; frameworkInfo: string };
-          } else {
-            // External function call
-            // Enhance constructor display with class name
-            let displayName = edge.calleeName;
-            if (edge.calleeName === 'constructor' && edge.calleeClassName) {
-              displayName = `new ${edge.calleeClassName}`;
-            }
-            
-            subtree = {
-              id: `external:${edge.calleeName}`,
-              name: displayName,
-              depth: depth + 1,
-              dependencies: [],
-              isExternal: true
-            } as DependencyTreeNode & { isExternal: boolean };
-          }
-        }
-        
-        return {
-          direction: 'out' as const,
-          edge,
-          subtree,
-        };
-      }).filter(dep => dep.subtree));
+      const outgoingDeps = processOutgoingDependencies(
+        currentId, edges, shouldIncludeExternal, buildTree, depth, newPath, includeExternal
+      );
+      result.dependencies.push(...outgoingDeps);
     }
     
     // Record route if this is a leaf node or if complexity analysis is enabled
@@ -797,22 +934,7 @@ function buildDependencyTree(
     dependencies: [],
   };
   
-  // Add route analysis results if complexity analysis is enabled
-  if (options?.showComplexity && routes.length > 0) {
-    // Sort routes by length if requested
-    const sortedRoutes = options.rankByLength 
-      ? routes.sort((a, b) => b.totalDepth - a.totalDepth)
-      : routes;
-    
-    // Apply route limit
-    const limitedRoutes = options.maxRoutes 
-      ? sortedRoutes.slice(0, options.maxRoutes)
-      : sortedRoutes;
-      
-    result.routes = limitedRoutes;
-  }
-  
-  return result;
+  return finalizeDependencyTreeWithRoutes(result, routes, options);
 }
 
 /**
@@ -829,64 +951,87 @@ function outputDepShowJSON(func: { id: string; name: string; file_path?: string;
 /**
  * Output dependency show in formatted tree
  */
-function outputDepShowFormatted(
-  func: { id: string; name: string; file_path?: string; start_line?: number }, 
-  dependencies: DependencyTreeNode, 
-  options: DepShowOptions,
-  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+/**
+ * Display header information for dependency analysis
+ */
+function displayDependencyAnalysisHeader(
+  func: { id: string; name: string; file_path?: string; start_line?: number }
 ): void {
   console.log(chalk.bold(`\nDependency Analysis for: ${chalk.cyan(func.name)}`));
   console.log(chalk.gray(`ID: ${func.id}`));
   console.log(chalk.gray(`File: ${func.file_path}:${func.start_line}`));
   console.log();
+}
 
-  // Show route complexity analysis if available
-  if (options.showComplexity && dependencies.routes && dependencies.routes.length > 0) {
-    console.log(chalk.bold('📊 Longest Routes (by depth):'));
-    console.log();
+/**
+ * Display individual route with complexity breakdown
+ */
+function displayRouteComplexityBreakdown(route: RouteComplexityInfo, index: number): void {
+  console.log(chalk.bold(`Route ${index + 1} (Depth: ${route.totalDepth}, Total Complexity: ${route.totalComplexity})`));
+  
+  route.complexityBreakdown.forEach((breakdown, pathIndex) => {
+    const isLast = pathIndex === route.complexityBreakdown.length - 1;
+    const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
+    const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
     
-    dependencies.routes.forEach((route, index) => {
-      console.log(chalk.bold(`Route ${index + 1} (Depth: ${route.totalDepth}, Total Complexity: ${route.totalComplexity})`));
-      
-      // Display route path with complexity breakdown
-      route.complexityBreakdown.forEach((breakdown, pathIndex) => {
-        const isLast = pathIndex === route.complexityBreakdown.length - 1;
-        const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
-        const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
-        
-        if (pathIndex === 0) {
-          console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
-        } else {
-          console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
-        }
-      });
-      
-      console.log();
-    });
-    
-    // Summary statistics
-    if (dependencies.routes.length > 1) {
-      const maxComplexity = Math.max(...dependencies.routes.map(r => r.totalComplexity));
-      const avgComplexity = dependencies.routes.reduce((sum, r) => sum + r.totalComplexity, 0) / dependencies.routes.length;
-      const maxComplexityRoute = dependencies.routes.find(r => r.totalComplexity === maxComplexity);
-      
-      console.log(chalk.bold('📈 Complexity Summary:'));
-      if (maxComplexityRoute) {
-        console.log(`  Highest complexity route: Route ${dependencies.routes.indexOf(maxComplexityRoute) + 1} (${maxComplexity})`);
-      }
-      console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
-      
-      const allFunctions = dependencies.routes.flatMap(r => r.complexityBreakdown);
-      if (allFunctions.length > 0) {
-        const mostComplexFunction = allFunctions.reduce((max, current) => 
-          current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
-        );
-        console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
-      }
-      console.log();
+    if (pathIndex === 0) {
+      console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
+    } else {
+      console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
     }
-  }
+  });
+  
+  console.log();
+}
 
+/**
+ * Calculate and display complexity summary statistics
+ */
+function displayComplexitySummary(routes: RouteComplexityInfo[]): void {
+  if (routes.length <= 1) return;
+
+  const maxComplexity = Math.max(...routes.map(r => r.totalComplexity));
+  const avgComplexity = routes.reduce((sum, r) => sum + r.totalComplexity, 0) / routes.length;
+  const maxComplexityRoute = routes.find(r => r.totalComplexity === maxComplexity);
+  
+  console.log(chalk.bold('📈 Complexity Summary:'));
+  if (maxComplexityRoute) {
+    console.log(`  Highest complexity route: Route ${routes.indexOf(maxComplexityRoute) + 1} (${maxComplexity})`);
+  }
+  console.log(`  Average route complexity: ${avgComplexity.toFixed(1)}`);
+  
+  const allFunctions = routes.flatMap(r => r.complexityBreakdown);
+  if (allFunctions.length > 0) {
+    const mostComplexFunction = allFunctions.reduce((max, current) => 
+      current.cyclomaticComplexity > max.cyclomaticComplexity ? current : max
+    );
+    console.log(`  Most complex single function: ${mostComplexFunction.functionName} (${mostComplexFunction.cyclomaticComplexity})`);
+  }
+  console.log();
+}
+
+/**
+ * Display route complexity analysis for all routes
+ */
+function displayRouteComplexityAnalysis(routes: RouteComplexityInfo[]): void {
+  console.log(chalk.bold('📊 Longest Routes (by depth):'));
+  console.log();
+  
+  routes.forEach((route, index) => {
+    displayRouteComplexityBreakdown(route, index);
+  });
+  
+  displayComplexitySummary(routes);
+}
+
+/**
+ * Display dependency tree structure recursively
+ */
+function displayDependencyTree(
+  dependencies: DependencyTreeNode,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): void {
+  
   function printTree(node: DependencyTreeNode | null, prefix: string = '', isLast: boolean = true): void {
     if (!node) return;
 
@@ -905,71 +1050,21 @@ function outputDepShowFormatted(
         const arrow = dep.direction === 'in' ? '←' : '→';
         const typeColor = getCallTypeColor(dep.edge.callType);
         
-        // Add framework info for virtual callback edges
-        // Commander.js specific display: show program.parseAsync in the flow
+        // Handle virtual callback edges (Commander.js specific)
         if (dep.edge.callType === 'virtual' && 
             (dep.edge.metadata as Record<string, unknown>)?.['framework'] === 'commander' &&
             (dep.edge.metadata as Record<string, unknown>)?.['displayHint'] === 'commander_dispatch') {
           
-          const triggerMethod = (dep.edge.metadata as Record<string, unknown>)?.['triggerMethod'] as string;
-          const programCall = `program.${triggerMethod || 'parseAsync'}`;
-          
-          // Insert program.parseAsync as intermediate step
-          let locationInfo = `line ${dep.edge.lineNumber}`;
-          if (functionMap && dep.edge.callerFunctionId) {
-            const callerFunc = functionMap.get(dep.edge.callerFunctionId);
-            if (callerFunc?.filePath) {
-              locationInfo = `${callerFunc.filePath}:${dep.edge.lineNumber}`;
-            }
-          }
-          console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(${locationInfo})`)}`);
-          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
-          
-          // Then show the actual command function
-          if (dep.subtree) {
-            const commandDisplayName = `${dep.subtree.name} ${chalk.cyan('[command]')}`;
-            console.log(`${newPrefix + (isLastDep ? '        ' : '│       ')}└── ${commandDisplayName}`);
-            
-            // Continue with recursive tree printing if there are more dependencies
-            if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
-              printTree(dep.subtree, newPrefix + (isLastDep ? '        ' : '│       '), true);
-            }
-          }
-          return; // Skip the normal rendering
+          displayCommanderVirtualEdge(dep, newPrefix, isLastDep, arrow, functionMap, printTree);
+          return;
         }
         
         // Get file path for the edge
-        let locationInfo = `line ${dep.edge.lineNumber}`;
-        if (functionMap) {
-          // For outgoing calls, use caller's file path
-          // For incoming calls, use callee's file path
-          const relevantFuncId = dep.direction === 'out' ? dep.edge.callerFunctionId : dep.edge.calleeFunctionId;
-          if (relevantFuncId) {
-            const func = functionMap.get(relevantFuncId);
-            if (func?.filePath) {
-              locationInfo = `${func.filePath}:${dep.edge.lineNumber}`;
-            }
-          }
-        }
-        
+        const locationInfo = getEdgeLocationInfo(dep, functionMap);
         console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${typeColor(dep.edge.callType)} ${chalk.gray(`(${locationInfo})`)}`);
         
         if (dep.subtree) {
-          // Add framework indicator for virtual nodes
-          let nodeDisplayName = dep.subtree.name;
-          if ((dep.subtree as { isVirtual?: boolean; frameworkInfo?: string }).isVirtual && (dep.subtree as { frameworkInfo?: string }).frameworkInfo) {
-            nodeDisplayName = `${dep.subtree.name} ${chalk.cyan(`[${dep.subtree.frameworkInfo}]`)}`;
-          } else if (dep.subtree.isExternal) {
-            nodeDisplayName = `${dep.subtree.name} ${chalk.gray('(external)')}`;
-          }
-          
-          // Print the node with appropriate indicators
-          console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${nodeDisplayName}`);
-          
-          // Continue with recursive tree printing if there are more dependencies
-          if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0) {
-            printTree(dep.subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
-          }
+          displaySubtreeNode(dep.subtree, newPrefix, isLastDep, printTree);
         }
       });
     }
@@ -977,6 +1072,100 @@ function outputDepShowFormatted(
 
   printTree(dependencies);
   console.log();
+}
+
+/**
+ * Display Commander.js virtual callback edge
+ */
+function displayCommanderVirtualEdge(
+  dep: { direction: 'in' | 'out'; edge: CallEdge; subtree: DependencyTreeNode | null },
+  newPrefix: string,
+  isLastDep: boolean,
+  arrow: string,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>,
+  printTree?: (node: DependencyTreeNode | null, prefix: string, isLast: boolean) => void
+): void {
+  const triggerMethod = (dep.edge.metadata as Record<string, unknown>)?.['triggerMethod'] as string;
+  const programCall = `program.${triggerMethod || 'parseAsync'}`;
+  
+  let locationInfo = `line ${dep.edge.lineNumber}`;
+  if (functionMap && dep.edge.callerFunctionId) {
+    const callerFunc = functionMap.get(dep.edge.callerFunctionId);
+    if (callerFunc?.filePath) {
+      locationInfo = `${callerFunc.filePath}:${dep.edge.lineNumber}`;
+    }
+  }
+  
+  console.log(`${newPrefix}${isLastDep ? '└── ' : '├── '}${arrow} ${chalk.yellow('external')} ${chalk.gray(`(${locationInfo})`)}`);
+  console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${chalk.dim(programCall)} ${chalk.gray('(external)')}`);
+  
+  if (dep.subtree) {
+    const commandDisplayName = `${dep.subtree.name} ${chalk.cyan('[command]')}`;
+    console.log(`${newPrefix + (isLastDep ? '        ' : '│       ')}└── ${commandDisplayName}`);
+    
+    if (dep.subtree.dependencies && dep.subtree.dependencies.length > 0 && printTree) {
+      printTree(dep.subtree, newPrefix + (isLastDep ? '        ' : '│       '), true);
+    }
+  }
+}
+
+/**
+ * Get location information for edge display
+ */
+function getEdgeLocationInfo(
+  dep: { direction: 'in' | 'out'; edge: CallEdge; subtree: DependencyTreeNode | null },
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): string {
+  let locationInfo = `line ${dep.edge.lineNumber}`;
+  if (functionMap) {
+    const relevantFuncId = dep.direction === 'out' ? dep.edge.callerFunctionId : dep.edge.calleeFunctionId;
+    if (relevantFuncId) {
+      const func = functionMap.get(relevantFuncId);
+      if (func?.filePath) {
+        locationInfo = `${func.filePath}:${dep.edge.lineNumber}`;
+      }
+    }
+  }
+  return locationInfo;
+}
+
+/**
+ * Display subtree node with appropriate indicators
+ */
+function displaySubtreeNode(
+  subtree: DependencyTreeNode,
+  newPrefix: string,
+  isLastDep: boolean,
+  printTree: (node: DependencyTreeNode | null, prefix: string, isLast: boolean) => void
+): void {
+  let nodeDisplayName = subtree.name;
+  if ((subtree as { isVirtual?: boolean; frameworkInfo?: string }).isVirtual && (subtree as { frameworkInfo?: string }).frameworkInfo) {
+    nodeDisplayName = `${subtree.name} ${chalk.cyan(`[${subtree.frameworkInfo}]`)}`;
+  } else if (subtree.isExternal) {
+    nodeDisplayName = `${subtree.name} ${chalk.gray('(external)')}`;
+  }
+  
+  console.log(`${newPrefix + (isLastDep ? '    ' : '│   ')}└── ${nodeDisplayName}`);
+  
+  if (subtree.dependencies && subtree.dependencies.length > 0) {
+    printTree(subtree, newPrefix + (isLastDep ? '    ' : '│   '), true);
+  }
+}
+
+function outputDepShowFormatted(
+  func: { id: string; name: string; file_path?: string; start_line?: number }, 
+  dependencies: DependencyTreeNode, 
+  options: DepShowOptions,
+  functionMap?: Map<string, { id: string; name: string; filePath: string; startLine: number }>
+): void {
+  displayDependencyAnalysisHeader(func);
+
+  // Show route complexity analysis if available
+  if (options.showComplexity && dependencies.routes && dependencies.routes.length > 0) {
+    displayRouteComplexityAnalysis(dependencies.routes);
+  }
+
+  displayDependencyTree(dependencies, functionMap);
 }
 
 /**
@@ -1008,95 +1197,7 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
     const spinner = ora('Calculating dependency metrics...').start();
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
-        showProgress: false, // We manage progress with our own spinner
-        snapshotId: options.snapshot
-      });
-
-      // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep stats');
-
-      spinner.text = 'Loading functions and call graph...';
-
-      if (functions.length === 0) {
-        spinner.fail(chalk.yellow('No functions found in the snapshot.'));
-        return;
-      }
-
-      spinner.text = 'Detecting entry points...';
-
-      // Detect entry points
-      const entryPointDetector = new EntryPointDetector();
-      const entryPoints = entryPointDetector.detectEntryPoints(functions);
-      const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
-
-      spinner.text = 'Detecting circular dependencies...';
-
-      // Detect circular dependencies
-      const reachabilityAnalyzer = new ReachabilityAnalyzer();
-      const cycles = reachabilityAnalyzer.findCircularDependencies(callEdges);
-      const cyclicFunctions = new Set<string>();
-      cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
-
-      spinner.text = 'Calculating dependency metrics...';
-
-      // Calculate dependency metrics
-      const metricsCalculator = new DependencyMetricsCalculator();
-      const metrics = metricsCalculator.calculateMetrics(
-        functions,
-        callEdges,
-        entryPointIds,
-        cyclicFunctions
-      );
-
-      // Create dependency options from CLI arguments
-      const dependencyOptions: DependencyOptions = {};
-      if (options.hubThreshold) {
-        const parsed = parseInt(options.hubThreshold, 10);
-        if (isNaN(parsed) || parsed < 0) {
-          spinner.fail(`Invalid hub threshold: ${options.hubThreshold}`);
-          return;
-        }
-        dependencyOptions.hubThreshold = parsed;
-      }
-      if (options.utilityThreshold) {
-        const parsed = parseInt(options.utilityThreshold, 10);
-        if (isNaN(parsed) || parsed < 0) {
-          spinner.fail(`Invalid utility threshold: ${options.utilityThreshold}`);
-          return;
-        }
-        dependencyOptions.utilityThreshold = parsed;
-      }
-      if (options.maxHubFunctions) {
-        const parsed = parseInt(options.maxHubFunctions, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          spinner.fail(`Invalid max hub functions: ${options.maxHubFunctions}`);
-          return;
-        }
-        dependencyOptions.maxHubFunctions = parsed;
-      }
-      if (options.maxUtilityFunctions) {
-        const parsed = parseInt(options.maxUtilityFunctions, 10);
-        if (isNaN(parsed) || parsed < 1) {
-          spinner.fail(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
-          return;
-        }
-        dependencyOptions.maxUtilityFunctions = parsed;
-      }
-      
-      const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
-
-      spinner.succeed('Dependency metrics calculated');
-
-      // Output results
-      if (options.format === 'dot') {
-        outputDepStatsDot(functions, callEdges, metrics, options);
-      } else if (options.json || options.format === 'json') {
-        outputDepStatsJSON(metrics, stats, options);
-      } else {
-        outputDepStatsTable(metrics, stats, options);
-      }
+      await executeDepStatsAnalysis(env, options, spinner);
     } catch (error) {
       spinner.fail('Failed to calculate dependency metrics');
       if (error instanceof DatabaseError) {
@@ -1112,6 +1213,186 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
       }
     }
   };
+
+/**
+ * Execute the complete dependency statistics analysis
+ */
+async function executeDepStatsAnalysis(
+  env: CommandEnvironment, 
+  options: DepStatsOptions, 
+  spinner: Ora
+): Promise<void> {
+  // Load call graph data
+  const { callEdges: allEdges, functions } = await loadCallGraphData(env, options, spinner);
+  
+  // Analyze dependencies
+  const { entryPointIds, cyclicFunctions } = await analyzeDependencyStructure(functions, allEdges, spinner);
+  
+  // Calculate metrics
+  const { metrics, stats } = await calculateDependencyMetrics(
+    functions, 
+    allEdges, 
+    entryPointIds, 
+    cyclicFunctions, 
+    options, 
+    spinner
+  );
+  
+  spinner.succeed('Dependency metrics calculated');
+  
+  // Output results
+  outputDepStatsResults(functions, allEdges, metrics, stats, options);
+}
+
+/**
+ * Load and validate call graph data
+ */
+async function loadCallGraphData(
+  env: CommandEnvironment, 
+  options: DepStatsOptions, 
+  spinner: Ora
+): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[] }> {
+  // Use comprehensive call graph data including internal call edges
+  const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
+    showProgress: false, // We manage progress with our own spinner
+    snapshotId: options.snapshot
+  });
+
+  // Validate that we have sufficient call graph data
+  validateCallGraphRequirements(allEdges, 'dep stats');
+
+  spinner.text = 'Loading functions and call graph...';
+
+  if (functions.length === 0) {
+    spinner.fail(chalk.yellow('No functions found in the snapshot.'));
+    throw new Error('No functions found in the snapshot.');
+  }
+  
+  return { callEdges: allEdges, functions };
+}
+
+/**
+ * Analyze dependency structure (entry points and cycles)
+ */
+async function analyzeDependencyStructure(
+  functions: FunctionInfo[],
+  allEdges: CallEdge[],
+  spinner: Ora
+): Promise<{ entryPointIds: Set<string>; cyclicFunctions: Set<string> }> {
+  spinner.text = 'Detecting entry points...';
+
+  // Detect entry points
+  const entryPointDetector = new EntryPointDetector();
+  const entryPoints = entryPointDetector.detectEntryPoints(functions);
+  const entryPointIds = new Set(entryPoints.map(ep => ep.functionId));
+
+  spinner.text = 'Detecting circular dependencies...';
+
+  // Detect circular dependencies
+  const reachabilityAnalyzer = new ReachabilityAnalyzer();
+  const cycles = reachabilityAnalyzer.findCircularDependencies(allEdges);
+  const cyclicFunctions = new Set<string>();
+  cycles.forEach(cycle => cycle.forEach(func => cyclicFunctions.add(func)));
+  
+  return { entryPointIds, cyclicFunctions };
+}
+
+/**
+ * Calculate dependency metrics and generate statistics
+ */
+async function calculateDependencyMetrics(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  entryPointIds: Set<string>,
+  cyclicFunctions: Set<string>,
+  options: DepStatsOptions,
+  spinner: Ora
+): Promise<{ metrics: DependencyMetrics[]; stats: DependencyStats }> {
+  spinner.text = 'Calculating dependency metrics...';
+
+  // Calculate dependency metrics
+  const metricsCalculator = new DependencyMetricsCalculator();
+  const metrics = metricsCalculator.calculateMetrics(
+    functions,
+    callEdges,
+    entryPointIds,
+    cyclicFunctions
+  );
+
+  // Parse CLI options into dependency options
+  const dependencyOptions = parseDependencyOptions(options, spinner);
+  
+  const stats = metricsCalculator.generateStats(metrics, dependencyOptions);
+  
+  return { metrics, stats };
+}
+
+/**
+ * Parse and validate CLI options into DependencyOptions
+ */
+function parseDependencyOptions(
+  options: DepStatsOptions, 
+  spinner: Ora
+): DependencyOptions {
+  const dependencyOptions: DependencyOptions = {};
+  
+  if (options.hubThreshold) {
+    const parsed = parseInt(options.hubThreshold, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      spinner.fail(`Invalid hub threshold: ${options.hubThreshold}`);
+      throw new Error(`Invalid hub threshold: ${options.hubThreshold}`);
+    }
+    dependencyOptions.hubThreshold = parsed;
+  }
+  
+  if (options.utilityThreshold) {
+    const parsed = parseInt(options.utilityThreshold, 10);
+    if (isNaN(parsed) || parsed < 0) {
+      spinner.fail(`Invalid utility threshold: ${options.utilityThreshold}`);
+      throw new Error(`Invalid utility threshold: ${options.utilityThreshold}`);
+    }
+    dependencyOptions.utilityThreshold = parsed;
+  }
+  
+  if (options.maxHubFunctions) {
+    const parsed = parseInt(options.maxHubFunctions, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      spinner.fail(`Invalid max hub functions: ${options.maxHubFunctions}`);
+      throw new Error(`Invalid max hub functions: ${options.maxHubFunctions}`);
+    }
+    dependencyOptions.maxHubFunctions = parsed;
+  }
+  
+  if (options.maxUtilityFunctions) {
+    const parsed = parseInt(options.maxUtilityFunctions, 10);
+    if (isNaN(parsed) || parsed < 1) {
+      spinner.fail(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
+      throw new Error(`Invalid max utility functions: ${options.maxUtilityFunctions}`);
+    }
+    dependencyOptions.maxUtilityFunctions = parsed;
+  }
+  
+  return dependencyOptions;
+}
+
+/**
+ * Output dependency statistics results in the requested format
+ */
+function outputDepStatsResults(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  stats: DependencyStats,
+  options: DepStatsOptions
+): void {
+  if (options.format === 'dot') {
+    outputDepStatsDot(functions, callEdges, metrics, options);
+  } else if (options.json || options.format === 'json') {
+    outputDepStatsJSON(metrics, stats, options);
+  } else {
+    outputDepStatsTable(metrics, stats, options);
+  }
+}
 
 /**
  * Output dependency stats as JSON
@@ -1158,54 +1439,90 @@ function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats
  * Output dependency stats as formatted table
  */
 function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
+  displayStatsSummary(stats);
+  displayHubFunctions(stats, options);
+  displayUtilityFunctions(stats, options);
+  displayIsolatedFunctions(stats, options);
+  displayTopFunctionsTable(metrics, options);
+}
+
+/**
+ * Display statistical summary
+ */
+function displayStatsSummary(stats: DependencyStats): void {
   console.log(chalk.bold('\n📊 Dependency Statistics\n'));
-  
-  // Summary
   console.log(`Total functions: ${chalk.cyan(stats.totalFunctions)}`);
   console.log(`Average fan-in: ${chalk.yellow(stats.avgFanIn.toFixed(1))}`);
   console.log(`Average fan-out: ${chalk.yellow(stats.avgFanOut.toFixed(1))}`);
   console.log(`Maximum fan-in: ${chalk.red(stats.maxFanIn)}`);
   console.log(`Maximum fan-out: ${chalk.red(stats.maxFanOut)}`);
   console.log();
+}
 
-  // Hub functions (high fan-in)
-  if (options.showHubs && stats.hubFunctions.length > 0) {
-    console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
-    stats.hubFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
-    });
-    console.log();
+/**
+ * Display hub functions (high fan-in)
+ */
+function displayHubFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showHubs || stats.hubFunctions.length === 0) {
+    return;
   }
-
-  // Utility functions (high fan-out)
-  if (options.showUtility && stats.utilityFunctions.length > 0) {
-    console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
-    stats.utilityFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
-    });
-    console.log();
-  }
-
-  // Isolated functions
-  if (options.showIsolated && stats.isolatedFunctions.length > 0) {
-    console.log(chalk.bold('🏝️ Isolated Functions:'));
-    stats.isolatedFunctions.forEach((func: DependencyMetrics, index: number) => {
-      console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
-    });
-    console.log();
-  }
-
-  // Top functions by sort criteria
-  let limit = 20;
-  if (options.limit) {
-    const parsed = parseInt(options.limit, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      limit = parsed;
-    }
-  }
-  const sortField = options.sort || 'fanin';
   
-  const sortedMetrics = [...metrics].sort((a, b) => {
+  console.log(chalk.bold('🎯 Hub Functions (High Fan-In):'));
+  stats.hubFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-in: ${chalk.yellow(func.fanIn)})`);
+  });
+  console.log();
+}
+
+/**
+ * Display utility functions (high fan-out)
+ */
+function displayUtilityFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showUtility || stats.utilityFunctions.length === 0) {
+    return;
+  }
+  
+  console.log(chalk.bold('🔧 Utility Functions (High Fan-Out):'));
+  stats.utilityFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.functionName)} (fan-out: ${chalk.yellow(func.fanOut)})`);
+  });
+  console.log();
+}
+
+/**
+ * Display isolated functions
+ */
+function displayIsolatedFunctions(stats: DependencyStats, options: DepStatsOptions): void {
+  if (!options.showIsolated || stats.isolatedFunctions.length === 0) {
+    return;
+  }
+  
+  console.log(chalk.bold('🏝️ Isolated Functions:'));
+  stats.isolatedFunctions.forEach((func: DependencyMetrics, index: number) => {
+    console.log(`  ${index + 1}. ${chalk.dim(func.functionName)} (${func.filePath})`);
+  });
+  console.log();
+}
+
+/**
+ * Parse display limit from options
+ */
+function parseDisplayLimit(options: DepStatsOptions): number {
+  const defaultLimit = 20;
+  
+  if (!options.limit) {
+    return defaultLimit;
+  }
+  
+  const parsed = parseInt(options.limit, 10);
+  return (!isNaN(parsed) && parsed > 0) ? parsed : defaultLimit;
+}
+
+/**
+ * Sort metrics by specified criteria
+ */
+function sortMetricsByCriteria(metrics: DependencyMetrics[], sortField: string): DependencyMetrics[] {
+  return [...metrics].sort((a, b) => {
     switch (sortField) {
       case 'fanin':
         return b.fanIn - a.fanIn;
@@ -1219,20 +1536,36 @@ function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStat
         return 0;
     }
   });
+}
+
+/**
+ * Display top functions table
+ */
+function displayTopFunctionsTable(metrics: DependencyMetrics[], options: DepStatsOptions): void {
+  const limit = parseDisplayLimit(options);
+  const sortField = options.sort || 'fanin';
+  const sortedMetrics = sortMetricsByCriteria(metrics, sortField);
 
   console.log(chalk.bold(`📈 Top ${limit} Functions (by ${sortField}):`));
   console.log(chalk.bold('Name                     Fan-In  Fan-Out  Depth  Cyclic'));
   console.log('─'.repeat(60));
 
   sortedMetrics.slice(0, limit).forEach((metric: DependencyMetrics) => {
-    const name = metric.functionName.padEnd(25).substring(0, 25);
-    const fanIn = metric.fanIn.toString().padStart(6);
-    const fanOut = metric.fanOut.toString().padStart(8);
-    const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
-    const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
-
-    console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
+    displayMetricRow(metric);
   });
+}
+
+/**
+ * Display a single metric row in the table
+ */
+function displayMetricRow(metric: DependencyMetrics): void {
+  const name = metric.functionName.padEnd(25).substring(0, 25);
+  const fanIn = metric.fanIn.toString().padStart(6);
+  const fanOut = metric.fanOut.toString().padStart(8);
+  const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
+  const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
+
+  console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
 }
 
 /**
@@ -1266,14 +1599,14 @@ rules:
 
       spinner.text = 'Loading snapshot data...';
 
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep lint');
+      validateCallGraphRequirements(allEdges, 'dep lint');
 
       spinner.text = 'Loading functions and call graph...';
 
@@ -1282,7 +1615,7 @@ rules:
         return;
       }
 
-      if (callEdges.length === 0) {
+      if (allEdges.length === 0) {
         spinner.fail(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
         return;
       }
@@ -1291,7 +1624,7 @@ rules:
 
       // Validate architecture
       const validator = new ArchitectureValidator(archConfig);
-      const analysisResult = validator.analyzeArchitecture(functions, callEdges);
+      const analysisResult = validator.analyzeArchitecture(functions, allEdges);
 
       spinner.succeed('Architecture analysis complete');
 
@@ -1368,26 +1701,21 @@ function outputArchLintJSON(
 }
 
 /**
- * Output architecture lint results as formatted table
+ * Output architecture lint report header and summary
  */
-function outputArchLintTable(
-  analysisResult: ArchitectureAnalysisResult,
-  violations: ArchitectureViolation[],
-  options: DepLintOptions
-): void {
-  const { summary } = analysisResult;
-
-  // Header
+function displayArchLintHeader(summary: ArchitectureAnalysisResult['summary']): void {
   console.log(chalk.bold('\n🏗️  Architecture Lint Report\n'));
-
-  // Summary
   console.log(`Total functions: ${chalk.cyan(summary.totalFunctions)}`);
   console.log(`Total layers: ${chalk.cyan(summary.totalLayers)}`);
   console.log(`Total rules: ${chalk.cyan(summary.totalRules)}`);
   console.log(`Layer coverage: ${chalk.yellow((summary.layerCoverage * 100).toFixed(1))}%`);
   console.log();
+}
 
-  // Violation summary
+/**
+ * Display violation summary statistics
+ */
+function displayViolationSummary(summary: ArchitectureAnalysisResult['summary']): void {
   const violationSummary = [
     { label: 'Error violations', count: summary.errorViolations, color: chalk.red },
     { label: 'Warning violations', count: summary.warningViolations, color: chalk.yellow },
@@ -1401,22 +1729,26 @@ function outputArchLintTable(
     }
   });
   console.log();
+}
 
-  if (violations.length === 0) {
-    console.log(chalk.green('✅ No architecture violations found!'));
-    return;
-  }
-
-  // Group violations by severity
-  const violationsBySeverity = violations.reduce((groups, violation) => {
+/**
+ * Group violations by severity level
+ */
+function groupViolationsBySeverity(violations: ArchitectureViolation[]): Record<string, ArchitectureViolation[]> {
+  return violations.reduce((groups, violation) => {
     if (!groups[violation.severity]) {
       groups[violation.severity] = [];
     }
     groups[violation.severity].push(violation);
     return groups;
   }, {} as Record<string, ArchitectureViolation[]>);
+}
 
-  // Display violations by severity
+/**
+ * Display violations organized by severity and file
+ */
+function displayViolationDetails(violations: ArchitectureViolation[]): void {
+  const violationsBySeverity = groupViolationsBySeverity(violations);
   const severityOrder: Array<'error' | 'warning' | 'info'> = ['error', 'warning', 'info'];
   const severityIcons = { error: '❌', warning: '⚠️', info: 'ℹ️' };
   const severityColors = { error: chalk.red, warning: chalk.yellow, info: chalk.blue };
@@ -1428,72 +1760,85 @@ function outputArchLintTable(
     console.log(severityColors[severity].bold(`${severityIcons[severity]} ${severity.toUpperCase()} Violations (${severityViolations.length}):`));
     console.log();
 
-    // Group by file for better readability
-    const violationsByFile = severityViolations.reduce((groups, violation) => {
-      const file = violation.source.filePath;
-      if (!groups[file]) {
-        groups[file] = [];
-      }
-      groups[file].push(violation);
-      return groups;
-    }, {} as Record<string, ArchitectureViolation[]>);
+    displayViolationsByFile(severityViolations, severityColors[severity]);
+  }
+}
 
-    for (const [filePath, fileViolations] of Object.entries(violationsByFile)) {
-      console.log(chalk.underline(filePath));
+/**
+ * Group and display violations by file
+ */
+function displayViolationsByFile(violations: ArchitectureViolation[], severityColor: typeof chalk.red): void {
+  const violationsByFile = violations.reduce((groups, violation) => {
+    const file = violation.source.filePath;
+    if (!groups[file]) {
+      groups[file] = [];
+    }
+    groups[file].push(violation);
+    return groups;
+  }, {} as Record<string, ArchitectureViolation[]>);
+
+  for (const [filePath, fileViolations] of Object.entries(violationsByFile)) {
+    console.log(chalk.underline(filePath));
+    
+    fileViolations.forEach(violation => {
+      const { source, target, message, context } = violation;
       
-      fileViolations.forEach(violation => {
-        const { source, target, message, context } = violation;
-        
-        console.log(`  ${severityColors[severity]('●')} ${chalk.cyan(source.functionName)} → ${chalk.green(target.functionName)}`);
-        console.log(`    ${chalk.gray('Layer:')} ${source.layer} → ${target.layer}`);
-        console.log(`    ${chalk.gray('Rule:')} ${message}`);
-        
-        if (context?.lineNumber) {
-          console.log(`    ${chalk.gray('Line:')} ${context.lineNumber}`);
-        }
-        
-        if (context?.callType) {
-          console.log(`    ${chalk.gray('Call type:')} ${getCallTypeColor(context.callType)(context.callType)}`);
-        }
-        
-        console.log();
+      console.log(`  ${severityColor('●')} ${chalk.cyan(source.functionName)} → ${chalk.green(target.functionName)}`);
+      console.log(`    ${chalk.gray('Layer:')} ${source.layer} → ${target.layer}`);
+      console.log(`    ${chalk.gray('Rule:')} ${message}`);
+      
+      if (context?.lineNumber) {
+        console.log(`    ${chalk.gray('Line:')} ${context.lineNumber}`);
+      }
+      
+      if (context?.callType) {
+        console.log(`    ${chalk.gray('Call type:')} ${getCallTypeColor(context.callType)(context.callType)}`);
+      }
+      
+      console.log();
+    });
+  }
+}
+
+/**
+ * Display architecture metrics if enabled
+ */
+function displayArchitectureMetrics(metrics: NonNullable<ArchitectureAnalysisResult['metrics']>): void {
+  console.log(chalk.bold('📈 Architecture Metrics:'));
+  console.log();
+  
+  const { layerCoupling, layerCohesion } = metrics;
+  
+  // Layer cohesion
+  console.log(chalk.bold('Layer Cohesion (higher is better):'));
+  for (const [layer, cohesion] of Object.entries(layerCohesion)) {
+    const cohesionValue = cohesion as number;
+    const percentage = (cohesionValue * 100).toFixed(1);
+    const color = cohesionValue > 0.7 ? chalk.green : cohesionValue > 0.4 ? chalk.yellow : chalk.red;
+    console.log(`  ${layer}: ${color(percentage)}%`);
+  }
+  console.log();
+  
+  // Layer coupling matrix
+  console.log(chalk.bold('Layer Coupling Matrix:'));
+  const layers = Object.keys(layerCoupling);
+  if (layers.length > 0) {
+    console.log(`${''.padEnd(12)} ${layers.map(l => l.padEnd(8)).join('')}`);
+    
+    for (const fromLayer of layers) {
+      const row = layers.map(toLayer => {
+        const count = layerCoupling[fromLayer]?.[toLayer] || 0;
+        return count.toString().padEnd(8);
       });
+      console.log(`${fromLayer.padEnd(12)} ${row.join('')}`);
     }
   }
+}
 
-  // Metrics summary if requested
-  if (options.includeMetrics && analysisResult.metrics) {
-    console.log(chalk.bold('📈 Architecture Metrics:'));
-    console.log();
-    
-    const { layerCoupling, layerCohesion } = analysisResult.metrics;
-    
-    // Layer cohesion
-    console.log(chalk.bold('Layer Cohesion (higher is better):'));
-    for (const [layer, cohesion] of Object.entries(layerCohesion)) {
-      const percentage = (cohesion * 100).toFixed(1);
-      const color = cohesion > 0.7 ? chalk.green : cohesion > 0.4 ? chalk.yellow : chalk.red;
-      console.log(`  ${layer}: ${color(percentage)}%`);
-    }
-    console.log();
-    
-    // Layer coupling matrix
-    console.log(chalk.bold('Layer Coupling Matrix:'));
-    const layers = Object.keys(layerCoupling);
-    if (layers.length > 0) {
-      console.log(`${''.padEnd(12)} ${layers.map(l => l.padEnd(8)).join('')}`);
-      
-      for (const fromLayer of layers) {
-        const row = layers.map(toLayer => {
-          const count = layerCoupling[fromLayer]?.[toLayer] || 0;
-          return count.toString().padEnd(8);
-        });
-        console.log(`${fromLayer.padEnd(12)} ${row.join('')}`);
-      }
-    }
-  }
-
-  // Suggestions
+/**
+ * Display helpful suggestions based on analysis results
+ */
+function displayArchLintSuggestions(summary: ArchitectureAnalysisResult['summary'], violationCount: number): void {
   console.log(chalk.dim('─'.repeat(60)));
   
   if (summary.layerCoverage < 0.8) {
@@ -1504,9 +1849,137 @@ function outputArchLintTable(
     console.log(chalk.dim('💡 Fix error violations to pass architecture validation'));
   }
   
-  if (violations.length > 10) {
+  if (violationCount > 10) {
     console.log(chalk.dim('💡 Use --max-violations to limit output or --severity to filter by level'));
   }
+}
+
+/**
+ * Output architecture lint results as formatted table
+ */
+function outputArchLintTable(
+  analysisResult: ArchitectureAnalysisResult,
+  violations: ArchitectureViolation[],
+  options: DepLintOptions
+): void {
+  const { summary } = analysisResult;
+
+  displayArchLintHeader(summary);
+  displayViolationSummary(summary);
+
+  if (violations.length === 0) {
+    console.log(chalk.green('✅ No architecture violations found!'));
+    return;
+  }
+
+  displayViolationDetails(violations);
+
+  if (options.includeMetrics && analysisResult.metrics) {
+    displayArchitectureMetrics(analysisResult.metrics);
+  }
+
+  displayArchLintSuggestions(summary, violations.length);
+}
+
+/**
+ * Apply function type filters (hub/utility/isolated) to functions and call edges
+ */
+function applyFunctionTypeFilters(
+  functions: import('../types').FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  options: DepStatsOptions
+): { filteredFunctions: import('../types').FunctionInfo[]; filteredCallEdges: CallEdge[] } {
+  if (!options.showHubs && !options.showUtility && !options.showIsolated) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const hubThreshold = options.hubThreshold ? parseInt(options.hubThreshold, 10) : 5;
+  const utilityThreshold = options.utilityThreshold ? parseInt(options.utilityThreshold, 10) : 5;
+  const metricsMap = new Map(metrics.map(m => [m.functionId, m]));
+  
+  const filteredFunctions = functions.filter(func => {
+    const metric = metricsMap.get(func.id);
+    if (!metric) return false;
+    
+    const isHub = metric.fanIn >= hubThreshold;
+    const isUtility = metric.fanOut >= utilityThreshold;
+    const isIsolated = metric.fanIn === 0 && metric.fanOut === 0;
+    
+    return (
+      (options.showHubs && isHub) ||
+      (options.showUtility && isUtility) ||
+      (options.showIsolated && isIsolated) ||
+      (!options.showHubs && !options.showUtility && !options.showIsolated)
+    );
+  });
+  
+  const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    remainingFunctionIds.has(edge.callerFunctionId) && 
+    remainingFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  return { filteredFunctions, filteredCallEdges };
+}
+
+/**
+ * Apply connectivity-based limit filter to functions and call edges
+ */
+function applyConnectivityLimitFilter(
+  functions: import('../types').FunctionInfo[],
+  callEdges: CallEdge[],
+  metrics: DependencyMetrics[],
+  limitOption: string | undefined
+): { filteredFunctions: import('../types').FunctionInfo[]; filteredCallEdges: CallEdge[] } {
+  if (!limitOption) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const limit = parseInt(limitOption, 10);
+  if (isNaN(limit) || limit <= 0) {
+    return { filteredFunctions: functions, filteredCallEdges: callEdges };
+  }
+  
+  const sortedMetrics = metrics
+    .map(m => ({
+      ...m,
+      totalConnectivity: m.fanIn + m.fanOut
+    }))
+    .sort((a, b) => b.totalConnectivity - a.totalConnectivity)
+    .slice(0, limit);
+  
+  const topFunctionIds = new Set(sortedMetrics.map(m => m.functionId));
+  const filteredFunctions = functions.filter(f => topFunctionIds.has(f.id));
+  const filteredCallEdges = callEdges.filter(edge => 
+    topFunctionIds.has(edge.callerFunctionId) && 
+    topFunctionIds.has(edge.calleeFunctionId || '')
+  );
+  
+  return { filteredFunctions, filteredCallEdges };
+}
+
+/**
+ * Create DOT generation options for dependency graph
+ */
+function createDotGraphOptions(): {
+  title: string;
+  rankdir: 'LR';
+  nodeShape: 'box';
+  includeMetrics: boolean;
+  clusterBy: 'file';
+  showLabels: boolean;
+  maxLabelLength: number;
+} {
+  return {
+    title: 'Dependency Graph',
+    rankdir: 'LR' as const,
+    nodeShape: 'box' as const,
+    includeMetrics: true,
+    clusterBy: 'file' as const,
+    showLabels: true,
+    maxLabelLength: 25,
+  };
 }
 
 /**
@@ -1520,79 +1993,22 @@ function outputDepStatsDot(
 ): void {
   const dotGenerator = new DotGenerator();
   
-  // Apply filters based on options
-  let filteredFunctions = functions;
-  let filteredCallEdges = callEdges;
+  // Apply function type filters
+  const typeFiltered = applyFunctionTypeFilters(functions, callEdges, metrics, options);
   
-  // Filter by hub/utility/isolated functions if requested
-  if (options.showHubs || options.showUtility || options.showIsolated) {
-    const hubThreshold = options.hubThreshold ? parseInt(options.hubThreshold, 10) : 5;
-    const utilityThreshold = options.utilityThreshold ? parseInt(options.utilityThreshold, 10) : 5;
-    
-    const metricsMap = new Map(metrics.map(m => [m.functionId, m]));
-    
-    filteredFunctions = functions.filter(func => {
-      const metric = metricsMap.get(func.id);
-      if (!metric) return false;
-      
-      const isHub = metric.fanIn >= hubThreshold;
-      const isUtility = metric.fanOut >= utilityThreshold;
-      const isIsolated = metric.fanIn === 0 && metric.fanOut === 0;
-      
-      return (
-        (options.showHubs && isHub) ||
-        (options.showUtility && isUtility) ||
-        (options.showIsolated && isIsolated) ||
-        (!options.showHubs && !options.showUtility && !options.showIsolated)
-      );
-    });
-    
-    // Filter edges to only include those between remaining functions
-    const remainingFunctionIds = new Set(filteredFunctions.map(f => f.id));
-    filteredCallEdges = callEdges.filter(edge => 
-      remainingFunctionIds.has(edge.callerFunctionId) && 
-      remainingFunctionIds.has(edge.calleeFunctionId || '')
-    );
-  }
+  // Apply connectivity limit filter
+  const limitFiltered = applyConnectivityLimitFilter(
+    typeFiltered.filteredFunctions,
+    typeFiltered.filteredCallEdges,
+    metrics,
+    options.limit
+  );
   
-  // Apply limit if specified
-  if (options.limit) {
-    const limit = parseInt(options.limit, 10);
-    if (!isNaN(limit) && limit > 0) {
-      // Sort by fanIn + fanOut (total connectivity) and take top N
-      const sortedMetrics = metrics
-        .map(m => ({
-          ...m,
-          totalConnectivity: m.fanIn + m.fanOut
-        }))
-        .sort((a, b) => b.totalConnectivity - a.totalConnectivity)
-        .slice(0, limit);
-      
-      const topFunctionIds = new Set(sortedMetrics.map(m => m.functionId));
-      filteredFunctions = filteredFunctions.filter(f => topFunctionIds.has(f.id));
-      
-      // Filter edges to only include those between top functions
-      filteredCallEdges = callEdges.filter(edge => 
-        topFunctionIds.has(edge.callerFunctionId) && 
-        topFunctionIds.has(edge.calleeFunctionId || '')
-      );
-    }
-  }
-  
-  // Generate DOT graph
-  const dotOptions = {
-    title: 'Dependency Graph',
-    rankdir: 'LR' as const,
-    nodeShape: 'box' as const,
-    includeMetrics: true,
-    clusterBy: 'file' as const,
-    showLabels: true,
-    maxLabelLength: 25,
-  };
-  
+  // Generate and output DOT graph
+  const dotOptions = createDotGraphOptions();
   const dotOutput = dotGenerator.generateDependencyGraph(
-    filteredFunctions,
-    filteredCallEdges,
+    limitFiltered.filteredFunctions,
+    limitFiltered.filteredCallEdges,
     metrics,
     dotOptions
   );
@@ -1635,23 +2051,21 @@ function outputDepDeadJSON(
 }
 
 /**
- * Output dead code results as a formatted table (for dep dead subcommand)
+ * Display dead code analysis summary header
  */
-function outputDepDeadTable(
-  deadCodeInfo: DeadCodeInfo[],
-  unusedExportInfo: DeadCodeInfo[],
+function displayDeadCodeSummary(
   reachabilityResult: ReachabilityResult,
   totalFunctions: number,
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
   options: DepDeadOptions
 ): void {
-  // Summary
   console.log(chalk.bold('\n📊 Dead Code Analysis Summary\n'));
   
   const coverage = (reachabilityResult.reachable.size / totalFunctions) * 100;
   console.log(`Total functions:      ${chalk.cyan(totalFunctions)}`);
   console.log(`Entry points:         ${chalk.green(reachabilityResult.entryPoints.size)}`);
   
-  // Show layer entry points if specified
   if (options.layerEntryPoints) {
     const layers = options.layerEntryPoints.split(',').map(s => s.trim());
     console.log(`Layer entry points:   ${chalk.blue(layers.join(', '))}`);
@@ -1661,91 +2075,97 @@ function outputDepDeadTable(
   console.log(`Unreachable functions: ${chalk.red(reachabilityResult.unreachable.size)} (${(100 - coverage).toFixed(1)}%)`);
   console.log(`Dead code found:      ${chalk.yellow(deadCodeInfo.length)} functions`);
   console.log(`Unused exports:       ${chalk.yellow(unusedExportInfo.length)} functions\n`);
+}
 
-  if (deadCodeInfo.length === 0) {
-    console.log(chalk.green('✅ No dead code found with current filters!'));
-    return;
-  }
-
-  // Group by file
-  const deadCodeByFile = new Map<string, typeof deadCodeInfo>();
+/**
+ * Group dead code information by file path
+ */
+function groupDeadCodeByFile(deadCodeInfo: DeadCodeInfo[]): Map<string, DeadCodeInfo[]> {
+  const deadCodeByFile = new Map<string, DeadCodeInfo[]>();
   for (const info of deadCodeInfo) {
     if (!deadCodeByFile.has(info.filePath)) {
       deadCodeByFile.set(info.filePath, []);
     }
     deadCodeByFile.get(info.filePath)!.push(info);
   }
+  return deadCodeByFile;
+}
 
+/**
+ * Get reason icon and text for dead code reason
+ */
+function getReasonDisplay(reason: string): { icon: string; text: string } {
+  switch (reason) {
+    case 'no-callers':
+      return { icon: '🚫', text: 'no-callers' };
+    case 'unreachable':
+      return { icon: '🔗', text: 'unreachable' };
+    case 'test-only':
+      return { icon: '🧪', text: 'test-only' };
+    default:
+      return { icon: '❓', text: reason };
+  }
+}
+
+/**
+ * Display dead code details grouped by file
+ */
+function displayDeadCodeDetails(deadCodeByFile: Map<string, DeadCodeInfo[]>, options: DepDeadOptions): void {
   console.log(chalk.bold('🚫 Dead Code Details\n'));
 
-  // Display by file
   for (const [filePath, functions] of deadCodeByFile) {
     console.log(chalk.underline(filePath));
     
     for (const func of functions) {
       const location = `${func.startLine}-${func.endLine}`;
       const size = `${func.size} lines`;
-      
-      let reasonIcon = '❓';
-      let reasonText = func.reason;
-      
-      switch (func.reason) {
-        case 'no-callers':
-          reasonIcon = '🚫';
-          reasonText = 'no-callers';
-          break;
-        case 'unreachable':
-          reasonIcon = '🔗';
-          reasonText = 'unreachable';
-          break;
-        case 'test-only':
-          reasonIcon = '🧪';
-          reasonText = 'test-only';
-          break;
-      }
+      const reasonDisplay = getReasonDisplay(func.reason);
 
-      const line = `  ${reasonIcon} ${chalk.yellow(func.functionName)} ${chalk.gray(`(${location}, ${size})`)}`;
+      const line = `  ${reasonDisplay.icon} ${chalk.yellow(func.functionName)} ${chalk.gray(`(${location}, ${size})`)}`;
       console.log(line);
       
       if (options.showReasons && options.verbose) {
-        console.log(chalk.gray(`     Reason: ${reasonText}`));
+        console.log(chalk.gray(`     Reason: ${reasonDisplay.text}`));
       }
     }
     
     console.log(); // Empty line between files
   }
+}
 
-  // Display unused export functions
-  if (unusedExportInfo.length > 0) {
-    console.log(chalk.bold('⚠️  Unused Export Functions (Review Required)\n'));
+/**
+ * Display unused export functions
+ */
+function displayUnusedExports(unusedExportInfo: DeadCodeInfo[]): void {
+  console.log(chalk.bold('⚠️  Unused Export Functions (Review Required)\n'));
+  
+  const unusedExportsByFile = groupDeadCodeByFile(unusedExportInfo);
+  
+  for (const [filePath, functions] of unusedExportsByFile) {
+    console.log(chalk.underline(filePath));
     
-    // Group unused exports by file
-    const unusedExportsByFile = new Map<string, typeof unusedExportInfo>();
-    for (const info of unusedExportInfo) {
-      if (!unusedExportsByFile.has(info.filePath)) {
-        unusedExportsByFile.set(info.filePath, []);
-      }
-      unusedExportsByFile.get(info.filePath)!.push(info);
+    for (const func of functions) {
+      const location = `${func.startLine}-${func.endLine}`;
+      const size = `${func.size} lines`;
+      
+      console.log(`  📦 ${chalk.yellow(func.functionName)} (${chalk.gray(location)}, ${chalk.gray(size)})`);
     }
     
-    for (const [filePath, functions] of unusedExportsByFile) {
-      console.log(chalk.underline(filePath));
-      
-      for (const func of functions) {
-        const location = `${func.startLine}-${func.endLine}`;
-        const size = `${func.size} lines`;
-        
-        console.log(`  📦 ${chalk.yellow(func.functionName)} (${chalk.gray(location)}, ${chalk.gray(size)})`);
-      }
-      
-      console.log(); // Empty line between files
-    }
-    
-    console.log(chalk.dim('💡 These export functions are not used internally but may be public APIs.'));
-    console.log(chalk.dim('💡 Review manually to determine if they should be removed or kept.\n'));
+    console.log(); // Empty line between files
   }
+  
+  console.log(chalk.dim('💡 These export functions are not used internally but may be public APIs.'));
+  console.log(chalk.dim('💡 Review manually to determine if they should be removed or kept.\n'));
+}
 
-  // Summary statistics
+/**
+ * Display summary statistics and suggestions
+ */
+function displaySummaryAndSuggestions(
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  options: DepDeadOptions
+): void {
   const totalLines = deadCodeInfo.reduce((sum, info) => sum + info.size, 0);
   console.log(chalk.dim('─'.repeat(50)));
   console.log(chalk.bold(`Total dead code: ${deadCodeInfo.length} functions, ${totalLines} lines`));
@@ -1755,7 +2175,6 @@ function outputDepDeadTable(
     console.log(chalk.bold(`Unused exports: ${unusedExportInfo.length} functions, ${unusedExportLines} lines`));
   }
 
-  // Suggestions
   if (!options.excludeTests && deadCodeInfo.some(info => info.reason === 'test-only')) {
     console.log(chalk.dim('\n💡 Tip: Use --exclude-tests to hide test-only functions'));
   }
@@ -1763,6 +2182,33 @@ function outputDepDeadTable(
   if (!options.excludeSmall && deadCodeInfo.some(info => info.size < 5)) {
     console.log(chalk.dim('💡 Tip: Use --exclude-small to hide small functions'));
   }
+}
+
+/**
+ * Output dead code results as a formatted table (for dep dead subcommand)
+ */
+function outputDepDeadTable(
+  deadCodeInfo: DeadCodeInfo[],
+  unusedExportInfo: DeadCodeInfo[],
+  reachabilityResult: ReachabilityResult,
+  totalFunctions: number,
+  options: DepDeadOptions
+): void {
+  displayDeadCodeSummary(reachabilityResult, totalFunctions, deadCodeInfo, unusedExportInfo, options);
+
+  if (deadCodeInfo.length === 0) {
+    console.log(chalk.green('✅ No dead code found with current filters!'));
+    return;
+  }
+
+  const deadCodeByFile = groupDeadCodeByFile(deadCodeInfo);
+  displayDeadCodeDetails(deadCodeByFile, options);
+
+  if (unusedExportInfo.length > 0) {
+    displayUnusedExports(unusedExportInfo);
+  }
+
+  displaySummaryAndSuggestions(deadCodeInfo, unusedExportInfo, options);
 }
 
 /**
@@ -1838,14 +2284,14 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
     const spinner = ora('Analyzing dead code...').start();
 
     try {
-      // Use lazy analysis to ensure call graph data is available
-      const { callEdges, functions } = await loadCallGraphWithLazyAnalysis(env, {
+      // Use comprehensive call graph data including internal call edges
+      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
       });
 
       // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(callEdges, 'dep dead');
+      validateCallGraphRequirements(allEdges, 'dep dead');
 
       spinner.text = 'Loading functions and call graph...';
 
@@ -1886,7 +2332,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const reachabilityAnalyzer = new ReachabilityAnalyzer();
       const reachabilityResult = reachabilityAnalyzer.analyzeReachability(
         functions,
-        callEdges,
+        allEdges,
         entryPoints
       );
 
@@ -1894,7 +2340,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const deadCodeInfo = reachabilityAnalyzer.getDeadCodeInfo(
         reachabilityResult.unreachable,
         functions,
-        callEdges,
+        allEdges,
         {
           excludeTests: options.excludeTests ?? false,
           excludeSmallFunctions: options.excludeSmall ?? false,
@@ -1906,7 +2352,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const unusedExportInfo = reachabilityAnalyzer.getDeadCodeInfo(
         reachabilityResult.unusedExports,
         functions,
-        callEdges,
+        allEdges,
         {
           excludeTests: false,
           excludeSmallFunctions: false,
@@ -1920,7 +2366,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       if (options.format === 'dot') {
         outputDepDeadDot(
           functions,
-          callEdges,
+          allEdges,
           reachabilityResult,
           options
         );

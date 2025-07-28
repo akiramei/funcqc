@@ -78,3 +78,6 @@ D:\\*
 # Claude
 .claude/
 ai-state/
+
+# PR Reviews
+pr/

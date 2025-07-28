@@ -140,6 +140,16 @@ describe('Function ID Generation System', () => {
     expect(functions.length).toBeGreaterThan(0);
     console.log(`Analyzed ${functions.length} functions`);
     
+    // DEBUG: Log function details for first 3 functions only
+    functions.slice(0, 3).forEach((func, index) => {
+      console.log(`  ${index + 1}: ${func.name} (${func.id.substring(0, 8)}...)`);
+      console.log(`    signature: ${func.signature}`);
+      console.log(`    contextPath: [${func.contextPath?.join(', ') || ''}]`);
+      console.log(`    modifiers: [${func.modifiers?.join(', ') || ''}]`);
+      console.log(`    sourceCode (full): "${func.sourceCode}"`);
+      console.log(`    semanticId: ${func.semanticId?.substring(0, 16)}...`);
+    });
+    
     // Save all functions to storage to test for duplicate key errors
     let snapshotId: string | undefined;
     try {
@@ -160,6 +170,13 @@ describe('Function ID Generation System', () => {
     
     // Retrieve functions from storage with full data
     const storedFunctions = await storage.getFunctions(snapshotId!, { includeFullData: true });
+    console.log(`Retrieved ${storedFunctions.length} functions from storage`);
+    
+    // DEBUG: Log retrieved function details
+    storedFunctions.forEach((func, index) => {
+      console.log(`  Retrieved ${index + 1}: ${func.name} (${func.id.substring(0, 8)}...)`);
+    });
+    
     expect(storedFunctions.length).toBe(20);
     
     // Verify all IDs are unique
@@ -167,6 +184,28 @@ describe('Function ID Generation System', () => {
     expect(allIds.size).toBe(20);
     
     const allLogicalIds = new Set(storedFunctions.map(f => f.semanticId).filter(Boolean));
+    console.log(`Unique logical IDs: ${allLogicalIds.size} (expected: 20)`);
+    
+    // DEBUG: Check which semantic IDs are missing or duplicated
+    const semanticIdCounts = new Map<string, number>();
+    storedFunctions.forEach(func => {
+      if (func.semanticId) {
+        semanticIdCounts.set(func.semanticId, (semanticIdCounts.get(func.semanticId) || 0) + 1);
+      } else {
+        console.log(`Function ${func.name} has no semanticId!`);
+      }
+    });
+    
+    // Show duplicated semantic IDs
+    for (const [semanticId, count] of semanticIdCounts) {
+      if (count > 1) {
+        console.log(`Duplicate semanticId: ${semanticId.substring(0, 8)}... (used ${count} times)`);
+        storedFunctions.filter(f => f.semanticId === semanticId).forEach(func => {
+          console.log(`  - ${func.name} (${func.id.substring(0, 8)}...)`);
+        });
+      }
+    }
+    
     expect(allLogicalIds.size).toBe(20);
   });
 

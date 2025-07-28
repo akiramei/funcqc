@@ -227,6 +227,8 @@ program
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
   .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
+  .option('--mode <mode>', 'evaluation mode: static or dynamic (default: static)')
+  .option('--explain-weight <function>', 'explain weight calculation for specific function (ID or name)')
   .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -860,6 +862,69 @@ Examples:
 Note: By default, safe-delete only analyzes and previews candidates.
 Use --execute to perform actual deletion with confirmation prompts.
 Use --force to skip confirmation (not recommended).
+`);
+
+
+// PageRank command - Function importance analysis using PageRank algorithm
+program
+  .command('pagerank')
+  .description('🎯 Analyze function importance using PageRank algorithm')
+  .option('--damping <factor>', 'damping factor for PageRank (0-1)', '0.85')
+  .option('--max-iterations <num>', 'maximum iterations for convergence', '100')
+  .option('--tolerance <value>', 'convergence tolerance', '1e-6')
+  .option('--limit <num>', 'limit number of results to display', '20')
+  .option('--importance <level>', 'filter by importance level (critical, high, medium, low)')
+  .option('--sort <field>', 'sort by field (score, name, centrality)', 'score')
+  .option('--desc', 'sort in descending order (default for score)')
+  .option('--include-metrics', 'include centrality variance and Gini coefficient')
+  .option('--json', 'output as JSON')
+  .option('--snapshot <id>', 'use specific snapshot (default: latest)')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { pageRankCommand } = await import('./cli/commands/pagerank');
+    return withEnvironment(pageRankCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # Show top 20 most important functions
+  $ funcqc pagerank
+
+  # Show only critical importance functions
+  $ funcqc pagerank --importance critical
+
+  # Customize PageRank parameters
+  $ funcqc pagerank --damping 0.9 --max-iterations 200
+
+  # Show more results with detailed metrics
+  $ funcqc pagerank --limit 50 --include-metrics
+
+  # Sort by function name instead of score
+  $ funcqc pagerank --sort name
+
+  # JSON output for analysis
+  $ funcqc pagerank --json
+
+  # Use specific snapshot
+  $ funcqc pagerank --snapshot abc123
+
+Understanding PageRank Scores:
+  PageRank measures function importance based on call graph structure.
+  Functions that are called by many other important functions get higher scores.
+  This helps identify:
+  - Core utility functions
+  - Central architectural components  
+  - Functions critical to the codebase
+
+Importance Levels:
+  - Critical (≥90%): Core functions essential to the system
+  - High (70-89%): Important architectural components
+  - Medium (30-69%): Supporting functions with moderate importance
+  - Low (<30%): Peripheral or specialized functions
+
+Centrality Metrics:
+  - Gini Coefficient: Measures inequality in importance distribution
+  - Centrality Variance: Measures variation in function centrality
+  Both help assess architectural balance and identify potential issues.
 `);
 
 

@@ -7,6 +7,9 @@ export * from './quality-enhancements';
 // Re-export architecture types
 export * from './architecture';
 
+// Re-export dynamic weights types
+export * from './dynamic-weights';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
 
@@ -482,6 +485,8 @@ export interface HealthCommandOptions extends CommandOptions {
   snapshot?: string; // Snapshot ID/identifier for historical health analysis
   diff?: string | boolean; // Compare snapshots: true (latest-prev), string (snapshot ID), or "id1 id2"
   scope?: string; // Analyze specific scope (src, test, all, or custom scope)
+  mode?: 'static' | 'dynamic'; // Evaluation mode for dynamic weight calculation
+  explainWeight?: string; // Function ID to explain weight calculation for
 }
 
 export interface HistoryCommandOptions extends CommandOptions {
