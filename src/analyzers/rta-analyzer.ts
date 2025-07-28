@@ -51,17 +51,13 @@ export class RTAAnalyzer {
   ): Promise<IdealCallEdge[]> {
     // Use prebuilt class-to-interfaces mapping if available
     if (prebuiltClassToInterfacesMap) {
-      console.log('   ⚡ Using prebuilt class-to-interfaces mapping from CHA...');
       this.classInterfacesMap = new Map(prebuiltClassToInterfacesMap);
     }
     
-    console.log('   🎯 Building instantiated types registry...');
     await this.buildInstantiatedTypesRegistry();
     
-    console.log('   🔬 Filtering CHA candidates with RTA...');
     const rtaEdges = this.filterCHACandidatesWithRTA(functions, chaCandidates, unresolvedMethodCalls);
     
-    console.log(`   ✅ RTA refined ${rtaEdges.length} method calls`);
     return rtaEdges;
   }
 
@@ -76,20 +72,16 @@ export class RTAAnalyzer {
     prebuiltInstantiationEvents: InstantiationEvent[],
     prebuiltClassToInterfacesMap?: Map<string, string[]>
   ): Promise<IdealCallEdge[]> {
-    console.log('   🚀 Using prebuilt instantiation events (AST traversal optimization)...');
     
     // Use prebuilt class-to-interfaces mapping if available
     if (prebuiltClassToInterfacesMap) {
-      console.log('   ⚡ Using prebuilt class-to-interfaces mapping from CHA...');
       this.classInterfacesMap = new Map(prebuiltClassToInterfacesMap);
     }
     
     this.buildInstantiatedTypesFromEvents(prebuiltInstantiationEvents);
     
-    console.log('   🔬 Filtering CHA candidates with RTA...');
     const rtaEdges = this.filterCHACandidatesWithRTA(functions, chaCandidates, unresolvedMethodCalls);
     
-    console.log(`   ✅ RTA refined ${rtaEdges.length} method calls (optimized path)`);
     return rtaEdges;
   }
 
@@ -150,9 +142,7 @@ export class RTAAnalyzer {
     }
     
     const prebuiltMappingCount = this.classInterfacesMap.size;
-    console.log(`   📊 Built from ${instantiationEvents.length} prebuilt events, found ${this.instantiatedTypes.size} instantiated types`);
     if (prebuiltMappingCount > 0) {
-      console.log(`   🚀 Used prebuilt mapping for ${prebuiltMappingCount} classes (interface resolution optimization)`);
     }
   }
 
@@ -387,7 +377,6 @@ export class RTAAnalyzer {
       }
     }
     
-    console.log(`   ⚡ RTA reverse strategy: processed ${processedMethods.size} method-type combinations (vs ${Array.from(chaCandidates.values()).reduce((sum, candidates) => sum + candidates.length, 0)} total candidates)`);
     
     return rtaEdges;
   }
@@ -460,14 +449,12 @@ export class RTAAnalyzer {
     }
     
     // Process each caller group
-    let totalEdgesCreated = 0;
     for (const [callerFunctionId, callerCalls] of callsByCaller) {
       // Pick representative call for shared properties
       const representativeCall = callerCalls[0];
       
       // Create edges for each candidate from this caller
       for (const resolved of resolvedCandidates) {
-        totalEdgesCreated++;
         const edge: IdealCallEdge = {
           id: generateStableEdgeId(callerFunctionId, resolved.functionId),
           callerFunctionId,
@@ -506,7 +493,6 @@ export class RTAAnalyzer {
     }
     
     if (methodCalls.length > 10) {
-      console.log(`   📊 Aggregated ${totalEdgesCreated} edges from ${callsByCaller.size} callers (reduced from ${methodCalls.length} × ${resolvedCandidates.length} = ${methodCalls.length * resolvedCandidates.length})`);
     }
   }
 

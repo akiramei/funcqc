@@ -22,8 +22,6 @@ export class RuntimeTraceIntegrator {
    * Integrate runtime traces with static analysis edges
    */
   async integrateTraces(edges: IdealCallEdge[], functions: Map<string, FunctionMetadata>): Promise<IdealCallEdge[]> {
-    console.log('   🔄 Integrating runtime traces...');
-    
     // Store function metadata for coverage mapping
     this.functionMetadata = functions;
     
@@ -34,7 +32,6 @@ export class RuntimeTraceIntegrator {
     await this.loadExecutionTraces();
     
     if (this.coverageData.size === 0 && this.executionTraces.length === 0) {
-      console.log('   ℹ️  No runtime traces available, skipping integration');
       return edges;
     }
     

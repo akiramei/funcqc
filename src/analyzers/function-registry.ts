@@ -26,17 +26,11 @@ export class FunctionRegistry {
    * Collect all function-like nodes with complete coverage
    */
   async collectAllFunctions(): Promise<Map<string, FunctionMetadata>> {
-    console.log('   📋 Scanning all source files for function-like nodes...');
-    
     const sourceFiles = this.project.getSourceFiles();
-    let totalFunctions = 0;
     
     for (const sourceFile of sourceFiles) {
-      const fileFunctions = await this.collectFunctionsFromFile(sourceFile);
-      totalFunctions += fileFunctions;
+      await this.collectFunctionsFromFile(sourceFile);
     }
-    
-    console.log(`   ✅ Collected ${totalFunctions} functions from ${sourceFiles.length} files`);
     return this.functionMap;
   }
 

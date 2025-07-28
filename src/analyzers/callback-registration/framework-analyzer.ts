@@ -43,23 +43,14 @@ export abstract class FrameworkCallbackAnalyzer {
    * Analyze a source file for callback registration patterns
    */
   async analyze(context: AnalysisContext): Promise<CallbackAnalysisResult> {
-    const filePath = context.sourceFile.getFilePath();
     const canAnalyze = this.canAnalyze(context);
     const enabled = context.frameworkConfig.enabled;
     
-    // Debug: Always log analyze method calls for CLI files
-    if (filePath.includes('cli.ts')) {
-      console.log(`🔍 [${this.frameworkName}] analyze(${filePath}): enabled=${enabled}, canAnalyze=${canAnalyze}`);
-    }
     
     if (!enabled || !canAnalyze) {
-      if (filePath.includes('cli.ts')) {
-        console.log(`🔍 [${this.frameworkName}] Returning empty result for ${filePath}: enabled=${enabled}, canAnalyze=${canAnalyze}`);
-      }
       return this.createEmptyResult();
     }
 
-    console.log(`🔍 [${this.frameworkName}] Starting analysis for ${filePath}`);
 
     if (this.debug) {
       this.logger.debug(`[${this.frameworkName}] Starting analysis for ${context.sourceFile.getFilePath()}`);
@@ -68,7 +59,7 @@ export abstract class FrameworkCallbackAnalyzer {
     try {
       const registrations = await this.detectCallbackRegistrations(context);
       const triggers = await this.detectCallbackTriggers(context, registrations);
-      const virtualEdges = await this.generateVirtualEdges(context, registrations, triggers);
+      const virtualEdges = await this.generateVirtualEdges(context, triggers);
 
       const result: CallbackAnalysisResult = {
         registrations,
@@ -110,27 +101,21 @@ export abstract class FrameworkCallbackAnalyzer {
    */
   protected async generateVirtualEdges(
     context: AnalysisContext,
-    registrations: CallbackRegistration[],
     triggers: CallbackTrigger[]
   ): Promise<VirtualCallEdge[]> {
     const edges: VirtualCallEdge[] = [];
-    const filePath = context.sourceFile.getFilePath();
 
-    console.log(`🔍 [${this.frameworkName}] generateVirtualEdges(${filePath}): ${registrations.length} registrations, ${triggers.length} triggers`);
 
     for (const trigger of triggers) {
-      console.log(`🔍 [${this.frameworkName}] Processing trigger ${trigger.triggerMethod} with ${trigger.registrations.length} related registrations`);
       
       for (const registration of trigger.registrations) {
         if (registration.callbackFunctionId) {
-          console.log(`🔍 [${this.frameworkName}] Creating virtual edge: ${trigger.triggerFunctionId} -> ${registration.callbackFunctionId}`);
           const edge = this.createVirtualEdge(trigger, registration, context);
           if (edge) {
             edges.push(edge);
           }
         } else {
           // For anonymous/inline callback functions, create a virtual function ID
-          console.log(`🔍 [${this.frameworkName}] Creating virtual edge for anonymous callback: ${registration.callbackFunctionName || 'anonymous'}`);
           const virtualCallbackId = `anonymous_${registration.registrationMethod}_${registration.lineNumber}_${Date.now()}`;
           const virtualRegistration = {
             ...registration,
@@ -140,14 +125,12 @@ export abstract class FrameworkCallbackAnalyzer {
           
           const edge = this.createVirtualEdge(trigger, virtualRegistration, context);
           if (edge) {
-            console.log(`🔍 [${this.frameworkName}] Created virtual edge for anonymous callback: ${trigger.triggerFunctionId} -> ${virtualCallbackId}`);
             edges.push(edge);
           }
         }
       }
     }
 
-    console.log(`🔍 [${this.frameworkName}] generateVirtualEdges(${filePath}): ${edges.length} virtual edges created`);
     return edges;
   }
 

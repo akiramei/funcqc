@@ -142,19 +142,14 @@ async function performLazyCallGraphAnalysis(
     });
 
     // Perform call graph analysis from stored content
-    console.log(`📊 Starting call graph analysis from content with ${functions.length} functions`);
     const result = await analyzer.analyzeCallGraphFromContent(
       fileContentMap,
       functions
     );
-    console.log(`📊 Call graph analysis completed with ${result.callEdges.length} call edges`);
 
     // Store call graph results
-    console.log(`📊 About to insert ${result.callEdges.length} call edges and ${result.internalCallEdges.length} internal call edges`);
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
-    console.log(`✅ Successfully inserted ${result.callEdges.length} call edges`);
     
-    console.log(`📊 About to insert ${result.internalCallEdges.length} internal call edges with snapshotId: ${snapshotId}`);
     try {
       // Update the snapshot_id from 'temp' to the actual snapshot ID
       const internalCallEdgesWithCorrectSnapshotId = result.internalCallEdges.map(edge => ({
@@ -163,7 +158,6 @@ async function performLazyCallGraphAnalysis(
       }));
       
       await env.storage.insertInternalCallEdges(internalCallEdgesWithCorrectSnapshotId);
-      console.log(`✅ Successfully inserted ${internalCallEdgesWithCorrectSnapshotId.length} internal call edges`);
     } catch (error) {
       console.error(`❌ Failed to insert internal call edges:`, error);
       throw error;
