@@ -197,6 +197,10 @@ export class SnapshotOperations implements StorageOperationModule {
    */
   async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
     try {
+      // TODO: Add transactional version of recalculateSnapshotMetadata
+      // Currently, metadata recalculation is skipped in transaction context
+      // to avoid mixing transaction and non-transaction queries
+      
       // Get current metadata to update analysis level
       const result = await trx.query('SELECT metadata FROM snapshots WHERE id = $1', [snapshotId]);
       if (result.rows.length === 0) {
@@ -216,7 +220,11 @@ export class SnapshotOperations implements StorageOperationModule {
         [JSON.stringify(metadata), snapshotId]
       );
     } catch (error) {
-      throw new Error(`Failed to update analysis level in transaction: ${error}`);
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to update analysis level in transaction: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
     }
   }
 

@@ -75,7 +75,11 @@ export class CallEdgeOperations implements StorageOperationModule {
       await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
       this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId} in transaction`);
     } catch (error) {
-      throw new Error(`Failed to insert call edges in transaction: ${error}`);
+      throw new DatabaseError(
+        ErrorCode.STORAGE_WRITE_ERROR,
+        `Failed to insert call edges in transaction: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
     }
   }
 
