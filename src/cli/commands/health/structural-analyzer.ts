@@ -24,6 +24,194 @@ interface SCCCacheEntry {
 const sccCache = new Map<string, SCCCacheEntry>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes TTL
 
+// Type definitions for analysis results
+interface FanStatistics {
+  fanIns: number[];
+  fanOuts: number[];
+  avgFanIn: number;
+  avgFanOut: number;
+  maxFanIn: number;
+  maxFanOut: number;
+}
+
+/**
+ * Check cache for existing structural metrics
+ */
+async function handleCacheCheck(
+  snapshotId: string, 
+  callEdges: CallEdge[], 
+  env: CommandEnvironment
+): Promise<StructuralMetrics | null> {
+  const callEdgesHash = createCallEdgesHash(callEdges);
+  const cachedResult = getCachedStructuralMetrics(snapshotId, callEdgesHash);
+  
+  if (cachedResult) {
+    env.commandLogger.debug(`Using cached SCC analysis for snapshot ${snapshotId}`);
+    return cachedResult;
+  }
+  
+  return null;
+}
+
+/**
+ * Perform SCC analysis and calculate dependency metrics
+ */
+function performSCCAnalysis(
+  functions: FunctionInfo[], 
+  callEdges: CallEdge[]
+): { sccResult: SCCAnalysisResult; depMetrics: DependencyMetrics[]; fanStats: FanStatistics } {
+  const sccAnalyzer = new SCCAnalyzer();
+  const sccResult = sccAnalyzer.findStronglyConnectedComponents(callEdges);
+  
+  const depCalculator = new DependencyMetricsCalculator();
+  const entryPoints = new Set<string>();
+  const cyclicFunctions = new Set(sccResult.recursiveFunctions);
+  const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
+  
+  // Calculate fan-in/fan-out statistics
+  const fanIns = depMetrics.map((m: DependencyMetrics) => m.fanIn);
+  const fanOuts = depMetrics.map((m: DependencyMetrics) => m.fanOut);
+  const avgFanIn = fanIns.reduce((a: number, b: number) => a + b, 0) / fanIns.length || 0;
+  const avgFanOut = fanOuts.reduce((a: number, b: number) => a + b, 0) / fanOuts.length || 0;
+  const maxFanIn = Math.max(...fanIns, 0);
+  const maxFanOut = Math.max(...fanOuts, 0);
+  
+  return {
+    sccResult,
+    depMetrics,
+    fanStats: { fanIns, fanOuts, avgFanIn, avgFanOut, maxFanIn, maxFanOut }
+  };
+}
+
+/**
+ * Calculate PageRank analysis including layer-based analysis
+ */
+async function performPageRankAnalysis(
+  functions: FunctionInfo[], 
+  callEdges: CallEdge[], 
+  env: CommandEnvironment
+): Promise<PageRankMetrics> {
+  const pageRankCalculator = new PageRankCalculator();
+  const pageRankResult = pageRankCalculator.calculatePageRank(functions, callEdges);
+  const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, callEdges);
+  
+  // Perform layer-based PageRank analysis (optional)
+  let layerBasedAnalysis;
+  try {
+    const layerAnalysis = await performLayerBasedPageRank(functions, callEdges);
+    layerBasedAnalysis = {
+      overallMetrics: layerAnalysis.overallMetrics,
+      layerResults: layerAnalysis.layerResults.map(result => ({
+        layerName: result.layerName,
+        functionCount: result.functionCount,
+        topFunctions: result.topFunctions,
+        giniCoefficient: result.giniCoefficient
+      })),
+      crossLayerInsights: layerAnalysis.crossLayerInsights
+    };
+  } catch (error) {
+    env.commandLogger.debug('Layer-based PageRank analysis failed:', error);
+  }
+  
+  return {
+    totalFunctions: pageRankResult.totalFunctions,
+    converged: pageRankResult.converged,
+    iterations: pageRankResult.iterations,
+    averageScore: pageRankResult.averageScore,
+    maxScore: pageRankResult.maxScore,
+    centralityVariance: centralityMetrics.centralityVariance,
+    centralityGini: centralityMetrics.centralityGini,
+    importanceDistribution: pageRankResult.importanceDistribution,
+    topCentralFunctions: centralityMetrics.topCentralFunctions,
+    ...(layerBasedAnalysis && { layerBasedAnalysis })
+  };
+}
+
+/**
+ * Calculate project structure metrics and dynamic configuration
+ */
+async function calculateProjectStructureMetrics(
+  functions: FunctionInfo[], 
+  snapshotId: string, 
+  env: CommandEnvironment, 
+  mode: EvaluationMode,
+  fanStats: FanStatistics
+): Promise<{ dynamicConfig: DynamicWeightConfig; hubThreshold: number }> {
+  const architecturePattern = defaultLayerDetector.analyzeArchitecturePattern(functions);
+  
+  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  const fileCount = sourceFiles.length;
+  const avgFunctionsPerFile = fileCount > 0 ? functions.length / fileCount : 0;
+  const maxDirectoryDepth = calculateMaxDirectoryDepth(sourceFiles);
+  
+  const dynamicConfig: DynamicWeightConfig = {
+    projectSize: functions.length,
+    architecturePattern,
+    domainComplexity: 'Medium',
+    teamExperience: 'Mixed',
+    mode,
+    fileCount,
+    maxDirectoryDepth,
+    avgFunctionsPerFile
+  };
+  
+  let hubThreshold: number;
+  if (mode === 'dynamic') {
+    const dynamicCalculator = createDynamicWeightCalculator(dynamicConfig);
+    const dynamicThresholds = dynamicCalculator.calculateDynamicThresholds(dynamicConfig);
+    hubThreshold = dynamicThresholds.hubThreshold;
+    
+    env.commandLogger.debug(`Phase 2 Project Metrics: functions=${functions.length}, files=${fileCount}, avgPerFile=${avgFunctionsPerFile.toFixed(1)}, maxDepth=${maxDirectoryDepth}`);
+    env.commandLogger.debug(`Dynamic thresholds: hub=${hubThreshold}, complexity=${dynamicThresholds.complexityThreshold}`);
+  } else {
+    hubThreshold = calculateDynamicHubThreshold(fanStats.fanIns, fanStats.avgFanIn);
+  }
+  
+  return { dynamicConfig, hubThreshold };
+}
+
+/**
+ * Aggregate all metrics into final structural metrics object
+ */
+function aggregateStructuralMetrics(
+  sccResult: SCCAnalysisResult,
+  fanStats: FanStatistics,
+  depMetrics: DependencyMetrics[],
+  hubThreshold: number,
+  pageRankMetrics: PageRankMetrics,
+  snapshotId: string,
+  callEdgesHash: string
+): StructuralMetrics {
+  const hubMetrics = depMetrics.filter((m: DependencyMetrics) => m.fanIn >= hubThreshold);
+  const hubFunctions = hubMetrics.length;
+  const hubFunctionIds = hubMetrics.map((m: DependencyMetrics) => m.functionId);
+  
+  const structuralRisk = calculateStructuralRisk(sccResult, hubFunctions, fanStats.maxFanIn, fanStats.maxFanOut);
+  
+  const baseMetrics: StructuralMetrics = {
+    totalComponents: sccResult.totalComponents,
+    largestComponentSize: sccResult.largestComponentSize,
+    cyclicFunctions: sccResult.recursiveFunctions.length,
+    hubFunctions,
+    avgFanIn: Math.round(fanStats.avgFanIn * 10) / 10,
+    avgFanOut: Math.round(fanStats.avgFanOut * 10) / 10,
+    maxFanIn: fanStats.maxFanIn,
+    maxFanOut: fanStats.maxFanOut,
+    structuralRisk,
+    hubThreshold,
+    hubFunctionIds,
+    cyclicFunctionIds: sccResult.recursiveFunctions,
+    pageRank: pageRankMetrics
+  };
+  
+  const penaltyBreakdown = calculateStructuralPenaltyBreakdown(baseMetrics);
+  baseMetrics.penaltyBreakdown = penaltyBreakdown;
+  
+  setCachedStructuralMetrics(snapshotId, callEdgesHash, baseMetrics);
+  
+  return baseMetrics;
+}
+
 /**
  * Perform comprehensive structural analysis using SCC and dependency metrics
  */
@@ -34,145 +222,24 @@ export async function analyzeStructuralMetrics(
   mode: EvaluationMode = 'static'
 ): Promise<StructuralMetrics> {
   try {
-    // Get call edges for the snapshot
     const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
     
-    // Create a hash of call edges for cache validation
-    const callEdgesHash = createCallEdgesHash(callEdges);
-    
     // Check cache first
-    const cachedResult = getCachedStructuralMetrics(snapshotId, callEdgesHash);
+    const cachedResult = await handleCacheCheck(snapshotId, callEdges, env);
     if (cachedResult) {
-      env.commandLogger.debug(`Using cached SCC analysis for snapshot ${snapshotId}`);
       return cachedResult;
     }
     
     env.commandLogger.debug(`Computing SCC analysis for snapshot ${snapshotId}`);
     
-    // Perform SCC analysis
-    const sccAnalyzer = new SCCAnalyzer();
-    const sccResult = sccAnalyzer.findStronglyConnectedComponents(callEdges);
+    // Perform analysis in stages
+    const { sccResult, depMetrics, fanStats } = performSCCAnalysis(functions, callEdges);
+    const pageRankMetrics = await performPageRankAnalysis(functions, callEdges, env);
+    const { hubThreshold } = await calculateProjectStructureMetrics(functions, snapshotId, env, mode, fanStats);
     
-    // Calculate dependency metrics
-    const depCalculator = new DependencyMetricsCalculator();
-    const entryPoints = new Set<string>(); // Simplified - could be enhanced later
-    const cyclicFunctions = new Set(sccResult.recursiveFunctions);
-    const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
-    
-    // Calculate PageRank centrality scores
-    const pageRankCalculator = new PageRankCalculator();
-    const pageRankResult = pageRankCalculator.calculatePageRank(functions, callEdges);
-    const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, callEdges);
-    
-    // Calculate fan-in/fan-out statistics
-    const fanIns = depMetrics.map((m: DependencyMetrics) => m.fanIn);
-    const fanOuts = depMetrics.map((m: DependencyMetrics) => m.fanOut);
-    const avgFanIn = fanIns.reduce((a: number, b: number) => a + b, 0) / fanIns.length || 0;
-    const avgFanOut = fanOuts.reduce((a: number, b: number) => a + b, 0) / fanOuts.length || 0;
-    const maxFanIn = Math.max(...fanIns, 0);
-    const maxFanOut = Math.max(...fanOuts, 0);
-    
-    // Setup dynamic weight system with Phase 2 enhancements
-    const architecturePattern = defaultLayerDetector.analyzeArchitecturePattern(functions);
-    
-    // Phase 2: Calculate project structure metrics
-    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-    const fileCount = sourceFiles.length;
-    const avgFunctionsPerFile = fileCount > 0 ? functions.length / fileCount : 0;
-    const maxDirectoryDepth = calculateMaxDirectoryDepth(sourceFiles);
-    
-    const dynamicConfig: DynamicWeightConfig = {
-      projectSize: functions.length,
-      architecturePattern,
-      domainComplexity: 'Medium', // TODO: Make configurable
-      teamExperience: 'Mixed',     // TODO: Make configurable
-      mode,
-      // Phase 2: Enhanced project structure metrics
-      fileCount,
-      maxDirectoryDepth,
-      avgFunctionsPerFile
-    };
-    
-    // Calculate dynamic thresholds
-    let hubThreshold: number;
-    if (mode === 'dynamic') {
-      const dynamicCalculator = createDynamicWeightCalculator(dynamicConfig);
-      const dynamicThresholds = dynamicCalculator.calculateDynamicThresholds(dynamicConfig);
-      hubThreshold = dynamicThresholds.hubThreshold;
-      
-      env.commandLogger.debug(`Phase 2 Project Metrics: functions=${functions.length}, files=${fileCount}, avgPerFile=${avgFunctionsPerFile.toFixed(1)}, maxDepth=${maxDirectoryDepth}`);
-      env.commandLogger.debug(`Dynamic thresholds: hub=${hubThreshold}, complexity=${dynamicThresholds.complexityThreshold}`);
-    } else {
-      // Use legacy static calculation
-      hubThreshold = calculateDynamicHubThreshold(fanIns, avgFanIn);
-    }
-    
-    // Identify hub functions using dynamic threshold
-    const hubMetrics = depMetrics.filter((m: DependencyMetrics) => m.fanIn >= hubThreshold);
-    const hubFunctions = hubMetrics.length;
-    const hubFunctionIds = hubMetrics.map((m: DependencyMetrics) => m.functionId);
-    
-    // Calculate structural risk level
-    const structuralRisk = calculateStructuralRisk(sccResult, hubFunctions, maxFanIn, maxFanOut);
-    
-    // Perform layer-based PageRank analysis (optional)
-    let layerBasedAnalysis;
-    try {
-      const layerAnalysis = await performLayerBasedPageRank(functions, callEdges);
-      layerBasedAnalysis = {
-        overallMetrics: layerAnalysis.overallMetrics,
-        layerResults: layerAnalysis.layerResults.map(result => ({
-          layerName: result.layerName,
-          functionCount: result.functionCount,
-          topFunctions: result.topFunctions,
-          giniCoefficient: result.giniCoefficient
-        })),
-        crossLayerInsights: layerAnalysis.crossLayerInsights
-      };
-    } catch (error) {
-      // Layer-based analysis is optional, log error but continue
-      env.commandLogger.debug('Layer-based PageRank analysis failed:', error);
-    }
-    
-    // Create PageRank metrics object
-    const pageRankMetrics: PageRankMetrics = {
-      totalFunctions: pageRankResult.totalFunctions,
-      converged: pageRankResult.converged,
-      iterations: pageRankResult.iterations,
-      averageScore: pageRankResult.averageScore,
-      maxScore: pageRankResult.maxScore,
-      centralityVariance: centralityMetrics.centralityVariance,
-      centralityGini: centralityMetrics.centralityGini,
-      importanceDistribution: pageRankResult.importanceDistribution,
-      topCentralFunctions: centralityMetrics.topCentralFunctions,
-      ...(layerBasedAnalysis && { layerBasedAnalysis })
-    };
-
-    // Create base structural metrics object
-    const baseMetrics: StructuralMetrics = {
-      totalComponents: sccResult.totalComponents,
-      largestComponentSize: sccResult.largestComponentSize,
-      cyclicFunctions: sccResult.recursiveFunctions.length,
-      hubFunctions,
-      avgFanIn: Math.round(avgFanIn * 10) / 10,
-      avgFanOut: Math.round(avgFanOut * 10) / 10,
-      maxFanIn,
-      maxFanOut,
-      structuralRisk,
-      hubThreshold,
-      hubFunctionIds,
-      cyclicFunctionIds: sccResult.recursiveFunctions,
-      pageRank: pageRankMetrics
-    };
-    
-    // Calculate penalty breakdown for transparency
-    const penaltyBreakdown = calculateStructuralPenaltyBreakdown(baseMetrics);
-    baseMetrics.penaltyBreakdown = penaltyBreakdown;
-    
-    // Cache the result
-    setCachedStructuralMetrics(snapshotId, callEdgesHash, baseMetrics);
-    
-    return baseMetrics;
+    // Aggregate results
+    const callEdgesHash = createCallEdgesHash(callEdges);
+    return aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash);
   } catch (error) {
     env.commandLogger.warn('Structural analysis failed, using defaults:', error);
     return {

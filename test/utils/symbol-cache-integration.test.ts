@@ -96,10 +96,7 @@ describe('SymbolCache Integration - Type Resolution Safety', () => {
       }
     });
 
-    it.skip('should cache symbols without affecting type resolution', () => {
-      // SKIPPED: Symbol caching consistency test failing
-      // Root cause: TypeChecker integration issues affecting cache behavior
-      // TODO: Fix symbol cache consistency with TypeChecker type resolution
+    it('should cache symbols without affecting type resolution', () => {
       // Arrange
       const sourceFile = project.createSourceFile('cache-consistency.ts', `
         class Calculator {
@@ -115,16 +112,33 @@ describe('SymbolCache Integration - Type Resolution Safety', () => {
 
       const propertyAccesses = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression) as PropertyAccessExpression[];
       
-      // Act - Access same symbol multiple times
-      const results = propertyAccesses.map(prop => {
+      // Act - Access same symbol multiple times to test caching
+      const results: (string | null)[] = [];
+      
+      // First access each property (should be cache misses)
+      propertyAccesses.forEach(prop => {
         const objectExpr = prop.getExpression();
         const symbol = symbolCache.getSymbolAtLocation(objectExpr);
         
         if (symbol) {
           const type = typeChecker.getTypeAtLocation(objectExpr);
-          return type.getText();
+          results.push(type.getText());
+        } else {
+          results.push(null);
         }
-        return null;
+      });
+      
+      // Second access to same properties (should be cache hits)
+      propertyAccesses.forEach(prop => {
+        const objectExpr = prop.getExpression();
+        const symbol = symbolCache.getSymbolAtLocation(objectExpr);
+        
+        if (symbol) {
+          const type = typeChecker.getTypeAtLocation(objectExpr);
+          results.push(type.getText());
+        } else {
+          results.push(null);
+        }
       });
 
       // Assert - All results should be consistent
@@ -198,10 +212,7 @@ describe('SymbolCache Integration - Type Resolution Safety', () => {
       }).not.toThrow();
     });
 
-    it.skip('should maintain cache integrity across multiple files', () => {
-      // SKIPPED: Multi-file symbol resolution test failing
-      // Root cause: Cross-file symbol caching not working properly
-      // TODO: Fix multi-file symbol cache integrity and type resolution
+    it('should maintain cache integrity across multiple files', () => {
       // Arrange - Multiple files with same class names
       const file1 = project.createSourceFile('file1.ts', `
         class Service {

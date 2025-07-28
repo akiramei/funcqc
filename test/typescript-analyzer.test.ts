@@ -45,10 +45,11 @@ describe('TypeScriptAnalyzer', () => {
       // Test contextPath and accessModifier functionality  
       expect(getUser).toBeDefined();
       expect(getUser?.contextPath).toBeDefined();
-      // TODO: Fix contextPath extraction - currently returns empty array
-      // expect(getUser?.contextPath).toContain('UserService');
+      expect(getUser?.contextPath).toContain('UserService');
+      
       expect(fetchWithAuth).toBeDefined();
       expect(fetchWithAuth?.accessModifier).toBe('private');
+      expect(fetchWithAuth?.contextPath).toContain('UserService');
     });
 
     it('should handle non-existent files', async () => {
