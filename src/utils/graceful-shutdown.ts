@@ -7,7 +7,7 @@ export interface TransactionTracker {
   id: string;
   operation: string;
   startTime: number;
-  promise: Promise<any>;
+  promise: Promise<unknown>;
 }
 
 export class GracefulShutdown {
@@ -83,7 +83,7 @@ export class GracefulShutdown {
   /**
    * Track an active transaction
    */
-  trackTransaction(id: string, operation: string, promise: Promise<any>): Promise<any> {
+  trackTransaction<T>(id: string, operation: string, promise: Promise<T>): Promise<T> {
     const tracker: TransactionTracker = {
       id,
       operation,
