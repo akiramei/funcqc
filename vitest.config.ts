@@ -7,11 +7,13 @@ export default defineConfig({
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     exclude: ['node_modules', 'dist', 'test/e2e/**'],
     setupFiles: ['test/setup.ts'],
-    testTimeout: 10000, // 10秒でタイムアウト
-    hookTimeout: 10000, // beforeEach/afterEachタイムアウト
-    teardownTimeout: 5000, // クリーンアップタイムアウト  
-    maxConcurrency: 1, // シーケンシャル実行でリソース競合を防ぐ
-    fileParallelism: false, // ファイル並列実行を無効化
+    testTimeout: 30000, // 30秒でタイムアウト（analyzer系テストが重いため）
+    hookTimeout: 15000, // beforeEach/afterEachタイムアウト
+    teardownTimeout: 10000, // クリーンアップタイムアウト  
+    maxConcurrency: 8, // 並列実行を有効化（CPUコア数に応じて調整）
+    fileParallelism: true, // ファイル並列実行を有効化
+    isolate: false, // テスト間でWorkerを再利用してオーバーヘッドを削減
+    pool: 'threads', // スレッドプールを使用（forks より高速）
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

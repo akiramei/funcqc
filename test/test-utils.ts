@@ -46,5 +46,5 @@ export function getSafeTestDbPath(): string {
     const path = require('path');
     return path.join(os.tmpdir(), `funcqc-ci-test-${process.pid}.db`);
   }
-  return './test-db.sqlite';
+  return './test-db.db';
 }

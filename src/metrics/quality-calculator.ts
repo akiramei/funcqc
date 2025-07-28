@@ -38,6 +38,10 @@ export class QualityCalculator {
           functionNode = node as ts.FunctionLikeDeclaration;
           return;
         }
+        // If no exact match found yet, keep the first function-like node as fallback
+        if (!functionNode) {
+          functionNode = node as ts.FunctionLikeDeclaration;
+        }
       }
       ts.forEachChild(node, findFunction);
     };
@@ -122,6 +126,9 @@ export class QualityCalculator {
       callbackCount: 0,
       commentLines: 0,
       codeToCommentRatio: 0,
+      halsteadVolume: 0,
+      halsteadDifficulty: 0,
+      maintainabilityIndex: 100, // Default high maintainability for simple functions
     };
   }
 
@@ -173,6 +180,39 @@ export class QualityCalculator {
     const tryCatchCount = this.countTryCatchFromTsMorph(node);
     const asyncAwaitCount = this.countAsyncAwaitFromTsMorph(node);
     const callbackCount = this.countCallbacksFromTsMorph(node);
+    
+    // Calculate Halstead metrics and other advanced metrics
+    // For these metrics, we need to parse the source code as TypeScript AST
+    // because they require detailed token analysis
+    const sourceFile = ts.createSourceFile(
+      'temp.ts',
+      functionInfo.sourceCode || node.getFullText(),
+      ts.ScriptTarget.Latest,
+      true
+    );
+    
+    // Find the function node in the parsed AST
+    let tsNode: ts.FunctionLikeDeclaration | null = null;
+    const findFunction = (node: ts.Node) => {
+      if (this.isFunctionLike(node)) {
+        tsNode = node as ts.FunctionLikeDeclaration;
+        return;
+      }
+      ts.forEachChild(node, findFunction);
+    };
+    findFunction(sourceFile);
+    
+    const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
+    const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
+    const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
+    const codeToCommentRatio = linesOfCode > 0 && commentLines > 0 ? linesOfCode / commentLines : 0;
+    
+    // Calculate maintainability index
+    const maintainabilityIndex = this.calculateMaintainabilityIndex({
+      cyclomaticComplexity,
+      linesOfCode,
+      halsteadVolume
+    });
 
     return {
       linesOfCode,
@@ -187,8 +227,11 @@ export class QualityCalculator {
       tryCatchCount,
       asyncAwaitCount,
       callbackCount,
-      commentLines: 0, // TODO: implement if needed
-      codeToCommentRatio: 0, // TODO: implement if needed
+      commentLines,
+      codeToCommentRatio,
+      halsteadVolume,
+      halsteadDifficulty,
+      maintainabilityIndex,
     };
   }
 

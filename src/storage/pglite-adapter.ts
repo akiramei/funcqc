@@ -994,8 +994,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       );
     }
 
-    // Check for single drive letter (Windows)
-    if (/^[A-Z]:$/i.test(dbPath)) {
+    // Check for dangerous root paths
+    if (dbPath === '/' || dbPath === '//') {
+      throw new DatabaseError(
+        ErrorCode.INVALID_CONFIG,
+        'Root directory is not a valid database path. Use a specific directory like /tmp/funcqc/data'
+      );
+    }
+
+    // Check for single drive letter (Windows) - only when actually on Windows
+    if (process.platform === 'win32' && /^[A-Z]:$/i.test(dbPath)) {
       throw new DatabaseError(
         ErrorCode.INVALID_CONFIG,
         'Drive letter only is not a valid path. Use a full path like C:\\funcqc\\data'
