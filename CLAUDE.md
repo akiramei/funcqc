@@ -269,6 +269,151 @@ fi
 - レビューコメントには機密情報が含まれる可能性があるため適切に管理
 - 大規模PRでは多数のファイルが生成されるため、定期的なクリーンアップを推奨
 
+## funcqc使い方ガイド（開発時の品質管理ツール）
+
+### 🔍 基本的なワークフロー
+
+```bash
+# 1. 作業開始時にスナップショットを作成（ブランチ名でラベル付け）
+npm run dev -- scan --label feature/my-branch
+
+# 2. 関数の品質状況を確認
+npm run dev -- health                    # 全体的な品質レポート
+npm run dev -- list --cc-ge 10          # 複雑度10以上の関数一覧
+
+# 3. 作業後に再度スキャンして比較
+npm run dev -- scan --label feature/my-branch-after
+npm run dev -- diff HEAD~1 HEAD         # 変更内容の確認
+```
+
+### 📊 主要コマンド一覧
+
+#### scan - 関数スキャン
+```bash
+# 基本スキャン
+npm run dev -- scan
+
+# ラベル付きスキャン（推奨）
+npm run dev -- scan --label <label-name>
+```
+
+#### list - 関数一覧表示
+```bash
+# 全関数表示
+npm run dev -- list
+
+# 複雑度でフィルタ
+npm run dev -- list --cc-ge 10          # 複雑度10以上
+npm run dev -- list --cc-ge 20 --limit 10 --sort cc --desc
+
+# ファイルでフィルタ
+npm run dev -- list --file src/storage/pglite-adapter.ts
+
+# 関数名でフィルタ
+npm run dev -- list --name analyze
+```
+
+#### health - 品質レポート
+```bash
+# 基本レポート
+npm run dev -- health
+
+# 詳細レポート（推奨アクション付き）
+npm run dev -- health --verbose
+```
+
+#### history - スキャン履歴
+```bash
+# スナップショット履歴を表示
+npm run dev -- history
+```
+
+#### diff - 変更差分
+```bash
+# スナップショット間の差分
+npm run dev -- diff <from> <to>
+
+# 指定可能な値：
+# - スナップショットID: fd526278
+# - ラベル: main
+# - HEAD記法: HEAD, HEAD~1, HEAD~3
+
+# 類似関数の洞察付き
+npm run dev -- diff <from> <to> --insights
+```
+
+#### files - ファイル分析
+```bash
+# 行数の多いファイルTOP10
+npm run dev -- files --sort lines --desc --limit 10
+
+# 関数数の多いファイル
+npm run dev -- files --sort funcs --desc --limit 10
+```
+
+#### similar - 類似関数検出
+```bash
+# 重複・類似コードの検出
+npm run dev -- similar
+```
+
+#### db - データベース参照
+```bash
+# テーブル一覧
+npm run dev -- db --list
+
+# テーブル内容確認
+npm run dev -- db --table snapshots --limit 5
+npm run dev -- db --table functions --where "cyclomatic_complexity > 10" --limit 10
+
+# JSON出力（他ツールとの連携用）
+npm run dev -- db --table functions --json | jq '.rows[0]'
+```
+
+### 🎯 品質指標の理解
+
+#### 複雑度（Cyclomatic Complexity）
+- **1-5**: シンプル（良好）
+- **6-10**: やや複雑（許容範囲）
+- **11-20**: 複雑（要改善）
+- **21+**: 非常に複雑（リファクタリング推奨）
+
+#### High Risk関数
+以下の条件を満たす関数：
+- 複雑度が高い
+- ネストが深い
+- 行数が多い
+- パラメータ数が多い
+
+### 💡 開発時の活用例
+
+#### 1. リファクタリング対象の特定
+```bash
+# High Risk関数を確認
+npm run dev -- health --verbose
+
+# 特定ファイルの複雑な関数を確認
+npm run dev -- list --file src/cli/dep.ts --cc-ge 10
+```
+
+#### 2. 変更の影響確認
+```bash
+# 変更前後の差分と類似関数
+npm run dev -- diff HEAD~1 HEAD --insights
+```
+
+#### 3. 重複コードの発見
+```bash
+# 類似関数のグループを表示
+npm run dev -- similar
+```
+
+### ⚠️ 注意事項
+
+- スナップショットはDBに保存されるが、現在の実装では一部のデータが永続化されない場合がある
+- `--label`オプションを使用してスナップショットに意味のある名前を付けることを推奨
+- PGLiteはWebAssemblyベースのPostgreSQLなので、通常のPostgreSQLクライアントは使用不可
+
 ## AI協調による調査方針
 
 ### Geminiツールの活用
