@@ -100,6 +100,122 @@ async function listTables(env: CommandEnvironment): Promise<void> {
 /**
  * Query a specific table with filtering options
  */
+async function queryTable(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const tableName = options.table!;
+  
+  // Special handling for common tables using storage API
+  if (tableName === 'snapshots' && !options.where) {
+    await querySnapshotsViaStorage(env, options);
+    return;
+  }
+  
+  if (tableName === 'functions' && !options.where) {
+    await queryFunctionsViaStorage(env, options);
+    return;
+  }
+  
+  // For other cases, use direct SQL query
+  await queryTableDirect(env, options);
+}
+
+/**
+ * Query snapshots using storage API
+ */
+async function querySnapshotsViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  const snapshots = await env.storage.getSnapshots({ limit });
+  
+  if (options.json) {
+    console.log(JSON.stringify({ rows: snapshots }, null, 2));
+  } else {
+    if (snapshots.length === 0) {
+      console.log(chalk.yellow('No data found in table \'snapshots\'.'));
+    } else {
+      console.log(chalk.cyan('Query Results:'));
+      console.table(snapshots);
+    }
+  }
+}
+
+/**
+ * Query functions using storage API
+ */
+async function queryFunctionsViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const functions = await env.storage.getFunctions(snapshots[0].id, { limit });
+  
+  if (options.json) {
+    console.log(JSON.stringify({ rows: functions }, null, 2));
+  } else {
+    if (functions.length === 0) {
+      console.log(chalk.yellow('No data found in table \'functions\'.'));
+    } else {
+      console.log(chalk.cyan('Query Results:'));
+      console.table(functions.map(f => ({
+        id: f.id,
+        name: f.name,
+        file_path: f.filePath,
+        cyclomatic_complexity: f.metrics?.complexity?.cyclomatic || 0,
+        lines_of_code: f.metrics?.size?.linesOfCode || 0
+      })));
+    }
+  }
+}
+
+/**
+ * Query table directly with SQL
+ */
+async function queryTableDirect(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const tableName = options.table!;
+  
+  // Validate table name to prevent SQL injection
+  if (!isValidTableName(tableName)) {
+    throw new Error(`Invalid table name: ${tableName}`);
+  }
+
+  try {
+    // Build base query
+    const columns = options.columns ? validateAndBuildColumns(options.columns) : '*';
+    let query = buildSelectQuery(tableName, columns);
+    let params: (string | number)[] = [];
+    
+    // Add WHERE clause if specified
+    if (options.where) {
+      const whereResult = addWhereClause(query, options.where, params);
+      query = whereResult.query;
+      params = whereResult.params;
+    }
+    
+    // Add ORDER BY clause
+    query = addOrderByClause(query, tableName);
+    
+    // Add LIMIT clause
+    const limit = validateAndParseLimit(options.limit, options.limitAll);
+    const limitResult = addLimitClause(query, params, limit);
+    query = limitResult.query;
+    params = limitResult.params;
+
+    // Execute query
+    const result = await env.storage.query(query, params);
+    logQueryResults(result);
+    
+    // Process and output results
+    const rows = extractRows(result);
+    handleQueryOutput(rows, tableName, limit, options);
+    
+  } catch (error) {
+    throw new Error(`Failed to query table '${tableName}': ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /**
  * Build the base SELECT query with columns
  */
@@ -220,51 +336,6 @@ function handleQueryOutput(
   }
 }
 
-/**
- * Execute a table query with all options
- */
-async function queryTable(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
-  const tableName = options.table!;
-  
-  // Validate table name to prevent SQL injection
-  if (!isValidTableName(tableName)) {
-    throw new Error(`Invalid table name: ${tableName}`);
-  }
-
-  try {
-    // Build base query
-    const columns = options.columns ? validateAndBuildColumns(options.columns) : '*';
-    let query = buildSelectQuery(tableName, columns);
-    let params: (string | number)[] = [];
-    
-    // Add WHERE clause if specified
-    if (options.where) {
-      const whereResult = addWhereClause(query, options.where, params);
-      query = whereResult.query;
-      params = whereResult.params;
-    }
-    
-    // Add ORDER BY clause
-    query = addOrderByClause(query, tableName);
-    
-    // Add LIMIT clause
-    const limit = validateAndParseLimit(options.limit, options.limitAll);
-    const limitResult = addLimitClause(query, params, limit);
-    query = limitResult.query;
-    params = limitResult.params;
-
-    // Execute query
-    const result = await env.storage.query(query, params);
-    logQueryResults(result);
-    
-    // Process and output results
-    const rows = extractRows(result);
-    handleQueryOutput(rows, tableName, limit, options);
-    
-  } catch (error) {
-    throw new Error(`Failed to query table '${tableName}': ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
 
 /**
  * Validate table name to prevent SQL injection
