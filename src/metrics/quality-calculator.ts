@@ -205,7 +205,9 @@ export class QualityCalculator {
     const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
     const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
     const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
-    const codeToCommentRatio = linesOfCode > 0 && commentLines > 0 ? linesOfCode / commentLines : 0;
+    const codeToCommentRatio = linesOfCode > 0
+      ? Math.round((commentLines / linesOfCode) * 100) / 100
+      : 0;
     
     // Calculate maintainability index
     const maintainabilityIndex = this.calculateMaintainabilityIndex({

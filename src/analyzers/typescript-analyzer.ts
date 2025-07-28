@@ -220,9 +220,9 @@ export class TypeScriptAnalyzer {
       }
       
       for (const classDecl of sourceFile.getClasses()) {
-        for (const constructor of classDecl.getConstructors()) {
+        for (const ctorDeclaration of classDecl.getConstructors()) {
           const info = await this.extractConstructorInfo(
-            constructor,
+            ctorDeclaration,
             relativePath,
             fileHash,
             sourceFile,
