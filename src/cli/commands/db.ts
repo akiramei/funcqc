@@ -163,8 +163,8 @@ async function queryFunctionsViaStorage(env: CommandEnvironment, options: DbComm
         id: f.id,
         name: f.name,
         file_path: f.filePath,
-        cyclomatic_complexity: f.metrics?.complexity?.cyclomatic || 0,
-        lines_of_code: f.metrics?.size?.linesOfCode || 0
+        cyclomatic_complexity: f.metrics?.cyclomaticComplexity || 0,
+        lines_of_code: f.metrics?.linesOfCode || 0
       })));
     }
   }
