@@ -6,6 +6,11 @@
 import { randomUUID } from 'crypto';
 import { StorageContext, StorageOperationModule } from './types';
 
+// Type for PGLite transaction object
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 export class SourceContentOperations implements StorageOperationModule {
   readonly db;
   readonly kysely;
@@ -87,6 +92,81 @@ export class SourceContentOperations implements StorageOperationModule {
           created_at: new Date().toISOString()
         })
         .execute();
+
+      resultMap.set(file.filePath, refId);
+    }
+
+    return resultMap;
+  }
+
+  /**
+   * Save source files within a transaction for atomic operations
+   */
+  async saveSourceFilesInTransaction(trx: PGTransaction, sourceFiles: Array<{
+    id: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    encoding?: string;
+    size: number;
+    lineCount?: number;
+    language?: string;
+    functionCount: number;
+    exportCount?: number;
+    importCount?: number;
+    fileModifiedTime?: Date;
+    createdAt?: Date;
+  }>, snapshotId: string): Promise<Map<string, string>> {
+    if (sourceFiles.length === 0) return new Map();
+
+    const resultMap = new Map<string, string>();
+
+    for (const file of sourceFiles) {
+      // Step 1: Ensure content exists in source_contents (deduplicated)
+      const contentId = `${file.hash}_${file.size}`;
+      
+      try {
+        await trx.query(
+          `INSERT INTO source_contents (
+            id, content, file_hash, file_size_bytes, line_count, language, 
+            encoding, export_count, import_count, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          ON CONFLICT (file_hash, file_size_bytes) DO NOTHING`,
+          [
+            contentId,
+            file.content,
+            file.hash,
+            file.size,
+            file.lineCount || 0,
+            file.language || 'typescript',
+            file.encoding || 'utf-8',
+            file.exportCount || 0,
+            file.importCount || 0,
+            new Date().toISOString()
+          ]
+        );
+      } catch {
+        // Content already exists, which is fine for deduplication
+        this.logger?.warn(`Content already exists for ${file.filePath}: ${contentId}`);
+      }
+
+      // Step 2: Create file reference for this snapshot
+      const refId = randomUUID();
+      
+      await trx.query(
+        `INSERT INTO source_file_refs (
+          id, snapshot_id, file_path, content_id, file_modified_time, function_count, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          refId,
+          snapshotId,
+          file.filePath,
+          contentId,
+          file.fileModifiedTime?.toISOString() || null,
+          file.functionCount || 0,
+          new Date().toISOString()
+        ]
+      );
 
       resultMap.set(file.filePath, refId);
     }

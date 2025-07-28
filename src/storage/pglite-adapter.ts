@@ -35,6 +35,8 @@ import { EmbeddingOperations } from './modules/embedding-operations';
 import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
+import { GracefulShutdown } from '../utils/graceful-shutdown';
+import { randomUUID } from 'crypto';
 
 // Type for PGLite transaction object
 interface PGTransaction {
@@ -54,6 +56,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private dbPath: string;
   private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void; debug: (msg: string) => void } | undefined;
   private isInitialized: boolean = false;
+  private gracefulShutdown: GracefulShutdown;
 
   // Operation modules
   private databaseCore: DatabaseCore;
@@ -75,6 +78,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
     this.git = simpleGit();
+    this.gracefulShutdown = GracefulShutdown.getInstance();
 
     // Create storage context
     this.context = {
@@ -116,6 +120,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.embeddingOps = new EmbeddingOperations(this.context);
       this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
+      
+      // Register this storage connection for graceful shutdown
+      this.gracefulShutdown.registerStorageConnection(this);
       
       this.isInitialized = true;
     } catch (error) {
@@ -165,6 +172,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    * Close the storage adapter
    */
   async close(): Promise<void> {
+    // Unregister from graceful shutdown
+    this.gracefulShutdown.unregisterStorageConnection(this);
     await this.databaseCore.close();
   }
 
@@ -180,9 +189,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   ): Promise<string> {
     await this.ensureInitialized();
     
+    // Generate transaction ID for tracking
+    const transactionId = randomUUID();
+    const operation = `saveSnapshot(${functions.length} functions)`;
+    
     // Execute snapshot creation and function saving within a single transaction
     // This ensures atomicity: either both operations succeed or both fail
-    return await this.db.transaction(async (trx: PGTransaction) => {
+    const transactionPromise = this.db.transaction(async (trx: PGTransaction) => {
       // 1. Create snapshot within transaction
       const snapshotId = await this.snapshotOps.createSnapshotInTransaction(trx, {
         ...(label && { label }),
@@ -194,7 +207,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       await this.functionOps.saveFunctionsInTransaction(trx, snapshotId, functions);
 
       return snapshotId;
-    }) as string;
+    }) as Promise<string>;
+    
+    // Track transaction for graceful shutdown protection
+    return this.gracefulShutdown.trackTransaction(transactionId, operation, transactionPromise);
   }
 
   async createSnapshot(options: { 
@@ -211,6 +227,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
     await this.ensureInitialized();
     return this.snapshotOps.updateAnalysisLevel(snapshotId, level);
+  }
+
+  /**
+   * Update analysis level within a transaction
+   */
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+    return this.snapshotOps.updateAnalysisLevelInTransaction(trx, snapshotId, level);
   }
 
   async getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]> {
@@ -557,6 +580,27 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.sourceContentOps.saveSourceFiles(mappedFiles, snapshotId);
   }
 
+  /**
+   * Save source files within a transaction for atomic operations
+   */
+  async saveSourceFilesInTransaction(trx: PGTransaction, sourceFiles: SourceFile[], snapshotId: string): Promise<Map<string, string>> {
+    const mappedFiles = sourceFiles.map(file => ({
+      id: file.id || '',
+      filePath: file.filePath,
+      content: file.fileContent || '',
+      hash: file.fileHash || '',
+      encoding: file.encoding || 'utf-8',
+      size: file.fileSizeBytes || 0,
+      lineCount: file.lineCount || 0,
+      language: file.language || 'typescript',
+      functionCount: file.functionCount || 0,
+      exportCount: file.exportCount || 0,
+      importCount: file.importCount || 0,
+      fileModifiedTime: file.fileModifiedTime || new Date(),
+    }));
+    return this.sourceContentOps.saveSourceFilesInTransaction(trx, mappedFiles, snapshotId);
+  }
+
   async getSourceFile(id: string): Promise<SourceFile | null> {
     await this.ensureInitialized();
     const result = this.utilityOps.getSourceFile(id);
@@ -597,6 +641,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void> {
     await this.ensureInitialized();
     return this.callEdgeOps.insertCallEdges(snapshotId, edges);
+  }
+
+  /**
+   * Insert call edges within a transaction for atomic operations
+   */
+  async insertCallEdgesInTransaction(trx: PGTransaction, edges: CallEdge[], snapshotId: string): Promise<void> {
+    return this.callEdgeOps.insertCallEdgesInTransaction(trx, snapshotId, edges);
   }
 
   async getCallEdges(options?: {
@@ -710,8 +761,12 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.ensureInitialized();
     if (edges.length === 0) return;
     
+    // Generate transaction ID for tracking
+    const transactionId = randomUUID();
+    const operation = `insertInternalCallEdges(${edges.length} edges)`;
+    
     // Use transaction for atomic insertion
-    await this.db.transaction(async (trx) => {
+    const transactionPromise = this.db.transaction(async (trx) => {
       // Prepare batch insert values
       const values = edges.map(edge => [
         edge.id,
@@ -766,6 +821,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ]);
     });
     
+    // Track transaction for graceful shutdown protection
+    return this.gracefulShutdown.trackTransaction(transactionId, operation, transactionPromise);
   }
 
   async getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]> {
@@ -800,6 +857,139 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.ensureInitialized();
     // The module method doesn't take snapshotId
     return this.callEdgeOps.isInternalFunctionCalled(calleeFunctionId);
+  }
+
+  // ========================================
+  // TRANSACTION OPERATIONS
+  // ========================================
+
+  /**
+   * Execute a complete scan workflow within a single transaction
+   * This ensures atomicity: either all operations succeed or all fail
+   */
+  async executeScanWorkflowInTransaction(workflow: {
+    sourceFiles?: SourceFile[];
+    functions?: FunctionInfo[];
+    callEdges?: CallEdge[];
+    internalCallEdges?: InternalCallEdge[];
+    analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
+    snapshotOptions: {
+      label?: string;
+      comment?: string;
+      configHash?: string;
+      scope?: string;
+    };
+  }): Promise<{
+    snapshotId: string;
+    sourceFileIdMap?: Map<string, string>;
+  }> {
+    await this.ensureInitialized();
+    
+    // Generate transaction ID for tracking
+    const transactionId = randomUUID();
+    const operation = `scanWorkflow(${workflow.functions?.length || 0} functions, ${workflow.sourceFiles?.length || 0} files)`;
+    
+    // Check if shutdown is in progress
+    if (this.gracefulShutdown.isShutdownInProgress()) {
+      throw new Error('Cannot start new transaction: shutdown in progress');
+    }
+    
+    const transactionPromise = this.db.transaction(async (trx: PGTransaction) => {
+      // 1. Create snapshot
+      const snapshotId = await this.snapshotOps.createSnapshotInTransaction(trx, workflow.snapshotOptions);
+      
+      let sourceFileIdMap: Map<string, string> | undefined;
+      
+      // 2. Save source files if provided
+      if (workflow.sourceFiles && workflow.sourceFiles.length > 0) {
+        sourceFileIdMap = await this.saveSourceFilesInTransaction(trx, workflow.sourceFiles, snapshotId);
+      }
+      
+      // 3. Save functions if provided
+      if (workflow.functions && workflow.functions.length > 0) {
+        await this.functionOps.saveFunctionsInTransaction(trx, snapshotId, workflow.functions);
+      }
+      
+      // 4. Save call edges if provided
+      if (workflow.callEdges && workflow.callEdges.length > 0) {
+        await this.insertCallEdgesInTransaction(trx, workflow.callEdges, snapshotId);
+      }
+      
+      // 5. Save internal call edges if provided
+      if (workflow.internalCallEdges && workflow.internalCallEdges.length > 0) {
+        await this.insertInternalCallEdgesInTransaction(trx, workflow.internalCallEdges, snapshotId);
+      }
+      
+      // 6. Update analysis level if provided
+      if (workflow.analysisLevel) {
+        await this.updateAnalysisLevelInTransaction(trx, snapshotId, workflow.analysisLevel);
+      }
+      
+      return { snapshotId, sourceFileIdMap };
+    }) as Promise<{ snapshotId: string; sourceFileIdMap?: Map<string, string> }>;
+    
+    // Track transaction for graceful shutdown protection
+    return this.gracefulShutdown.trackTransaction(transactionId, operation, transactionPromise);
+  }
+
+  /**
+   * Insert internal call edges within a transaction
+   */
+  async insertInternalCallEdgesInTransaction(trx: PGTransaction, edges: InternalCallEdge[], snapshotId: string): Promise<void> {
+    if (edges.length === 0) return;
+    
+    // Prepare batch insert values
+    const values = edges.map(edge => [
+      edge.id,
+      edge.snapshotId || snapshotId,
+      edge.filePath,
+      edge.callerFunctionId,
+      edge.calleeFunctionId,
+      edge.callerName,
+      edge.calleeName,
+      edge.callerClassName || null,
+      edge.calleeClassName || null,
+      edge.lineNumber,
+      edge.columnNumber,
+      edge.callType,
+      edge.callContext || null,
+      edge.confidenceScore,
+      edge.detectedBy,
+      edge.createdAt || new Date().toISOString()
+    ]);
+    
+    // Batch insert using unnest for better performance
+    const query = `
+      INSERT INTO internal_call_edges (
+        id, snapshot_id, file_path, caller_function_id, callee_function_id,
+        caller_name, callee_name, caller_class_name, callee_class_name,
+        line_number, column_number, call_type, call_context, 
+        confidence_score, detected_by, created_at
+      ) 
+      SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
+                          $6::text[], $7::text[], $8::text[], $9::text[],
+                          $10::int[], $11::int[], $12::text[], $13::text[],
+                          $14::float[], $15::text[], $16::timestamptz[])
+    `;
+    
+    await trx.query(query, [
+      values.map(v => v[0]),  // ids
+      values.map(v => v[1]),  // snapshot_ids
+      values.map(v => v[2]),  // file_paths
+      values.map(v => v[3]),  // caller_function_ids
+      values.map(v => v[4]),  // callee_function_ids
+      values.map(v => v[5]),  // caller_names
+      values.map(v => v[6]),  // callee_names
+      values.map(v => v[7]),  // caller_class_names
+      values.map(v => v[8]),  // callee_class_names
+      values.map(v => v[9]),  // line_numbers
+      values.map(v => v[10]), // column_numbers
+      values.map(v => v[11]), // call_types
+      values.map(v => v[12]), // call_contexts
+      values.map(v => v[13]), // confidence_scores
+      values.map(v => v[14]), // detected_by
+      values.map(v => v[15])  // created_at
+    ]);
   }
 
   // ========================================
