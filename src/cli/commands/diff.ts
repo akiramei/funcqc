@@ -27,6 +27,15 @@ export interface DiffCommandOptions extends CommandOptions {
 }
 
 /**
+ * Parse similarity threshold from options, handling both string and number types
+ */
+function parseSimilarityThreshold(options: DiffCommandOptions): number {
+  return typeof options.similarityThreshold === 'string' 
+    ? parseFloat(options.similarityThreshold) 
+    : options.similarityThreshold || 0.95;
+}
+
+/**
  * Diff command for comparing two snapshots
  * Note: This command has a unique signature with (from, to) arguments
  */
@@ -222,9 +231,7 @@ async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, 
   const filtered = filterFunctions(diff, options);
 
   // Initialize similarity manager for analysis
-  const threshold = typeof options.similarityThreshold === 'string' 
-    ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+  const threshold = parseSimilarityThreshold(options);
   const similarityManager = new SimilarityManager(undefined, env.storage, {
     threshold,
     minLines: 1,
@@ -527,9 +534,7 @@ async function classifyFunctionChanges(
   options: DiffCommandOptions,
   similarityManager: SimilarityManager
 ): Promise<FunctionClassification> {
-  const threshold = typeof options.similarityThreshold === 'string' 
-    ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+  const threshold = parseSimilarityThreshold(options);
   const classification: FunctionClassification = {
     signatureChanges: [],
     renames: [],
@@ -723,9 +728,7 @@ async function displaySimilarityAnalysisForAdded(
   console.log('No.  Function                         Sim%   Similar To                   File:Line                      Insight');
   console.log('---- ────────────────────────────────── ────── ──────────────────────────── ────────────────────────────── ──────────────────────');
 
-  const threshold = typeof options.similarityThreshold === 'string' 
-    ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+  const threshold = parseSimilarityThreshold(options);
   
   for (const {func, number} of functionsWithNumbers) {
     try {
@@ -795,9 +798,7 @@ async function displaySimilarityAnalysisForRemoved(
   console.log('---- ────── ────────────────────────────────────────── ────────────────────────────── ──────────────────────');
 
   let hasSimilarFunctions = false;
-  const threshold = typeof options.similarityThreshold === 'string' 
-    ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+  const threshold = parseSimilarityThreshold(options);
 
   for (const {func, number} of functionsWithNumbers) {
     try {
@@ -857,9 +858,7 @@ async function displaySimilarityAnalysisForModified(
   similarityManager: SimilarityManager,
   options: DiffCommandOptions
 ): Promise<void> {
-  const threshold = typeof options.similarityThreshold === 'string' 
-    ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+  const threshold = parseSimilarityThreshold(options);
   
   for (const {func, number} of functionsWithNumbers) {
     console.log(`Similarity changes for #${number} ${func.after.name}:`);
