@@ -144,7 +144,7 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
         });
     });
 
-    it.skip('should handle direct function calls correctly', () => {
+    it('should handle direct function calls correctly', () => {
       // SKIPPED: Local stage responsibilities test failing
       // Root cause: Direct function call resolution not working as expected
       // TODO: Fix local stage handling of direct function calls vs property access delegation
@@ -164,8 +164,8 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
           id: 'helper-func',
           name: 'helper',
           filePath: sourceFile.getFilePath(),
-          startLine: 1,
-          endLine: 3,
+          startLine: 2,
+          endLine: 4,
           className: undefined,
           lexicalPath: 'helper'
         },
@@ -173,8 +173,8 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
           id: 'main-func',
           name: 'main',
           filePath: sourceFile.getFilePath(),
-          startLine: 5,
-          endLine: 7,
+          startLine: 6,
+          endLine: 8,
           className: undefined,
           lexicalPath: 'main'
         }
@@ -617,8 +617,8 @@ describe('Stage Coordination - CHA/RTA Integration Safety', () => {
         id: 'test-func',
         name: 'testAnimals',
         filePath: sourceFile.getFilePath(),
-        startLine: 11,
-        endLine: 22,
+        startLine: 10,  // Adjusted for actual function position
+        endLine: 21,    // Adjusted for actual function position
         className: undefined,
         lexicalPath: 'testAnimals'
       };

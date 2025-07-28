@@ -104,7 +104,15 @@ export async function performLayerBasedPageRank(
 ): Promise<LayerBasedPageRankAnalysis> {
   // Load architecture configuration
   const configManager = new ArchitectureConfigManager();
-  const archConfig = configManager.load();
+  let archConfig;
+  try {
+    archConfig = configManager.load();
+  } catch (error) {
+    throw new Error(
+      `Failed to load architecture configuration: ${error instanceof Error ? error.message : String(error)}. ` +
+      'Please ensure architecture configuration is properly set up.'
+    );
+  }
   
   if (!archConfig.layers || Object.keys(archConfig.layers).length === 0) {
     throw new Error('No layer definitions found in architecture configuration');
