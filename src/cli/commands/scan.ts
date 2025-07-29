@@ -426,7 +426,7 @@ async function discoverFiles(
   
   // Apply global exclude patterns
   if (config.globalExclude) {
-    excludePatterns = [...excludePatterns, ...config.globalExclude];
+    excludePatterns = Array.from(new Set([...excludePatterns, ...config.globalExclude]));
   }
   
   const files = await findTypeScriptFiles(scanPaths, excludePatterns, includePatterns);

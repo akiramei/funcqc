@@ -360,7 +360,7 @@ export class ConfigManager {
       
       // Apply global exclude patterns
       if (config.globalExclude) {
-        excludePatterns = [...excludePatterns, ...config.globalExclude];
+        excludePatterns = Array.from(new Set([...excludePatterns, ...config.globalExclude]));
       }
       
       const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
