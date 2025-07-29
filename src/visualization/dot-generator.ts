@@ -180,7 +180,7 @@ export class DotGenerator {
     if (options.clusterBy === 'file') {
       this.createFileClusters(graph, functions);
     } else if (options.clusterBy === 'complexity') {
-      this.createComplexityClusters(graph, functions, dependencyMetrics);
+      this.createComplexityClusters(graph, functions);
     }
 
     return graph;
@@ -516,8 +516,7 @@ export class DotGenerator {
 
   private createComplexityClusters(
     graph: DotGraph, 
-    functions: FunctionInfo[], 
-    _dependencyMetrics: DependencyMetrics[]
+    functions: FunctionInfo[]
   ): void {
     const clusterMap = new Map<string, string>();
     const complexityColors = {
