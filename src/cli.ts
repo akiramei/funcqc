@@ -845,11 +845,10 @@ program
   .description('Detect circular dependencies in the call graph')
   .option('--min-size <num>', 'minimum cycle size to report', '2')
   .option('--format <format>', 'output format (table, json, dot)', 'table')
-  .option('--verbose', 'show verbose output')
-  .action(async (options: OptionValues) => {
+  .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { cyclesCommand } = await import('./cli/cycles');
-    return withEnvironment(cyclesCommand)(options);
+    return withEnvironment(cyclesCommand)(options, command);
   });
 
 

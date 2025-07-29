@@ -5,6 +5,7 @@ import { VoidCommand } from '../types/command';
 import { CommandEnvironment } from '../types/environment';
 import { createErrorHandler } from '../utils/error-handler';
 import { ReachabilityAnalyzer } from '../analyzers/reachability-analyzer';
+import { FunctionInfo } from '../types';
 
 interface CyclesOptions extends OptionValues {
   minSize?: string;
@@ -38,6 +39,12 @@ export const cyclesCommand: VoidCommand<CyclesOptions> = (options) =>
         return;
       }
 
+      spinner.text = 'Loading function information...';
+      
+      // Get function information for better display
+      const functions = await env.storage.getFunctions(snapshot.id);
+      const functionMap = new Map(functions.map(f => [f.id, f]));
+
       spinner.text = 'Detecting circular dependencies...';
 
       // Analyze circular dependencies
@@ -52,11 +59,11 @@ export const cyclesCommand: VoidCommand<CyclesOptions> = (options) =>
 
       // Output results
       if (options.format === 'json') {
-        outputCyclesJSON(filteredCycles, options);
+        outputCyclesJSON(filteredCycles, options, functionMap);
       } else if (options.format === 'dot') {
-        outputCyclesDOT(filteredCycles);
+        outputCyclesDOT(filteredCycles, functionMap);
       } else {
-        outputCyclesTable(filteredCycles, options);
+        outputCyclesTable(filteredCycles, options, functionMap);
       }
     } catch (error) {
       spinner.fail('Failed to analyze circular dependencies');
@@ -67,7 +74,7 @@ export const cyclesCommand: VoidCommand<CyclesOptions> = (options) =>
 /**
  * Output cycles as JSON
  */
-function outputCyclesJSON(cycles: string[][], options: CyclesOptions): void {
+function outputCyclesJSON(cycles: string[][], options: CyclesOptions, functionMap: Map<string, FunctionInfo>): void {
   const result = {
     summary: {
       totalCycles: cycles.length,
@@ -76,8 +83,16 @@ function outputCyclesJSON(cycles: string[][], options: CyclesOptions): void {
     },
     cycles: cycles.map((cycle, index) => ({
       id: index + 1,
-      functions: cycle,
       size: cycle.length,
+      functions: cycle.map(funcId => {
+        const funcInfo = functionMap.get(funcId);
+        return {
+          id: funcId,
+          name: funcInfo?.name || 'unknown',
+          filePath: funcInfo?.filePath || 'unknown',
+          fullName: funcInfo ? `${funcInfo.name}() in ${funcInfo.filePath}` : funcId
+        };
+      }),
     })),
     filters: {
       minSize: options.minSize ? parseInt(options.minSize) : 2,
@@ -90,7 +105,7 @@ function outputCyclesJSON(cycles: string[][], options: CyclesOptions): void {
 /**
  * Output cycles as DOT format for Graphviz
  */
-function outputCyclesDOT(cycles: string[][]): void {
+function outputCyclesDOT(cycles: string[][], functionMap: Map<string, FunctionInfo>): void {
   console.log('digraph CircularDependencies {');
   console.log('  rankdir=LR;');
   console.log('  node [shape=box, style=filled, fillcolor=lightblue];');
@@ -101,10 +116,13 @@ function outputCyclesDOT(cycles: string[][]): void {
   const cyclesFunctions = new Set<string>();
   cycles.forEach(cycle => cycle.forEach(func => cyclesFunctions.add(func)));
 
-  // Add nodes
-  cyclesFunctions.forEach(func => {
-    const truncated = func.length > 20 ? func.substring(0, 20) + '...' : func;
-    console.log(`  "${func}" [label="${truncated}"];`);
+  // Add nodes with readable labels
+  cyclesFunctions.forEach(funcId => {
+    const funcInfo = functionMap.get(funcId);
+    const label = funcInfo 
+      ? `${funcInfo.name}\\n${funcInfo.filePath.split('/').pop()}`
+      : funcId.substring(0, 8) + '...';
+    console.log(`  "${funcId}" [label="${label}"];`);
   });
 
   console.log();
@@ -124,7 +142,7 @@ function outputCyclesDOT(cycles: string[][]): void {
 /**
  * Output cycles as formatted table
  */
-function outputCyclesTable(cycles: string[][], options: CyclesOptions): void {
+function outputCyclesTable(cycles: string[][], options: CyclesOptions, functionMap: Map<string, FunctionInfo>): void {
   console.log(chalk.bold('\n🔄 Circular Dependency Analysis\n'));
 
   if (cycles.length === 0) {
@@ -140,24 +158,42 @@ function outputCyclesTable(cycles: string[][], options: CyclesOptions): void {
   console.log(`Average cycle size: ${chalk.yellow(avgSize.toFixed(1))}`);
   console.log(`Largest cycle: ${chalk.yellow(largestCycle)} functions\n`);
 
-  // Display each cycle
-  cycles.forEach((cycle, index) => {
+  // Display each cycle (limit to first 10 for readability)
+  const displayCycles = options.verbose ? cycles : cycles.slice(0, 10);
+  
+  displayCycles.forEach((cycle, index) => {
     console.log(chalk.bold(`🔄 Cycle ${index + 1} (${cycle.length} functions):`));
     
-    // Show the cycle path
-    const cyclePath = cycle.map((func, i) => {
+    // Show the cycle path with function names
+    const cyclePath = cycle.map((funcId, i) => {
+      const funcInfo = functionMap.get(funcId);
+      const displayName = funcInfo 
+        ? `${funcInfo.name}() in ${funcInfo.filePath}`
+        : funcId;
       const isLast = i === cycle.length - 1;
-      const arrow = isLast ? ' → ' + chalk.dim(`(${cycle[0]})`) : ' → ';
-      return chalk.cyan(func) + (isLast ? '' : arrow);
-    }).join('');
+      
+      // Format the display based on cycle type
+      if (cycle.length === 1 || (cycle.length === 2 && cycle[0] === funcId && i === 1)) {
+        // Self-referential or simple recursive
+        return i === 0 ? `  ${chalk.cyan(displayName)} ${chalk.gray('(recursive)')}` : '';
+      } else {
+        // Multi-function cycle
+        const arrow = isLast ? '' : '\n  ↓ ';
+        return `  ${chalk.cyan(displayName)}${arrow}`;
+      }
+    }).filter(s => s).join('');
 
-    console.log(`  ${cyclePath}`);
+    console.log(cyclePath);
 
     if (options.verbose) {
       // Show detailed function information
       console.log(chalk.dim('  Functions in cycle:'));
-      cycle.forEach(func => {
-        console.log(chalk.dim(`    • ${func}`));
+      cycle.forEach(funcId => {
+        const funcInfo = functionMap.get(funcId);
+        const displayInfo = funcInfo 
+          ? `${funcInfo.name}() in ${funcInfo.filePath} [${funcId.substring(0, 8)}...]`
+          : funcId;
+        console.log(chalk.dim(`    • ${displayInfo}`));
       });
     }
 
