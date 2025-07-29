@@ -19,6 +19,15 @@ interface LayerDetectionPattern {
 }
 
 /**
+ * Compiled layer detection pattern with pre-compiled regex
+ */
+interface CompiledLayerPattern {
+  layer: ArchitecturalLayer;
+  regexes: RegExp[];
+  priority: number;
+}
+
+/**
  * Default layer detection patterns based on common conventions
  */
 const LAYER_PATTERNS: LayerDetectionPattern[] = [
@@ -125,29 +134,57 @@ const ROLE_CRITERIA: RoleDetectionCriteria[] = [
  */
 export class ArchitectureLayerDetector {
   private layerPatterns: LayerDetectionPattern[];
+  private compiledPatterns: CompiledLayerPattern[];
   
   constructor(customPatterns?: LayerDetectionPattern[]) {
     this.layerPatterns = customPatterns || LAYER_PATTERNS;
+    // Pre-compile all regex patterns for better performance
+    this.compiledPatterns = this.compilePatterns(this.layerPatterns);
   }
 
   /**
-   * Detect architectural layer from file path
+   * Pre-compile glob patterns to regex for performance
+   */
+  private compilePatterns(patterns: LayerDetectionPattern[]): CompiledLayerPattern[] {
+    return patterns.map(pattern => ({
+      layer: pattern.layer,
+      priority: pattern.priority,
+      regexes: pattern.patterns.map(globPattern => this.compileGlobToRegex(globPattern))
+    }));
+  }
+
+  /**
+   * Convert a single glob pattern to compiled regex
+   */
+  private compileGlobToRegex(pattern: string): RegExp {
+    const regexPattern = pattern
+      .replace(/\*\*/g, '§§DOUBLESTAR§§')  // Temporary placeholder
+      .replace(/\*/g, '[^/]*')              // Single * matches anything except /
+      .replace(/§§DOUBLESTAR§§/g, '.*')     // ** matches anything including /
+      .replace(/\?/g, '[^/]');              // ? matches single character except /
+    
+    return new RegExp(`^${regexPattern}$`, 'i');
+  }
+
+  /**
+   * Detect architectural layer from file path using pre-compiled regex
    */
   detectLayer(filePath: string): ArchitecturalLayer {
     // Normalize path separators
     const normalizedPath = filePath.replace(/\\/g, '/');
     
-    // Find matching patterns with highest priority
+    // Find matching patterns with highest priority using pre-compiled regex
     let bestMatch: ArchitecturalLayer = 'unknown';
     let highestPriority = -1;
     
-    for (const patternGroup of this.layerPatterns) {
-      for (const pattern of patternGroup.patterns) {
-        if (this.matchesPattern(normalizedPath, pattern)) {
-          if (patternGroup.priority > highestPriority) {
-            bestMatch = patternGroup.layer;
-            highestPriority = patternGroup.priority;
+    for (const compiledPattern of this.compiledPatterns) {
+      for (const regex of compiledPattern.regexes) {
+        if (regex.test(normalizedPath)) {
+          if (compiledPattern.priority > highestPriority) {
+            bestMatch = compiledPattern.layer;
+            highestPriority = compiledPattern.priority;
           }
+          break; // Found match in this pattern group, move to next
         }
       }
     }
@@ -293,20 +330,6 @@ export class ArchitectureLayerDetector {
     return results;
   }
 
-  /**
-   * Match file path against glob-like pattern
-   */
-  private matchesPattern(filePath: string, pattern: string): boolean {
-    // Convert glob pattern to regex
-    const regexPattern = pattern
-      .replace(/\*\*/g, '§§DOUBLESTAR§§')  // Temporary placeholder
-      .replace(/\*/g, '[^/]*')              // Single * matches anything except /
-      .replace(/§§DOUBLESTAR§§/g, '.*')     // ** matches anything including /
-      .replace(/\?/g, '[^/]');              // ? matches single character except /
-    
-    const regex = new RegExp(`^${regexPattern}$`, 'i');
-    return regex.test(filePath);
-  }
 }
 
 /**

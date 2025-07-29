@@ -43,6 +43,9 @@ export interface StructuralMetrics {
   cyclicFunctionIds?: string[]; // IDs of cyclic functions
   // PageRank centrality data
   pageRank?: PageRankMetrics;
+  // Error handling for analysis failures
+  analysisError?: string; // Error message if analysis failed
+  failedAfterMs?: number; // Time taken before failure
 }
 
 export interface PageRankMetrics {

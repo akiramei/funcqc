@@ -76,6 +76,72 @@ function matchesPattern(filePath: string, pattern: string): boolean {
 }
 
 /**
+ * Estimate PageRank using Monte Carlo random walks for large layers
+ */
+function estimatePageRankByMonteCarlo(
+  layerFunctions: FunctionInfo[],
+  intraLayerEdges: CallEdge[],
+  opts = { walksPerNode: 20, walkLength: 12, damping: 0.85 }
+): { scores: PageRankScore[], averageScore: number, maxScore: number } {
+  const ids = layerFunctions.map(f => f.id);
+  const idToIdx = new Map(ids.map((id, i) => [id, i]));
+  
+  // Build adjacency list
+  const adj: number[][] = Array(ids.length).fill(0).map(() => []);
+  for (const edge of intraLayerEdges) {
+    const u = idToIdx.get(edge.callerFunctionId);
+    const v = edge.calleeFunctionId ? idToIdx.get(edge.calleeFunctionId) : undefined;
+    if (u !== undefined && v !== undefined) {
+      adj[u].push(v);
+    }
+  }
+  
+  // Random walk simulation
+  const visits = new Float64Array(ids.length);
+  
+  for (let s = 0; s < ids.length; s++) {
+    for (let r = 0; r < opts.walksPerNode; r++) {
+      let curr = s;
+      for (let t = 0; t < opts.walkLength; t++) {
+        visits[curr] += 1;
+        const deg = adj[curr].length;
+        const shouldTeleport = Math.random() > opts.damping || deg === 0;
+        curr = shouldTeleport 
+          ? Math.floor(Math.random() * ids.length)
+          : adj[curr][Math.floor(Math.random() * deg)];
+      }
+    }
+  }
+  
+  // Normalize to PageRank-like scores
+  const totalVisits = visits.reduce((a, b) => a + b, 0);
+  const scores: PageRankScore[] = ids.map((id, i) => {
+    const score = visits[i] / (totalVisits || 1);
+    return {
+      functionId: id,
+      functionName: layerFunctions[i].name,
+      filePath: layerFunctions[i].filePath,
+      startLine: layerFunctions[i].startLine,
+      score,
+      rank: 0, // Will be set after sorting
+      normalizedScore: score,
+      importance: score > 0.1 ? 'critical' : score > 0.05 ? 'high' : score > 0.02 ? 'medium' : 'low'
+    };
+  });
+  
+  // Sort by score and assign ranks
+  scores.sort((a, b) => b.score - a.score);
+  scores.forEach((score, index) => {
+    score.rank = index + 1;
+  });
+  
+  const averageScore = 1.0 / ids.length;
+  const maxScore = Math.max(...scores.map(s => s.score), 0);
+  
+  return { scores, averageScore, maxScore };
+}
+
+/**
  * Calculate Gini coefficient for a set of scores
  */
 function calculateGiniCoefficient(scores: number[]): number {
@@ -143,25 +209,76 @@ export async function performLayerBasedPageRank(
   
   // Perform PageRank analysis for each layer
   const layerResults: LayerPageRankResult[] = [];
-  const pageRankCalculator = new PageRankCalculator({
-    dampingFactor: 0.85,
-    maxIterations: 100,
-    tolerance: 1e-6
-  });
   
+  // Pre-build layer function ID sets for efficient lookup
+  const layerFunctionIdSet = new Map<string, Set<string>>();
+  for (const [layer, funcs] of functionsByLayer.entries()) {
+    layerFunctionIdSet.set(layer, new Set(funcs.map(f => f.id)));
+  }
+  
+  // One-pass edge bucketing: O(E) instead of O(L×E)
+  // Also collect cross-layer statistics during the same pass
+  const edgesByLayer = new Map<string, CallEdge[]>();
+  let crossLayerEdgeCount = 0;
+  
+  for (const edge of callEdges) {
+    const callerLayer = functionLayerMap.get(edge.callerFunctionId);
+    const calleeLayer = edge.calleeFunctionId ? functionLayerMap.get(edge.calleeFunctionId) : undefined;
+    
+    if (callerLayer && calleeLayer && callerLayer === calleeLayer) {
+      // Intra-layer edge
+      const layerEdges = edgesByLayer.get(callerLayer) || [];
+      layerEdges.push(edge);
+      edgesByLayer.set(callerLayer, layerEdges);
+    } else if (callerLayer && calleeLayer && callerLayer !== calleeLayer) {
+      // Cross-layer edge - count for insights
+      crossLayerEdgeCount++;
+    }
+  }
+  
+  // Budget-based iteration control: limit total matrix-vector multiplications across all layers
+  const BUDGET_MV = Number(process.env['FUNCQC_LAYER_PR_BUDGET_MV'] ?? 150_000);
+  
+  // Pre-calculate edges per layer for budget allocation
+  const edgesPerLayer = new Map<string, number>();
+  let totalIntraEdges = 0;
+  for (const [layerName] of functionsByLayer.entries()) {
+    const edgeCount = edgesByLayer.get(layerName)?.length ?? 0;
+    edgesPerLayer.set(layerName, edgeCount);
+    totalIntraEdges += edgeCount;
+  }
+
   for (const [layerName, layerFunctions] of functionsByLayer.entries()) {
     if (layerFunctions.length === 0) continue;
     
-    // Filter call edges to only include intra-layer calls
-    const layerFunctionIds = new Set(layerFunctions.map(f => f.id));
-    const intraLayerEdges = callEdges.filter(edge => 
-      layerFunctionIds.has(edge.callerFunctionId) && 
-      edge.calleeFunctionId && 
-      layerFunctionIds.has(edge.calleeFunctionId)
-    );
+    // Use pre-built edges instead of filtering every time
+    const intraLayerEdges = edgesByLayer.get(layerName) || [];
+    const edgeCount = edgesPerLayer.get(layerName) ?? 0;
     
-    // Calculate PageRank for this layer
-    const result = pageRankCalculator.calculatePageRank(layerFunctions, intraLayerEdges);
+    // Budget allocation: distribute iteration budget based on layer edge density
+    const layerSize = layerFunctions.length;
+    const baseIterations = Math.max(8, Math.min(40, 10 + Math.ceil(Math.log2(layerSize))));
+    
+    let maxIterations = baseIterations;
+    if (totalIntraEdges > 0 && edgeCount > 0) {
+      // Allocate budget proportionally to edge density
+      const budgetIterations = Math.floor((BUDGET_MV * (edgeCount / totalIntraEdges)) / Math.max(1, edgeCount));
+      maxIterations = Math.max(8, Math.min(baseIterations, budgetIterations || baseIterations));
+    }
+    
+    const pageRankCalculator = new PageRankCalculator({
+      dampingFactor: 0.85,
+      maxIterations,
+      tolerance: 1e-5
+    });
+    
+    // Large layers use Monte Carlo approximation for better performance
+    const isLargeLayer = layerFunctions.length > 1200 || edgeCount > 3000;
+    
+    const result = isLargeLayer
+      ? estimatePageRankByMonteCarlo(layerFunctions, intraLayerEdges)
+      : pageRankCalculator.calculatePageRank(layerFunctions, intraLayerEdges);
+    
     
     // Calculate Gini coefficient
     const scores = result.scores.map(s => s.normalizedScore);
@@ -193,11 +310,11 @@ export async function performLayerBasedPageRank(
   // Sort layers by function count (descending)
   layerResults.sort((a, b) => b.functionCount - a.functionCount);
   
-  // Generate cross-layer insights
+  // Generate cross-layer insights using precomputed statistics
   const crossLayerInsights = generateCrossLayerInsights(
     layerResults,
-    callEdges,
-    functionLayerMap
+    crossLayerEdgeCount,
+    callEdges.length
   );
   
   return {
@@ -212,12 +329,12 @@ export async function performLayerBasedPageRank(
 }
 
 /**
- * Generate insights about cross-layer dependencies and patterns
+ * Generate insights about cross-layer dependencies and patterns (optimized)
  */
 function generateCrossLayerInsights(
   layerResults: LayerPageRankResult[],
-  callEdges: CallEdge[],
-  functionLayerMap: Map<string, string>
+  crossLayerEdgeCount: number,
+  totalEdges: number
 ): string[] {
   const insights: string[] = [];
   
@@ -241,15 +358,9 @@ function generateCrossLayerInsights(
     );
   }
   
-  // Analyze cross-layer dependencies
-  const crossLayerEdges = callEdges.filter(edge => {
-    const callerLayer = functionLayerMap.get(edge.callerFunctionId);
-    const calleeLayer = edge.calleeFunctionId ? functionLayerMap.get(edge.calleeFunctionId) : null;
-    return callerLayer && calleeLayer && callerLayer !== calleeLayer;
-  });
-  
-  if (crossLayerEdges.length > 0) {
-    const crossLayerRatio = (crossLayerEdges.length / callEdges.length * 100).toFixed(1);
+  // Use precomputed cross-layer statistics (no additional O(E) scan)
+  if (crossLayerEdgeCount > 0) {
+    const crossLayerRatio = (crossLayerEdgeCount / Math.max(1, totalEdges) * 100).toFixed(1);
     insights.push(`Cross-layer dependencies: ${crossLayerRatio}% of all function calls`);
   }
   

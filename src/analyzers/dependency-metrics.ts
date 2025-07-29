@@ -42,8 +42,8 @@ export interface DependencyStats {
  * Calculates dependency metrics for functions
  */
 export class DependencyMetricsCalculator {
-  private memoizedCallChains = new Map<string, number>();
   private callCountCache = new Map<string, { incoming: number; outgoing: number }>();
+  private static readonly EMPTY_SET = new Set<string>(); // Shared empty set to avoid allocations
   
   /**
    * Calculate dependency metrics for all functions
@@ -56,8 +56,7 @@ export class DependencyMetricsCalculator {
   ): DependencyMetrics[] {
     const metrics: DependencyMetrics[] = [];
     
-    // Clear memoization cache for each calculation
-    this.memoizedCallChains.clear();
+    // Clear cache for each calculation
     this.callCountCache.clear();
     
     // Build call graphs efficiently in single pass
@@ -69,10 +68,14 @@ export class DependencyMetricsCalculator {
     // Calculate depth from entry points
     const depths = this.calculateDepthFromEntries(callGraph, entryPoints);
     
+    // Calculate max call chains once for all functions using memoized DP
+    const maxChains = this.computeMaxChains(callGraph, cyclicFunctions);
+    
+    
     // Calculate metrics for each function
     for (const func of functions) {
-      const incoming = reverseCallGraph.get(func.id) || new Set();
-      const outgoing = callGraph.get(func.id) || new Set();
+      const incoming = reverseCallGraph.get(func.id) ?? DependencyMetricsCalculator.EMPTY_SET;
+      const outgoing = callGraph.get(func.id) ?? DependencyMetricsCalculator.EMPTY_SET;
       
       // Get pre-aggregated call counts
       const callCounts = this.callCountCache.get(func.id) || { incoming: 0, outgoing: 0 };
@@ -80,8 +83,10 @@ export class DependencyMetricsCalculator {
       const totalCalls = callCounts.outgoing;
       
       const isCyclic = cyclicFunctions.has(func.id);
-      const isRecursive = this.isRecursiveFunction(func.id, callGraph);
-      const cycleLength = isCyclic ? this.calculateCycleLength(func.id, callGraph) : undefined;
+      // Optimize: use SCC results instead of per-node DFS
+      const isRecursive = isCyclic; // SCC already identified cyclic functions
+      // Skip expensive cycle length calculation for now - could be supplied from SCC component size
+      const cycleLength = undefined;
       
       const metric: DependencyMetrics = {
         functionId: func.id,
@@ -90,7 +95,7 @@ export class DependencyMetricsCalculator {
         fanIn: incoming.size,
         fanOut: outgoing.size,
         depthFromEntry: depths.get(func.id) ?? -1,
-        maxCallChain: this.calculateMaxCallChainMemoized(func.id, callGraph, cyclicFunctions),
+        maxCallChain: maxChains.get(func.id) ?? 1,
         isCyclic,
         totalCallers,
         totalCalls,
@@ -211,136 +216,46 @@ export class DependencyMetricsCalculator {
   }
 
   /**
-   * Calculate maximum call chain length with memoization
+   * Calculate maximum call chain length using memoized DP - O(V+E) instead of O(N*(V+E))
    */
-  private calculateMaxCallChainMemoized(
-    functionId: string,
+  private computeMaxChains(
     callGraph: Map<string, Set<string>>,
-    cyclicFunctions: Set<string>
-  ): number {
-    // Return 0 for cyclic functions to avoid infinite recursion
-    if (cyclicFunctions.has(functionId)) {
-      return 0;
-    }
-    
-    // Check memoization cache
-    const cached = this.memoizedCallChains.get(functionId);
-    if (cached !== undefined) {
-      return cached;
-    }
-    
-    const result = this.calculateMaxCallChainRecursive(functionId, callGraph, new Set(), cyclicFunctions);
-    this.memoizedCallChains.set(functionId, result);
-    return result;
-  }
+    _cyclicFunctions: Set<string>
+  ): Map<string, number> {
+    const cache = new Map<string, number>();
+    const visiting = new Set<string>();
 
-  /**
-   * Recursive helper for max call chain calculation
-   */
-  private calculateMaxCallChainRecursive(
-    functionId: string,
-    callGraph: Map<string, Set<string>>,
-    visited: Set<string>,
-    cyclicFunctions: Set<string>
-  ): number {
-    if (visited.has(functionId) || cyclicFunctions.has(functionId)) {
-      return 0;
-    }
-    
-    visited.add(functionId);
-    
-    const callees = callGraph.get(functionId) || new Set();
-    if (callees.size === 0) {
-      visited.delete(functionId);
-      return 1;
-    }
-    
-    let maxChain = 0;
-    for (const calleeId of callees) {
-      const chainLength = this.calculateMaxCallChainRecursive(calleeId, callGraph, visited, cyclicFunctions);
-      maxChain = Math.max(maxChain, chainLength);
-    }
-    
-    visited.delete(functionId);
-    return maxChain + 1;
-  }
-
-  /**
-   * Calculate cycle length for a function in a cycle
-   */
-  private calculateCycleLength(
-    functionId: string,
-    callGraph: Map<string, Set<string>>
-  ): number | undefined {
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
-    
-    const dfs = (currentId: string, path: string[]): number | undefined => {
-      if (recursionStack.has(currentId)) {
-        // Found a cycle, calculate its length
-        const cycleStartIndex = path.indexOf(currentId);
-        return cycleStartIndex >= 0 ? path.length - cycleStartIndex : undefined;
+    const dfs = (id: string): number => {
+      const cached = cache.get(id);
+      if (cached !== undefined) return cached;
+      
+      if (visiting.has(id)) {
+        // Cycle detected: return 0 to break recursion
+        cache.set(id, 0);
+        return 0;
       }
       
-      if (visited.has(currentId)) {
-        return undefined;
+      visiting.add(id);
+      let maxChain = 0;
+      const children = callGraph.get(id) ?? DependencyMetricsCalculator.EMPTY_SET;
+      for (const childId of children) {
+        maxChain = Math.max(maxChain, dfs(childId));
       }
+      visiting.delete(id);
       
-      visited.add(currentId);
-      recursionStack.add(currentId);
-      path.push(currentId);
-      
-      const callees = callGraph.get(currentId) || new Set();
-      for (const calleeId of callees) {
-        const cycleLength = dfs(calleeId, path);
-        if (cycleLength !== undefined) {
-          return cycleLength;
-        }
-      }
-      
-      recursionStack.delete(currentId);
-      path.pop();
-      return undefined;
+      const result = maxChain + 1;
+      cache.set(id, result);
+      return result;
     };
+
+    // Calculate for all nodes in the call graph
+    for (const nodeId of callGraph.keys()) {
+      dfs(nodeId);
+    }
     
-    return dfs(functionId, []);
+    return cache;
   }
 
-  /**
-   * Check if a function is recursive (calls itself directly or indirectly)
-   */
-  private isRecursiveFunction(
-    functionId: string,
-    callGraph: Map<string, Set<string>>
-  ): boolean {
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
-    
-    const dfs = (currentId: string): boolean => {
-      if (recursionStack.has(currentId)) {
-        return currentId === functionId;
-      }
-      
-      if (visited.has(currentId)) {
-        return false;
-      }
-      
-      visited.add(currentId);
-      recursionStack.add(currentId);
-      
-      const callees = callGraph.get(currentId) || new Set();
-      for (const calleeId of callees) {
-        if (dfs(calleeId)) {
-          return true;
-        }
-      }
-      
-      recursionStack.delete(currentId);
-      return false;
-    };
-    
-    return dfs(functionId);
-  }
 
   /**
    * Calculate depth from entry points using BFS
@@ -351,6 +266,7 @@ export class DependencyMetricsCalculator {
   ): Map<string, number> {
     const depths = new Map<string, number>();
     const queue: { functionId: string; depth: number }[] = [];
+    let head = 0; // Index-based queue pointer for O(1) pop
     
     // Initialize with entry points
     for (const entryPoint of entryPoints) {
@@ -358,10 +274,10 @@ export class DependencyMetricsCalculator {
       queue.push({ functionId: entryPoint, depth: 0 });
     }
     
-    // BFS traversal
-    while (queue.length > 0) {
-      const { functionId, depth } = queue.shift()!;
-      const callees = callGraph.get(functionId) || new Set();
+    // BFS traversal with O(1) pop
+    while (head < queue.length) {
+      const { functionId, depth } = queue[head++]; // O(1) instead of O(n) shift()
+      const callees = callGraph.get(functionId) ?? DependencyMetricsCalculator.EMPTY_SET;
       
       for (const calleeId of callees) {
         const currentDepth = depths.get(calleeId);

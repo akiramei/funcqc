@@ -57,7 +57,8 @@ export class PageRankCalculator {
     this.dampingFactor = options.dampingFactor ?? 0.85;
     this.maxIterations = options.maxIterations ?? 100;
     this.tolerance = options.tolerance ?? 1e-6;
-    this.initialValue = options.initialValue ?? 1.0;
+    // Keep initialValue as undefined to trigger uniform initialization
+    this.initialValue = options.initialValue!; // Allow undefined for 1/N initialization
   }
 
   /**
@@ -78,12 +79,14 @@ export class PageRankCalculator {
       return this.createEmptyResult();
     }
 
-    // Initialize PageRank scores
+    // Initialize PageRank scores with uniform distribution (1/N) for better convergence
     const scores = new Map<string, number>();
     const newScores = new Map<string, number>();
+    const uniformInitial = 1.0 / numFunctions;
+    const initialValue = this.initialValue !== undefined ? this.initialValue : uniformInitial;
     
     for (const functionId of functionIds) {
-      scores.set(functionId, this.initialValue);
+      scores.set(functionId, initialValue);
       newScores.set(functionId, 0);
     }
 
@@ -147,6 +150,7 @@ export class PageRankCalculator {
 
   /**
    * Build call graph from call edges
+   * Optimized with Set-based deduplication and external caller filtering
    */
   private buildCallGraph(
     callEdges: CallEdge[],
@@ -155,22 +159,23 @@ export class PageRankCalculator {
     outLinks: Map<string, string[]>;
     inLinks: Map<string, string[]>;
   } {
-    const outLinks = new Map<string, string[]>();
-    const inLinks = new Map<string, string[]>();
+    // Use Sets for O(1) deduplication instead of O(n) includes()
+    const outSet = new Map<string, Set<string>>();
+    const inSet = new Map<string, Set<string>>();
 
-    // Initialize maps
+    // Initialize Sets
     for (const functionId of functionMap.keys()) {
-      outLinks.set(functionId, []);
-      inLinks.set(functionId, []);
+      outSet.set(functionId, new Set<string>());
+      inSet.set(functionId, new Set<string>());
     }
 
-    // Process call edges
+    // Process call edges - filter both caller and callee to internal functions only
     for (const edge of callEdges) {
       const callerId = edge.callerFunctionId;
       const calleeId = edge.calleeFunctionId;
 
-      // Skip external calls (callee not in our function set)
-      if (!calleeId || !functionMap.has(calleeId)) {
+      // Skip external calls (caller or callee not in our function set)
+      if (!calleeId || !functionMap.has(calleeId) || !functionMap.has(callerId)) {
         continue;
       }
 
@@ -179,19 +184,17 @@ export class PageRankCalculator {
         continue;
       }
 
-      // Add to outgoing links
-      const callerOut = outLinks.get(callerId) || [];
-      if (!callerOut.includes(calleeId)) {
-        callerOut.push(calleeId);
-        outLinks.set(callerId, callerOut);
-      }
+      // Add to Sets (automatic deduplication)
+      outSet.get(callerId)!.add(calleeId);
+      inSet.get(calleeId)!.add(callerId);
+    }
 
-      // Add to incoming links
-      const calleeIn = inLinks.get(calleeId) || [];
-      if (!calleeIn.includes(callerId)) {
-        calleeIn.push(callerId);
-        inLinks.set(calleeId, calleeIn);
-      }
+    // Convert Sets to arrays
+    const outLinks = new Map<string, string[]>();
+    const inLinks = new Map<string, string[]>();
+    for (const functionId of functionMap.keys()) {
+      outLinks.set(functionId, Array.from(outSet.get(functionId)!));
+      inLinks.set(functionId, Array.from(inSet.get(functionId)!));
     }
 
     return { outLinks, inLinks };

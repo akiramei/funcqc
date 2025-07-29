@@ -182,9 +182,42 @@ async function displayHealthResults(
 }
 
 /**
- * Display interactive health overview
+ * Display interactive health overview with global timeout protection
  */
 async function displayHealthOverview_Interactive(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
+  const GLOBAL_HEALTH_TIMEOUT_MS = 35000; // 35 seconds total timeout
+  let timeoutId: NodeJS.Timeout | undefined;
+  
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`Health analysis exceeded global timeout of ${GLOBAL_HEALTH_TIMEOUT_MS}ms. Try using --json mode for faster results or run 'funcqc scan' to refresh data.`));
+    }, GLOBAL_HEALTH_TIMEOUT_MS);
+  });
+
+  try {
+    await Promise.race([
+      performHealthAnalysis(env, options),
+      timeoutPromise
+    ]);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('timeout')) {
+      console.log('⚠️  Health analysis timed out. Showing basic information instead.');
+      await displayBasicHealthFallback(env, options);
+    } else {
+      throw error;
+    }
+  } finally {
+    // Clear the timeout to prevent the process from hanging
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+  }
+}
+
+/**
+ * Perform the main health analysis logic
+ */
+async function performHealthAnalysis(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
   // Get target snapshot and functions
   const { targetSnapshot, functions } = await getTargetSnapshotAndFunctions(env, options);
   
@@ -209,6 +242,42 @@ async function displayHealthOverview_Interactive(env: CommandEnvironment, option
   await displayHealthResults(qualityData, structuralData, riskEvaluation, functions, options, env, targetSnapshot);
   
   console.log('');
+}
+
+/**
+ * Display basic health information when full analysis times out
+ */
+async function displayBasicHealthFallback(env: CommandEnvironment, options: HealthCommandOptions): Promise<void> {
+  try {
+    const { functions } = await getTargetSnapshotAndFunctions(env, options);
+    
+    // Show basic statistics without complex analysis
+    console.log('📊 Basic Health Overview (Simplified)');
+    console.log('━'.repeat(50));
+    
+    // Calculate basic metrics from function data
+    const functionsWithMetrics = functions.filter(f => f.metrics);
+    if (functionsWithMetrics.length > 0) {
+      const complexityValues = functionsWithMetrics.map(f => f.metrics?.cyclomaticComplexity || 0);
+      const avgComplexity = complexityValues.reduce((a, b) => a + b, 0) / complexityValues.length;
+      const highComplexityCount = complexityValues.filter(c => c > 10).length;
+      
+      console.log(`📋 Functions: ${functions.length} total, ${functionsWithMetrics.length} with metrics`);
+      console.log(`🔄 Average Complexity: ${avgComplexity.toFixed(1)}`);
+      console.log(`⚠️  High Complexity (>10): ${highComplexityCount} functions`);
+      console.log(`📈 High Risk Rate: ${((highComplexityCount / functionsWithMetrics.length) * 100).toFixed(1)}%`);
+    }
+    
+    console.log('');
+    console.log('💡 For complete analysis, try:');
+    console.log('   • funcqc health --json (faster JSON output)');
+    console.log('   • funcqc scan (refresh data)');
+    console.log('   • Reduce project size or check for infinite loops in code');
+    
+  } catch (fallbackError) {
+    console.log('❌ Unable to display even basic health information.');
+    console.log(`Error: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+  }
 }
 
 /**

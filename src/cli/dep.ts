@@ -14,6 +14,7 @@ import { ArchitectureValidator } from '../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult } from '../types/architecture';
 import { DotGenerator } from '../visualization/dot-generator';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../utils/lazy-analysis';
+import { resolveSnapshotId } from '../utils/snapshot-resolver';
 
 interface RouteComplexityInfo {
   path: string[];           // Function IDs in the route
@@ -1288,23 +1289,31 @@ async function loadCallGraphData(
   options: DepStatsOptions, 
   spinner: Ora
 ): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[] }> {
-  // Use comprehensive call graph data including internal call edges
-  const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
-    showProgress: false, // We manage progress with our own spinner
-    snapshotId: options.snapshot
-  });
-
-  // Validate that we have sufficient call graph data
-  validateCallGraphRequirements(allEdges, 'dep stats');
+  // Get the target snapshot ID
+  const targetSnapshotId = options.snapshot || 'latest';
+  const resolvedSnapshotId = await resolveSnapshotId(env, targetSnapshotId);
+  
+  if (!resolvedSnapshotId) {
+    spinner.fail('No snapshot found. Please run "funcqc scan" first.');
+    throw new Error('No snapshot found');
+  }
 
   spinner.text = 'Loading functions and call graph...';
 
+  // Load functions from the snapshot (same as health command)
+  const functions = await env.storage.getFunctionsBySnapshot(resolvedSnapshotId);
   if (functions.length === 0) {
     spinner.fail(chalk.yellow('No functions found in the snapshot.'));
     throw new Error('No functions found in the snapshot.');
   }
+
+  // Load call edges from the snapshot (same as health command)
+  const callEdges = await env.storage.getCallEdgesBySnapshot(resolvedSnapshotId);
   
-  return { callEdges: allEdges, functions };
+  // Note: Not validating call graph requirements here to match health behavior
+  // This prevents lazy analysis from being triggered
+  
+  return { callEdges, functions };
 }
 
 /**

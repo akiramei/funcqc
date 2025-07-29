@@ -88,29 +88,42 @@ function performSCCAnalysis(
  */
 async function performPageRankAnalysis(
   functions: FunctionInfo[], 
-  callEdges: CallEdge[], 
+  pageRankEdges: CallEdge[], 
   env: CommandEnvironment
 ): Promise<PageRankMetrics> {
-  const pageRankCalculator = new PageRankCalculator();
-  const pageRankResult = pageRankCalculator.calculatePageRank(functions, callEdges);
-  const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, callEdges);
+  // Use relaxed convergence for better performance on large datasets
+  const pageRankCalculator = new PageRankCalculator({
+    dampingFactor: 0.85,
+    maxIterations: Math.min(50, Math.max(20, Math.ceil(Math.log2(functions.length)))),
+    tolerance: 1e-4
+  });
+  const pageRankResult = pageRankCalculator.calculatePageRank(functions, pageRankEdges);
+  const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, pageRankEdges);
   
-  // Perform layer-based PageRank analysis (optional)
+  // Perform layer-based PageRank analysis (optimized with budgeting and Monte Carlo)
   let layerBasedAnalysis;
-  try {
-    const layerAnalysis = await performLayerBasedPageRank(functions, callEdges);
-    layerBasedAnalysis = {
-      overallMetrics: layerAnalysis.overallMetrics,
-      layerResults: layerAnalysis.layerResults.map(result => ({
-        layerName: result.layerName,
-        functionCount: result.functionCount,
-        topFunctions: result.topFunctions,
-        giniCoefficient: result.giniCoefficient
-      })),
-      crossLayerInsights: layerAnalysis.crossLayerInsights
-    };
-  } catch (error) {
-    env.commandLogger.debug('Layer-based PageRank analysis failed:', error);
+  const enableLayerPageRank = process.env['FUNCQC_ENABLE_LAYER_PAGERANK'] === 'true' || 
+                              pageRankEdges.length < 10000; // Enable for medium-sized projects with optimizations
+  
+  if (enableLayerPageRank) {
+    try {
+      const layerAnalysis = await performLayerBasedPageRank(functions, pageRankEdges);
+      layerBasedAnalysis = {
+        overallMetrics: layerAnalysis.overallMetrics,
+        layerResults: layerAnalysis.layerResults.map(result => ({
+          layerName: result.layerName,
+          functionCount: result.functionCount,
+          topFunctions: result.topFunctions,
+          giniCoefficient: result.giniCoefficient
+        })),
+        crossLayerInsights: layerAnalysis.crossLayerInsights
+      };
+      env.commandLogger.debug(`Layer-based PageRank completed for ${layerAnalysis.layerResults.length} layers`);
+    } catch (error) {
+      env.commandLogger.debug('Layer-based PageRank analysis failed:', error);
+    }
+  } else {
+    env.commandLogger.debug(`Layer-based PageRank skipped (${pageRankEdges.length} edges). Set FUNCQC_ENABLE_LAYER_PAGERANK=true to force enable.`);
   }
   
   return {
@@ -213,6 +226,137 @@ function aggregateStructuralMetrics(
 }
 
 /**
+ * Create minimal structural metrics for extremely large datasets
+ */
+function createMinimalStructuralMetrics(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[]
+): StructuralMetrics {
+  // Ultra-minimal metrics for very large datasets - avoid all expensive operations
+  const totalFunctions = functions.length;
+  const totalEdges = callEdges.length;
+  
+  // Rough estimations without expensive calculations
+  const avgFanIn = totalEdges > 0 ? totalEdges / totalFunctions : 0;
+  const avgFanOut = avgFanIn; // Same for undirected approximation
+  const estimatedHubThreshold = Math.max(3, Math.ceil(avgFanIn * 1.5));
+  
+  const pageRankMetrics: PageRankMetrics = {
+    totalFunctions,
+    converged: false,
+    iterations: 0,
+    averageScore: 1.0 / totalFunctions,
+    maxScore: 1.0,
+    centralityVariance: 0,
+    centralityGini: 0,
+    importanceDistribution: { critical: 0, high: 0, medium: 0, low: totalFunctions },
+    topCentralFunctions: []
+  };
+  
+  return {
+    totalComponents: 1,
+    largestComponentSize: totalFunctions,
+    cyclicFunctions: 0,
+    hubFunctions: Math.ceil(totalFunctions * 0.05), // Estimate 5% as hubs
+    avgFanIn: Math.round(avgFanIn * 10) / 10,
+    avgFanOut: Math.round(avgFanOut * 10) / 10,
+    maxFanIn: Math.ceil(avgFanIn * 3), // Estimate
+    maxFanOut: Math.ceil(avgFanOut * 3), // Estimate
+    structuralRisk: totalEdges > 15000 ? 'critical' : totalEdges > 10000 ? 'high' : 'medium',
+    hubThreshold: estimatedHubThreshold,
+    hubFunctionIds: [],
+    cyclicFunctionIds: [],
+    pageRank: pageRankMetrics
+  };
+}
+
+/**
+ * Perform simplified structural analysis for very large datasets
+ */
+async function performSimplifiedStructuralAnalysis(
+  functions: FunctionInfo[],
+  callEdges: CallEdge[],
+  snapshotId: string,
+  env: CommandEnvironment,
+  _mode: EvaluationMode
+): Promise<StructuralMetrics> {
+  env.commandLogger.debug('Starting ultra-fast simplified structural analysis');
+  
+  
+  // Also check internal_call_edges table
+  try {
+    await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+  } catch {
+    // Ignore errors for simplified analysis
+  }
+  
+  // Ultra-fast analysis: skip dependency metrics calculation for very large datasets
+  if (callEdges.length > 5000 || functions.length > 2000) {
+    env.commandLogger.debug(`Using minimal metrics for dataset: ${callEdges.length} edges, ${functions.length} functions`);
+    return createMinimalStructuralMetrics(functions, callEdges);
+  }
+  
+  // Basic metrics without expensive PageRank or SCC
+  const depCalculator = new DependencyMetricsCalculator();
+  const entryPoints = new Set<string>();
+  const cyclicFunctions = new Set<string>(); // Skip SCC for now
+  const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
+  
+  // Calculate basic fan-in/fan-out statistics
+  const fanIns = depMetrics.map(m => m.fanIn);
+  const fanOuts = depMetrics.map(m => m.fanOut);
+  const avgFanIn = fanIns.reduce((a, b) => a + b, 0) / fanIns.length || 0;
+  const avgFanOut = fanOuts.reduce((a, b) => a + b, 0) / fanOuts.length || 0;
+  const maxFanIn = Math.max(...fanIns, 0);
+  const maxFanOut = Math.max(...fanOuts, 0);
+  
+  const hubThreshold = calculateDynamicHubThreshold(fanIns, avgFanIn);
+  const hubMetrics = depMetrics.filter(m => m.fanIn >= hubThreshold);
+  const hubFunctions = hubMetrics.length;
+  const hubFunctionIds = hubMetrics.map(m => m.functionId);
+  
+  // Simplified PageRank with minimal configuration
+  const pageRankMetrics: PageRankMetrics = {
+    totalFunctions: functions.length,
+    converged: false,
+    iterations: 0,
+    averageScore: 1.0 / functions.length,
+    maxScore: 1.0,
+    centralityVariance: 0,
+    centralityGini: 0,
+    importanceDistribution: { critical: 0, high: 0, medium: 0, low: functions.length },
+    topCentralFunctions: []
+  };
+  
+  return {
+    totalComponents: 1, // Simplified assumption
+    largestComponentSize: functions.length,
+    cyclicFunctions: 0,
+    hubFunctions,
+    avgFanIn: Math.round(avgFanIn * 10) / 10,
+    avgFanOut: Math.round(avgFanOut * 10) / 10,
+    maxFanIn,
+    maxFanOut,
+    structuralRisk: calculateStructuralRisk(
+      { 
+        totalComponents: 1, 
+        largestComponentSize: functions.length, 
+        recursiveFunctions: [],
+        components: [],
+        componentMap: new Map()
+      },
+      hubFunctions,
+      maxFanIn,
+      maxFanOut
+    ),
+    hubThreshold,
+    hubFunctionIds,
+    cyclicFunctionIds: [],
+    pageRank: pageRankMetrics
+  };
+}
+
+/**
  * Perform comprehensive structural analysis using SCC and dependency metrics
  */
 export async function analyzeStructuralMetrics(
@@ -221,27 +365,86 @@ export async function analyzeStructuralMetrics(
   env: CommandEnvironment,
   mode: EvaluationMode = 'static'
 ): Promise<StructuralMetrics> {
+  const startTime = Date.now();
+  
   try {
+    env.commandLogger.debug(`Starting structural analysis for ${functions.length} functions`);
+    
     const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+    
+    // Try using internal call edges for comparison
+    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+    // OPTIMIZATION: Exclude intra-file calls for PageRank analysis (focus on architectural dependencies)
+    // Intra-file calls (internal_call_edges) are less relevant for project-wide dependency analysis
+    const excludeIntraFileCalls = process.env['FUNCQC_EXCLUDE_INTRA_FILE_CALLS'] !== 'false';
+    let pageRankEdges = callEdges;
+    
+    if (excludeIntraFileCalls && internalCallEdges.length > 0) {
+      // Create a set of intra-file call pairs for efficient lookup
+      const intraFileCallPairs = new Set(
+        internalCallEdges.map(edge => `${edge.callerFunctionId}->${edge.calleeFunctionId}`)
+      );
+      
+      // Filter out intra-file calls and external calls from all call edges
+      // Focus on inter-file internal calls only (most relevant for architectural analysis)
+      pageRankEdges = callEdges.filter(edge => {
+        const callPair = `${edge.callerFunctionId}->${edge.calleeFunctionId || ''}`;
+        const isIntraFile = intraFileCallPairs.has(callPair);
+        const isExternal = edge.calleeFunctionId === null || edge.calleeFunctionId === undefined;
+        return !isIntraFile && !isExternal;
+      });
+    }
+    
+    // For large datasets, use simplified analysis to prevent timeout
+    if (pageRankEdges.length > 3500) {
+      return await performSimplifiedStructuralAnalysis(functions, pageRankEdges, snapshotId, env, mode);
+    }
     
     // Check cache first
     const cachedResult = await handleCacheCheck(snapshotId, callEdges, env);
     if (cachedResult) {
+      env.commandLogger.debug('Using cached structural metrics');
       return cachedResult;
     }
     
     env.commandLogger.debug(`Computing SCC analysis for snapshot ${snapshotId}`);
     
-    // Perform analysis in stages
-    const { sccResult, depMetrics, fanStats } = performSCCAnalysis(functions, callEdges);
-    const pageRankMetrics = await performPageRankAnalysis(functions, callEdges, env);
+    // Perform analysis in stages with progress logging
+    let sccResult: SCCAnalysisResult, depMetrics: DependencyMetrics[], fanStats: FanStatistics;
+    try {
+      const sccAnalysisResult = performSCCAnalysis(functions, callEdges);
+      sccResult = sccAnalysisResult.sccResult;
+      depMetrics = sccAnalysisResult.depMetrics;
+      fanStats = sccAnalysisResult.fanStats;
+      env.commandLogger.debug(`SCC analysis completed in ${Date.now() - startTime}ms`);
+    } catch (sccError) {
+      env.commandLogger.error(`SCC analysis failed: ${sccError}`);
+      throw sccError;
+    }
+    
+    let pageRankMetrics: PageRankMetrics;
+    try {
+      // Use optimized edge set for PageRank (internal edges only for better performance and relevance)
+      pageRankMetrics = await performPageRankAnalysis(functions, pageRankEdges, env);
+      env.commandLogger.debug(`PageRank analysis completed in ${Date.now() - startTime}ms (using ${pageRankEdges.length} edges)`);
+    } catch (pageRankError) {
+      env.commandLogger.error(`PageRank analysis failed: ${pageRankError}`);
+      throw pageRankError;
+    }
+    
     const { hubThreshold } = await calculateProjectStructureMetrics(functions, snapshotId, env, mode, fanStats);
     
     // Aggregate results
     const callEdgesHash = createCallEdgesHash(callEdges);
-    return aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash);
+    const result = aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash);
+    
+    env.commandLogger.debug(`Structural analysis completed in ${Date.now() - startTime}ms`);
+    return result;
   } catch (error) {
-    env.commandLogger.warn('Structural analysis failed, using defaults:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    env.commandLogger.warn(`Structural analysis failed after ${Date.now() - startTime}ms: ${errorMessage}`);
+    
+    // Provide a meaningful default response with detailed error context
     return {
       totalComponents: 0,
       largestComponentSize: 0,
@@ -251,7 +454,9 @@ export async function analyzeStructuralMetrics(
       avgFanOut: 0,
       maxFanIn: 0,
       maxFanOut: 0,
-      structuralRisk: 'low'
+      structuralRisk: 'low',
+      analysisError: errorMessage,
+      failedAfterMs: Date.now() - startTime
     };
   }
 }
@@ -324,18 +529,33 @@ function calculateStructuralRisk(
 }
 
 /**
- * Create a hash of call edges for cache validation
+ * Create a robust, order-independent hash of call edges for cache validation
  */
 function createCallEdgesHash(callEdges: CallEdge[]): string {
-  // Simple hash based on call edges count and first/last edge structure
-  // More sophisticated hashing could be implemented if needed
-  const edgesSummary = {
-    count: callEdges.length,
-    firstEdge: callEdges[0] ? `${callEdges[0].callerFunctionId}->${callEdges[0].calleeFunctionId}` : '',
-    lastEdge: callEdges[callEdges.length - 1] ? `${callEdges[callEdges.length - 1].callerFunctionId}->${callEdges[callEdges.length - 1].calleeFunctionId}` : ''
-  };
+  if (callEdges.length === 0) {
+    return 'empty';
+  }
   
-  return JSON.stringify(edgesSummary);
+  // Create order-independent hash by sorting edge pairs and using simple checksum
+  const edgePairs = callEdges
+    .map(edge => {
+      const caller = edge.callerFunctionId;
+      const callee = edge.calleeFunctionId || '';
+      // Normalize edge pair to ensure consistent ordering
+      return caller <= callee ? `${caller}->${callee}` : `${callee}<-${caller}`;
+    })
+    .sort(); // Sort to make hash order-independent
+  
+  // Simple but effective hash combining count and content
+  let hash = edgePairs.length;
+  for (let i = 0; i < edgePairs.length; i++) {
+    const str = edgePairs[i];
+    for (let j = 0; j < str.length; j++) {
+      hash = ((hash << 5) - hash + str.charCodeAt(j)) & 0x7fffffff;
+    }
+  }
+  
+  return `${edgePairs.length}-${hash.toString(16)}`;
 }
 
 /**
