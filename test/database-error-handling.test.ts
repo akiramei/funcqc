@@ -3,6 +3,11 @@ import { DatabaseError, PGLiteStorageAdapter } from '../src/storage/pglite-adapt
 import { ErrorCode } from '../src/utils/error-handler';
 import * as fs from 'fs';
 
+// Clear any existing mocks first to ensure clean test state
+vi.unmock('@electric-sql/pglite');
+vi.unmock('fs');
+vi.clearAllMocks();
+
 // Mock fs module
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
@@ -38,6 +43,10 @@ describe('Database Error Handling', () => {
   beforeEach(() => {
     mockFs = vi.mocked(fs);
     vi.clearAllMocks();
+    
+    // Verify imports work correctly in CI environment
+    console.log('DatabaseError constructor:', DatabaseError.name);
+    console.log('ErrorCode values:', Object.keys(ErrorCode));
   });
 
   describe('Path Validation', () => {
@@ -49,11 +58,23 @@ describe('Database Error Handling', () => {
 
     it('should reject invalid root paths', () => {
       // Invalid root paths should be rejected to prevent filesystem pollution
-      expect(() => new PGLiteStorageAdapter('/')).toThrow(DatabaseError);
-      expect(() => new PGLiteStorageAdapter('//')).toThrow(DatabaseError);
-      
-      // Test specific error message for dangerous paths
-      expect(() => new PGLiteStorageAdapter('/')).toThrow(/Root directory is not a valid database path/);
+      try {
+        new PGLiteStorageAdapter('/');
+        expect.fail('Expected DatabaseError to be thrown for root path "/"');
+      } catch (error) {
+        console.log('Error for "/" path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Root directory is not a valid database path');
+      }
+
+      try {
+        new PGLiteStorageAdapter('//');
+        expect.fail('Expected DatabaseError to be thrown for root path "//"');
+      } catch (error) {
+        console.log('Error for "//" path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Root directory is not a valid database path');
+      }
     });
 
     it('should handle relative and absolute paths', () => {
@@ -85,9 +106,32 @@ describe('Database Error Handling', () => {
 
     it('should reject invalid path formats', () => {
       // Empty or null paths
-      expect(() => new PGLiteStorageAdapter('')).toThrow(DatabaseError);
-      expect(() => new PGLiteStorageAdapter(null as any)).toThrow(DatabaseError);
-      expect(() => new PGLiteStorageAdapter(undefined as any)).toThrow(DatabaseError);
+      try {
+        new PGLiteStorageAdapter('');
+        expect.fail('Expected DatabaseError to be thrown for empty path');
+      } catch (error) {
+        console.log('Error for empty path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Database path must be a non-empty string');
+      }
+
+      try {
+        new PGLiteStorageAdapter(null as any);
+        expect.fail('Expected DatabaseError to be thrown for null path');
+      } catch (error) {
+        console.log('Error for null path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Database path must be a non-empty string');
+      }
+
+      try {
+        new PGLiteStorageAdapter(undefined as any);
+        expect.fail('Expected DatabaseError to be thrown for undefined path');
+      } catch (error) {
+        console.log('Error for undefined path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Database path must be a non-empty string');
+      }
 
       // Note: Current implementation doesn't validate special characters
       // These paths are accepted by the constructor but might fail during initialization
@@ -96,8 +140,14 @@ describe('Database Error Handling', () => {
 
     it('should reject excessively long paths', () => {
       const longPath = 'a'.repeat(300); // Exceeds Windows MAX_PATH (260)
-      expect(() => new PGLiteStorageAdapter(longPath)).toThrow(DatabaseError);
-      expect(() => new PGLiteStorageAdapter(longPath)).toThrow(/Database path exceeds maximum length/);
+      try {
+        new PGLiteStorageAdapter(longPath);
+        expect.fail('Expected DatabaseError to be thrown for excessively long path');
+      } catch (error) {
+        console.log('Error for long path:', error?.constructor?.name, error?.message);
+        expect(error).toBeInstanceOf(DatabaseError);
+        expect(error.message).toContain('Database path exceeds maximum length');
+      }
     });
 
     it('should properly check directory existence for nonexistent paths', async () => {
@@ -125,6 +175,7 @@ describe('Database Error Handling', () => {
         new PGLiteStorageAdapter('/');
         expect.fail('Should have thrown an error');
       } catch (error) {
+        console.log('Error for helpful messages test:', error?.constructor?.name, error?.message);
         expect(error).toBeInstanceOf(DatabaseError);
         expect((error as DatabaseError).message).toContain('Root directory is not a valid database path');
         expect((error as DatabaseError).message).toContain('Use a specific directory like');
