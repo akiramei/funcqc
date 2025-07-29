@@ -655,6 +655,8 @@ program
     console.log('  show     - Show detailed dependency information');
     console.log('  stats    - Show dependency statistics and metrics');
     console.log('  lint     - Lint architecture dependencies against rules');
+    console.log('  dead     - Detect dead code (unreachable functions)');
+    console.log('  cycles   - Detect circular dependencies in the call graph');
     console.log('\nExample: funcqc dep list');
   });
 
@@ -780,6 +782,38 @@ Layer Entry Points:
   in .funcqc-arch.yaml) are treated as entry points. This is useful for analyzing
   dead code in modular architectures where certain layers serve as public APIs.`);
 
+depCommand.command('cycles')
+  .description('Detect circular dependencies in the call graph')
+  .option('--min-size <num>', 'minimum cycle size to report', '2')
+  .option('--format <format>', 'output format (table, json, dot)', 'table')
+  .option('--verbose', 'show detailed information')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { depCyclesCommand } = await import('./cli/dep');
+    return withEnvironment(depCyclesCommand)(options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Detect all circular dependencies
+  $ funcqc dep cycles
+
+  # Show only cycles with 3 or more functions
+  $ funcqc dep cycles --min-size 3
+
+  # JSON output for automation
+  $ funcqc dep cycles --format json
+
+  # Generate DOT graph for visualization
+  $ funcqc dep cycles --format dot > cycles.dot
+
+  # Show detailed information
+  $ funcqc dep cycles --verbose
+
+Note: This command analyzes circular dependencies in the call graph,
+helping identify areas where refactoring may be needed to improve
+code maintainability and reduce coupling.
+`);
+
 
 // Safe deletion command using high-confidence call graph analysis
 program
@@ -839,19 +873,6 @@ Use --force to skip confirmation (not recommended).
 
 
 
-// Circular dependency detection command
-program
-  .command('cycles')
-  .description('Detect circular dependencies in the call graph')
-  .option('--min-size <num>', 'minimum cycle size to report', '2')
-  .option('--format <format>', 'output format (table, json, dot)', 'table')
-  .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { cyclesCommand } = await import('./cli/cycles');
-    return withEnvironment(cyclesCommand)(options, command);
-  });
-
-
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));
@@ -888,7 +909,7 @@ function performLightweightSystemCheck(logger: Logger, skipCheck: boolean = fals
   return systemChecker.basicSystemCheck();
 }
 
-const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'cycles', 'help'] as const;
+const READ_ONLY_COMMANDS = ['list', 'health', 'show', 'history', 'diff', 'search', 'similar', 'help'] as const;
 
 function isReadOnlyCommand(): boolean {
   const command = process.argv[2];
