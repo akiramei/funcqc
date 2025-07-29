@@ -155,5 +155,4 @@ MIT License
 
 ## 関連プロジェクト
 
-- [mizchi/similarity](https://github.com/mizchi/similarity) - 高性能な構造類似性検出
 - [PGLite](https://github.com/electric-sql/pglite) - ポータブルなPostgreSQL実装
