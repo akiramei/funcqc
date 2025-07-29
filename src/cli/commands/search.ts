@@ -446,7 +446,7 @@ async function getFunctionsWithDescriptions(
     return [];
   }
 
-  const allFunctions = await env.storage.getFunctions(snapshots[0].id);
+  const allFunctions = await env.storage.findFunctionsInSnapshot(snapshots[0].id);
   const functionsWithDescriptions = allFunctions.filter(
     (f: FunctionInfo) => f.description && f.description.trim().length > 0
   );
@@ -713,7 +713,7 @@ async function fetchAstSimilarityResults(
   }
 
   // Get all functions for AST similarity
-  const allFunctions = await env.storage.getFunctions(snapshot.id);
+  const allFunctions = await env.storage.findFunctionsInSnapshot(snapshot.id);
   
   // Process AST similarity
   return processAstSimilarity(env, allFunctions, options.contextFunctions);

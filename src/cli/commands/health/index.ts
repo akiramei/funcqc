@@ -535,7 +535,7 @@ async function getTargetSnapshotAndFunctions(env: CommandEnvironment, options: H
     throw new Error('Snapshot not found');
   }
 
-  const functions = await env.storage.getFunctionsBySnapshot(resolvedSnapshotId);
+  const functions = await env.storage.findFunctionsInSnapshot(resolvedSnapshotId);
   
   if (functions.length === 0) {
     throw new Error('No functions found in the latest snapshot');

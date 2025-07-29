@@ -283,7 +283,7 @@ export async function performCallGraphAnalysis(
   
   // Get stored files and functions
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const functions = await env.storage.getFunctions(snapshotId);
+  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
   
   // Reconstruct file map for analyzer
   const fileContentMap = new Map<string, string>();
@@ -1106,7 +1106,7 @@ async function loadHistoricalFunctions(storage: import('../../types').StorageAda
   const allHistoricalFunctions: FunctionInfo[] = [];
 
   for (const snapshot of recentSnapshots) {
-    const functions = await storage.getFunctions(snapshot.id);
+    const functions = await storage.findFunctionsInSnapshot(snapshot.id);
     allHistoricalFunctions.push(...functions);
   }
 

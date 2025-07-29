@@ -307,7 +307,7 @@ export class SnapshotManager {
       
       // Get functions from the latest snapshot
       const latestSnapshot = snapshots.sort((a, b) => b.createdAt - a.createdAt)[0];
-      const functions = await this.storage.getFunctionsBySnapshotId(latestSnapshot.id);
+      const functions = await this.storage.findFunctionsInSnapshot(latestSnapshot.id);
       
       if (functions.length === 0) {
         return {

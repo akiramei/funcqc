@@ -271,7 +271,7 @@ async function queryFunctionsViaStorage(env: CommandEnvironment, options: DbComm
     return;
   }
   
-  const functions = await env.storage.getFunctions(snapshots[0].id, { limit });
+  const functions = await env.storage.findFunctionsInSnapshot(snapshots[0].id, { limit });
   
   if (options.json) {
     console.log(JSON.stringify({ rows: functions }, null, 2));

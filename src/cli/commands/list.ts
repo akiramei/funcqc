@@ -21,7 +21,7 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
         queryOptions.scope = options.scope;
       }
       
-      let functions = await env.storage.queryFunctions(queryOptions);
+      let functions = await env.storage.findFunctions(queryOptions);
 
       if (functions.length === 0) {
         console.log('No functions found. Run `funcqc scan` first.');

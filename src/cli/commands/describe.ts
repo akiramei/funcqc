@@ -179,7 +179,7 @@ async function findContentIdBySemanticId(
   semanticId: string
 ): Promise<string | undefined> {
   try {
-    const functions = await env.storage.queryFunctions({
+    const functions = await env.storage.findFunctions({
       filters: [
         {
           field: 'semantic_id',
@@ -255,7 +255,7 @@ async function findFunctionById(
   env: CommandEnvironment,
   functionId: string
 ): Promise<FunctionInfo[]> {
-  return await env.storage.queryFunctions({
+  return await env.storage.findFunctions({
     filters: [
       {
         field: 'id',
@@ -270,7 +270,7 @@ async function findFunctionByPartialId(
   env: CommandEnvironment,
   partialId: string
 ): Promise<FunctionInfo[]> {
-  return await env.storage.queryFunctions({
+  return await env.storage.findFunctions({
     filters: [
       {
         field: 'id',
@@ -285,7 +285,7 @@ async function findFunctionByName(
   env: CommandEnvironment,
   namePattern: string
 ): Promise<string | boolean | null> {
-  const functions = await env.storage.queryFunctions({
+  const functions = await env.storage.findFunctions({
     filters: [
       {
         field: 'name',

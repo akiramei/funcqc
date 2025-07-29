@@ -578,11 +578,11 @@ export interface StorageAdapter {
   deleteSnapshot(id: string): Promise<boolean>;
   getLastConfigHash?(): Promise<string | null>;
 
-  // Function operations
-  getFunction(functionId: string): Promise<FunctionInfo | null>;
+  // Function operations - new find methods with consistent naming
+  findFunction(functionId: string): Promise<FunctionInfo | null>;
+  findFunctionsInSnapshot(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
+  findFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsBatch(functionIds: string[]): Promise<Map<string, FunctionInfo>>;
-  getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
-  queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]>;
   storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void>;
   getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]>;
   getFunctionsWithoutDescriptions(

@@ -139,7 +139,7 @@ async function initializeQualityGate(
     const allHistoricalFunctions: FunctionInfo[] = [];
 
     for (const snapshot of recentSnapshots) {
-      const functions = await env.storage.getFunctions(snapshot.id);
+      const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
       allHistoricalFunctions.push(...functions);
     }
 

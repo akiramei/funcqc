@@ -1301,7 +1301,7 @@ async function loadCallGraphData(
   spinner.text = 'Loading functions and call graph...';
 
   // Load functions from the snapshot (same as health command)
-  const functions = await env.storage.getFunctionsBySnapshot(resolvedSnapshotId);
+  const functions = await env.storage.findFunctionsInSnapshot(resolvedSnapshotId);
   if (functions.length === 0) {
     spinner.fail(chalk.yellow('No functions found in the snapshot.'));
     throw new Error('No functions found in the snapshot.');
@@ -2566,7 +2566,7 @@ export const depCyclesCommand: VoidCommand<DepCyclesOptions> = (options) =>
       spinner.text = 'Loading function information...';
       
       // Get function information for better display
-      const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
+      const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
       const functionMap = new Map(functions.map(f => [f.id, f]));
 
       spinner.text = 'Detecting circular dependencies...';

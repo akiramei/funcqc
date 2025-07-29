@@ -179,6 +179,46 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
+   * Find a single function by ID
+   */
+  async findFunction(functionId: string): Promise<FunctionInfo | null> {
+    try {
+      const result = await this.db.query(
+        `
+        SELECT 
+          f.*,
+          q.lines_of_code, q.total_lines, q.cyclomatic_complexity, q.cognitive_complexity,
+          q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
+          q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
+          q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
+          q.maintainability_index,
+          d.description
+        FROM functions f
+        LEFT JOIN quality_metrics q ON f.id = q.function_id
+        LEFT JOIN function_descriptions d ON f.semantic_id = d.semantic_id
+        WHERE f.id = $1 OR f.semantic_id = $1
+        LIMIT 1
+        `,
+        [functionId]
+      );
+
+      if (result.rows.length === 0) {
+        return null;
+      }
+
+      const row = result.rows[0] as FunctionRow & Partial<MetricsRow>;
+      const parameters = await this.getFunctionParameters(row.id);
+      return this.mapRowToFunctionInfo(row, parameters);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get function: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  /**
    * Get all functions for a snapshot
    */
   async getFunctionsBySnapshot(snapshotId: string): Promise<FunctionInfo[]> {
@@ -203,6 +243,16 @@ export class FunctionOperations implements StorageOperationModule {
         error instanceof Error ? error : undefined
       );
     }
+  }
+
+  /**
+   * Find all functions in a snapshot
+   */
+  async findFunctionsInSnapshot(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+    if (options) {
+      return this.getFunctions(snapshotId, options);
+    }
+    return this.getFunctionsBySnapshot(snapshotId);
   }
 
   /**
@@ -771,6 +821,13 @@ export class FunctionOperations implements StorageOperationModule {
         `Failed to query functions: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+  }
+
+  /**
+   * Find functions with options (using latest snapshot)
+   */
+  async findFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
+    return this.queryFunctions(options);
   }
 
   /**

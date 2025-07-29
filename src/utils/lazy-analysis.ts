@@ -133,7 +133,7 @@ async function performLazyCallGraphAnalysis(
 
     // Create analyzer instance and get existing functions
     const analyzer = new FunctionAnalyzer(env.config);
-    const functions = await env.storage.getFunctionsBySnapshot(snapshotId);
+    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
     
     // Create file content map
     const fileContentMap = new Map<string, string>();
@@ -207,7 +207,7 @@ export async function loadCallGraphWithLazyAnalysis(
   }
 
   // Get functions first
-  const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
+  const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
 
   // Ensure call graph data is available
   const callGraphResult = await ensureCallGraphData(env, { showProgress });

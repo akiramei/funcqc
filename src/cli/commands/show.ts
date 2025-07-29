@@ -58,7 +58,7 @@ async function findTargetFunction(
 
   // Priority 2: Search by name pattern
   if (namePattern) {
-    const functions = await env.storage.queryFunctions();
+    const functions = await env.storage.findFunctions();
     
     // First try exact match
     let matches = functions.filter(f => f.displayName === namePattern || f.name === namePattern);
@@ -115,7 +115,7 @@ async function findFunctionById(
   }
 
   // Fallback to regular query if not found in functions with descriptions
-  const functions = await env.storage.queryFunctions();
+  const functions = await env.storage.findFunctions();
   return functions.find(f => f.id === id || f.id.startsWith(id)) || null;
 }
 

@@ -265,24 +265,21 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   // FUNCTION OPERATIONS (to be modularized)
   // ========================================
 
-  async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
+
+  // New find methods with consistent naming
+  async findFunction(functionId: string): Promise<FunctionInfo | null> {
     await this.ensureInitialized();
-    return this.functionOps.getFunctions(snapshotId, options);
+    return this.functionOps.findFunction(functionId);
   }
 
-  async getFunction(id: string): Promise<FunctionInfo | null> {
+  async findFunctionsInSnapshot(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
     await this.ensureInitialized();
-    return this.functionOps.getFunction(id);
+    return this.functionOps.findFunctionsInSnapshot(snapshotId, options);
   }
 
-  async getFunctionsBySnapshot(snapshotId: string): Promise<FunctionInfo[]> {
+  async findFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
     await this.ensureInitialized();
-    return this.functionOps.getFunctionsBySnapshot(snapshotId);
-  }
-
-  async queryFunctions(options?: QueryOptions): Promise<FunctionInfo[]> {
-    await this.ensureInitialized();
-    return this.functionOps.queryFunctions(options);
+    return this.functionOps.findFunctions(options);
   }
 
   async saveFunctions(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
@@ -320,8 +317,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     
     // Get functions for both snapshots
     const [fromFunctions, toFunctions] = await Promise.all([
-      this.getFunctionsBySnapshot(fromId),
-      this.getFunctionsBySnapshot(toId)
+      this.findFunctionsInSnapshot(fromId),
+      this.findFunctionsInSnapshot(toId)
     ]);
     
     // Create lookup maps
