@@ -1,11 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { depStatsCommand } from '../../src/cli/dep';
-import { riskAnalyzeCommand } from '../../src/cli/risk';
 import { depDeadCommand } from '../../src/cli/dep';
 import { CommandEnvironment } from '../../src/types/environment';
 import { FunctionInfo, CallEdge } from '../../src/types';
 import { DependencyMetrics } from '../../src/analyzers/dependency-metrics';
-import { ComprehensiveRiskAssessment } from '../../src/analyzers/comprehensive-risk-scorer';
 
 describe('DOT Format CLI Integration', () => {
   let mockEnv: CommandEnvironment;
