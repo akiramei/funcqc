@@ -5,8 +5,42 @@ import * as fs from 'fs/promises';
 import { InitCommandOptions, FuncqcConfig } from '../types';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
+  // Legacy support - deprecated in favor of scopes
   roots: ['src'],
   exclude: ['**/*.test.ts', '**/*.spec.ts', '**/__tests__/**', '**/node_modules/**'],
+  
+  // New scope-based configuration
+  defaultScope: 'src',
+  globalExclude: [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/build/**',
+  ],
+  
+  // スコープ設定: 用途別の独立した品質管理
+  scopes: {
+    src: {
+      roots: ['src'],
+      exclude: [
+        '**/*.test.ts',
+        '**/*.spec.ts',
+        '**/__tests__/**',
+      ],
+      description: 'Production source code - high quality standards'
+    },
+    test: {
+      roots: ['test', 'tests', '__tests__', 'src/__tests__'],
+      include: ['**/*.test.ts', '**/*.spec.ts', '**/*.test.js', '**/*.spec.js'],
+      exclude: [],
+      description: 'Test code files - readability focused'
+    },
+    all: {
+      roots: ['src', 'test', 'tests', '__tests__'],
+      exclude: [],
+      description: 'Complete codebase overview'
+    }
+  },
+  
   storage: {
     type: 'pglite',
     path: '.funcqc/funcqc.db',
@@ -153,24 +187,29 @@ async function createConfig(options: InitCommandOptions): Promise<void> {
   console.log(chalk.green('✓ funcqc initialized successfully!'));
   console.log();
   console.log(chalk.blue('Configuration:'));
-  console.log(`  Roots: ${config.roots.join(', ')}`);
+  console.log(`  Default Scope: ${config.defaultScope || 'src'}`);
   console.log(`  Database: ${config.storage.path}`);
-  console.log(`  Exclude: ${config.exclude.length} patterns`);
+  console.log(`  Global Exclude: ${config.globalExclude?.length || 0} patterns`);
   
+  console.log(chalk.blue('Available Scopes:'));
   if (config.scopes) {
-    console.log(chalk.blue('Scopes detected:'));
     Object.entries(config.scopes).forEach(([name, scope]) => {
-      console.log(`  ${chalk.cyan(name)}: ${scope.description}`);
+      const isDefault = name === (config.defaultScope || 'src');
+      const marker = isDefault ? ' (default)' : '';
+      console.log(`  ${chalk.cyan(name)}${marker}: ${scope.description}`);
       console.log(`    Roots: ${scope.roots.join(', ')}`);
     });
   }
   
   console.log();
   console.log(chalk.blue('Next steps:'));
-  console.log(chalk.gray('  1. Run `funcqc scan` to analyze your functions'));
+  console.log(chalk.gray(`  1. Run \`funcqc scan\` to analyze ${config.defaultScope || 'src'} scope (default)`));
   console.log(chalk.gray('  2. Run `funcqc list` to view the results'));
+  console.log(chalk.gray('  3. Use `funcqc scan --scope <name>` to analyze specific scopes:'));
   if (config.scopes) {
-    console.log(chalk.gray('  3. Use `funcqc scan --scope <name>` to analyze specific scopes'));
+    Object.keys(config.scopes).forEach(scopeName => {
+      console.log(chalk.gray(`     • funcqc scan --scope ${scopeName}`));
+    });
   }
 }
 

@@ -2,6 +2,7 @@
 // See https://github.com/yourusername/funcqc for documentation
 
 module.exports = {
+  // Legacy support - deprecated in favor of scopes
   "roots": [
     "src"
   ],
@@ -11,7 +12,16 @@ module.exports = {
     "**/__tests__/**",
     "**/node_modules/**"
   ],
-  // Multi-scope configuration for independent quality management
+  
+  // New scope-based configuration
+  "defaultScope": "src",
+  "globalExclude": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**"
+  ],
+  
+  // Scope-based configuration for independent quality management
   "scopes": {
     "src": {
       "roots": ["src"],
@@ -20,22 +30,18 @@ module.exports = {
         "**/*.spec.ts",
         "**/__tests__/**"
       ],
-      "description": "Production source code"
+      "description": "Production source code - high quality standards"
     },
     "test": {
       "roots": ["test", "tests", "__tests__", "src/__tests__"],
       "include": ["**/*.test.ts", "**/*.spec.ts", "**/*.test.js", "**/*.spec.js"],
       "exclude": [],
-      "description": "Test code files"
+      "description": "Test code files - readability focused"
     },
     "all": {
       "roots": ["src", "test", "tests", "__tests__"],
-      "exclude": [
-        "**/node_modules/**",
-        "**/dist/**",
-        "**/build/**"
-      ],
-      "description": "All source and test code"
+      "exclude": [],
+      "description": "Complete codebase overview"
     }
   },
   "storage": {

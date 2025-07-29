@@ -20,6 +20,7 @@ import {
 } from '../config/thresholds-simple.js';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
+  // Legacy support - deprecated in favor of scopes
   roots: ['src'],
   exclude: [
     '**/*.test.ts',
@@ -29,7 +30,16 @@ const DEFAULT_CONFIG: FuncqcConfig = {
     '**/dist/**',
     '**/build/**',
   ],
-  // デフォルトスコープ設定
+  
+  // New scope-based configuration
+  defaultScope: 'src',
+  globalExclude: [
+    '**/node_modules/**',
+    '**/dist/**',
+    '**/build/**',
+  ],
+  
+  // スコープ設定: 用途別の独立した品質管理
   scopes: {
     src: {
       roots: ['src'],
@@ -38,22 +48,18 @@ const DEFAULT_CONFIG: FuncqcConfig = {
         '**/*.spec.ts',
         '**/__tests__/**',
       ],
-      description: 'Production source code'
+      description: 'Production source code - high quality standards'
     },
     test: {
       roots: ['test', 'tests', '__tests__', 'src/__tests__'],
       include: ['**/*.test.ts', '**/*.spec.ts', '**/*.test.js', '**/*.spec.js'],
       exclude: [],
-      description: 'Test code files'
+      description: 'Test code files - readability focused'
     },
     all: {
       roots: ['src', 'test', 'tests', '__tests__'],
-      exclude: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/build/**',
-      ],
-      description: 'All source and test code'
+      exclude: [],
+      description: 'Complete codebase overview'
     }
   },
   storage: {
@@ -75,7 +81,19 @@ const DEFAULT_CONFIG: FuncqcConfig = {
 
 export class ConfigManager {
   private config: FuncqcConfig | undefined;
-  private explorer = cosmiconfigSync('funcqc');
+  private configPath: string | null = null;
+  private explorer = cosmiconfigSync('funcqc', {
+    searchPlaces: [
+      '.funcqcrc',
+      '.funcqcrc.json',
+      '.funcqcrc.yaml',
+      '.funcqcrc.yml',
+      '.funcqcrc.js',
+      'funcqc.config.js',
+      '.funcqc.config.js',
+      'package.json'
+    ]
+  });
   private thresholdManager: ThresholdConfigManager | undefined;
 
   // Static cache for lightweight config
@@ -90,8 +108,10 @@ export class ConfigManager {
 
     if (result) {
       this.config = this.validateAndMergeConfig(result.config);
+      this.configPath = result.filepath;
     } else {
       this.config = { ...DEFAULT_CONFIG };
+      this.configPath = null;
     }
 
     // Initialize threshold manager with config
@@ -284,8 +304,7 @@ export class ConfigManager {
    * Get the configuration file path
    */
   getConfigPath(): string | null {
-    const result = this.explorer.search();
-    return result ? result.filepath : null;
+    return this.configPath;
   }
 
   /**
@@ -327,18 +346,26 @@ export class ConfigManager {
    * Resolve scope configuration to get scan paths and filters
    */
   resolveScopeConfig(scopeName?: string): { roots: string[]; exclude: string[]; include?: string[]; description?: string } {
-    if (!scopeName) {
-      scopeName = 'src'; // Default scope
-    }
-
     const config = this.config || this.getDefaults();
+    
+    // Use default scope if none specified
+    if (!scopeName) {
+      scopeName = config.defaultScope || 'src';
+    }
     
     // Check if scope exists in configuration
     if (config.scopes && config.scopes[scopeName]) {
       const scopeConfig = config.scopes[scopeName];
+      let excludePatterns = scopeConfig.exclude || [];
+      
+      // Apply global exclude patterns
+      if (config.globalExclude) {
+        excludePatterns = [...excludePatterns, ...config.globalExclude];
+      }
+      
       const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
         roots: scopeConfig.roots,
-        exclude: scopeConfig.exclude || []
+        exclude: excludePatterns
       };
       
       // Only include optional properties if they are defined
@@ -352,12 +379,12 @@ export class ConfigManager {
       return result;
     }
 
-    // If scope doesn't exist, fall back to default configuration
+    // If scope doesn't exist, fall back to legacy configuration
     if (scopeName === 'src' || scopeName === 'default') {
       const result: { roots: string[]; exclude: string[]; include?: string[]; description?: string } = {
         roots: config.roots,
         exclude: config.exclude,
-        description: 'Default scope configuration'
+        description: 'Legacy default configuration'
       };
       
       // Only include optional properties if they are defined

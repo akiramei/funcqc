@@ -364,13 +364,13 @@ async function checkConfigurationChanges(
 }
 
 async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Promise<string[]> {
-  if (scopeName) {
-    const configManager = new ConfigManager();
-    await configManager.load(); // Ensure config is loaded
-    const scopeConfig = configManager.resolveScopeConfig(scopeName);
-    return scopeConfig.roots;
-  }
-  return config.roots;
+  const configManager = new ConfigManager();
+  await configManager.load(); // Ensure config is loaded
+  
+  // Use default scope if none specified
+  const actualScopeName = scopeName || config.defaultScope || 'src';
+  const scopeConfig = configManager.resolveScopeConfig(actualScopeName);
+  return scopeConfig.roots;
 }
 
 async function initializeComponents(
@@ -414,15 +414,19 @@ async function discoverFiles(
 ): Promise<string[]> {
   spinner.start('Finding TypeScript files...');
   
-  let excludePatterns = config.exclude;
-  let includePatterns = config.include;
+  const configManager = new ConfigManager();
+  await configManager.load(); // Ensure config is loaded
   
-  if (scopeName) {
-    const configManager = new ConfigManager();
-    await configManager.load(); // Ensure config is loaded
-    const scopeConfig = configManager.resolveScopeConfig(scopeName);
-    excludePatterns = scopeConfig.exclude;
-    includePatterns = scopeConfig.include;
+  // Use default scope if none specified
+  const actualScopeName = scopeName || config.defaultScope || 'src';
+  const scopeConfig = configManager.resolveScopeConfig(actualScopeName);
+  
+  let excludePatterns = scopeConfig.exclude || [];
+  const includePatterns = scopeConfig.include;
+  
+  // Apply global exclude patterns
+  if (config.globalExclude) {
+    excludePatterns = [...excludePatterns, ...config.globalExclude];
   }
   
   const files = await findTypeScriptFiles(scanPaths, excludePatterns, includePatterns);

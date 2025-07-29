@@ -28,6 +28,13 @@ export class PresetManager {
   }
 
   /**
+   * Get the config manager instance
+   */
+  getConfigManager(): ConfigManager {
+    return this.configManager;
+  }
+
+  /**
    * Apply a preset to the current configuration
    */
   async applyPreset(

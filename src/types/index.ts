@@ -15,9 +15,14 @@ import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-q
 
 // Core configuration types
 export interface FuncqcConfig {
+  // Legacy support - will be deprecated in favor of scopes
   roots: string[];
   exclude: string[];
   include?: string[];
+  
+  // New scope-based configuration
+  defaultScope?: string;
+  globalExclude?: string[];
   
   // スコープ設定: 複数のスコープを定義可能
   scopes?: {
