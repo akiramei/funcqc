@@ -45,7 +45,7 @@ program
 program
   .command('config')
   .description('Manage configuration presets and settings')
-  .argument('<action>', 'action to perform (list, show, apply, compare, suggest, backup, validate)')
+  .argument('<action>', 'action to perform (list, show, apply, compare, suggest, backup, validate, edit)')
   .option('--preset <id>', 'preset ID to work with')
   .option('--replace', 'replace current configuration instead of merging')
   .option('--no-validate', 'skip validation when applying presets')
@@ -63,6 +63,9 @@ program
   })
   .addHelpText('after', `
 Examples:
+  # Show current configuration
+  $ funcqc config show
+  
   # List available presets
   $ funcqc config list
   
@@ -86,6 +89,9 @@ Examples:
   
   # Validate current configuration
   $ funcqc config validate
+  
+  # Show configuration file location for editing
+  $ funcqc config edit
 `);
 
 program

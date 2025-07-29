@@ -57,7 +57,7 @@ describe('Multi-Scope Configuration', () => {
       expect(srcScope.exclude).toContain('**/*.test.ts');
       expect(srcScope.exclude).toContain('**/*.spec.ts');
       expect(srcScope.exclude).toContain('**/__tests__/**');
-      expect(srcScope.description).toBe('Production source code');
+      expect(srcScope.description).toBe('Production source code - high quality standards');
     });
 
     it('should have correct default test scope configuration', async () => {
@@ -72,7 +72,7 @@ describe('Multi-Scope Configuration', () => {
       expect(testScope.include).toContain('**/*.test.js');
       expect(testScope.include).toContain('**/*.spec.js');
       expect(testScope.exclude).toEqual([]);
-      expect(testScope.description).toBe('Test code files');
+      expect(testScope.description).toBe('Test code files - readability focused');
     });
 
     it('should have correct default all scope configuration', async () => {
@@ -82,10 +82,8 @@ describe('Multi-Scope Configuration', () => {
       const allScope = config.scopes!.all;
 
       expect(allScope.roots).toEqual(['src', 'test', 'tests', '__tests__']);
-      expect(allScope.exclude).toContain('**/node_modules/**');
-      expect(allScope.exclude).toContain('**/dist/**');
-      expect(allScope.exclude).toContain('**/build/**');
-      expect(allScope.description).toBe('All source and test code');
+      expect(allScope.exclude).toEqual([]);
+      expect(allScope.description).toBe('Complete codebase overview');
     });
   });
 
@@ -100,7 +98,7 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.roots).toEqual(['src']);
       expect(scopeConfig.exclude).toContain('**/*.test.ts');
-      expect(scopeConfig.description).toBe('Production source code');
+      expect(scopeConfig.description).toBe('Production source code - high quality standards');
     });
 
     it('should resolve test scope correctly', () => {
@@ -108,8 +106,10 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.roots).toEqual(['test', 'tests', '__tests__', 'src/__tests__']);
       expect(scopeConfig.include).toContain('**/*.test.ts');
-      expect(scopeConfig.exclude).toEqual([]);
-      expect(scopeConfig.description).toBe('Test code files');
+      expect(scopeConfig.exclude).toContain('**/node_modules/**');
+      expect(scopeConfig.exclude).toContain('**/dist/**');
+      expect(scopeConfig.exclude).toContain('**/build/**');
+      expect(scopeConfig.description).toBe('Test code files - readability focused');
     });
 
     it('should resolve all scope correctly', () => {
@@ -117,21 +117,21 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.roots).toEqual(['src', 'test', 'tests', '__tests__']);
       expect(scopeConfig.exclude).toContain('**/node_modules/**');
-      expect(scopeConfig.description).toBe('All source and test code');
+      expect(scopeConfig.description).toBe('Complete codebase overview');
     });
 
     it('should default to src scope when no scope specified', () => {
       const scopeConfig = configManager.resolveScopeConfig();
 
       expect(scopeConfig.roots).toEqual(['src']);
-      expect(scopeConfig.description).toBe('Production source code');
+      expect(scopeConfig.description).toBe('Production source code - high quality standards');
     });
 
     it('should default to src scope for undefined scope', () => {
       const scopeConfig = configManager.resolveScopeConfig(undefined);
 
       expect(scopeConfig.roots).toEqual(['src']);
-      expect(scopeConfig.description).toBe('Production source code');
+      expect(scopeConfig.description).toBe('Production source code - high quality standards');
     });
   });
 
@@ -289,7 +289,9 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.description).toBeUndefined();
       expect(scopeConfig.roots).toEqual(['minimal']);
-      expect(scopeConfig.exclude).toEqual([]);
+      expect(scopeConfig.exclude).toContain('**/node_modules/**');
+      expect(scopeConfig.exclude).toContain('**/dist/**');
+      expect(scopeConfig.exclude).toContain('**/build/**');
     });
 
     it('should handle scope with all optional properties', async () => {
@@ -316,7 +318,10 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.description).toBe('Complete scope configuration');
       expect(scopeConfig.include).toEqual(['**/*.complete.ts']);
-      expect(scopeConfig.exclude).toEqual(['**/ignore/**']);
+      expect(scopeConfig.exclude).toContain('**/ignore/**');
+      expect(scopeConfig.exclude).toContain('**/node_modules/**');
+      expect(scopeConfig.exclude).toContain('**/dist/**');
+      expect(scopeConfig.exclude).toContain('**/build/**');
       expect(scopeConfig.roots).toEqual(['complete']);
     });
   });
@@ -342,7 +347,7 @@ describe('Multi-Scope Configuration', () => {
       expect(scopeConfig.roots).toEqual(['source']);
       expect(scopeConfig.exclude).toEqual(['**/custom.exclude.ts']);
       expect(scopeConfig.include).toEqual(['**/custom.include.ts']);
-      expect(scopeConfig.description).toBe('Default scope configuration');
+      expect(scopeConfig.description).toBe('Legacy default configuration');
     });
 
     it('should fallback to default config for default scope', async () => {
@@ -363,7 +368,7 @@ describe('Multi-Scope Configuration', () => {
 
       expect(scopeConfig.roots).toEqual(['source']);
       expect(scopeConfig.exclude).toEqual(['**/custom.exclude.ts']);
-      expect(scopeConfig.description).toBe('Default scope configuration');
+      expect(scopeConfig.description).toBe('Legacy default configuration');
     });
   });
 
