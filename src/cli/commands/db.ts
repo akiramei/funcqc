@@ -114,6 +114,17 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
     return;
   }
   
+  // Special handling for edge tables using Storage API (more efficient)
+  if (tableName === 'call_edges' && !options.where) {
+    await queryCallEdgesViaStorage(env, options);
+    return;
+  }
+  
+  if (tableName === 'internal_call_edges' && !options.where) {
+    await queryInternalCallEdgesViaStorage(env, options);
+    return;
+  }
+  
   // For other cases, use direct SQL query
   await queryTableDirect(env, options);
 }
@@ -136,6 +147,116 @@ async function querySnapshotsViaStorage(env: CommandEnvironment, options: DbComm
     }
   }
 }
+
+/**
+ * Query call_edges using Storage API
+ */
+async function queryCallEdgesViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  const callEdges = await env.storage.getCallEdgesBySnapshot(latestSnapshot.id);
+  
+  // Apply limit if specified
+  const limitedEdges = limit > 0 ? callEdges.slice(0, limit) : callEdges;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'call_edges',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedEdges.length,
+      totalCount: callEdges.length,
+      rows: limitedEdges 
+    }, null, 2));
+  } else {
+    if (limitedEdges.length === 0) {
+      console.log(chalk.yellow('No call edges found in latest snapshot.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: call_edges (showing ${limitedEdges.length} of ${callEdges.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedEdges.map(edge => ({
+        id: edge.id || 'N/A',
+        caller_function_id: edge.callerFunctionId,
+        callee_function_id: edge.calleeFunctionId || 'N/A',
+        callee_name: edge.calleeName || 'N/A',
+        call_type: edge.callType || 'N/A',
+        line_number: edge.lineNumber || 'N/A',
+        column_number: edge.columnNumber || 'N/A'
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${callEdges.length} rows`));
+    }
+  }
+}
+
+/**
+ * Query internal_call_edges using Storage API
+ */
+async function queryInternalCallEdgesViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  const internalEdges = await env.storage.getInternalCallEdgesBySnapshot(latestSnapshot.id);
+  
+  // Apply limit if specified
+  const limitedEdges = limit > 0 ? internalEdges.slice(0, limit) : internalEdges;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'internal_call_edges',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedEdges.length,
+      totalCount: internalEdges.length,
+      rows: limitedEdges 
+    }, null, 2));
+  } else {
+    if (limitedEdges.length === 0) {
+      console.log(chalk.yellow('No internal call edges found in latest snapshot.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: internal_call_edges (showing ${limitedEdges.length} of ${internalEdges.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedEdges.map(edge => ({
+        id: edge.id || 'N/A',
+        file_path: edge.filePath,
+        caller_function_id: edge.callerFunctionId,
+        callee_function_id: edge.calleeFunctionId,
+        caller_name: edge.callerName || 'N/A',
+        callee_name: edge.calleeName || 'N/A',
+        line_number: edge.lineNumber || 'N/A',
+        call_type: edge.callType || 'N/A'
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${internalEdges.length} rows`));
+    }
+  }
+}
+
 
 /**
  * Query functions using storage API

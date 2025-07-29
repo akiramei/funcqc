@@ -91,14 +91,15 @@ async function performPageRankAnalysis(
   pageRankEdges: CallEdge[], 
   env: CommandEnvironment
 ): Promise<PageRankMetrics> {
-  // Use relaxed convergence for better performance on large datasets
+  // Use adaptive convergence settings based on graph size
   const pageRankCalculator = new PageRankCalculator({
     dampingFactor: 0.85,
-    maxIterations: Math.min(50, Math.max(20, Math.ceil(Math.log2(functions.length)))),
-    tolerance: 1e-4
+    maxIterations: Math.min(100, Math.max(50, Math.ceil(Math.log2(functions.length)) * 2)),
+    tolerance: pageRankEdges.length > 1000 ? 1e-3 : 1e-4  // Relaxed tolerance for large graphs
   });
   const pageRankResult = pageRankCalculator.calculatePageRank(functions, pageRankEdges);
   const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, pageRankEdges);
+  
   
   // Perform layer-based PageRank analysis (optimized with budgeting and Monte Carlo)
   let layerBasedAnalysis;
@@ -393,6 +394,7 @@ export async function analyzeStructuralMetrics(
         const isExternal = edge.calleeFunctionId === null || edge.calleeFunctionId === undefined;
         return !isIntraFile && !isExternal;
       });
+      
     }
     
     // For large datasets, use simplified analysis to prevent timeout
