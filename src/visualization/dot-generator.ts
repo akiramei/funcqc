@@ -1,6 +1,5 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyMetrics } from '../analyzers/dependency-metrics';
-import { ComprehensiveRiskAssessment } from '../analyzers/comprehensive-risk-scorer';
 import { StronglyConnectedComponent } from '../analyzers/scc-analyzer';
 import { GraphClusterBy } from '../types/visualization';
 
@@ -71,20 +70,6 @@ export class DotGenerator {
     return this.renderDotGraph(graph, opts);
   }
 
-  /**
-   * Generate DOT graph from risk assessment
-   */
-  generateRiskGraph(
-    functions: FunctionInfo[],
-    callEdges: CallEdge[],
-    riskAssessments: ComprehensiveRiskAssessment[],
-    options: Partial<DotGraphOptions> = {}
-  ): string {
-    const opts = { ...this.defaultOptions, ...options };
-    const graph = this.createRiskGraph(functions, callEdges, riskAssessments, opts);
-    
-    return this.renderDotGraph(graph, opts);
-  }
 
   /**
    * Generate DOT graph from circular dependencies
@@ -195,85 +180,12 @@ export class DotGenerator {
     if (options.clusterBy === 'file') {
       this.createFileClusters(graph, functions);
     } else if (options.clusterBy === 'complexity') {
-      this.createComplexityClusters(graph, functions, dependencyMetrics);
+      this.createComplexityClusters(graph, functions);
     }
 
     return graph;
   }
 
-  private createRiskGraph(
-    functions: FunctionInfo[],
-    callEdges: CallEdge[],
-    riskAssessments: ComprehensiveRiskAssessment[],
-    options: Required<DotGraphOptions>
-  ): DotGraph {
-    const graph: DotGraph = { nodes: [], edges: [], clusters: new Map() };
-    const functionMap = new Map(functions.map(f => [f.id, f]));
-    const riskMap = new Map(riskAssessments.map(r => [r.functionId, r]));
-
-    // Create nodes
-    for (const func of functions) {
-      const risk = riskMap.get(func.id);
-      const label = this.truncateLabel(func.name, options.maxLabelLength);
-      
-      const attributes: Record<string, string> = {
-        shape: options.nodeShape,
-        style: 'filled',
-        fillcolor: this.getRiskNodeColor(risk, options),
-        label: options.showLabels ? `"${label}"` : `"${func.name}"`,
-      };
-
-      if (options.includeMetrics && risk) {
-        attributes['tooltip'] = `"Risk: ${risk.overallScore}\\nLevel: ${risk.riskLevel}\\nPriority: ${risk.priority}"`;
-      }
-
-      const clusterId = options.clusterBy === 'risk' && risk?.riskLevel 
-        ? `cluster_risk_${risk.riskLevel}` 
-        : options.clusterBy === 'file' 
-        ? `cluster_${this.sanitizeNodeId(func.filePath)}`
-        : undefined;
-
-      graph.nodes.push({
-        id: this.sanitizeNodeId(func.id),
-        label,
-        attributes,
-        cluster: clusterId,
-      });
-    }
-
-    // Create edges (same as dependency graph)
-    for (const edge of callEdges) {
-      const caller = functionMap.get(edge.callerFunctionId);
-      const callee = functionMap.get(edge.calleeFunctionId || '');
-      
-      if (!caller || !callee) continue;
-
-      const callerRisk = riskMap.get(edge.callerFunctionId);
-      const calleeRisk = riskMap.get(edge.calleeFunctionId || '');
-      
-      const attributes: Record<string, string> = {
-        color: this.getRiskEdgeColor(callerRisk, calleeRisk, options),
-        tooltip: `"${caller.name} → ${callee.name}"`,
-      };
-
-      graph.edges.push({
-        source: this.sanitizeNodeId(edge.callerFunctionId),
-        target: this.sanitizeNodeId(edge.calleeFunctionId || ''),
-        attributes,
-      });
-    }
-
-    // Create clusters
-    if (options.clusterBy === 'risk') {
-      this.createRiskClusters(graph, riskAssessments);
-    } else if (options.clusterBy === 'file') {
-      this.createFileClusters(graph, functions);
-    } else if (options.clusterBy === 'complexity') {
-      this.createComplexityClusters(graph, functions, riskAssessments);
-    }
-
-    return graph;
-  }
 
   private createCircularDependencyGraph(
     functions: FunctionInfo[],
@@ -560,27 +472,7 @@ export class DotGenerator {
     return options.nodeColor;
   }
 
-  private getRiskNodeColor(risk: ComprehensiveRiskAssessment | undefined, options: Required<DotGraphOptions>): string {
-    if (!risk) return options.nodeColor;
-    
-    switch (risk.riskLevel) {
-      case 'critical': return 'red';
-      case 'high': return 'orange';
-      case 'medium': return 'yellow';
-      case 'low': return 'lightgreen';
-      default: return options.nodeColor;
-    }
-  }
 
-  private getRiskEdgeColor(callerRisk: ComprehensiveRiskAssessment | undefined, calleeRisk: ComprehensiveRiskAssessment | undefined, options: Required<DotGraphOptions>): string {
-    if (callerRisk?.riskLevel === 'critical' || calleeRisk?.riskLevel === 'critical') {
-      return 'red';
-    }
-    if (callerRisk?.riskLevel === 'high' || calleeRisk?.riskLevel === 'high') {
-      return 'orange';
-    }
-    return options.edgeColor;
-  }
 
   private getSCCNodeColor(component: StronglyConnectedComponent, options: Required<DotGraphOptions>): string {
     if (component.isRecursive) return 'lightyellow';
@@ -624,8 +516,7 @@ export class DotGenerator {
 
   private createComplexityClusters(
     graph: DotGraph, 
-    functions: FunctionInfo[], 
-    metricsOrRiskAssessments: DependencyMetrics[] | ComprehensiveRiskAssessment[]
+    functions: FunctionInfo[]
   ): void {
     const clusterMap = new Map<string, string>();
     const complexityColors = {
@@ -638,46 +529,18 @@ export class DotGenerator {
     // O(N) optimization: Pre-build lookup maps
     const functionMap = new Map(functions.map(f => [this.sanitizeNodeId(f.id), f]));
     
-    let riskAssessmentMap: Map<string, ComprehensiveRiskAssessment> | undefined;
-    let metricsMap: Map<string, DependencyMetrics> | undefined;
-    
-    if (metricsOrRiskAssessments.length > 0) {
-      const firstItem = metricsOrRiskAssessments[0];
-      if ('overallScore' in firstItem) {
-        // RiskAssessment case
-        riskAssessmentMap = new Map(
-          (metricsOrRiskAssessments as ComprehensiveRiskAssessment[])
-            .map(r => [r.functionId, r])
-        );
-      } else {
-        // DependencyMetrics case
-        metricsMap = new Map(
-          (metricsOrRiskAssessments as DependencyMetrics[])
-            .map(m => [m.functionId, m])
-        );
-      }
-    }
-    
     // O(N): Single pass through nodes to assign complexity clusters
     for (const node of graph.nodes) {
       const func = functionMap.get(node.id);
       if (!func) continue;
       
-      // Extract complexity metric from either DependencyMetrics or RiskAssessment
-      let complexityValue = 5; // default medium complexity
-      
-      if (riskAssessmentMap) {
-        const riskAssessment = riskAssessmentMap.get(func.id);
-        complexityValue = Math.round((riskAssessment?.overallScore || 50) / 5); // Map 0-100 to 0-20
-      } else if (metricsMap) {
-        const metrics = metricsMap.get(func.id);
-        complexityValue = (metrics?.fanIn || 0) + (metrics?.fanOut || 0);
-      }
+      // Extract complexity from function metrics
+      const complexity = func.metrics?.cyclomaticComplexity || 0;
       
       // Bucket complexity into categories
-      const complexityLevel = complexityValue <= 5 ? 'low' :
-                            complexityValue <= 10 ? 'medium' :
-                            complexityValue <= 15 ? 'high' : 'critical';
+      const complexityLevel = complexity <= 5 ? 'low' :
+                            complexity <= 10 ? 'medium' :
+                            complexity <= 15 ? 'high' : 'critical';
       
       let clusterId = clusterMap.get(complexityLevel);
       
@@ -698,44 +561,6 @@ export class DotGenerator {
     }
   }
 
-  private createRiskClusters(graph: DotGraph, riskAssessments: ComprehensiveRiskAssessment[]): void {
-    const riskGroups = new Map<string, string[]>();
-    
-    for (const assessment of riskAssessments) {
-      const level = assessment.riskLevel;
-      if (!riskGroups.has(level)) {
-        riskGroups.set(level, []);
-      }
-      riskGroups.get(level)!.push(assessment.functionId);
-    }
-
-    const riskColors = {
-      critical: 'lightcoral',
-      high: 'lightyellow',
-      medium: 'lightblue',
-      low: 'lightgreen',
-    };
-
-    for (const [level, funcIds] of riskGroups) {
-      const clusterId = `cluster_risk_${level}`;
-      graph.clusters.set(clusterId, {
-        label: `${level.toUpperCase()} Risk`,
-        attributes: {
-          style: 'filled',
-          fillcolor: riskColors[level as keyof typeof riskColors] || 'lightgray',
-          color: 'black',
-        },
-      });
-
-      // Update node clusters - O(N) optimization using Set for fast lookup
-      const sanitizedIdsSet = new Set(funcIds.map(id => this.sanitizeNodeId(id)));
-      for (const node of graph.nodes) {
-        if (sanitizedIdsSet.has(node.id)) {
-          node.cluster = clusterId;
-        }
-      }
-    }
-  }
 
   private truncateLabel(label: string, maxLength: number): string {
     if (label.length <= maxLength) return label;
