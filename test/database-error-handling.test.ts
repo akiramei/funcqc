@@ -19,6 +19,14 @@ vi.mock('@electric-sql/pglite', () => ({
       query: vi.fn().mockResolvedValue({ rows: [] }),
       close: vi.fn().mockResolvedValue(undefined),
       exec: vi.fn().mockResolvedValue(undefined),
+      transaction: vi.fn().mockImplementation(async (callback) => {
+        // Mock transaction by calling the callback with a mock transaction object
+        const mockTrx = {
+          query: vi.fn().mockResolvedValue({ rows: [] }),
+          exec: vi.fn().mockResolvedValue(undefined),
+        };
+        return await callback(mockTrx);
+      }),
       path: path, // Store path but don't use it for filesystem operations
     };
   }),

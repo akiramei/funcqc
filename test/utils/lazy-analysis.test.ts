@@ -30,6 +30,7 @@ describe('Lazy Analysis Utilities', () => {
       getSnapshot: vi.fn(),
       getLatestSnapshot: vi.fn(),
       getFunctionsBySnapshot: vi.fn(),
+      findFunctionsInSnapshot: vi.fn(),
       getSourceFilesBySnapshot: vi.fn(),
       getCallEdgesBySnapshot: vi.fn(),
       insertCallEdges: vi.fn(),
@@ -267,7 +268,7 @@ describe('Lazy Analysis Utilities', () => {
 
       mockStorage.getSnapshots.mockResolvedValue([mockSnapshot]);
       mockStorage.getSourceFilesBySnapshot.mockResolvedValue(mockSourceFiles);
-      mockStorage.getFunctionsBySnapshot.mockResolvedValue(mockFunctions);
+      mockStorage.findFunctionsInSnapshot.mockResolvedValue(mockFunctions);
       mockStorage.insertCallEdges.mockResolvedValue(undefined);
       mockStorage.insertInternalCallEdges.mockResolvedValue(undefined);
       mockStorage.updateAnalysisLevel.mockResolvedValue(undefined);
@@ -386,7 +387,7 @@ describe('Lazy Analysis Utilities', () => {
       ];
 
       mockStorage.getSnapshot.mockResolvedValue(mockSnapshot);
-      mockStorage.getFunctionsBySnapshot.mockResolvedValue(mockFunctions);
+      mockStorage.findFunctionsInSnapshot.mockResolvedValue(mockFunctions);
       mockStorage.getSnapshots.mockResolvedValue([mockSnapshot]);
       mockStorage.getCallEdgesBySnapshot.mockResolvedValue(mockCallEdges);
 
@@ -417,7 +418,7 @@ describe('Lazy Analysis Utilities', () => {
       const mockCallEdges: CallEdge[] = [];
 
       mockStorage.getLatestSnapshot.mockResolvedValue(mockSnapshot);
-      mockStorage.getFunctionsBySnapshot.mockResolvedValue(mockFunctions);
+      mockStorage.findFunctionsInSnapshot.mockResolvedValue(mockFunctions);
       mockStorage.getSnapshots.mockResolvedValue([mockSnapshot]);
       mockStorage.getCallEdgesBySnapshot.mockResolvedValue(mockCallEdges);
 
@@ -467,7 +468,7 @@ describe('Lazy Analysis Utilities', () => {
       vi.mocked(FunctionAnalyzer).mockImplementation(() => mockAnalyzer as any);
 
       mockStorage.getLatestSnapshot.mockResolvedValue(mockSnapshot);
-      mockStorage.getFunctionsBySnapshot.mockResolvedValue(mockFunctions);
+      mockStorage.findFunctionsInSnapshot.mockResolvedValue(mockFunctions);
       mockStorage.getSnapshots.mockResolvedValue([mockSnapshot]);
       mockStorage.getSourceFilesBySnapshot.mockResolvedValue([{
         filePath: 'src/test.ts',
@@ -592,7 +593,7 @@ describe('Lazy Analysis Utilities', () => {
         linesOfCode: 3,
         hash: 'abc123'
       }]);
-      mockStorage.getFunctionsBySnapshot.mockResolvedValue([]);
+      mockStorage.findFunctionsInSnapshot.mockResolvedValue([]);
 
       const result = await ensureCallGraphData(mockEnvironment, { 
         showProgress: false,

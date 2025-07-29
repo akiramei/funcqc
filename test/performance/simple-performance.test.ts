@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -6,6 +6,9 @@ import { TypeScriptAnalyzer } from '../../src/analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../../src/storage/pglite-adapter';
 import { QualityCalculator } from '../../src/metrics/quality-calculator';
 import { FunctionInfo } from '../../src/types';
+
+// This test needs real PGLite, so we clear any mocks
+vi.unmock('@electric-sql/pglite');
 
 describe('Performance Optimization Tests', () => {
   let tempDir: string;
@@ -88,7 +91,7 @@ describe('Performance Optimization Tests', () => {
     const snapshots = await storage.getSnapshots();
     expect(snapshots).toHaveLength(1);
     
-    const functions = await storage.getFunctions(snapshots[0].id);
+    const functions = await storage.findFunctionsInSnapshot(snapshots[0].id);
     expect(functions).toHaveLength(testFunctions.length);
 
     // Performance expectations

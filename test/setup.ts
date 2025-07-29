@@ -2,7 +2,8 @@
  * Global test setup for funcqc
  */
 
-import { beforeAll, afterAll } from 'vitest';
+import { beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { mockProcessExit } from './test-utils';
 
 // Track open connections to ensure proper cleanup
 const openConnections = new Set<unknown>();
@@ -18,6 +19,19 @@ global.__TEST_UNTRACK_CONNECTION__ = (connection: unknown) => {
 
 beforeAll(() => {
   console.log('🧪 Starting funcqc test suite...');
+});
+
+// Mock process.exit for all tests
+let processExitSpy: ReturnType<typeof mockProcessExit>;
+
+beforeEach(() => {
+  // Mock process.exit to prevent test runner termination
+  processExitSpy = mockProcessExit();
+});
+
+afterEach(() => {
+  // Restore process.exit after each test
+  processExitSpy.mockRestore();
 });
 
 afterAll(async () => {

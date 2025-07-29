@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { PGLiteStorageAdapter } from '../../src/storage/pglite-adapter';
 import { ConfigManager } from '../../src/core/config';
 import { FunctionInfo } from '../../src/types';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import path from 'path';
+
+// This test needs real PGLite, so we clear any mocks
+vi.unmock('@electric-sql/pglite');
 
 describe('PGLiteStorageAdapter - Function History', () => {
   let storage: PGLiteStorageAdapter;

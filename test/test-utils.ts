@@ -16,6 +16,14 @@ export function mockPGLiteForPathValidation() {
         query: vi.fn().mockResolvedValue({ rows: [] }),
         close: vi.fn().mockResolvedValue(undefined),
         exec: vi.fn().mockResolvedValue(undefined),
+        transaction: vi.fn().mockImplementation(async (callback) => {
+          // Mock transaction by calling the callback with a mock transaction object
+          const mockTrx = {
+            query: vi.fn().mockResolvedValue({ rows: [] }),
+            exec: vi.fn().mockResolvedValue(undefined),
+          };
+          return await callback(mockTrx);
+        }),
         path: path,
       };
     }),
@@ -47,4 +55,30 @@ export function getSafeTestDbPath(): string {
     return path.join(os.tmpdir(), `funcqc-ci-test-${process.pid}.db`);
   }
   return './test-db.db';
+}
+
+/**
+ * Mock process.exit to prevent test process termination
+ * This prevents the graceful shutdown utility from exiting the test runner
+ */
+export function mockProcessExit() {
+  const processExitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+    throw new Error(`process.exit called with code ${code}`);
+  }) as never);
+  
+  return processExitSpy;
+}
+
+/**
+ * Setup common test mocks including process.exit
+ * Call this in beforeEach() to ensure clean test environment
+ */
+export function setupTestMocks() {
+  // Mock process.exit to prevent test termination
+  const exitSpy = mockProcessExit();
+  
+  // Return spies for assertions if needed
+  return {
+    exitSpy
+  };
 }
