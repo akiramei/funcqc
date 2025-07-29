@@ -1,41 +1,33 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { DatabaseError, PGLiteStorageAdapter } from '../src/storage/pglite-adapter';
 import { ErrorCode } from '../src/utils/error-handler';
 import * as fs from 'fs';
 
-// Clear any existing mocks first to ensure clean test state
-vi.unmock('@electric-sql/pglite');
-vi.unmock('fs');
-vi.clearAllMocks();
-
-// Mock fs module
+// Mock fs and PGLite before any imports to ensure they are properly mocked
 vi.mock('fs', () => ({
   existsSync: vi.fn(),
 }));
 
-// Mock PGLite to avoid filesystem operations in this specific test
-// This test focuses on path validation logic, not database operations
 vi.mock('@electric-sql/pglite', () => ({
   PGlite: vi.fn().mockImplementation((path: string) => {
-    // Don't create actual filesystem structures for any path in tests
-    // This prevents creation of :memory:, C:, D:, etc. directories
     console.log(`PGLite mock intercepted: ${path}`);
     return {
       query: vi.fn().mockResolvedValue({ rows: [] }),
       close: vi.fn().mockResolvedValue(undefined),
       exec: vi.fn().mockResolvedValue(undefined),
       transaction: vi.fn().mockImplementation(async (callback) => {
-        // Mock transaction by calling the callback with a mock transaction object
         const mockTrx = {
           query: vi.fn().mockResolvedValue({ rows: [] }),
           exec: vi.fn().mockResolvedValue(undefined),
         };
         return await callback(mockTrx);
       }),
-      path: path, // Store path but don't use it for filesystem operations
+      path: path,
     };
   }),
 }));
+
+// Import after mocking
+import { DatabaseError, PGLiteStorageAdapter } from '../src/storage/pglite-adapter';
 
 describe('Database Error Handling', () => {
   let mockFs: any;
@@ -46,7 +38,7 @@ describe('Database Error Handling', () => {
     
     // Verify imports work correctly in CI environment
     console.log('DatabaseError constructor:', DatabaseError.name);
-    console.log('ErrorCode values:', Object.keys(ErrorCode));
+    console.log('ErrorCode available:', !!ErrorCode.INVALID_CONFIG);
   });
 
   describe('Path Validation', () => {
