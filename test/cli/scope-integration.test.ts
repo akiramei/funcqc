@@ -117,12 +117,12 @@ describe('CLI Scope Integration', () => {
       expect(typeof commandFn).toBe('function');
       
       // Mock no functions found
-      mockEnvironment.storage.queryFunctions = vi.fn().mockResolvedValue([]);
+      mockEnvironment.storage.findFunctions = vi.fn().mockResolvedValue([]);
       
       await commandFn(mockEnvironment);
       
       // Verify scope was passed to storage query
-      expect(mockEnvironment.storage.queryFunctions).toHaveBeenCalledWith(
+      expect(mockEnvironment.storage.findFunctions).toHaveBeenCalledWith(
         expect.objectContaining({ scope: 'src' })
       );
     });

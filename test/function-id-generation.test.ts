@@ -1,10 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as crypto from 'crypto';
 import { TypeScriptAnalyzer } from '../src/analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../src/storage/pglite-adapter';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+// This test needs real PGLite, so we clear any mocks
+vi.unmock('@electric-sql/pglite');
 
 describe('Function ID Generation System', () => {
   let tempDir: string;
@@ -169,7 +172,7 @@ describe('Function ID Generation System', () => {
     expect(functions.length).toBe(20);
     
     // Retrieve functions from storage with full data
-    const storedFunctions = await storage.getFunctions(snapshotId!, { includeFullData: true });
+    const storedFunctions = await storage.findFunctionsInSnapshot(snapshotId!, { includeFullData: true });
     console.log(`Retrieved ${storedFunctions.length} functions from storage`);
     
     // DEBUG: Log retrieved function details

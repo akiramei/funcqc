@@ -1199,7 +1199,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   private validateDbPath(dbPath: string): void {
-    if (!dbPath || typeof dbPath !== 'string') {
+    if (dbPath === null || dbPath === undefined || typeof dbPath !== 'string' || !dbPath.trim()) {
       throw new DatabaseError(
         ErrorCode.INVALID_CONFIG,
         'Database path must be a non-empty string'
@@ -1207,7 +1207,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
 
     // Check for dangerous root paths
-    if (dbPath === '/' || dbPath === '//') {
+    if (dbPath === '/' || dbPath === '//' || dbPath === '') {
       throw new DatabaseError(
         ErrorCode.INVALID_CONFIG,
         'Root directory is not a valid database path. Use a specific directory like /tmp/funcqc/data'
