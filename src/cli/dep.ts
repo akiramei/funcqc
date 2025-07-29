@@ -2566,7 +2566,7 @@ export const depCyclesCommand: VoidCommand<DepCyclesOptions> = (options) =>
       spinner.text = 'Loading function information...';
       
       // Get function information for better display
-      const functions = await env.storage.getFunctions(snapshot.id);
+      const functions = await env.storage.getFunctionsBySnapshot(snapshot.id);
       const functionMap = new Map(functions.map(f => [f.id, f]));
 
       spinner.text = 'Detecting circular dependencies...';
@@ -2576,7 +2576,9 @@ export const depCyclesCommand: VoidCommand<DepCyclesOptions> = (options) =>
       const cycles = analyzer.findCircularDependencies(callEdges);
 
       // Filter by minimum size
-      const minSize = options.minSize ? parseInt(options.minSize) : 2;
+      const minSize = options.minSize
+        ? Math.max(1, parseInt(options.minSize, 10) || 2)
+        : 2;
       const filteredCycles = cycles.filter(cycle => cycle.length >= minSize);
 
       spinner.succeed('Circular dependency analysis complete');
