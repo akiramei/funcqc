@@ -198,9 +198,9 @@ export class HashCache {
    */
   private normalizeForAST(content: string): string {
     return content
-      .replace(/\s+/g, ' ')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//g, '') // Fixed ReDoS vulnerability: more efficient multiline comment removal
+      .replace(/\/\/.*$/gm, '') // Remove single-line comments first, before normalizing whitespace
+      .replace(/\s+/g, ' ') // Then normalize whitespace
       .trim();
   }
 
