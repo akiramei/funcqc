@@ -32,7 +32,7 @@ export interface DiffCommandOptions extends CommandOptions {
 function parseSimilarityThreshold(options: DiffCommandOptions): number {
   return typeof options.similarityThreshold === 'string' 
     ? parseFloat(options.similarityThreshold) 
-    : options.similarityThreshold || 0.95;
+    : options.similarityThreshold || 0.75; // Lowered from 0.95 to 0.75 for better move detection
 }
 
 /**
@@ -199,19 +199,21 @@ function displaySummaryWithClassification(diff: SnapshotDiff, classification: Fu
   );
   console.log();
   
-  // Changes overview with classification
+  // Changes overview with classification (prioritize structural changes)
   console.log(chalk.bold('Changes:'));
   
-  // Break down the changes by type
+  // Show structural changes first (most important for understanding)
+  if (classification.moves.length > 0) {
+    console.log(`  ${chalk.cyan('📦')} ${classification.moves.length} function${classification.moves.length !== 1 ? 's' : ''} moved`);
+  }
+  if (classification.renames.length > 0) {
+    console.log(`  ${chalk.magenta('🔀')} ${classification.renames.length} function${classification.renames.length !== 1 ? 's' : ''} renamed`);
+  }
   if (classification.signatureChanges.length > 0) {
     console.log(`  ${chalk.blue('🔄')} ${classification.signatureChanges.length} signature change${classification.signatureChanges.length !== 1 ? 's' : ''}`);
   }
-  if (classification.renames.length > 0) {
-    console.log(`  ${chalk.magenta('🏷️')} ${classification.renames.length} rename${classification.renames.length !== 1 ? 's' : ''}`);
-  }
-  if (classification.moves.length > 0) {
-    console.log(`  ${chalk.cyan('📁')} ${classification.moves.length} move${classification.moves.length !== 1 ? 's' : ''}`);
-  }
+  
+  // Then show true additions/removals/modifications
   console.log(`  ${chalk.green('+')} ${classification.trueAdditions.length} functions added`);
   console.log(`  ${chalk.red('-')} ${classification.trueRemovals.length} functions removed`);
   console.log(`  ${chalk.yellow('~')} ${diff.modified.length} functions modified`);
@@ -241,7 +243,7 @@ async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, 
   // Classify function changes
   const classification = await classifyFunctionChanges(filtered, options, similarityManager);
   
-  // Display classified changes
+  // Display classified changes FIRST (most important for user understanding)
   displayClassifiedChanges(classification);
 
   // Update filtered diff to use true additions/removals
@@ -672,22 +674,21 @@ async function calculateFunctionSimilarity(
 }
 
 function displayClassifiedChanges(classification: FunctionClassification): void {
-  // Display signature changes
-  if (classification.signatureChanges.length > 0) {
-    console.log(chalk.blue('🔄 SIGNATURE CHANGES') + chalk.gray(` (${classification.signatureChanges.length})`));
+  // Display moves first (most important structural change)
+  if (classification.moves.length > 0) {
+    console.log(chalk.cyan('📦 MOVED FUNCTIONS') + chalk.gray(` (${classification.moves.length})`));
     console.log();
     
-    for (const change of classification.signatureChanges) {
-      console.log(chalk.bold(`📁 ${change.filePath}`));
-      console.log(`Function: ${change.functionName}`);
-      console.log(`Old: ${change.oldSignature}`);
-      console.log(`New: ${change.newSignature}`);
-      console.log(`Similarity: ${Math.round(change.similarity * 100)}%`);
+    for (const move of classification.moves) {
+      console.log(`Function: ${move.functionName}`);
+      console.log(`From: ${move.fromFile}`);
+      console.log(`To: ${move.toFile}`);
+      console.log(`Similarity: ${Math.round(move.similarity * 100)}%`);
       console.log();
     }
   }
 
-  // Display renames
+  // Display renames second
   if (classification.renames.length > 0) {
     console.log(chalk.magenta('🔀 RENAMED FUNCTIONS') + chalk.gray(` (${classification.renames.length})`));
     console.log();
@@ -700,16 +701,17 @@ function displayClassifiedChanges(classification: FunctionClassification): void 
     }
   }
 
-  // Display moves
-  if (classification.moves.length > 0) {
-    console.log(chalk.cyan('📦 MOVED FUNCTIONS') + chalk.gray(` (${classification.moves.length})`));
+  // Display signature changes last
+  if (classification.signatureChanges.length > 0) {
+    console.log(chalk.blue('🔄 SIGNATURE CHANGES') + chalk.gray(` (${classification.signatureChanges.length})`));
     console.log();
     
-    for (const move of classification.moves) {
-      console.log(`Function: ${move.functionName}`);
-      console.log(`From: ${move.fromFile}`);
-      console.log(`To: ${move.toFile}`);
-      console.log(`Similarity: ${Math.round(move.similarity * 100)}%`);
+    for (const change of classification.signatureChanges) {
+      console.log(chalk.bold(`📁 ${change.filePath}`));
+      console.log(`Function: ${change.functionName}`);
+      console.log(`Old: ${change.oldSignature}`);
+      console.log(`New: ${change.newSignature}`);
+      console.log(`Similarity: ${Math.round(change.similarity * 100)}%`);
       console.log();
     }
   }
