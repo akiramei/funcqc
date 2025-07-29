@@ -517,40 +517,6 @@ AI Integration:
 `);
 
 
-// Add explain command
-program
-  .command('explain')
-  .description('Explain quality metrics and concepts')
-  .argument('[metric-or-concept]', 'specific metric or concept to explain')
-  .option('--metric <name>', 'explain specific metric')
-  .option('--concept <name>', 'explain concept (complexity, maintainability, quality, testing)')
-  .option('--threshold', 'explain threshold system')
-  .option('--all', 'list all available metrics and concepts')
-  .option('--examples', 'include code examples in explanations')
-  .option('--format <type>', 'output format (table|detailed)', 'detailed')
-  .action(async (metricOrConcept: string | undefined, options: OptionValues) => {
-    const { explainCommand } = await import('./cli/explain');
-    return explainCommand(metricOrConcept, options);
-  })
-  .addHelpText('after', `
-Examples:
-  $ funcqc explain cyclomaticComplexity              # Explain specific metric
-  $ funcqc explain --concept complexity              # Explain concept
-  $ funcqc explain --threshold                       # Explain threshold system
-  $ funcqc explain --all                             # List all metrics
-  $ funcqc explain maintainability --examples        # Include examples
-
-Available Metrics:
-  Complexity: cyclomaticComplexity, cognitiveComplexity, maxNestingLevel
-  Size: linesOfCode, totalLines, parameterCount
-  Structure: branchCount, loopCount, returnStatementCount, tryCatchCount
-  Advanced: halsteadVolume, halsteadDifficulty, maintainabilityIndex
-  Documentation: commentLines, codeToCommentRatio
-  Patterns: asyncAwaitCount, callbackCount
-
-Available Concepts:
-  complexity, maintainability, quality, testing
-`);
 
 program
   .command('db')
