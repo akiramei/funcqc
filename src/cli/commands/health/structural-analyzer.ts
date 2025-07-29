@@ -224,17 +224,43 @@ function createMinimalStructuralMetrics(
   const avgFanOut = avgFanIn; // Same for undirected approximation
   const estimatedHubThreshold = Math.max(3, Math.ceil(avgFanIn * 1.5));
   
-  const pageRankMetrics: PageRankMetrics = {
-    totalFunctions,
-    converged: false,
-    iterations: 0,
-    averageScore: 1.0 / totalFunctions,
-    maxScore: 1.0,
-    centralityVariance: 0,
-    centralityGini: 0,
-    importanceDistribution: { critical: 0, high: 0, medium: 0, low: totalFunctions },
-    topCentralFunctions: []
-  };
+  // Ultra-lightweight PageRank for massive datasets (minimal iterations)
+  const pageRankCalculator = new PageRankCalculator({
+    dampingFactor: 0.85,
+    maxIterations: Math.min(5, Math.max(2, Math.ceil(Math.log2(totalFunctions)))), // Minimal iterations
+    tolerance: 1e-1  // Very relaxed tolerance
+  });
+  
+  let pageRankMetrics: PageRankMetrics;
+  try {
+    const pageRankResult = pageRankCalculator.calculatePageRank(functions, callEdges);
+    const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, callEdges);
+    
+    pageRankMetrics = {
+      totalFunctions: pageRankResult.totalFunctions,
+      converged: pageRankResult.converged,
+      iterations: pageRankResult.iterations,
+      averageScore: pageRankResult.averageScore,
+      maxScore: pageRankResult.maxScore,
+      centralityVariance: centralityMetrics.centralityVariance,
+      centralityGini: centralityMetrics.centralityGini,
+      importanceDistribution: pageRankResult.importanceDistribution,
+      topCentralFunctions: centralityMetrics.topCentralFunctions.slice(0, 2) // Top 2 only
+    };
+  } catch {
+    // Ultra-minimal fallback for extreme cases
+    pageRankMetrics = {
+      totalFunctions,
+      converged: false,
+      iterations: 0,
+      averageScore: 1.0 / totalFunctions,
+      maxScore: 1.0,
+      centralityVariance: 0,
+      centralityGini: 0,
+      importanceDistribution: { critical: 0, high: 0, medium: 0, low: totalFunctions },
+      topCentralFunctions: []
+    };
+  }
   
   return {
     totalComponents: 1,
@@ -290,18 +316,44 @@ async function performSimplifiedStructuralAnalysis(
   const hubFunctions = hubMetrics.length;
   const hubFunctionIds = hubMetrics.map(m => m.functionId);
   
-  // Simplified PageRank with minimal configuration
-  const pageRankMetrics: PageRankMetrics = {
-    totalFunctions: functions.length,
-    converged: false,
-    iterations: 0,
-    averageScore: 1.0 / functions.length,
-    maxScore: 1.0,
-    centralityVariance: 0,
-    centralityGini: 0,
-    importanceDistribution: { critical: 0, high: 0, medium: 0, low: functions.length },
-    topCentralFunctions: []
-  };
+  // Lightweight PageRank for simplified analysis (reduced iterations for performance)
+  const pageRankCalculator = new PageRankCalculator({
+    dampingFactor: 0.85,
+    maxIterations: Math.min(10, Math.max(3, Math.ceil(Math.log2(functions.length)))), // Very limited iterations
+    tolerance: 1e-2  // Relaxed tolerance for speed
+  });
+  
+  let pageRankMetrics: PageRankMetrics;
+  try {
+    const pageRankResult = pageRankCalculator.calculatePageRank(functions, callEdges);
+    const centralityMetrics = pageRankCalculator.calculateCentralityMetrics(functions, callEdges);
+    
+    pageRankMetrics = {
+      totalFunctions: pageRankResult.totalFunctions,
+      converged: pageRankResult.converged,
+      iterations: pageRankResult.iterations,
+      averageScore: pageRankResult.averageScore,
+      maxScore: pageRankResult.maxScore,
+      centralityVariance: centralityMetrics.centralityVariance,
+      centralityGini: centralityMetrics.centralityGini,
+      importanceDistribution: pageRankResult.importanceDistribution,
+      topCentralFunctions: centralityMetrics.topCentralFunctions.slice(0, 3) // Limit to top 3 for performance
+    };
+  } catch (error) {
+    // Fallback to minimal metrics if PageRank fails
+    env.commandLogger.debug(`Simplified PageRank failed: ${error}, using fallback metrics`);
+    pageRankMetrics = {
+      totalFunctions: functions.length,
+      converged: false,
+      iterations: 0,
+      averageScore: 1.0 / functions.length,
+      maxScore: 1.0,
+      centralityVariance: 0,
+      centralityGini: 0,
+      importanceDistribution: { critical: 0, high: 0, medium: 0, low: functions.length },
+      topCentralFunctions: []
+    };
+  }
   
   return {
     totalComponents: 1, // Simplified assumption
@@ -362,6 +414,7 @@ export async function analyzeStructuralMetrics(
     let internalCallEdges: InternalCallEdge[] = [];
     let pageRankEdges = callEdges;
     
+    
     if (excludeIntraFileCalls) {
       internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
       
@@ -385,13 +438,14 @@ export async function analyzeStructuralMetrics(
           const isIntraFile = calleeSet?.has(edge.calleeFunctionId!) ?? false;
           return !isIntraFile;
         });
+        
       }
     }
     
     // For large datasets, use simplified analysis to prevent timeout
-    // Use full callEdges.length for consistent threshold judgment across paths
-    if (callEdges.length > 3500) {
-      const simplifiedResult = await performSimplifiedStructuralAnalysis(functions, callEdges, snapshotId, env, mode);
+    // Use filtered pageRankEdges for accurate threshold judgment after edge filtering
+    if (pageRankEdges.length > 3500) {
+      const simplifiedResult = await performSimplifiedStructuralAnalysis(functions, pageRankEdges, snapshotId, env, mode);
       // Cache the simplified result too
       setCachedStructuralMetrics(snapshotId, callEdgesHash, simplifiedResult);
       return simplifiedResult;
