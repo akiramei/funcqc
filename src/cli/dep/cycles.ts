@@ -85,15 +85,15 @@ function outputCyclesJSON(
   cycles: string[][],
   functionMap: Map<string, import('../../types').FunctionInfo>,
   totalCycles: number,
-  _options: DepCyclesOptions
+  options: DepCyclesOptions
 ): void {
   const result = {
     summary: {
       totalCycles,
       displayedCycles: cycles.length,
       filters: {
-        minLength: _options.minLength,
-        limit: _options.limit,
+        minLength: options.minLength,
+        limit: options.limit,
       },
     },
     cycles: cycles.map((cycle, index) => ({

@@ -65,9 +65,7 @@ async function performGlobalRouteAnalysis(
   _options: DepShowOptions, 
   _qualityMetricsMap?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
 ): Promise<void> {
-  // This is a placeholder for global analysis
-  // In the original implementation, this would analyze all functions
-  console.log('Global route analysis not implemented in this split version');
+  throw new Error('Global route analysis is not yet implemented');
 }
 
 /**

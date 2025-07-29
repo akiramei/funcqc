@@ -3,7 +3,7 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
 import { DatabaseError } from '../../storage/pglite-adapter';
-import { CallEdge } from '../../types';
+import { CallEdge, FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepListOptions } from './types';
 
@@ -29,14 +29,14 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         return;
       }
 
-      // Create function map for filtering
-      const functionMap = new Map(functions.map(f => [f.id, { id: f.id, name: f.name }]));
+      // Create function map for filtering (need full objects for filePath access)
+      const functionMap = new Map(functions.map(f => [f.id, f]));
 
       // Apply filters
       let filteredEdges = applyDepFilters(allEdges, options, functionMap);
 
       // Apply sorting
-      filteredEdges = applyDepSorting(filteredEdges, options);
+      filteredEdges = applyDepSorting(filteredEdges, options, functionMap);
 
       // Prioritize internal call edges (they have actual line numbers) for better demo
       filteredEdges = prioritizeInternalEdges(filteredEdges);
@@ -80,7 +80,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
 function applyDepFilters(
   edges: CallEdge[],
   options: DepListOptions,
-  functionMap: Map<string, { id: string; name: string }>
+  functionMap: Map<string, FunctionInfo>
 ): CallEdge[] {
   let filtered = edges;
 
@@ -99,8 +99,12 @@ function applyDepFilters(
   }
 
   if (options.file) {
-    // File filtering would require looking up function file paths
-    // This is a placeholder for now
+    filtered = filtered.filter(edge => {
+      const caller = functionMap.get(edge.callerFunctionId);
+      const callee = functionMap.get(edge.calleeFunctionId || '');
+      return caller?.filePath?.includes(options.file || '') ||
+             callee?.filePath?.includes(options.file || '');
+    });
   }
 
   if (options.type) {
@@ -113,7 +117,7 @@ function applyDepFilters(
 /**
  * Apply sorting to call edges based on options
  */
-function applyDepSorting(edges: CallEdge[], options: DepListOptions): CallEdge[] {
+function applyDepSorting(edges: CallEdge[], options: DepListOptions, functionMap: Map<string, FunctionInfo>): CallEdge[] {
   const sortField = options.sort || 'caller';
   const isDesc = options.desc || false;
 
@@ -127,12 +131,14 @@ function applyDepSorting(edges: CallEdge[], options: DepListOptions): CallEdge[]
       case 'callee':
         comparison = (a.calleeFunctionId || '').localeCompare(b.calleeFunctionId || '');
         break;
-      case 'file':
-        // TODO: Implement file sorting by looking up function file paths
-        comparison = 0;
+      case 'file': {
+        const aFile = functionMap.get(a.callerFunctionId)?.filePath || '';
+        const bFile = functionMap.get(b.callerFunctionId)?.filePath || '';
+        comparison = aFile.localeCompare(bFile);
         break;
+      }
       case 'line':
-        comparison = a.lineNumber - b.lineNumber;
+        comparison = (a.lineNumber || 0) - (b.lineNumber || 0);
         break;
       default:
         comparison = a.callerFunctionId.localeCompare(b.callerFunctionId);
