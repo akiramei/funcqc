@@ -2,7 +2,7 @@
  * Structural analysis logic using SCC and dependency metrics
  */
 
-import { FunctionInfo, DynamicWeightConfig, EvaluationMode, CallEdge } from '../../../types';
+import { FunctionInfo, DynamicWeightConfig, EvaluationMode, CallEdge, InternalCallEdge } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { SCCAnalyzer, SCCAnalysisResult } from '../../../analyzers/scc-analyzer';
 import { DependencyMetricsCalculator, DependencyMetrics } from '../../../analyzers/dependency-metrics';
@@ -34,24 +34,6 @@ interface FanStatistics {
   maxFanOut: number;
 }
 
-/**
- * Check cache for existing structural metrics
- */
-async function handleCacheCheck(
-  snapshotId: string, 
-  callEdges: CallEdge[], 
-  env: CommandEnvironment
-): Promise<StructuralMetrics | null> {
-  const callEdgesHash = createCallEdgesHash(callEdges);
-  const cachedResult = getCachedStructuralMetrics(snapshotId, callEdgesHash);
-  
-  if (cachedResult) {
-    env.commandLogger.debug(`Using cached SCC analysis for snapshot ${snapshotId}`);
-    return cachedResult;
-  }
-  
-  return null;
-}
 
 /**
  * Perform SCC analysis and calculate dependency metrics
@@ -277,19 +259,11 @@ function createMinimalStructuralMetrics(
 async function performSimplifiedStructuralAnalysis(
   functions: FunctionInfo[],
   callEdges: CallEdge[],
-  snapshotId: string,
+  _snapshotId: string,
   env: CommandEnvironment,
   _mode: EvaluationMode
 ): Promise<StructuralMetrics> {
   env.commandLogger.debug('Starting ultra-fast simplified structural analysis');
-  
-  
-  // Also check internal_call_edges table
-  try {
-    await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
-  } catch {
-    // Ignore errors for simplified analysis
-  }
   
   // Ultra-fast analysis: skip dependency metrics calculation for very large datasets
   if (callEdges.length > 5000 || functions.length > 2000) {
@@ -373,40 +347,54 @@ export async function analyzeStructuralMetrics(
     
     const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
     
-    // Try using internal call edges for comparison
-    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
-    // OPTIMIZATION: Exclude intra-file calls for PageRank analysis (focus on architectural dependencies)
-    // Intra-file calls (internal_call_edges) are less relevant for project-wide dependency analysis
-    const excludeIntraFileCalls = process.env['FUNCQC_EXCLUDE_INTRA_FILE_CALLS'] !== 'false';
-    let pageRankEdges = callEdges;
+    // Calculate hash once and reuse throughout the analysis
+    const callEdgesHash = createCallEdgesHash(callEdges);
     
-    if (excludeIntraFileCalls && internalCallEdges.length > 0) {
-      // Create a set of intra-file call pairs for efficient lookup
-      const intraFileCallPairs = new Set(
-        internalCallEdges.map(edge => `${edge.callerFunctionId}->${edge.calleeFunctionId}`)
-      );
-      
-      // Filter out intra-file calls and external calls from all call edges
-      // Focus on inter-file internal calls only (most relevant for architectural analysis)
-      pageRankEdges = callEdges.filter(edge => {
-        const callPair = `${edge.callerFunctionId}->${edge.calleeFunctionId || ''}`;
-        const isIntraFile = intraFileCallPairs.has(callPair);
-        const isExternal = edge.calleeFunctionId === null || edge.calleeFunctionId === undefined;
-        return !isIntraFile && !isExternal;
-      });
-      
-    }
-    
-    // For large datasets, use simplified analysis to prevent timeout
-    if (pageRankEdges.length > 3500) {
-      return await performSimplifiedStructuralAnalysis(functions, pageRankEdges, snapshotId, env, mode);
-    }
-    
-    // Check cache first
-    const cachedResult = await handleCacheCheck(snapshotId, callEdges, env);
+    // Check cache first (before any expensive operations)
+    const cachedResult = getCachedStructuralMetrics(snapshotId, callEdgesHash);
     if (cachedResult) {
       env.commandLogger.debug('Using cached structural metrics');
       return cachedResult;
+    }
+    
+    // Conditionally fetch internal call edges only if needed
+    const excludeIntraFileCalls = process.env['FUNCQC_EXCLUDE_INTRA_FILE_CALLS'] !== 'false';
+    let internalCallEdges: InternalCallEdge[] = [];
+    let pageRankEdges = callEdges;
+    
+    if (excludeIntraFileCalls) {
+      internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+      
+      if (internalCallEdges.length > 0) {
+        // Use nested Map to avoid string concatenation for better memory efficiency
+        const intraFileCallMap = new Map<string, Set<string>>();
+        for (const edge of internalCallEdges) {
+          if (!intraFileCallMap.has(edge.callerFunctionId)) {
+            intraFileCallMap.set(edge.callerFunctionId, new Set());
+          }
+          intraFileCallMap.get(edge.callerFunctionId)!.add(edge.calleeFunctionId);
+        }
+        
+        // Filter out intra-file calls and external calls from all call edges
+        // Focus on inter-file internal calls only (most relevant for architectural analysis)
+        pageRankEdges = callEdges.filter(edge => {
+          const isExternal = edge.calleeFunctionId === null || edge.calleeFunctionId === undefined;
+          if (isExternal) return false;
+          
+          const calleeSet = intraFileCallMap.get(edge.callerFunctionId);
+          const isIntraFile = calleeSet?.has(edge.calleeFunctionId!) ?? false;
+          return !isIntraFile;
+        });
+      }
+    }
+    
+    // For large datasets, use simplified analysis to prevent timeout
+    // Use full callEdges.length for consistent threshold judgment across paths
+    if (callEdges.length > 3500) {
+      const simplifiedResult = await performSimplifiedStructuralAnalysis(functions, callEdges, snapshotId, env, mode);
+      // Cache the simplified result too
+      setCachedStructuralMetrics(snapshotId, callEdgesHash, simplifiedResult);
+      return simplifiedResult;
     }
     
     env.commandLogger.debug(`Computing SCC analysis for snapshot ${snapshotId}`);
@@ -436,8 +424,7 @@ export async function analyzeStructuralMetrics(
     
     const { hubThreshold } = await calculateProjectStructureMetrics(functions, snapshotId, env, mode, fanStats);
     
-    // Aggregate results
-    const callEdgesHash = createCallEdgesHash(callEdges);
+    // Aggregate results (reuse the hash calculated at the beginning)
     const result = aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash);
     
     env.commandLogger.debug(`Structural analysis completed in ${Date.now() - startTime}ms`);
