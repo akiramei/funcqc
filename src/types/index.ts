@@ -514,14 +514,6 @@ export interface EvaluateCommandOptions extends CommandOptions {
   evaluateAll?: boolean; // Evaluate all functions in the file/code
 }
 
-export interface ExplainCommandOptions extends CommandOptions {
-  metric?: string;
-  concept?: string;
-  threshold?: boolean;
-  all?: boolean;
-  examples?: boolean;
-  format?: 'table' | 'detailed';
-}
 
 export interface DbCommandOptions extends CommandOptions {
   table?: string; // Table name to query
