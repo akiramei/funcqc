@@ -80,7 +80,8 @@ export class SimilarityManager {
         } else {
           return [];
         }
-      } catch {
+      } catch (error) {
+        console.warn(`Detector ${detectorName} failed:`, error);
         return [];
       }
     });
