@@ -754,7 +754,20 @@ export class FunctionOperations implements StorageOperationModule {
     row: FunctionRow & Partial<MetricsRow> & { change_count?: number },
     parameters: ParameterInfo[]
   ): FunctionInfo {
-    const base: FunctionInfo = {
+    const base = this.mapBasicFunctionInfo(row, parameters);
+    this.enhanceFunctionInfoWithMetrics(base, row);
+    this.enhanceFunctionInfoWithChangeCount(base, row);
+    return base;
+  }
+
+  /**
+   * Map basic function information from database row
+   */
+  private mapBasicFunctionInfo(
+    row: FunctionRow & { change_count?: number },
+    parameters: ParameterInfo[]
+  ): FunctionInfo {
+    return {
       id: row.id,
       semanticId: row.semantic_id,
       contentId: row.content_id,
@@ -770,11 +783,42 @@ export class FunctionOperations implements StorageOperationModule {
       endColumn: row.end_column,
       astHash: row.ast_hash,
       contextPath: row.context_path || [],
-      functionType: (row.function_type as 'function' | 'method' | 'arrow' | 'local') || 'function',
-      modifiers: Array.isArray(row.modifiers) 
-        ? row.modifiers 
-        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
+      functionType: this.mapFunctionType(row.function_type),
+      modifiers: this.mapModifiers(row.modifiers),
       nestingLevel: row.nesting_level || 0,
+      ...this.mapFunctionFlags(row),
+      ...this.mapAccessModifier(row.access_modifier),
+      sourceCode: row.source_code || '',
+      ...this.mapSourceFileId(row.source_file_ref_id),
+      parameters,
+    };
+  }
+
+  /**
+   * Map function type with fallback
+   */
+  private mapFunctionType(functionType: string | undefined): 'function' | 'method' | 'arrow' | 'local' {
+    return (functionType as 'function' | 'method' | 'arrow' | 'local') || 'function';
+  }
+
+  /**
+   * Map modifiers array
+   */
+  private mapModifiers(modifiers: string[] | string | undefined): string[] {
+    if (Array.isArray(modifiers)) {
+      return modifiers;
+    }
+    if (modifiers && typeof modifiers === 'string') {
+      return (modifiers as string).split(',');
+    }
+    return [];
+  }
+
+  /**
+   * Map function boolean flags
+   */
+  private mapFunctionFlags(row: FunctionRow): Pick<FunctionInfo, 'isExported' | 'isAsync' | 'isGenerator' | 'isArrowFunction' | 'isMethod' | 'isConstructor' | 'isStatic'> {
+    return {
       isExported: row.is_exported || false,
       isAsync: row.is_async || false,
       isGenerator: row.is_generator || false,
@@ -782,26 +826,54 @@ export class FunctionOperations implements StorageOperationModule {
       isMethod: row.is_method || false,
       isConstructor: row.is_constructor || false,
       isStatic: row.is_static || false,
-      ...(row.access_modifier ? { accessModifier: row.access_modifier as 'public' | 'private' | 'protected' } : {}),
-      sourceCode: row.source_code || '',
-      ...(row.source_file_ref_id ? { sourceFileId: row.source_file_ref_id } : {}),
-      parameters,
     };
+  }
 
-    // Add metrics if available
+  /**
+   * Map access modifier if present
+   */
+  private mapAccessModifier(accessModifier: string | undefined): Partial<FunctionInfo> {
+    if (accessModifier) {
+      return { accessModifier: accessModifier as 'public' | 'private' | 'protected' };
+    }
+    return {};
+  }
+
+  /**
+   * Map source file ID if present
+   */
+  private mapSourceFileId(sourceFileRefId: string | undefined): Partial<FunctionInfo> {
+    if (sourceFileRefId) {
+      return { sourceFileId: sourceFileRefId };
+    }
+    return {};
+  }
+
+  /**
+   * Enhance function info with metrics if available
+   */
+  private enhanceFunctionInfoWithMetrics(
+    functionInfo: FunctionInfo,
+    row: Partial<MetricsRow>
+  ): void {
     if (row.lines_of_code !== undefined) {
       const metrics = this.mapMetrics(row);
       if (metrics) {
-        base.metrics = metrics;
+        functionInfo.metrics = metrics;
       }
     }
+  }
 
-    // Add change count if available
+  /**
+   * Enhance function info with change count if available
+   */
+  private enhanceFunctionInfoWithChangeCount(
+    functionInfo: FunctionInfo,
+    row: { change_count?: number }
+  ): void {
     if (row.change_count !== undefined) {
-      base.changeCount = row.change_count;
+      functionInfo.changeCount = row.change_count;
     }
-
-    return base;
   }
 
   /**
