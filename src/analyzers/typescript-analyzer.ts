@@ -62,6 +62,20 @@ export class TypeScriptAnalyzer {
   private cache: AnalysisCache;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
+  
+  // Static cache for QualityCalculator module to avoid repeated dynamic imports
+  private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
+  
+  /**
+   * Get cached QualityCalculator module to avoid repeated dynamic imports
+   */
+  private static async getQualityCalculator(): Promise<typeof import('../metrics/quality-calculator')> {
+    if (!TypeScriptAnalyzer.qualityCalculatorPromise) {
+      TypeScriptAnalyzer.qualityCalculatorPromise = import('../metrics/quality-calculator');
+    }
+    return TypeScriptAnalyzer.qualityCalculatorPromise;
+  }
+  
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
 
@@ -761,7 +775,8 @@ export class TypeScriptAnalyzer {
     }
 
     // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    const { QualityCalculator } = await TypeScriptAnalyzer.getQualityCalculator();
+    const qualityCalculator = new QualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(functionNode, functionInfo);
 
     return functionInfo;

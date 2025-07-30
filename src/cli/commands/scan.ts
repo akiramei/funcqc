@@ -442,11 +442,14 @@ async function initializeComponents(
     resourceManager.logSystemInfo(optimalConfig);
   }
   
-  // Monitor memory usage periodically during analysis
+  // Monitor memory usage periodically during analysis with dynamic limits
+  const v8 = await import('v8');
+  const heapStats = v8.getHeapStatistics();
+  const maxHeapMB = Math.floor(heapStats.heap_size_limit / 1024 / 1024 * 0.9); // 90% of actual V8 limit
+  
   const memoryMonitor = setInterval(() => {
     const memoryUsage = process.memoryUsage();
     const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
-    const maxHeapMB = 1400; // Conservative limit for Node.js default
     
     if (heapUsedMB > maxHeapMB * 0.8) {
       env.logger.warn(`High memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
@@ -460,8 +463,9 @@ async function initializeComponents(
     }
   }, 10000); // Check every 10 seconds
   
-  // Clear memory monitor on cleanup
-  setTimeout(() => clearInterval(memoryMonitor), 300000); // Clear after 5 minutes max
+  // Dynamic cleanup timing based on project size
+  const maxMonitoringTime = Math.max(300000, (projectSize || 100) * 100); // At least 5 minutes or 100ms per file
+  setTimeout(() => clearInterval(memoryMonitor), maxMonitoringTime);
 
   // Configure analyzer with optimal settings
   const analyzer = new TypeScriptAnalyzer(
@@ -796,55 +800,78 @@ async function collectSourceFiles(
   const exportRegex = /^export\s+/gm;
   const importRegex = /^import\s+/gm;
   
-  for (const filePath of files) {
-    try {
-      const fileContent = await fs.readFile(filePath, 'utf-8');
-      const relativePath = path.relative(process.cwd(), filePath);
-      
-      // Calculate file hash for deduplication
-      const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-      
-      // Generate content ID for deduplication
-      // Format: {fileHash}_{fileSizeBytes}
-      const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
-      const contentId = `${fileHash}_${fileSizeBytes}`;
-      
-      // Count lines
-      const lineCount = fileContent.split('\n').length;
-      
-      // Detect language from file extension
-      const language = path.extname(filePath).slice(1) || 'typescript';
-      
-      // Basic analysis for exports/imports using pre-compiled regex
-      const exportCount = (fileContent.match(exportRegex) || []).length;
-      const importCount = (fileContent.match(importRegex) || []).length;
-      
-      const sourceFile: import('../../types').SourceFile = {
-        id: contentId, // Use content ID for deduplication
-        snapshotId: '', // Will be set when saved
-        filePath: relativePath,
-        fileContent,
-        fileHash,
-        encoding: 'utf-8',
-        fileSizeBytes,
-        lineCount,
-        language,
-        functionCount: 0, // Will be updated after function analysis
-        exportCount,
-        importCount,
-        fileModifiedTime: new Date(), // Use current time instead of file stat
-        createdAt: new Date(),
-      };
-      
-      sourceFiles.push(sourceFile);
-      
-    } catch (error) {
-      console.warn(
-        chalk.yellow(
-          `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-    }
+  // Process files in parallel batches for better I/O performance
+  const batchSize = 20; // Process 20 files at a time to avoid overwhelming the system
+  const batches: string[][] = [];
+  
+  for (let i = 0; i < files.length; i += batchSize) {
+    batches.push(files.slice(i, i + batchSize));
+  }
+  
+  for (const batch of batches) {
+    const batchPromises = batch.map(async (filePath) => {
+      try {
+        // Parallel I/O operations: read file content and get file stats
+        const [fileContent, fileStats] = await Promise.all([
+          fs.readFile(filePath, 'utf-8'),
+          fs.stat(filePath)
+        ]);
+        
+        const relativePath = path.relative(process.cwd(), filePath);
+        
+        // Calculate file hash for deduplication
+        const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+        
+        // Generate content ID for deduplication
+        // Format: {fileHash}_{fileSizeBytes}
+        const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
+        const contentId = `${fileHash}_${fileSizeBytes}`;
+        
+        // Count lines
+        const lineCount = fileContent.split('\n').length;
+        
+        // Detect language from file extension
+        const language = path.extname(filePath).slice(1) || 'typescript';
+        
+        // Basic analysis for exports/imports using pre-compiled regex
+        const exportCount = (fileContent.match(exportRegex) || []).length;
+        const importCount = (fileContent.match(importRegex) || []).length;
+        
+        const sourceFile: import('../../types').SourceFile = {
+          id: contentId, // Use content ID for deduplication
+          snapshotId: '', // Will be set when saved
+          filePath: relativePath,
+          fileContent,
+          fileHash,
+          encoding: 'utf-8',
+          fileSizeBytes,
+          lineCount,
+          language,
+          functionCount: 0, // Will be updated after function analysis
+          exportCount,
+          importCount,
+          fileModifiedTime: fileStats.mtime, // Use actual file modification time
+          createdAt: new Date(),
+        };
+        
+        return sourceFile;
+        
+      } catch (error) {
+        console.warn(
+          chalk.yellow(
+            `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
+        return null;
+      }
+    });
+    
+    // Wait for batch to complete and add valid source files
+    const batchResults = await Promise.all(batchPromises);
+    sourceFiles.push(...batchResults.filter((file): file is import('../../types').SourceFile => file !== null));
+    
+    // Update progress
+    spinner.text = `Collecting source files... (${sourceFiles.length}/${files.length})`;
   }
   
   spinner.succeed(`Collected ${sourceFiles.length} source files`);
