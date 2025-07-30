@@ -16,8 +16,13 @@ export class QualityCalculator {
 
   /**
    * Calculate quality metrics for a function (legacy method)
+   * WARNING: This method creates a new AST - prefer calculateFromTsMorphNode for performance
    */
   calculate(functionInfo: FunctionInfo): QualityMetrics {
+    // Log usage of legacy path for monitoring
+    if (process.env['NODE_ENV'] !== 'production') {
+      console.warn(`⚠️  Using legacy AST creation for ${functionInfo.name} - consider optimizing the call path`);
+    }
     
     // Parse the source code to get AST
     const sourceFile = ts.createSourceFile(

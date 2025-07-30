@@ -202,50 +202,96 @@ export async function performBasicAnalysis(
   const components = await initializeComponents(env, spinner, sourceFiles.length);
   const allFunctions: FunctionInfo[] = [];
   
-  // Analyze each stored file
-  for (const sourceFile of sourceFiles) {
-    try {
-      // Create virtual source file for TypeScript analyzer
-      const virtualFile = {
-        path: sourceFile.filePath,
-        content: sourceFile.fileContent,
-      };
-      
-      // Use analyzer with content instead of file path
-      const functions = await components.analyzer.analyzeContent(
-        virtualFile.content,
-        virtualFile.path
-      );
-      
-      // Calculate metrics and set source file ID
-      for (const func of functions) {
-        // Only calculate metrics if not already calculated during extraction
-        if (!func.metrics) {
-          func.metrics = components.qualityCalculator.calculate(func);
-        }
-        
-        // Use sourceFileIdMap from N:1 design (must exist)
-        const mappedId = sourceFileIdMap?.get(func.filePath);
-        if (!mappedId) {
-          throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
-        }
-        func.sourceFileId = mappedId;
-        
-      }
-      
-      allFunctions.push(...functions);
-      
-      // Update function count in source file
-      sourceFile.functionCount = functions.length;
-      
-    } catch (error) {
-      console.warn(
-        chalk.yellow(
-          `Warning: Failed to analyze ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-    }
+  // Determine optimal concurrency based on system resources
+  const maxConcurrency = Math.min(
+    components.optimalConfig.maxWorkers,
+    Math.ceil(sourceFiles.length / 10), // Don't over-parallelize for small projects
+    8 // Cap at 8 concurrent analyses
+  );
+  
+  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
+  
+  // Process files in parallel batches for improved performance
+  const batchSize = Math.ceil(sourceFiles.length / maxConcurrency);
+  const batches: typeof sourceFiles[] = [];
+  
+  for (let i = 0; i < sourceFiles.length; i += batchSize) {
+    batches.push(sourceFiles.slice(i, i + batchSize));
   }
+  
+  // Process batches in parallel
+  const batchPromises = batches.map(async (batch, batchIndex) => {
+    const batchFunctions: FunctionInfo[] = [];
+    const batchErrors: string[] = [];
+    
+    console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+    
+    for (const sourceFile of batch) {
+      try {
+        // Create virtual source file for TypeScript analyzer
+        const virtualFile = {
+          path: sourceFile.filePath,
+          content: sourceFile.fileContent,
+        };
+        
+        // Use analyzer with content instead of file path
+        const functions = await components.analyzer.analyzeContent(
+          virtualFile.content,
+          virtualFile.path
+        );
+        
+        // Set source file ID and verify metrics calculation
+        for (const func of functions) {
+          // Metrics should be calculated during extraction in TypeScriptAnalyzer
+          // Fallback to separate calculation only if needed (for legacy compatibility)
+          if (!func.metrics) {
+            // This should rarely happen with optimized TypeScriptAnalyzer
+            func.metrics = components.qualityCalculator.calculate(func);
+          }
+          
+          // Use sourceFileIdMap from N:1 design (must exist)
+          const mappedId = sourceFileIdMap?.get(func.filePath);
+          if (!mappedId) {
+            throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
+          }
+          func.sourceFileId = mappedId;
+        }
+        
+        batchFunctions.push(...functions);
+        sourceFile.functionCount = functions.length;
+        
+      } catch (error) {
+        const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        batchErrors.push(errorMessage);
+        console.warn(chalk.yellow(`Warning: ${errorMessage}`));
+      }
+    }
+    
+    if (batchErrors.length > 0) {
+      console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
+    } else {
+      console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
+    }
+    
+    return { functions: batchFunctions, errors: batchErrors };
+  });
+  
+  // Wait for all batches to complete and collect results
+  const batchResults = await Promise.all(batchPromises);
+  const allErrors: string[] = [];
+  
+  for (const batchResult of batchResults) {
+    allFunctions.push(...batchResult.functions);
+    allErrors.push(...batchResult.errors);
+  }
+  
+  if (allErrors.length > 0) {
+    console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
+  } else {
+    console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`));
+  }
+  
+  spinner.text = `Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`;
   
   // Save analysis results
   await env.storage.storeFunctions(allFunctions, snapshotId);
@@ -386,10 +432,31 @@ async function initializeComponents(
   const resourceManager = SystemResourceManager.getInstance();
   const optimalConfig = resourceManager.getOptimalConfig(projectSize);
   
-  // Log system information in debug mode
+  // Log system information and monitor memory usage
   if (process.env['DEBUG'] === 'true') {
     resourceManager.logSystemInfo(optimalConfig);
   }
+  
+  // Monitor memory usage periodically during analysis
+  const memoryMonitor = setInterval(() => {
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
+    const maxHeapMB = 1400; // Conservative limit for Node.js default
+    
+    if (heapUsedMB > maxHeapMB * 0.8) {
+      env.logger.warn(`High memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
+        env.logger.debug(`Memory after GC: ${afterGC.toFixed(1)}MB (freed ${(heapUsedMB - afterGC).toFixed(1)}MB)`);
+      }
+    }
+  }, 10000); // Check every 10 seconds
+  
+  // Clear memory monitor on cleanup
+  setTimeout(() => clearInterval(memoryMonitor), 300000); // Clear after 5 minutes max
 
   // Configure analyzer with optimal settings
   const analyzer = new TypeScriptAnalyzer(
@@ -404,7 +471,8 @@ async function initializeComponents(
   return { 
     analyzer, 
     storage: env.storage, 
-    qualityCalculator 
+    qualityCalculator,
+    optimalConfig
   };
 }
 
