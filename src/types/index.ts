@@ -534,6 +534,7 @@ export interface CliComponents {
   };
   storage: StorageAdapter;
   qualityCalculator: { calculate(func: FunctionInfo): QualityMetrics };
+  optimalConfig: import('../utils/system-resource-manager').OptimalConfig;
 }
 
 export interface FunctionChangeImproved {
