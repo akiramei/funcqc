@@ -60,7 +60,7 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
     try {
       const functions = await loadFunctions(env, options, spinner);
       const detectionConfig = parseDetectionOptions(options);
-      let results = await detectSimilarities(functions, detectionConfig, spinner, env);
+      let results = await detectSimilarities(functions, detectionConfig, spinner);
       
       // Add architecture analysis if requested
       if (options.archAnalysis) {
@@ -141,15 +141,14 @@ function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig 
 async function detectSimilarities(
   functions: FunctionInfo[],
   config: DetectionConfig,
-  spinner: ReturnType<typeof ora>,
-  env: CommandEnvironment
+  spinner: ReturnType<typeof ora>
 ): Promise<SimilarityResult[]> {
   const similarityOptions = {
     threshold: config.threshold,
     minLines: config.minLines,
     crossFile: config.crossFile,
   };
-  const similarityManager = new SimilarityManager(undefined, env.storage, similarityOptions);
+  const similarityManager = new SimilarityManager(undefined, similarityOptions);
 
   spinner.start('Detecting similar functions...');
 

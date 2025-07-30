@@ -57,7 +57,6 @@ class StartupBenchmark {
         'diff --help',
         'explain --help',
         // Heavier commands to measure dynamic import overhead
-        'vectorize --help',
         'evaluate --help',
         'refactor analyze --help',
         'refactor detect --help',
@@ -226,7 +225,7 @@ function displayResults(results: StartupBenchmarkResult[]): void {
   console.log(chalk.blue('\n🎯 Performance Summary\n'));
   
   // Define heavy commands that use dynamic imports
-  const HEAVY_COMMANDS = ['vectorize', 'evaluate', 'refactor', 'lineage'];
+  const HEAVY_COMMANDS = ['evaluate', 'refactor', 'lineage'];
   
   // Separate commands by type
   const commandCategories = {

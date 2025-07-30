@@ -52,7 +52,7 @@ export function diffCommand(fromSnapshot: string, toSnapshot: string): VoidComma
       }
 
       const diff = await calculateDiff(env, fromId, toId);
-      await processDiffResults(diff, env, options);
+      await processDiffResults(diff, options);
     } catch (error) {
       handleDiffError(error, errorHandler);
     }
@@ -111,18 +111,18 @@ async function calculateDiff(env: CommandEnvironment, fromId: string, toId: stri
   return await env.storage.diffSnapshots(fromId, toId);
 }
 
-async function processDiffResults(diff: SnapshotDiff, env: CommandEnvironment, options: DiffCommandOptions) {
-  await displayDiffResults(diff, options, env);
+async function processDiffResults(diff: SnapshotDiff, options: DiffCommandOptions) {
+  await displayDiffResults(diff, options);
 }
 
 
-async function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOptions, env: CommandEnvironment): Promise<void> {
+async function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOptions): Promise<void> {
   if (options.json) {
     console.log(JSON.stringify(diff, null, 2));
   } else if (options.summary) {
     displaySummary(diff);
   } else {
-    await displayFullDiff(diff, options, env);
+    await displayFullDiff(diff, options);
   }
 }
 
@@ -220,7 +220,7 @@ function displaySummaryWithClassification(diff: SnapshotDiff, classification: Fu
   console.log(`  ${chalk.blue('=')} ${diff.unchanged.length} functions unchanged`);
 }
 
-async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, env: CommandEnvironment): Promise<void> {
+async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions): Promise<void> {
   const title = options.insights 
     ? '\n📊 Code Changes with Design Insights\n'
     : '\n📊 Code Changes\n';
@@ -234,7 +234,7 @@ async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, 
 
   // Initialize similarity manager for analysis
   const threshold = parseSimilarityThreshold(options);
-  const similarityManager = new SimilarityManager(undefined, env.storage, {
+  const similarityManager = new SimilarityManager(undefined, {
     threshold,
     minLines: 1,
     crossFile: true,

@@ -599,23 +599,6 @@ export interface StorageAdapter {
   getFunctionDescription(semanticId: string): Promise<FunctionDescription | null>;
   searchFunctionsByDescription(keyword: string, options?: QueryOptions): Promise<FunctionInfo[]>;
 
-  // Embedding operations
-  saveEmbedding(semanticId: string, embedding: number[], model?: string): Promise<void>;
-  getEmbedding(semanticId: string): Promise<{ embedding: number[]; model: string } | null>;
-  searchByEmbedding(
-    queryEmbedding: number[],
-    threshold?: number,
-    limit?: number
-  ): Promise<Array<FunctionInfo & { similarity: number }>>;
-  bulkSaveEmbeddings(
-    embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>
-  ): Promise<void>;
-  getFunctionsWithoutEmbeddings(snapshotId: string, limit?: number): Promise<FunctionInfo[]>;
-  getEmbeddingStats(): Promise<{
-    total: number;
-    withEmbeddings: number;
-    withoutEmbeddings: number;
-  }>;
 
   // Naming evaluation operations (v1.6 enhancement)
   saveNamingEvaluation(evaluation: NamingEvaluation): Promise<void>;
@@ -1130,22 +1113,6 @@ export interface SearchCommandOptions extends CommandOptions {
   intermediate?: boolean; // Output intermediate results for AI analysis
 }
 
-export interface VectorizeCommandOptions extends CommandOptions {
-  all?: boolean;
-  recent?: boolean;
-  status?: boolean;
-  rebuildIndex?: boolean;
-  benchmark?: boolean;
-  indexStats?: boolean;
-  apiKey?: string;
-  model?: string;
-  batchSize?: string;
-  limit?: string;
-  indexAlgorithm?: string;
-  indexConfig?: string;
-  output?: string;
-  force?: boolean;
-}
 
 
 export interface RiskDistribution {
