@@ -124,26 +124,22 @@ function outputJSON(func: FunctionInfo): void {
 }
 
 interface DisplayConfig {
-  showParameters: boolean;
-  showQuality: boolean;
-  showTechnical: boolean;
   showUsage: boolean;
-  showExamples: boolean;
+  showCurrent: boolean;
+  showHistory: boolean;
   showSource: boolean;
 }
 
 function createDisplayConfig(options: ShowCommandOptions): DisplayConfig {
-  const showAll = options.full;
-  const showForUsers = options.forUsers;
-  const showForMaintainers = options.forMaintainers;
+  // デフォルトは --current モード（オプションが何も指定されていない場合）
+  const hasSpecificOption = !!(options.usage || options.current || options.history);
+  const defaultToCurrent = !hasSpecificOption;
 
   return {
-    showParameters: !!(showAll || options.details || showForMaintainers),
-    showQuality: !!(showAll || options.quality || showForMaintainers),
-    showTechnical: !!(showAll || options.technical || showForMaintainers),
-    showUsage: !!(showAll || options.usage || showForUsers),
-    showExamples: !!(showAll || options.examples || showForUsers),
-    showSource: !!(showAll || options.source)
+    showUsage: !!options.usage,
+    showCurrent: !!(options.current || defaultToCurrent),
+    showHistory: !!options.history,
+    showSource: !!options.source
   };
 }
 
@@ -162,28 +158,22 @@ async function outputFriendly(
   await displayBasicInfo(func, env);
 
   // Conditional sections based on configuration
-  if (config.showParameters) {
-    displayParametersAndReturn(func);
-  }
-
-  if (config.showQuality) {
-    displayQualityMetrics(func);
-  }
-
-  if (config.showTechnical) {
-    displayTechnicalInfo(func);
-  }
-
   if (config.showUsage) {
     await displayUsageInfo(func, env);
-  }
-
-  if (config.showExamples) {
     displayExamples(func);
   }
 
+  if (config.showCurrent) {
+    displayParametersAndReturn(func);
+    displayQualityMetrics(func);
+  }
+
+  if (config.showHistory) {
+    await displayHistoryInfo(func, env);
+  }
+
   if (config.showSource) {
-    await displaySourceCode(func, env, options.syntax);
+    await displaySourceCode(func, env);
   }
 
   console.log(); // Empty line at end
@@ -328,21 +318,6 @@ function displayQualityMetrics(func: FunctionInfo): void {
   console.log();
 }
 
-function displayTechnicalInfo(func: FunctionInfo): void {
-  console.log(chalk.cyan('🔧 Technical Information:'));
-  console.log(`  Function ID: ${func.id}`);
-  console.log(`  Semantic ID: ${func.semanticId}`);
-  console.log(`  Content ID: ${func.contentId}`);
-  console.log(`  AST Hash: ${func.astHash}`);
-  console.log(`  Signature Hash: ${func.signatureHash}`);
-  console.log(`  File Hash: ${func.fileHash}`);
-  
-  if (func.contextPath && func.contextPath.length > 0) {
-    console.log(`  Context Path: ${func.contextPath.join(' > ')}`);
-  }
-  
-  console.log();
-}
 
 async function displayUsageInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('🎯 Usage Information:'));
@@ -392,7 +367,7 @@ function displayExamples(func: FunctionInfo): void {
   console.log();
 }
 
-async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment, withSyntax?: boolean): Promise<void> {
+async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
   // First try to get source code from function's sourceCode field
   let sourceCode: string | null = func.sourceCode || null;
   
@@ -417,21 +392,121 @@ async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment, wi
   console.log(chalk.cyan('📄 Source Code:'));
   console.log('─'.repeat(60));
   
-  if (withSyntax) {
-    // Basic syntax highlighting (simplified)
-    const highlighted = sourceCode
-      .replace(/\b(function|const|let|var|if|else|for|while|return|async|await)\b/g, chalk.blue('$1'))
-      .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
-      .replace(/"([^"]*)"/g, chalk.green('"$1"'))
-      .replace(/'([^']*)'/g, chalk.green("'$1'"));
-    
-    console.log(highlighted);
-  } else {
-    console.log(sourceCode);
-  }
+  // Basic syntax highlighting (simplified)
+  const highlighted = sourceCode
+    .replace(/\b(function|const|let|var|if|else|for|while|return|async|await)\b/g, chalk.blue('$1'))
+    .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
+    .replace(/"([^"]*)"/g, chalk.green('"$1"'))
+    .replace(/'([^']*)'/g, chalk.green("'$1'"));
+  
+  console.log(highlighted);
   
   console.log('─'.repeat(60));
   console.log();
+}
+
+async function displayHistoryInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+  console.log(chalk.cyan('📈 Historical Information:'));
+  
+  try {
+    // Get all snapshots to find historical data for this function
+    const snapshots = await env.storage.getSnapshots({ sort: 'created_at' });
+    
+    if (snapshots.length <= 1) {
+      console.log('  No historical data available (only current snapshot exists)');
+      console.log();
+      return;
+    }
+
+    console.log(`  Function tracked across ${snapshots.length} snapshots`);
+    
+    // Find this function in historical snapshots (by semantic ID for better matching)
+    const historicalData = [];
+    
+    for (const snapshot of snapshots.slice(-5)) { // Show last 5 snapshots
+      try {
+        const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
+        const historicalFunc = functions.find(f => 
+          f.semanticId === func.semanticId || 
+          f.id === func.id ||
+          (f.name === func.name && f.filePath === func.filePath)
+        );
+        
+        if (historicalFunc?.metrics) {
+          historicalData.push({
+            snapshot: snapshot,
+            func: historicalFunc,
+            metrics: historicalFunc.metrics
+          });
+        }
+      } catch (error) {
+        // Skip snapshots where function wasn't found
+        continue;
+      }
+    }
+
+    if (historicalData.length === 0) {
+      console.log('  Function not found in historical snapshots');
+      console.log();
+      return;
+    }
+
+    console.log('\n  📊 Metrics History (most recent 5 snapshots):');
+    console.log('  ' + '─'.repeat(70));
+    
+    // Table header
+    console.log(`  ${'Snapshot'.padEnd(12)} ${'Date'.padEnd(12)} ${'CC'.padStart(4)} ${'Lines'.padStart(6)} ${'Nest'.padStart(5)} ${'Params'.padStart(7)}`);
+    console.log('  ' + '─'.repeat(70));
+    
+    // Historical data rows
+    historicalData.forEach((data, index) => {
+      const isLatest = index === historicalData.length - 1;
+      const snapshotId = data.snapshot.id.substring(0, 8);
+      const date = new Date(data.snapshot.createdAt).toISOString().split('T')[0];
+      const cc = data.metrics.cyclomaticComplexity;
+      const lines = data.metrics.linesOfCode;
+      const nest = data.metrics.maxNestingLevel;
+      const params = data.metrics.parameterCount;
+      
+      const line = `  ${snapshotId.padEnd(12)} ${date.padEnd(12)} ${cc.toString().padStart(4)} ${lines.toString().padStart(6)} ${nest.toString().padStart(5)} ${params.toString().padStart(7)}`;
+      
+      if (isLatest) {
+        console.log(chalk.green(line + ' ← current'));
+      } else {
+        console.log(line);
+      }
+    });
+    
+    // Show trend analysis if we have multiple data points
+    if (historicalData.length >= 2) {
+      const first = historicalData[0].metrics;
+      const latest = historicalData[historicalData.length - 1].metrics;
+      
+      console.log('\n  📈 Trend Analysis:');
+      const ccChange = latest.cyclomaticComplexity - first.cyclomaticComplexity;
+      const linesChange = latest.linesOfCode - first.linesOfCode;
+      const nestChange = latest.maxNestingLevel - first.maxNestingLevel;
+      
+      console.log(`    Complexity: ${getTrendIndicator(ccChange)} (${ccChange > 0 ? '+' : ''}${ccChange})`);
+      console.log(`    Lines of Code: ${getTrendIndicator(linesChange)} (${linesChange > 0 ? '+' : ''}${linesChange})`);
+      console.log(`    Max Nesting: ${getTrendIndicator(nestChange)} (${nestChange > 0 ? '+' : ''}${nestChange})`);
+    }
+
+  } catch (error) {
+    console.log(chalk.yellow(`  Error retrieving historical data: ${error instanceof Error ? error.message : String(error)}`));
+  }
+  
+  console.log();
+}
+
+function getTrendIndicator(change: number): string {
+  if (change > 0) {
+    return chalk.red('↗ increased');
+  } else if (change < 0) {
+    return chalk.green('↘ decreased');
+  } else {
+    return chalk.gray('→ unchanged');
+  }
 }
 
 function getMetricWithColor(value: number, warning: number, critical: number, reverse = false): string {
