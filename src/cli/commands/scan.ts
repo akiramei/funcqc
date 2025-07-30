@@ -239,11 +239,17 @@ export async function performBasicAnalysis(
         
         // Set source file ID and verify metrics calculation
         for (const func of functions) {
-          // Metrics should be calculated during extraction in TypeScriptAnalyzer
-          // Fallback to separate calculation only if needed (for legacy compatibility)
+          // Metrics are pre-calculated in TypeScriptAnalyzer.create*FunctionInfo methods
+          // This fallback exists for robustness and potential future analyzer implementations
+          // Note: TypeScriptAnalyzer always sets metrics, so this block is currently unused
           if (!func.metrics) {
-            // This should rarely happen with optimized TypeScriptAnalyzer
+            // Legacy compatibility: fallback to separate calculation if metrics missing
+            // This preserves backward compatibility and provides safety for edge cases
             func.metrics = components.qualityCalculator.calculate(func);
+            
+            if (process.env['NODE_ENV'] !== 'production') {
+              console.warn(`⚠️  Fallback metrics calculation used for ${func.name} - analyzer may need optimization`);
+            }
           }
           
           // Use sourceFileIdMap from N:1 design (must exist)
@@ -445,27 +451,44 @@ async function initializeComponents(
   // Monitor memory usage periodically during analysis with dynamic limits
   const v8 = await import('v8');
   const heapStats = v8.getHeapStatistics();
-  const maxHeapMB = Math.floor(heapStats.heap_size_limit / 1024 / 1024 * 0.9); // 90% of actual V8 limit
+  
+  // V8のヒープサイズ制限が0の場合（制限なし）のフォールバック処理を追加
+  const heapLimit = heapStats.heap_size_limit || (2 * 1024 * 1024 * 1024); // 2GB fallback
+  const maxHeapMB = Math.floor(heapLimit / 1024 / 1024 * 0.9);
+  
+  // より詳細なメモリ閾値管理
+  const warningThreshold = maxHeapMB * 0.8;
+  const criticalThreshold = maxHeapMB * 0.9;
   
   const memoryMonitor = setInterval(() => {
     const memoryUsage = process.memoryUsage();
     const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
     
-    if (heapUsedMB > maxHeapMB * 0.8) {
-      env.logger.warn(`High memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
+    if (heapUsedMB > criticalThreshold) {
+      env.logger.error(`Critical memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
       
       // Force garbage collection if available
       if (global.gc) {
         global.gc();
         const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
         env.logger.debug(`Memory after GC: ${afterGC.toFixed(1)}MB (freed ${(heapUsedMB - afterGC).toFixed(1)}MB)`);
+      } else {
+        env.logger.debug('Garbage collection not available (run with --expose-gc for forced GC)');
       }
+    } else if (heapUsedMB > warningThreshold) {
+      env.logger.warn(`High memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
     }
   }, 10000); // Check every 10 seconds
   
-  // Dynamic cleanup timing based on project size
+  // Dynamic cleanup timing based on project size with proper cleanup
   const maxMonitoringTime = Math.max(300000, (projectSize || 100) * 100); // At least 5 minutes or 100ms per file
-  setTimeout(() => clearInterval(memoryMonitor), maxMonitoringTime);
+  const monitoringTimeout = setTimeout(() => {
+    clearInterval(memoryMonitor);
+    env.logger.debug('Memory monitoring stopped after timeout');
+  }, maxMonitoringTime);
+  
+  // Store timeout reference for potential early cleanup
+  (memoryMonitor as NodeJS.Timeout & { __timeout?: NodeJS.Timeout }).__timeout = monitoringTimeout;
 
   // Configure analyzer with optimal settings
   const analyzer = new TypeScriptAnalyzer(
