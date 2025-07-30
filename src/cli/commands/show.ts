@@ -169,58 +169,24 @@ async function outputFriendly(
   }
 
   if (config.showHistory) {
-    await displayHistoryInfo(func, env);
+    await displayHistoryInfo(func, env, config.showSource);
   }
 
-  if (config.showSource) {
+  if (config.showSource && !config.showHistory) {
     await displaySourceCode(func, env);
   }
 
   console.log(); // Empty line at end
 }
 
-async function displayBasicInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('📋 Basic Information:'));
-  console.log(`  Name: ${func.displayName}`);
-  console.log(`  File: ${func.filePath}:${func.startLine}-${func.endLine}`);
-  console.log(`  Type: ${func.functionType || 'function'}`);
   
-  if (func.modifiers && func.modifiers.length > 0) {
-    console.log(`  Modifiers: ${func.modifiers.join(', ')}`);
-  }
+  // Build function signature
+  const signature = buildFunctionSignature(func);
+  console.log(`  Definition: ${signature}`);
+  console.log(`  Location: ${func.filePath}:${func.startLine}-${func.endLine}`);
   
-  console.log(`  Exported: ${func.isExported ? '✅' : '❌'}`);
-  console.log(`  Async: ${func.isAsync ? '✅' : '—'}`);
-  
-  // File status check using database information
-  try {
-    // Get the latest snapshot to check file status
-    const snapshots = await env.storage.getSnapshots({ sort: 'created_at', limit: 1 });
-    const latestSnapshotId = snapshots.length > 0 ? snapshots[0].id : '';
-    
-    // Get source file information from database
-    const sourceFile = await env.storage.getSourceFileByPath(func.filePath, latestSnapshotId);
-    
-    if (sourceFile) {
-      // Compare stored hash with function's file hash to detect changes
-      if (sourceFile.fileHash === func.fileContentHash || sourceFile.fileHash === func.fileHash) {
-        console.log(chalk.green('  File Status: ✅ Up to date (from database)'));
-      } else {
-        console.log(chalk.yellow('  File Status: ⚠️ Modified since last scan'));
-      }
-    } else {
-      // Try to check if we can extract source code (indicating file exists in database)
-      const hasSourceCode = await env.storage.extractFunctionSourceCode(func.id);
-      if (hasSourceCode) {
-        console.log(chalk.green('  File Status: ✅ Available in database'));
-      } else {
-        console.log(chalk.yellow('  File Status: ⚠️ File not found in database'));
-      }
-    }
-  } catch {
-    console.log(chalk.gray('  File Status: ❓ Status check unavailable'));
-  }
-
   // Description if available
   if (func.description) {
     console.log(chalk.cyan('\n📝 Description:'));
@@ -405,91 +371,215 @@ async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment): P
   console.log();
 }
 
-async function displayHistoryInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+
+
+interface HistoryRow {
+  id: string;
+  snapshot_id: string;
+  display_name: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  ast_hash: string;
+  is_exported: boolean;
+  is_async: boolean;
+  is_arrow_function: boolean;
+  lines_of_code: number | null;
+  cyclomatic_complexity: number | null;
+  cognitive_complexity: number | null;
+  max_nesting_level: number | null;
+  parameter_count: number | null;
+  source_code: string | null;
+  snapshot_created_at: string;
+  snapshot_label: string | null;
+}
+
+async function getSemanticId(func: FunctionInfo, env: CommandEnvironment): Promise<string | null> {
+  let semanticId = func.semanticId;
+  
+  if (!semanticId) {
+    try {
+      const funcResult = await env.storage.getDb().query(`
+        SELECT semantic_id FROM functions WHERE id = $1 LIMIT 1
+      `, [func.id]);
+      
+      if (funcResult.rows.length > 0) {
+        semanticId = (funcResult.rows[0] as { semantic_id: string }).semantic_id;
+      }
+    } catch {
+      // Continue with fallback approach
+    }
+  }
+  
+  return semanticId;
+}
+
+async function fetchHistoricalVersions(semanticId: string, env: CommandEnvironment): Promise<HistoryRow[]> {
+  const result = await env.storage.getDb().query(`
+    SELECT 
+      f.id, f.snapshot_id, f.display_name, f.file_path, f.start_line, f.end_line,
+      f.ast_hash, f.is_exported, f.is_async, f.is_arrow_function, f.source_code,
+      q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity, 
+      q.max_nesting_level, q.parameter_count,
+      s.created_at as snapshot_created_at, s.label as snapshot_label
+    FROM functions f
+    JOIN snapshots s ON f.snapshot_id = s.id
+    LEFT JOIN quality_metrics q ON f.id = q.function_id
+    WHERE f.semantic_id = $1
+      AND (f.ast_hash, s.created_at) IN (
+        SELECT f2.ast_hash, MIN(s2.created_at)
+        FROM functions f2
+        JOIN snapshots s2 ON f2.snapshot_id = s2.id
+        WHERE f2.semantic_id = $1
+        GROUP BY f2.ast_hash
+      )
+    ORDER BY s.created_at ASC
+  `, [semanticId]);
+
+  return (result.rows as HistoryRow[]).filter(row => row.lines_of_code !== null);
+}
+
+function displayMetricsTable(historicalVersions: HistoryRow[]): void {
+  console.log(`\n  📊 Metrics History (${historicalVersions.length} unique AST versions):`);
+  console.log('  ' + '─'.repeat(85));
+  
+  // Table header
+  console.log(`  ${'Snapshot'.padEnd(12)} ${'Date'.padEnd(12)} ${'CC'.padStart(4)} ${'Lines'.padStart(6)} ${'Nest'.padStart(5)} ${'Cognitive'.padStart(9)} ${'Change Type'.padEnd(12)}`);
+  console.log('  ' + '─'.repeat(85));
+  
+  // Historical data rows with change indicators
+  historicalVersions.forEach((row, index) => {
+    const isLatest = index === historicalVersions.length - 1;
+    const snapshotId = row.snapshot_id.substring(0, 8);
+    const date = new Date(row.snapshot_created_at).toISOString().split('T')[0];
+    const cc = row.cyclomatic_complexity || 1;
+    const lines = row.lines_of_code || 0;
+    const nest = row.max_nesting_level || 0;
+    const cognitive = row.cognitive_complexity || 0;
+    
+    // Determine change type based on position and metrics
+    let changeType = '';
+    if (index === 0) {
+      changeType = chalk.gray('Initial');
+    } else {
+      const prevRow = historicalVersions[index - 1];
+      const metricsChanged = (
+        (prevRow.cyclomatic_complexity || 1) !== cc ||
+        (prevRow.lines_of_code || 0) !== lines ||
+        (prevRow.max_nesting_level || 0) !== nest ||
+        (prevRow.cognitive_complexity || 0) !== cognitive
+      );
+      
+      if (metricsChanged) {
+        changeType = chalk.cyan('Code+Metrics');
+      } else {
+        changeType = chalk.blue('Code Change');
+      }
+    }
+    
+    const line = `  ${snapshotId.padEnd(12)} ${date.padEnd(12)} ${cc.toString().padStart(4)} ${lines.toString().padStart(6)} ${nest.toString().padStart(5)} ${cognitive.toString().padStart(9)} ${changeType}`;
+    
+    if (isLatest) {
+      console.log(chalk.green(line + ' ← current'));
+    } else {
+      console.log(line);
+    }
+  });
+}
+
+function displayTrendAnalysis(historicalVersions: HistoryRow[]): void {
+  if (historicalVersions.length < 2) {
+    return;
+  }
+
+  const first = historicalVersions[0];
+  const latest = historicalVersions[historicalVersions.length - 1];
+  
+  console.log('\n  📈 Overall Trend Analysis:');
+  const ccChange = (latest.cyclomatic_complexity || 1) - (first.cyclomatic_complexity || 1);
+  const linesChange = (latest.lines_of_code || 0) - (first.lines_of_code || 0);
+  const nestChange = (latest.max_nesting_level || 0) - (first.max_nesting_level || 0);
+  const cognitiveChange = (latest.cognitive_complexity || 0) - (first.cognitive_complexity || 0);
+  
+  console.log(`    Cyclomatic Complexity: ${getTrendIndicator(ccChange)} (${ccChange > 0 ? '+' : ''}${ccChange})`);
+  console.log(`    Lines of Code: ${getTrendIndicator(linesChange)} (${linesChange > 0 ? '+' : ''}${linesChange})`);
+  console.log(`    Max Nesting: ${getTrendIndicator(nestChange)} (${nestChange > 0 ? '+' : ''}${nestChange})`);
+  console.log(`    Cognitive Complexity: ${getTrendIndicator(cognitiveChange)} (${cognitiveChange > 0 ? '+' : ''}${cognitiveChange})`);
+  
+  // Show time span
+  const firstDate = new Date(first.snapshot_created_at);
+  const latestDate = new Date(latest.snapshot_created_at);
+  const daysDiff = Math.ceil((latestDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysDiff > 0) {
+    console.log(chalk.gray(`    Time span: ${daysDiff} day${daysDiff > 1 ? 's' : ''} (${historicalVersions.length - 1} significant changes)`));
+  }
+}
+
+function displaySourceHistory(historicalVersions: HistoryRow[]): void {
+  console.log('\n  📄 Source Code History:');
+  console.log('  ' + '═'.repeat(85));
+  
+  historicalVersions.forEach((row, index) => {
+    const isLatest = index === historicalVersions.length - 1;
+    const snapshotId = row.snapshot_id.substring(0, 8);
+    const date = new Date(row.snapshot_created_at).toISOString().split('T')[0];
+    const versionLabel = isLatest ? ' (current)' : '';
+    
+    console.log(`\n  📝 Version ${index + 1}/${historicalVersions.length} - ${snapshotId} (${date})${versionLabel}`);
+    console.log('  ' + '─'.repeat(60));
+    
+    if (row.source_code) {
+      // Apply basic syntax highlighting
+      const highlighted = row.source_code
+        .replace(/\b(function|const|let|var|if|else|for|while|return|async|await|export|import)\b/g, chalk.blue('$1'))
+        .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
+        .replace(/"([^"]*)"/g, chalk.green('"$1"'))
+        .replace(/'([^']*)'/g, chalk.green("'$1'"));
+      
+      // Add line numbers and indentation  
+      const lines = highlighted.split('\n');
+      lines.forEach((line, lineIndex) => {
+        const lineNumber = (lineIndex + 1).toString().padStart(3, ' ');
+        console.log(`  ${chalk.gray(lineNumber)}│ ${line}`);
+      });
+    } else {
+      console.log(chalk.gray('    Source code not available for this version'));
+    }
+    
+    if (index < historicalVersions.length - 1) {
+      console.log('  ' + '─'.repeat(60));
+    }
+  });
+  
+  console.log('  ' + '═'.repeat(85));
+}
+
+async function displayHistoryInfo(func: FunctionInfo, env: CommandEnvironment, showSource = false): Promise<void> {
   console.log(chalk.cyan('📈 Historical Information:'));
   
+  const semanticId = await getSemanticId(func, env);
+  
+  if (!semanticId) {
+    console.log(`  No semantic ID available for historical tracking (ID: ${func.id})`);
+    console.log();
+    return;
+  }
+  
   try {
-    // Get all snapshots to find historical data for this function
-    const snapshots = await env.storage.getSnapshots({ sort: 'created_at' });
-    
-    if (snapshots.length <= 1) {
-      console.log('  No historical data available (only current snapshot exists)');
+    const historicalVersions = await fetchHistoricalVersions(semanticId, env);
+
+    if (historicalVersions.length <= 1) {
+      console.log('  No meaningful historical changes found with metrics data');
       console.log();
       return;
     }
 
-    console.log(`  Function tracked across ${snapshots.length} snapshots`);
-    
-    // Find this function in historical snapshots (by semantic ID for better matching)
-    const historicalData = [];
-    
-    for (const snapshot of snapshots.slice(-5)) { // Show last 5 snapshots
-      try {
-        const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
-        const historicalFunc = functions.find(f => 
-          f.semanticId === func.semanticId || 
-          f.id === func.id ||
-          (f.name === func.name && f.filePath === func.filePath)
-        );
-        
-        if (historicalFunc?.metrics) {
-          historicalData.push({
-            snapshot: snapshot,
-            func: historicalFunc,
-            metrics: historicalFunc.metrics
-          });
-        }
-      } catch {
-        // Skip snapshots where function wasn't found
-        continue;
-      }
-    }
+    displayMetricsTable(historicalVersions);
+    displayTrendAnalysis(historicalVersions);
 
-    if (historicalData.length === 0) {
-      console.log('  Function not found in historical snapshots');
-      console.log();
-      return;
-    }
-
-    console.log('\n  📊 Metrics History (most recent 5 snapshots):');
-    console.log('  ' + '─'.repeat(70));
-    
-    // Table header
-    console.log(`  ${'Snapshot'.padEnd(12)} ${'Date'.padEnd(12)} ${'CC'.padStart(4)} ${'Lines'.padStart(6)} ${'Nest'.padStart(5)} ${'Params'.padStart(7)}`);
-    console.log('  ' + '─'.repeat(70));
-    
-    // Historical data rows
-    historicalData.forEach((data, index) => {
-      const isLatest = index === historicalData.length - 1;
-      const snapshotId = data.snapshot.id.substring(0, 8);
-      const date = new Date(data.snapshot.createdAt).toISOString().split('T')[0];
-      const cc = data.metrics.cyclomaticComplexity;
-      const lines = data.metrics.linesOfCode;
-      const nest = data.metrics.maxNestingLevel;
-      const params = data.metrics.parameterCount;
-      
-      const line = `  ${snapshotId.padEnd(12)} ${date.padEnd(12)} ${cc.toString().padStart(4)} ${lines.toString().padStart(6)} ${nest.toString().padStart(5)} ${params.toString().padStart(7)}`;
-      
-      if (isLatest) {
-        console.log(chalk.green(line + ' ← current'));
-      } else {
-        console.log(line);
-      }
-    });
-    
-    // Show trend analysis if we have multiple data points
-    if (historicalData.length >= 2) {
-      const first = historicalData[0].metrics;
-      const latest = historicalData[historicalData.length - 1].metrics;
-      
-      console.log('\n  📈 Trend Analysis:');
-      const ccChange = latest.cyclomaticComplexity - first.cyclomaticComplexity;
-      const linesChange = latest.linesOfCode - first.linesOfCode;
-      const nestChange = latest.maxNestingLevel - first.maxNestingLevel;
-      
-      console.log(`    Complexity: ${getTrendIndicator(ccChange)} (${ccChange > 0 ? '+' : ''}${ccChange})`);
-      console.log(`    Lines of Code: ${getTrendIndicator(linesChange)} (${linesChange > 0 ? '+' : ''}${linesChange})`);
-      console.log(`    Max Nesting: ${getTrendIndicator(nestChange)} (${nestChange > 0 ? '+' : ''}${nestChange})`);
+    if (showSource) {
+      displaySourceHistory(historicalVersions);
     }
 
   } catch (error) {
@@ -519,6 +609,32 @@ function getMetricWithColor(value: number, warning: number, critical: number, re
     return chalk.yellow(value.toString());
   } else {
     return chalk.green(value.toString());
+  }
+}
+
+function buildFunctionSignature(func: FunctionInfo): string {
+  // Build export prefix
+  const exportPrefix = func.isExported ? 'export ' : '';
+  
+  // Build async prefix
+  const asyncPrefix = func.isAsync ? 'async ' : '';
+  
+  // Build parameters
+  const params = func.parameters?.map(p => {
+    const rest = p.isRest ? '...' : '';
+    const optional = p.isOptional ? '?' : '';
+    const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+    return `${rest}${p.name}${optional}: ${p.type}${defaultVal}`;
+  }).join(', ') || '';
+  
+  // Build return type
+  const returnType = func.returnType?.type || 'void';
+  
+  // Build function declaration based on type
+  if (func.isArrowFunction) {
+    return `${exportPrefix}const ${func.name} = ${asyncPrefix}(${params}): ${returnType} => { ... }`;
+  } else {
+    return `${exportPrefix}${asyncPrefix}function ${func.name}(${params}): ${returnType} { ... }`;
   }
 }
 
