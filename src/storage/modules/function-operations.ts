@@ -99,9 +99,15 @@ export class FunctionOperations implements StorageOperationModule {
     if (!options?.filters) return false;
     
     // Check if there's a change count filter or sort
-    return options.filters.some(filter => 
+    const hasChangeFilter = options.filters.some(filter => 
       filter.field === 'change_count' || filter.field === 'changes'
-    ) || (options?.sort && typeof options.sort === 'string' && options.sort.includes('changes')) || false;
+    );
+    
+    const hasChangeSort = options?.sort && 
+      typeof options.sort === 'string' && 
+      options.sort.split(',').some(field => field.trim() === 'changes');
+    
+    return hasChangeFilter || !!hasChangeSort;
   }
 
   /**
