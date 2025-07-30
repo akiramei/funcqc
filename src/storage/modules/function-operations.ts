@@ -626,7 +626,7 @@ export class FunctionOperations implements StorageOperationModule {
         SELECT 
           f.id, f.name, f.file_path, f.start_line, f.end_line,
           f.is_exported, f.is_async, f.source_file_ref_id,
-          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity
+          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity, q.parameter_count
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
         WHERE f.snapshot_id = $1
@@ -1102,12 +1102,12 @@ export class FunctionOperations implements StorageOperationModule {
           maxNestingLevel: row.max_nesting_level || 0,
           branchCount: row.branch_count || 0,
           loopCount: row.loop_count || 0,
-          returnStatementCount: 0,
-          tryCatchCount: 0,
-          asyncAwaitCount: 0,
-          callbackCount: 0,
-          commentLines: 0,
-          codeToCommentRatio: 0,
+          returnStatementCount: row.return_statement_count || 0,
+          tryCatchCount: row.try_catch_count || 0,
+          asyncAwaitCount: row.async_await_count || 0,
+          callbackCount: row.callback_count || 0,
+          commentLines: row.comment_lines || 0,
+          codeToCommentRatio: row.code_to_comment_ratio || 0,
           cognitiveComplexity: row.cognitive_complexity || 0,
           ...(row.halstead_volume !== null && row.halstead_volume !== undefined ? { halsteadVolume: row.halstead_volume } : {}),
           ...(row.halstead_difficulty !== null && row.halstead_difficulty !== undefined ? { halsteadDifficulty: row.halstead_difficulty } : {}),

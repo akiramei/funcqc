@@ -124,26 +124,22 @@ function outputJSON(func: FunctionInfo): void {
 }
 
 interface DisplayConfig {
-  showParameters: boolean;
-  showQuality: boolean;
-  showTechnical: boolean;
   showUsage: boolean;
-  showExamples: boolean;
+  showCurrent: boolean;
+  showHistory: boolean;
   showSource: boolean;
 }
 
 function createDisplayConfig(options: ShowCommandOptions): DisplayConfig {
-  const showAll = options.full;
-  const showForUsers = options.forUsers;
-  const showForMaintainers = options.forMaintainers;
+  // デフォルトは --current モード（オプションが何も指定されていない場合）
+  const hasSpecificOption = !!(options.usage || options.current || options.history);
+  const defaultToCurrent = !hasSpecificOption;
 
   return {
-    showParameters: !!(showAll || options.details || showForMaintainers),
-    showQuality: !!(showAll || options.quality || showForMaintainers),
-    showTechnical: !!(showAll || options.technical || showForMaintainers),
-    showUsage: !!(showAll || options.usage || showForUsers),
-    showExamples: !!(showAll || options.examples || showForUsers),
-    showSource: !!(showAll || options.source)
+    showUsage: !!options.usage,
+    showCurrent: !!(options.current || defaultToCurrent),
+    showHistory: !!options.history,
+    showSource: !!options.source
   };
 }
 
@@ -162,75 +158,35 @@ async function outputFriendly(
   await displayBasicInfo(func, env);
 
   // Conditional sections based on configuration
-  if (config.showParameters) {
-    displayParametersAndReturn(func);
-  }
-
-  if (config.showQuality) {
-    displayQualityMetrics(func);
-  }
-
-  if (config.showTechnical) {
-    displayTechnicalInfo(func);
-  }
-
   if (config.showUsage) {
     await displayUsageInfo(func, env);
-  }
-
-  if (config.showExamples) {
     displayExamples(func);
   }
 
-  if (config.showSource) {
-    await displaySourceCode(func, env, options.syntax);
+  if (config.showCurrent) {
+    displayParametersAndReturn(func);
+    displayQualityMetrics(func);
+  }
+
+  if (config.showHistory) {
+    await displayHistoryInfo(func, env, config.showSource);
+  }
+
+  if (config.showSource && !config.showHistory) {
+    await displaySourceCode(func, env);
   }
 
   console.log(); // Empty line at end
 }
 
-async function displayBasicInfo(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
+async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('📋 Basic Information:'));
-  console.log(`  Name: ${func.displayName}`);
-  console.log(`  File: ${func.filePath}:${func.startLine}-${func.endLine}`);
-  console.log(`  Type: ${func.functionType || 'function'}`);
   
-  if (func.modifiers && func.modifiers.length > 0) {
-    console.log(`  Modifiers: ${func.modifiers.join(', ')}`);
-  }
+  // Build function signature
+  const signature = buildFunctionSignature(func);
+  console.log(`  Definition: ${signature}`);
+  console.log(`  Location: ${func.filePath}:${func.startLine}-${func.endLine}`);
   
-  console.log(`  Exported: ${func.isExported ? '✅' : '❌'}`);
-  console.log(`  Async: ${func.isAsync ? '✅' : '—'}`);
-  
-  // File status check using database information
-  try {
-    // Get the latest snapshot to check file status
-    const snapshots = await env.storage.getSnapshots({ sort: 'created_at', limit: 1 });
-    const latestSnapshotId = snapshots.length > 0 ? snapshots[0].id : '';
-    
-    // Get source file information from database
-    const sourceFile = await env.storage.getSourceFileByPath(func.filePath, latestSnapshotId);
-    
-    if (sourceFile) {
-      // Compare stored hash with function's file hash to detect changes
-      if (sourceFile.fileHash === func.fileContentHash || sourceFile.fileHash === func.fileHash) {
-        console.log(chalk.green('  File Status: ✅ Up to date (from database)'));
-      } else {
-        console.log(chalk.yellow('  File Status: ⚠️ Modified since last scan'));
-      }
-    } else {
-      // Try to check if we can extract source code (indicating file exists in database)
-      const hasSourceCode = await env.storage.extractFunctionSourceCode(func.id);
-      if (hasSourceCode) {
-        console.log(chalk.green('  File Status: ✅ Available in database'));
-      } else {
-        console.log(chalk.yellow('  File Status: ⚠️ File not found in database'));
-      }
-    }
-  } catch {
-    console.log(chalk.gray('  File Status: ❓ Status check unavailable'));
-  }
-
   // Description if available
   if (func.description) {
     console.log(chalk.cyan('\n📝 Description:'));
@@ -328,21 +284,6 @@ function displayQualityMetrics(func: FunctionInfo): void {
   console.log();
 }
 
-function displayTechnicalInfo(func: FunctionInfo): void {
-  console.log(chalk.cyan('🔧 Technical Information:'));
-  console.log(`  Function ID: ${func.id}`);
-  console.log(`  Semantic ID: ${func.semanticId}`);
-  console.log(`  Content ID: ${func.contentId}`);
-  console.log(`  AST Hash: ${func.astHash}`);
-  console.log(`  Signature Hash: ${func.signatureHash}`);
-  console.log(`  File Hash: ${func.fileHash}`);
-  
-  if (func.contextPath && func.contextPath.length > 0) {
-    console.log(`  Context Path: ${func.contextPath.join(' > ')}`);
-  }
-  
-  console.log();
-}
 
 async function displayUsageInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('🎯 Usage Information:'));
@@ -392,7 +333,7 @@ function displayExamples(func: FunctionInfo): void {
   console.log();
 }
 
-async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment, withSyntax?: boolean): Promise<void> {
+async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment): Promise<void> {
   // First try to get source code from function's sourceCode field
   let sourceCode: string | null = func.sourceCode || null;
   
@@ -417,21 +358,245 @@ async function displaySourceCode(func: FunctionInfo, env: CommandEnvironment, wi
   console.log(chalk.cyan('📄 Source Code:'));
   console.log('─'.repeat(60));
   
-  if (withSyntax) {
-    // Basic syntax highlighting (simplified)
-    const highlighted = sourceCode
-      .replace(/\b(function|const|let|var|if|else|for|while|return|async|await)\b/g, chalk.blue('$1'))
-      .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
-      .replace(/"([^"]*)"/g, chalk.green('"$1"'))
-      .replace(/'([^']*)'/g, chalk.green("'$1'"));
-    
-    console.log(highlighted);
-  } else {
-    console.log(sourceCode);
-  }
+  // Basic syntax highlighting (simplified)
+  const highlighted = sourceCode
+    .replace(/\b(function|const|let|var|if|else|for|while|return|async|await)\b/g, chalk.blue('$1'))
+    .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
+    .replace(/"([^"]*)"/g, chalk.green('"$1"'))
+    .replace(/'([^']*)'/g, chalk.green("'$1'"));
+  
+  console.log(highlighted);
   
   console.log('─'.repeat(60));
   console.log();
+}
+
+
+
+interface HistoryRow {
+  id: string;
+  snapshot_id: string;
+  display_name: string;
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  ast_hash: string;
+  is_exported: boolean;
+  is_async: boolean;
+  is_arrow_function: boolean;
+  lines_of_code: number | null;
+  cyclomatic_complexity: number | null;
+  cognitive_complexity: number | null;
+  max_nesting_level: number | null;
+  parameter_count: number | null;
+  source_code: string | null;
+  snapshot_created_at: string;
+  snapshot_label: string | null;
+}
+
+async function getSemanticId(func: FunctionInfo, env: CommandEnvironment): Promise<string | null> {
+  let semanticId = func.semanticId;
+  
+  if (!semanticId) {
+    try {
+      const funcResult = await env.storage.getDb().query(`
+        SELECT semantic_id FROM functions WHERE id = $1 LIMIT 1
+      `, [func.id]);
+      
+      if (funcResult.rows.length > 0) {
+        semanticId = (funcResult.rows[0] as { semantic_id: string }).semantic_id;
+      }
+    } catch {
+      // Continue with fallback approach
+    }
+  }
+  
+  return semanticId;
+}
+
+async function fetchHistoricalVersions(semanticId: string, env: CommandEnvironment): Promise<HistoryRow[]> {
+  const result = await env.storage.getDb().query(`
+    SELECT 
+      f.id, f.snapshot_id, f.display_name, f.file_path, f.start_line, f.end_line,
+      f.ast_hash, f.is_exported, f.is_async, f.is_arrow_function, f.source_code,
+      q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity, 
+      q.max_nesting_level, q.parameter_count,
+      s.created_at as snapshot_created_at, s.label as snapshot_label
+    FROM functions f
+    JOIN snapshots s ON f.snapshot_id = s.id
+    LEFT JOIN quality_metrics q ON f.id = q.function_id
+    WHERE f.semantic_id = $1
+      AND (f.ast_hash, s.created_at) IN (
+        SELECT f2.ast_hash, MIN(s2.created_at)
+        FROM functions f2
+        JOIN snapshots s2 ON f2.snapshot_id = s2.id
+        WHERE f2.semantic_id = $1
+        GROUP BY f2.ast_hash
+      )
+    ORDER BY s.created_at ASC
+  `, [semanticId]);
+
+  return (result.rows as HistoryRow[]).filter(row => row.lines_of_code !== null);
+}
+
+function displayMetricsTable(historicalVersions: HistoryRow[]): void {
+  console.log(`\n  📊 Metrics History (${historicalVersions.length} unique AST versions):`);
+  console.log('  ' + '─'.repeat(85));
+  
+  // Table header
+  console.log(`  ${'Snapshot'.padEnd(12)} ${'Date'.padEnd(12)} ${'CC'.padStart(4)} ${'Lines'.padStart(6)} ${'Nest'.padStart(5)} ${'Cognitive'.padStart(9)} ${'Change Type'.padEnd(12)}`);
+  console.log('  ' + '─'.repeat(85));
+  
+  // Historical data rows with change indicators
+  historicalVersions.forEach((row, index) => {
+    const isLatest = index === historicalVersions.length - 1;
+    const snapshotId = row.snapshot_id.substring(0, 8);
+    const date = new Date(row.snapshot_created_at).toISOString().split('T')[0];
+    const cc = row.cyclomatic_complexity || 1;
+    const lines = row.lines_of_code || 0;
+    const nest = row.max_nesting_level || 0;
+    const cognitive = row.cognitive_complexity || 0;
+    
+    // Determine change type based on position and metrics
+    let changeType = '';
+    if (index === 0) {
+      changeType = chalk.gray('Initial');
+    } else {
+      const prevRow = historicalVersions[index - 1];
+      const metricsChanged = (
+        (prevRow.cyclomatic_complexity || 1) !== cc ||
+        (prevRow.lines_of_code || 0) !== lines ||
+        (prevRow.max_nesting_level || 0) !== nest ||
+        (prevRow.cognitive_complexity || 0) !== cognitive
+      );
+      
+      if (metricsChanged) {
+        changeType = chalk.cyan('Code+Metrics');
+      } else {
+        changeType = chalk.blue('Code Change');
+      }
+    }
+    
+    const line = `  ${snapshotId.padEnd(12)} ${date.padEnd(12)} ${cc.toString().padStart(4)} ${lines.toString().padStart(6)} ${nest.toString().padStart(5)} ${cognitive.toString().padStart(9)} ${changeType}`;
+    
+    if (isLatest) {
+      console.log(chalk.green(line + ' ← current'));
+    } else {
+      console.log(line);
+    }
+  });
+}
+
+function displayTrendAnalysis(historicalVersions: HistoryRow[]): void {
+  if (historicalVersions.length < 2) {
+    return;
+  }
+
+  const first = historicalVersions[0];
+  const latest = historicalVersions[historicalVersions.length - 1];
+  
+  console.log('\n  📈 Overall Trend Analysis:');
+  const ccChange = (latest.cyclomatic_complexity || 1) - (first.cyclomatic_complexity || 1);
+  const linesChange = (latest.lines_of_code || 0) - (first.lines_of_code || 0);
+  const nestChange = (latest.max_nesting_level || 0) - (first.max_nesting_level || 0);
+  const cognitiveChange = (latest.cognitive_complexity || 0) - (first.cognitive_complexity || 0);
+  
+  console.log(`    Cyclomatic Complexity: ${getTrendIndicator(ccChange)} (${ccChange > 0 ? '+' : ''}${ccChange})`);
+  console.log(`    Lines of Code: ${getTrendIndicator(linesChange)} (${linesChange > 0 ? '+' : ''}${linesChange})`);
+  console.log(`    Max Nesting: ${getTrendIndicator(nestChange)} (${nestChange > 0 ? '+' : ''}${nestChange})`);
+  console.log(`    Cognitive Complexity: ${getTrendIndicator(cognitiveChange)} (${cognitiveChange > 0 ? '+' : ''}${cognitiveChange})`);
+  
+  // Show time span
+  const firstDate = new Date(first.snapshot_created_at);
+  const latestDate = new Date(latest.snapshot_created_at);
+  const daysDiff = Math.ceil((latestDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
+  
+  if (daysDiff > 0) {
+    console.log(chalk.gray(`    Time span: ${daysDiff} day${daysDiff > 1 ? 's' : ''} (${historicalVersions.length - 1} significant changes)`));
+  }
+}
+
+function displaySourceHistory(historicalVersions: HistoryRow[]): void {
+  console.log('\n  📄 Source Code History:');
+  console.log('  ' + '═'.repeat(85));
+  
+  historicalVersions.forEach((row, index) => {
+    const isLatest = index === historicalVersions.length - 1;
+    const snapshotId = row.snapshot_id.substring(0, 8);
+    const date = new Date(row.snapshot_created_at).toISOString().split('T')[0];
+    const versionLabel = isLatest ? ' (current)' : '';
+    
+    console.log(`\n  📝 Version ${index + 1}/${historicalVersions.length} - ${snapshotId} (${date})${versionLabel}`);
+    console.log('  ' + '─'.repeat(60));
+    
+    if (row.source_code) {
+      // Apply basic syntax highlighting
+      const highlighted = row.source_code
+        .replace(/\b(function|const|let|var|if|else|for|while|return|async|await|export|import)\b/g, chalk.blue('$1'))
+        .replace(/\b(true|false|null|undefined)\b/g, chalk.magenta('$1'))
+        .replace(/"([^"]*)"/g, chalk.green('"$1"'))
+        .replace(/'([^']*)'/g, chalk.green("'$1'"));
+      
+      // Add line numbers and indentation  
+      const lines = highlighted.split('\n');
+      lines.forEach((line, lineIndex) => {
+        const lineNumber = (lineIndex + 1).toString().padStart(3, ' ');
+        console.log(`  ${chalk.gray(lineNumber)}│ ${line}`);
+      });
+    } else {
+      console.log(chalk.gray('    Source code not available for this version'));
+    }
+    
+    if (index < historicalVersions.length - 1) {
+      console.log('  ' + '─'.repeat(60));
+    }
+  });
+  
+  console.log('  ' + '═'.repeat(85));
+}
+
+async function displayHistoryInfo(func: FunctionInfo, env: CommandEnvironment, showSource = false): Promise<void> {
+  console.log(chalk.cyan('📈 Historical Information:'));
+  
+  const semanticId = await getSemanticId(func, env);
+  
+  if (!semanticId) {
+    console.log(`  No semantic ID available for historical tracking (ID: ${func.id})`);
+    console.log();
+    return;
+  }
+  
+  try {
+    const historicalVersions = await fetchHistoricalVersions(semanticId, env);
+
+    if (historicalVersions.length <= 1) {
+      console.log('  No meaningful historical changes found with metrics data');
+      console.log();
+      return;
+    }
+
+    displayMetricsTable(historicalVersions);
+    displayTrendAnalysis(historicalVersions);
+
+    if (showSource) {
+      displaySourceHistory(historicalVersions);
+    }
+
+  } catch (error) {
+    console.log(chalk.yellow(`  Error retrieving historical data: ${error instanceof Error ? error.message : String(error)}`));
+  }
+  
+  console.log();
+}
+
+function getTrendIndicator(change: number): string {
+  if (change > 0) {
+    return chalk.red('↗ increased');
+  } else if (change < 0) {
+    return chalk.green('↘ decreased');
+  } else {
+    return chalk.gray('→ unchanged');
+  }
 }
 
 function getMetricWithColor(value: number, warning: number, critical: number, reverse = false): string {
@@ -444,6 +609,32 @@ function getMetricWithColor(value: number, warning: number, critical: number, re
     return chalk.yellow(value.toString());
   } else {
     return chalk.green(value.toString());
+  }
+}
+
+function buildFunctionSignature(func: FunctionInfo): string {
+  // Build export prefix
+  const exportPrefix = func.isExported ? 'export ' : '';
+  
+  // Build async prefix
+  const asyncPrefix = func.isAsync ? 'async ' : '';
+  
+  // Build parameters
+  const params = func.parameters?.map(p => {
+    const rest = p.isRest ? '...' : '';
+    const optional = p.isOptional ? '?' : '';
+    const defaultVal = p.defaultValue ? ` = ${p.defaultValue}` : '';
+    return `${rest}${p.name}${optional}: ${p.type}${defaultVal}`;
+  }).join(', ') || '';
+  
+  // Build return type
+  const returnType = func.returnType?.type || 'void';
+  
+  // Build function declaration based on type
+  if (func.isArrowFunction) {
+    return `${exportPrefix}const ${func.name} = ${asyncPrefix}(${params}): ${returnType} => { ... }`;
+  } else {
+    return `${exportPrefix}${asyncPrefix}function ${func.name}(${params}): ${returnType} { ... }`;
   }
 }
 

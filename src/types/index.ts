@@ -455,16 +455,10 @@ export interface ListCommandOptions extends CommandOptions {
 export interface ShowCommandOptions extends CommandOptions {
   id?: string;
   json?: boolean; // JSON output for jq/script processing
-  details?: boolean;
-  quality?: boolean;
-  technical?: boolean;
-  full?: boolean;
-  forUsers?: boolean;
-  forMaintainers?: boolean;
-  usage?: boolean;
-  examples?: boolean;
-  source?: boolean;
-  syntax?: boolean;
+  usage?: boolean; // Show usage information, examples, error handling, side effects
+  current?: boolean; // Show current quality metrics and analysis (default when no options specified)
+  history?: boolean; // Show historical metrics and changes for this function
+  source?: boolean; // Show source code (combinable with other options)
 }
 
 export interface FilesCommandOptions extends CommandOptions {

@@ -1089,19 +1089,19 @@ export class PGLiteStorageAdapter implements StorageAdapter {
                 cognitiveComplexity: row['cognitive_complexity'] as number || 0,
                 linesOfCode: row['lines_of_code'] as number || 0,
                 totalLines: row['total_lines'] as number || 0,
-                parameterCount: 0,
-                maxNestingLevel: 0,
-                returnStatementCount: 0,
-                branchCount: 0,
-                loopCount: 0,
-                tryCatchCount: 0,
-                asyncAwaitCount: 0,
-                callbackCount: 0,
-                commentLines: 0,
-                codeToCommentRatio: 0,
-                halsteadVolume: 0,
-                halsteadDifficulty: 0,
-                maintainabilityIndex: 0
+                parameterCount: row['parameter_count'] as number || 0,
+                maxNestingLevel: row['max_nesting_level'] as number || 0,
+                returnStatementCount: row['return_statement_count'] as number || 0,
+                branchCount: row['branch_count'] as number || 0,
+                loopCount: row['loop_count'] as number || 0,
+                tryCatchCount: row['try_catch_count'] as number || 0,
+                asyncAwaitCount: row['async_await_count'] as number || 0,
+                callbackCount: row['callback_count'] as number || 0,
+                commentLines: row['comment_lines'] as number || 0,
+                codeToCommentRatio: row['code_to_comment_ratio'] as number || 0,
+                halsteadVolume: row['halstead_volume'] as number || 0,
+                halsteadDifficulty: row['halstead_difficulty'] as number || 0,
+                maintainabilityIndex: row['maintainability_index'] as number || 0
               }
             };
             functionPresenceMap.set(snapshotId, func);

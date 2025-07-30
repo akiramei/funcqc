@@ -129,16 +129,10 @@ program
   .description('Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')
   .option('-j, --json', 'output as JSON for jq/script processing')
-  .option('--details', 'show parameter and return type details')
-  .option('--quality', 'show quality metrics')
-  .option('--technical', 'show technical information (hashes, etc.)')
-  .option('--full', 'show all information sections')
-  .option('--for-users', 'user-focused display: description, parameters, usage (no metrics)')
-  .option('--for-maintainers', 'maintainer-focused display: metrics, warnings, technical info')
-  .option('--usage', 'show usage patterns and examples')
-  .option('--examples', 'emphasize usage examples')
-  .option('--source', 'show function source code')
-  .option('--syntax', 'enable syntax highlighting for source code (requires --source)')
+  .option('--usage', 'show usage information, examples, error handling, side effects')
+  .option('--current', 'show current quality metrics and analysis (default)')
+  .option('--history', 'show historical metrics and changes for this function')
+  .option('--source', 'show source code (combinable with other options)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
   .action(async (namePattern: string | undefined, options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -147,25 +141,19 @@ program
   })
   .addHelpText('after', `
 Examples:
-  # Show basic function information
+  # Show current metrics (default behavior)
   $ funcqc show --id 2f1cfe1d
   $ funcqc show "functionName"
   
-  # Display modes for different audiences
-  $ funcqc show --id 2f1cfe1d --for-users        # User-friendly format
-  $ funcqc show --id 2f1cfe1d --for-maintainers  # Technical details
+  # Show usage information
+  $ funcqc show --id 2f1cfe1d --usage
   
-  # Show source code
-  $ funcqc show --id 2f1cfe1d --source           # Plain source code
-  $ funcqc show --id 2f1cfe1d --source --syntax  # With syntax highlighting
+  # Show historical changes
+  $ funcqc show --id 2f1cfe1d --history
   
-  # Specific information sections
-  $ funcqc show --id 2f1cfe1d --usage            # Usage patterns
-  $ funcqc show --id 2f1cfe1d --examples         # Usage examples
-  $ funcqc show --id 2f1cfe1d --quality          # Quality metrics
-  
-  # Complete information
-  $ funcqc show --id 2f1cfe1d --full             # All sections
+  # Show source code with metrics
+  $ funcqc show --id 2f1cfe1d --current --source
+  $ funcqc show --id 2f1cfe1d --history --source
   
   # JSON output for programmatic use
   $ funcqc show --id 2f1cfe1d --json
