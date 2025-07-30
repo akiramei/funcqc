@@ -23,6 +23,7 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
+import { getCallGraphCommands } from '../cli-wrapper';
 
 /**
  * Scan command as a Reader function
@@ -94,7 +95,8 @@ async function executeScanCommand(
     }
     
     // Step 3: Call graph analysis - deferred until needed by heavy commands
-    console.log(chalk.gray('📊 Call graph analysis will be performed when needed by dep/dead/clean/db commands.'));
+    const callGraphCommands = getCallGraphCommands().join('/');
+    console.log(chalk.gray(`📊 Call graph analysis will be performed when needed by ${callGraphCommands} commands.`));
     
     showCompletionMessage();
   } catch (error) {

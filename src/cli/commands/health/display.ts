@@ -224,8 +224,14 @@ export function displayPageRankMetrics(pageRank: PageRankMetrics, verbose: boole
   if (pageRank.topCentralFunctions.length > 0) {
     console.log(chalk.yellow('📍 Most Central Functions:'));
     const topFunctions = pageRank.topCentralFunctions.slice(0, 5); // Show top 5
+    // Calculate relative percentages based on the highest score
+    const maxCentrality = Math.max(...topFunctions.map(f => f.centrality));
+    
     topFunctions.forEach((func, index) => {
-      const centralityPct = (func.centrality * 100).toFixed(1);
+      // Show relative percentage where highest score = 100%
+      const centralityPct = maxCentrality > 0 
+        ? ((func.centrality / maxCentrality) * 100).toFixed(1)
+        : '0.0';
       const icon = index === 0 ? '👑' : index < 3 ? '⭐' : '🟢';
       const location = func.filePath && func.startLine ? ` (${func.filePath}:${func.startLine})` : '';
       console.log(`  ${index === topFunctions.length - 1 ? '└──' : '├──'} ${icon} ${func.functionName}${location} (${centralityPct}%)`);

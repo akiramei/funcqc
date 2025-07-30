@@ -121,7 +121,7 @@ export class PageRankCalculator {
         maxDiff = Math.max(maxDiff, diff);
         scores.set(functionId, newScore);
       }
-
+      
       if (maxDiff < this.tolerance) {
         converged = true;
         break;
@@ -196,6 +196,7 @@ export class PageRankCalculator {
       outLinks.set(functionId, Array.from(outSet.get(functionId)!));
       inLinks.set(functionId, Array.from(inSet.get(functionId)!));
     }
+    
 
     return { outLinks, inLinks };
   }
@@ -343,6 +344,8 @@ export class PageRankCalculator {
     const centralityGini = (n > 1 && avgCentrality > 0) ? giniSum / (n * avgCentrality * (n - 1)) : 0;
 
     // Get top central functions
+    // Use original score for relative comparison when normalization results in 0s
+    const maxScore = Math.max(...result.scores.map(s => s.score));
     const topCentralFunctions = result.scores
       .slice(0, 10)
       .map(score => ({
@@ -350,7 +353,7 @@ export class PageRankCalculator {
         functionName: score.functionName,
         filePath: score.filePath,
         startLine: score.startLine,
-        centrality: score.normalizedScore
+        centrality: maxScore > 0 ? score.score / maxScore : 0
       }));
 
     return {

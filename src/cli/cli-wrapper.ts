@@ -6,6 +6,7 @@ import { createErrorHandler, ErrorCode } from '../utils/error-handler';
 import { SystemChecker } from '../utils/system-checker';
 import { AsyncReader } from '../types/reader';
 import { BaseCommandOptions } from '../types/command';
+import { loadComprehensiveCallGraphData } from '../utils/lazy-analysis';
 
 /**
  * Performs system check if enabled
@@ -88,11 +89,62 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'search', 'history', 'similar', 'explain'];
 
 /**
+ * List of commands that require call graph analysis
+ */
+const CALL_GRAPH_COMMANDS = ['health', 'dep', 'safe-delete'];
+
+/**
  * Determines if the current command is lightweight
  */
 function isLightweightCommand(): boolean {
   const command = process.argv[2];
   return LIGHTWEIGHT_COMMANDS.includes(command);
+}
+
+/**
+ * Determines if the current command requires call graph analysis
+ */
+function requiresCallGraphAnalysis(): boolean {
+  const command = process.argv[2];
+  return CALL_GRAPH_COMMANDS.includes(command);
+}
+
+/**
+ * Get the list of commands that require call graph analysis
+ */
+export function getCallGraphCommands(): string[] {
+  return [...CALL_GRAPH_COMMANDS];
+}
+
+/**
+ * Ensures call graph data is available for commands that require it
+ */
+async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
+  if (requiresCallGraphAnalysis()) {
+    try {
+      // Determine if we should show progress (not for JSON modes)
+      const isJsonMode = mergedOptions.json || mergedOptions.aiOptimized || process.argv.includes('--json');
+      
+      const callGraphData = await loadComprehensiveCallGraphData(commandEnv, {
+        showProgress: !isJsonMode,
+        snapshotId: mergedOptions.snapshot
+      });
+      
+      // Attach call graph data to the command environment (only if snapshot exists)
+      if (callGraphData.snapshot) {
+        commandEnv.callGraphData = {
+          ...callGraphData,
+          snapshot: callGraphData.snapshot
+        };
+      }
+    } catch (error) {
+      // Let the individual commands handle the error appropriately
+      // This ensures call graph analysis failure doesn't break the wrapper
+      const logger = commandEnv.commandLogger;
+      logger.debug(`Call graph analysis failed for ${process.argv[2]}: ${error instanceof Error ? error.message : String(error)}`);
+      // Don't throw here - let the command handle it
+    }
+  }
 }
 
 /**
@@ -128,6 +180,9 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
       }
       
       const commandEnv = createCmdEnv(appEnv, mergedOptions, parentOpts, isJsonOutput);
+
+      // Ensure call graph analysis is available for commands that require it
+      await ensureCallGraphAnalysis(commandEnv, mergedOptions);
 
       const readerFn = commandReader(mergedOptions);
       await readerFn(commandEnv);

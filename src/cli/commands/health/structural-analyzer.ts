@@ -439,6 +439,7 @@ export async function analyzeStructuralMetrics(
           return !isIntraFile;
         });
         
+        
       }
     }
     
