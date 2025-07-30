@@ -131,22 +131,40 @@ function applySorting(functions: FunctionInfo[], options: ListCommandOptions): F
 }
 
 function getSortFunction(field: string): ((a: FunctionInfo, b: FunctionInfo) => number) | null {
-  switch (field) {
-    case 'cc':
-    case 'complexity':
-      return (a, b) => (a.metrics?.cyclomaticComplexity || 0) - (b.metrics?.cyclomaticComplexity || 0);
-    case 'loc':
-    case 'lines':
-      return (a, b) => (a.metrics?.linesOfCode || 0) - (b.metrics?.linesOfCode || 0);
-    case 'changes':
-      return (a, b) => (a.changeCount || 0) - (b.changeCount || 0);
-    case 'name':
-      return (a, b) => a.displayName.localeCompare(b.displayName);
-    case 'file':
-      return (a, b) => a.filePath.localeCompare(b.filePath);
-    default:
-      return null;
-  }
+  const sortHandlers = createSortHandlers();
+  return sortHandlers[field] || null;
+}
+
+function createSortHandlers(): Record<string, (a: FunctionInfo, b: FunctionInfo) => number> {
+  return {
+    'cc': sortByComplexity,
+    'complexity': sortByComplexity,
+    'loc': sortByLinesOfCode,
+    'lines': sortByLinesOfCode,
+    'changes': sortByChangeCount,
+    'name': sortByName,
+    'file': sortByFile,
+  };
+}
+
+function sortByComplexity(a: FunctionInfo, b: FunctionInfo): number {
+  return (a.metrics?.cyclomaticComplexity || 0) - (b.metrics?.cyclomaticComplexity || 0);
+}
+
+function sortByLinesOfCode(a: FunctionInfo, b: FunctionInfo): number {
+  return (a.metrics?.linesOfCode || 0) - (b.metrics?.linesOfCode || 0);
+}
+
+function sortByChangeCount(a: FunctionInfo, b: FunctionInfo): number {
+  return (a.changeCount || 0) - (b.changeCount || 0);
+}
+
+function sortByName(a: FunctionInfo, b: FunctionInfo): number {
+  return a.displayName.localeCompare(b.displayName);
+}
+
+function sortByFile(a: FunctionInfo, b: FunctionInfo): number {
+  return a.filePath.localeCompare(b.filePath);
 }
 
 function applyLimit(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
