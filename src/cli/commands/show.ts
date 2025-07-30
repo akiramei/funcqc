@@ -439,7 +439,7 @@ async function displayHistoryInfo(func: FunctionInfo, env: CommandEnvironment): 
             metrics: historicalFunc.metrics
           });
         }
-      } catch (error) {
+      } catch {
         // Skip snapshots where function wasn't found
         continue;
       }
