@@ -200,73 +200,144 @@ export async function performBasicAnalysis(
   spinner.start('Performing basic function analysis...');
   
   const components = await initializeComponents(env, spinner, sourceFiles.length);
-  const allFunctions: FunctionInfo[] = [];
+  let totalFunctions = 0; // Track total instead of accumulating all in memory
   
-  // Analyze each stored file
-  for (const sourceFile of sourceFiles) {
-    try {
-      // Create virtual source file for TypeScript analyzer
-      const virtualFile = {
-        path: sourceFile.filePath,
-        content: sourceFile.fileContent,
-      };
-      
-      // Use analyzer with content instead of file path
-      const functions = await components.analyzer.analyzeContent(
-        virtualFile.content,
-        virtualFile.path
-      );
-      
-      // Calculate metrics and set source file ID
-      for (const func of functions) {
-        // Only calculate metrics if not already calculated during extraction
-        if (!func.metrics) {
-          func.metrics = components.qualityCalculator.calculate(func);
-        }
-        
-        // Use sourceFileIdMap from N:1 design (must exist)
-        const mappedId = sourceFileIdMap?.get(func.filePath);
-        if (!mappedId) {
-          throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
-        }
-        func.sourceFileId = mappedId;
-        
-      }
-      
-      allFunctions.push(...functions);
-      
-      // Update function count in source file
-      sourceFile.functionCount = functions.length;
-      
-    } catch (error) {
-      console.warn(
-        chalk.yellow(
-          `Warning: Failed to analyze ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-    }
+  // Determine optimal concurrency based on system resources
+  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
+  const maxConcurrency = components.optimalConfig.maxWorkers;
+  
+  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
+  
+  // Process files in parallel batches for improved performance
+  const batchSize = Math.ceil(sourceFiles.length / maxConcurrency);
+  const batches: typeof sourceFiles[] = [];
+  
+  for (let i = 0; i < sourceFiles.length; i += batchSize) {
+    batches.push(sourceFiles.slice(i, i + batchSize));
   }
   
-  // Save analysis results
-  await env.storage.storeFunctions(allFunctions, snapshotId);
-  await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-  
-  // Update function counts in source_files table
-  const functionCountByFile = new Map<string, number>();
-  allFunctions.forEach(func => {
-    const count = functionCountByFile.get(func.filePath) || 0;
-    functionCountByFile.set(func.filePath, count + 1);
+  // Process batches with streaming storage to reduce peak memory usage
+  const batchPromises = batches.map(async (batch, batchIndex) => {
+    const batchFunctions: FunctionInfo[] = [];
+    const batchErrors: string[] = [];
+    
+    console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+    
+    for (const sourceFile of batch) {
+      try {
+        // Create virtual source file for TypeScript analyzer
+        const virtualFile = {
+          path: sourceFile.filePath,
+          content: sourceFile.fileContent,
+        };
+        
+        // Use analyzer with content instead of file path
+        const functions = await components.analyzer.analyzeContent(
+          virtualFile.content,
+          virtualFile.path
+        );
+        
+        // Set source file ID and verify metrics calculation
+        for (const func of functions) {
+          // Metrics are pre-calculated in TypeScriptAnalyzer.create*FunctionInfo methods
+          // This fallback exists for robustness and potential future analyzer implementations
+          // Note: TypeScriptAnalyzer always sets metrics, so this block is currently unused
+          if (!func.metrics) {
+            // Legacy compatibility: fallback to separate calculation if metrics missing
+            // This preserves backward compatibility and provides safety for edge cases
+            func.metrics = components.qualityCalculator.calculate(func);
+            
+            if (process.env['NODE_ENV'] !== 'production') {
+              console.warn(`⚠️  Fallback metrics calculation used for ${func.name} - analyzer may need optimization`);
+            }
+          }
+          
+          // Use sourceFileIdMap from N:1 design (must exist)
+          const mappedId = sourceFileIdMap?.get(func.filePath);
+          if (!mappedId) {
+            throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
+          }
+          func.sourceFileId = mappedId;
+        }
+        
+        batchFunctions.push(...functions);
+        sourceFile.functionCount = functions.length;
+        
+      } catch (error) {
+        const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        batchErrors.push(errorMessage);
+        console.warn(chalk.yellow(`Warning: ${errorMessage}`));
+      }
+    }
+    
+    // Immediate storage per batch to reduce peak memory usage
+    if (batchFunctions.length > 0) {
+      await env.storage.storeFunctions(batchFunctions, snapshotId);
+      
+      // Update function counts for files in this batch
+      const batchFunctionCounts = new Map<string, number>();
+      batchFunctions.forEach(func => {
+        const count = batchFunctionCounts.get(func.filePath) || 0;
+        batchFunctionCounts.set(func.filePath, count + 1);
+      });
+      
+      if (batchFunctionCounts.size > 0) {
+        await env.storage.updateSourceFileFunctionCounts(batchFunctionCounts, snapshotId);
+      }
+    }
+    
+    if (batchErrors.length > 0) {
+      console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
+    } else {
+      console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
+    }
+    
+    // Force garbage collection after each batch if available
+    if (global.gc) {
+      global.gc();
+    }
+    
+    return { functionCount: batchFunctions.length, errors: batchErrors };
   });
   
-  if (functionCountByFile.size > 0) {
-    await env.storage.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+  // Wait for all batches to complete and collect summary results
+  const batchResults = await Promise.all(batchPromises);
+  const allErrors: string[] = [];
+  
+  for (const batchResult of batchResults) {
+    totalFunctions += batchResult.functionCount;
+    allErrors.push(...batchResult.errors);
   }
   
-  spinner.succeed(`Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`);
+  if (allErrors.length > 0) {
+    console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
+  } else {
+    console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
+  }
+  
+  // Update analysis level after all batches complete
+  await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+  
+  spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
   
   // Skip heavy summary calculation for performance unless explicitly requested
-  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || allFunctions.length < 100) {
-    showAnalysisSummary(allFunctions);
+  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
+    // Summary requires function array but we optimized it away for memory efficiency
+    console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
+  }
+  
+  // Clean up memory monitoring to prevent hanging process
+  if (components.memoryMonitor) {
+    clearInterval(components.memoryMonitor);
+    env.logger.debug('Memory monitoring stopped after analysis completion');
+  }
+  if (components.monitoringTimeout) {
+    clearTimeout(components.monitoringTimeout);
+  }
+  
+  // Clean up analyzer resources
+  if (components.analyzer && typeof components.analyzer.cleanup === 'function') {
+    await components.analyzer.cleanup();
   }
 }
 
@@ -386,10 +457,52 @@ async function initializeComponents(
   const resourceManager = SystemResourceManager.getInstance();
   const optimalConfig = resourceManager.getOptimalConfig(projectSize);
   
-  // Log system information in debug mode
+  // Log system information and monitor memory usage
   if (process.env['DEBUG'] === 'true') {
     resourceManager.logSystemInfo(optimalConfig);
   }
+  
+  // Monitor memory usage periodically during analysis with dynamic limits
+  const v8 = await import('v8');
+  const heapStats = v8.getHeapStatistics();
+  
+  // V8のヒープサイズ制限が0の場合（制限なし）のフォールバック処理を追加
+  const heapLimit = heapStats.heap_size_limit || (2 * 1024 * 1024 * 1024); // 2GB fallback
+  const maxHeapMB = Math.floor(heapLimit / 1024 / 1024 * 0.9);
+  
+  // より詳細なメモリ閾値管理
+  const warningThreshold = maxHeapMB * 0.8;
+  const criticalThreshold = maxHeapMB * 0.9;
+  
+  const memoryMonitor = setInterval(() => {
+    const memoryUsage = process.memoryUsage();
+    const heapUsedMB = memoryUsage.heapUsed / 1024 / 1024;
+    
+    if (heapUsedMB > criticalThreshold) {
+      env.logger.error(`Critical memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
+      
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        const afterGC = process.memoryUsage().heapUsed / 1024 / 1024;
+        env.logger.debug(`Memory after GC: ${afterGC.toFixed(1)}MB (freed ${(heapUsedMB - afterGC).toFixed(1)}MB)`);
+      } else {
+        env.logger.debug('Garbage collection not available (run with --expose-gc for forced GC)');
+      }
+    } else if (heapUsedMB > warningThreshold) {
+      env.logger.warn(`High memory usage: ${heapUsedMB.toFixed(1)}MB (${(heapUsedMB/maxHeapMB*100).toFixed(1)}%)`);
+    }
+  }, 10000); // Check every 10 seconds
+  
+  // Dynamic cleanup timing based on project size with proper cleanup
+  const maxMonitoringTime = Math.max(300000, (projectSize || 100) * 100); // At least 5 minutes or 100ms per file
+  const monitoringTimeout = setTimeout(() => {
+    clearInterval(memoryMonitor);
+    env.logger.debug('Memory monitoring stopped after timeout');
+  }, maxMonitoringTime);
+  
+  // Store timeout reference for potential early cleanup
+  (memoryMonitor as NodeJS.Timeout & { __timeout?: NodeJS.Timeout }).__timeout = monitoringTimeout;
 
   // Configure analyzer with optimal settings
   const analyzer = new TypeScriptAnalyzer(
@@ -404,7 +517,10 @@ async function initializeComponents(
   return { 
     analyzer, 
     storage: env.storage, 
-    qualityCalculator 
+    qualityCalculator,
+    optimalConfig,
+    memoryMonitor,
+    monitoringTimeout
   };
 }
 
@@ -719,56 +835,82 @@ async function collectSourceFiles(
   const sourceFiles: import('../../types').SourceFile[] = [];
   const crypto = await import('crypto');
   
-  for (const filePath of files) {
-    try {
-      const fileContent = await fs.readFile(filePath, 'utf-8');
-      const relativePath = path.relative(process.cwd(), filePath);
-      const fileStats = await fs.stat(filePath);
-      
-      // Calculate file hash for deduplication
-      const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-      
-      // Generate content ID for deduplication
-      // Format: {fileHash}_{fileSizeBytes}
-      const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
-      const contentId = `${fileHash}_${fileSizeBytes}`;
-      
-      // Count lines
-      const lineCount = fileContent.split('\n').length;
-      
-      // Detect language from file extension
-      const language = path.extname(filePath).slice(1) || 'typescript';
-      
-      // Basic analysis for exports/imports (simple regex-based for performance)
-      const exportCount = (fileContent.match(/^export\s+/gm) || []).length;
-      const importCount = (fileContent.match(/^import\s+/gm) || []).length;
-      
-      const sourceFile: import('../../types').SourceFile = {
-        id: contentId, // Use content ID for deduplication
-        snapshotId: '', // Will be set when saved
-        filePath: relativePath,
-        fileContent,
-        fileHash,
-        encoding: 'utf-8',
-        fileSizeBytes,
-        lineCount,
-        language,
-        functionCount: 0, // Will be updated after function analysis
-        exportCount,
-        importCount,
-        fileModifiedTime: fileStats.mtime,
-        createdAt: new Date(),
-      };
-      
-      sourceFiles.push(sourceFile);
-      
-    } catch (error) {
-      console.warn(
-        chalk.yellow(
-          `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-    }
+  // Pre-compile regular expressions for better performance
+  const exportRegex = /^export\s+/gm;
+  const importRegex = /^import\s+/gm;
+  
+  // Process files in parallel batches for better I/O performance
+  const batchSize = 20; // Process 20 files at a time to avoid overwhelming the system
+  const batches: string[][] = [];
+  
+  for (let i = 0; i < files.length; i += batchSize) {
+    batches.push(files.slice(i, i + batchSize));
+  }
+  
+  for (const batch of batches) {
+    const batchPromises = batch.map(async (filePath) => {
+      try {
+        // Parallel I/O operations: read file content and get file stats
+        const [fileContent, fileStats] = await Promise.all([
+          fs.readFile(filePath, 'utf-8'),
+          fs.stat(filePath)
+        ]);
+        
+        const relativePath = path.relative(process.cwd(), filePath);
+        
+        // Calculate file hash for deduplication
+        const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+        
+        // Generate content ID for deduplication
+        // Format: {fileHash}_{fileSizeBytes}
+        const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
+        const contentId = `${fileHash}_${fileSizeBytes}`;
+        
+        // Count lines
+        const lineCount = fileContent.split('\n').length;
+        
+        // Detect language from file extension
+        const language = path.extname(filePath).slice(1) || 'typescript';
+        
+        // Basic analysis for exports/imports using pre-compiled regex
+        const exportCount = (fileContent.match(exportRegex) || []).length;
+        const importCount = (fileContent.match(importRegex) || []).length;
+        
+        const sourceFile: import('../../types').SourceFile = {
+          id: contentId, // Use content ID for deduplication
+          snapshotId: '', // Will be set when saved
+          filePath: relativePath,
+          fileContent,
+          fileHash,
+          encoding: 'utf-8',
+          fileSizeBytes,
+          lineCount,
+          language,
+          functionCount: 0, // Will be updated after function analysis
+          exportCount,
+          importCount,
+          fileModifiedTime: fileStats.mtime, // Use actual file modification time
+          createdAt: new Date(),
+        };
+        
+        return sourceFile;
+        
+      } catch (error) {
+        console.warn(
+          chalk.yellow(
+            `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          )
+        );
+        return null;
+      }
+    });
+    
+    // Wait for batch to complete and add valid source files
+    const batchResults = await Promise.all(batchPromises);
+    sourceFiles.push(...batchResults.filter((file): file is import('../../types').SourceFile => file !== null));
+    
+    // Update progress
+    spinner.text = `Collecting source files... (${sourceFiles.length}/${files.length})`;
   }
   
   spinner.succeed(`Collected ${sourceFiles.length} source files`);
@@ -969,89 +1111,6 @@ async function analyzeBatch(
   return { functions, callEdges };
 }
 
-/**
- * Show scan-specific analysis summary (no quality evaluation)
- * Quality evaluation should be done via 'funcqc health' command
- */
-function showAnalysisSummary(functions: FunctionInfo[]): void {
-  if (functions.length === 0) {
-    return;
-  }
-
-  const stats = calculateStats(functions);
-  const fileCount = calculateFileCount(functions);
-
-  console.log();
-  console.log(chalk.blue('📋 Scan Results Summary:'));
-  console.log(`  Functions Analyzed: ${chalk.cyan(functions.length)} in ${chalk.cyan(fileCount)} files`);
-  
-  // Show basic distribution stats
-  console.log();
-  console.log(chalk.blue('📊 Function Distribution:'));
-  console.log(`  Exported functions: ${chalk.green(stats.exported)} (${((stats.exported / functions.length) * 100).toFixed(1)}%)`);
-  console.log(`  Async functions: ${chalk.blue(stats.async)} (${((stats.async / functions.length) * 100).toFixed(1)}%)`);
-  console.log(`  Average complexity: ${chalk.yellow(stats.avgComplexity.toFixed(1))}`);
-  console.log(`  Average lines of code: ${chalk.yellow(stats.avgLines.toFixed(1))}`);
-
-  // Show performance statistics for large projects
-  if (functions.length > 1000) {
-    console.log();
-    console.log(chalk.blue('🚀 Performance Stats:'));
-    console.log(
-      `  Project Size: ${functions.length > 10000 ? chalk.red('Very Large') : chalk.yellow('Large')} (${functions.length} functions)`
-    );
-    console.log(`  Memory Usage: ${estimateMemoryUsage(functions)} MB (estimated)`);
-    console.log(
-      `  Processing Mode: ${functions.length > 1000 ? 'Streaming' : 'Batch'} processing used`
-    );
-  }
-
-  // Suggest next steps
-  console.log();
-  console.log(chalk.gray('💡 Next steps:'));
-  console.log(chalk.gray('  • Run `funcqc health` for quality analysis'));
-  console.log(chalk.gray('  • Run `funcqc list --cc-ge 10` to find complex functions'));
-  console.log(chalk.gray('  • Run `funcqc similar` to detect code duplication'));
-}
-
-function estimateMemoryUsage(functions: FunctionInfo[]): number {
-  // Rough estimation: each function uses about 2-5KB in memory
-  const avgFunctionSize = 3; // KB
-  return Math.round((functions.length * avgFunctionSize) / 1024); // Convert to MB
-}
-
-function calculateFileCount(functions: FunctionInfo[]): number {
-  const uniqueFiles = new Set(functions.map(f => f.filePath));
-  return uniqueFiles.size;
-}
-
-function calculateStats(functions: FunctionInfo[]) {
-  const total = functions.length;
-  const exported = functions.filter(f => f.isExported).length;
-  const async = functions.filter(f => f.isAsync).length;
-  const arrow = functions.filter(f => f.isArrowFunction).length;
-  const methods = functions.filter(f => f.isMethod).length;
-
-  const complexities = functions.map(f => f.metrics?.cyclomaticComplexity || 1);
-  const lines = functions.map(f => f.metrics?.linesOfCode || 0);
-
-  const avgComplexity = complexities.reduce((a, b) => a + b, 0) / total;
-  const avgLines = lines.reduce((a, b) => a + b, 0) / total;
-  const maxComplexity = Math.max(...complexities);
-  const highComplexity = complexities.filter(c => c > 10).length;
-
-  return {
-    total,
-    exported,
-    async,
-    arrow,
-    methods,
-    avgComplexity,
-    avgLines,
-    maxComplexity,
-    highComplexity,
-  };
-}
 
 /**
  * Run real-time quality gate mode with adaptive thresholds

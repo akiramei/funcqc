@@ -62,6 +62,20 @@ export class TypeScriptAnalyzer {
   private cache: AnalysisCache;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
+  
+  // Static cache for QualityCalculator module to avoid repeated dynamic imports
+  private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
+  
+  /**
+   * Get cached QualityCalculator module to avoid repeated dynamic imports
+   */
+  private static async getQualityCalculator(): Promise<typeof import('../metrics/quality-calculator')> {
+    if (!TypeScriptAnalyzer.qualityCalculatorPromise) {
+      TypeScriptAnalyzer.qualityCalculatorPromise = import('../metrics/quality-calculator');
+    }
+    return TypeScriptAnalyzer.qualityCalculatorPromise;
+  }
+  
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
 
@@ -704,14 +718,14 @@ export class TypeScriptAnalyzer {
   /**
    * Creates FunctionInfo object from extracted metadata
    */
-  private createVariableFunctionInfo(
+  private async createVariableFunctionInfo(
     functionNode: ArrowFunction | FunctionExpression,
     name: string,
     metadata: FunctionMetadata,
     relativePath: string,
     fileHash: string,
     stmt: VariableStatement
-  ): FunctionInfo {
+  ): Promise<FunctionInfo> {
     const physicalId = this.generatePhysicalId();
     const semanticId = this.generateSemanticId(
       relativePath,
@@ -760,6 +774,11 @@ export class TypeScriptAnalyzer {
       functionInfo.returnType = metadata.returnType;
     }
 
+    // Calculate metrics directly from ts-morph node while we have it
+    const { QualityCalculator } = await TypeScriptAnalyzer.getQualityCalculator();
+    const qualityCalculator = new QualityCalculator();
+    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(functionNode, functionInfo);
+
     return functionInfo;
   }
 
@@ -781,7 +800,7 @@ export class TypeScriptAnalyzer {
 
         if (functionNode) {
           const metadata = this.extractFunctionMetadata(functionNode, name, fileContent, stmt);
-          const functionInfo = this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
+          const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
           functions.push(functionInfo);
         }
       }
@@ -1209,12 +1228,30 @@ export class TypeScriptAnalyzer {
    * Manage memory by cleaning up project if too many source files are loaded
    */
   private manageMemory(): void {
-    // Note: Memory management disabled - SourceFiles must remain available
-    // for shared Project usage. Project disposal will be handled by parent FunctionAnalyzer
     const sourceFiles = this.project.getSourceFiles();
-    if (sourceFiles.length > this.maxSourceFilesInMemory * ANALYZER_CONSTANTS.MEMORY_WARNING_THRESHOLD_FACTOR) {
-      // Log warning if memory usage is very high
-      this.logger.warn(`Warning: ${sourceFiles.length} SourceFiles in memory. Consider using smaller batch sizes.`);
+    const warningThreshold = this.maxSourceFilesInMemory * ANALYZER_CONSTANTS.MEMORY_WARNING_THRESHOLD_FACTOR;
+    
+    if (sourceFiles.length > warningThreshold) {
+      this.logger.warn(`Warning: ${sourceFiles.length} SourceFiles in memory (threshold: ${warningThreshold})`);
+      
+      // Force garbage collection if available (Node.js with --expose-gc)
+      if (global.gc && sourceFiles.length > this.maxSourceFilesInMemory * 2) {
+        this.logger.debug('Forcing garbage collection due to high memory usage');
+        global.gc();
+      }
+      
+      // Remove oldest virtual source files if memory usage is critical
+      if (sourceFiles.length > this.maxSourceFilesInMemory * 3) {
+        const virtualFiles = sourceFiles.filter(sf => sf.getFilePath().includes('virtual-'));
+        if (virtualFiles.length > 0) {
+          // Remove oldest 20% of virtual files
+          const toRemove = Math.floor(virtualFiles.length * 0.2);
+          for (let i = 0; i < toRemove; i++) {
+            this.project.removeSourceFile(virtualFiles[i]);
+          }
+          this.logger.debug(`Removed ${toRemove} virtual source files to manage memory`);
+        }
+      }
     }
   }
 
