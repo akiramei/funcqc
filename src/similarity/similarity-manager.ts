@@ -10,12 +10,11 @@ import {
 import { ASTSimilarityDetector } from './ast-similarity-detector';
 import { HashSimilarityDetector } from './hash-similarity-detector';
 import { AdvancedSimilarityDetector } from './advanced-similarity-detector';
-import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 
 export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
-  constructor(weights?: SimilarityWeights, _storage?: PGLiteStorageAdapter, similarityOptions?: SimilarityOptions) {
+  constructor(weights?: SimilarityWeights, similarityOptions?: SimilarityOptions) {
     // Register detectors in priority order:
     // 1. AST detector as primary (reliable for move detection)
     this.registerDetector(new ASTSimilarityDetector(weights));

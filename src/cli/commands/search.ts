@@ -739,7 +739,7 @@ async function processAstSimilarity(
   }
 
   try {
-    return await findSimilarFunctions(allFunctions, env);
+    return await findSimilarFunctions(allFunctions);
   } catch {
     env.commandLogger.warn('AST similarity search failed, using semantic + keyword only');
     return [];
@@ -764,11 +764,10 @@ function filterContextFunctions(allFunctions: FunctionInfo[], contextIds: string
  * Find structurally similar functions
  */
 async function findSimilarFunctions(
-  allFunctions: FunctionInfo[],
-  env: CommandEnvironment
+  allFunctions: FunctionInfo[]
 ): Promise<FunctionInfo[]> {
   const similarityOptions = { threshold: AST_SIMILARITY_THRESHOLD };
-  const similarityManager = new SimilarityManager(undefined, env.storage, similarityOptions);
+  const similarityManager = new SimilarityManager(undefined, similarityOptions);
   
   const similarities = await similarityManager.detectSimilarities(
     allFunctions,
