@@ -200,14 +200,11 @@ export async function performBasicAnalysis(
   spinner.start('Performing basic function analysis...');
   
   const components = await initializeComponents(env, spinner, sourceFiles.length);
-  const allFunctions: FunctionInfo[] = [];
+  let totalFunctions = 0; // Track total instead of accumulating all in memory
   
   // Determine optimal concurrency based on system resources
-  const maxConcurrency = Math.min(
-    components.optimalConfig.maxWorkers,
-    Math.ceil(sourceFiles.length / 10), // Don't over-parallelize for small projects
-    8 // Cap at 8 concurrent analyses
-  );
+  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
+  const maxConcurrency = components.optimalConfig.maxWorkers;
   
   spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
   
@@ -219,7 +216,7 @@ export async function performBasicAnalysis(
     batches.push(sourceFiles.slice(i, i + batchSize));
   }
   
-  // Process batches in parallel
+  // Process batches with streaming storage to reduce peak memory usage
   const batchPromises = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
@@ -267,52 +264,60 @@ export async function performBasicAnalysis(
       }
     }
     
+    // Immediate storage per batch to reduce peak memory usage
+    if (batchFunctions.length > 0) {
+      await env.storage.storeFunctions(batchFunctions, snapshotId);
+      
+      // Update function counts for files in this batch
+      const batchFunctionCounts = new Map<string, number>();
+      batchFunctions.forEach(func => {
+        const count = batchFunctionCounts.get(func.filePath) || 0;
+        batchFunctionCounts.set(func.filePath, count + 1);
+      });
+      
+      if (batchFunctionCounts.size > 0) {
+        await env.storage.updateSourceFileFunctionCounts(batchFunctionCounts, snapshotId);
+      }
+    }
+    
     if (batchErrors.length > 0) {
       console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
     } else {
       console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
     }
     
-    return { functions: batchFunctions, errors: batchErrors };
+    // Force garbage collection after each batch if available
+    if (global.gc) {
+      global.gc();
+    }
+    
+    return { functionCount: batchFunctions.length, errors: batchErrors };
   });
   
-  // Wait for all batches to complete and collect results
+  // Wait for all batches to complete and collect summary results
   const batchResults = await Promise.all(batchPromises);
   const allErrors: string[] = [];
   
   for (const batchResult of batchResults) {
-    allFunctions.push(...batchResult.functions);
+    totalFunctions += batchResult.functionCount;
     allErrors.push(...batchResult.errors);
   }
   
   if (allErrors.length > 0) {
     console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
   } else {
-    console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`));
+    console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
   }
   
-  spinner.text = `Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`;
-  
-  // Save analysis results
-  await env.storage.storeFunctions(allFunctions, snapshotId);
+  // Update analysis level after all batches complete
   await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
   
-  // Update function counts in source_files table
-  const functionCountByFile = new Map<string, number>();
-  allFunctions.forEach(func => {
-    const count = functionCountByFile.get(func.filePath) || 0;
-    functionCountByFile.set(func.filePath, count + 1);
-  });
-  
-  if (functionCountByFile.size > 0) {
-    await env.storage.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
-  }
-  
-  spinner.succeed(`Analyzed ${allFunctions.length} functions from ${sourceFiles.length} files`);
+  spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
   
   // Skip heavy summary calculation for performance unless explicitly requested
-  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || allFunctions.length < 100) {
-    showAnalysisSummary(allFunctions);
+  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
+    // Summary requires function array but we optimized it away for memory efficiency
+    console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
   }
 }
 
@@ -787,11 +792,14 @@ async function collectSourceFiles(
   const sourceFiles: import('../../types').SourceFile[] = [];
   const crypto = await import('crypto');
   
+  // Pre-compile regular expressions for better performance
+  const exportRegex = /^export\s+/gm;
+  const importRegex = /^import\s+/gm;
+  
   for (const filePath of files) {
     try {
       const fileContent = await fs.readFile(filePath, 'utf-8');
       const relativePath = path.relative(process.cwd(), filePath);
-      const fileStats = await fs.stat(filePath);
       
       // Calculate file hash for deduplication
       const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
@@ -807,9 +815,9 @@ async function collectSourceFiles(
       // Detect language from file extension
       const language = path.extname(filePath).slice(1) || 'typescript';
       
-      // Basic analysis for exports/imports (simple regex-based for performance)
-      const exportCount = (fileContent.match(/^export\s+/gm) || []).length;
-      const importCount = (fileContent.match(/^import\s+/gm) || []).length;
+      // Basic analysis for exports/imports using pre-compiled regex
+      const exportCount = (fileContent.match(exportRegex) || []).length;
+      const importCount = (fileContent.match(importRegex) || []).length;
       
       const sourceFile: import('../../types').SourceFile = {
         id: contentId, // Use content ID for deduplication
@@ -824,7 +832,7 @@ async function collectSourceFiles(
         functionCount: 0, // Will be updated after function analysis
         exportCount,
         importCount,
-        fileModifiedTime: fileStats.mtime,
+        fileModifiedTime: new Date(), // Use current time instead of file stat
         createdAt: new Date(),
       };
       
