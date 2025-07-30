@@ -434,32 +434,6 @@ Hybrid Search:
   Optimal for comprehensive code exploration
 `);
 
-program
-  .command('vectorize')
-  .description('Generate and manage embeddings for function descriptions')
-  .option('--all', 'vectorize all functions with descriptions')
-  .option('--recent', 'vectorize only functions without embeddings (default)')
-  .option('--status', 'show vectorization status')
-  .option('--rebuild-index', 'rebuild ANN index for faster search')
-  .option(
-    '--index-algorithm <algorithm>',
-    'ANN algorithm (hierarchical, lsh, hybrid)',
-    'hierarchical'
-  )
-  .option('--index-config <config>', 'JSON config for ANN index (clusters, hash bits, etc.)')
-  .option('--benchmark', 'benchmark ANN index performance')
-  .option('--index-stats', 'show ANN index statistics')
-  .option('--api-key <key>', 'OpenAI API key (or use OPENAI_API_KEY env var)')
-  .option('--model <model>', 'embedding model to use', 'text-embedding-3-small')
-  .option('--batch-size <size>', 'batch size for processing', '100')
-  .option('--limit <n>', 'limit number of functions to process')
-  .option('--output <format>', 'output format (console, json)', 'console')
-  .option('--force', 'skip confirmation prompts')
-  .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { vectorizeCommand } = await import('./cli/commands/vectorize');
-    return withEnvironment(vectorizeCommand)(options, command);
-  });
 
 // Add evaluate command (v1.6 enhancement) - loaded dynamically
 program.addCommand(

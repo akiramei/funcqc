@@ -31,7 +31,6 @@ import { DatabaseCore } from './modules/database-core';
 import { SnapshotOperations } from './modules/snapshot-operations';
 import { FunctionOperations } from './modules/function-operations';
 import { MetricsOperations } from './modules/metrics-operations';
-import { EmbeddingOperations } from './modules/embedding-operations';
 import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
@@ -63,7 +62,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private snapshotOps: SnapshotOperations;
   private functionOps: FunctionOperations;
   private metricsOps: MetricsOperations;
-  private embeddingOps: EmbeddingOperations;
   private callEdgeOps: CallEdgeOperations;
   private utilityOps: UtilityOperations;
   private sourceContentOps: SourceContentOperations;
@@ -94,7 +92,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.snapshotOps = new SnapshotOperations(this.context);
     this.functionOps = new FunctionOperations(this.context);
     this.metricsOps = new MetricsOperations(this.context);
-    this.embeddingOps = new EmbeddingOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
@@ -117,8 +114,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-      this.embeddingOps = new EmbeddingOperations(this.context);
-      this.callEdgeOps = new CallEdgeOperations(this.context);
+        this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
       // Register this storage connection for graceful shutdown
@@ -154,8 +150,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-      this.embeddingOps = new EmbeddingOperations(this.context);
-      this.callEdgeOps = new CallEdgeOperations(this.context);
+        this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
       
       this.isInitialized = true;
@@ -451,49 +446,6 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.functionOps.searchFunctionsByDescription(keyword, options);
   }
 
-  // ========================================
-  // EMBEDDING OPERATIONS
-  // ========================================
-
-  async saveEmbedding(semanticId: string, embedding: number[], model?: string): Promise<void> {
-    await this.ensureInitialized();
-    return this.embeddingOps.saveEmbedding(semanticId, embedding, model);
-  }
-
-  async getEmbedding(semanticId: string): Promise<{ embedding: number[]; model: string } | null> {
-    await this.ensureInitialized();
-    const result = await this.embeddingOps.getEmbedding(semanticId);
-    if (!result) return null;
-    return {
-      embedding: result.embedding,
-      model: result.embeddingModel
-    };
-  }
-
-  async searchByEmbedding(queryEmbedding: number[], threshold?: number, limit?: number): Promise<Array<FunctionInfo & { similarity: number }>> {
-    await this.ensureInitialized();
-    return this.embeddingOps.searchByEmbedding(queryEmbedding, threshold, limit);
-  }
-
-  async bulkSaveEmbeddings(embeddings: Array<{ semanticId: string; embedding: number[]; model: string }>): Promise<void> {
-    await this.ensureInitialized();
-    return this.embeddingOps.bulkSaveEmbeddings(embeddings);
-  }
-
-  async getFunctionsWithoutEmbeddings(snapshotId: string, _limit?: number): Promise<FunctionInfo[]> {
-    await this.ensureInitialized();
-    return this.embeddingOps.getFunctionsWithoutEmbeddings(snapshotId);
-  }
-
-  async getEmbeddingStats(): Promise<{ total: number; withEmbeddings: number; withoutEmbeddings: number }> {
-    await this.ensureInitialized();
-    const stats = await this.embeddingOps.getEmbeddingStats();
-    return {
-      total: stats.totalEmbeddings,
-      withEmbeddings: stats.functionsWithEmbeddings,
-      withoutEmbeddings: stats.functionsWithoutEmbeddings
-    };
-  }
 
   // ========================================
   // NAMING EVALUATION OPERATIONS

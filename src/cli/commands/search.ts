@@ -74,28 +74,18 @@ async function handleEmptyResults(
 ): Promise<void> {
   env.commandLogger.info(chalk.yellow(`No functions found matching keyword search: "${keyword}"`));
 
-  const stats = await env.storage.getEmbeddingStats();
-
-  if (stats.total === 0) {
+  const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
+  env.commandLogger.info(
+    chalk.gray(
+      `💡 No results for ${searchType} search. Try different keywords or: ${chalk.cyan('funcqc list --name "*pattern*"')}`
+    )
+  );
+  if (options.semantic || options.hybrid) {
     env.commandLogger.info(
       chalk.gray(
-        `💡 No function descriptions found. Add descriptions first: ${chalk.cyan('funcqc describe')}`
+        `💡 Local semantic search uses TF-IDF and n-gram matching. Try broader terms or reduce --threshold.`
       )
     );
-  } else {
-    const searchType = options.semantic ? 'semantic' : options.hybrid ? 'hybrid' : 'keyword';
-    env.commandLogger.info(
-      chalk.gray(
-        `💡 No results for ${searchType} search. Try different keywords or: ${chalk.cyan('funcqc list --name "*pattern*"')}`
-      )
-    );
-    if (options.semantic || options.hybrid) {
-      env.commandLogger.info(
-        chalk.gray(
-          `💡 Local semantic search uses TF-IDF and n-gram matching. Try broader terms or reduce --threshold.`
-        )
-      );
-    }
   }
 }
 

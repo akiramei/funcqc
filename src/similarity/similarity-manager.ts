@@ -8,7 +8,6 @@ import {
   SimilarityWeights,
 } from '../types';
 import { ASTSimilarityDetector } from './ast-similarity-detector';
-import { ANNSimilarityDetector } from './ann-similarity-detector';
 import { HashSimilarityDetector } from './hash-similarity-detector';
 import { AdvancedSimilarityDetector } from './advanced-similarity-detector';
 import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
@@ -16,15 +15,11 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 export class SimilarityManager {
   private detectors: Map<string, SimilarityDetector> = new Map();
 
-  constructor(weights?: SimilarityWeights, storage?: PGLiteStorageAdapter, similarityOptions?: SimilarityOptions) {
+  constructor(weights?: SimilarityWeights, _storage?: PGLiteStorageAdapter, similarityOptions?: SimilarityOptions) {
     // Register detectors in priority order:
     // 1. AST detector as primary (reliable for move detection)
     this.registerDetector(new ASTSimilarityDetector(weights));
 
-    // 2. ANN detector for semantic similarity (if storage available)
-    if (storage) {
-      this.registerDetector(new ANNSimilarityDetector(storage));
-    }
 
     // 3. Hash detector for basic exact/near matches (O(n))
     this.registerDetector(new HashSimilarityDetector());

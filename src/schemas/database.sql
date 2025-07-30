@@ -19,9 +19,7 @@
 --
 -- Level 1: snapshots (independent base tables)
 -- Level 2: functions, function_descriptions (core entities)
--- Level 3: function_parameters, quality_metrics, call_edges, function_embeddings, 
---          naming_evaluations
--- Level 4: ann_index_metadata (independent)
+-- Level 3: function_parameters, quality_metrics, call_edges, naming_evaluations
 --
 -- =============================================================================
 
@@ -360,21 +358,6 @@ CREATE INDEX idx_internal_call_edges_snapshot_file ON internal_call_edges(snapsh
 CREATE INDEX idx_internal_call_edges_confidence ON internal_call_edges(confidence_score);
 CREATE INDEX idx_internal_call_edges_detected_by ON internal_call_edges(detected_by);
 
--- -----------------------------------------------------------------------------
--- Function Embeddings: Vector embeddings for similarity search
--- -----------------------------------------------------------------------------
-CREATE TABLE function_embeddings (
-  function_id TEXT PRIMARY KEY,
-  embedding REAL[] NOT NULL,
-  model_name TEXT NOT NULL,
-  model_version TEXT NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_function_embeddings_model ON function_embeddings(model_name, model_version);
-CREATE INDEX idx_function_embeddings_created_at ON function_embeddings(created_at);
 
 -- -----------------------------------------------------------------------------
 -- Naming Evaluations: Function naming quality assessment
@@ -401,29 +384,6 @@ CREATE INDEX idx_naming_evaluations_evaluated_at ON naming_evaluations(evaluated
 
 
 
--- =============================================================================
--- LEVEL 4: INDEPENDENT TABLES
--- =============================================================================
-
-
--- -----------------------------------------------------------------------------
--- ANN Index Metadata: Vector index management
--- -----------------------------------------------------------------------------
-CREATE TABLE ann_index_metadata (
-  id TEXT PRIMARY KEY,
-  index_type TEXT NOT NULL,
-  embedding_dimension INTEGER NOT NULL,
-  distance_metric TEXT NOT NULL,
-  index_parameters JSONB NOT NULL,
-  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-  last_rebuilt_at TIMESTAMPTZ,
-  total_vectors INTEGER DEFAULT 0,
-  index_size_bytes INTEGER DEFAULT 0
-);
-
-CREATE INDEX idx_ann_index_metadata_index_type ON ann_index_metadata(index_type);
-CREATE INDEX idx_ann_index_metadata_created_at ON ann_index_metadata(created_at);
 
 -- =============================================================================
 -- TRIGGERS
@@ -448,11 +408,6 @@ CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 
-CREATE TRIGGER update_ann_index_metadata_updated_at BEFORE UPDATE ON ann_index_metadata
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_function_embeddings_updated_at BEFORE UPDATE ON function_embeddings
-    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
