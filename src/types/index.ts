@@ -178,6 +178,9 @@ export interface FunctionInfo {
   returnType?: ReturnTypeInfo;
   metrics?: QualityMetrics;
   dependencies?: DependencyInfo[];
+  
+  // Change frequency tracking (computed from database)
+  changeCount?: number; // Number of times this function has been modified (based on content_id changes)
 }
 
 // Source File types for enhanced analysis capabilities
@@ -447,6 +450,7 @@ export interface ListCommandOptions extends CommandOptions {
   sort?: string;
   desc?: boolean;
   ccGe?: string;
+  changesGe?: string; // Filter by change count (functions changed >= n times)
   file?: string;
   name?: string;
   scope?: string; // Filter by scope (src, test, all, or custom scope)

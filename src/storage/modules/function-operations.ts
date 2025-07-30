@@ -63,6 +63,9 @@ export class FunctionOperations implements StorageOperationModule {
     ['halstead_volume', 'q.halstead_volume'],
     ['halstead_difficulty', 'q.halstead_difficulty'],
     ['maintainability_index', 'q.maintainability_index'],
+    // Change count fields (cc alias)
+    ['change_count', 'cc.change_count'],
+    ['changes', 'cc.change_count'],
   ]);
 
   // Valid sort fields mapping
@@ -76,6 +79,7 @@ export class FunctionOperations implements StorageOperationModule {
     ['is_exported', 'f.is_exported'],
     ['is_async', 'f.is_async'],
     ['display_name', 'f.display_name'],
+    ['changes', 'cc.change_count'],
   ]);
 
   constructor(context: StorageContext) {
@@ -89,13 +93,32 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
+   * Check if change count is needed for the query
+   */
+  private needsChangeCount(options?: QueryOptions): boolean {
+    if (!options?.filters) return false;
+    
+    // Check if there's a change count filter or sort
+    const hasChangeFilter = options.filters.some(filter => 
+      filter.field === 'change_count' || filter.field === 'changes'
+    );
+    
+    const hasChangeSort = options?.sort && 
+      typeof options.sort === 'string' && 
+      options.sort.split(',').some(field => field.trim() === 'changes');
+    
+    return hasChangeFilter || !!hasChangeSort;
+  }
+
+  /**
    * Get functions for a snapshot with filtering and pagination
    */
   async getFunctions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
     try {
       const isListCommand = !options?.includeFullData;
+      const needsChangeCount = this.needsChangeCount(options);
       
-      let sql = this.buildFunctionQuery(isListCommand);
+      let sql = this.buildFunctionQuery(isListCommand, needsChangeCount);
       const params: (string | number | unknown)[] = [snapshotId];
 
       // Add filters
@@ -620,18 +643,41 @@ export class FunctionOperations implements StorageOperationModule {
   /**
    * Build function query based on whether full data is needed
    */
-  private buildFunctionQuery(isListCommand: boolean): string {
+  private buildFunctionQuery(isListCommand: boolean, includeChangeCount: boolean = false): string {
     if (isListCommand) {
+      const changeCountSelect = includeChangeCount 
+        ? ', cc.change_count'
+        : '';
+      const changeCountJoin = includeChangeCount 
+        ? `LEFT JOIN (
+            SELECT semantic_id, COUNT(DISTINCT content_id) as change_count
+            FROM functions
+            GROUP BY semantic_id
+          ) cc ON f.semantic_id = cc.semantic_id`
+        : '';
+      
       return `
         SELECT 
           f.id, f.name, f.file_path, f.start_line, f.end_line,
-          f.is_exported, f.is_async, f.source_file_ref_id,
-          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity, q.parameter_count
+          f.is_exported, f.is_async, f.source_file_ref_id, f.semantic_id,
+          q.lines_of_code, q.cyclomatic_complexity, q.cognitive_complexity, q.parameter_count${changeCountSelect}
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
+        ${changeCountJoin}
         WHERE f.snapshot_id = $1
       `;
     } else {
+      const changeCountSelect = includeChangeCount 
+        ? ', cc.change_count'
+        : '';
+      const changeCountJoin = includeChangeCount 
+        ? `LEFT JOIN (
+            SELECT semantic_id, COUNT(DISTINCT content_id) as change_count
+            FROM functions
+            GROUP BY semantic_id
+          ) cc ON f.semantic_id = cc.semantic_id`
+        : '';
+      
       return `
         SELECT 
           f.id, f.semantic_id, f.content_id, f.snapshot_id, f.name, f.display_name, 
@@ -644,9 +690,10 @@ export class FunctionOperations implements StorageOperationModule {
           q.max_nesting_level, q.parameter_count, q.return_statement_count, q.branch_count,
           q.loop_count, q.try_catch_count, q.async_await_count, q.callback_count,
           q.comment_lines, q.code_to_comment_ratio, q.halstead_volume, q.halstead_difficulty,
-          q.maintainability_index
+          q.maintainability_index${changeCountSelect}
         FROM functions f
         LEFT JOIN quality_metrics q ON f.id = q.function_id
+        ${changeCountJoin}
         WHERE f.snapshot_id = $1
       `;
     }
@@ -704,7 +751,7 @@ export class FunctionOperations implements StorageOperationModule {
    * Map database row to FunctionInfo
    */
   private mapRowToFunctionInfo(
-    row: FunctionRow & Partial<MetricsRow>,
+    row: FunctionRow & Partial<MetricsRow> & { change_count?: number },
     parameters: ParameterInfo[]
   ): FunctionInfo {
     const base: FunctionInfo = {
@@ -747,6 +794,11 @@ export class FunctionOperations implements StorageOperationModule {
       if (metrics) {
         base.metrics = metrics;
       }
+    }
+
+    // Add change count if available
+    if (row.change_count !== undefined) {
+      base.changeCount = row.change_count;
     }
 
     return base;
