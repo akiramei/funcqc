@@ -1,4 +1,4 @@
-import { ListCommandOptions, FunctionInfo } from '../../types';
+import { ListCommandOptions, FunctionInfo, QueryOptions } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
@@ -13,12 +13,19 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      const queryOptions: { sort: string; scope?: string } = {
+      const needsChangeCount = needsChangeCountData(options);
+      
+      const queryOptions: QueryOptions = {
         sort: 'file_path,start_line'
       };
       
       if (options.scope) {
         queryOptions.scope = options.scope;
+      }
+      
+      // Add dummy filter to trigger change count inclusion if needed
+      if (needsChangeCount) {
+        queryOptions.filters = [{ field: 'changes', operator: '>=', value: 0 }];
       }
       
       let functions = await env.storage.findFunctions(queryOptions);
@@ -64,6 +71,14 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
     }
   };
 
+function needsChangeCountData(options: ListCommandOptions): boolean {
+  // Check if change count filtering or sorting is needed
+  return !!(
+    options.changesGe || 
+    (options.sort && options.sort.includes('changes'))
+  );
+}
+
 function applyFilters(functions: FunctionInfo[], options: ListCommandOptions): FunctionInfo[] {
   let filtered = functions;
 
@@ -72,6 +87,14 @@ function applyFilters(functions: FunctionInfo[], options: ListCommandOptions): F
     const threshold = parseInt(options.ccGe, 10);
     if (!isNaN(threshold)) {
       filtered = filtered.filter(f => f.metrics && f.metrics.cyclomaticComplexity >= threshold);
+    }
+  }
+
+  // Filter by change count
+  if (options.changesGe) {
+    const threshold = parseInt(options.changesGe, 10);
+    if (!isNaN(threshold)) {
+      filtered = filtered.filter(f => f.changeCount !== undefined && f.changeCount >= threshold);
     }
   }
 
@@ -115,6 +138,8 @@ function getSortFunction(field: string): ((a: FunctionInfo, b: FunctionInfo) => 
     case 'loc':
     case 'lines':
       return (a, b) => (a.metrics?.linesOfCode || 0) - (b.metrics?.linesOfCode || 0);
+    case 'changes':
+      return (a, b) => (a.changeCount || 0) - (b.changeCount || 0);
     case 'name':
       return (a, b) => a.displayName.localeCompare(b.displayName);
     case 'file':
@@ -149,20 +174,41 @@ function outputFormatted(
     return;
   }
 
-  // Table format with headers including ID column
-  console.log('ID       Name                            CC LOC File                                     Line');
-  console.log('-------- ------------------------------- -- --- ---------------------------------------- ----');
+  // Check if any function has change count data
+  const hasChangeCounts = functions.some(f => f.changeCount !== undefined);
 
-  functions.forEach(func => {
-    const id = func.id.substring(0, 8);
-    const name = truncateString(func.displayName, 31).padEnd(31);
-    const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
-    const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
-    const file = truncateString(func.filePath, 40).padEnd(40);
-    const line = func.startLine.toString().padStart(4);
-    
-    console.log(`${id} ${name} ${cc} ${loc} ${file} ${line}`);
-  });
+  if (hasChangeCounts) {
+    // Table format with CHG column
+    console.log('ID       Name                            CC LOC CHG File                                 Line');
+    console.log('-------- ------------------------------- -- --- --- ------------------------------------ ----');
+
+    functions.forEach(func => {
+      const id = func.id.substring(0, 8);
+      const name = truncateString(func.displayName, 31).padEnd(31);
+      const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
+      const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
+      const chg = (func.changeCount?.toString() || '-').padStart(3);
+      const file = truncateString(func.filePath, 36).padEnd(36);
+      const line = func.startLine.toString().padStart(4);
+      
+      console.log(`${id} ${name} ${cc} ${loc} ${chg} ${file} ${line}`);
+    });
+  } else {
+    // Original table format without CHG column
+    console.log('ID       Name                            CC LOC File                                     Line');
+    console.log('-------- ------------------------------- -- --- ---------------------------------------- ----');
+
+    functions.forEach(func => {
+      const id = func.id.substring(0, 8);
+      const name = truncateString(func.displayName, 31).padEnd(31);
+      const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
+      const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
+      const file = truncateString(func.filePath, 40).padEnd(40);
+      const line = func.startLine.toString().padStart(4);
+      
+      console.log(`${id} ${name} ${cc} ${loc} ${file} ${line}`);
+    });
+  }
 }
 
 function truncateString(str: string, maxLength: number): string {
