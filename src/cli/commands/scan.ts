@@ -325,6 +325,20 @@ export async function performBasicAnalysis(
     // Summary requires function array but we optimized it away for memory efficiency
     console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
   }
+  
+  // Clean up memory monitoring to prevent hanging process
+  if (components.memoryMonitor) {
+    clearInterval(components.memoryMonitor);
+    env.logger.debug('Memory monitoring stopped after analysis completion');
+  }
+  if (components.monitoringTimeout) {
+    clearTimeout(components.monitoringTimeout);
+  }
+  
+  // Clean up analyzer resources
+  if (components.analyzer && typeof components.analyzer.cleanup === 'function') {
+    await components.analyzer.cleanup();
+  }
 }
 
 /**
@@ -504,7 +518,9 @@ async function initializeComponents(
     analyzer, 
     storage: env.storage, 
     qualityCalculator,
-    optimalConfig
+    optimalConfig,
+    memoryMonitor,
+    monitoringTimeout
   };
 }
 

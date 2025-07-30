@@ -531,10 +531,13 @@ export interface CliComponents {
     analyzeFile(file: string): Promise<FunctionInfo[]>;
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
     analyzeContent(content: string, virtualPath: string): Promise<FunctionInfo[]>;
+    cleanup?(): Promise<void>;
   };
   storage: StorageAdapter;
   qualityCalculator: { calculate(func: FunctionInfo): QualityMetrics };
   optimalConfig: import('../utils/system-resource-manager').OptimalConfig;
+  memoryMonitor?: NodeJS.Timeout;
+  monitoringTimeout?: NodeJS.Timeout;
 }
 
 export interface FunctionChangeImproved {
