@@ -1,6 +1,7 @@
-import { createHash } from 'crypto';
 import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
+import pLimit from 'p-limit';
+import os from 'os';
 import {
   FunctionInfo,
   SimilarityDetector,
@@ -40,6 +41,9 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private merkleCache: LRUCache<string, bigint>;
   private canonicalCache: LRUCache<string, string>;
   private config: SimilarityConfig;
+  private debugMode: boolean = false;
+  private debugTarget: string = '';
+  
 
   // Configuration - optimized LSH parameters for O(n) performance
   private readonly DEFAULT_K_GRAM_SIZE = 12; // Optimized for short functions and performance
@@ -55,6 +59,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     this.config = this.createConfig(options);
     this.merkleCache = new LRUCache<string, bigint>({ max: this.config.cacheSize });
     this.canonicalCache = new LRUCache<string, string>({ max: this.config.cacheSize });
+    
+    // Enable debug mode for specific function analysis
+    this.debugMode = process.env['FUNCQC_DEBUG_SIMILARITY'] === 'true';
+    this.debugTarget = process.env['FUNCQC_DEBUG_TARGET'] || 'findTargetFunction';
+    
   }
 
   private createConfig(options: SimilarityOptions): SimilarityConfig {
@@ -87,6 +96,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     );
   }
 
+
   async isAvailable(): Promise<boolean> {
     return true; // Always available since it only uses ts-morph
   }
@@ -98,13 +108,76 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const config = this.parseDetectionOptions(options);
     const validFunctions = this.filterValidFunctions(functions, config);
 
-    // For small datasets, use direct advanced analysis
-    if (validFunctions.length <= this.config.singleStageThreshold) {
+    console.log(`🧬 Advanced detector processing ${validFunctions.length} valid functions`);
+
+    // Scale-based processing strategy
+    if (validFunctions.length <= 100) {
+      // Small: Full advanced analysis
+      console.log(`📊 Using full advanced analysis (small scale)`);
       return this.detectAdvancedMode(validFunctions, config);
+    } else if (validFunctions.length <= this.config.singleStageThreshold) {
+      // Medium: Standard two-stage approach
+      console.log(`📊 Using two-stage approach (medium scale)`);
+      return this.detectTwoStageMode(validFunctions, config);
+    } else {
+      // Large: Sampling + two-stage approach
+      console.log(`📊 Using sampling approach for large scale (${validFunctions.length} functions)`);
+      return this.detectSamplingMode(validFunctions, config);
+    }
+  }
+
+  /**
+   * Sampling-based detection for very large datasets
+   */
+  private async detectSamplingMode(
+    functions: FunctionInfo[],
+    config: ReturnType<typeof this.parseDetectionOptions>
+  ): Promise<SimilarityResult[]> {
+    const maxSampleSize = 500; // Process at most 500 functions
+    
+    if (functions.length <= maxSampleSize) {
+      return this.detectTwoStageMode(functions, config);
     }
 
-    // For large datasets, use 2-stage filtering approach
-    return this.detectTwoStageMode(validFunctions, config);
+    console.log(`🎲 Sampling ${maxSampleSize} functions from ${functions.length} total`);
+    
+    // Smart sampling: prioritize complex and medium-length functions
+    const sampledFunctions = this.smartSample(functions, maxSampleSize);
+    
+    console.log(`✂️  Selected ${sampledFunctions.length} representative functions`);
+    
+    // Run two-stage analysis on sample
+    return this.detectTwoStageMode(sampledFunctions, config);
+  }
+
+  /**
+   * Smart sampling to select representative functions
+   */
+  private smartSample(functions: FunctionInfo[], targetSize: number): FunctionInfo[] {
+    // Sort by combination of complexity and length for better representation
+    const scored = functions.map(func => ({
+      func,
+      score: (func.sourceCode?.length || 0) * 0.8 + 
+             (func.nestingLevel || 1) * 0.2 // Use nesting level as complexity indicator
+    }));
+
+    // Sort by score (descending) and take top portion + random sample
+    scored.sort((a, b) => b.score - a.score);
+    
+    const topPortion = Math.floor(targetSize * 0.6); // 60% from top
+    const randomPortion = targetSize - topPortion; // 40% random
+    
+    const topSample = scored.slice(0, topPortion).map(s => s.func);
+    const remainingSample = scored.slice(topPortion);
+    
+    // Random sample from remaining
+    const randomSample: FunctionInfo[] = [];
+    for (let i = 0; i < randomPortion && i < remainingSample.length; i++) {
+      const randomIndex = Math.floor(Math.random() * remainingSample.length);
+      randomSample.push(remainingSample.splice(randomIndex, 1)[0].func);
+    }
+    
+    return [...topSample, ...randomSample];
   }
 
   /**
@@ -202,7 +275,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     });
 
     // LSH bucketing to find collision candidates
-    const lshBuckets = new Map<string, string[]>();
+    const lshBuckets = new Map<number, string[]>();
     for (const [funcId, hashes] of functionHashes) {
       for (const hash of hashes) {
         const bucketKey = this.getLSHBucketKey(hash, config.lshBits);
@@ -214,15 +287,50 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
 
     // Add functions from LSH buckets with 2-10 functions (sweet spot)
-    for (const [, bucketFunctions] of lshBuckets) {
+    for (const [bucketKey, bucketFunctions] of lshBuckets) {
       if (bucketFunctions.length >= 2 && bucketFunctions.length <= this.config.maxLshBucketSize) {
         bucketFunctions.forEach(funcId => candidateIds.add(funcId));
         // LSH bucket has candidates
+        
+        // Debug: Check if target function is in this bucket
+        if (this.debugMode) {
+          const targetFunctionIds = bucketFunctions.filter(funcId => {
+            const func = allFunctions.find(f => f.id === funcId);
+            return func && func.name === this.debugTarget;
+          });
+          if (targetFunctionIds.length > 0) {
+            console.log(`\n=== DEBUG: LSH Bucket containing ${this.debugTarget} ===`);
+            console.log(`Bucket key: ${bucketKey}`);
+            console.log(`Bucket size: ${bucketFunctions.length}`);
+            bucketFunctions.forEach(funcId => {
+              const func = allFunctions.find(f => f.id === funcId);
+              if (func) {
+                console.log(`  - ${func.name} (${func.filePath})`);
+              }
+            });
+            console.log(`======================================================\n`);
+          }
+        }
       } else if (bucketFunctions.length > this.config.maxLshBucketSize && this.config.useTwoStageHierarchicalLsh) {
         // Apply hierarchical LSH for large buckets
         const hierarchicalCandidates = this.applyHierarchicalLSH(bucketFunctions, allFunctions);
         hierarchicalCandidates.forEach(funcId => candidateIds.add(funcId));
         // Hierarchical LSH applied to large bucket
+        
+        // Debug: Check if target function is in this large bucket
+        if (this.debugMode) {
+          const targetFunctionIds = bucketFunctions.filter(funcId => {
+            const func = allFunctions.find(f => f.id === funcId);
+            return func && func.name === this.debugTarget;
+          });
+          if (targetFunctionIds.length > 0) {
+            console.log(`\n=== DEBUG: Large LSH Bucket containing ${this.debugTarget} ===`);
+            console.log(`Bucket key: ${bucketKey}`);
+            console.log(`Bucket size: ${bucketFunctions.length} (applying hierarchical LSH)`);
+            console.log(`Hierarchical candidates: ${hierarchicalCandidates.length}`);
+            console.log(`=============================================================\n`);
+          }
+        }
       }
     }
 
@@ -248,7 +356,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     // Stage 1: Use higher bit count for finer bucketing (more selective)
     const hierarchicalBitIncrease = 8; // Make this configurable in future
     const higherBits = this.config.lshBits + hierarchicalBitIncrease; // Increase bits for finer granularity
-    const fineBuckets = new Map<string, string[]>();
+    const fineBuckets = new Map<number, string[]>();
     
     for (const func of bucketFunctionInfos) {
       if (func.sourceCode) {
@@ -439,8 +547,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   }
 
   private parseDetectionOptions(options: SimilarityOptions) {
+    // Use default threshold
+    const threshold = options.threshold || 0.65;
+
     return {
-      threshold: options.threshold || 0.65,
+      threshold,
       minLines: options.minLines || 3,
       crossFile: options.crossFile !== false,
       kGramSize: this.config.kGramSize,
@@ -560,24 +671,28 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
         batches.push(functions.slice(i, i + batchSize));
       }
 
-      // Process batches in parallel using Promise.all
-      const batchPromises = batches.map(async (batch) => {
-        const batchFingerprints: FunctionFingerprint[] = [];
+      // Process batches in parallel with limited concurrency
+      const limit = pLimit(Math.max(1, os.cpus().length - 1)); // Leave one CPU free
+      
+      const batchPromises = batches.map((batch) => 
+        limit(async () => {
+          const batchFingerprints: FunctionFingerprint[] = [];
 
-        for (const func of batch) {
-          try {
-            const fingerprint = await this.generateFunctionFingerprint(func, config);
-            if (fingerprint) {
-              batchFingerprints.push(fingerprint);
+          for (const func of batch) {
+            try {
+              const fingerprint = await this.generateFunctionFingerprint(func, config);
+              if (fingerprint) {
+                batchFingerprints.push(fingerprint);
+              }
+            } catch {
+              // Failed to generate fingerprint (error suppressed)
             }
-          } catch {
-            // Failed to generate fingerprint (error suppressed)
           }
-        }
 
-        // Batch completed
-        return batchFingerprints;
-      });
+          // Batch completed
+          return batchFingerprints;
+        })
+      );
 
       // Wait for all batches to complete and flatten results
       const batchResults = await Promise.all(batchPromises);
@@ -610,20 +725,32 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     func: FunctionInfo,
     config: ReturnType<typeof this.parseDetectionOptions>
   ): Promise<FunctionFingerprint | null> {
-    if (!this.project || !func.sourceCode) return null;
+    if (!func.sourceCode) return null;
 
     try {
-      // Find the function node in the AST
-      const sourceFile = this.project.getSourceFile(func.filePath);
-      if (!sourceFile) {
-        // Fallback: use source code directly for analysis
-        return this.generateFingerprintFromSource(func, config);
+      // Initialize project if not already done
+      if (!this.project) {
+        this.project = new Project();
       }
 
+      // Find the function node in the AST
+      let sourceFile = this.project.getSourceFile(func.filePath);
+      if (!sourceFile && func.sourceCode) {
+        // Add source file to project with unique virtual path to avoid re-parsing
+        const virtualPath = `${func.filePath}#${func.id}`; // Unique path per function
+        sourceFile = this.project.createSourceFile(virtualPath, func.sourceCode, { overwrite: false });
+      }
+
+      if (!sourceFile) {
+        console.warn(`Could not get or create source file for ${func.name} in ${func.filePath}`);
+        return null;
+      }
+      
       const functionNode = this.findFunctionNode(sourceFile, func);
       if (!functionNode) {
-        // Fallback: use source code directly for analysis
-        return this.generateFingerprintFromSource(func, config);
+        // Still unable to find function node - this shouldn't happen for valid functions
+        console.warn(`Could not find function node for ${func.name} in ${func.filePath}`);
+        return null;
       }
 
       // Generate canonical representation
@@ -636,7 +763,20 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       const simHashFingerprints = this.generateSimHashFingerprints(canonical, config);
 
       // Generate signature hash for structural similarity
-      const signatureHash = this.computeSignatureHash(functionNode);
+      const normalizedSignature = this.normalizeSignature(func.signature || func.name);
+      const signatureHash = this.hash64(normalizedSignature).toString();
+
+      // Debug output for target function
+      if (this.debugMode && func.name === this.debugTarget) {
+        console.log(`\n=== DEBUG: ${func.name} fingerprint ===`);
+        console.log(`File: ${func.filePath}`);
+        console.log(`Original signature: ${func.signature}`);
+        console.log(`Normalized signature: ${normalizedSignature}`);
+        console.log(`Signature hash: ${signatureHash}`);
+        console.log(`Merkle hash: ${merkleHash.toString()}`);
+        console.log(`Canonical (first 200 chars): ${canonical.substring(0, 200)}...`);
+        console.log(`===================================\n`);
+      }
 
       return {
         functionInfo: func,
@@ -655,34 +795,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
   }
 
-  /**
-   * Fallback fingerprint generation when AST node is not available
-   */
-  private generateFingerprintFromSource(
-    func: FunctionInfo,
-    config: ReturnType<typeof this.parseDetectionOptions>
-  ): FunctionFingerprint {
-    // Use source code for basic analysis
-    const sourceCode = func.sourceCode || '';
-
-    // Simple tokenization for fallback analysis
-    const tokens = this.tokenizeSourceCode(sourceCode);
-    const canonical = this.canonicalizeTokens(tokens);
-
-    // Generate basic hashes
-    const merkleHash = this.hash64(canonical);
-    const simHashFingerprints = this.generateSimHashFingerprints(canonical, config);
-    const signatureHash = this.hash64(func.signature || func.name);
-
-    return {
-      functionInfo: func,
-      canonical,
-      merkleHash,
-      simHashFingerprints,
-      signatureHash: signatureHash.toString(),
-      functionNode: null, // No AST node available in fallback mode
-    };
-  }
 
   private tokenizeSourceCode(source: string): string[] {
     // Simple tokenization - split on common delimiters
@@ -947,44 +1059,32 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     return simHash;
   }
 
+
+
   /**
-   * Signature Hash - structural pattern matching
+   * Normalize function signature for move detection
+   * - Remove export/modifier differences (export, async, static, etc.)
+   * - Normalize type imports (import('../types').Type vs Type)
+   * - Preserve essential signature structure (name, parameters, return type)
    */
-  private computeSignatureHash(node: Node): string {
-    const signature = this.extractStructuralSignature(node);
-    return createHash('sha256').update(signature).digest('hex');
-  }
+  private normalizeSignature(signature: string): string {
+    if (!signature) return '';
 
-  private extractStructuralSignature(node: Node): string {
-    const features: string[] = [];
+    let normalized = signature;
 
-    // Extract control flow patterns
-    node.forEachDescendant(child => {
-      const kind = child.getKind();
-      switch (kind) {
-        case SyntaxKind.IfStatement:
-          features.push('IF');
-          break;
-        case SyntaxKind.ForStatement:
-        case SyntaxKind.WhileStatement:
-        case SyntaxKind.DoStatement:
-          features.push('LOOP');
-          break;
-        case SyntaxKind.SwitchStatement:
-          features.push('SWITCH');
-          break;
-        case SyntaxKind.TryStatement:
-          features.push('TRY');
-          break;
-        case SyntaxKind.FunctionDeclaration:
-        case SyntaxKind.ArrowFunction:
-        case SyntaxKind.FunctionExpression:
-          features.push('FUNC');
-          break;
-      }
-    });
+    // Remove leading modifiers (export, async, static, public, private, protected)
+    normalized = normalized.replace(/^(export\s+)?(async\s+)?(static\s+)?(public\s+|private\s+|protected\s+)?/, '');
 
-    return features.join('|');
+    // Normalize type imports - convert import('../types').TypeName to TypeName
+    normalized = normalized.replace(/import\([^)]*\)\.(\w+)/g, '$1');
+
+    // Normalize spacing around key elements
+    normalized = normalized.replace(/\s*:\s*/g, ': ');
+    normalized = normalized.replace(/\s*,\s*/g, ', ');
+    normalized = normalized.replace(/\s*\|\s*/g, ' | ');
+    normalized = normalized.replace(/\s+/g, ' ');
+
+    return normalized.trim();
   }
 
   /**
@@ -1031,7 +1131,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     excludeResults: SimilarityResult[] = []
   ): SimilarityResult[] {
     const results: SimilarityResult[] = [];
-    const lshBuckets = new Map<string, FunctionFingerprint[]>();
+    const lshBuckets = new Map<number, FunctionFingerprint[]>();
 
     // Create set of excluded function pairs from previous results
     const excludedPairs = new Set<string>();
@@ -1091,7 +1191,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     const results: SimilarityResult[] = [];
     
     // Use higher bit count for sub-bucketing
-    const fineBuckets = new Map<string, FunctionFingerprint[]>();
+    const fineBuckets = new Map<number, FunctionFingerprint[]>();
     
     for (const candidate of candidates) {
       for (const simHash of candidate.simHashFingerprints) {
@@ -1114,10 +1214,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     return results;
   }
 
-  private getLSHBucketKey(simHash: bigint, bits: number): string {
-    // Use top bits as bucket key
+  private getLSHBucketKey(simHash: bigint, bits: number): number {
+    // Use top bits as bucket key (convert to number for performance)
     const bucket = simHash >> BigInt(this.SIMHASH_BITS - bits);
-    return bucket.toString();
+    // Safe conversion to number (bits <= 28 ensures it fits in JS number)
+    return Number(bucket);
   }
 
   /**
@@ -1206,9 +1307,10 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     let xor = hash1 ^ hash2;
     let distance = 0;
 
+    // Brian Kernighan's algorithm for counting set bits - much faster
     while (xor !== 0n) {
-      distance += Number(xor & 1n);
-      xor >>= 1n;
+      xor &= (xor - 1n); // Clear the least significant bit
+      distance++;
     }
 
     return distance;
@@ -1351,6 +1453,18 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
           group[i].canonical.split(','),
           group[j].canonical.split(',')
         );
+        
+        // Debug output for target function comparisons
+        if (this.debugMode && (group[i].functionInfo.name === this.debugTarget || group[j].functionInfo.name === this.debugTarget)) {
+          console.log(`\n=== DEBUG: Jaccard similarity calculation ===`);
+          console.log(`Function 1: ${group[i].functionInfo.name} (${group[i].functionInfo.filePath})`);
+          console.log(`Function 2: ${group[j].functionInfo.name} (${group[j].functionInfo.filePath})`);
+          console.log(`Similarity: ${similarity.toFixed(4)}`);
+          console.log(`Signature hash 1: ${group[i].signatureHash}`);
+          console.log(`Signature hash 2: ${group[j].signatureHash}`);
+          console.log(`========================================\n`);
+        }
+        
         totalSimilarity += similarity;
         comparisons++;
       }

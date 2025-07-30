@@ -698,7 +698,7 @@ export interface SimilarityDetector {
   name: string;
   version: string;
   supportedLanguages: string[];
-  detect(functions: FunctionInfo[], options: SimilarityOptions): Promise<SimilarityResult[]>;
+  detect(functions: FunctionInfo[], options: SimilarityOptions, signal?: AbortSignal): Promise<SimilarityResult[]>;
   isAvailable(): Promise<boolean>;
 }
 
@@ -707,6 +707,7 @@ export interface SimilarityOptions {
   minLines?: number;
   crossFile?: boolean;
   printCode?: boolean;
+  
   
   // Advanced similarity detector options
   kGramSize?: number;

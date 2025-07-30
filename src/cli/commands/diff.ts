@@ -204,13 +204,13 @@ function displaySummaryWithClassification(diff: SnapshotDiff, classification: Fu
   
   // Show structural changes first (most important for understanding)
   if (classification.moves.length > 0) {
-    console.log(`  ${chalk.cyan('📦')} ${classification.moves.length} function${classification.moves.length !== 1 ? 's' : ''} moved`);
+    console.log(`  ${chalk.cyan('→')} ${classification.moves.length} function${classification.moves.length !== 1 ? 's' : ''} moved`);
   }
   if (classification.renames.length > 0) {
-    console.log(`  ${chalk.magenta('🔀')} ${classification.renames.length} function${classification.renames.length !== 1 ? 's' : ''} renamed`);
+    console.log(`  ${chalk.magenta('≡')} ${classification.renames.length} function${classification.renames.length !== 1 ? 's' : ''} renamed`);
   }
   if (classification.signatureChanges.length > 0) {
-    console.log(`  ${chalk.blue('🔄')} ${classification.signatureChanges.length} signature change${classification.signatureChanges.length !== 1 ? 's' : ''}`);
+    console.log(`  ${chalk.blue('~')} ${classification.signatureChanges.length} signature change${classification.signatureChanges.length !== 1 ? 's' : ''}`);
   }
   
   // Then show true additions/removals/modifications
@@ -239,6 +239,7 @@ async function displayFullDiff(diff: SnapshotDiff, options: DiffCommandOptions, 
     minLines: 1,
     crossFile: true,
   });
+  
 
   // Classify function changes
   const classification = await classifyFunctionChanges(filtered, options, similarityManager);
@@ -619,6 +620,7 @@ async function classifyFunctionMoves(
   threshold: number,
   similarityManager: SimilarityManager
 ): Promise<void> {
+  
   for (let i = classification.trueAdditions.length - 1; i >= 0; i--) {
     const added = classification.trueAdditions[i];
     
@@ -662,12 +664,18 @@ async function calculateFunctionSimilarity(
   similarityManager: SimilarityManager
 ): Promise<number> {
   try {
-    const results = await similarityManager.detectSimilarities([func1, func2]);
+    
+    // Use AST detector which works better for move detection than the advanced detector
+    const results = await similarityManager.detectSimilarities([func1, func2], {}, ['ast-structural']);
     const relevantResult = results.find(result => 
       result.functions.some(f => f.functionId === func1.id) &&
       result.functions.some(f => f.functionId === func2.id)
     );
-    return relevantResult?.similarity || 0;
+    
+    const similarity = relevantResult?.similarity || 0;
+    
+    
+    return similarity;
   } catch {
     return 0;
   }
@@ -676,21 +684,35 @@ async function calculateFunctionSimilarity(
 function displayClassifiedChanges(classification: FunctionClassification): void {
   // Display moves first (most important structural change)
   if (classification.moves.length > 0) {
-    console.log(chalk.cyan('📦 MOVED FUNCTIONS') + chalk.gray(` (${classification.moves.length})`));
+    console.log(chalk.cyan('→ MOVED FUNCTIONS') + chalk.gray(` (${classification.moves.length})`));
     console.log();
     
-    for (const move of classification.moves) {
-      console.log(`Function: ${move.functionName}`);
-      console.log(`From: ${move.fromFile}`);
-      console.log(`To: ${move.toFile}`);
-      console.log(`Similarity: ${Math.round(move.similarity * 100)}%`);
-      console.log();
+    // Sort all moves by destination file and function name for consistent display
+    const sortedMoves = classification.moves.sort((a, b) => {
+      const destDiff = a.toFile.localeCompare(b.toFile);
+      if (destDiff !== 0) return destDiff;
+      const simDiff = b.similarity - a.similarity;
+      return simDiff !== 0 ? simDiff : a.functionName.localeCompare(b.functionName);
+    });
+    
+    // Display in table format with From → To
+    console.log('Function Name                              From → To                                    Sim%');
+    console.log('─'.repeat(95));
+    
+    for (const move of sortedMoves) {
+      const name = move.functionName.padEnd(40);
+      const fromFile = move.fromFile.replace('src/', '');
+      const toFile = move.toFile.replace('src/', '');
+      const transition = `${fromFile} → ${toFile}`.padEnd(42);
+      const sim = `${Math.round(move.similarity * 100)}%`.padStart(4);
+      console.log(`${name} ${transition} ${sim}`);
     }
+    console.log();
   }
 
   // Display renames second
   if (classification.renames.length > 0) {
-    console.log(chalk.magenta('🔀 RENAMED FUNCTIONS') + chalk.gray(` (${classification.renames.length})`));
+    console.log(chalk.magenta('≡ RENAMED FUNCTIONS') + chalk.gray(` (${classification.renames.length})`));
     console.log();
     
     for (const rename of classification.renames) {
@@ -703,7 +725,7 @@ function displayClassifiedChanges(classification: FunctionClassification): void 
 
   // Display signature changes last
   if (classification.signatureChanges.length > 0) {
-    console.log(chalk.blue('🔄 SIGNATURE CHANGES') + chalk.gray(` (${classification.signatureChanges.length})`));
+    console.log(chalk.blue('~ SIGNATURE CHANGES') + chalk.gray(` (${classification.signatureChanges.length})`));
     console.log();
     
     for (const change of classification.signatureChanges) {
