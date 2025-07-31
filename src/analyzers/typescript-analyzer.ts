@@ -1345,7 +1345,22 @@ export class TypeScriptAnalyzer {
       let callEdges: CallEdge[] = [];
       if (functions.length > 0) {
         try {
-          callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
+          // Build a minimal per-file declaration->id resolver using line proximity
+          const getIdByDecl = (decl: Node): string | undefined => {
+            const ds = decl.getStartLineNumber();
+            const de = decl.getEndLineNumber();
+            // find the closest FunctionInfo by start/end lines (±1 tolerance)
+            let best: { id: string; dist: number } | undefined;
+            for (const f of functions) {
+              const d = Math.abs(f.startLine - ds) + Math.abs(f.endLine - de);
+              if (d <= 2) { // ≤1+≤1
+                if (!best || d < best.dist) best = { id: f.id, dist: d };
+              }
+            }
+            return best?.id;
+          };
+
+          callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap, getIdByDecl);
         } catch (error) {
           this.logger.warn(
             `Call graph analysis failed for ${filePath}`,
