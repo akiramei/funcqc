@@ -26,10 +26,14 @@ export interface ResolverContext {
 }
 
 /**
- * `import` の索引を構築。
+ * import索引を構築（ES Modules、CommonJS、TypeScript互換の全取り込みパターンに対応）
  */
-export function buildImportIndex(sf: SourceFile): Map<string, { module: string; kind: "namespace" | "named" | "default" }> {
-  const map = new Map<string, { module: string; kind: "namespace" | "named" | "default" }>();
+export function buildImportIndex(
+  sf: SourceFile
+): Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }> {
+  const map = new Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }>();
+  
+  // ES Modules: import statements
   for (const imp of sf.getImportDeclarations()) {
     const mod = imp.getModuleSpecifierValue();
     const ns = imp.getNamespaceImport();
@@ -45,6 +49,70 @@ export function buildImportIndex(sf: SourceFile): Map<string, { module: string; 
       map.set(name, { module: mod, kind: "named" });
     }
   }
+
+  // TypeScript: import = require() statements (if available)
+  try {
+    const importEqualsDeclarations = (sf as any).getImportEqualsDeclarations?.() || [];
+    for (const ie of importEqualsDeclarations) {
+      const ref = ie.getModuleReference();
+      // ExternalModuleReference with string literal
+      const mod = (ref as any)?.getExpression?.()?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
+      const name = ie.getNameNode().getText();
+      if (mod && name) {
+        map.set(name, { module: mod, kind: "namespace" });
+      }
+    }
+  } catch (error) {
+    // ImportEqualsDeclarations not available in this ts-morph version
+  }
+
+  // CommonJS: require() patterns (if available)
+  try {
+    const variableDeclarations = (sf as any).getVariableDeclarations?.() || [];
+    for (const v of variableDeclarations) {
+      const init = v.getInitializer();
+      if (!init) continue;
+      
+      // const X = require('mod')
+      if (init.getKindName() === "CallExpression") {
+        const callee = (init as any).getExpression().getText();
+        const args = (init as any).getArguments?.();
+        const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
+        if (callee === "require" && typeof arg0 === "string" && arg0.length > 0) {
+          const nameNode = v.getNameNode();
+          if (nameNode.getKindName() === "Identifier") {
+            // const path = require('path')
+            map.set(nameNode.getText(), { module: arg0, kind: "namespace" });
+          } else if (nameNode.getKindName() === "ObjectBindingPattern") {
+            // const { resolve, join: pathJoin } = require('path')
+            for (const be of (nameNode as any).getElements()) {
+              const prop = be.getPropertyNameNode()?.getText?.() ?? be.getNameNode().getText();
+              const alias = be.getNameNode().getText();
+              map.set(alias, { module: arg0, kind: "named" });
+            }
+          }
+        }
+      }
+      
+      // const x = require('mod').resolve
+      if (init.getKindName() === "PropertyAccessExpression") {
+        const left = (init as any).getExpression();
+        const name = (init as any).getNameNode().getText?.();
+        if (left?.getKindName?.() === "CallExpression" &&
+            left.getExpression().getText() === "require") {
+          const args = left.getArguments?.();
+          const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
+          const alias = v.getNameNode().getText();
+          if (arg0 && alias && name) {
+            map.set(alias, { module: arg0, kind: "named" });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    // VariableDeclarations API not available in this ts-morph version
+  }
+  
   return map;
 }
 
@@ -154,12 +222,14 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
         const id = `external:${modViaImport.module}:${name}`;
         return { kind: "external", module: modViaImport.module, member: name, id, confidence: 1.0 };
       }
-      // 内部モジュール: 型解決して内部関数IDを探索（プロジェクト内の re-export 等にも対応しやすい）
+      // 内部モジュール由来だが import/alias が確認できた場合のみ、内部解決を試みる
       const sym = ctx.typeChecker.getSymbolAtLocation(expr.getNameNode());
       const { functionId } = tryResolveInternalBySymbol(sym, ctx);
       if (functionId) {
         return { kind: "internal", functionId, confidence: 0.9, via: "symbol" };
       }
+      // import/alias 解釈はできたが内部IDに落ちない場合、外部とは断定できないため unknown で返す
+      return { kind: "unknown", raw: expr.getText(), confidence: 0.4 };
     }
 
     // this.method(...) → 同一クラス内優先

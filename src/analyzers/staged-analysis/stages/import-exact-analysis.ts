@@ -11,6 +11,7 @@ import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES, NODE_BUILTIN_MODULES } from '../constants';
 import { AnalysisState } from '../types';
 import { SymbolCache } from '../../../utils/symbol-cache';
+import { buildImportIndex, resolveCallee } from '../../symbol-resolver';
 
 export class ImportExactAnalysisStage {
   private logger: Logger;
@@ -22,6 +23,8 @@ export class ImportExactAnalysisStage {
   private functionLookupMap: Map<string, string> = new Map();
   // @ts-expect-error - Reserved for future use
   private _positionIdCache: WeakMap<Node, string> = new WeakMap();
+  /** symbol-resolver が external と判定したコール式を保持（CHA への誤送出防止） */
+  private externalCallNodes = new WeakSet<Node>();
 
   constructor(
     project: Project, 
@@ -103,6 +106,10 @@ export class ImportExactAnalysisStage {
         this.addEdge(edge, state);
         importEdgesCount++;
       } else if (callerFunction) {
+        // 既に external と確定しているコールは CHA に回さない
+        if (this.externalCallNodes.has(node)) {
+          continue;
+        }
         // Call couldn't be resolved via imports - add to unresolved method calls for CHA
         const unresolvedCall = this.createUnresolvedMethodCall(node as CallExpression, callerFunction);
         if (unresolvedCall) {
@@ -164,6 +171,12 @@ export class ImportExactAnalysisStage {
     functions: Map<string, FunctionMetadata>
   ): string | undefined {
     try {
+      // ENHANCED: Use our comprehensive symbol resolver first
+      const enhanced = this.tryResolveWithSymbolResolver(callNode, functions);
+      if (enhanced !== undefined) {
+        return enhanced;
+      }
+
       const expression = callNode.getExpression();
       
       // Handle different call patterns
@@ -177,6 +190,65 @@ export class ImportExactAnalysisStage {
     } catch (error) {
       if (this._debug) {
         this.logger.debug(`Import call resolution failed: ${error}`);
+      }
+      return undefined;
+    }
+  }
+
+  /**
+   * ENHANCED: Try resolving with our comprehensive symbol resolver
+   * Returns undefined for external calls, function ID for internal calls
+   */
+  private tryResolveWithSymbolResolver(
+    callNode: CallExpression,
+    functions: Map<string, FunctionMetadata>
+  ): string | undefined {
+    try {
+      const sourceFile = callNode.getSourceFile();
+      const importIndex = buildImportIndex(sourceFile);
+      
+      // Create a getFunctionIdByDeclaration callback
+      const getFunctionIdByDeclaration = (decl: Node): string | undefined => {
+        const filePath = decl.getSourceFile().getFilePath();
+        const startLine = decl.getStartLineNumber();
+        
+        // Search for matching function in our metadata
+        for (const [id, func] of functions) {
+          if (func.filePath === filePath && Math.abs(func.startLine - startLine) <= 1) {
+            return id;
+          }
+        }
+        return undefined;
+      };
+
+      const resolution = resolveCallee(callNode, {
+        sourceFile,
+        typeChecker: this._typeChecker,
+        importIndex,
+        internalModulePrefixes: ["src/", "@/", "#/"],
+        getFunctionIdByDeclaration
+      });
+
+      // 外部呼び出しは未解決として CHA に送らない（循環の原因を遮断）
+      if (resolution.kind === "external") {
+        this.logger.debug(
+          `[SYMBOL-RESOLVER] External call detected: ${resolution.module}.${resolution.member} (confidence: ${resolution.confidence})`
+        );
+        this.externalCallNodes.add(callNode);
+        return undefined; // 内部関数IDへは解決しない
+      }
+
+      // Return internal function ID if found
+      if (resolution.kind === "internal" && resolution.functionId) {
+        this.logger.debug(`[SYMBOL-RESOLVER] Internal call resolved: ${resolution.functionId} (confidence: ${resolution.confidence})`);
+        return resolution.functionId;
+      }
+
+      // Unknown calls fall through to existing logic
+      return undefined;
+    } catch (error) {
+      if (this._debug) {
+        this.logger.debug(`[SYMBOL-RESOLVER] Resolution failed: ${error}`);
       }
       return undefined;
     }
