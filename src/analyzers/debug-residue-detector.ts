@@ -21,15 +21,35 @@ import {
   ResidueSummary,
   ResidueContext
 } from '../types/debug-residue';
+import { StorageProvider } from '../core/storage-provider';
+import { FunctionInfo } from '../types';
 
 /**
  * Default configuration for residue detection
  */
 const DEFAULT_CONFIG: ResidueDetectionConfig = {
-  exemptFunctionNames: ['notifyUser', 'printUsage', 'displayHelp', 'showError'],
+  exemptFunctionNames: [
+    // CLI/User-facing functions
+    'notifyUser', 'printUsage', 'displayHelp', 'showError', 
+    'printHelp', 'showUsage', 'displayError', 'reportError',
+    'formatOutput', 'formatResult', 'formatSummary', 'formatTable',
+    'displaySummary', 'displayResult', 'displayStatus',
+    'logInfo', 'logSuccess', 'logWarning', 'logError',
+    // Progress and status functions
+    'updateProgress', 'showProgress', 'displayProgress',
+    'statusUpdate', 'progressUpdate', 'reportProgress',
+    // CLI command handlers (patterns)
+    'Command', 'Handler', 'Action',
+    // Formatters and printers
+    'format', 'print', 'display', 'show', 'render'
+  ],
   loggerNames: ['logger', 'winston', 'pino', 'bunyan', 'log4js'],
-  customMarkers: ['// DEBUG:', '/* DEBUG:', '// TEMP:', '// TODO: remove'],
-  exclude: ['**/*.test.ts', '**/*.spec.ts', '**/node_modules/**', '**/dist/**', '**/build/**']
+  customMarkers: ['// DEBUG:', '/* DEBUG:', '// TEMP:', '// TODO: remove', '// FIXME:', '// XXX:'],
+  exclude: [
+    '**/*.test.ts', '**/*.spec.ts', 
+    '**/node_modules/**', '**/dist/**', '**/build/**',
+    '**/scripts/**', '**/test/**', '**/tests/**'
+  ]
 };
 
 /**
@@ -41,9 +61,12 @@ export class DebugResidueDetector {
   private findings: ResidueFinding[] = [];
   private filesAnalyzed = 0;
   private functionsAnalyzed = 0;
+  private functionMetadata: Map<string, FunctionInfo> = new Map();
+  private storageProvider: StorageProvider;
 
   constructor(config: Partial<ResidueDetectionConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.storageProvider = StorageProvider.getInstance();
     this.project = new Project({
       ...(this.config.tsconfigPath ? { tsConfigFilePath: this.config.tsconfigPath } : {}),
       skipAddingFilesFromTsConfig: !this.config.tsconfigPath,
@@ -63,6 +86,10 @@ export class DebugResidueDetector {
     this.findings = [];
     this.filesAnalyzed = 0;
     this.functionsAnalyzed = 0;
+    this.functionMetadata.clear();
+
+    // Load function metadata from funcqc database
+    await this.loadFunctionMetadata(filePaths);
 
     // Add source files to project
     for (const filePath of filePaths) {
@@ -84,6 +111,56 @@ export class DebugResidueDetector {
     }
 
     return this.createResult();
+  }
+
+  /**
+   * Load function metadata from funcqc database
+   */
+  private async loadFunctionMetadata(filePaths: string[]): Promise<void> {
+    try {
+      const storage = await this.storageProvider.getStorage();
+      
+      // Get latest snapshot
+      const snapshots = await storage.getSnapshots({ limit: 1, sort: 'created_at' });
+      if (snapshots.length === 0) {
+        console.warn('No snapshots found in funcqc database');
+        return;
+      }
+      
+      const latestSnapshot = snapshots[0];
+      
+      // Get all functions from the latest snapshot
+      const functions = await storage.getFunctionsBySnapshotId(latestSnapshot.id);
+      
+      // Filter functions by the files we're analyzing and create lookup map
+      const filePathSet = new Set(filePaths.map(fp => path.resolve(fp)));
+      
+      for (const func of functions) {
+        if (func.filePath && filePathSet.has(path.resolve(func.filePath))) {
+          // Create a unique key for the function
+          const key = `${func.filePath}:${func.name}:${func.startLine}`;
+          this.functionMetadata.set(key, func);
+        }
+      }
+    } catch (error) {
+      // If we can't load metadata, continue without it
+      console.warn('Could not load function metadata from funcqc database:', error);
+    }
+  }
+
+  /**
+   * Get function metadata for a given node
+   */
+  private getFunctionMetadata(node: Node, filePath: string): FunctionInfo | undefined {
+    const functionNode = this.getContainingFunction(node);
+    if (!functionNode) return undefined;
+    
+    const functionName = this.getFunctionName(functionNode);
+    const startLine = functionNode.getStartLineNumber();
+    const resolvedPath = path.resolve(filePath);
+    const key = `${resolvedPath}:${functionName}:${startLine}`;
+    
+    return this.functionMetadata.get(key);
   }
 
   /**
@@ -148,7 +225,7 @@ export class DebugResidueDetector {
   }
 
   /**
-   * Analyze a call expression
+   * Analyze a call expression with AST-aware classification
    */
   private analyzeCallExpression(node: CallExpression, filePath: string, includeContext: boolean): void {
     const calleeText = node.getExpression().getText();
@@ -167,7 +244,7 @@ export class DebugResidueDetector {
       return;
     }
 
-    // AutoRemove patterns
+    // AutoRemove patterns - always remove these
     if (calleeText === 'debugger' || 
         calleeText === 'console.debug' || 
         calleeText === 'console.trace' || 
@@ -198,42 +275,76 @@ export class DebugResidueDetector {
       return;
     }
 
-    // Check if within exempt function
-    if (this.isWithinExemptFunction(node)) {
-      if (this.isConsoleOrProcessOutput(calleeText)) {
-        this.addFinding(
-          filePath,
-          node,
-          'Exempt',
-          this.getPatternFromCallee(calleeText),
-          'inside exempt wrapper (user-facing)',
-          node.getText(),
-          includeContext
-        );
-        return;
-      }
-    }
-
-    // NeedsReview patterns
-    if (calleeText === 'console.log' || 
-        calleeText === 'console.error' ||
-        calleeText === 'process.stdout.write' || 
-        calleeText === 'process.stderr.write') {
-      
-      // Check if under NODE_ENV guard
-      const underEnvGuard = this.isUnderNodeEnvDevGuard(node);
-      const reason = underEnvGuard ? 'under NODE_ENV===development guard' : 'generic console output';
+    // For console/process output, use enhanced classification
+    if (this.isConsoleOrProcessOutput(calleeText)) {
+      const classification = this.classifyConsoleOutput(node, filePath);
       
       this.addFinding(
         filePath,
         node,
-        'NeedsReview',
+        classification.kind,
         this.getPatternFromCallee(calleeText),
-        reason,
+        classification.reason,
         node.getText(),
         includeContext
       );
     }
+  }
+
+  /**
+   * Enhanced classification for console/process output using AST and function metadata
+   */
+  private classifyConsoleOutput(node: CallExpression, filePath: string): { kind: ResidueKind; reason: string } {
+    // Check file path patterns first - strongest indicator
+    if (this.isInScriptsDirectory(filePath)) {
+      return { kind: 'Exempt', reason: 'in scripts directory (build/utility script)' };
+    }
+
+    if (this.isInTestDirectory(filePath)) {
+      return { kind: 'Exempt', reason: 'in test directory (test output)' };
+    }
+
+    // Check function context using funcqc metadata
+    const funcMetadata = this.getFunctionMetadata(node, filePath);
+    if (funcMetadata) {
+      // Check if function name suggests user-facing purpose
+      if (this.isCLIFunction(funcMetadata.name)) {
+        return { kind: 'Exempt', reason: `CLI function (${funcMetadata.name})` };
+      }
+
+      // Check function complexity - complex functions less likely to be debug
+      if (funcMetadata.metrics?.cyclomaticComplexity && funcMetadata.metrics.cyclomaticComplexity > 10) {
+        return { kind: 'Exempt', reason: 'complex function likely user-facing' };
+      }
+    }
+
+    // Check if within exempt function (expanded logic)
+    if (this.isWithinExemptFunction(node)) {
+      return { kind: 'Exempt', reason: 'inside exempt wrapper (user-facing)' };
+    }
+
+    // Check for structured output patterns
+    if (this.hasStructuredOutput(node)) {
+      return { kind: 'Exempt', reason: 'structured output with formatting' };
+    }
+
+    // Check for CLI framework usage
+    if (this.usesCLIFramework(node)) {
+      return { kind: 'Exempt', reason: 'uses CLI framework (chalk/ora)' };
+    }
+
+    // Check error handling context
+    if (this.isInErrorHandling(node)) {
+      return { kind: 'Exempt', reason: 'error reporting/handling' };
+    }
+
+    // Check if under NODE_ENV guard
+    if (this.isUnderNodeEnvDevGuard(node)) {
+      return { kind: 'NeedsReview', reason: 'under NODE_ENV===development guard' };
+    }
+
+    // Default to NeedsReview for ambiguous cases
+    return { kind: 'NeedsReview', reason: 'generic console output' };
   }
 
   /**
@@ -559,5 +670,96 @@ export class DebugResidueDetector {
       timestamp: new Date().toISOString(),
       version: '1.0.0'
     };
+  }
+
+  /**
+   * Check if file is in scripts directory
+   */
+  private isInScriptsDirectory(filePath: string): boolean {
+    return filePath.includes('/scripts/') || filePath.includes('\\scripts\\');
+  }
+
+  /**
+   * Check if file is in test directory
+   */
+  private isInTestDirectory(filePath: string): boolean {
+    return filePath.includes('/test/') || filePath.includes('\\test\\') ||
+           filePath.includes('/tests/') || filePath.includes('\\tests\\') ||
+           filePath.endsWith('.test.ts') || filePath.endsWith('.spec.ts');
+  }
+
+  /**
+   * Check if function name suggests CLI purpose
+   */
+  private isCLIFunction(functionName: string): boolean {
+    const name = functionName.toLowerCase();
+    return name.includes('command') || name.includes('handler') || 
+           name.includes('action') || name.includes('format') ||
+           name.includes('print') || name.includes('display') ||
+           name.includes('show') || name.includes('render') ||
+           name.includes('report') || name.includes('output') ||
+           name.includes('log') || name.startsWith('cli');
+  }
+
+  /**
+   * Check if output has structured formatting (chalk, templates, etc.)
+   */
+  private hasStructuredOutput(node: CallExpression): boolean {
+    const args = node.getArguments();
+    if (args.length === 0) return false;
+
+    const firstArg = args[0];
+    const argText = firstArg.getText();
+
+    // Check for template literals with structured content
+    if (firstArg.getKind() === SyntaxKind.TemplateExpression ||
+        firstArg.getKind() === SyntaxKind.NoSubstitutionTemplateLiteral) {
+      return argText.includes('\\n') || argText.includes('🔍') || 
+             argText.includes('✅') || argText.includes('❌') || 
+             argText.includes('📊') || argText.includes('⚠️');
+    }
+
+    // Check for chalk usage in arguments
+    return argText.includes('chalk.') || argText.includes('.blue(') ||
+           argText.includes('.red(') || argText.includes('.green(') ||
+           argText.includes('.yellow(') || argText.includes('.bold(');
+  }
+
+  /**
+   * Check if uses CLI framework (chalk, ora, etc.)
+   */
+  private usesCLIFramework(node: CallExpression): boolean {
+    const sourceFile = node.getSourceFile();
+    const imports = sourceFile.getImportDeclarations();
+    
+    return imports.some(imp => {
+      const moduleSpecifier = imp.getModuleSpecifierValue();
+      return moduleSpecifier === 'chalk' || moduleSpecifier === 'ora' ||
+             moduleSpecifier === 'commander' || moduleSpecifier === 'inquirer';
+    });
+  }
+
+  /**
+   * Check if call is in error handling context
+   */
+  private isInErrorHandling(node: CallExpression): boolean {
+    // Check if in catch block
+    if (node.getFirstAncestorByKind(SyntaxKind.CatchClause)) {
+      return true;
+    }
+
+    // Check if in error handling function
+    const containingFunction = this.getContainingFunction(node);
+    if (containingFunction) {
+      const functionName = this.getFunctionName(containingFunction)?.toLowerCase() || '';
+      if (functionName.includes('error') || functionName.includes('fail') ||
+          functionName.includes('catch') || functionName.includes('handle')) {
+        return true;
+      }
+    }
+
+    // Check if console.error pattern
+    const calleeText = node.getExpression().getText();
+    return calleeText === 'console.error' || calleeText === 'process.stderr.write';
   }
 }

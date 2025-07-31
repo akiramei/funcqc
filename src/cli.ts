@@ -762,11 +762,6 @@ program
   .option('--path <path>', 'specific path to analyze')
   .option('--fix-mode <mode>', 'fix mode: none, preview, auto, interactive, script', 'none')
   .option('--quiet', 'suppress non-essential output')
-  .option('--fix', '[DEPRECATED] use --fix-mode auto instead')
-  .option('--preview-fixes', '[DEPRECATED] use --fix-mode preview instead')
-  .option('--fix-auto-only', '[DEPRECATED] use --fix-mode auto instead')
-  .option('--interactive', '[DEPRECATED] use --fix-mode interactive instead')
-  .option('--generate-fix-script', '[DEPRECATED] use --fix-mode script instead')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { residueCheckCommand } = await import('./cli/commands/residue-check');
@@ -789,7 +784,7 @@ Examples:
   # Use custom configuration
   $ funcqc residue-check --config .funcqc-residue.yaml
   
-  # Fix modes (future feature)
+  # Fix modes
   $ funcqc residue-check --fix-mode preview    # Preview fixes
   $ funcqc residue-check --fix-mode auto       # Auto-fix AutoRemove items
   $ funcqc residue-check --fix-mode interactive # Interactive fixing

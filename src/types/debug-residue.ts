@@ -266,16 +266,4 @@ export interface ResidueCheckOptions {
   fixMode?: ResidueFixMode;
   /** Quiet mode */
   quiet?: boolean;
-  
-  // Legacy options for backward compatibility (deprecated)
-  /** @deprecated Use fixMode: 'auto' instead */
-  fix?: boolean;
-  /** @deprecated Use fixMode: 'preview' instead */
-  previewFixes?: boolean;
-  /** @deprecated Use fixMode: 'auto' instead */
-  fixAutoOnly?: boolean;
-  /** @deprecated Use fixMode: 'interactive' instead */
-  interactive?: boolean;
-  /** @deprecated Use fixMode: 'script' instead */
-  generateFixScript?: boolean;
 }
