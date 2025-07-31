@@ -10,6 +10,9 @@ export * from './architecture';
 // Re-export dynamic weights types
 export * from './dynamic-weights';
 
+// Re-export debug residue types
+export * from './debug-residue';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
 

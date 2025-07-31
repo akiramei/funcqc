@@ -750,6 +750,62 @@ Use --execute to perform actual deletion with confirmation prompts.
 Use --force to skip confirmation (not recommended).
 `);
 
+// Debug residue detection command
+program
+  .command('residue-check')
+  .description('Detect debug code residue in TypeScript projects')
+  .option('-j, --json', 'output as JSON')
+  .option('--verbose', 'show detailed context information')
+  .option('--details', 'show full analysis details')
+  .option('--ai-mode', 'output AI-optimized format')
+  .option('--config <path>', 'path to configuration file')
+  .option('--path <path>', 'specific path to analyze')
+  .option('--fix', 'fix AutoRemove items automatically (future feature)')
+  .option('--preview-fixes', 'preview fixes without applying')
+  .option('--fix-auto-only', 'only fix AutoRemove items')
+  .option('--interactive', 'interactive mode for NeedsReview')
+  .option('--generate-fix-script', 'generate fix script')
+  .option('--quiet', 'suppress non-essential output')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { residueCheckCommand } = await import('./cli/commands/residue-check');
+    return withEnvironment(residueCheckCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # Basic residue detection
+  $ funcqc residue-check
+  
+  # Verbose mode with context
+  $ funcqc residue-check --verbose
+  
+  # AI-optimized JSON output
+  $ funcqc residue-check --ai-mode --json
+  
+  # Analyze specific directory
+  $ funcqc residue-check --path src/services
+  
+  # Use custom configuration
+  $ funcqc residue-check --config .funcqc-residue.yaml
+  
+  # Preview fixes (future feature)
+  $ funcqc residue-check --preview-fixes
+
+Classification:
+  - AutoRemove: Definitely debug code (debugger, console.debug, // DEBUG:)
+  - NeedsReview: Ambiguous output (console.log, console.error)
+  - Exempt: Valid user-facing output (notifyUser, printUsage)
+
+Configuration (.funcqc-residue.yaml):
+  exemptFunctions: [notifyUser, printUsage]
+  autoRemovePatterns: [debugger, console.debug]
+  customMarkers: [// DEBUG:, // TEMP:]
+  exclude: ["**/*.test.ts"]
+
+Exit codes:
+  0: No AutoRemove items found
+  1: AutoRemove items detected (action required)
+`);
 
 
 // Handle unknown commands
