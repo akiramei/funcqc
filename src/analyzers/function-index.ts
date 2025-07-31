@@ -1,5 +1,6 @@
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import { MethodInfo } from './cha-analyzer';
+import { Node } from 'ts-morph';
 import * as path from 'path';
 
 /**
@@ -21,12 +22,19 @@ export class FunctionIndex {
   
   // Line-based lookup for better matching
   private byFileNameWithLines = new Map<string, Array<{ id: string; startLine: number }>>();
+  
+  // Declaration node to function ID mapping for symbol resolution
+  private byDeclaration = new Map<Node, string>();
+  
+  // Store function metadata for additional lookups
+  private functions = new Map<string, FunctionMetadata>();
 
   /**
    * Build all indexes from function metadata
    */
   build(functions: Map<string, FunctionMetadata>): void {
     this.clear();
+    this.functions = new Map(functions);
     
     for (const [id, func] of functions) {
       const normalizedPath = this.normalizePath(func.filePath);
@@ -100,6 +108,22 @@ export class FunctionIndex {
     
     return undefined;
   }
+  
+  /**
+   * Get function ID by declaration node for symbol resolution
+   * This is used by the symbol resolver to map AST nodes to function IDs
+   */
+  getIdByDeclaration(decl: Node): string | undefined {
+    return this.byDeclaration.get(decl);
+  }
+
+  /**
+   * Register declaration node → functionId mapping
+   * Call this once per discovered function during analysis
+   */
+  registerDeclaration(functionId: string, decl: Node): void {
+    this.byDeclaration.set(decl, functionId);
+  }
 
   /**
    * Clear all indexes
@@ -110,6 +134,8 @@ export class FunctionIndex {
     this.byClassName.clear();
     this.byFileName.clear();
     this.byFileNameWithLines.clear();
+    this.byDeclaration.clear();
+    this.functions.clear();
   }
 
   /**
