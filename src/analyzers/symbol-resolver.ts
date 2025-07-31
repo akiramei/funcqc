@@ -37,100 +37,168 @@ export interface ResolverContext {
   internalModulePrefixes?: string[];
 }
 
+type ImportRecord = { module: string; kind: "namespace" | "named" | "default" | "require" };
+
 /**
- * import索引を構築（ES Modules、CommonJS、TypeScript互換の全取り込みパターンに対応）
+ * Process ES Module import statements
  */
-export function buildImportIndex(
-  sf: SourceFile
-): Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }> {
-  const map = new Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }>();
-  
-  // ES Modules: import statements
+function processESModuleImports(sf: SourceFile, map: Map<string, ImportRecord>): void {
   for (const imp of sf.getImportDeclarations()) {
     const mod = imp.getModuleSpecifierValue();
+    
+    // import * as name from 'module'
     const ns = imp.getNamespaceImport();
     if (ns) {
       map.set(ns.getText(), { module: mod, kind: "namespace" });
     }
+    
+    // import name from 'module'
     const def = imp.getDefaultImport();
     if (def) {
       map.set(def.getText(), { module: mod, kind: "default" });
     }
+    
+    // import { name1, name2 as alias } from 'module'
     for (const n of imp.getNamedImports()) {
       const name = n.getAliasNode()?.getText() ?? n.getNameNode().getText();
       map.set(name, { module: mod, kind: "named" });
     }
   }
+}
 
-  // TypeScript: import = require() statements (if available)
+/**
+ * Process TypeScript import = require() statements
+ */
+function processTypeScriptImports(sf: SourceFile, map: Map<string, ImportRecord>): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const importEqualsDeclarations = (sf as any).getImportEqualsDeclarations?.() || [];
     for (const ie of importEqualsDeclarations) {
       const ref = ie.getModuleReference();
-      // ExternalModuleReference with string literal
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod = (ref as any)?.getExpression?.()?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
       const name = ie.getNameNode().getText();
       if (mod && name) {
-        map.set(name, { module: mod, kind: "namespace" });
+        map.set(name, { module: mod, kind: "require" });
       }
     }
-  } catch {
-    // ImportEqualsDeclarations not available in this ts-morph version
+  } catch (error) {
+    // ImportEqualsDeclarations API not available in this ts-morph version
+    // This is expected for older versions and can be safely ignored
+    if (process.env['NODE_ENV'] === 'development') {
+      console.debug('TypeScript import=require parsing not available:', error);
+    }
   }
+}
 
-  // CommonJS: require() patterns (if available)
+/**
+ * Process CommonJS require() patterns
+ */
+function processCommonJSImports(sf: SourceFile, map: Map<string, ImportRecord>): void {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const variableDeclarations = (sf as any).getVariableDeclarations?.() || [];
     for (const v of variableDeclarations) {
-      const init = v.getInitializer();
-      if (!init) continue;
-      
-      // const X = require('mod')
-      if (init.getKindName() === "CallExpression") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const callee = (init as any).getExpression().getText();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const args = (init as any).getArguments?.();
-        const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
-        if (callee === "require" && typeof arg0 === "string" && arg0.length > 0) {
-          const nameNode = v.getNameNode();
-          if (nameNode.getKindName() === "Identifier") {
-            // const path = require('path')
-            map.set(nameNode.getText(), { module: arg0, kind: "namespace" });
-          } else if (nameNode.getKindName() === "ObjectBindingPattern") {
-            // const { resolve, join: pathJoin } = require('path')
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            for (const be of (nameNode as any).getElements()) {
-              const alias = be.getNameNode().getText();
-              map.set(alias, { module: arg0, kind: "named" });
-            }
-          }
-        }
-      }
-      
-      // const x = require('mod').resolve
-      if (init.getKindName() === "PropertyAccessExpression") {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const left = (init as any).getExpression();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const name = (init as any).getNameNode().getText?.();
-        if (left?.getKindName?.() === "CallExpression" &&
-            left.getExpression().getText() === "require") {
-          const args = left.getArguments?.();
-          const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
-          const alias = v.getNameNode().getText();
-          if (arg0 && alias && name) {
-            map.set(alias, { module: arg0, kind: "named" });
-          }
-        }
-      }
+      processRequireDeclaration(v, map);
     }
-  } catch {
+  } catch (error) {
     // VariableDeclarations API not available in this ts-morph version
+    if (process.env['NODE_ENV'] === 'development') {
+      console.debug('CommonJS require parsing not available:', error);
+    }
   }
+}
+
+/**
+ * Process a single variable declaration that might contain require()
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processRequireDeclaration(v: any, map: Map<string, ImportRecord>): void {
+  const init = v.getInitializer();
+  if (!init) return;
+  
+  // const X = require('mod')
+  if (init.getKindName() === "CallExpression") {
+    processDirectRequire(v, init, map);
+  }
+  
+  // const x = require('mod').resolve
+  if (init.getKindName() === "PropertyAccessExpression") {
+    processPropertyRequire(v, init, map);
+  }
+}
+
+/**
+ * Process direct require: const X = require('mod')
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processDirectRequire(v: any, init: any, map: Map<string, ImportRecord>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const callee = (init as any).getExpression().getText();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const args = (init as any).getArguments?.();
+  const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
+  
+  if (callee === "require" && typeof arg0 === "string" && arg0.length > 0) {
+    const nameNode = v.getNameNode();
+    if (nameNode.getKindName() === "Identifier") {
+      // const path = require('path')
+      map.set(nameNode.getText(), { module: arg0, kind: "namespace" });
+    } else if (nameNode.getKindName() === "ObjectBindingPattern") {
+      // const { resolve, join: pathJoin } = require('path')
+      processDestructuringRequire(nameNode, arg0, map);
+    }
+  }
+}
+
+/**
+ * Process destructuring require: const { resolve } = require('path')
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processDestructuringRequire(nameNode: any, module: string, map: Map<string, ImportRecord>): void {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const be of (nameNode as any).getElements()) {
+      const alias = be.getNameNode().getText();
+      map.set(alias, { module, kind: "named" });
+    }
+  } catch (error) {
+    if (process.env['NODE_ENV'] === 'development') {
+      console.debug('Failed to process destructuring require:', error);
+    }
+  }
+}
+
+/**
+ * Process property access require: const x = require('mod').resolve
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function processPropertyRequire(v: any, init: any, map: Map<string, ImportRecord>): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const left = (init as any).getExpression();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const name = (init as any).getNameNode().getText?.();
+  
+  if (left?.getKindName?.() === "CallExpression" &&
+      left.getExpression().getText() === "require") {
+    const args = left.getArguments?.();
+    const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
+    const alias = v.getNameNode().getText();
+    if (arg0 && alias && name) {
+      map.set(alias, { module: arg0, kind: "named" });
+    }
+  }
+}
+
+/**
+ * import索引を構築（ES Modules、CommonJS、TypeScript互換の全取り込みパターンに対応）
+ */
+export function buildImportIndex(sf: SourceFile): Map<string, ImportRecord> {
+  const map = new Map<string, ImportRecord>();
+  
+  processESModuleImports(sf, map);
+  processTypeScriptImports(sf, map);
+  processCommonJSImports(sf, map);
   
   return map;
 }
