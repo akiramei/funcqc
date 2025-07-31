@@ -96,30 +96,10 @@ async function getFilesToAnalyze(targetPath?: string): Promise<string[]> {
 }
 
 /**
- * Normalize fix mode from legacy options for backward compatibility
+ * Get fix mode from options
  */
-function normalizeFixMode(options: ResidueCheckOptions): ResidueFixMode {
-  // If new fixMode is specified, use it
-  if (options.fixMode) {
-    return options.fixMode;
-  }
-
-  // Handle legacy options
-  if (options.generateFixScript) {
-    return 'script';
-  }
-  if (options.interactive) {
-    return 'interactive';
-  }
-  if (options.fix || options.fixAutoOnly) {
-    return 'auto';
-  }
-  if (options.previewFixes) {
-    return 'preview';
-  }
-
-  // Default to 'none'
-  return 'none';
+function getFixMode(options: ResidueCheckOptions): ResidueFixMode {
+  return options.fixMode ?? 'none';
 }
 
 /**
@@ -131,14 +111,8 @@ export const residueCheckCommand: VoidCommand<ResidueCheckOptions> = (options) =
     const spinner = ora();
 
     try {
-      // Normalize fix mode for backward compatibility
-      const fixMode = normalizeFixMode(options);
-      
-      // Show deprecation warnings for legacy options
-      if (options.fix || options.previewFixes || options.fixAutoOnly || 
-          options.interactive || options.generateFixScript) {
-        console.warn(chalk.yellow('Warning: Legacy fix options are deprecated. Use --fix-mode instead.'));
-      }
+      // Get fix mode from options
+      const fixMode = getFixMode(options);
 
       // Start detection
       if (!options.quiet) {
