@@ -176,6 +176,7 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       Node.isArrowFunction(d)
     ) {
       const id = ctx.getFunctionIdByDeclaration(d);
+      
       if (id) return { functionId: id, decl: d };
     }
   }
@@ -263,6 +264,31 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
     if (functionId) {
       return { kind: "internal", functionId, confidence: 1.0, via: "symbol" };
     }
+    
+    
+    // Fallback: Try to find matching function declarations by name in the same source file
+    // This handles cases where TypeScript symbol resolution fails but we have local declarations
+    if (!sym) {
+      const functionName = expr.getText();
+      const sourceFile = expr.getSourceFile();
+      
+      // Find all function declarations with matching name in the same file
+      const matchingDeclarations: Node[] = [];
+      sourceFile.forEachDescendant(node => {
+        if (Node.isFunctionDeclaration(node) && node.getName() === functionName) {
+          matchingDeclarations.push(node);
+        }
+      });
+      
+      // Try to resolve using our fallback mechanism
+      for (const decl of matchingDeclarations) {
+        const fallbackId = ctx.getFunctionIdByDeclaration(decl);
+        if (fallbackId) {
+          return { kind: "internal", functionId: fallbackId, confidence: 0.8, via: "fallback" };
+        }
+      }
+    }
+    
     // import default/named による関数呼び出し（外部）判定
     const alias = ctx.importIndex?.get(expr.getText());
     if (alias && isExternalModule(alias.module, internalPrefixes)) {

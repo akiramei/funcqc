@@ -63,6 +63,7 @@ export class CallGraphAnalyzer {
       // 🔧 Local fallback: declaration Node -> functionId for immediate symbol resolution
       const localDeclIndex = new Map<Node, string>();
 
+      // First pass: Build the complete localDeclIndex before processing any calls
       for (const [, functionInfo] of functionMap.entries()) {
         // Find matching function node with line tolerance
         const functionNode = functionNodes.find(node => {
@@ -77,6 +78,22 @@ export class CallGraphAnalyzer {
         if (functionNode) {
           // 🔧 Link declaration node to its functionId for symbol resolver fallback
           localDeclIndex.set(functionNode, functionInfo.id);
+        }
+      }
+
+      // Second pass: Process calls now that localDeclIndex is complete
+      for (const [, functionInfo] of functionMap.entries()) {
+        // Find matching function node with line tolerance
+        const functionNode = functionNodes.find(node => {
+          const nodeStart = node.getStartLineNumber();
+          const nodeEnd = node.getEndLineNumber();
+          const startDiff = Math.abs(nodeStart - functionInfo.startLine);
+          const endDiff = Math.abs(nodeEnd - functionInfo.endLine);
+          
+          return startDiff <= 1 && endDiff <= 1;
+        });
+
+        if (functionNode) {
           // Extract call expressions from function body
           const callExpressions: CallExpression[] = [];
           functionNode.forEachDescendant((node, traversal) => {
@@ -101,6 +118,7 @@ export class CallGraphAnalyzer {
                   getFunctionIdByDeclaration ??
                   ((decl: Node) => localDeclIndex.get(decl)),
               });
+
 
               // Only create edges for internal function calls
               if (resolution.kind === "internal" && resolution.functionId) {
