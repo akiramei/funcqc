@@ -242,6 +242,11 @@ export interface GlobalProjectContext {
 }
 
 /**
+ * Fix mode for residue-check command
+ */
+export type ResidueFixMode = 'none' | 'preview' | 'auto' | 'interactive' | 'script';
+
+/**
  * Command options for residue-check
  */
 export interface ResidueCheckOptions {
@@ -257,16 +262,20 @@ export interface ResidueCheckOptions {
   config?: string;
   /** Specific path to analyze */
   path?: string;
-  /** Fix AutoRemove items automatically */
-  fix?: boolean;
-  /** Preview fixes without applying */
-  previewFixes?: boolean;
-  /** Only fix AutoRemove items */
-  fixAutoOnly?: boolean;
-  /** Interactive mode for NeedsReview */
-  interactive?: boolean;
-  /** Generate fix script */
-  generateFixScript?: boolean;
+  /** Fix mode for handling detected residue */
+  fixMode?: ResidueFixMode;
   /** Quiet mode */
   quiet?: boolean;
+  
+  // Legacy options for backward compatibility (deprecated)
+  /** @deprecated Use fixMode: 'auto' instead */
+  fix?: boolean;
+  /** @deprecated Use fixMode: 'preview' instead */
+  previewFixes?: boolean;
+  /** @deprecated Use fixMode: 'auto' instead */
+  fixAutoOnly?: boolean;
+  /** @deprecated Use fixMode: 'interactive' instead */
+  interactive?: boolean;
+  /** @deprecated Use fixMode: 'script' instead */
+  generateFixScript?: boolean;
 }

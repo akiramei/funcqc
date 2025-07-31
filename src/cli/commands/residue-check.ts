@@ -11,10 +11,20 @@ import { globby } from 'globby';
 import { cosmiconfig } from 'cosmiconfig';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { ResidueCheckOptions, ResidueDetectionConfig } from '../../types/debug-residue';
+import { ResidueCheckOptions, ResidueDetectionConfig, ResidueFixMode } from '../../types/debug-residue';
 import { DebugResidueDetector } from '../../analyzers/debug-residue-detector';
 import { ResidueFormatter } from '../../utils/residue-formatter';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+
+/**
+ * Default exclude patterns for TypeScript file scanning
+ */
+const DEFAULT_EXCLUDE_PATTERNS = [
+  '**/node_modules/**',
+  '**/dist/**',
+  '**/build/**',
+  '**/*.d.ts'
+];
 
 /**
  * Load residue configuration
@@ -39,8 +49,12 @@ async function loadResidueConfig(configPath?: string): Promise<Partial<ResidueDe
     }
     
     return result?.config || {};
-  } catch {
-    // Return empty config if loading fails
+  } catch (error) {
+    // Log warning but continue with defaults
+    console.warn(
+      'Warning: Failed to load configuration file:',
+      error instanceof Error ? error.message : error
+    );
     return {};
   }
 }
@@ -65,33 +79,47 @@ async function getFilesToAnalyze(targetPath?: string): Promise<string[]> {
       path.join(targetPath, '**/*.ts'),
       path.join(targetPath, '**/*.tsx')
     ];
-    
-    const excludePatterns = [
-      '**/node_modules/**',
-      '**/dist/**',
-      '**/build/**',
-      '**/*.d.ts'
-    ];
 
     return globby(patterns, {
-      ignore: excludePatterns,
+      ignore: DEFAULT_EXCLUDE_PATTERNS,
       absolute: true
     });
   }
   
   // Default patterns for entire project
   const patterns = ['**/*.ts', '**/*.tsx'];
-  const excludePatterns = [
-    '**/node_modules/**',
-    '**/dist/**',
-    '**/build/**',
-    '**/*.d.ts'
-  ];
 
   return globby(patterns, {
-    ignore: excludePatterns,
+    ignore: DEFAULT_EXCLUDE_PATTERNS,
     absolute: true
   });
+}
+
+/**
+ * Normalize fix mode from legacy options for backward compatibility
+ */
+function normalizeFixMode(options: ResidueCheckOptions): ResidueFixMode {
+  // If new fixMode is specified, use it
+  if (options.fixMode) {
+    return options.fixMode;
+  }
+
+  // Handle legacy options
+  if (options.generateFixScript) {
+    return 'script';
+  }
+  if (options.interactive) {
+    return 'interactive';
+  }
+  if (options.fix || options.fixAutoOnly) {
+    return 'auto';
+  }
+  if (options.previewFixes) {
+    return 'preview';
+  }
+
+  // Default to 'none'
+  return 'none';
 }
 
 /**
@@ -103,6 +131,15 @@ export const residueCheckCommand: VoidCommand<ResidueCheckOptions> = (options) =
     const spinner = ora();
 
     try {
+      // Normalize fix mode for backward compatibility
+      const fixMode = normalizeFixMode(options);
+      
+      // Show deprecation warnings for legacy options
+      if (options.fix || options.previewFixes || options.fixAutoOnly || 
+          options.interactive || options.generateFixScript) {
+        console.warn(chalk.yellow('Warning: Legacy fix options are deprecated. Use --fix-mode instead.'));
+      }
+
       // Start detection
       if (!options.quiet) {
         env.commandLogger.log(chalk.bold('🔍 Checking for debug residue...'));
@@ -144,6 +181,12 @@ export const residueCheckCommand: VoidCommand<ResidueCheckOptions> = (options) =
       });
 
       console.log(formatted);
+
+      // Handle fix mode (future implementation)
+      if (fixMode !== 'none') {
+        console.log(chalk.yellow(`\nNote: Fix mode '${fixMode}' is not yet implemented.`));
+        console.log(chalk.gray('This feature will be available in a future release.'));
+      }
 
       // Handle exit code
       if (result.summary.autoRemove > 0) {
