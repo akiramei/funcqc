@@ -3,6 +3,18 @@ import {
   TypeChecker, Symbol as TsSymbol
 } from "ts-morph";
 
+// Confidence scores for different resolution paths
+const CONFIDENCE_SCORES = {
+  EXTERNAL_IMPORT: 1.0,         // Explicit import with known module
+  DIRECT_SYMBOL: 1.0,           // Direct identifier resolved via TypeChecker
+  INTERNAL_IMPORT: 0.9,         // Internal module via import
+  THIS_METHOD: 0.9,             // this.method() calls
+  FALLBACK_DECLARATION: 0.8,    // Local function found via fallback mechanism
+  PROPERTY_SYMBOL: 0.8,         // Property access resolved via symbol
+  UNKNOWN_PROPERTY: 0.3,        // Unresolved property access
+  UNKNOWN_IDENTIFIER: 0.2,      // Unresolved identifier
+} as const;
+
 /**
  * 呼び出し解決結果（callee）の表現。
  * - internal: プロジェクト内の関数（FunctionIndexで一意に識別できる）
@@ -131,15 +143,20 @@ function isExternalModule(module: string, internalPrefixes: string[] = []): bool
   return !internalPrefixes.some(p => module.startsWith(p));
 }
 
+// Extensible set of known Node.js global objects
+const GLOBAL_OBJECTS = new Set([
+  'console', 'process', 'Buffer', 'global',
+  'setTimeout', 'setInterval', 'setImmediate',
+  'clearTimeout', 'clearInterval', 'clearImmediate',
+]);
+
 /**
  * console / globalThis / process など「グローバルに見える外部」のラベル化
  */
 function classifyGlobalLike(exprText: string): { module: string; member: string } | undefined {
-  if (exprText.startsWith("console.")) {
-    return { module: "console", member: exprText.split(".")[1] ?? "<unknown>" };
-  }
-  if (exprText.startsWith("process.")) {
-    return { module: "process", member: exprText.split(".")[1] ?? "<unknown>" };
+  const parts = exprText.split(".");
+  if (parts.length >= 2 && GLOBAL_OBJECTS.has(parts[0])) {
+    return { module: parts[0], member: parts[1] ?? "<unknown>" };
   }
   return undefined;
 }
@@ -214,7 +231,7 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
   const globalLike = classifyGlobalLike(expr.getText());
   if (globalLike) {
     const id = `external:${globalLike.module}:${globalLike.member}`;
-    return { kind: "external", module: globalLike.module, member: globalLike.member, id, confidence: 1.0 };
+    return { kind: "external", module: globalLike.module, member: globalLike.member, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
   }
 
   // obj.method(...) 形式
@@ -228,33 +245,33 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
       const external = isExternalModule(modViaImport.module, internalPrefixes);
       if (external) {
         const id = `external:${modViaImport.module}:${name}`;
-        return { kind: "external", module: modViaImport.module, member: name, id, confidence: 1.0 };
+        return { kind: "external", module: modViaImport.module, member: name, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
       }
       // 内部モジュール由来だが import/alias が確認できた場合のみ、内部解決を試みる
       const sym = ctx.typeChecker.getSymbolAtLocation(expr.getNameNode());
       const { functionId } = tryResolveInternalBySymbol(sym, ctx);
       if (functionId) {
-        return { kind: "internal", functionId, confidence: 0.9, via: "symbol" };
+        return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
       }
       // import/alias 解釈はできたが内部IDに落ちない場合、外部とは断定できないため unknown で返す
-      return { kind: "unknown", raw: expr.getText(), confidence: 0.4 };
+      return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
     }
 
     // this.method(...) → 同一クラス内優先
     const thisRes = tryResolveThisMethod(expr, ctx);
     if (thisRes.functionId) {
-      return { kind: "internal", functionId: thisRes.functionId, confidence: 0.9, via: "this" };
+      return { kind: "internal", functionId: thisRes.functionId, confidence: CONFIDENCE_SCORES.THIS_METHOD, via: "this" };
     }
 
     // 左辺の実体から解決（プロパティシンボル）
     const sym = ctx.typeChecker.getSymbolAtLocation(expr.getNameNode());
     const { functionId } = tryResolveInternalBySymbol(sym, ctx);
     if (functionId) {
-      return { kind: "internal", functionId, confidence: 0.8, via: "symbol" };
+      return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.PROPERTY_SYMBOL, via: "symbol" };
     }
 
     // 解決不能: 外部の可能性もあるが証拠不足 → unknown
-    return { kind: "unknown", raw: expr.getText(), confidence: 0.3 };
+    return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_PROPERTY };
   }
 
   // 素の識別子 foo(...)
@@ -262,7 +279,7 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
     const sym = ctx.typeChecker.getSymbolAtLocation(expr);
     const { functionId } = tryResolveInternalBySymbol(sym, ctx);
     if (functionId) {
-      return { kind: "internal", functionId, confidence: 1.0, via: "symbol" };
+      return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.DIRECT_SYMBOL, via: "symbol" };
     }
     
     
@@ -284,7 +301,7 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
       for (const decl of matchingDeclarations) {
         const fallbackId = ctx.getFunctionIdByDeclaration(decl);
         if (fallbackId) {
-          return { kind: "internal", functionId: fallbackId, confidence: 0.8, via: "fallback" };
+          return { kind: "internal", functionId: fallbackId, confidence: CONFIDENCE_SCORES.FALLBACK_DECLARATION, via: "fallback" };
         }
       }
     }
@@ -293,11 +310,11 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
     const alias = ctx.importIndex?.get(expr.getText());
     if (alias && isExternalModule(alias.module, internalPrefixes)) {
       const id = `external:${alias.module}:${expr.getText()}`;
-      return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: 1.0 };
+      return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
     }
-    return { kind: "unknown", raw: expr.getText(), confidence: 0.2 };
+    return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
   }
 
   // その他（ElementAccessExpression 等）は保守的に unknown
-  return { kind: "unknown", raw: expr.getText(), confidence: 0.2 };
+  return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
 }

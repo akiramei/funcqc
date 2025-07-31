@@ -122,6 +122,9 @@ export class FunctionIndex {
    * Call this once per discovered function during analysis
    */
   registerDeclaration(functionId: string, decl: Node): void {
+    if (!functionId || !decl) {
+      throw new Error('Invalid parameters: functionId and decl must be provided');
+    }
     this.byDeclaration.set(decl, functionId);
   }
 

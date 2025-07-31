@@ -8,6 +8,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { buildImportIndex, resolveCallee, CalleeResolution } from './symbol-resolver';
+import { Logger } from '../utils/cli-utils';
 
 // Removed legacy CallContext - no longer needed with symbol resolution
 
@@ -20,9 +21,11 @@ import { buildImportIndex, resolveCallee, CalleeResolution } from './symbol-reso
 export class CallGraphAnalyzer {
   private project: Project;
   private cache: AnalysisCache;
+  private logger: Logger | undefined;
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
-  constructor(project?: Project, enableCache: boolean = true) {
+  constructor(project?: Project, enableCache: boolean = true, logger?: Logger) {
+    this.logger = logger ?? undefined;
     // 🔧 CRITICAL FIX: Share Project instance with TypeScriptAnalyzer to ensure consistent parsing
     // This prevents line number mismatches that cause call edge detection failures
     this.project = project || new Project({
@@ -122,6 +125,11 @@ export class CallGraphAnalyzer {
 
               // Only create edges for internal function calls
               if (resolution.kind === "internal" && resolution.functionId) {
+                // Verify the resolved function ID exists in our function map
+                if (!Array.from(functionMap.values()).some(f => f.id === resolution.functionId)) {
+                  this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in function map`);
+                  continue;
+                }
                 const callEdge = this.createCallEdgeFromResolution(
                   callExpr,
                   functionInfo.id,
@@ -133,7 +141,7 @@ export class CallGraphAnalyzer {
               // Unknown calls are also ignored as they're likely external or unresolvable
             } catch (error) {
               // Continue processing other calls if one fails
-              console.warn(`Failed to resolve call in ${filePath}:${callExpr.getStartLineNumber()}: ${error}`);
+              this.logger?.warn(`Failed to resolve call in ${filePath}:${callExpr.getStartLineNumber()}: ${error}`);
             }
           }
         }
