@@ -47,8 +47,8 @@ export const depCyclesCommand: VoidCommand<DepCyclesOptions> = (options) =>
 
       // Filter cycles by minimum size
       let filteredCycles = cycles;
-      if (options.minLength) {
-        const minSize = parseInt(options.minLength, 10);
+      if (options.minSize) {
+        const minSize = parseInt(options.minSize, 10);
         if (!isNaN(minSize) && minSize > 0) {
           filteredCycles = cycles.filter(cycle => cycle.length >= minSize);
         }
@@ -92,7 +92,7 @@ function outputCyclesJSON(
       totalCycles,
       displayedCycles: cycles.length,
       filters: {
-        minLength: options.minLength,
+        minSize: options.minSize,
         limit: options.limit,
       },
     },

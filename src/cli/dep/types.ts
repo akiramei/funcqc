@@ -78,7 +78,7 @@ export interface DepDeadOptions extends BaseCommandOptions {
 }
 
 export interface DepCyclesOptions extends BaseCommandOptions {
-  minLength?: string;
+  minSize?: string;
   maxLength?: string;
   includeExternal?: boolean;
   format?: 'table' | 'json' | 'dot';
