@@ -20,7 +20,7 @@ export interface ResolverContext {
   /** 関数ノード(宣言) → 内部IDの逆引き。既存 FunctionIndex から供給してください。*/
   getFunctionIdByDeclaration: (decl: Node) => string | undefined;
   /** import alias → module specifier の索引 */
-  importIndex?: Map<string, { module: string; kind: "namespace" | "named" | "default" }>;
+  importIndex?: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }>;
   /** 内部モジュールとみなすパス接頭辞（例: ["src/", "@/"]）。相対("./", "../")は常に内部扱い。*/
   internalModulePrefixes?: string[];
 }
@@ -52,22 +52,25 @@ export function buildImportIndex(
 
   // TypeScript: import = require() statements (if available)
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const importEqualsDeclarations = (sf as any).getImportEqualsDeclarations?.() || [];
     for (const ie of importEqualsDeclarations) {
       const ref = ie.getModuleReference();
       // ExternalModuleReference with string literal
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod = (ref as any)?.getExpression?.()?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
       const name = ie.getNameNode().getText();
       if (mod && name) {
         map.set(name, { module: mod, kind: "namespace" });
       }
     }
-  } catch (error) {
+  } catch {
     // ImportEqualsDeclarations not available in this ts-morph version
   }
 
   // CommonJS: require() patterns (if available)
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const variableDeclarations = (sf as any).getVariableDeclarations?.() || [];
     for (const v of variableDeclarations) {
       const init = v.getInitializer();
@@ -75,7 +78,9 @@ export function buildImportIndex(
       
       // const X = require('mod')
       if (init.getKindName() === "CallExpression") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const callee = (init as any).getExpression().getText();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const args = (init as any).getArguments?.();
         const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
         if (callee === "require" && typeof arg0 === "string" && arg0.length > 0) {
@@ -85,8 +90,8 @@ export function buildImportIndex(
             map.set(nameNode.getText(), { module: arg0, kind: "namespace" });
           } else if (nameNode.getKindName() === "ObjectBindingPattern") {
             // const { resolve, join: pathJoin } = require('path')
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             for (const be of (nameNode as any).getElements()) {
-              const prop = be.getPropertyNameNode()?.getText?.() ?? be.getNameNode().getText();
               const alias = be.getNameNode().getText();
               map.set(alias, { module: arg0, kind: "named" });
             }
@@ -96,7 +101,9 @@ export function buildImportIndex(
       
       // const x = require('mod').resolve
       if (init.getKindName() === "PropertyAccessExpression") {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const left = (init as any).getExpression();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const name = (init as any).getNameNode().getText?.();
         if (left?.getKindName?.() === "CallExpression" &&
             left.getExpression().getText() === "require") {
@@ -109,7 +116,7 @@ export function buildImportIndex(
         }
       }
     }
-  } catch (error) {
+  } catch {
     // VariableDeclarations API not available in this ts-morph version
   }
   
