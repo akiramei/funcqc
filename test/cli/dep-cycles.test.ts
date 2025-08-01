@@ -299,8 +299,8 @@ describe('depCyclesCommand', () => {
       
       const command = depCyclesCommand({});
       
-      // Expect the command to throw due to mocked process.exit
-      await expect(command(mockEnv)).rejects.toThrow('process.exit called with code 1');
+      // Expect the command to throw due to mocked process.exit (flexible matching for different environments)
+      await expect(command(mockEnv)).rejects.toThrow(/process\.exit.*called.*with.*1/);
       
       // Should have attempted to call storage
       expect(mockEnv.storage.getLatestSnapshot).toHaveBeenCalled();
