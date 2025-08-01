@@ -267,19 +267,23 @@ export class EnhancedCycleAnalyzer {
     type: CycleType,
     importance: ImportanceLevel,
     size: number,
-    _crossLayer: boolean,
-    _crossModule: boolean
+    crossLayer: boolean,
+    crossModule: boolean
   ): string[] {
     const recommendations: string[] = [];
 
-    if (importance === ImportanceLevel.CRITICAL) {
+    if (crossLayer) {
       recommendations.push('URGENT: Cross-layer cycle violates architectural boundaries');
       recommendations.push('Consider introducing interfaces or dependency injection');
-    }
-
-    if (importance === ImportanceLevel.HIGH) {
+      recommendations.push('Review layer separation and abstraction patterns');
+    } else if (crossModule) {
       recommendations.push('Cross-module cycle increases coupling');
       recommendations.push('Extract common functionality to shared module');
+      recommendations.push('Consider using dependency injection or event patterns');
+    }
+
+    if (importance === ImportanceLevel.CRITICAL) {
+      recommendations.push('High priority: Architectural integrity at risk');
     }
 
     if (type === CycleType.COMPLEX && size > 5) {
@@ -287,7 +291,7 @@ export class EnhancedCycleAnalyzer {
       recommendations.push('Break into smaller, focused components');
     }
 
-    if (type === CycleType.MUTUAL) {
+    if (type === CycleType.MUTUAL && size === 2) {
       recommendations.push('Consider merging functions or introducing mediator pattern');
     }
 
@@ -330,7 +334,8 @@ export class EnhancedCycleAnalyzer {
 
     // Complexity filter (only apply if not in recursive-only mode)
     if (options.minComplexity !== undefined) {
-      filtered = filtered.filter(c => c.nodes.length >= options.minComplexity!);
+      const minComplexity = options.minComplexity;
+      filtered = filtered.filter(c => c.nodes.length >= minComplexity);
     }
 
     // Boundary filters

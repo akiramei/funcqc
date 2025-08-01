@@ -44,21 +44,27 @@ export class ClearCoordinator {
   /**
    * Clear a specific module and its dependencies
    */
-  async clear(name: string): Promise<void> {
+  async clear(name: string, visited: Set<string> = new Set()): Promise<void> {
+    if (visited.has(name)) {
+      throw new Error(`Circular dependency detected involving '${name}'`);
+    }
+
     const handler = this.handlers.get(name);
     if (!handler) {
       throw new Error(`Clear handler '${name}' not found`);
     }
-    
+
+    visited.add(name);
+
     // Clear dependencies first
     if (handler.dependencies) {
       for (const dep of handler.dependencies) {
         if (this.handlers.has(dep)) {
-          await this.clear(dep);
+          await this.clear(dep, visited);
         }
       }
     }
-    
+
     // Clear the module itself
     await handler.handler();
   }
