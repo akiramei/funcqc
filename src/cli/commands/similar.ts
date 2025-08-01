@@ -163,9 +163,12 @@ async function detectSimilarities(
   spinner: ReturnType<typeof ora>,
   dbFilteringApplied: boolean = false
 ): Promise<SimilarityResult[]> {
+  // Skip filtering if already done in DB
+  const effectiveMinLines = dbFilteringApplied ? 0 : config.minLines;
+  
   const similarityOptions = {
     threshold: config.threshold,
-    minLines: dbFilteringApplied ? 0 : config.minLines, // Skip filtering if already done in DB
+    minLines: effectiveMinLines,
     crossFile: config.crossFile,
   };
   const similarityManager = new SimilarityManager(undefined, similarityOptions);
@@ -181,7 +184,7 @@ async function detectSimilarities(
     functions,
     {
       threshold: config.threshold,
-      minLines: dbFilteringApplied ? 0 : config.minLines, // Skip filtering if already done in DB
+      minLines: effectiveMinLines,
       crossFile: config.crossFile,
     },
     config.enabledDetectors,
