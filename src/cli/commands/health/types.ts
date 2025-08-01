@@ -234,6 +234,10 @@ export interface FunctionRiskAssessment {
     parameterCount: number;
     nestingDepth: number;
   };
+  // Structural context tags for prioritization
+  structuralTags?: string[];
+  // Original risk score before structural weighting
+  originalRiskScore?: number;
 }
 
 // RESTORED: Trend analysis types from original implementation

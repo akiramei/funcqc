@@ -28,6 +28,13 @@ export function displayHealthOverview(healthData: HealthData): void {
   console.log(chalk.yellow('📊 Health Breakdown:'));
   console.log(`  ├── Traditional Grade: ${healthData.overallGrade} (${healthData.overallScore}/100)`);
   
+  // Show structural risk adjustment if applicable
+  if (healthData.structure?.penaltyBreakdown?.riskMultiplier && healthData.structure.penaltyBreakdown.riskMultiplier < 1.0) {
+    const reduction = Math.round((1 - healthData.structure.penaltyBreakdown.riskMultiplier) * 100);
+    const riskLevel = healthData.structure.structuralRisk.toUpperCase();
+    console.log(`  ├── ${chalk.yellow('Structural Risk Adjustment')}: ${chalk.red(`-${reduction}% (${riskLevel})`)}`);
+  }
+  
   // Calculate rates for display with improved N/A handling
   const highRiskRate = healthData.highRiskFunctionRate !== undefined 
     ? formatPercentage(healthData.highRiskFunctionRate)
@@ -95,20 +102,48 @@ export function displayPenaltyBreakdown(breakdown: StructuralPenaltyBreakdown): 
   
   console.log(chalk.yellow('📊 Structural Penalty Breakdown:'));
   
+  // Calculate raw total and capping ratio for display consistency
+  const rawComponents = [
+    breakdown.largestComponent,
+    breakdown.cyclicFunctions, 
+    breakdown.hubFunctions,
+    breakdown.maxFanIn
+  ];
+  const rawTotal = rawComponents.reduce((sum, val) => sum + val, 0);
+  const adjustedTotal = rawTotal - (breakdown.duplicateAdjustment || 0);
+  const cappingRatio = breakdown.totalPenalty / Math.max(adjustedTotal, 1);
+  const showRawValues = cappingRatio < 0.95; // Show raw values if significant capping occurred
+  
   if (breakdown.largestComponent > 0) {
-    console.log(`  ├── Large SCC Component: ${chalk.red(`-${breakdown.largestComponent} points`)}`);
+    const capped = Math.round((breakdown.largestComponent * cappingRatio) * 10) / 10;
+    const display = showRawValues 
+      ? `${chalk.red(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.largestComponent})`)}`
+      : chalk.red(`-${capped} points`);
+    console.log(`  ├── Large SCC Component: ${display}`);
   }
   
   if (breakdown.cyclicFunctions > 0) {
-    console.log(`  ├── Cyclic Functions: ${chalk.red(`-${breakdown.cyclicFunctions} points`)}`);
+    const capped = Math.round((breakdown.cyclicFunctions * cappingRatio) * 10) / 10;
+    const display = showRawValues 
+      ? `${chalk.red(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.cyclicFunctions})`)}`
+      : chalk.red(`-${capped} points`);
+    console.log(`  ├── Cyclic Functions: ${display}`);
   }
   
   if (breakdown.hubFunctions > 0) {
-    console.log(`  ├── Excessive Hub Functions: ${chalk.yellow(`-${breakdown.hubFunctions} points`)}`);
+    const capped = Math.round((breakdown.hubFunctions * cappingRatio) * 10) / 10;
+    const display = showRawValues 
+      ? `${chalk.yellow(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.hubFunctions})`)}`
+      : chalk.yellow(`-${capped} points`);
+    console.log(`  ├── Excessive Hub Functions: ${display}`);
   }
   
   if (breakdown.maxFanIn > 0) {
-    console.log(`  ├── High Coupling (Fan-in): ${chalk.yellow(`-${breakdown.maxFanIn} points`)}`);
+    const capped = Math.round((breakdown.maxFanIn * cappingRatio) * 10) / 10;
+    const display = showRawValues 
+      ? `${chalk.yellow(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.maxFanIn})`)}`
+      : chalk.yellow(`-${capped} points`);
+    console.log(`  ├── High Coupling (Fan-in): ${display}`);
   }
   
   console.log(`  ├── ${chalk.bold('Total Penalty')}: ${chalk.red(`-${breakdown.totalPenalty} points`)}`);

@@ -139,6 +139,76 @@ async function executeRiskEvaluation(functions: FunctionInfo[]): Promise<{
 }
 
 /**
+ * Apply structural weights to risk assessments for better prioritization
+ */
+function applyStructuralWeights(
+  riskAssessments: FunctionRiskAssessment[],
+  structuralData: StructuralMetrics
+): FunctionRiskAssessment[] {
+  // Create lookup sets for efficient membership testing
+  const hubSet = new Set(structuralData.hubFunctionIds || []);
+  const cyclicSet = new Set(structuralData.cyclicFunctionIds || []);
+  
+  // Build PageRank score map from topCentralFunctions
+  const pageRankMap = new Map<string, number>();
+  if (structuralData.pageRank?.topCentralFunctions) {
+    structuralData.pageRank.topCentralFunctions.forEach(func => {
+      pageRankMap.set(func.functionId, func.centrality);
+    });
+  }
+  
+  // Calculate all PageRank scores for percentile calculation
+  const allPRScores = Array.from(pageRankMap.values());
+  allPRScores.sort((a, b) => b - a);
+  
+  function calculatePercentile(score: number, scores: number[]): number {
+    if (scores.length === 0) return 0;
+    const index = scores.findIndex(s => s <= score);
+    return index === -1 ? 1.0 : index / scores.length;
+  }
+  
+  return riskAssessments.map(assessment => {
+    // Calculate structural context
+    const prScore = pageRankMap.get(assessment.functionId) || 0;
+    const prPercentile = calculatePercentile(prScore, allPRScores);
+    const isHub = hubSet.has(assessment.functionId);
+    const isCyclic = cyclicSet.has(assessment.functionId);
+    
+    // Calculate structural multiplier (conservative approach)
+    const structuralMultiplier = 
+      (1 + 0.3 * prPercentile) *                    // PageRank influence (max 30% increase)
+      (1 + (isHub ? 0.2 : 0)) *                     // Hub influence (20% increase)
+      (1 + (isCyclic ? 0.25 : 0));                  // Cyclic influence (25% increase)
+    
+    // Apply structural weighting
+    const originalRiskScore = assessment.riskScore;
+    const weightedRiskScore = originalRiskScore * structuralMultiplier;
+    
+    // Generate structural tags for display
+    const structuralTags: string[] = [];
+    if (prPercentile > 0.9) structuralTags.push('High Centrality');
+    if (isHub) structuralTags.push('Hub');
+    if (isCyclic) structuralTags.push('Cyclic');
+    
+    // Update risk level if necessary based on new score
+    let newRiskLevel = assessment.riskLevel;
+    if (weightedRiskScore >= 8 && assessment.riskLevel !== 'critical') {
+      newRiskLevel = 'critical';
+    } else if (weightedRiskScore >= 5 && assessment.riskLevel === 'low') {
+      newRiskLevel = weightedRiskScore >= 8 ? 'high' : 'medium';
+    }
+    
+    return {
+      ...assessment,
+      riskScore: Math.round(weightedRiskScore * 100) / 100,
+      riskLevel: newRiskLevel,
+      structuralTags: structuralTags.length > 0 ? structuralTags : undefined,
+      originalRiskScore: originalRiskScore
+    };
+  });
+}
+
+/**
  * Display all health analysis results
  */
 async function displayHealthResults(
@@ -171,7 +241,8 @@ async function displayHealthResults(
       functions,
       riskEvaluation.riskAssessments,
       riskEvaluation.enhancedRiskStats,
-      options.verbose || false
+      options.verbose || false,
+      options
     );
   }
   
@@ -236,7 +307,18 @@ async function performHealthAnalysis(env: CommandEnvironment, options: HealthCom
   const { structuralData, qualityData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
   
   // Execute risk evaluation
-  const riskEvaluation = await executeRiskEvaluation(functions);
+  let riskEvaluation = await executeRiskEvaluation(functions);
+  
+  // Apply structural weights to risk assessments for better prioritization
+  if (riskEvaluation && structuralData) {
+    const weightedRiskAssessments = applyStructuralWeights(riskEvaluation.riskAssessments, structuralData);
+    // Recalculate enhanced risk stats with weighted assessments
+    const weightedEnhancedRiskStats = calculateEnhancedRiskStats(weightedRiskAssessments, functions);
+    riskEvaluation = {
+      riskAssessments: weightedRiskAssessments,
+      enhancedRiskStats: weightedEnhancedRiskStats
+    };
+  }
   
   // Display all results
   await displayHealthResults(qualityData, structuralData, riskEvaluation, functions, options, env, targetSnapshot);
@@ -287,7 +369,8 @@ async function displayOriginalHealthFormat(
   functions: FunctionInfo[],
   riskAssessments: FunctionRiskAssessment[],
   enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
-  verbose: boolean
+  verbose: boolean,
+  options: HealthCommandOptions
 ): Promise<void> {
   // Calculate high-risk functions
   const highRiskFunctions = riskAssessments.filter(a => a.riskLevel === 'high' || a.riskLevel === 'critical');
@@ -301,7 +384,7 @@ async function displayOriginalHealthFormat(
   
   // Import and call the detailed recommendations display
   const { displayTopRisksWithDetails } = await import('./detailed-recommendations');
-  await displayTopRisksWithDetails(functions, riskAssessments, enhancedRiskStats, verbose);
+  await displayTopRisksWithDetails(functions, riskAssessments, enhancedRiskStats, verbose, options.topN);
 }
 
 /**

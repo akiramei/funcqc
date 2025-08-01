@@ -30,7 +30,8 @@ export async function displayTopRisksWithDetails(
   functions: FunctionInfo[], 
   riskAssessments: FunctionRiskAssessment[],
   enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
-  verbose: boolean = false
+  verbose: boolean = false,
+  topN?: number
 ): Promise<void> {
   console.log(chalk.yellow('Risk Details:'));
   
@@ -65,18 +66,27 @@ export async function displayTopRisksWithDetails(
     const mostCommonViolation = Object.entries(violationTypeCount)
       .sort(([,a], [,b]) => b - a)[0]?.[0] || 'linesOfCode';
     
-    console.log(`  Highest Risk Function: ${topRiskFunction?.name}() (Risk: ${Math.round(highestRiskAssessment.riskScore)})`);
+    const structuralTags = highestRiskAssessment.structuralTags ? 
+      ` [${highestRiskAssessment.structuralTags.join(', ')}]` : '';
+    console.log(`  Highest Risk Function: ${topRiskFunction?.name}()${structuralTags} (Risk: ${Math.round(highestRiskAssessment.riskScore)})`);
     console.log(`    Location: ${topRiskFunction?.filePath}:${topRiskFunction?.startLine}`);
+    if (highestRiskAssessment.originalRiskScore && highestRiskAssessment.originalRiskScore !== highestRiskAssessment.riskScore) {
+      console.log(`    Original Risk: ${Math.round(highestRiskAssessment.originalRiskScore)} → Structural Weight Applied: ${Math.round(highestRiskAssessment.riskScore)}`);
+    }
     console.log(`  Most Common Violation: ${mostCommonViolation}`);
   }
   console.log('');
 
   // Generate and display detailed recommendations
   console.log(chalk.yellow('Recommended Actions:'));
-  const recommendedActions = generateDetailedRecommendedActions(riskAssessments, functions, verbose);
+  const recommendedActions = generateDetailedRecommendedActions(riskAssessments, functions, verbose, topN);
   
-  recommendedActions.forEach((action) => {
-    console.log(`${action.priority}. ${action.functionName}() in ${action.filePath}:${action.startLine}-${action.endLine}`);
+  recommendedActions.forEach((action, index) => {
+    const assessment = riskAssessments.find(a => a.functionName === action.functionName);
+    const structuralTags = assessment?.structuralTags ? 
+      ` [${assessment.structuralTags.join(', ')}]` : '';
+    
+    console.log(`${action.priority}. ${action.functionName}()${structuralTags} in ${action.filePath}:${action.startLine}-${action.endLine}`);
     console.log(`   Action: ${action.action}`);
     
     if (verbose || action.suggestions.length <= 2) {
@@ -105,10 +115,11 @@ export async function displayTopRisksWithDetails(
 function generateDetailedRecommendedActions(
   riskAssessments: FunctionRiskAssessment[], 
   functions: FunctionInfo[],
-  verbose: boolean = false
+  verbose: boolean = false,
+  topN?: number
 ): RecommendedAction[] {
-  // Get high-risk functions only: 3 by default, 10 in verbose mode
-  const maxRecommendations = verbose ? 10 : 3;
+  // Determine number of recommendations: topN takes precedence, fallback to verbose/default logic
+  const maxRecommendations = topN ?? (verbose ? 10 : 3);
   const highRiskAssessments = riskAssessments
     .filter(assessment => assessment.riskLevel === 'high' || assessment.riskLevel === 'critical')
     .sort((a, b) => b.riskScore - a.riskScore)
