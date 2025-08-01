@@ -110,19 +110,21 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     console.log(`🧬 Advanced detector processing ${validFunctions.length} valid functions`);
 
-    // Scale-based processing strategy
-    if (validFunctions.length <= 100) {
-      // Small: Full advanced analysis
-      console.log(`📊 Using full advanced analysis (small scale)`);
+    // Unified algorithm path for predictable performance
+    const TRIVIALLY_SMALL_THRESHOLD = 20; // Threshold where pairwise comparison is clearly faster
+
+    if (validFunctions.length <= TRIVIALLY_SMALL_THRESHOLD) {
+      // Only for truly small datasets where O(n²) is acceptable
+      console.log(`📊 Using full advanced analysis (trivially small dataset)`);
       return this.detectAdvancedMode(validFunctions, config);
-    } else if (validFunctions.length <= this.config.singleStageThreshold) {
-      // Medium: Standard two-stage approach
-      console.log(`📊 Using two-stage approach (medium scale)`);
-      return this.detectTwoStageMode(validFunctions, config);
-    } else {
-      // Large: Sampling + two-stage approach
+    } else if (validFunctions.length > this.config.singleStageThreshold) {
+      // Large datasets require sampling
       console.log(`📊 Using sampling approach for large scale (${validFunctions.length} functions)`);
       return this.detectSamplingMode(validFunctions, config);
+    } else {
+      // All medium-sized datasets use the scalable two-stage approach
+      console.log(`📊 Using two-stage approach (scalable processing)`);
+      return this.detectTwoStageMode(validFunctions, config);
     }
   }
 
@@ -564,13 +566,18 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     functions: FunctionInfo[],
     config: { minLines: number }
   ): FunctionInfo[] {
+    // Skip filtering if minLines is 0 or negative (i.e., DB filtering was already applied)
+    if (config.minLines <= 0) {
+      return functions.filter(func => func.sourceCode && func.sourceCode.trim().length > 10);
+    }
+    
     return functions.filter(func => {
       if (!func.sourceCode || func.sourceCode.trim().length <= 10) {
         return false;
       }
 
       // If metrics are available, use them
-      if (func.metrics) {
+      if (func.metrics && func.metrics.linesOfCode !== undefined) {
         return func.metrics.linesOfCode >= config.minLines;
       }
 
