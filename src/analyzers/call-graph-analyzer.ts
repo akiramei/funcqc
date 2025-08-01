@@ -7,6 +7,8 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
+import { CacheProvider } from '../utils/cache-interfaces';
+import { CacheServiceLocator } from '../utils/cache-injection';
 import { buildImportIndex, resolveCallee, CalleeResolution } from './symbol-resolver';
 import { Logger } from '../utils/cli-utils';
 
@@ -21,10 +23,16 @@ import { Logger } from '../utils/cli-utils';
 export class CallGraphAnalyzer {
   private project: Project;
   private cache: AnalysisCache;
+  private callEdgeCache: CacheProvider<CallEdge[]>;
   private logger: Logger | undefined;
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
-  constructor(project?: Project, enableCache: boolean = true, logger?: Logger) {
+  constructor(
+    project?: Project, 
+    enableCache: boolean = true, 
+    logger?: Logger,
+    callEdgeCache?: CacheProvider<CallEdge[]>
+  ) {
     this.logger = logger ?? undefined;
     // 🔧 CRITICAL FIX: Share Project instance with TypeScriptAnalyzer to ensure consistent parsing
     // This prevents line number mismatches that cause call edge detection failures
@@ -40,6 +48,7 @@ export class CallGraphAnalyzer {
       maxMemoryEntries: enableCache ? 100 : 0,
       maxMemorySize: enableCache ? 10 : 0, // 10MB cache
     });
+    this.callEdgeCache = callEdgeCache || CacheServiceLocator.getGenericCache<CallEdge[]>('call-graph-edges');
   }
 
   /**
@@ -253,13 +262,27 @@ export class CallGraphAnalyzer {
    * Get cache statistics for monitoring
    */
   getCacheStats(): CacheStats {
+    // Use injected cache stats if available, fallback to legacy cache
+    if ('getStats' in this.callEdgeCache && typeof this.callEdgeCache.getStats === 'function') {
+      const stats = this.callEdgeCache.getStats();
+      return {
+        totalEntries: stats.totalEntries,
+        totalSize: 0, // Not available in simplified interface
+        hitRate: stats.hitRate,
+        hits: stats.hits,
+        misses: stats.misses
+      };
+    }
     return this.cache.getStats();
   }
 
   /**
    * Clear the analysis cache
    */
-  clearCache(): void {
-    this.cache.clear();
+  async clearCache(): Promise<void> {
+    await Promise.all([
+      this.cache.clear(),
+      this.callEdgeCache.clear()
+    ]);
   }
 }
