@@ -217,10 +217,18 @@ export class SourceContentOperations implements StorageOperationModule {
     snapshotId: string,
     trx?: PGTransaction
   ): Promise<string> {
+    if (executor === 'transaction' && !trx) {
+      throw new Error('Transaction executor requires trx parameter');
+    }
+    
     const refId = randomUUID();
     
     if (executor === 'kysely') {
-      await this.kysely!
+      if (!this.kysely) {
+        throw new Error('Kysely instance is not initialized');
+      }
+      
+      await this.kysely
         .insertInto('source_file_refs')
         .values({
           id: refId,
