@@ -44,7 +44,21 @@ export class HashSimilarityDetector implements SimilarityDetector {
     functions: FunctionInfo[],
     config: { minLines: number }
   ): FunctionInfo[] {
-    return functions.filter(func => !func.metrics || func.metrics.linesOfCode >= config.minLines);
+    // Skip filtering if minLines is 0 or negative (i.e., DB filtering was already applied)
+    if (config.minLines <= 0) {
+      return functions;
+    }
+    
+    return functions.filter(func => {
+      // If no metrics available, include the function (conservative approach)
+      if (!func.metrics) return true;
+      
+      // If metrics exist but linesOfCode is undefined, include the function
+      if (func.metrics.linesOfCode === undefined) return true;
+      
+      // Otherwise, apply the filter
+      return func.metrics.linesOfCode >= config.minLines;
+    });
   }
 
   private detectHashSimilarities(

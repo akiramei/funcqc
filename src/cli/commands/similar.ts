@@ -60,7 +60,16 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
     try {
       const functions = await loadFunctions(env, options, spinner);
       const detectionConfig = parseDetectionOptions(options);
-      let results = await detectSimilarities(functions, detectionConfig, spinner);
+      // Pass flag to skip redundant filtering when DB filtering was applied
+      const dbFilteringApplied = !!options.minLines;
+      
+      // When using minLines filter with many functions, skip O(n²) AST detector for better performance
+      if (dbFilteringApplied && functions.length > 500 && !options.detectors) {
+        console.log(chalk.yellow('⚡ Using fast detectors for better performance with --min-lines filter'));
+        detectionConfig.enabledDetectors = ['hash-duplicate', 'advanced-structural'];
+      }
+      
+      let results = await detectSimilarities(functions, detectionConfig, spinner, dbFilteringApplied);
       
       // Add architecture analysis if requested
       if (options.archAnalysis) {
@@ -102,7 +111,17 @@ async function loadFunctions(
 
   let functions: FunctionInfo[];
   // Similarity analysis requires full function data including sourceCode
-  const queryOptions = { includeFullData: true };
+  const queryOptions: import('../../types').QueryOptions = { includeFullData: true };
+  
+  // Add minLines filter to database query for performance
+  if (options.minLines) {
+    const minLines = parseInt(options.minLines);
+    if (!isNaN(minLines)) {
+      queryOptions.filters = [
+        { field: 'lines_of_code', operator: '>=', value: minLines }
+      ];
+    }
+  }
   
   if (options.snapshot) {
     functions = await env.storage.findFunctionsInSnapshot(options.snapshot, queryOptions);
@@ -141,11 +160,12 @@ function parseDetectionOptions(options: SimilarCommandOptions): DetectionConfig 
 async function detectSimilarities(
   functions: FunctionInfo[],
   config: DetectionConfig,
-  spinner: ReturnType<typeof ora>
+  spinner: ReturnType<typeof ora>,
+  dbFilteringApplied: boolean = false
 ): Promise<SimilarityResult[]> {
   const similarityOptions = {
     threshold: config.threshold,
-    minLines: config.minLines,
+    minLines: dbFilteringApplied ? 0 : config.minLines, // Skip filtering if already done in DB
     crossFile: config.crossFile,
   };
   const similarityManager = new SimilarityManager(undefined, similarityOptions);
@@ -161,7 +181,7 @@ async function detectSimilarities(
     functions,
     {
       threshold: config.threshold,
-      minLines: config.minLines,
+      minLines: dbFilteringApplied ? 0 : config.minLines, // Skip filtering if already done in DB
       crossFile: config.crossFile,
     },
     config.enabledDetectors,
