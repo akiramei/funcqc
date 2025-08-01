@@ -371,7 +371,7 @@ export class ArchitectureConfigManager {
   /**
    * Validate individual consolidation strategy
    */
-  private validateConsolidationStrategy(strategy: Record<string, unknown>) {
+  private validateConsolidationStrategy(strategy: Record<string, unknown>): ConsolidationStrategy {
     if (!strategy['target'] || typeof strategy['target'] !== 'string') {
       throw new Error('Consolidation strategy must have a target string');
     }

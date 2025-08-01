@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
+import { minimatch } from 'minimatch';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
@@ -486,14 +487,7 @@ function calculateLayerStats(layers: Record<string, string[] | LayerDefinition>,
  * Check if file path matches any of the layer patterns
  */
 function matchesLayerPatterns(filePath: string, patterns: string[]): boolean {
-  for (const pattern of patterns) {
-    // Simple glob pattern matching
-    const regex = new RegExp(pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*'));
-    if (regex.test(filePath)) {
-      return true;
-    }
-  }
-  return false;
+  return patterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
 }
 
 /**
