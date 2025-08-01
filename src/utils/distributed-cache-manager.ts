@@ -12,6 +12,15 @@ import {
   MemoryCacheProvider 
 } from './cache-interfaces';
 
+interface CacheStatsRecord {
+  [key: string]: {
+    totalEntries: number;
+    hitRate: number;
+    hits: number;
+    misses: number;
+  } | unknown;
+}
+
 /**
  * Function cache adapter that wraps AnalysisCache to match interface
  */
@@ -106,8 +115,8 @@ export class DistributedCacheManager implements CacheProviderFactory {
   /**
    * Get cache statistics for all instances
    */
-  getAllStats(): Record<string, unknown> {
-    const stats: Record<string, unknown> = {
+  getAllStats(): CacheStatsRecord {
+    const stats: CacheStatsRecord = {
       mainAnalysisCache: this.mainAnalysisCache.getStats()
     };
 

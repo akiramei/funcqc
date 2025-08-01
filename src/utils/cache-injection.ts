@@ -32,7 +32,11 @@ export class CacheServiceLocator {
       const cacheManager = getDistributedCacheManager();
       this.genericCaches.set(name, cacheManager.createGenericCache<T>(name));
     }
-    return this.genericCaches.get(name) as CacheProvider<T>;
+    const cache = this.genericCaches.get(name);
+    if (!cache) {
+      throw new Error(`Cache '${name}' not found`);
+    }
+    return cache as CacheProvider<T>;
   }
 
   /**
