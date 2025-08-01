@@ -307,6 +307,9 @@ async function displayHealthResults(
       functions,
       riskEvaluation.riskAssessments,
       riskEvaluation.enhancedRiskStats,
+      structuralData,
+      targetSnapshot.id,
+      env,
       options.verbose || false,
       options
     );
@@ -435,6 +438,9 @@ async function displayOriginalHealthFormat(
   functions: FunctionInfo[],
   riskAssessments: FunctionRiskAssessment[],
   enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
+  structuralData: StructuralMetrics | null,
+  snapshotId: string,
+  env: CommandEnvironment,
   verbose: boolean,
   options: HealthCommandOptions
 ): Promise<void> {
@@ -448,9 +454,34 @@ async function displayOriginalHealthFormat(
   // Display top high-risk functions header
   console.log(`🔸 ${chalk.yellow('Top High-Risk Functions')}:`);
   
-  // Import and call the detailed recommendations display
+  // Import and call the enhanced structural recommendations display
   const { displayTopRisksWithDetails } = await import('./detailed-recommendations');
-  await displayTopRisksWithDetails(functions, riskAssessments, enhancedRiskStats, verbose, options.topN);
+  if (structuralData && structuralData.depMetrics) {
+    await displayTopRisksWithDetails(
+      functions, 
+      riskAssessments, 
+      enhancedRiskStats, 
+      structuralData,
+      structuralData.depMetrics,
+      snapshotId,
+      env,
+      verbose, 
+      options.topN
+    );
+  } else {
+    console.log('⚠️  Structural analysis not available - using simplified recommendations');
+    await displayTopRisksWithDetails(
+      functions, 
+      riskAssessments, 
+      enhancedRiskStats, 
+      { totalComponents: 0, largestComponentSize: 0, cyclicFunctions: 0, hubFunctions: 0, avgFanIn: 0, avgFanOut: 0, maxFanIn: 0, maxFanOut: 0, structuralRisk: 'low' } as StructuralMetrics,
+      [],
+      snapshotId,
+      env,
+      verbose, 
+      options.topN
+    );
+  }
 }
 
 /**
