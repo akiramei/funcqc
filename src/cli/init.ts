@@ -2,6 +2,7 @@ import { cosmiconfigSync } from 'cosmiconfig';
 import chalk from 'chalk';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { fileExists } from '../utils/file-utils';
 import { InitCommandOptions, FuncqcConfig } from '../types';
 
 const DEFAULT_CONFIG: FuncqcConfig = {
@@ -238,14 +239,6 @@ async function ensureDataDirectory(dbPath: string): Promise<void> {
   }
 }
 
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Generate intelligent configuration based on project structure

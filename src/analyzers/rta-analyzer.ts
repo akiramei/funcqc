@@ -4,7 +4,7 @@ import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
 import { PathNormalizer } from '../utils/path-normalizer';
 import { FunctionIndex } from './function-index';
-import * as path from 'path';
+import { getRelativePath } from '../utils/path-utils';
 
 // Import InstantiationEvent from staged-analysis types
 import type { InstantiationEvent } from './staged-analysis/types';
@@ -596,7 +596,7 @@ export class RTAAnalyzer {
       
       // Strategy 2: Match by lexical path construction (fallback compatibility)
       // Build the expected lexical path as FunctionRegistry would
-      const relativePath = this.getRelativePath(candidate.filePath);
+      const relativePath = getRelativePath(candidate.filePath);
       const expectedLexicalPath = `${relativePath}#${candidate.className}.${candidate.name}`;
       
       for (const [functionId, functionMetadata] of functions) {
@@ -649,17 +649,6 @@ export class RTAAnalyzer {
     }
   }
 
-  /**
-   * Get relative path from current working directory
-   */
-  private getRelativePath(filePath: string): string {
-    try {
-      const cwd = process.cwd();
-      return path.relative(cwd, filePath);
-    } catch {
-      return path.basename(filePath);
-    }
-  }
 
   /**
    * Get instantiated types for debugging

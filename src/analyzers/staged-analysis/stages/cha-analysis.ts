@@ -4,9 +4,10 @@
  */
 
 import { CHAAnalyzer, UnresolvedMethodCall, MethodInfo } from '../../cha-analyzer';
-import { IdealCallEdge, FunctionMetadata } from '../../ideal-call-graph-analyzer';
+import { FunctionMetadata } from '../../ideal-call-graph-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { AnalysisState } from '../types';
+import { addEdge } from '../../shared/graph-utils';
 
 export class CHAAnalysisStage {
   private chaAnalyzer: CHAAnalyzer;
@@ -58,7 +59,7 @@ export class CHAAnalysisStage {
       
       // Add CHA edges to our collection
       for (const edge of chaEdges) {
-        this.addEdge(edge, state);
+        addEdge(edge, state);
       }
       
       // Collect CHA candidates for RTA analysis
@@ -107,18 +108,6 @@ export class CHAAnalysisStage {
     return this.chaAnalyzer.getClassToInterfacesMap();
   }
 
-  /**
-   * Add edge to state with deduplication
-   */
-  private addEdge(edge: IdealCallEdge, state: AnalysisState): void {
-    const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
-    
-    if (!state.edgeKeys.has(edgeKey)) {
-      state.edges.push(edge);
-      state.edgeKeys.add(edgeKey);
-      state.edgeIndex.set(edgeKey, edge);
-    }
-  }
 
   /**
    * Reset analyzer state for fresh analysis

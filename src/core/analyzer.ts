@@ -4,6 +4,7 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { Project } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
+import { simpleHash } from '../utils/hash-utils';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
@@ -756,18 +757,9 @@ export class FunctionAnalyzer {
 
     // Create a simple hash of the components
     const combined = components.join('|');
-    return this.simpleHash(combined);
+    return simpleHash(combined);
   }
 
-  private simpleHash(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = (hash << 5) - hash + char;
-      hash = hash & hash; // Convert to 32-bit integer
-    }
-    return Math.abs(hash).toString(36);
-  }
 
   /**
    * Compare two functions for similarity (basic structural comparison)

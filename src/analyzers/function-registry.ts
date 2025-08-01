@@ -1,7 +1,7 @@
 import { Project, Node, SourceFile } from 'ts-morph';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as crypto from 'crypto';
-import * as path from 'path';
+import { getRelativePath } from '../utils/path-utils';
 
 /**
  * Function Registry - Comprehensive Function Collection System
@@ -102,7 +102,7 @@ export class FunctionRegistry {
    * Format: file#outer.inner.method
    */
   private buildLexicalPath(node: Node, filePath: string): string {
-    const relativePath = this.getRelativePath(filePath);
+    const relativePath = getRelativePath(filePath);
     const ancestorNames: string[] = [];
     
     // Walk up the AST to build lexical path
@@ -275,18 +275,6 @@ export class FunctionRegistry {
     return crypto.createHash('md5').update(content).digest('hex');
   }
 
-  /**
-   * Get relative path from project root
-   */
-  private getRelativePath(filePath: string): string {
-    try {
-      // Try to get the project root directory
-      const cwd = process.cwd();
-      return path.relative(cwd, filePath);
-    } catch {
-      return path.basename(filePath);
-    }
-  }
 
   /**
    * Get function metadata by ID

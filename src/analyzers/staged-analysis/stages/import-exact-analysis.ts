@@ -12,6 +12,7 @@ import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES, NODE_BUILTIN_
 import { AnalysisState } from '../types';
 import { SymbolCache } from '../../../utils/symbol-cache';
 import { buildImportIndex, resolveCallee } from '../../symbol-resolver';
+import { addEdge } from '../../shared/graph-utils';
 
 export class ImportExactAnalysisStage {
   private logger: Logger;
@@ -103,7 +104,7 @@ export class ImportExactAnalysisStage {
           }
         };
 
-        this.addEdge(edge, state);
+        addEdge(edge, state);
         importEdgesCount++;
       } else if (callerFunction) {
         // 既に external と確定しているコールは CHA に回さない
@@ -154,7 +155,7 @@ export class ImportExactAnalysisStage {
             }
           };
 
-          this.addEdge(edge, state);
+          addEdge(edge, state);
           importEdgesCount++;
         }
       }
@@ -533,16 +534,4 @@ export class ImportExactAnalysisStage {
     };
   }
 
-  /**
-   * Add edge to state with deduplication
-   */
-  private addEdge(edge: IdealCallEdge, state: AnalysisState): void {
-    const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
-    
-    if (!state.edgeKeys.has(edgeKey)) {
-      state.edges.push(edge);
-      state.edgeKeys.add(edgeKey);
-      state.edgeIndex.set(edgeKey, edge);
-    }
-  }
 }

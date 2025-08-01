@@ -451,6 +451,194 @@ npm run dev -- diff <before-label> HEAD
 - `--label`オプションを使用してスナップショットに意味のある名前を付けることを推奨
 - PGLiteはWebAssemblyベースのPostgreSQLなので、通常のPostgreSQLクライアントは使用不可
 
+## 🔄 適切な共通化リファクタリング手順
+
+### 概要
+
+`similar`コマンドとアーキテクチャ情報を活用して、適切かつ安全な関数共通化リファクタリングを実行する包括的な手順です。
+
+### 🎯 基本原則
+
+1. **アーキテクチャ遵守**: レイヤー境界を超えた不適切な共通化を回避
+2. **統合戦略の適用**: 関数の性質に応じた適切な配置決定
+3. **品質確保**: 共通化後も複雑度と保守性を維持
+
+### 📋 完全なワークフロー
+
+#### ステップ1: 事前準備とベースライン作成
+
+```bash
+# 1. ブランチ作成とベースライン作成
+git checkout -b refactor/consolidate-similar-functions
+npm run dev -- scan --label refactor-baseline
+
+# 2. アーキテクチャ情報の確認
+npm run dev -- dep lint --show-consolidation    # 統合戦略を確認
+npm run dev -- dep lint --show-layers          # レイヤー情報を確認
+```
+
+#### ステップ2: 類似関数の発見と分析
+
+```bash
+# 3. 類似関数の検出
+npm run dev -- similar
+
+# 4. 高複雑度関数の確認（共通化対象の優先順位付け）
+npm run dev -- list --cc-ge 10 --limit 20
+
+# 5. 品質状況の把握
+npm run dev -- health --verbose
+```
+
+#### ステップ3: アーキテクチャ理解による適切な配置決定
+
+**🏗️ アーキテクチャ情報の活用**
+
+```bash
+# レイヤー情報の詳細確認
+npm run dev -- dep lint --show-layers
+```
+
+**🔧 統合戦略の適用**
+
+- **Global Utils戦略** (`utils`層への配置)
+  - 条件: ドメイン知識不要、全レイヤーで使用可能、純粋関数
+  - 例: `path operations`, `string formatting`, `basic validation`
+  - 信頼度: `high`
+
+- **Layer Utils戦略** (`layer/shared/`への配置)
+  - 条件: ドメイン固有知識必要、レイヤー内複数ファイルで使用
+  - 例: `AST parsing helpers`, `SQL query builders`, `CLI formatters`
+  - 信頼度: `medium`
+
+- **Keep In Place戦略** (共通化しない)
+  - 条件: 単一用途、アルゴリズムと密結合、異なる実装が必要
+  - 例: `specialized analyzers`, `context-specific handlers`
+  - 信頼度: `high`
+
+#### ステップ4: 段階的リファクタリング実行
+
+```bash
+# 6. 類似関数グループごとに段階的に実行
+# グループ1: Global Utils候補
+# - 例: 類似する文字列操作関数を src/utils/ に統合
+
+# グループ2: Layer Utils候補  
+# - 例: CLI関連のフォーマット関数を src/cli/shared/ に統合
+
+# グループ3: 分析系関数
+# - 例: AST解析関連を src/analyzers/shared/ に統合
+```
+
+#### ステップ5: 各段階での品質確認
+
+```bash
+# 7. 各リファクタリング後の品質チェック
+npm run dev -- scan --label refactor-step1
+npm run dev -- diff refactor-baseline refactor-step1
+
+# 8. アーキテクチャ違反のチェック
+npm run dev -- dep lint
+
+# 9. 型チェックとテスト
+npm run typecheck
+npm run lint
+npm test
+```
+
+#### ステップ6: 最終検証と完了
+
+```bash
+# 10. 最終スナップショット作成
+npm run dev -- scan --label refactor-complete
+
+# 11. 完全な差分確認
+npm run dev -- diff refactor-baseline refactor-complete --insights
+
+# 12. 品質改善の確認
+npm run dev -- health --verbose
+
+# 13. 最終的なアーキテクチャ検証
+npm run dev -- dep lint
+```
+
+### 🎯 判断基準とベストプラクティス
+
+#### ✅ 適切な共通化の判断基準
+
+1. **同一レイヤー内の類似関数**
+   - レイヤー内shared/フォルダに配置
+   - 例: `src/cli/shared/formatters.ts`
+
+2. **複数レイヤーで使用する純粋関数**
+   - utilsレイヤーに配置
+   - 例: `src/utils/string-utils.ts`
+
+3. **統合戦略の信頼度考慮**
+   - `high`信頼度: 積極的に統合
+   - `medium`信頼度: 慎重に判断
+   - `low`信頼度: 統合を避ける
+
+#### ❌ 避けるべき共通化パターン
+
+1. **レイヤー境界違反**
+   ```bash
+   # 例: storageレイヤーの関数をcliレイヤーに配置（NG）
+   # アーキテクチャ設定の avoidCrossLayerSharing を確認
+   ```
+
+2. **循環依存の作成**
+   ```bash
+   # 依存関係チェック
+   npm run dev -- dep lint --max-violations 0
+   ```
+
+3. **ドメイン知識の混入**
+   ```bash
+   # ドメイン固有の関数をutilsに配置するのは避ける
+   # 代わりにlayer/shared/に配置する
+   ```
+
+### 🔍 実行例
+
+```bash
+# 実際のリファクタリング例
+git checkout -b refactor/consolidate-validators
+npm run dev -- scan --label validator-refactor-start
+
+# 類似するバリデーション関数を発見
+npm run dev -- similar | grep -i "validat"
+
+# アーキテクチャ情報を確認してutils層への配置を決定
+npm run dev -- dep lint --show-consolidation
+
+# 共通化実行（例: email, url, path バリデーション関数をutils/validation.tsに統合）
+# [リファクタリング作業]
+
+# 品質確認
+npm run dev -- scan --label validator-refactor-complete
+npm run dev -- diff validator-refactor-start validator-refactor-complete
+npm run dev -- health --verbose
+
+# 最終チェック
+npm run typecheck && npm run lint && npm test
+```
+
+### 📊 期待される効果
+
+1. **コード重複の削減**: DRY原則の適用
+2. **保守性の向上**: 単一の変更箇所で複数箇所に反映
+3. **品質の向上**: 共通化により一箇所でのテスト・改善が可能
+4. **アーキテクチャ遵守**: レイヤー設計を維持した適切な配置
+5. **複雑度管理**: 不適切な共通化による複雑度増加を回避
+
+### ⚠️ 注意点
+
+- **段階的実行**: 一度に大量の変更を行わず、小さなステップで進める
+- **テスト重要性**: 各段階でのテスト実行を怠らない
+- **品質監視**: 共通化により複雑度が増加していないか確認
+- **レビュー活用**: PRレビューで統合判断の妥当性を検証
+
 ## AI協調による調査方針
 
 ### Geminiツールの活用

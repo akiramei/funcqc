@@ -10,6 +10,7 @@ import { Logger } from '../../../utils/cli-utils';
 import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES } from '../constants';
 import { AnalysisState, InstantiationEvent } from '../types';
+import { addEdge } from '../../shared/graph-utils';
 
 export class LocalExactAnalysisStage {
   private logger: Logger;
@@ -102,7 +103,7 @@ export class LocalExactAnalysisStage {
           }
         };
 
-        this.addEdge(edge, state);
+        addEdge(edge, state);
         localEdgesCount++;
       } else {
         // Call couldn't be resolved locally - add to unresolved method calls for CHA
@@ -149,7 +150,7 @@ export class LocalExactAnalysisStage {
           }
         };
 
-        this.addEdge(edge, state);
+        addEdge(edge, state);
         localEdgesCount++;
       }
     }
@@ -372,16 +373,4 @@ export class LocalExactAnalysisStage {
     };
   }
 
-  /**
-   * Add edge to state with deduplication
-   */
-  private addEdge(edge: IdealCallEdge, state: AnalysisState): void {
-    const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
-    
-    if (!state.edgeKeys.has(edgeKey)) {
-      state.edges.push(edge);
-      state.edgeKeys.add(edgeKey);
-      state.edgeIndex.set(edgeKey, edge);
-    }
-  }
 }

@@ -5,9 +5,10 @@
 
 import { RTAAnalyzer } from '../../rta-analyzer';
 import { UnresolvedMethodCall, MethodInfo } from '../../cha-analyzer';
-import { IdealCallEdge, FunctionMetadata } from '../../ideal-call-graph-analyzer';
+import { FunctionMetadata } from '../../ideal-call-graph-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { AnalysisState, InstantiationEvent } from '../types';
+import { addEdge } from '../../shared/graph-utils';
 
 export class RTAAnalysisStage {
   private rtaAnalyzer: RTAAnalyzer;
@@ -49,7 +50,7 @@ export class RTAAnalysisStage {
       
       // Add RTA edges to our collection
       for (const edge of rtaEdges) {
-        this.addEdge(edge, state);
+        addEdge(edge, state);
       }
       
       this.logger.debug(`RTA refined ${rtaEdges.length} method calls`);
@@ -131,18 +132,6 @@ export class RTAAnalysisStage {
     };
   }
 
-  /**
-   * Add edge to state with deduplication
-   */
-  private addEdge(edge: IdealCallEdge, state: AnalysisState): void {
-    const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
-    
-    if (!state.edgeKeys.has(edgeKey)) {
-      state.edges.push(edge);
-      state.edgeKeys.add(edgeKey);
-      state.edgeIndex.set(edgeKey, edge);
-    }
-  }
 
   /**
    * Reset analyzer state for fresh analysis
