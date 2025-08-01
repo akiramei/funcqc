@@ -214,10 +214,8 @@ export function generateSuccessCriteria(
   // Estimate cross-layer improvement target
   const layerAnalysis = structuralMetrics.pageRank?.layerBasedAnalysis;
   if (layerAnalysis?.crossLayerRatio && layerAnalysis.crossLayerRatio > 0.6) {
-    // Handle both cases: ratio (0-1) or already percentage (0-100)
-    // Note: crossLayerRatio is stored as percentage in layer-based-pagerank.ts
-    const isAlreadyPercentage = layerAnalysis.crossLayerRatio > 1;
-    const currentPercent = isAlreadyPercentage ? layerAnalysis.crossLayerRatio : layerAnalysis.crossLayerRatio * 100;
+    // crossLayerRatio is now consistently stored as ratio (0-1)
+    const currentPercent = layerAnalysis.crossLayerRatio * 100;
     const targetPercent = Math.floor(currentPercent * 0.85);
     criteria.push(`Cross-layer calls < ${targetPercent}%`);
   }
