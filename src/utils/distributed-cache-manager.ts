@@ -71,15 +71,16 @@ export class DistributedCacheManager implements CacheProviderFactory {
     maxSize?: number;
     persistentPath?: string;
   }): FunctionCacheProvider {
-    const cacheKey = `function-cache-${JSON.stringify(options || {})}`;
+    const cacheKey = this.generateCacheKey('function-cache', options);
     
-    if (!this.cacheInstances.has(cacheKey)) {
-      // For now, we use the main analysis cache for function caching
-      // In the future, this could create separate instances for different use cases
-      this.cacheInstances.set(cacheKey, new FunctionCacheAdapter(this.mainAnalysisCache));
+    let cache = this.cacheInstances.get(cacheKey);
+    if (!cache) {
+      cache = new FunctionCacheAdapter(this.mainAnalysisCache);
+      this.cacheInstances.set(cacheKey, cache);
     }
     
-    return this.cacheInstances.get(cacheKey) as FunctionCacheProvider;
+    // Type is guaranteed since we just created it as FunctionCacheAdapter
+    return cache as FunctionCacheProvider;
   }
 
   /**
@@ -89,17 +90,33 @@ export class DistributedCacheManager implements CacheProviderFactory {
     maxEntries?: number;
     ttl?: number;
   }): CacheProvider<T> {
-    const cacheKey = `generic-${name}-${JSON.stringify(options || {})}`;
+    const cacheKey = this.generateCacheKey(`generic-${name}`, options);
     
-    if (!this.cacheInstances.has(cacheKey)) {
-      const cache = new MemoryCacheProvider<T>(
+    let cache = this.cacheInstances.get(cacheKey);
+    if (!cache) {
+      cache = new MemoryCacheProvider<T>(
         options?.maxEntries || 1000,
         options?.ttl || 24 * 60 * 60 * 1000
       );
       this.cacheInstances.set(cacheKey, cache);
     }
     
-    return this.cacheInstances.get(cacheKey) as CacheProvider<T>;
+    return cache as CacheProvider<T>;
+  }
+
+  /**
+   * Generate a safe cache key from prefix and options
+   */
+  private generateCacheKey(prefix: string, options?: Record<string, unknown>): string {
+    if (!options) return prefix;
+    
+    // Create a stable key from options, handling edge cases
+    const sortedEntries = Object.entries(options)
+      .filter(([_, value]) => typeof value !== 'function')
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, value]) => `${key}:${String(value)}`);
+    
+    return `${prefix}-${sortedEntries.join('-')}`;
   }
 
   /**
