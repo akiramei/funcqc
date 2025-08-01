@@ -2,11 +2,96 @@
  * Architecture configuration types for funcqc
  */
 
+/**
+ * Extended layer definition with metadata for AI-assisted refactoring
+ */
+export interface LayerDefinition {
+  /**
+   * File patterns for this layer
+   */
+  patterns: string[];
+  
+  /**
+   * Role and responsibility description for AI understanding
+   */
+  role?: string;
+  
+  /**
+   * Consolidation strategy for similar functions in this layer
+   */
+  consolidationStrategy?: 'aggressive' | 'conservative' | 'none';
+  
+  /**
+   * Whether this layer can be a target for consolidation
+   */
+  consolidationTarget?: boolean;
+  
+  /**
+   * Recommended paths for internal utilities within this layer
+   */
+  internalUtils?: string[];
+  
+  /**
+   * Patterns that should not be consolidated across layers
+   */
+  avoidCrossLayerSharing?: string[];
+  
+  /**
+   * Maximum allowed dependencies (layer names)
+   */
+  maxDependencies?: string[];
+}
+
+/**
+ * Consolidation strategies for different types of functions
+ */
+export interface ConsolidationStrategies {
+  /**
+   * Strategy for global utilities consolidation
+   */
+  globalUtils?: ConsolidationStrategy;
+  
+  /**
+   * Strategy for layer-specific utilities consolidation
+   */
+  layerUtils?: ConsolidationStrategy;
+  
+  /**
+   * Strategy for functions that should not be consolidated
+   */
+  keepInPlace?: ConsolidationStrategy;
+}
+
+/**
+ * Individual consolidation strategy definition
+ */
+export interface ConsolidationStrategy {
+  /**
+   * Target layer or path for consolidation
+   */
+  target: string;
+  
+  /**
+   * Criteria for applying this strategy
+   */
+  criteria: string[];
+  
+  /**
+   * Examples of function types that match this strategy
+   */
+  examples?: string[];
+  
+  /**
+   * Confidence level for automatic application
+   */
+  confidence?: 'high' | 'medium' | 'low';
+}
+
 export interface ArchitectureConfig {
   /**
    * Layer definitions mapping names to file patterns
    */
-  layers: Record<string, string[]>;
+  layers: Record<string, string[] | LayerDefinition>;
   
   /**
    * Architecture rules defining allowed/forbidden dependencies
@@ -17,6 +102,11 @@ export interface ArchitectureConfig {
    * Global settings for architecture validation
    */
   settings?: ArchitectureSettings;
+  
+  /**
+   * Consolidation strategies for refactoring similar functions
+   */
+  consolidationStrategies?: ConsolidationStrategies;
 }
 
 export interface ArchitectureRule {

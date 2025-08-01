@@ -612,6 +612,7 @@ depCommand.command('lint')
   .option('--show-layers', 'display layer definitions and function distribution')
   .option('--show-rules', 'display configured architecture rules')
   .option('--show-config', 'display complete architecture configuration')
+  .option('--show-consolidation', 'display consolidation strategies for refactoring')
   .option('--dry-run', 'show configuration information without running violations check')
   .action(async (options: OptionValues) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
