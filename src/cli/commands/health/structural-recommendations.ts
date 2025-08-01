@@ -149,8 +149,7 @@ export function getSCCParticipation(
  */
 export function calculateStructuralImpact(
   currentFanIn: number,
-  targetFanInReduction: number,
-  _structuralMetrics: StructuralMetrics
+  targetFanInReduction: number
 ): { fanInReduction: string; penaltyReduction: string } {
   const newFanIn = Math.max(5, currentFanIn - targetFanInReduction);
   const fanInReduction = `${currentFanIn}→${newFanIn}`;
@@ -278,7 +277,7 @@ export async function generateStructuralRecommendations(
     
     // Calculate expected impact
     const targetReduction = Math.max(10, Math.floor(fanIn * 0.3));
-    const expectedImpact = calculateStructuralImpact(fanIn, targetReduction, structuralMetrics);
+    const expectedImpact = calculateStructuralImpact(fanIn, targetReduction);
     
     // Generate refactor steps and success criteria
     const refactorSteps = generateRefactorSteps(fanIn, hasCrossLayerCalls, isInSCC);
