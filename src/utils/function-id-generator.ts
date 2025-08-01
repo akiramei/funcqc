@@ -6,8 +6,8 @@
  */
 
 import { Node } from 'ts-morph';
-import * as path from 'path';
 import * as crypto from 'crypto';
+import { getRelativePath } from './path-utils';
 
 export class FunctionIdGenerator {
   /**
@@ -55,21 +55,10 @@ export class FunctionIdGenerator {
     className: string,
     methodName: string
   ): string {
-    const relativePath = this.getRelativePath(filePath);
+    const relativePath = getRelativePath(filePath);
     return `${relativePath}#${className}.${methodName}`;
   }
 
-  /**
-   * Extract relative path from absolute file path
-   */
-  static getRelativePath(filePath: string): string {
-    try {
-      const cwd = process.cwd();
-      return path.relative(cwd, filePath);
-    } catch {
-      return path.basename(filePath);
-    }
-  }
 
   /**
    * Parse function ID to extract components
