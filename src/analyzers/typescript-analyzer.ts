@@ -18,6 +18,8 @@ import * as fs from 'fs/promises';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
+import { FunctionCacheProvider } from '../utils/cache-interfaces';
+import { CacheAware } from '../utils/cache-injection';
 import { CallGraphAnalyzer } from './call-graph-analyzer';
 import { Logger } from '../utils/cli-utils';
 import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
@@ -56,10 +58,11 @@ const ANALYZER_CONSTANTS = {
  * TypeScript analyzer using ts-morph for robust AST parsing
  * Optimized for large-scale projects with streaming and memory management
  */
-export class TypeScriptAnalyzer {
+export class TypeScriptAnalyzer extends CacheAware {
   private project: Project;
   private readonly maxSourceFilesInMemory: number;
   private cache: AnalysisCache;
+  private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
   
@@ -79,9 +82,16 @@ export class TypeScriptAnalyzer {
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
 
-  constructor(maxSourceFilesInMemory: number = ANALYZER_CONSTANTS.DEFAULT_MAX_SOURCE_FILES, enableCache: boolean = true, logger?: Logger) {
+  constructor(
+    maxSourceFilesInMemory: number = ANALYZER_CONSTANTS.DEFAULT_MAX_SOURCE_FILES, 
+    enableCache: boolean = true, 
+    logger?: Logger,
+    functionCacheProvider?: FunctionCacheProvider
+  ) {
+    super(functionCacheProvider);
     this.maxSourceFilesInMemory = maxSourceFilesInMemory;
     this.logger = logger || new Logger(false, false);
+    this.functionCacheProvider = functionCacheProvider || this.functionCache;
     this.unifiedAnalyzer = new UnifiedASTAnalyzer(maxSourceFilesInMemory);
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
@@ -149,9 +159,9 @@ export class TypeScriptAnalyzer {
    */
   private async analyzeFileContent(filePath: string, fileContent: string): Promise<FunctionInfo[]> {
     try {
-      // Check cache first
+      // Check cache first using injected cache provider
       try {
-        const cachedResult = await this.cache.get(filePath);
+        const cachedResult = await this.functionCacheProvider.get(filePath);
         if (cachedResult) {
           // Generate new physical IDs for cached functions to ensure uniqueness
           return cachedResult.map(func => ({
@@ -182,9 +192,9 @@ export class TypeScriptAnalyzer {
         };
       });
 
-      // Cache the results for future use
+      // Cache the results for future use using injected cache provider
       try {
-        await this.cache.set(filePath, functions);
+        await this.functionCacheProvider.set(filePath, functions);
       } catch (error) {
         this.logger.warn(
           `Cache storage failed for ${filePath}`,
@@ -1262,8 +1272,11 @@ export class TypeScriptAnalyzer {
     // Note: SourceFile removal disabled - shared Project usage requires SourceFiles to remain
     // Project disposal will be handled by parent FunctionAnalyzer
     
-    // Cleanup cache
+    // Cleanup cache using injected cache provider and legacy cache
     await this.cache.cleanup();
+    if ('cleanup' in this.functionCacheProvider && typeof this.functionCacheProvider.cleanup === 'function') {
+      await this.functionCacheProvider.cleanup();
+    }
   }
 
   /**
@@ -1280,7 +1293,15 @@ export class TypeScriptAnalyzer {
    * Get cache statistics
    */
   getCacheStats(): CacheStats {
-    return this.cache.getStats();
+    // Return stats from the injected cache provider if available
+    const injectedStats = this.functionCacheProvider.getStats();
+    return {
+      totalEntries: injectedStats.totalEntries,
+      totalSize: 0, // Not available in simplified interface
+      hitRate: injectedStats.hitRate,
+      hits: injectedStats.hits,
+      misses: injectedStats.misses
+    };
   }
 
   /**

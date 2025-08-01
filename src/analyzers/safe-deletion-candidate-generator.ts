@@ -43,97 +43,16 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     console.time('processCandidates');
     
     const candidates: SafeDeletionCandidate[] = [];
-    let skippedAnonymous = 0;
-    let skippedInternal = 0;
+    const stats = { skippedAnonymous: 0, skippedInternal: 0 };
     
-    // 🚨 CRITICAL FIX: Only process truly unreachable functions
-    // Functions that are reachable from entry points should NEVER be deletion candidates
+    // Process only truly unreachable functions
     for (const functionId of foundationData.reachabilityResult.unreachable) {
       const func = foundationData.functionsById.get(functionId);
       if (!func) continue;
 
-      // Apply exclusion filters
-      if (config.excludeExports && func.isExported) continue;
-      if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) continue;
-      if (DependencyUtils.isExternalLibraryFunction(func.filePath)) continue;
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete inline anonymous functions
-      // These are typically used as callbacks in map/filter/reduce and are incorrectly marked as unreachable
-      // due to limitations in call graph analysis (callbacks are not tracked as call edges)
-      if (this.isInlineAnonymousFunction(func)) {
-        skippedAnonymous++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete constructors
-      // Constructors are called with 'new ClassName()' which may not be properly tracked
-      // Without class context, we cannot reliably determine if a constructor is used
-      if (func.name === 'constructor') {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete object factory methods
-      // Methods in object literals (createDummyPool, createConfig etc.) are called via property access
-      // which is difficult to track statically. Conservative approach: protect common factory methods
-      if (await this.isFactoryMethod(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete methods in instantiated classes
-      // Classes instantiated with 'new ClassName()' may have methods called via interfaces
-      // Even if CHA/RTA analysis exists, be conservative about class methods
-      if (await this.isInstantiatedClassMethod(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete callback functions in object literals
-      // Functions passed as properties in objects (config callbacks, event handlers etc.)
-      // are called by libraries but difficult to track statically
-      if (this.isCallbackFunction(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete functions in returned object literals
-      // Functions defined in objects that are returned from functions (APIs, adapters etc.)
-      // are accessed via property references which are difficult to track statically
-      if (await this.isObjectLiteralFunction(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete functions used as direct references
-      // Functions passed directly as arguments (map(functionName), callback references etc.)
-      // These are often missed by call graph analysis which tracks call expressions but not references
-      if (await this.isFunctionReference(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete local/nested functions
-      // Local functions defined within other functions (const visit = ...) are often used
-      // for recursion or as helpers but may not be tracked properly by call graph analysis
-      if (this.isLocalFunction(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete functions used in worker entry points
-      // Worker files have special patterns (parentPort, workerData) that call functions
-      // These top-level calls are often missed by standard call graph analysis
-      if (await this.isWorkerEntryFunction(func)) {
-        skippedInternal++;
-        continue;
-      }
-
-      // 🚨 CRITICAL SAFETY CHECK: Never delete internal functions in same file as exported functions
-      // Internal functions are often helper functions used by exported functions and may not be detected
-      // by call graph analysis due to line number mismatches or other parsing inconsistencies
-      if (await this.isInternalHelperFunction(func, foundationData)) {
-        skippedInternal++;
+      const skipReason = await this.shouldSkipFunction(func, config, foundationData);
+      if (skipReason) {
+        this.updateSkipStats(stats, skipReason);
         continue;
       }
 
@@ -186,8 +105,8 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     console.timeEnd('processCandidates');
     
     // Log safety check summary (only if verbose or if significant skips occurred)
-    if (config.verbose || skippedAnonymous > 0 || skippedInternal > 0) {
-      this.logger.info(`Safety checks: ${skippedAnonymous} anonymous functions, ${skippedInternal} internal functions protected`);
+    if (config.verbose || stats.skippedAnonymous > 0 || stats.skippedInternal > 0) {
+      this.logger.info(`Safety checks: ${stats.skippedAnonymous} anonymous functions, ${stats.skippedInternal} internal functions protected`);
     }
     
     // Sort candidates by confidence score and impact (safer deletions first)
@@ -821,5 +740,40 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   
   // Cache for worker entry pattern detection (to avoid repeated file reads)
   private workerEntryCache?: Map<string, boolean>;
+
+  /**
+   * Determine if a function should be skipped and why
+   */
+  private async shouldSkipFunction(func: FunctionInfo, config: DependencyAnalysisOptions, foundationData?: AnalysisFoundationData): Promise<string | null> {
+    // Apply exclusion filters
+    if (config.excludeExports && func.isExported) return null;
+    if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) return null;
+    if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return null;
+
+    // Check all safety conditions
+    if (this.isInlineAnonymousFunction(func)) return 'anonymous';
+    if (func.name === 'constructor') return 'internal';
+    if (await this.isFactoryMethod(func)) return 'internal';
+    if (await this.isInstantiatedClassMethod(func)) return 'internal';
+    if (this.isCallbackFunction(func)) return 'internal';
+    if (await this.isObjectLiteralFunction(func)) return 'internal';
+    if (await this.isFunctionReference(func)) return 'internal';
+    if (this.isLocalFunction(func)) return 'internal';
+    if (await this.isWorkerEntryFunction(func)) return 'internal';
+    if (foundationData && await this.isInternalHelperFunction(func, foundationData)) return 'internal';
+    
+    return null; // Function can be processed
+  }
+
+  /**
+   * Update skip statistics based on skip reason
+   */
+  private updateSkipStats(stats: { skippedAnonymous: number; skippedInternal: number }, reason: string): void {
+    if (reason === 'anonymous') {
+      stats.skippedAnonymous++;
+    } else if (reason === 'internal') {
+      stats.skippedInternal++;
+    }
+  }
 
 }
