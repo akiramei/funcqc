@@ -210,8 +210,13 @@ function applyStructuralWeights(
   
   function calculatePercentile(score: number, scores: number[]): number {
     if (scores.length === 0) return 0;
-    const index = scores.findIndex(s => s <= score);
-    return index === -1 ? 1.0 : index / scores.length;
+    // FIXED: Calculate upper-tail percentile (high centrality = high percentile)
+    // Count scores less than or equal to the target score
+    let countLowerOrEqual = 0;
+    for (const s of scores) {
+      if (s <= score) countLowerOrEqual++;
+    }
+    return countLowerOrEqual / scores.length; // Higher centrality → higher percentile (closer to 1.0)
   }
   
   // IMPROVED: Calculate adaptive PageRank thresholds based on distribution (priority 3)
@@ -219,8 +224,10 @@ function applyStructuralWeights(
   
   return riskAssessments.map(assessment => {
     // Calculate structural context
-    const prScore = pageRankMap.get(assessment.functionId) || 0;
-    const prPercentile = calculatePercentile(prScore, allPRScores);
+    const prScore = pageRankMap.get(assessment.functionId);
+    // CONSISTENT: Unregistered PR functions get 0.0 percentile (= no centrality influence)
+    // This ensures structural multiplier = 1.0 for functions not in topCentralFunctions
+    const prPercentile = prScore !== undefined ? calculatePercentile(prScore, allPRScores) : 0.0;
     const isHub = hubSet.has(assessment.functionId);
     const isCyclic = cyclicSet.has(assessment.functionId);
     
@@ -256,12 +263,16 @@ function applyStructuralWeights(
     if (isHub) structuralTags.push('Hub');
     if (isCyclic) structuralTags.push('Cyclic');
     
-    // Update risk level if necessary based on new score
-    let newRiskLevel = assessment.riskLevel;
-    if (weightedRiskScore >= 8 && assessment.riskLevel !== 'critical') {
+    // IMPROVED: Threshold-based complete re-evaluation for consistent risk level assignment
+    let newRiskLevel: 'low' | 'medium' | 'high' | 'critical';
+    if (weightedRiskScore >= 8) {
       newRiskLevel = 'critical';
-    } else if (weightedRiskScore >= 5 && assessment.riskLevel === 'low') {
-      newRiskLevel = weightedRiskScore >= 8 ? 'high' : 'medium';
+    } else if (weightedRiskScore >= 5) {
+      newRiskLevel = 'high';
+    } else if (weightedRiskScore >= 2) {
+      newRiskLevel = 'medium';
+    } else {
+      newRiskLevel = 'low';
     }
     
     return {
@@ -307,6 +318,9 @@ async function displayHealthResults(
       functions,
       riskEvaluation.riskAssessments,
       riskEvaluation.enhancedRiskStats,
+      structuralData,
+      targetSnapshot.id,
+      env,
       options.verbose || false,
       options
     );
@@ -435,6 +449,9 @@ async function displayOriginalHealthFormat(
   functions: FunctionInfo[],
   riskAssessments: FunctionRiskAssessment[],
   enhancedRiskStats: ReturnType<typeof calculateEnhancedRiskStats>,
+  structuralData: StructuralMetrics | null,
+  snapshotId: string,
+  env: CommandEnvironment,
   verbose: boolean,
   options: HealthCommandOptions
 ): Promise<void> {
@@ -448,9 +465,34 @@ async function displayOriginalHealthFormat(
   // Display top high-risk functions header
   console.log(`🔸 ${chalk.yellow('Top High-Risk Functions')}:`);
   
-  // Import and call the detailed recommendations display
+  // Import and call the enhanced structural recommendations display
   const { displayTopRisksWithDetails } = await import('./detailed-recommendations');
-  await displayTopRisksWithDetails(functions, riskAssessments, enhancedRiskStats, verbose, options.topN);
+  if (structuralData && structuralData.depMetrics) {
+    await displayTopRisksWithDetails(
+      functions, 
+      riskAssessments, 
+      enhancedRiskStats, 
+      structuralData,
+      structuralData.depMetrics,
+      snapshotId,
+      env,
+      verbose, 
+      options.topN
+    );
+  } else {
+    console.log('⚠️  Structural analysis not available - using simplified recommendations');
+    await displayTopRisksWithDetails(
+      functions, 
+      riskAssessments, 
+      enhancedRiskStats, 
+      { totalComponents: 0, largestComponentSize: 0, cyclicFunctions: 0, hubFunctions: 0, avgFanIn: 0, avgFanOut: 0, maxFanIn: 0, maxFanOut: 0, structuralRisk: 'low' } as StructuralMetrics,
+      [],
+      snapshotId,
+      env,
+      verbose, 
+      options.topN
+    );
+  }
 }
 
 /**

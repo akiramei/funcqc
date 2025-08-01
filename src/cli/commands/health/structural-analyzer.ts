@@ -198,7 +198,8 @@ function aggregateStructuralMetrics(
     hubThreshold,
     hubFunctionIds,
     cyclicFunctionIds: sccResult.recursiveFunctions,
-    pageRank: pageRankMetrics
+    pageRank: pageRankMetrics,
+    depMetrics // Include dependency metrics for structural recommendations
   };
   
   const penaltyBreakdown = calculateStructuralPenaltyBreakdown(baseMetrics);

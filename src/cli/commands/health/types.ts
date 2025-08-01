@@ -37,6 +37,7 @@ export interface StructuralMetrics {
   maxFanOut: number;
   structuralRisk: 'low' | 'medium' | 'high' | 'critical';
   hubThreshold?: number; // Dynamic threshold used for hub detection
+  depMetrics?: import('../../../analyzers/dependency-metrics').DependencyMetrics[]; // For structural recommendations
   penaltyBreakdown?: StructuralPenaltyBreakdown; // Detailed penalty information
   // Additional data for overlap detection
   hubFunctionIds?: string[]; // IDs of hub functions
