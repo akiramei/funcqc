@@ -6,6 +6,7 @@
  */
 
 import { FunctionInfo, CallEdge } from '../../../types';
+import { LayerDefinition } from '../../../types/architecture';
 import { PageRankCalculator, PageRankScore } from '../../../analyzers/pagerank-calculator';
 import { ArchitectureConfigManager } from '../../../config/architecture-config';
 
@@ -42,11 +43,12 @@ export interface LayerBasedPageRankAnalysis {
  */
 function detectFunctionLayer(
   functionInfo: FunctionInfo,
-  layers: Record<string, string[]>
+  layers: Record<string, string[] | LayerDefinition>
 ): string | null {
   const normalizedPath = functionInfo.filePath.replace(/\\/g, '/');
   
-  for (const [layerName, patterns] of Object.entries(layers)) {
+  for (const [layerName, layerConfig] of Object.entries(layers)) {
+    const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
     for (const pattern of patterns) {
       if (matchesPattern(normalizedPath, pattern)) {
         return layerName;
@@ -217,7 +219,7 @@ function loadArchitectureConfig() {
 /**
  * Group functions by their detected layer
  */
-function groupFunctionsByLayer(functions: FunctionInfo[], layers: Record<string, string[]>) {
+function groupFunctionsByLayer(functions: FunctionInfo[], layers: Record<string, string[] | LayerDefinition>) {
   const functionsByLayer = new Map<string, FunctionInfo[]>();
   const functionLayerMap = new Map<string, string>();
   const unmappedFunctions: FunctionInfo[] = [];

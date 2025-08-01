@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { cosmiconfigSync } from 'cosmiconfig';
-import { ArchitectureConfig, ArchitectureRule, ArchitectureSettings } from '../types/architecture';
+import { ArchitectureConfig, ArchitectureRule, ArchitectureSettings, LayerDefinition, ConsolidationStrategies, ConsolidationStrategy } from '../types/architecture';
 
 /**
  * Default architecture configuration
@@ -118,34 +118,104 @@ export class ArchitectureConfigManager {
       result.settings = this.validateSettings(config['settings'] as Record<string, unknown>);
     }
 
+    // Validate and merge consolidation strategies
+    if (config['consolidationStrategies'] && typeof config['consolidationStrategies'] === 'object') {
+      result.consolidationStrategies = this.validateConsolidationStrategies(config['consolidationStrategies'] as Record<string, unknown>);
+    }
+
     return result;
   }
 
   /**
-   * Validate layer definitions
+   * Validate layer definitions (supports both simple patterns and extended LayerDefinition)
    */
-  private validateLayers(layers: Record<string, unknown>): Record<string, string[]> {
-    const result: Record<string, string[]> = {};
+  private validateLayers(layers: Record<string, unknown>): Record<string, string[] | LayerDefinition> {
+    const result: Record<string, string[] | LayerDefinition> = {};
 
-    for (const [layerName, patterns] of Object.entries(layers)) {
+    for (const [layerName, layerConfig] of Object.entries(layers)) {
       if (!layerName || typeof layerName !== 'string') {
         throw new Error(`Invalid layer name: ${layerName}`);
       }
 
-      if (Array.isArray(patterns)) {
-        const validPatterns = patterns.filter(p => typeof p === 'string' && p.length > 0);
-        if (validPatterns.length !== patterns.length) {
+      // Handle simple pattern arrays (legacy format)
+      if (Array.isArray(layerConfig)) {
+        const validPatterns = layerConfig.filter(p => typeof p === 'string' && p.length > 0);
+        if (validPatterns.length !== layerConfig.length) {
           throw new Error(`Layer '${layerName}' contains invalid patterns`);
         }
         result[layerName] = validPatterns;
-      } else if (typeof patterns === 'string' && patterns.length > 0) {
-        result[layerName] = [patterns];
-      } else {
-        throw new Error(`Layer '${layerName}' must have string or string array patterns`);
+      } 
+      // Handle single pattern string (legacy format)
+      else if (typeof layerConfig === 'string' && layerConfig.length > 0) {
+        result[layerName] = [layerConfig];
+      } 
+      // Handle extended LayerDefinition format
+      else if (layerConfig && typeof layerConfig === 'object') {
+        result[layerName] = this.validateLayerDefinition(layerName, layerConfig as Record<string, unknown>);
+      } 
+      else {
+        throw new Error(`Layer '${layerName}' must have string, string array, or LayerDefinition patterns`);
       }
     }
 
     return result;
+  }
+
+  /**
+   * Validate extended layer definition
+   */
+  private validateLayerDefinition(layerName: string, layerConfig: Record<string, unknown>): LayerDefinition {
+    // Validate required patterns field
+    const patterns = layerConfig['patterns'];
+    if (!Array.isArray(patterns)) {
+      throw new Error(`Layer '${layerName}' must have a 'patterns' array in LayerDefinition format`);
+    }
+    
+    const validPatterns = patterns.filter(p => typeof p === 'string' && p.length > 0);
+    if (validPatterns.length !== patterns.length) {
+      throw new Error(`Layer '${layerName}' contains invalid patterns in 'patterns' field`);
+    }
+
+    const layerDef: LayerDefinition = {
+      patterns: validPatterns,
+    };
+
+    // Validate optional fields
+    if (layerConfig['role'] && typeof layerConfig['role'] === 'string') {
+      layerDef.role = layerConfig['role'];
+    }
+
+    if (layerConfig['consolidationStrategy'] && 
+        ['aggressive', 'conservative', 'none'].includes(layerConfig['consolidationStrategy'] as string)) {
+      layerDef.consolidationStrategy = layerConfig['consolidationStrategy'] as 'aggressive' | 'conservative' | 'none';
+    }
+
+    if (typeof layerConfig['consolidationTarget'] === 'boolean') {
+      layerDef.consolidationTarget = layerConfig['consolidationTarget'];
+    }
+
+    if (Array.isArray(layerConfig['internalUtils'])) {
+      const validUtils = layerConfig['internalUtils'].filter(u => typeof u === 'string' && u.length > 0);
+      if (validUtils.length > 0) {
+        layerDef.internalUtils = validUtils;
+      }
+    }
+
+    if (Array.isArray(layerConfig['avoidCrossLayerSharing'])) {
+      const validPatterns = layerConfig['avoidCrossLayerSharing'].filter(p => typeof p === 'string' && p.length > 0);
+      if (validPatterns.length > 0) {
+        layerDef.avoidCrossLayerSharing = validPatterns;
+      }
+    }
+
+    if (Array.isArray(layerConfig['maxDependencies'])) {
+      const validDeps = layerConfig['maxDependencies'].filter(d => typeof d === 'string' && d.length > 0);
+      if (validDeps.length > 0) {
+        layerDef.maxDependencies = validDeps;
+      }
+    }
+
+    return layerDef;
   }
 
   /**
@@ -272,6 +342,64 @@ export class ArchitectureConfigManager {
 
     if (typeof settings['ignoreExternal'] === 'boolean') {
       result.ignoreExternal = settings['ignoreExternal'];
+    }
+
+    return result;
+  }
+
+  /**
+   * Validate consolidation strategies
+   */
+  private validateConsolidationStrategies(strategies: Record<string, unknown>): ConsolidationStrategies {
+    const result: ConsolidationStrategies = {};
+
+    if (strategies['globalUtils'] && typeof strategies['globalUtils'] === 'object') {
+      result.globalUtils = this.validateConsolidationStrategy(strategies['globalUtils'] as Record<string, unknown>);
+    }
+
+    if (strategies['layerUtils'] && typeof strategies['layerUtils'] === 'object') {
+      result.layerUtils = this.validateConsolidationStrategy(strategies['layerUtils'] as Record<string, unknown>);
+    }
+
+    if (strategies['keepInPlace'] && typeof strategies['keepInPlace'] === 'object') {
+      result.keepInPlace = this.validateConsolidationStrategy(strategies['keepInPlace'] as Record<string, unknown>);
+    }
+
+    return result;
+  }
+
+  /**
+   * Validate individual consolidation strategy
+   */
+  private validateConsolidationStrategy(strategy: Record<string, unknown>) {
+    if (!strategy['target'] || typeof strategy['target'] !== 'string') {
+      throw new Error('Consolidation strategy must have a target string');
+    }
+
+    if (!Array.isArray(strategy['criteria'])) {
+      throw new Error('Consolidation strategy must have a criteria array');
+    }
+
+    const validCriteria = strategy['criteria'].filter(c => typeof c === 'string' && c.length > 0);
+    if (validCriteria.length === 0) {
+      throw new Error('Consolidation strategy must have at least one valid criterion');
+    }
+
+    const result: ConsolidationStrategy = {
+      target: strategy['target'] as string,
+      criteria: validCriteria,
+    };
+
+    // Optional fields
+    if (Array.isArray(strategy['examples'])) {
+      const validExamples = strategy['examples'].filter(e => typeof e === 'string' && e.length > 0);
+      if (validExamples.length > 0) {
+        result.examples = validExamples;
+      }
+    }
+
+    if (strategy['confidence'] && ['high', 'medium', 'low'].includes(strategy['confidence'] as string)) {
+      result.confidence = strategy['confidence'] as 'high' | 'medium' | 'low';
     }
 
     return result;

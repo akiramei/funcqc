@@ -38,7 +38,8 @@ export class LayerAssigner {
     // Find matching layers
     const matches: Array<{ layer: string; confidence: number; pattern: string }> = [];
 
-    for (const [layerName, patterns] of Object.entries(this.config.layers)) {
+    for (const [layerName, layerConfig] of Object.entries(this.config.layers)) {
+      const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
       for (const pattern of patterns) {
         const confidence = this.calculateMatchConfidence(filePath, pattern);
         if (confidence > 0) {
@@ -148,7 +149,8 @@ export class LayerAssigner {
     // Find matching layers with their confidence scores
     const matches: Array<{ layer: string; confidence: number }> = [];
 
-    for (const [layerName, patterns] of Object.entries(this.config.layers)) {
+    for (const [layerName, layerConfig] of Object.entries(this.config.layers)) {
+      const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
       for (const pattern of patterns) {
         const confidence = this.calculateMatchConfidence(normalizedPath, pattern);
         if (confidence > 0) {
@@ -177,7 +179,9 @@ export class LayerAssigner {
    * Get layer patterns for a specific layer
    */
   getLayerPatterns(layerName: string): string[] {
-    return this.config.layers[layerName] || [];
+    const layerConfig = this.config.layers[layerName];
+    if (!layerConfig) return [];
+    return Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
   }
 
   /**
@@ -186,7 +190,8 @@ export class LayerAssigner {
   matchesAnyLayer(filePath: string): boolean {
     const normalizedPath = this.normalizePath(filePath);
     
-    for (const patterns of Object.values(this.config.layers)) {
+    for (const layerConfig of Object.values(this.config.layers)) {
+      const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
       for (const pattern of patterns) {
         if (minimatch(normalizedPath, pattern)) {
           return true;

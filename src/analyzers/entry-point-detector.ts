@@ -82,7 +82,9 @@ export class EntryPointDetector {
       // Load patterns for requested layers
       for (const layerName of this.options.layerEntryPoints || []) {
         if (archConfig.layers[layerName]) {
-          this.layerPatterns.set(layerName, archConfig.layers[layerName]);
+          const layerConfig = archConfig.layers[layerName];
+          const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
+          this.layerPatterns.set(layerName, patterns);
         } else {
           console.warn(`⚠️  Layer '${layerName}' not found in architecture configuration`);
         }

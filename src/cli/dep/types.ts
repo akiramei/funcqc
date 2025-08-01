@@ -66,6 +66,7 @@ export interface DepLintOptions extends BaseCommandOptions {
   showLayers?: boolean;
   showRules?: boolean;
   showConfig?: boolean;
+  showConsolidation?: boolean;
   dryRun?: boolean;
 }
 
