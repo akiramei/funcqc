@@ -609,6 +609,10 @@ depCommand.command('lint')
   .option('--include-metrics', 'include architecture metrics in output')
   .option('--fix', 'attempt to fix violations automatically (future feature)')
   .option('--snapshot <id>', 'analyze specific snapshot')
+  .option('--show-layers', 'display layer definitions and function distribution')
+  .option('--show-rules', 'display configured architecture rules')
+  .option('--show-config', 'display complete architecture configuration')
+  .option('--dry-run', 'show configuration information without running violations check')
   .action(async (options: OptionValues) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { depLintCommand } = await import('./cli/dep');
