@@ -11,7 +11,7 @@ import { getDistributedCacheManager } from './distributed-cache-manager';
  */
 export class CacheServiceLocator {
   private static functionCacheInstance: FunctionCacheProvider | null = null;
-  private static genericCaches = new Map<string, CacheProvider<any>>();
+  private static genericCaches = new Map<string, CacheProvider<unknown>>();
 
   /**
    * Get function cache instance (singleton)

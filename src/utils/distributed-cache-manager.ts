@@ -43,7 +43,7 @@ class FunctionCacheAdapter implements FunctionCacheProvider {
  * Distributed cache manager that creates specialized cache instances
  */
 export class DistributedCacheManager implements CacheProviderFactory {
-  private readonly cacheInstances = new Map<string, CacheProvider<any>>();
+  private readonly cacheInstances = new Map<string, CacheProvider<unknown>>();
   private readonly mainAnalysisCache: AnalysisCache;
 
   constructor(options: {
@@ -106,8 +106,8 @@ export class DistributedCacheManager implements CacheProviderFactory {
   /**
    * Get cache statistics for all instances
    */
-  getAllStats(): Record<string, any> {
-    const stats: Record<string, any> = {
+  getAllStats(): Record<string, unknown> {
+    const stats: Record<string, unknown> = {
       mainAnalysisCache: this.mainAnalysisCache.getStats()
     };
 
