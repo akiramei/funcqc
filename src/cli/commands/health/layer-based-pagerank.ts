@@ -34,6 +34,7 @@ export interface LayerBasedPageRankAnalysis {
   };
   layerResults: LayerPageRankResult[];
   crossLayerInsights: string[];
+  crossLayerRatio: number; // Percentage of cross-layer dependencies
 }
 
 /**
@@ -174,6 +175,11 @@ export async function performLayerBasedPageRank(
   const layerResults = performLayerAnalysis(functionsByLayer, edgesByLayer);
   const crossLayerInsights = generateCrossLayerInsights(layerResults, crossLayerEdgeCount, callEdges.length);
   
+  // Calculate cross-layer ratio
+  const crossLayerRatio = callEdges.length > 0 
+    ? (crossLayerEdgeCount / callEdges.length) * 100 
+    : 0;
+
   return {
     overallMetrics: {
       totalFunctions: functions.length,
@@ -181,7 +187,8 @@ export async function performLayerBasedPageRank(
       analyzedLayers: layerResults.length
     },
     layerResults: layerResults.sort((a, b) => b.functionCount - a.functionCount),
-    crossLayerInsights
+    crossLayerInsights,
+    crossLayerRatio
   };
 }
 

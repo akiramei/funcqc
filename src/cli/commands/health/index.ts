@@ -26,7 +26,7 @@ import {
 } from './risk-evaluator';
 import { generateRiskAnalysis } from './recommendations';
 import { displayTrendAnalysis } from './trend-analyzer';
-import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthData } from './types';
+import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthData, PageRankMetrics } from './types';
 import { FunctionContext } from '../../../types/dynamic-weights';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 
@@ -139,6 +139,53 @@ async function executeRiskEvaluation(functions: FunctionInfo[]): Promise<{
 }
 
 /**
+ * Calculate adaptive PageRank thresholds based on distribution characteristics
+ */
+function calculateAdaptivePageRankThresholds(
+  allPRScores: number[], 
+  pageRankMetrics?: PageRankMetrics
+): { highCentralityThreshold: number; criticalCentralityThreshold: number } {
+  if (allPRScores.length === 0 || !pageRankMetrics) {
+    return { highCentralityThreshold: 0.9, criticalCentralityThreshold: 0.95 };
+  }
+  
+  // Analyze distribution characteristics
+  const giniCoefficient = pageRankMetrics.centralityGini;
+  const totalFunctions = pageRankMetrics.totalFunctions;
+  
+  // Adaptive thresholds based on inequality and project size
+  let highCentralityThreshold: number;
+  let criticalCentralityThreshold: number;
+  
+  if (giniCoefficient > 0.8) {
+    // High inequality: Lower thresholds to capture more centrality
+    highCentralityThreshold = Math.max(0.8, 0.95 - (giniCoefficient - 0.8) * 0.5);
+    criticalCentralityThreshold = Math.max(0.85, highCentralityThreshold + 0.05);
+  } else if (giniCoefficient > 0.6) {
+    // Moderate inequality: Standard thresholds
+    highCentralityThreshold = 0.9;
+    criticalCentralityThreshold = 0.95;
+  } else {
+    // Low inequality: Higher thresholds since centrality is more evenly distributed
+    highCentralityThreshold = Math.min(0.95, 0.9 + (0.6 - giniCoefficient) * 0.25);
+    criticalCentralityThreshold = Math.min(0.98, highCentralityThreshold + 0.03);
+  }
+  
+  // Adjust for project size
+  if (totalFunctions < 100) {
+    // Small projects: More lenient thresholds
+    highCentralityThreshold = Math.max(0.75, highCentralityThreshold - 0.1);
+    criticalCentralityThreshold = Math.max(0.8, criticalCentralityThreshold - 0.1);
+  } else if (totalFunctions > 1000) {
+    // Large projects: More selective thresholds
+    highCentralityThreshold = Math.min(0.95, highCentralityThreshold + 0.05);
+    criticalCentralityThreshold = Math.min(0.99, criticalCentralityThreshold + 0.04);
+  }
+  
+  return { highCentralityThreshold, criticalCentralityThreshold };
+}
+
+/**
  * Apply structural weights to risk assessments for better prioritization
  */
 function applyStructuralWeights(
@@ -167,6 +214,9 @@ function applyStructuralWeights(
     return index === -1 ? 1.0 : index / scores.length;
   }
   
+  // IMPROVED: Calculate adaptive PageRank thresholds based on distribution (priority 3)
+  const adaptiveThresholds = calculateAdaptivePageRankThresholds(allPRScores, structuralData.pageRank);
+  
   return riskAssessments.map(assessment => {
     // Calculate structural context
     const prScore = pageRankMap.get(assessment.functionId) || 0;
@@ -174,9 +224,21 @@ function applyStructuralWeights(
     const isHub = hubSet.has(assessment.functionId);
     const isCyclic = cyclicSet.has(assessment.functionId);
     
-    // Calculate structural multiplier (conservative approach)
+    // IMPROVED: Calculate adaptive structural multiplier based on percentile thresholds
+    let pageRankMultiplier = 1.0;
+    if (prPercentile > adaptiveThresholds.criticalCentralityThreshold) {
+      // Critical centrality: 40% increase
+      pageRankMultiplier = 1.4;
+    } else if (prPercentile > adaptiveThresholds.highCentralityThreshold) {
+      // High centrality: 25% increase  
+      pageRankMultiplier = 1.25;
+    } else if (prPercentile > 0.7) {
+      // Moderate centrality: 10% increase
+      pageRankMultiplier = 1.1;
+    }
+    
     const structuralMultiplier = 
-      (1 + 0.3 * prPercentile) *                    // PageRank influence (max 30% increase)
+      pageRankMultiplier *                          // Adaptive PageRank influence
       (1 + (isHub ? 0.2 : 0)) *                     // Hub influence (20% increase)
       (1 + (isCyclic ? 0.25 : 0));                  // Cyclic influence (25% increase)
     
@@ -186,7 +248,11 @@ function applyStructuralWeights(
     
     // Generate structural tags for display
     const structuralTags: string[] = [];
-    if (prPercentile > 0.9) structuralTags.push('High Centrality');
+    if (prPercentile > adaptiveThresholds.criticalCentralityThreshold) {
+      structuralTags.push('Critical Centrality');
+    } else if (prPercentile > adaptiveThresholds.highCentralityThreshold) {
+      structuralTags.push('High Centrality');
+    }
     if (isHub) structuralTags.push('Hub');
     if (isCyclic) structuralTags.push('Cyclic');
     
