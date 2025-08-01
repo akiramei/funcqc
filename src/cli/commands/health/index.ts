@@ -202,7 +202,7 @@ function applyStructuralWeights(
       ...assessment,
       riskScore: Math.round(weightedRiskScore * 100) / 100,
       riskLevel: newRiskLevel,
-      structuralTags: structuralTags.length > 0 ? structuralTags : undefined,
+      ...(structuralTags.length > 0 && { structuralTags }),
       originalRiskScore: originalRiskScore
     };
   });

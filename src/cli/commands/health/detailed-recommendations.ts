@@ -81,7 +81,7 @@ export async function displayTopRisksWithDetails(
   console.log(chalk.yellow('Recommended Actions:'));
   const recommendedActions = generateDetailedRecommendedActions(riskAssessments, functions, verbose, topN);
   
-  recommendedActions.forEach((action, index) => {
+  recommendedActions.forEach((action) => {
     const assessment = riskAssessments.find(a => a.functionName === action.functionName);
     const structuralTags = assessment?.structuralTags ? 
       ` [${assessment.structuralTags.join(', ')}]` : '';
