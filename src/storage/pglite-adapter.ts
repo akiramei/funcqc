@@ -55,6 +55,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private dbPath: string;
   private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void; debug: (msg: string) => void } | undefined;
   private isInitialized: boolean = false;
+  private isInitializing: boolean = false;
   private gracefulShutdown: GracefulShutdown;
 
   // Operation modules
@@ -102,7 +103,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
    */
   async init(): Promise<void> {
     if (this.isInitialized) return;
-
+    if (this.isInitializing) return; // Prevent recursive calls
+    
+    this.isInitializing = true;
     try {
       await this.databaseCore.initialize();
       // Verify Kysely is initialized
@@ -122,6 +125,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       
       this.isInitialized = true;
     } catch (error) {
+      this.isInitializing = false;
       if (this.logger) {
         this.logger.error(`Storage initialization failed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -130,6 +134,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         `Failed to initialize storage adapter: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
+    } finally {
+      this.isInitializing = false;
     }
   }
 
@@ -1146,6 +1152,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   private async ensureInitialized(): Promise<void> {
     if (!this.isInitialized) {
+      // Prevent recursive initialization
+      if (this.isInitializing) {
+        throw new DatabaseError(
+          ErrorCode.STORAGE_ERROR,
+          'Recursive initialization detected'
+        );
+      }
       await this.init();
     }
   }
