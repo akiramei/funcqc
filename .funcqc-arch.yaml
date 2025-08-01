@@ -4,49 +4,105 @@
 layers:
   # Entry points and user interfaces
   cli:
-    - "src/cli.ts"
-    - "src/cli/**"
+    patterns:
+      - "src/cli.ts"
+      - "src/cli/**"
+    role: "Command-line interface and user interaction"
+    consolidationStrategy: "conservative"
+    consolidationTarget: false
+    internalUtils:
+      - "src/cli/shared/"
+    maxDependencies: ["orchestration", "infrastructure", "utils", "types"]
   
   # Application orchestration and use case coordination
   orchestration:
-    - "src/use-cases/**"
+    patterns:
+      - "src/use-cases/**"
+    role: "High-level use case coordination and workflow orchestration"
+    consolidationStrategy: "conservative"
+    consolidationTarget: false
+    maxDependencies: ["analysis", "domain", "services", "infrastructure", "utils", "types"]
   
   # Specialized analysis engines and algorithms
   analysis:
-    - "src/analyzers/**"
-    - "src/similarity/**"
+    patterns:
+      - "src/analyzers/**"
+      - "src/similarity/**"
+    role: "Analysis algorithms with domain-specific knowledge"
+    consolidationStrategy: "conservative"
+    consolidationTarget: false
+    internalUtils:
+      - "src/analyzers/shared/"
+    avoidCrossLayerSharing: ["storage", "services"]
+    maxDependencies: ["domain", "services", "storage", "infrastructure", "utils", "types"]
   
   # Core domain logic and business rules
   domain:
-    - "src/core/**"
-    - "src/metrics/**"
-    - "src/refactoring/**"
+    patterns:
+      - "src/core/**"
+      - "src/metrics/**"
+      - "src/refactoring/**"
+    role: "Core business logic and domain rules"
+    consolidationStrategy: "aggressive"
+    consolidationTarget: true
+    internalUtils:
+      - "src/core/shared/"
+    maxDependencies: ["storage", "infrastructure", "utils", "types"]
   
   # External service integrations and background processing
   services:
-    - "src/services/**"
-    - "src/workers/**"
+    patterns:
+      - "src/services/**"
+      - "src/workers/**"
+    role: "External service integrations and background processing"
+    consolidationStrategy: "conservative"
+    consolidationTarget: false
+    internalUtils:
+      - "src/services/shared/"
+    maxDependencies: ["storage", "infrastructure", "utils", "types"]
   
   # Data persistence and database operations
   storage:
-    - "src/storage/**"
-    - "src/migrations/**"
+    patterns:
+      - "src/storage/**"
+      - "src/migrations/**"
+    role: "Data persistence and database operations"
+    consolidationStrategy: "aggressive"
+    consolidationTarget: true
+    internalUtils:
+      - "src/storage/shared/"
+    maxDependencies: ["infrastructure", "utils", "types"]
   
   # Infrastructure, configuration and static data
   infrastructure:
-    - "src/config/**"
-    - "src/schemas/**"
-    - "src/data/**"
+    patterns:
+      - "src/config/**"
+      - "src/schemas/**"
+      - "src/data/**"
+    role: "Configuration, schemas, and static data management"
+    consolidationStrategy: "aggressive"
+    consolidationTarget: true
+    maxDependencies: ["utils", "types"]
   
   # Pure utility functions and tools
   utils:
-    - "src/utils/**"
-    - "src/tools/**"
-    - "src/visualization/**"
+    patterns:
+      - "src/utils/**"
+      - "src/tools/**"
+      - "src/visualization/**"
+    role: "Pure utility functions with no domain dependencies"
+    consolidationStrategy: "aggressive"
+    consolidationTarget: true
+    maxDependencies: ["types"]
   
   # Type definitions (completely independent)
   types:
-    - "src/types/**"
+    patterns:
+      - "src/types/**"
+    role: "Type definitions - completely independent"
+    consolidationStrategy: "none"
+    consolidationTarget: false
+    maxDependencies: []
 
 rules:
   # CLI layer: Entry point, can depend on orchestration and infrastructure
@@ -116,6 +172,40 @@ rules:
     to: "orchestration"
     description: "Lower layers cannot depend on orchestration layer"
     severity: error
+
+consolidationStrategies:
+  # Global utilities consolidation
+  globalUtils:
+    target: "utils"
+    criteria:
+      - "No domain knowledge required"
+      - "Usable across all layers"
+      - "Pure functions only"
+      - "No external dependencies"
+    examples: ["path operations", "string formatting", "basic validation", "date utilities"]
+    confidence: "high"
+  
+  # Layer-specific utilities consolidation
+  layerUtils:
+    target: "layer/shared/"
+    criteria:
+      - "Domain-specific knowledge required"
+      - "Used by multiple files within layer"
+      - "Not applicable to other layers"
+      - "Maintains layer boundaries"
+    examples: ["AST parsing helpers", "SQL query builders", "CLI formatters", "analysis algorithms"]
+    confidence: "medium"
+  
+  # Functions that should not be consolidated
+  keepInPlace:
+    target: "keep_in_place"
+    criteria:
+      - "Single-use context"
+      - "Tightly coupled to specific algorithm"
+      - "Different implementations needed per context"
+      - "Layer-specific optimizations"
+    examples: ["specialized analyzers", "context-specific handlers", "algorithm variants"]
+    confidence: "high"
 
 settings:
   allowSameLayer: true

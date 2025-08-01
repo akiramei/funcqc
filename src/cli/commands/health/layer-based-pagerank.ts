@@ -6,6 +6,7 @@
  */
 
 import { FunctionInfo, CallEdge } from '../../../types';
+import { LayerDefinition } from '../../../types/architecture';
 import { PageRankCalculator, PageRankScore } from '../../../analyzers/pagerank-calculator';
 import { ArchitectureConfigManager } from '../../../config/architecture-config';
 
@@ -34,7 +35,7 @@ export interface LayerBasedPageRankAnalysis {
   };
   layerResults: LayerPageRankResult[];
   crossLayerInsights: string[];
-  crossLayerRatio: number; // Percentage of cross-layer dependencies
+  crossLayerRatio: number; // Ratio (0-1) of cross-layer dependencies
 }
 
 /**
@@ -42,11 +43,12 @@ export interface LayerBasedPageRankAnalysis {
  */
 function detectFunctionLayer(
   functionInfo: FunctionInfo,
-  layers: Record<string, string[]>
+  layers: Record<string, string[] | LayerDefinition>
 ): string | null {
   const normalizedPath = functionInfo.filePath.replace(/\\/g, '/');
   
-  for (const [layerName, patterns] of Object.entries(layers)) {
+  for (const [layerName, layerConfig] of Object.entries(layers)) {
+    const patterns = Array.isArray(layerConfig) ? layerConfig : layerConfig.patterns;
     for (const pattern of patterns) {
       if (matchesPattern(normalizedPath, pattern)) {
         return layerName;
@@ -175,9 +177,9 @@ export async function performLayerBasedPageRank(
   const layerResults = performLayerAnalysis(functionsByLayer, edgesByLayer);
   const crossLayerInsights = generateCrossLayerInsights(layerResults, crossLayerEdgeCount, callEdges.length);
   
-  // Calculate cross-layer ratio
+  // Calculate cross-layer ratio as fraction (0-1) for consistent data format
   const crossLayerRatio = callEdges.length > 0 
-    ? (crossLayerEdgeCount / callEdges.length) * 100 
+    ? (crossLayerEdgeCount / callEdges.length) 
     : 0;
 
   return {
@@ -217,7 +219,7 @@ function loadArchitectureConfig() {
 /**
  * Group functions by their detected layer
  */
-function groupFunctionsByLayer(functions: FunctionInfo[], layers: Record<string, string[]>) {
+function groupFunctionsByLayer(functions: FunctionInfo[], layers: Record<string, string[] | LayerDefinition>) {
   const functionsByLayer = new Map<string, FunctionInfo[]>();
   const functionLayerMap = new Map<string, string>();
   const unmappedFunctions: FunctionInfo[] = [];

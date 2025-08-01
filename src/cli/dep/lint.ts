@@ -1,12 +1,14 @@
 import chalk from 'chalk';
 import ora from 'ora';
+import { minimatch } from 'minimatch';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { ArchitectureValidator } from '../../analyzers/architecture-validator';
-import { ArchitectureViolation, ArchitectureAnalysisResult } from '../../types/architecture';
+import { ArchitectureViolation, ArchitectureAnalysisResult, ArchitectureConfig, LayerDefinition } from '../../types/architecture';
+import { FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepLintOptions } from './types';
 import { getCallTypeColor } from './utils';
@@ -38,6 +40,34 @@ rules:
     description: "Storage should not depend on CLI"
     severity: error`));
         return;
+      }
+
+      // Handle information display options
+      if (options.showConfig || options.showLayers || options.showRules || options.showConsolidation || options.dryRun) {
+        spinner.text = 'Loading functions for layer statistics...';
+        
+        // Load functions for layer statistics if showing layers
+        let functions: FunctionInfo[] = [];
+        if (options.showLayers || options.showConfig || options.showConsolidation) {
+          try {
+            // Get latest snapshot first
+            const latestSnapshot = await env.storage.getLatestSnapshot();
+            if (latestSnapshot) {
+              const result = await env.storage.getFunctionsBySnapshotId(latestSnapshot.id);
+              functions = result;
+            }
+          } catch {
+            // If functions can't be loaded, continue without statistics
+            console.warn(chalk.dim('Warning: Could not load function statistics'));
+          }
+        }
+        
+        spinner.succeed('Architecture configuration loaded');
+        displayArchitectureInfo(archConfig, options, functions);
+        
+        if (options.dryRun) {
+          return; // Exit without running violations check
+        }
       }
 
       spinner.text = 'Loading snapshot data...';
@@ -321,5 +351,264 @@ function displayArchLintSuggestions(summary: ArchitectureAnalysisResult['summary
   
   if (violationCount > 10) {
     console.log(chalk.dim('💡 Use --max-violations to limit output or --severity to filter by level'));
+  }
+}
+
+/**
+ * Display architecture configuration information
+ */
+function displayArchitectureInfo(archConfig: ArchitectureConfig, options: DepLintOptions, functions: FunctionInfo[] = []): void {
+  if (options.showConfig) {
+    displayFullArchConfig(archConfig, functions);
+  } else {
+    if (options.showLayers) {
+      displayLayerInfo(archConfig, functions);
+    }
+    if (options.showRules) {
+      displayRulesInfo(archConfig);
+    }
+    if (options.showConsolidation) {
+      displayConsolidationInfo(archConfig);
+    }
+  }
+}
+
+/**
+ * Display complete architecture configuration
+ */
+function displayFullArchConfig(archConfig: ArchitectureConfig, functions: FunctionInfo[] = []): void {
+  console.log(chalk.bold('\n🏗️  Complete Architecture Configuration\n'));
+  
+  displayLayerInfo(archConfig, functions);
+  displayRulesInfo(archConfig);
+  displayConsolidationInfo(archConfig);
+  displaySettingsInfo(archConfig);
+}
+
+/**
+ * Display layer definitions
+ */
+function displayLayerInfo(archConfig: ArchitectureConfig, functions: FunctionInfo[] = []): void {
+  console.log(chalk.bold('📁 Layer Definitions:'));
+  
+  const layers = archConfig.layers || {};
+  const layerNames = Object.keys(layers);
+  
+  if (layerNames.length === 0) {
+    console.log(chalk.dim('  No layers defined'));
+    return;
+  }
+  
+  // Calculate function counts per layer if functions are provided
+  const layerStats = functions.length > 0 ? calculateLayerStats(layers, functions) : {};
+  
+  layerNames.forEach(layerName => {
+    const layerConfig = layers[layerName];
+    const functionCount = layerStats[layerName] || 0;
+    const countText = functions.length > 0 ? chalk.yellow(` (${functionCount} functions)`) : '';
+    
+    // Check if this is a LayerDefinition or simple pattern array
+    const isLayerDefinition = !Array.isArray(layerConfig) && layerConfig && typeof layerConfig === 'object';
+    const layerDef = isLayerDefinition ? layerConfig as LayerDefinition : null;
+    const patterns = layerDef ? layerDef.patterns : layerConfig as string[];
+    
+    console.log(`  ${chalk.cyan(layerName)}${countText}:`);
+    
+    // Display role if available
+    if (layerDef?.role) {
+      console.log(`    ${chalk.gray('Role:')} ${chalk.dim(layerDef.role)}`);
+    }
+    
+    // Display patterns
+    console.log(`    ${chalk.gray('Patterns:')}`);
+    patterns.forEach((pattern: string) => {
+      console.log(`      - ${chalk.dim(pattern)}`);
+    });
+    
+    // Display consolidation strategy if available
+    if (layerDef?.consolidationStrategy) {
+      const strategyColor = layerDef.consolidationStrategy === 'aggressive' ? chalk.green : 
+                           layerDef.consolidationStrategy === 'conservative' ? chalk.yellow : chalk.red;
+      console.log(`    ${chalk.gray('Consolidation:')} ${strategyColor(layerDef.consolidationStrategy)}`);
+    }
+    
+    // Display internal utils if available
+    if (layerDef?.internalUtils && layerDef.internalUtils.length > 0) {
+      console.log(`    ${chalk.gray('Internal Utils:')}`);
+      layerDef.internalUtils.forEach(utilPath => {
+        console.log(`      - ${chalk.blue(utilPath)}`);
+      });
+    }
+    
+    // Display max dependencies if available
+    if (layerDef?.maxDependencies && layerDef.maxDependencies.length > 0) {
+      console.log(`    ${chalk.gray('Max Dependencies:')} ${chalk.cyan(layerDef.maxDependencies.join(', '))}`);
+    }
+    
+    console.log(); // Add spacing between layers
+  });
+  
+  const totalFunctions = functions.length;
+  console.log(`\n  Total layers: ${chalk.yellow(layerNames.length)}`);
+  if (totalFunctions > 0) {
+    console.log(`  Total functions: ${chalk.yellow(totalFunctions)}`);
+  }
+  console.log();
+}
+
+/**
+ * Calculate function counts per layer
+ */
+function calculateLayerStats(layers: Record<string, string[] | LayerDefinition>, functions: FunctionInfo[]): Record<string, number> {
+  const stats: Record<string, number> = {};
+  
+  // Initialize all layers with 0
+  Object.keys(layers).forEach(layerName => {
+    stats[layerName] = 0;
+  });
+  
+  // Count functions per layer
+  functions.forEach(func => {
+    const filePath = func.filePath || '';
+    
+    for (const [layerName, layerConfig] of Object.entries(layers)) {
+      const patterns = Array.isArray(layerConfig) ? layerConfig : (layerConfig as LayerDefinition).patterns;
+      if (matchesLayerPatterns(filePath, patterns)) {
+        stats[layerName]++;
+        break; // Function belongs to first matching layer
+      }
+    }
+  });
+  
+  return stats;
+}
+
+/**
+ * Check if file path matches any of the layer patterns
+ */
+function matchesLayerPatterns(filePath: string, patterns: string[]): boolean {
+  return patterns.some(pattern => minimatch(filePath, pattern, { dot: true }));
+}
+
+/**
+ * Display architecture rules
+ */
+function displayRulesInfo(archConfig: ArchitectureConfig): void {
+  console.log(chalk.bold('📋 Architecture Rules:'));
+  
+  const rules = archConfig.rules || [];
+  
+  if (rules.length === 0) {
+    console.log(chalk.dim('  No rules defined'));
+    return;
+  }
+  
+  rules.forEach((rule, index: number) => {
+    const ruleType = rule.type === 'allow' ? chalk.green('ALLOW') : chalk.red('FORBID');
+    const severity = rule.severity ? `[${rule.severity.toUpperCase()}]` : '[ERROR]';
+    const severityColor = rule.severity === 'warning' ? chalk.yellow : rule.severity === 'info' ? chalk.blue : chalk.red;
+    
+    console.log(`  ${index + 1}. ${ruleType} ${chalk.white(formatRulePattern(rule.from))} → ${chalk.white(formatRulePattern(rule.to))} ${severityColor(severity)}`);
+    
+    if (rule.description) {
+      console.log(`     ${chalk.dim(rule.description)}`);
+    }
+  });
+  
+  console.log(`\n  Total rules: ${chalk.yellow(rules.length)}`);
+  console.log();
+}
+
+/**
+ * Display architecture settings
+ */
+function displaySettingsInfo(archConfig: ArchitectureConfig): void {
+  console.log(chalk.bold('⚙️  Settings:'));
+  
+  const settings = archConfig.settings || {};
+  
+  console.log(`  Allow same layer: ${settings.allowSameLayer ? chalk.green('Yes') : chalk.red('No')}`);
+  console.log(`  Strict mode: ${settings.strictMode ? chalk.red('Yes') : chalk.green('No')}`);
+  console.log(`  Default severity: ${chalk.yellow(settings.defaultSeverity || 'error')}`);
+  console.log(`  Ignore external: ${settings.ignoreExternal ? chalk.green('Yes') : chalk.red('No')}`);
+  console.log();
+}
+
+/**
+ * Format rule pattern for display
+ */
+function formatRulePattern(pattern: string | string[]): string {
+  if (Array.isArray(pattern)) {
+    return `[${pattern.join(', ')}]`;
+  }
+  return pattern;
+}
+
+/**
+ * Display consolidation strategies for refactoring
+ */
+function displayConsolidationInfo(archConfig: ArchitectureConfig): void {
+  console.log(chalk.bold('🔧 Consolidation Strategies:'));
+  
+  const strategies = archConfig.consolidationStrategies;
+  
+  if (!strategies || Object.keys(strategies).length === 0) {
+    console.log(chalk.dim('  No consolidation strategies defined'));
+    console.log();
+    return;
+  }
+  
+  // Display global utils strategy
+  if (strategies.globalUtils) {
+    console.log(`  ${chalk.green('Global Utils:')} ${chalk.blue(strategies.globalUtils.target)}`);
+    console.log(`    ${chalk.gray('Criteria:')}`);
+    strategies.globalUtils.criteria.forEach(criterion => {
+      console.log(`      • ${chalk.dim(criterion)}`);
+    });
+    if (strategies.globalUtils.examples && strategies.globalUtils.examples.length > 0) {
+      console.log(`    ${chalk.gray('Examples:')} ${chalk.cyan(strategies.globalUtils.examples.join(', '))}`);
+    }
+    if (strategies.globalUtils.confidence) {
+      const confidenceColor = strategies.globalUtils.confidence === 'high' ? chalk.green : 
+                              strategies.globalUtils.confidence === 'medium' ? chalk.yellow : chalk.red;
+      console.log(`    ${chalk.gray('Confidence:')} ${confidenceColor(strategies.globalUtils.confidence)}`);
+    }
+    console.log();
+  }
+  
+  // Display layer utils strategy
+  if (strategies.layerUtils) {
+    console.log(`  ${chalk.yellow('Layer Utils:')} ${chalk.blue(strategies.layerUtils.target)}`);
+    console.log(`    ${chalk.gray('Criteria:')}`);
+    strategies.layerUtils.criteria.forEach(criterion => {
+      console.log(`      • ${chalk.dim(criterion)}`);
+    });
+    if (strategies.layerUtils.examples && strategies.layerUtils.examples.length > 0) {
+      console.log(`    ${chalk.gray('Examples:')} ${chalk.cyan(strategies.layerUtils.examples.join(', '))}`);
+    }
+    if (strategies.layerUtils.confidence) {
+      const confidenceColor = strategies.layerUtils.confidence === 'high' ? chalk.green : 
+                              strategies.layerUtils.confidence === 'medium' ? chalk.yellow : chalk.red;
+      console.log(`    ${chalk.gray('Confidence:')} ${confidenceColor(strategies.layerUtils.confidence)}`);
+    }
+    console.log();
+  }
+  
+  // Display keep in place strategy
+  if (strategies.keepInPlace) {
+    console.log(`  ${chalk.red('Keep In Place:')} ${chalk.blue(strategies.keepInPlace.target)}`);
+    console.log(`    ${chalk.gray('Criteria:')}`);
+    strategies.keepInPlace.criteria.forEach(criterion => {
+      console.log(`      • ${chalk.dim(criterion)}`);
+    });
+    if (strategies.keepInPlace.examples && strategies.keepInPlace.examples.length > 0) {
+      console.log(`    ${chalk.gray('Examples:')} ${chalk.cyan(strategies.keepInPlace.examples.join(', '))}`);
+    }
+    if (strategies.keepInPlace.confidence) {
+      const confidenceColor = strategies.keepInPlace.confidence === 'high' ? chalk.green : 
+                              strategies.keepInPlace.confidence === 'medium' ? chalk.yellow : chalk.red;
+      console.log(`    ${chalk.gray('Confidence:')} ${confidenceColor(strategies.keepInPlace.confidence)}`);
+    }
+    console.log();
   }
 }

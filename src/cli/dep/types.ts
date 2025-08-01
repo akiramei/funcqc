@@ -63,6 +63,11 @@ export interface DepLintOptions extends BaseCommandOptions {
   includeMetrics?: boolean;
   fix?: boolean;
   snapshot?: string;
+  showLayers?: boolean;
+  showRules?: boolean;
+  showConfig?: boolean;
+  showConsolidation?: boolean;
+  dryRun?: boolean;
 }
 
 export interface DepDeadOptions extends BaseCommandOptions {
