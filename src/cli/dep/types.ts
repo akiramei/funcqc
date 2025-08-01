@@ -82,9 +82,77 @@ export interface DepCyclesOptions extends BaseCommandOptions {
   maxLength?: string;
   includeExternal?: boolean;
   format?: 'table' | 'json' | 'dot';
-  sort?: 'length' | 'complexity';
+  sort?: 'length' | 'complexity' | 'importance';
   limit?: string;
   snapshot?: string;
+  // New filtering options
+  includeRecursive?: boolean;
+  includeClear?: boolean;
+  includeAll?: boolean;
+  excludeRecursive?: boolean;
+  excludeClear?: boolean;
+  minComplexity?: string;
+  crossModuleOnly?: boolean;
+  crossLayerOnly?: boolean;
+  recursiveOnly?: boolean;
+  sortByImportance?: boolean;
+}
+
+/**
+ * Cycle classification types
+ */
+export enum CycleType {
+  RECURSIVE = 'recursive',    // Single function calling itself
+  MUTUAL = 'mutual',         // 2-3 functions mutual calls
+  COMPLEX = 'complex'        // 4+ functions complex cycle
+}
+
+export enum ImportanceLevel {
+  CRITICAL = 'critical',     // Cross-layer cycles
+  HIGH = 'high',            // Cross-module cycles
+  MEDIUM = 'medium',        // Cross-file cycles
+  LOW = 'low'               // Same file cycles
+}
+
+/**
+ * Classified cycle with importance scoring
+ */
+export interface ClassifiedCycle {
+  id: string;
+  nodes: string[];                    // Function IDs in the cycle
+  type: CycleType;
+  importance: ImportanceLevel;
+  score: number;                      // 0-10 importance score
+  crossModule: boolean;
+  crossLayer: boolean;
+  crossFile: boolean;
+  fileCount: number;                  // Number of unique files
+  moduleCount: number;                // Number of unique modules
+  layerCount: number;                 // Number of unique layers
+  cyclomaticComplexity: number;       // Total CC of functions in cycle
+  averageComplexity: number;          // Average CC per function
+  recommendations: string[];          // Suggested improvements
+}
+
+/**
+ * Enhanced cycles analysis result
+ */
+export interface CyclesAnalysisResult {
+  classifiedCycles: ClassifiedCycle[];
+  totalCycles: number;
+  filteredCycles: number;
+  filterStats: {
+    excludedRecursive: number;
+    excludedClear: number;
+    excludedByComplexity: number;
+    excludedBySize: number;
+  };
+  importanceSummary: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
 }
 
 export interface DependencyTreeNode {

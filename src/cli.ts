@@ -662,9 +662,20 @@ Layer Entry Points:
   dead code in modular architectures where certain layers serve as public APIs.`);
 
 depCommand.command('cycles')
-  .description('Detect circular dependencies in the call graph')
-  .option('--min-size <num>', 'minimum cycle size to report', '2')
+  .description('Detect and analyze circular dependencies with importance classification')
+  .option('--min-size <num>', 'minimum cycle size to report (legacy)', '2')
+  .option('--min-complexity <num>', 'minimum cycle complexity (nodes)', '4')
   .option('--format <format>', 'output format (table, json, dot)', 'table')
+  .option('--sort <sort>', 'sort by (importance, length, complexity)', 'importance')
+  .option('--limit <num>', 'maximum cycles to display', '20')
+  .option('--include-all', 'include all cycles (legacy mode)')
+  .option('--include-recursive', 'include recursive functions')
+  .option('--include-clear', 'include clear function chains')
+  .option('--exclude-recursive', 'exclude recursive functions (default: true)')
+  .option('--exclude-clear', 'exclude clear function chains (default: true)')
+  .option('--cross-module-only', 'show only cross-module cycles')
+  .option('--cross-layer-only', 'show only cross-layer cycles')
+  .option('--recursive-only', 'show only recursive functions')
   .option('--verbose', 'show detailed information')
   .action(async (options: OptionValues) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -673,24 +684,36 @@ depCommand.command('cycles')
   })
   .addHelpText('after', `
 Examples:
-  # Detect all circular dependencies
+  # Detect critical circular dependencies (default enhanced mode)
   $ funcqc dep cycles
 
-  # Show only cycles with 3 or more functions
-  $ funcqc dep cycles --min-size 3
+  # Show cross-layer cycles only (most critical)
+  $ funcqc dep cycles --cross-layer-only
+
+  # Include recursive functions and clear chains
+  $ funcqc dep cycles --include-recursive --include-clear
+
+  # Legacy mode (all cycles, including recursive)
+  $ funcqc dep cycles --include-all
 
   # JSON output for automation
   $ funcqc dep cycles --format json
 
+  # Show only complex cycles
+  $ funcqc dep cycles --min-complexity 6
+
   # Generate DOT graph for visualization
   $ funcqc dep cycles --format dot > cycles.dot
 
-  # Show detailed information
-  $ funcqc dep cycles --verbose
+Default behavior (Enhanced Mode):
+  • Excludes recursive functions (--exclude-recursive)
+  • Excludes clear function chains (--exclude-clear)
+  • Minimum complexity: 4 functions (--min-complexity 4)
+  • Sorted by importance (--sort importance)
+  • Limited to top 20 cycles (--limit 20)
 
-Note: This command analyzes circular dependencies in the call graph,
-helping identify areas where refactoring may be needed to improve
-code maintainability and reduce coupling.
+Note: Enhanced mode focuses on architectural problems. Use --include-all
+for backward compatibility with the legacy analyzer.
 `);
 
 
