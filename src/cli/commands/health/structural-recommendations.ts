@@ -57,28 +57,40 @@ export async function analyzeCallPatternsWithDepMetrics(
     depMetricsMap.set(depMetric.functionId, depMetric);
   }
   
+  // OPTIMIZED: Build reverse index map once for O(E+F) complexity instead of O(E×F)
+  const inboundByCallee = new Map<string, Array<{callerFunctionId: string; count: number}>>();
+  const edgeCountMap = new Map<string, number>();
+  
+  for (const edge of callEdges) {
+    if (edge.calleeFunctionId === null || edge.callerFunctionId === null) continue;
+    
+    const edgeKey = `${edge.callerFunctionId}->${edge.calleeFunctionId}`;
+    edgeCountMap.set(edgeKey, (edgeCountMap.get(edgeKey) || 0) + 1);
+  }
+  
+  for (const [edgeKey, count] of edgeCountMap) {
+    const [callerFunctionId, calleeFunctionId] = edgeKey.split('->');
+    if (!inboundByCallee.has(calleeFunctionId)) {
+      inboundByCallee.set(calleeFunctionId, []);
+    }
+    inboundByCallee.get(calleeFunctionId)!.push({ callerFunctionId, count });
+  }
+  
   // Build call analysis using existing dependency metrics data
   for (const func of functions) {
     const depMetric = depMetricsMap.get(func.id);
     if (!depMetric) continue;
     
-    // Get inbound edges for detailed caller analysis
-    const inboundEdges = callEdges.filter(edge => 
-      edge.calleeFunctionId === func.id && edge.callerFunctionId !== null
-    );
+    // OPTIMIZED: Get inbound edges from pre-built index (O(1) lookup)
+    const inboundEdges = inboundByCallee.get(func.id) || [];
     
     const callersByLayer = new Map<string, Array<{ functionName: string; callCount: number }>>();
     const crossLayerCallers: Array<{ functionName: string; layer: string; callCount: number }> = [];
     
-    // Count calls by caller function
-    const callerCounts = new Map<string, number>();
-    for (const edge of inboundEdges) {
-      const callerId = edge.callerFunctionId;
-      callerCounts.set(callerId, (callerCounts.get(callerId) || 0) + 1);
-    }
-    
-    // Analyze by layer using correct caller info
-    for (const [callerId, callCount] of callerCounts) {
+    // OPTIMIZED: Direct use of pre-calculated call counts from reverse index
+    for (const inboundEdge of inboundEdges) {
+      const callerId = inboundEdge.callerFunctionId;
+      const callCount = inboundEdge.count;
       const callerFunc = functionMap.get(callerId);
       if (!callerFunc) continue;
       
