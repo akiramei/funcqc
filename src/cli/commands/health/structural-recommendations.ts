@@ -214,8 +214,10 @@ export function generateSuccessCriteria(
   // Estimate cross-layer improvement target
   const layerAnalysis = structuralMetrics.pageRank?.layerBasedAnalysis;
   if (layerAnalysis?.crossLayerRatio && layerAnalysis.crossLayerRatio > 0.6) {
-    const targetCrossLayer = Math.floor(layerAnalysis.crossLayerRatio * 0.85 * 100);
-    criteria.push(`Cross-layer calls < ${targetCrossLayer}%`);
+    // crossLayerRatio is already a ratio (0-1), so convert to percentage correctly
+    const currentCrossLayerPercent = layerAnalysis.crossLayerRatio * 100;
+    const targetCrossLayerPercent = Math.floor(currentCrossLayerPercent * 0.85);
+    criteria.push(`Cross-layer calls < ${targetCrossLayerPercent}%`);
   }
   
   criteria.push('PageRank centrality rank reduced to High or Medium');
