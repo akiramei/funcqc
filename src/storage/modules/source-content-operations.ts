@@ -181,6 +181,10 @@ export class SourceContentOperations implements StorageOperationModule {
     },
     trx?: PGTransaction
   ): Promise<void> {
+    if (executor === 'transaction' && !trx) {
+      throw new Error('Transaction executor requires trx parameter');
+    }
+    
     try {
       if (executor === 'kysely') {
         await this.insertContentWithKysely(contentId, file);
@@ -188,8 +192,14 @@ export class SourceContentOperations implements StorageOperationModule {
         await this.insertContentWithTransaction(trx, contentId, file);
       }
     } catch (error) {
-      // Log the error but continue since ON CONFLICT DO NOTHING handles duplicates
-      this.logger?.debug(`Content insertion handled for ${file.filePath}: ${contentId} - ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // 重複エラーは期待される動作なのでdebugレベル、その他はwarningレベル
+      if (errorMessage.includes('duplicate') || errorMessage.includes('conflict')) {
+        this.logger?.debug(`Content already exists for ${file.filePath}: ${contentId}`);
+      } else {
+        this.logger?.warn(`Unexpected error during content insertion for ${file.filePath}: ${errorMessage}`);
+      }
     }
   }
 
