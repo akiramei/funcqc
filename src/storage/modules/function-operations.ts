@@ -1168,27 +1168,24 @@ export class FunctionOperations implements StorageOperationModule {
 
   // Helper method to build FunctionInfo from database row
   private async buildFunctionInfo(row: FunctionRow & Partial<MetricsRow> & { description?: string }): Promise<FunctionInfo> {
-    // Get parameters for this function
-    const parametersResult = await this.db.query(
-      'SELECT * FROM function_parameters WHERE function_id = $1 ORDER BY position',
-      [row.id]
-    );
-    
-    const parameters = (parametersResult.rows as ParameterRow[]).map((param) => {
-      const p: ParameterInfo = {
-        name: param.name,
-        type: param.type || 'unknown',
-        typeSimple: param.type_simple || 'unknown',
-        position: param.position,
-        isOptional: param.is_optional,
-        isRest: param.is_rest || false,
-      };
-      if (param.default_value) {
-        p.defaultValue = param.default_value;
-      }
-      return p;
-    });
+    const parameters = await this.getFunctionParameters(row.id);
+    const basicInfo = this.buildBasicFunctionInfo(row);
+    const optionalFields = this.buildOptionalFields(row);
+    const metrics = this.buildFunctionMetrics(row);
 
+    return {
+      ...basicInfo,
+      parameters,
+      ...optionalFields,
+      ...metrics
+    };
+  }
+
+
+  /**
+   * Build basic function information
+   */
+  private buildBasicFunctionInfo(row: FunctionRow & Partial<MetricsRow>): Omit<FunctionInfo, 'parameters' | 'jsDoc' | 'sourceCode' | 'metrics'> {
     return {
       id: row.id,
       semanticId: row.semantic_id,
@@ -1211,35 +1208,104 @@ export class FunctionOperations implements StorageOperationModule {
       isConstructor: row.is_constructor,
       isStatic: row.is_static || false,
       astHash: row.ast_hash || '',
-      modifiers: Array.isArray(row.modifiers) 
-        ? row.modifiers 
-        : (row.modifiers && typeof row.modifiers === 'string' ? (row.modifiers as string).split(',') : []),
-      parameters,
-      ...(row.js_doc ? { jsDoc: row.js_doc } : {}),
-      ...(row.source_code ? { sourceCode: row.source_code } : {}),
-      ...(row.cyclomatic_complexity ? {
-        metrics: {
-          cyclomaticComplexity: row.cyclomatic_complexity,
-          linesOfCode: row.lines_of_code || 0,
-          totalLines: row.total_lines || row.lines_of_code || 0,
-          parameterCount: row.parameter_count || 0,
-          maxNestingLevel: row.max_nesting_level || 0,
-          branchCount: row.branch_count || 0,
-          loopCount: row.loop_count || 0,
-          returnStatementCount: row.return_statement_count || 0,
-          tryCatchCount: row.try_catch_count || 0,
-          asyncAwaitCount: row.async_await_count || 0,
-          callbackCount: row.callback_count || 0,
-          commentLines: row.comment_lines || 0,
-          codeToCommentRatio: row.code_to_comment_ratio || 0,
-          cognitiveComplexity: row.cognitive_complexity || 0,
-          ...(row.halstead_volume !== null && row.halstead_volume !== undefined ? { halsteadVolume: row.halstead_volume } : {}),
-          ...(row.halstead_difficulty !== null && row.halstead_difficulty !== undefined ? { halsteadDifficulty: row.halstead_difficulty } : {}),
-          ...(row.maintainability_index !== null && row.maintainability_index !== undefined ? { maintainabilityIndex: row.maintainability_index } : {})
-        }
-      } : {}),
-      // createdAt and updatedAt are not part of FunctionInfo interface
+      modifiers: this.parseModifiers(row.modifiers)
     };
+  }
+
+  /**
+   * Parse function modifiers from various input formats
+   */
+  private parseModifiers(modifiers: unknown): string[] {
+    if (Array.isArray(modifiers)) {
+      return modifiers;
+    }
+    if (modifiers && typeof modifiers === 'string') {
+      return (modifiers as string).split(',');
+    }
+    return [];
+  }
+
+  /**
+   * Build optional fields (jsDoc, sourceCode)
+   */
+  private buildOptionalFields(row: FunctionRow & { js_doc?: string; source_code?: string }): Partial<Pick<FunctionInfo, 'jsDoc' | 'sourceCode'>> {
+    const fields: Partial<Pick<FunctionInfo, 'jsDoc' | 'sourceCode'>> = {};
+    
+    if (row.js_doc) {
+      fields.jsDoc = row.js_doc;
+    }
+    
+    if (row.source_code) {
+      fields.sourceCode = row.source_code;
+    }
+    
+    return fields;
+  }
+
+  /**
+   * Build function metrics if available
+   */
+  private buildFunctionMetrics(row: Partial<MetricsRow>): Partial<Pick<FunctionInfo, 'metrics'>> {
+    if (!row.cyclomatic_complexity) {
+      return {};
+    }
+
+    const basicMetrics = this.buildBasicMetrics(row);
+    const advancedMetrics = this.buildAdvancedMetrics(row);
+
+    return {
+      metrics: {
+        ...basicMetrics,
+        ...advancedMetrics
+      }
+    };
+  }
+
+  /**
+   * Build basic metrics (always present)
+   */
+  private buildBasicMetrics(row: Partial<MetricsRow>) {
+    return {
+      cyclomaticComplexity: row.cyclomatic_complexity!,
+      linesOfCode: row.lines_of_code || 0,
+      totalLines: row.total_lines || row.lines_of_code || 0,
+      parameterCount: row.parameter_count || 0,
+      maxNestingLevel: row.max_nesting_level || 0,
+      branchCount: row.branch_count || 0,
+      loopCount: row.loop_count || 0,
+      returnStatementCount: row.return_statement_count || 0,
+      tryCatchCount: row.try_catch_count || 0,
+      asyncAwaitCount: row.async_await_count || 0,
+      callbackCount: row.callback_count || 0,
+      commentLines: row.comment_lines || 0,
+      codeToCommentRatio: row.code_to_comment_ratio || 0,
+      cognitiveComplexity: row.cognitive_complexity || 0,
+    };
+  }
+
+  /**
+   * Build advanced metrics (optional)
+   */
+  private buildAdvancedMetrics(row: Partial<MetricsRow>) {
+    const advanced: Partial<{
+      halsteadVolume: number;
+      halsteadDifficulty: number;
+      maintainabilityIndex: number;
+    }> = {};
+
+    if (row.halstead_volume !== null && row.halstead_volume !== undefined) {
+      advanced.halsteadVolume = row.halstead_volume;
+    }
+    
+    if (row.halstead_difficulty !== null && row.halstead_difficulty !== undefined) {
+      advanced.halsteadDifficulty = row.halstead_difficulty;
+    }
+    
+    if (row.maintainability_index !== null && row.maintainability_index !== undefined) {
+      advanced.maintainabilityIndex = row.maintainability_index;
+    }
+
+    return advanced;
   }
 
 }

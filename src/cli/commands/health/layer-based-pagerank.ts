@@ -168,7 +168,27 @@ export async function performLayerBasedPageRank(
   functions: FunctionInfo[],
   callEdges: CallEdge[]
 ): Promise<LayerBasedPageRankAnalysis> {
-  // Load architecture configuration
+  const archConfig = loadArchitectureConfig();
+  const { functionsByLayer, functionLayerMap } = groupFunctionsByLayer(functions, archConfig.layers);
+  const { edgesByLayer, crossLayerEdgeCount } = categorizeEdgesByLayer(callEdges, functionLayerMap);
+  const layerResults = performLayerAnalysis(functionsByLayer, edgesByLayer);
+  const crossLayerInsights = generateCrossLayerInsights(layerResults, crossLayerEdgeCount, callEdges.length);
+  
+  return {
+    overallMetrics: {
+      totalFunctions: functions.length,
+      totalLayers: Object.keys(archConfig.layers).length,
+      analyzedLayers: layerResults.length
+    },
+    layerResults: layerResults.sort((a, b) => b.functionCount - a.functionCount),
+    crossLayerInsights
+  };
+}
+
+/**
+ * Load and validate architecture configuration
+ */
+function loadArchitectureConfig() {
   const configManager = new ArchitectureConfigManager();
   let archConfig;
   try {
@@ -184,40 +204,39 @@ export async function performLayerBasedPageRank(
     throw new Error('No layer definitions found in architecture configuration');
   }
   
-  // Group functions by layer
+  return archConfig;
+}
+
+/**
+ * Group functions by their detected layer
+ */
+function groupFunctionsByLayer(functions: FunctionInfo[], layers: Record<string, string[]>) {
   const functionsByLayer = new Map<string, FunctionInfo[]>();
+  const functionLayerMap = new Map<string, string>();
   const unmappedFunctions: FunctionInfo[] = [];
   
   for (const func of functions) {
-    const layer = detectFunctionLayer(func, archConfig.layers);
+    const layer = detectFunctionLayer(func, layers);
     if (layer) {
       const layerFunctions = functionsByLayer.get(layer) || [];
       layerFunctions.push(func);
       functionsByLayer.set(layer, layerFunctions);
+      functionLayerMap.set(func.id, layer);
     } else {
       unmappedFunctions.push(func);
     }
   }
   
-  // Create function ID to layer mapping for edge filtering
-  const functionLayerMap = new Map<string, string>();
-  for (const [layer, funcs] of functionsByLayer.entries()) {
-    for (const func of funcs) {
-      functionLayerMap.set(func.id, layer);
-    }
-  }
-  
-  // Perform PageRank analysis for each layer
-  const layerResults: LayerPageRankResult[] = [];
-  
-  // Pre-build layer function ID sets for efficient lookup
-  const layerFunctionIdSet = new Map<string, Set<string>>();
-  for (const [layer, funcs] of functionsByLayer.entries()) {
-    layerFunctionIdSet.set(layer, new Set(funcs.map(f => f.id)));
-  }
-  
-  // One-pass edge bucketing: O(E) instead of O(L×E)
-  // Also collect cross-layer statistics during the same pass
+  return { functionsByLayer, functionLayerMap, unmappedFunctions };
+}
+
+/**
+ * Categorize edges as intra-layer or cross-layer
+ */
+function categorizeEdgesByLayer(
+  callEdges: CallEdge[],
+  functionLayerMap: Map<string, string>
+) {
   const edgesByLayer = new Map<string, CallEdge[]>();
   let crossLayerEdgeCount = 0;
   
@@ -236,95 +255,124 @@ export async function performLayerBasedPageRank(
     }
   }
   
-  // Budget-based iteration control: limit total matrix-vector multiplications across all layers
-  const BUDGET_MV = Number(process.env['FUNCQC_LAYER_PR_BUDGET_MV'] ?? 150_000);
+  return { edgesByLayer, crossLayerEdgeCount };
+}
+
+/**
+ * Perform PageRank analysis for each layer
+ */
+function performLayerAnalysis(
+  functionsByLayer: Map<string, FunctionInfo[]>,
+  edgesByLayer: Map<string, CallEdge[]>
+): LayerPageRankResult[] {
+  const layerResults: LayerPageRankResult[] = [];
+  const { edgesPerLayer, totalIntraEdges } = calculateEdgeStatistics(functionsByLayer, edgesByLayer);
   
-  // Pre-calculate edges per layer for budget allocation
+  for (const [layerName, layerFunctions] of functionsByLayer.entries()) {
+    if (layerFunctions.length === 0) continue;
+    
+    const intraLayerEdges = edgesByLayer.get(layerName) || [];
+    const edgeCount = edgesPerLayer.get(layerName) ?? 0;
+    const maxIterations = calculateLayerIterationBudget(layerFunctions.length, edgeCount, totalIntraEdges);
+    
+    const result = performLayerPageRankCalculation(layerFunctions, intraLayerEdges, maxIterations);
+    const layerResult = buildLayerResult(layerName, layerFunctions, result);
+    
+    layerResults.push(layerResult);
+  }
+  
+  return layerResults;
+}
+
+/**
+ * Calculate edge statistics for budget allocation
+ */
+function calculateEdgeStatistics(
+  functionsByLayer: Map<string, FunctionInfo[]>,
+  edgesByLayer: Map<string, CallEdge[]>
+) {
   const edgesPerLayer = new Map<string, number>();
   let totalIntraEdges = 0;
+  
   for (const [layerName] of functionsByLayer.entries()) {
     const edgeCount = edgesByLayer.get(layerName)?.length ?? 0;
     edgesPerLayer.set(layerName, edgeCount);
     totalIntraEdges += edgeCount;
   }
+  
+  return { edgesPerLayer, totalIntraEdges };
+}
 
-  for (const [layerName, layerFunctions] of functionsByLayer.entries()) {
-    if (layerFunctions.length === 0) continue;
-    
-    // Use pre-built edges instead of filtering every time
-    const intraLayerEdges = edgesByLayer.get(layerName) || [];
-    const edgeCount = edgesPerLayer.get(layerName) ?? 0;
-    
-    // Budget allocation: distribute iteration budget based on layer edge density
-    const layerSize = layerFunctions.length;
-    const baseIterations = Math.max(8, Math.min(40, 10 + Math.ceil(Math.log2(layerSize))));
-    
-    let maxIterations = baseIterations;
-    if (totalIntraEdges > 0 && edgeCount > 0) {
-      // Allocate budget proportionally to edge density
-      const budgetIterations = Math.floor((BUDGET_MV * (edgeCount / totalIntraEdges)) / Math.max(1, edgeCount));
-      maxIterations = Math.max(8, Math.min(baseIterations, budgetIterations || baseIterations));
-    }
-    
-    const pageRankCalculator = new PageRankCalculator({
-      dampingFactor: 0.85,
-      maxIterations,
-      tolerance: 1e-5
-    });
-    
-    // Large layers use Monte Carlo approximation for better performance
-    const isLargeLayer = layerFunctions.length > 1200 || edgeCount > 3000;
-    
-    const result = isLargeLayer
-      ? estimatePageRankByMonteCarlo(layerFunctions, intraLayerEdges)
-      : pageRankCalculator.calculatePageRank(layerFunctions, intraLayerEdges);
-    
-    
-    // Calculate Gini coefficient
-    const scores = result.scores.map(s => s.normalizedScore);
-    const giniCoefficient = calculateGiniCoefficient(scores);
-    
-    // Get top 5 functions with detailed info
-    const topFunctions = result.scores
-      .slice(0, 5)
-      .map(score => ({
-        functionId: score.functionId,
-        functionName: score.functionName,
-        filePath: score.filePath,
-        startLine: score.startLine,
-        centrality: score.normalizedScore,
-        absoluteScore: score.score
-      }));
-    
-    layerResults.push({
-      layerName,
-      functionCount: layerFunctions.length,
-      scores: result.scores,
-      topFunctions,
-      averageScore: result.averageScore,
-      maxScore: result.maxScore,
-      giniCoefficient
-    });
+/**
+ * Calculate iteration budget for a layer based on size and edge density
+ */
+function calculateLayerIterationBudget(
+  layerSize: number,
+  edgeCount: number,
+  totalIntraEdges: number
+): number {
+  const BUDGET_MV = Number(process.env['FUNCQC_LAYER_PR_BUDGET_MV'] ?? 150_000);
+  const baseIterations = Math.max(8, Math.min(40, 10 + Math.ceil(Math.log2(layerSize))));
+  
+  if (totalIntraEdges > 0 && edgeCount > 0) {
+    const budgetIterations = Math.floor((BUDGET_MV * (edgeCount / totalIntraEdges)) / Math.max(1, edgeCount));
+    return Math.max(8, Math.min(baseIterations, budgetIterations || baseIterations));
   }
   
-  // Sort layers by function count (descending)
-  layerResults.sort((a, b) => b.functionCount - a.functionCount);
+  return baseIterations;
+}
+
+/**
+ * Perform PageRank calculation for a single layer
+ */
+function performLayerPageRankCalculation(
+  layerFunctions: FunctionInfo[],
+  intraLayerEdges: CallEdge[],
+  maxIterations: number
+) {
+  const pageRankCalculator = new PageRankCalculator({
+    dampingFactor: 0.85,
+    maxIterations,
+    tolerance: 1e-5
+  });
   
-  // Generate cross-layer insights using precomputed statistics
-  const crossLayerInsights = generateCrossLayerInsights(
-    layerResults,
-    crossLayerEdgeCount,
-    callEdges.length
-  );
+  const isLargeLayer = layerFunctions.length > 1200 || intraLayerEdges.length > 3000;
+  
+  return isLargeLayer
+    ? estimatePageRankByMonteCarlo(layerFunctions, intraLayerEdges)
+    : pageRankCalculator.calculatePageRank(layerFunctions, intraLayerEdges);
+}
+
+/**
+ * Build result object for a single layer
+ */
+function buildLayerResult(
+  layerName: string,
+  layerFunctions: FunctionInfo[],
+  result: { scores: PageRankScore[]; averageScore: number; maxScore: number }
+): LayerPageRankResult {
+  const scores = result.scores.map(s => s.normalizedScore);
+  const giniCoefficient = calculateGiniCoefficient(scores);
+  
+  const topFunctions = result.scores
+    .slice(0, 5)
+    .map(score => ({
+      functionId: score.functionId,
+      functionName: score.functionName,
+      filePath: score.filePath,
+      startLine: score.startLine,
+      centrality: score.normalizedScore,
+      absoluteScore: score.score
+    }));
   
   return {
-    overallMetrics: {
-      totalFunctions: functions.length,
-      totalLayers: Object.keys(archConfig.layers).length,
-      analyzedLayers: layerResults.length
-    },
-    layerResults,
-    crossLayerInsights
+    layerName,
+    functionCount: layerFunctions.length,
+    scores: result.scores,
+    topFunctions,
+    averageScore: result.averageScore,
+    maxScore: result.maxScore,
+    giniCoefficient
   };
 }
 
