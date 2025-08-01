@@ -23,6 +23,244 @@ export class SourceContentOperations implements StorageOperationModule {
   }
 
   /**
+   * Validate input and initialize result map
+   */
+  private validateAndInitialize(sourceFiles: Array<{
+    id: string;
+    filePath: string;
+    content: string;
+    hash: string;
+    encoding?: string;
+    size: number;
+    lineCount?: number;
+    language?: string;
+    functionCount: number;
+    exportCount?: number;
+    importCount?: number;
+    fileModifiedTime?: Date;
+    createdAt?: Date;
+  }>): { shouldReturn: boolean; resultMap: Map<string, string> } {
+    const resultMap = new Map<string, string>();
+    
+    if (sourceFiles.length === 0) {
+      return { shouldReturn: true, resultMap };
+    }
+    
+    return { shouldReturn: false, resultMap };
+  }
+
+  /**
+   * Generate content ID from hash and size
+   */
+  private generateContentId(hash: string, size: number): string {
+    return `${hash}_${size}`;
+  }
+
+  /**
+   * Build content values for source_contents table
+   */
+  private buildContentValues(contentId: string, file: {
+    content: string;
+    hash: string;
+    size: number;
+    lineCount?: number;
+    language?: string;
+    encoding?: string;
+    exportCount?: number;
+    importCount?: number;
+  }): {
+    id: string;
+    content: string;
+    file_hash: string;
+    file_size_bytes: number;
+    line_count: number;
+    language: string;
+    encoding: string;
+    export_count: number;
+    import_count: number;
+    created_at: string;
+  } {
+    return {
+      id: contentId,
+      content: file.content,
+      file_hash: file.hash,
+      file_size_bytes: file.size,
+      line_count: file.lineCount || 0,
+      language: file.language || 'typescript',
+      encoding: file.encoding || 'utf-8',
+      export_count: file.exportCount || 0,
+      import_count: file.importCount || 0,
+      created_at: new Date().toISOString()
+    };
+  }
+
+  /**
+   * Insert content using Kysely
+   */
+  private async insertContentWithKysely(contentId: string, file: {
+    content: string;
+    hash: string;
+    size: number;
+    lineCount?: number;
+    language?: string;
+    encoding?: string;
+    exportCount?: number;
+    importCount?: number;
+  }): Promise<void> {
+    if (!this.kysely) {
+      throw new Error(`Kysely instance is not initialized. Context: ${JSON.stringify({
+        hasDb: !!this.db,
+        hasKysely: !!this.kysely,
+        contextKeys: Object.keys(this)
+      })}`);
+    }
+    
+    const values = this.buildContentValues(contentId, file);
+    await this.kysely
+      .insertInto('source_contents')
+      .values(values)
+      .onConflict(oc => oc.columns(['file_hash', 'file_size_bytes']).doNothing())
+      .execute();
+  }
+
+  /**
+   * Insert content using transaction
+   */
+  private async insertContentWithTransaction(
+    trx: PGTransaction,
+    contentId: string,
+    file: {
+      content: string;
+      hash: string;
+      size: number;
+      lineCount?: number;
+      language?: string;
+      encoding?: string;
+      exportCount?: number;
+      importCount?: number;
+    }
+  ): Promise<void> {
+    const values = this.buildContentValues(contentId, file);
+    await trx.query(
+      `INSERT INTO source_contents (
+        id, content, file_hash, file_size_bytes, line_count, language, 
+        encoding, export_count, import_count, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      ON CONFLICT (file_hash, file_size_bytes) DO NOTHING`,
+      [
+        values.id,
+        values.content,
+        values.file_hash,
+        values.file_size_bytes,
+        values.line_count,
+        values.language,
+        values.encoding,
+        values.export_count,
+        values.import_count,
+        values.created_at
+      ]
+    );
+  }
+
+  /**
+   * Ensure content exists in source_contents table (deduplicated)
+   */
+  private async ensureContentExists(
+    executor: 'kysely' | 'transaction',
+    contentId: string,
+    file: {
+      content: string;
+      hash: string;
+      size: number;
+      lineCount?: number;
+      language?: string;
+      encoding?: string;
+      exportCount?: number;
+      importCount?: number;
+      filePath: string;
+    },
+    trx?: PGTransaction
+  ): Promise<void> {
+    if (executor === 'transaction' && !trx) {
+      throw new Error('Transaction executor requires trx parameter');
+    }
+    
+    try {
+      if (executor === 'kysely') {
+        await this.insertContentWithKysely(contentId, file);
+      } else if (executor === 'transaction' && trx) {
+        await this.insertContentWithTransaction(trx, contentId, file);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // 重複エラーは期待される動作なのでdebugレベル、その他はwarningレベル
+      if (errorMessage.includes('duplicate') || errorMessage.includes('conflict')) {
+        this.logger?.debug(`Content already exists for ${file.filePath}: ${contentId}`);
+      } else {
+        this.logger?.warn(`Unexpected error during content insertion for ${file.filePath}: ${errorMessage}`);
+      }
+    }
+  }
+
+  /**
+   * Create file reference in source_file_refs table
+   */
+  private async createFileReference(
+    executor: 'kysely' | 'transaction',
+    file: {
+      filePath: string;
+      functionCount: number;
+      fileModifiedTime?: Date;
+    },
+    contentId: string,
+    snapshotId: string,
+    trx?: PGTransaction
+  ): Promise<string> {
+    if (executor === 'transaction' && !trx) {
+      throw new Error('Transaction executor requires trx parameter');
+    }
+    
+    const refId = randomUUID();
+    
+    if (executor === 'kysely') {
+      if (!this.kysely) {
+        throw new Error('Kysely instance is not initialized');
+      }
+      
+      await this.kysely
+        .insertInto('source_file_refs')
+        .values({
+          id: refId,
+          snapshot_id: snapshotId,
+          file_path: file.filePath,
+          content_id: contentId,
+          file_modified_time: file.fileModifiedTime?.toISOString() || null,
+          function_count: file.functionCount || 0,
+          created_at: new Date().toISOString()
+        })
+        .execute();
+    } else if (executor === 'transaction' && trx) {
+      await trx.query(
+        `INSERT INTO source_file_refs (
+          id, snapshot_id, file_path, content_id, file_modified_time, function_count, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          refId,
+          snapshotId,
+          file.filePath,
+          contentId,
+          file.fileModifiedTime?.toISOString() || null,
+          file.functionCount || 0,
+          new Date().toISOString()
+        ]
+      );
+    }
+
+    return refId;
+  }
+
+  /**
    * Common helper for saving source files that works with both Kysely and PGTransaction
    */
   private async saveSourceFilesInternal(
@@ -45,97 +283,28 @@ export class SourceContentOperations implements StorageOperationModule {
     snapshotId: string,
     trx?: PGTransaction
   ): Promise<Map<string, string>> {
-    if (sourceFiles.length === 0) return new Map();
+    // Step 1: Validate input and initialize
+    const { shouldReturn, resultMap } = this.validateAndInitialize(sourceFiles);
+    if (shouldReturn) {
+      return resultMap;
+    }
 
-    const resultMap = new Map<string, string>();
-
+    // Step 2: Process each file
     for (const file of sourceFiles) {
-      // Step 1: Ensure content exists in source_contents (deduplicated)
-      const contentId = `${file.hash}_${file.size}`;
+      // Step 2.1: Generate content ID
+      const contentId = this.generateContentId(file.hash, file.size);
       
-      try {
-        if (executor === 'kysely') {
-          if (!this.kysely) {
-            throw new Error(`Kysely instance is not initialized. Context: ${JSON.stringify({
-              hasDb: !!this.db,
-              hasKysely: !!this.kysely,
-              contextKeys: Object.keys(this)
-            })}`);
-          }
-          await this.kysely
-            .insertInto('source_contents')
-            .values({
-              id: contentId,
-              content: file.content,
-              file_hash: file.hash,
-              file_size_bytes: file.size,
-              line_count: file.lineCount || 0,
-              language: file.language || 'typescript',
-              encoding: file.encoding || 'utf-8',
-              export_count: file.exportCount || 0,
-              import_count: file.importCount || 0,
-              created_at: new Date().toISOString()
-            })
-            .onConflict(oc => oc.columns(['file_hash', 'file_size_bytes']).doNothing())
-            .execute();
-        } else if (executor === 'transaction' && trx) {
-          await trx.query(
-            `INSERT INTO source_contents (
-              id, content, file_hash, file_size_bytes, line_count, language, 
-              encoding, export_count, import_count, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            ON CONFLICT (file_hash, file_size_bytes) DO NOTHING`,
-            [
-              contentId,
-              file.content,
-              file.hash,
-              file.size,
-              file.lineCount || 0,
-              file.language || 'typescript',
-              file.encoding || 'utf-8',
-              file.exportCount || 0,
-              file.importCount || 0,
-              new Date().toISOString()
-            ]
-          );
-        }
-      } catch (error) {
-        // Log the error but continue since ON CONFLICT DO NOTHING handles duplicates
-        this.logger?.debug(`Content insertion handled for ${file.filePath}: ${contentId} - ${error instanceof Error ? error.message : String(error)}`);
-      }
+      // Step 2.2: Ensure content exists (deduplicated)
+      await this.ensureContentExists(executor, contentId, file, trx);
 
-      // Step 2: Create file reference for this snapshot
-      const refId = randomUUID();
-      
-      if (executor === 'kysely') {
-        await this.kysely!
-          .insertInto('source_file_refs')
-          .values({
-            id: refId,
-            snapshot_id: snapshotId,
-            file_path: file.filePath,
-            content_id: contentId,
-            file_modified_time: file.fileModifiedTime?.toISOString() || null,
-            function_count: file.functionCount || 0,
-            created_at: new Date().toISOString()
-          })
-          .execute();
-      } else if (executor === 'transaction' && trx) {
-        await trx.query(
-          `INSERT INTO source_file_refs (
-            id, snapshot_id, file_path, content_id, file_modified_time, function_count, created_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [
-            refId,
-            snapshotId,
-            file.filePath,
-            contentId,
-            file.fileModifiedTime?.toISOString() || null,
-            file.functionCount || 0,
-            new Date().toISOString()
-          ]
-        );
-      }
+      // Step 2.3: Create file reference
+      const refId = await this.createFileReference(
+        executor,
+        file,
+        contentId,
+        snapshotId,
+        trx
+      );
 
       resultMap.set(file.filePath, refId);
     }
