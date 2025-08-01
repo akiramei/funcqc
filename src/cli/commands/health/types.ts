@@ -89,6 +89,7 @@ export interface PageRankMetrics {
       giniCoefficient: number;
     }>;
     crossLayerInsights: string[];
+    crossLayerRatio: number; // Percentage of cross-layer dependencies
   };
 }
 
@@ -97,6 +98,7 @@ export interface StructuralPenaltyBreakdown {
   cyclicFunctions: number;     // Penalty from cyclic functions
   hubFunctions: number;        // Penalty from excessive hub functions
   maxFanIn: number;           // Penalty from high fan-in coupling
+  crossLayer: number;         // Penalty from excessive cross-layer dependencies
   totalPenalty: number;       // Sum of all penalties
   riskMultiplier: number;     // Risk-based adjustment multiplier
   duplicateAdjustment?: number; // Reduction for hub∩cycle overlap

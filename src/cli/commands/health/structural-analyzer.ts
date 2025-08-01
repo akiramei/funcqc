@@ -99,7 +99,8 @@ async function performPageRankAnalysis(
           topFunctions: result.topFunctions,
           giniCoefficient: result.giniCoefficient
         })),
-        crossLayerInsights: layerAnalysis.crossLayerInsights
+        crossLayerInsights: layerAnalysis.crossLayerInsights,
+        crossLayerRatio: layerAnalysis.crossLayerRatio
       };
       env.commandLogger.debug(`Layer-based PageRank completed for ${layerAnalysis.layerResults.length} layers`);
     } catch (error) {

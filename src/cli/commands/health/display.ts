@@ -107,7 +107,8 @@ export function displayPenaltyBreakdown(breakdown: StructuralPenaltyBreakdown): 
     breakdown.largestComponent,
     breakdown.cyclicFunctions, 
     breakdown.hubFunctions,
-    breakdown.maxFanIn
+    breakdown.maxFanIn,
+    breakdown.crossLayer
   ];
   const rawTotal = rawComponents.reduce((sum, val) => sum + val, 0);
   const adjustedTotal = rawTotal - (breakdown.duplicateAdjustment || 0);
@@ -144,6 +145,14 @@ export function displayPenaltyBreakdown(breakdown: StructuralPenaltyBreakdown): 
       ? `${chalk.yellow(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.maxFanIn})`)}`
       : chalk.yellow(`-${capped} points`);
     console.log(`  ├── High Coupling (Fan-in): ${display}`);
+  }
+  
+  if (breakdown.crossLayer > 0) {
+    const capped = Math.round((breakdown.crossLayer * cappingRatio) * 10) / 10;
+    const display = showRawValues 
+      ? `${chalk.yellow(`-${capped} pts`)} ${chalk.gray(`(raw: -${breakdown.crossLayer})`)}`
+      : chalk.yellow(`-${capped} points`);
+    console.log(`  ├── Excessive Cross-Layer Dependencies: ${display}`);
   }
   
   console.log(`  ├── ${chalk.bold('Total Penalty')}: ${chalk.red(`-${breakdown.totalPenalty} points`)}`);

@@ -69,6 +69,51 @@ export function calculateStructuralPenalty(structuralData?: StructuralMetrics): 
 }
 
 /**
+ * Calculate saturated Fan-in penalty using logarithmic function
+ * This prevents extreme outliers from dominating the penalty calculation
+ */
+function calculateSaturatedFanInPenalty(maxFanIn: number, structuralData: StructuralMetrics): number {
+  // Use a reasonable baseline (p75) to normalize the penalty
+  // For typical projects, p75 fan-in is usually around 5-15
+  const baselineFanIn = Math.max(15, structuralData.hubThreshold || 10);
+  
+  // Logarithmic penalty: k * log(1 + (maxFanIn / baseline))
+  // This grows more slowly than linear for extreme values
+  const scalingFactor = 25; // Tuned to give reasonable penalties
+  const normalizedRatio = maxFanIn / baselineFanIn;
+  
+  // Apply logarithmic scaling with a minimum threshold
+  if (normalizedRatio <= 1.0) {
+    // Below baseline: minimal penalty
+    return Math.max(0, (maxFanIn - 10) * 0.5);
+  } else {
+    // Above baseline: logarithmic penalty
+    const logPenalty = scalingFactor * Math.log1p(normalizedRatio - 1);
+    return Math.round(logPenalty * 10) / 10;
+  }
+}
+
+/**
+ * Calculate cross-layer dependency penalty
+ * Applies penalty when cross-layer dependencies exceed 50% threshold
+ */
+function calculateCrossLayerPenalty(structuralData: StructuralMetrics): number {
+  // Extract cross-layer ratio from PageRank layer-based analysis
+  const crossLayerRatio = structuralData.pageRank?.layerBasedAnalysis?.crossLayerRatio;
+  
+  if (!crossLayerRatio || crossLayerRatio <= 50) {
+    return 0; // No penalty if cross-layer ratio is <= 50%
+  }
+  
+  // Progressive penalty: (ratio - 50) * 0.3
+  // Example: 70.1% -> (70.1 - 50) * 0.3 = 6.03 points penalty
+  const excessRatio = crossLayerRatio - 50;
+  const penalty = excessRatio * 0.3;
+  
+  return Math.max(0, penalty);
+}
+
+/**
  * Calculate detailed structural penalty breakdown
  */
 export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralMetrics): StructuralPenaltyBreakdown {
@@ -78,6 +123,7 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
       cyclicFunctions: 0,
       hubFunctions: 0,
       maxFanIn: 0,
+      crossLayer: 0,
       totalPenalty: 0,
       riskMultiplier: 1.0
     };
@@ -96,9 +142,15 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
     ? (structuralData.hubFunctions - 20) * 1 
     : 0;
     
+  // IMPROVED: Saturated Fan-in penalty using logarithmic function
+  // This prevents extreme outliers from dominating the penalty calculation
   const maxFanInPenalty = structuralData.maxFanIn > 10 
-    ? (structuralData.maxFanIn - 10) * 1.5 
+    ? calculateSaturatedFanInPenalty(structuralData.maxFanIn, structuralData)
     : 0;
+    
+  // NEW: Cross-layer dependency penalty (priority 2)
+  // Apply penalty when cross-layer dependencies exceed 50%
+  const crossLayerPenalty = calculateCrossLayerPenalty(structuralData);
   
   // Calculate hub∩cycle overlap adjustment
   const { hubCyclicOverlap, duplicateAdjustment } = calculateOverlapAdjustment(
@@ -108,7 +160,7 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
     cyclicFunctionsPenalty
   );
   
-  const rawPenalty = largestComponentPenalty + cyclicFunctionsPenalty + hubFunctionsPenalty + maxFanInPenalty;
+  const rawPenalty = largestComponentPenalty + cyclicFunctionsPenalty + hubFunctionsPenalty + maxFanInPenalty + crossLayerPenalty;
   const adjustedPenalty = rawPenalty - duplicateAdjustment;
   
   const totalPenalty = Math.min(adjustedPenalty, 50); // Cap at 50 points
@@ -120,6 +172,7 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
     cyclicFunctions: Math.round(cyclicFunctionsPenalty * 10) / 10,
     hubFunctions: Math.round(hubFunctionsPenalty * 10) / 10,
     maxFanIn: Math.round(maxFanInPenalty * 10) / 10,
+    crossLayer: Math.round(crossLayerPenalty * 10) / 10,
     totalPenalty: Math.round(totalPenalty * 10) / 10,
     riskMultiplier,
     duplicateAdjustment: Math.round(duplicateAdjustment * 10) / 10,
