@@ -493,6 +493,7 @@ export interface HealthCommandOptions extends CommandOptions {
   scope?: string; // Analyze specific scope (src, test, all, or custom scope)
   mode?: 'static' | 'dynamic'; // Evaluation mode for dynamic weight calculation
   explainWeight?: string; // Function ID to explain weight calculation for
+  topN?: number; // Number of top recommendations to show (default: 3, verbose: 10)
 }
 
 export interface HistoryCommandOptions extends CommandOptions {

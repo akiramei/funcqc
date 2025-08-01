@@ -224,6 +224,7 @@ program
   .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
   .option('--mode <mode>', 'evaluation mode: static or dynamic (default: static)')
   .option('--explain-weight <function>', 'explain weight calculation for specific function (ID or name)')
+  .option('--top-n <number>', 'number of top recommendations to show (default: 3, verbose: 10)', '3')
   .option('--ai-optimized', 'deprecated: use --json instead')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
