@@ -478,7 +478,7 @@ export class PresetManager {
    * Analyze package.json for project characteristics
    */
   private analyzePackageJson(
-    packageJson: any,
+    packageJson: Record<string, unknown>,
     deps: Record<string, string>,
     analysis: ProjectAnalysisResult
   ): void {
@@ -487,14 +487,14 @@ export class PresetManager {
     this.detectBackendFrameworks(deps, analysis);
 
     // CLI tool detection
-    if (packageJson.bin || deps['commander'] || deps['yargs']) {
+    if (packageJson['bin'] || deps['commander'] || deps['yargs']) {
       analysis.isCLITool = true;
       if (deps['commander']) analysis.detectedDependencies.cli.push('commander');
       if (deps['yargs']) analysis.detectedDependencies.cli.push('yargs');
     }
 
     // Library detection
-    if (packageJson.main && !packageJson.private) {
+    if (packageJson['main'] && !packageJson['private']) {
       analysis.isLibrary = true;
     }
 

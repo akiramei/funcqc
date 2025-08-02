@@ -4,7 +4,7 @@
  */
 
 import chalk from 'chalk';
-import { HealthCommandOptions } from '../../../types';
+import { HealthCommandOptions, SnapshotInfo } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { TrendData, TrendAnalysis } from './types';
 
@@ -81,7 +81,7 @@ function calculateIntervalConfig(period: number): {
 /**
  * Extract metrics from snapshot metadata with type safety
  */
-function extractSnapshotMetrics(snapshots: any[]): {
+function extractSnapshotMetrics(snapshots: SnapshotInfo[]): {
   avgComplexity: number;
   totalFunctions: number;
   highRiskCount: number;
@@ -122,7 +122,7 @@ function extractSnapshotMetrics(snapshots: any[]): {
  * Process snapshots into trend periods
  */
 function processSnapshotsIntoPeriods(
-  recentSnapshots: any[],
+  recentSnapshots: SnapshotInfo[],
   intervalConfig: { intervalMs: number; intervalName: string; intervalCount: number },
   now: number
 ): TrendData[] {

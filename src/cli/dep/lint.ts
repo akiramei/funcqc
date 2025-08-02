@@ -8,7 +8,7 @@ import { DatabaseError } from '../../storage/pglite-adapter';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { ArchitectureValidator } from '../../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult, ArchitectureConfig, LayerDefinition } from '../../types/architecture';
-import { FunctionInfo } from '../../types';
+import { FunctionInfo, CallEdge } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepLintOptions } from './types';
 import { getCallTypeColor } from './utils';
@@ -86,7 +86,7 @@ async function loadCallGraphData(
   env: CommandEnvironment,
   options: DepLintOptions,
   spinner: ReturnType<typeof ora>
-): Promise<{ allEdges: any[], functions: FunctionInfo[] }> {
+): Promise<{ allEdges: CallEdge[], functions: FunctionInfo[] }> {
   spinner.text = 'Loading snapshot data...';
 
   // Use comprehensive call graph data including internal call edges
@@ -119,7 +119,7 @@ async function loadCallGraphData(
 function executeArchitectureAnalysis(
   archConfig: ArchitectureConfig,
   functions: FunctionInfo[],
-  allEdges: any[],
+  allEdges: CallEdge[],
   options: DepLintOptions,
   spinner: ReturnType<typeof ora>
 ): { analysisResult: ArchitectureAnalysisResult, filteredViolations: ArchitectureViolation[] } {
