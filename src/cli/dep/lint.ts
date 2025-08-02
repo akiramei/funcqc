@@ -14,22 +14,19 @@ import { DepLintOptions } from './types';
 import { getCallTypeColor } from './utils';
 
 /**
- * Lint architecture dependencies against defined rules
+ * Load and validate architecture configuration
  */
-export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
-  async (env: CommandEnvironment): Promise<void> => {
-    const errorHandler = createErrorHandler(env.commandLogger);
-    const spinner = ora('Loading architecture configuration...').start();
+async function loadArchitectureConfig(
+  options: DepLintOptions, 
+  spinner: ReturnType<typeof ora>
+): Promise<ArchitectureConfig> {
+  const configManager = new ArchitectureConfigManager();
+  const archConfig = configManager.load(options.config);
 
-    try {
-      // Load architecture configuration
-      const configManager = new ArchitectureConfigManager();
-      const archConfig = configManager.load(options.config);
-
-      if (Object.keys(archConfig.layers).length === 0) {
-        spinner.fail(chalk.yellow('No architecture layers defined. Create a .funcqc-arch.yaml configuration file.'));
-        console.log(chalk.dim('\nExample configuration:'));
-        console.log(chalk.cyan(`layers:
+  if (Object.keys(archConfig.layers).length === 0) {
+    spinner.fail(chalk.yellow('No architecture layers defined. Create a .funcqc-arch.yaml configuration file.'));
+    console.log(chalk.dim('\nExample configuration:'));
+    console.log(chalk.cyan(`layers:
   cli: ["src/cli/**"]
   core: ["src/core/**"]
   storage: ["src/storage/**"]
@@ -39,87 +36,149 @@ rules:
     to: "cli"
     description: "Storage should not depend on CLI"
     severity: error`));
-        return;
+    throw new Error('No architecture layers defined');
+  }
+
+  return archConfig;
+}
+
+/**
+ * Handle information display options and determine if should continue
+ */
+async function processInfoDisplayOptions(
+  archConfig: ArchitectureConfig,
+  options: DepLintOptions,
+  env: CommandEnvironment,
+  spinner: ReturnType<typeof ora>
+): Promise<boolean> {
+  if (!options.showConfig && !options.showLayers && !options.showRules && !options.showConsolidation && !options.dryRun) {
+    return true; // Continue with lint execution
+  }
+
+  spinner.text = 'Loading functions for layer statistics...';
+  
+  // Load functions for layer statistics if showing layers
+  let functions: FunctionInfo[] = [];
+  if (options.showLayers || options.showConfig || options.showConsolidation) {
+    try {
+      // Get latest snapshot first
+      const latestSnapshot = await env.storage.getLatestSnapshot();
+      if (latestSnapshot) {
+        const result = await env.storage.getFunctionsBySnapshotId(latestSnapshot.id);
+        functions = result;
       }
+    } catch {
+      // If functions can't be loaded, continue without statistics
+      console.warn(chalk.dim('Warning: Could not load function statistics'));
+    }
+  }
+  
+  spinner.succeed('Architecture configuration loaded');
+  displayArchitectureInfo(archConfig, options, functions);
+  
+  return !options.dryRun; // Continue if not dry run
+}
+
+/**
+ * Load and validate call graph data
+ */
+async function loadCallGraphData(
+  env: CommandEnvironment,
+  options: DepLintOptions,
+  spinner: ReturnType<typeof ora>
+): Promise<{ allEdges: any[], functions: FunctionInfo[] }> {
+  spinner.text = 'Loading snapshot data...';
+
+  // Use comprehensive call graph data including internal call edges
+  const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
+    showProgress: false, // We manage progress with our own spinner
+    snapshotId: options.snapshot
+  });
+
+  // Validate that we have sufficient call graph data
+  validateCallGraphRequirements(allEdges, 'dep lint');
+
+  spinner.text = 'Loading functions and call graph...';
+
+  if (functions.length === 0) {
+    spinner.fail(chalk.yellow('No functions found in the snapshot.'));
+    throw new Error('No functions found in the snapshot');
+  }
+
+  if (allEdges.length === 0) {
+    spinner.fail(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
+    throw new Error('No call graph data found');
+  }
+
+  return { allEdges, functions };
+}
+
+/**
+ * Execute architecture analysis and return filtered results
+ */
+function executeArchitectureAnalysis(
+  archConfig: ArchitectureConfig,
+  functions: FunctionInfo[],
+  allEdges: any[],
+  options: DepLintOptions,
+  spinner: ReturnType<typeof ora>
+): { analysisResult: ArchitectureAnalysisResult, filteredViolations: ArchitectureViolation[] } {
+  spinner.text = 'Analyzing architecture compliance...';
+
+  // Validate architecture
+  const validator = new ArchitectureValidator(archConfig);
+  const analysisResult = validator.analyzeArchitecture(functions, allEdges);
+
+  spinner.succeed('Architecture analysis complete');
+
+  // Apply filters
+  let filteredViolations = analysisResult.violations;
+
+  // Filter by severity
+  if (options.severity) {
+    const severityOrder = { info: 1, warning: 2, error: 3 };
+    const minSeverity = severityOrder[options.severity];
+    filteredViolations = filteredViolations.filter(v => 
+      severityOrder[v.severity] >= minSeverity
+    );
+  }
+
+  // Apply limit
+  if (options.maxViolations) {
+    const limit = parseInt(options.maxViolations, 10);
+    if (!isNaN(limit) && limit > 0) {
+      filteredViolations = filteredViolations.slice(0, limit);
+    }
+  }
+
+  return { analysisResult, filteredViolations };
+}
+
+/**
+ * Lint architecture dependencies against defined rules
+ */
+export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    const spinner = ora('Loading architecture configuration...').start();
+
+    try {
+      // Load and validate configuration
+      const archConfig = await loadArchitectureConfig(options, spinner);
 
       // Handle information display options
-      if (options.showConfig || options.showLayers || options.showRules || options.showConsolidation || options.dryRun) {
-        spinner.text = 'Loading functions for layer statistics...';
-        
-        // Load functions for layer statistics if showing layers
-        let functions: FunctionInfo[] = [];
-        if (options.showLayers || options.showConfig || options.showConsolidation) {
-          try {
-            // Get latest snapshot first
-            const latestSnapshot = await env.storage.getLatestSnapshot();
-            if (latestSnapshot) {
-              const result = await env.storage.getFunctionsBySnapshotId(latestSnapshot.id);
-              functions = result;
-            }
-          } catch {
-            // If functions can't be loaded, continue without statistics
-            console.warn(chalk.dim('Warning: Could not load function statistics'));
-          }
-        }
-        
-        spinner.succeed('Architecture configuration loaded');
-        displayArchitectureInfo(archConfig, options, functions);
-        
-        if (options.dryRun) {
-          return; // Exit without running violations check
-        }
+      const shouldContinue = await processInfoDisplayOptions(archConfig, options, env, spinner);
+      if (!shouldContinue) {
+        return; // Exit without running violations check
       }
 
-      spinner.text = 'Loading snapshot data...';
+      // Load call graph data
+      const { allEdges, functions } = await loadCallGraphData(env, options, spinner);
 
-      // Use comprehensive call graph data including internal call edges
-      const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
-        showProgress: false, // We manage progress with our own spinner
-        snapshotId: options.snapshot
-      });
-
-      // Validate that we have sufficient call graph data
-      validateCallGraphRequirements(allEdges, 'dep lint');
-
-      spinner.text = 'Loading functions and call graph...';
-
-      if (functions.length === 0) {
-        spinner.fail(chalk.yellow('No functions found in the snapshot.'));
-        return;
-      }
-
-      if (allEdges.length === 0) {
-        spinner.fail(chalk.yellow('No call graph data found. The call graph analyzer may need to be run.'));
-        return;
-      }
-
-      spinner.text = 'Analyzing architecture compliance...';
-
-      // Validate architecture
-      const validator = new ArchitectureValidator(archConfig);
-      const analysisResult = validator.analyzeArchitecture(functions, allEdges);
-
-      spinner.succeed('Architecture analysis complete');
-
-      // Apply filters
-      let filteredViolations = analysisResult.violations;
-
-      // Filter by severity
-      if (options.severity) {
-        const severityOrder = { info: 1, warning: 2, error: 3 };
-        const minSeverity = severityOrder[options.severity];
-        filteredViolations = filteredViolations.filter(v => 
-          severityOrder[v.severity] >= minSeverity
-        );
-      }
-
-      // Apply limit
-      if (options.maxViolations) {
-        const limit = parseInt(options.maxViolations, 10);
-        if (!isNaN(limit) && limit > 0) {
-          filteredViolations = filteredViolations.slice(0, limit);
-        }
-      }
+      // Execute architecture analysis
+      const { analysisResult, filteredViolations } = executeArchitectureAnalysis(
+        archConfig, functions, allEdges, options, spinner
+      );
 
       // Output results
       if (options.format === 'json') {

@@ -421,6 +421,99 @@ export class PresetManager {
     await fs.writeFile(configPath, JSON.stringify(config, null, 2));
   }
 
+  /**
+   * Detect frontend frameworks in dependencies
+   */
+  private detectFrontendFrameworks(
+    deps: Record<string, string>,
+    analysis: ProjectAnalysisResult
+  ): void {
+    if (deps['react']) {
+      analysis.hasReactComponents = true;
+      analysis.detectedFrameworks.push('React');
+      analysis.detectedDependencies.frontend.push('react');
+    }
+    if (deps['vue']) {
+      analysis.hasReactComponents = true;
+      analysis.detectedFrameworks.push('Vue');
+      analysis.detectedDependencies.frontend.push('vue');
+    }
+    if (deps['angular'] || deps['@angular/core']) {
+      analysis.hasReactComponents = true;
+      analysis.detectedFrameworks.push('Angular');
+      analysis.detectedDependencies.frontend.push('angular');
+    }
+  }
+
+  /**
+   * Detect backend frameworks in dependencies
+   */
+  private detectBackendFrameworks(
+    deps: Record<string, string>,
+    analysis: ProjectAnalysisResult
+  ): void {
+    if (deps['express']) {
+      analysis.hasApiRoutes = true;
+      analysis.detectedFrameworks.push('Express');
+      analysis.detectedDependencies.backend.push('express');
+    }
+    if (deps['fastify']) {
+      analysis.hasApiRoutes = true;
+      analysis.detectedFrameworks.push('Fastify');
+      analysis.detectedDependencies.backend.push('fastify');
+    }
+    if (deps['koa']) {
+      analysis.hasApiRoutes = true;
+      analysis.detectedFrameworks.push('Koa');
+      analysis.detectedDependencies.backend.push('koa');
+    }
+    if (deps['@nestjs/core']) {
+      analysis.hasApiRoutes = true;
+      analysis.detectedFrameworks.push('NestJS');
+      analysis.detectedDependencies.backend.push('@nestjs/core');
+    }
+  }
+
+  /**
+   * Analyze package.json for project characteristics
+   */
+  private analyzePackageJson(
+    packageJson: any,
+    deps: Record<string, string>,
+    analysis: ProjectAnalysisResult
+  ): void {
+    // Detect frameworks
+    this.detectFrontendFrameworks(deps, analysis);
+    this.detectBackendFrameworks(deps, analysis);
+
+    // CLI tool detection
+    if (packageJson.bin || deps['commander'] || deps['yargs']) {
+      analysis.isCLITool = true;
+      if (deps['commander']) analysis.detectedDependencies.cli.push('commander');
+      if (deps['yargs']) analysis.detectedDependencies.cli.push('yargs');
+    }
+
+    // Library detection
+    if (packageJson.main && !packageJson.private) {
+      analysis.isLibrary = true;
+    }
+
+    // Testing framework detection
+    if (deps['jest']) analysis.detectedDependencies.testing.push('jest');
+    if (deps['vitest']) analysis.detectedDependencies.testing.push('vitest');
+    if (deps['mocha']) analysis.detectedDependencies.testing.push('mocha');
+
+    // Project size estimation based on dependencies count
+    const depCount = Object.keys(deps).length;
+    if (depCount < 10) {
+      analysis.projectSize = 'small';
+    } else if (depCount > 30) {
+      analysis.projectSize = 'large';
+    } else {
+      analysis.projectSize = 'medium';
+    }
+  }
+
   private async analyzeProjectStructure(): Promise<ProjectAnalysisResult> {
     // Analyze current project to suggest appropriate presets
     const analysis: ProjectAnalysisResult = {
@@ -445,71 +538,8 @@ export class PresetManager {
         const packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf-8'));
         const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
 
-        // Frontend framework detection
-        if (deps.react) {
-          analysis.hasReactComponents = true;
-          analysis.detectedFrameworks.push('React');
-          analysis.detectedDependencies.frontend.push('react');
-        }
-        if (deps.vue) {
-          analysis.hasReactComponents = true;
-          analysis.detectedFrameworks.push('Vue');
-          analysis.detectedDependencies.frontend.push('vue');
-        }
-        if (deps.angular || deps['@angular/core']) {
-          analysis.hasReactComponents = true;
-          analysis.detectedFrameworks.push('Angular');
-          analysis.detectedDependencies.frontend.push('angular');
-        }
-
-        // Backend framework detection
-        if (deps.express) {
-          analysis.hasApiRoutes = true;
-          analysis.detectedFrameworks.push('Express');
-          analysis.detectedDependencies.backend.push('express');
-        }
-        if (deps.fastify) {
-          analysis.hasApiRoutes = true;
-          analysis.detectedFrameworks.push('Fastify');
-          analysis.detectedDependencies.backend.push('fastify');
-        }
-        if (deps.koa) {
-          analysis.hasApiRoutes = true;
-          analysis.detectedFrameworks.push('Koa');
-          analysis.detectedDependencies.backend.push('koa');
-        }
-        if (deps['@nestjs/core']) {
-          analysis.hasApiRoutes = true;
-          analysis.detectedFrameworks.push('NestJS');
-          analysis.detectedDependencies.backend.push('@nestjs/core');
-        }
-
-        // CLI tool detection
-        if (packageJson.bin || deps.commander || deps.yargs) {
-          analysis.isCLITool = true;
-          if (deps.commander) analysis.detectedDependencies.cli.push('commander');
-          if (deps.yargs) analysis.detectedDependencies.cli.push('yargs');
-        }
-
-        // Library detection
-        if (packageJson.main && !packageJson.private) {
-          analysis.isLibrary = true;
-        }
-
-        // Testing framework detection
-        if (deps.jest) analysis.detectedDependencies.testing.push('jest');
-        if (deps.vitest) analysis.detectedDependencies.testing.push('vitest');
-        if (deps.mocha) analysis.detectedDependencies.testing.push('mocha');
-
-        // Project size estimation based on dependencies count
-        const depCount = Object.keys(deps).length;
-        if (depCount < 10) {
-          analysis.projectSize = 'small';
-        } else if (depCount > 30) {
-          analysis.projectSize = 'large';
-        } else {
-          analysis.projectSize = 'medium';
-        }
+        // Analyze package.json content
+        this.analyzePackageJson(packageJson, deps, analysis);
       } catch {
         // package.json not found or invalid
       }

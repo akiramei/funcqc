@@ -3,6 +3,7 @@ import {
   SourceFile,
   CallExpression,
   Node,
+  TypeChecker,
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
 import { CallEdge } from '../types';
@@ -54,6 +55,103 @@ export class CallGraphAnalyzer {
   /**
    * Analyze a TypeScript file to extract call graph relationships using symbol resolution
    */
+  /**
+   * Build function node index for efficient lookup
+   */
+  private buildFunctionNodeIndex(
+    functionNodes: Node[],
+    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>
+  ): Map<Node, string> {
+    const localDeclIndex = new Map<Node, string>();
+
+    // Build the complete localDeclIndex before processing any calls
+    for (const [, functionInfo] of functionMap.entries()) {
+      // Find matching function node with line tolerance
+      const functionNode = functionNodes.find(node => {
+        const nodeStart = node.getStartLineNumber();
+        const nodeEnd = node.getEndLineNumber();
+        const startDiff = Math.abs(nodeStart - functionInfo.startLine);
+        const endDiff = Math.abs(nodeEnd - functionInfo.endLine);
+        
+        return startDiff <= 1 && endDiff <= 1;
+      });
+
+      if (functionNode) {
+        // Link declaration node to its functionId for symbol resolver fallback
+        localDeclIndex.set(functionNode, functionInfo.id);
+      }
+    }
+
+    return localDeclIndex;
+  }
+
+  /**
+   * Extract call expressions from a function node
+   */
+  private extractCallExpressions(functionNode: Node): CallExpression[] {
+    const callExpressions: CallExpression[] = [];
+    functionNode.forEachDescendant((node, traversal) => {
+      if (Node.isCallExpression(node)) {
+        callExpressions.push(node);
+      }
+      // Skip traversing into nested function declarations
+      if (this.isFunctionDeclaration(node) && node !== functionNode) {
+        traversal.skip();
+      }
+    });
+    return callExpressions;
+  }
+
+  /**
+   * Process call expressions and create call edges
+   */
+  private async processCallEdges(
+    callExpressions: CallExpression[],
+    sourceFunctionId: string,
+    filePath: string,
+    sourceFile: SourceFile,
+    typeChecker: TypeChecker,
+    importIndex: ReturnType<typeof buildImportIndex>,
+    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    getFunctionIdByDeclaration: (decl: Node) => string | undefined
+  ): Promise<CallEdge[]> {
+    const callEdges: CallEdge[] = [];
+
+    for (const callExpr of callExpressions) {
+      try {
+        const resolution = resolveCallee(callExpr, {
+          sourceFile,
+          typeChecker,
+          importIndex,
+          internalModulePrefixes: ["src/", "@/", "#/"],
+          getFunctionIdByDeclaration,
+        });
+
+        // Only create edges for internal function calls
+        if (resolution.kind === "internal" && resolution.functionId) {
+          // Verify the resolved function ID exists in our function map
+          if (!Array.from(functionMap.values()).some(f => f.id === resolution.functionId)) {
+            this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in function map`);
+            continue;
+          }
+          const callEdge = this.createCallEdgeFromResolution(
+            callExpr,
+            sourceFunctionId,
+            resolution
+          );
+          callEdges.push(callEdge);
+        }
+        // External calls are ignored as they don't contribute to circular dependencies
+        // Unknown calls are also ignored as they're likely external or unresolvable
+      } catch (error) {
+        // Continue processing other calls if one fails
+        this.logger?.warn(`Failed to resolve call in ${filePath}:${callExpr.getStartLineNumber()}: ${error}`);
+      }
+    }
+
+    return callEdges;
+  }
+
   async analyzeFile(
     filePath: string,
     functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
@@ -72,28 +170,14 @@ export class CallGraphAnalyzer {
 
       // Get all function nodes in the file
       const functionNodes = this.getAllFunctionNodes(sourceFile);
-      // 🔧 Local fallback: declaration Node -> functionId for immediate symbol resolution
-      const localDeclIndex = new Map<Node, string>();
+      
+      // Build function node index for efficient lookup
+      const localDeclIndex = this.buildFunctionNodeIndex(functionNodes, functionMap);
+      
+      // Create fallback function for declaration lookup
+      const declarationLookup = getFunctionIdByDeclaration ?? ((decl: Node) => localDeclIndex.get(decl));
 
-      // First pass: Build the complete localDeclIndex before processing any calls
-      for (const [, functionInfo] of functionMap.entries()) {
-        // Find matching function node with line tolerance
-        const functionNode = functionNodes.find(node => {
-          const nodeStart = node.getStartLineNumber();
-          const nodeEnd = node.getEndLineNumber();
-          const startDiff = Math.abs(nodeStart - functionInfo.startLine);
-          const endDiff = Math.abs(nodeEnd - functionInfo.endLine);
-          
-          return startDiff <= 1 && endDiff <= 1;
-        });
-
-        if (functionNode) {
-          // 🔧 Link declaration node to its functionId for symbol resolver fallback
-          localDeclIndex.set(functionNode, functionInfo.id);
-        }
-      }
-
-      // Second pass: Process calls now that localDeclIndex is complete
+      // Process each function and extract call edges
       for (const [, functionInfo] of functionMap.entries()) {
         // Find matching function node with line tolerance
         const functionNode = functionNodes.find(node => {
@@ -107,52 +191,21 @@ export class CallGraphAnalyzer {
 
         if (functionNode) {
           // Extract call expressions from function body
-          const callExpressions: CallExpression[] = [];
-          functionNode.forEachDescendant((node, traversal) => {
-            if (Node.isCallExpression(node)) {
-              callExpressions.push(node);
-            }
-            // Skip traversing into nested function declarations
-            if (this.isFunctionDeclaration(node) && node !== functionNode) {
-              traversal.skip();
-            }
-          });
+          const callExpressions = this.extractCallExpressions(functionNode);
 
-          // Process each call expression with symbol resolution
-          for (const callExpr of callExpressions) {
-            try {
-              const resolution = resolveCallee(callExpr, {
-                sourceFile,
-                typeChecker,
-                importIndex,
-                internalModulePrefixes: ["src/", "@/", "#/"],
-                getFunctionIdByDeclaration:
-                  getFunctionIdByDeclaration ??
-                  ((decl: Node) => localDeclIndex.get(decl)),
-              });
-
-
-              // Only create edges for internal function calls
-              if (resolution.kind === "internal" && resolution.functionId) {
-                // Verify the resolved function ID exists in our function map
-                if (!Array.from(functionMap.values()).some(f => f.id === resolution.functionId)) {
-                  this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in function map`);
-                  continue;
-                }
-                const callEdge = this.createCallEdgeFromResolution(
-                  callExpr,
-                  functionInfo.id,
-                  resolution
-                );
-                callEdges.push(callEdge);
-              }
-              // External calls are ignored as they don't contribute to circular dependencies
-              // Unknown calls are also ignored as they're likely external or unresolvable
-            } catch (error) {
-              // Continue processing other calls if one fails
-              this.logger?.warn(`Failed to resolve call in ${filePath}:${callExpr.getStartLineNumber()}: ${error}`);
-            }
-          }
+          // Process call expressions and create call edges
+          const functionCallEdges = await this.processCallEdges(
+            callExpressions,
+            functionInfo.id,
+            filePath,
+            sourceFile,
+            typeChecker,
+            importIndex,
+            functionMap,
+            declarationLookup
+          );
+          
+          callEdges.push(...functionCallEdges);
         }
       }
 
