@@ -182,11 +182,13 @@ async function outputFriendly(
 async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): Promise<void> {
   console.log(chalk.cyan('📋 Basic Information:'));
   
+  // Show ID first as the primary identifier
+  console.log(`  ID: ${func.id}`);
+  
   // Build function signature
   const signature = buildFunctionSignature(func);
   console.log(`  Definition: ${signature}`);
   console.log(`  Location: ${func.filePath}:${func.startLine}-${func.endLine}`);
-  console.log(`  ID: ${func.id}`);
   
   // Description if available
   if (func.description) {
