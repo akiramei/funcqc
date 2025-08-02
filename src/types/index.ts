@@ -698,7 +698,7 @@ export interface SimilarityOptions {
   printCode?: boolean;
   
   // Recall strategy - determines completeness vs performance trade-off
-  recall?: 'guaranteed' | 'deterministic' | 'fast';
+  recall?: 'guaranteed' | 'fast';
   
   // Advanced similarity detector options
   kGramSize?: number;
