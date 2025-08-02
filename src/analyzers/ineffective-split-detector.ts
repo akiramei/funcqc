@@ -78,11 +78,11 @@ export class IneffectiveSplitDetector {
   /**
    * Analyze functions to detect ineffective splits
    */
-  async detectIneffectiveSplits(
+  detectIneffectiveSplits(
     functions: FunctionInfo[],
     callEdges: CallEdge[],
     options: DetectionOptions = {}
-  ): Promise<IneffectiveSplitFinding[]> {
+  ): IneffectiveSplitFinding[] {
     const findings: IneffectiveSplitFinding[] = [];
     
     // Build lookup maps
@@ -117,7 +117,7 @@ export class IneffectiveSplitDetector {
       if (r1) rulesHit.push(r1);
       
       // R2: Thin wrapper
-      const r2 = await this.checkThinWrapper(func, metrics, callsByFunction.outgoing);
+      const r2 = this.checkThinWrapper(func, metrics, callsByFunction.outgoing);
       if (r2) rulesHit.push(r2);
       
       // R3: Linear chain CC=1
@@ -239,23 +239,23 @@ export class IneffectiveSplitDetector {
   /**
    * R2: Check if function is a thin wrapper
    */
-  private async checkThinWrapper(
+  private checkThinWrapper(
     func: FunctionInfo,
     metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
     outgoingCalls: Map<string, Set<string>>
-  ): Promise<{ code: IneffectiveSplitRule; score: number; evidence: string } | null> {
+  ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const callees = outgoingCalls.get(func.id) || new Set();
     
-    // Check single callee and low complexity
-    if (callees.size === 1 && metrics.cc <= 1) {
+    // Check single callee, low complexity, and limited reuse (improved precision)
+    if (callees.size === 1 && metrics.cc <= 1 && metrics.fanIn <= 2) {
       // Analyze passthrough characteristics
-      const passthroughAnalysis = await this.analyzePassthrough(func);
+      const passthroughAnalysis = this.analyzePassthrough(func);
       
       if (passthroughAnalysis.isPassthrough && passthroughAnalysis.passthroughRatio >= 0.8) {
         return {
           code: IneffectiveSplitRule.THIN_WRAPPER,
           score: 0.9,
-          evidence: `single call, passthrough≈${passthroughAnalysis.passthroughRatio.toFixed(2)}`
+          evidence: `single call, fanIn=${metrics.fanIn}, passthrough≈${passthroughAnalysis.passthroughRatio.toFixed(2)}`
         };
       }
     }
@@ -407,7 +407,7 @@ export class IneffectiveSplitDetector {
   /**
    * Analyze passthrough characteristics
    */
-  private async analyzePassthrough(func: FunctionInfo): Promise<PassthroughAnalysis> {
+  private analyzePassthrough(func: FunctionInfo): PassthroughAnalysis {
     // Simple heuristic based on function signature and name
     // In a real implementation, this would use AST analysis
     

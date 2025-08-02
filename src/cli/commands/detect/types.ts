@@ -32,6 +32,11 @@ export interface IneffectiveSplitsOutput {
       medium: number;
       low: number;
     };
+    displayedSeverityBreakdown: {
+      high: number;
+      medium: number;
+      low: number;
+    };
     filters: {
       minSeverity?: string;
       includeTest: boolean;

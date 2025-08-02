@@ -49,7 +49,7 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
         detectionOptions.threshold = parseFloat(options.threshold);
       }
       
-      const findings = await detector.detectIneffectiveSplits(functions, callEdges, detectionOptions);
+      const findings = detector.detectIneffectiveSplits(functions, callEdges, detectionOptions);
 
       // Apply severity filter
       const filteredFindings = filterBySeverity(findings, options.minSeverity);
@@ -110,6 +110,11 @@ function outputJSON(
         high: allFindings.filter(f => f.severity === 'High').length,
         medium: allFindings.filter(f => f.severity === 'Medium').length,
         low: allFindings.filter(f => f.severity === 'Low').length
+      },
+      displayedSeverityBreakdown: {
+        high: displayedFindings.filter(f => f.severity === 'High').length,
+        medium: displayedFindings.filter(f => f.severity === 'Medium').length,
+        low: displayedFindings.filter(f => f.severity === 'Low').length
       },
       filters: {
         ...(options.minSeverity && { minSeverity: options.minSeverity }),
@@ -195,8 +200,9 @@ function outputTable(
       const isLast = index === findings.length - 1;
       const prefix = isLast ? '└──' : '├──';
       
-      // Main rule description
-      const mainRule = finding.rulesHit[0];
+      // Main rule description (highest score first)
+      const sortedRules = [...finding.rulesHit].sort((a, b) => b.score - a.score);
+      const mainRule = sortedRules[0];
       const ruleDesc = getRuleDescription(mainRule.code);
       
       console.log(`${prefix} ${color(`${ruleDesc} (${mainRule.code})`)} - score: ${finding.totalScore.toFixed(1)}/10`);
@@ -216,9 +222,9 @@ function outputTable(
       // Evidence
       console.log(`    │       ${chalk.gray(mainRule.evidence)}`);
       
-      // Additional rules
-      if (finding.rulesHit.length > 1) {
-        console.log(`    │       ${chalk.gray(`Also matches: ${finding.rulesHit.slice(1).map(r => r.code).join(', ')}`)}`);
+      // Additional rules (sorted by score)
+      if (sortedRules.length > 1) {
+        console.log(`    │       ${chalk.gray(`Also matches: ${sortedRules.slice(1).map(r => r.code).join(', ')}`)}`);
       }
       
       // Suggestions
