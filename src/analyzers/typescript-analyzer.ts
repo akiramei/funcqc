@@ -13,6 +13,7 @@ import {
   VariableStatement,
 } from 'ts-morph';
 import * as path from 'path';
+import { determineFunctionType } from './shared/function-type-utils';
 import * as crypto from 'crypto';
 import * as fs from 'fs/promises';
 import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types';
@@ -391,7 +392,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     // Extract comprehensive function context
     const contextPath = this.extractContextPath(func);
     const modifiers = this.extractModifiers(func);
-    const functionType = this.determineFunctionType(func);
+    const functionType = determineFunctionType(func);
     const nestingLevel = this.calculateNestingLevel(func);
 
     // Generate 3D identification system
@@ -498,7 +499,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     // Extract comprehensive function context
     const contextPath = this.extractContextPath(method);
     const modifiers = this.extractModifiers(method);
-    const functionType = this.determineFunctionType(method);
+    const functionType = determineFunctionType(method);
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
@@ -694,7 +695,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     if (functionNode.isAsync()) modifiers.push('async');
     if (stmt.isExported()) modifiers.push('exported');
 
-    const functionType = this.determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
+    const functionType = determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
     const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
 
     return {
@@ -1101,37 +1102,7 @@ _fileContent: string
     return modifiers;
   }
 
-  /**
-   * Determine function type based on node type and context
-   */
-  private determineFunctionType(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
-  ): 'function' | 'method' | 'arrow' | 'local' {
-    if (Node.isMethodDeclaration(node) || Node.isConstructorDeclaration(node)) {
-      return 'method';
-    }
-    if (Node.isArrowFunction(node)) {
-      return 'arrow';
-    }
-
-    // Check if it's a local function (inside another function)
-    let parent = node.getParent();
-    while (parent && !Node.isSourceFile(parent)) {
-      if (
-        Node.isFunctionDeclaration(parent) ||
-        Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent) ||
-        Node.isFunctionExpression(parent)
-      ) {
-        return 'local';
-      }
-      const nextParent = parent.getParent();
-      if (!nextParent) break;
-      parent = nextParent;
-    }
-
-    return 'function';
-  }
+  // Removed: determineFunctionType - now using shared implementation
 
   /**
    * Calculate nesting level for the function
