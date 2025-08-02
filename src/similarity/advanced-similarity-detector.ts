@@ -51,7 +51,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private readonly DEFAULT_LSH_BITS = 24; // Increased for better distribution (16.7M buckets)
   private readonly SIMHASH_BITS = 64;
   private readonly DEFAULT_MAX_LSH_BUCKET_SIZE = 10; // Maximum bucket size for O(n) performance guarantee
-  private readonly DEFAULT_SINGLE_STAGE_THRESHOLD = 1000; // Function count threshold for single-stage analysis
+  private readonly DEFAULT_SINGLE_STAGE_THRESHOLD = 5000; // Function count threshold for single-stage analysis
   private readonly DEFAULT_CACHE_SIZE = 1000; // Default cache size - used in calculateOptimalCacheSize
   private readonly DEFAULT_MAX_FUNCTION_SIZE = 300; // Default maximum function size
 
