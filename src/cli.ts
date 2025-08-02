@@ -297,6 +297,7 @@ program
   .option('--snapshot <id>', 'analyze specific snapshot (default: latest)')
   .option('--min-lines <num>', 'minimum lines of code to consider', '3')
   .option('--no-cross-file', 'only detect similarities within same file')
+  .option('--recall <strategy>', 'completeness vs performance: guaranteed|deterministic|fast', 'guaranteed')
   .option('--detectors <list>', 'comma-separated list of detectors to use')
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')

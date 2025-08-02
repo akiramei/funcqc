@@ -2,6 +2,7 @@ import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
 import pLimit from 'p-limit';
 import os from 'os';
+import crypto from 'crypto';
 import {
   FunctionInfo,
   SimilarityDetector,
@@ -51,9 +52,11 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private readonly DEFAULT_LSH_BITS = 24; // Increased for better distribution (16.7M buckets)
   private readonly SIMHASH_BITS = 64;
   private readonly DEFAULT_MAX_LSH_BUCKET_SIZE = 10; // Maximum bucket size for O(n) performance guarantee
-  private readonly DEFAULT_SINGLE_STAGE_THRESHOLD = 5000; // Function count threshold for single-stage analysis
   private readonly DEFAULT_CACHE_SIZE = 1000; // Default cache size - used in calculateOptimalCacheSize
   private readonly DEFAULT_MAX_FUNCTION_SIZE = 300; // Default maximum function size
+  
+  // Simple threshold for full analysis mode
+  private readonly SMALL_DATASET_THRESHOLD = 100; // Use full analysis for small datasets
 
   constructor(options: SimilarityOptions = {}) {
     this.config = this.createConfig(options);
@@ -72,7 +75,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       winnowingWindow: options.winnowingWindow || this.DEFAULT_WINNOWING_WINDOW,
       lshBits: options.lshBits || this.DEFAULT_LSH_BITS,
       maxLshBucketSize: options.maxLshBucketSize || this.DEFAULT_MAX_LSH_BUCKET_SIZE,
-      singleStageThreshold: options.singleStageThreshold || this.DEFAULT_SINGLE_STAGE_THRESHOLD,
+      singleStageThreshold: options.singleStageThreshold || 1000,
       cacheSize: options.cacheSize || this.calculateOptimalCacheSize(),
       maxFunctionSize: options.maxFunctionSize || this.DEFAULT_MAX_FUNCTION_SIZE,
       useParallelProcessing: options.useParallelProcessing !== false,
@@ -110,26 +113,89 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     console.log(`🧬 Advanced detector processing ${validFunctions.length} valid functions`);
 
-    // Unified algorithm path for predictable performance
-    const TRIVIALLY_SMALL_THRESHOLD = 20; // Threshold where pairwise comparison is clearly faster
-
-    if (validFunctions.length <= TRIVIALLY_SMALL_THRESHOLD) {
-      // Only for truly small datasets where O(n²) is acceptable
-      console.log(`📊 Using full advanced analysis (trivially small dataset)`);
-      return this.detectAdvancedMode(validFunctions, config);
-    } else if (validFunctions.length > this.config.singleStageThreshold) {
-      // Large datasets require sampling
-      console.log(`📊 Using sampling approach for large scale (${validFunctions.length} functions)`);
-      return this.detectSamplingMode(validFunctions, config);
-    } else {
-      // All medium-sized datasets use the scalable two-stage approach
-      console.log(`📊 Using two-stage approach (scalable processing)`);
-      return this.detectTwoStageMode(validFunctions, config);
+    // Recall strategy determines completeness vs performance trade-off
+    const recallStrategy = options.recall || 'guaranteed';
+    
+    switch (recallStrategy) {
+      case 'guaranteed':
+        // Always use complete analysis - no sampling allowed
+        console.log(`🔒 Guaranteed recall mode: Complete analysis (${validFunctions.length} functions)`);
+        if (validFunctions.length <= this.SMALL_DATASET_THRESHOLD) {
+          console.log(`📊 Using full advanced analysis (optimal for ≤${this.SMALL_DATASET_THRESHOLD} functions)`);
+          return this.detectAdvancedMode(validFunctions, config);
+        } else {
+          console.log(`📊 Using two-stage approach (deterministic hierarchical LSH)`);
+          return this.detectTwoStageMode(validFunctions, config);
+        }
+        
+      case 'deterministic':
+        // Deterministic subset selection - same input always gives same result
+        console.log(`🎯 Deterministic recall mode: Reproducible subset analysis`);
+        return this.detectDeterministicMode(validFunctions, config);
+        
+      case 'fast':
+        // Legacy sampling mode - may miss similarities
+        console.log(`⚡ Fast recall mode: Sampling-based analysis (${validFunctions.length} functions)`);
+        console.log(`⚠️  Warning: May miss similarities not in sample. Use --recall guaranteed for complete analysis.`);
+        return this.detectSamplingMode(validFunctions, config);
+        
+      default:
+        throw new Error(`Unknown recall strategy: ${recallStrategy}`);
     }
   }
 
   /**
-   * Sampling-based detection for very large datasets
+   * Deterministic mode - reproducible subset selection using consistent hashing
+   */
+  private async detectDeterministicMode(
+    functions: FunctionInfo[],
+    config: ReturnType<typeof this.parseDetectionOptions>
+  ): Promise<SimilarityResult[]> {
+    const targetSize = 1000; // Deterministic subset size
+    
+    if (functions.length <= targetSize) {
+      return this.detectTwoStageMode(functions, config);
+    }
+
+    console.log(`🔄 Selecting ${targetSize} functions deterministically from ${functions.length} total`);
+    
+    // Deterministic selection using consistent hashing
+    const selectedFunctions = this.deterministicSelect(functions, targetSize);
+    
+    console.log(`✅ Selected ${selectedFunctions.length} functions (deterministic)`);
+    
+    // Run complete analysis on deterministic subset
+    return this.detectTwoStageMode(selectedFunctions, config);
+  }
+
+  /**
+   * Deterministic function selection using consistent hashing
+   */
+  private deterministicSelect(functions: FunctionInfo[], targetSize: number): FunctionInfo[] {
+    // Create stable hash-based keys for each function
+    const functionsWithKeys = functions.map(func => ({
+      func,
+      key: this.createDeterministicKey(func)
+    }));
+    
+    // Sort by hash key for deterministic ordering
+    functionsWithKeys.sort((a, b) => a.key.localeCompare(b.key));
+    
+    // Select first N functions - always same result for same input
+    return functionsWithKeys.slice(0, targetSize).map(item => item.func);
+  }
+
+  /**
+   * Create deterministic key for function based on stable properties
+   */
+  private createDeterministicKey(func: FunctionInfo): string {
+    // Use stable properties that don't change between runs
+    const stableData = `${func.filePath}:${func.name}:${func.startLine}:${func.endLine}`;
+    return crypto.createHash('sha256').update(stableData).digest('hex');
+  }
+
+  /**
+   * Sampling-based detection for very large datasets (legacy fast mode)
    */
   private async detectSamplingMode(
     functions: FunctionInfo[],

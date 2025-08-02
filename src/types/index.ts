@@ -697,6 +697,8 @@ export interface SimilarityOptions {
   crossFile?: boolean;
   printCode?: boolean;
   
+  // Recall strategy - determines completeness vs performance trade-off
+  recall?: 'guaranteed' | 'deterministic' | 'fast';
   
   // Advanced similarity detector options
   kGramSize?: number;
