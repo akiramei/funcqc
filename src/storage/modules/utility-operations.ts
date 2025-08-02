@@ -4,17 +4,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { StorageContext, StorageOperationModule } from './types';
+import { StorageOperationModule } from './types';
+import { BaseStorageOperations } from '../shared/base-storage-operations';
+import type { StorageContext } from './types';
 
-export class UtilityOperations implements StorageOperationModule {
-  readonly db;
-  readonly kysely;
-  private logger;
-
+export class UtilityOperations extends BaseStorageOperations implements StorageOperationModule {
   constructor(context: StorageContext) {
-    this.db = context.db;
-    this.kysely = context.kysely;
-    this.logger = context.logger;
+    super(context);
   }
 
   /**
