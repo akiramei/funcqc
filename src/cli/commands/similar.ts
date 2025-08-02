@@ -63,10 +63,10 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
       // Pass flag to skip redundant filtering when DB filtering was applied
       const dbFilteringApplied = !!options.minLines;
       
-      // When using minLines filter with many functions, skip O(n²) AST detector for better performance
-      if (dbFilteringApplied && functions.length > 500 && !options.detectors) {
-        console.log(chalk.yellow('⚡ Using fast detectors for better performance with --min-lines filter'));
-        detectionConfig.enabledDetectors = ['hash-duplicate', 'advanced-structural'];
+      // Always use advanced-structural detector for optimal performance
+      if (!options.detectors) {
+        console.log(chalk.yellow('⚡ Using advanced-structural detector for optimal performance'));
+        detectionConfig.enabledDetectors = ['advanced-structural'];
       }
       
       let results = await detectSimilarities(functions, detectionConfig, spinner, dbFilteringApplied);
