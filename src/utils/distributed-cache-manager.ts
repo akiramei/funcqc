@@ -49,6 +49,77 @@ class FunctionCacheAdapter implements FunctionCacheProvider {
 }
 
 /**
+ * Independent function cache that doesn't use the central AnalysisCache
+ * This reduces the bottleneck on the main get() function
+ */
+class IndependentFunctionCache implements FunctionCacheProvider {
+  private memoryCache = new Map<string, { functions: FunctionInfo[], timestamp: number }>();
+  private stats = { hits: 0, misses: 0 };
+  private readonly maxEntries: number;
+  private readonly maxAge: number;
+
+  constructor(options: { maxEntries?: number; maxAge?: number } = {}) {
+    this.maxEntries = options.maxEntries || 1000;
+    this.maxAge = options.maxAge || 24 * 60 * 60 * 1000; // 24 hours
+  }
+
+  async get(key: string): Promise<FunctionInfo[] | null> {
+    const entry = this.memoryCache.get(key);
+    
+    if (!entry) {
+      this.stats.misses++;
+      return null;
+    }
+
+    // Check if entry is expired
+    if (Date.now() - entry.timestamp > this.maxAge) {
+      this.memoryCache.delete(key);
+      this.stats.misses++;
+      return null;
+    }
+
+    this.stats.hits++;
+    return entry.functions;
+  }
+
+  async set(key: string, value: FunctionInfo[]): Promise<void> {
+    // Evict oldest entries if at capacity
+    if (this.memoryCache.size >= this.maxEntries) {
+      const firstKey = this.memoryCache.keys().next().value;
+      if (firstKey !== undefined) {
+        this.memoryCache.delete(firstKey);
+      }
+    }
+
+    this.memoryCache.set(key, {
+      functions: value,
+      timestamp: Date.now()
+    });
+  }
+
+  async clear(): Promise<void> {
+    this.memoryCache.clear();
+    this.stats = { hits: 0, misses: 0 };
+  }
+
+  async preload(filePaths: string[]): Promise<{ loaded: number; total: number }> {
+    // Independent cache doesn't support preloading from persistent storage
+    // This is intentional to avoid the bottleneck
+    return { loaded: 0, total: filePaths.length };
+  }
+
+  getStats() {
+    const total = this.stats.hits + this.stats.misses;
+    return {
+      totalEntries: this.memoryCache.size,
+      hitRate: total > 0 ? this.stats.hits / total : 0,
+      hits: this.stats.hits,
+      misses: this.stats.misses
+    };
+  }
+}
+
+/**
  * Distributed cache manager that creates specialized cache instances
  */
 export class DistributedCacheManager implements CacheProviderFactory {
@@ -70,17 +141,33 @@ export class DistributedCacheManager implements CacheProviderFactory {
     maxEntries?: number;
     maxSize?: number;
     persistentPath?: string;
+    useMainCache?: boolean;  // Option to use main cache for backward compatibility
   }): FunctionCacheProvider {
     const cacheKey = this.generateCacheKey('function-cache', options);
     
     let cache = this.cacheInstances.get(cacheKey);
     if (!cache) {
-      cache = new FunctionCacheAdapter(this.mainAnalysisCache);
+      // Use independent cache by default to reduce centrality bottleneck
+      if (options?.useMainCache) {
+        cache = new FunctionCacheAdapter(this.mainAnalysisCache);
+      } else {
+        cache = new IndependentFunctionCache({
+          maxEntries: options?.maxEntries || 1000,
+          maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        });
+      }
       this.cacheInstances.set(cacheKey, cache);
     }
     
-    // Type is guaranteed since we just created it as FunctionCacheAdapter
     return cache as FunctionCacheProvider;
+  }
+
+  /**
+   * Get the main analysis cache for cases that need persistent storage
+   * This should be used sparingly to avoid centrality bottleneck
+   */
+  getMainAnalysisCache(): AnalysisCache {
+    return this.mainAnalysisCache;
   }
 
   /**
