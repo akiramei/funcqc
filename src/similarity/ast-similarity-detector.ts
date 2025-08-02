@@ -11,6 +11,7 @@ import {
 } from '../types';
 import { ASTCanonicalizer, calculateASTSimilarity } from './ast-canonicalizer';
 import { Project } from 'ts-morph';
+import { filterValidFunctions } from './shared/function-utils';
 
 export class ASTSimilarityDetector implements SimilarityDetector {
   name = 'ast-structural';
@@ -55,7 +56,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     options: SimilarityOptions = {}
   ): Promise<SimilarityResult[]> {
     const config = this.parseDetectionOptions(options);
-    const validFunctions = this.filterValidFunctions(functions, config);
+    const validFunctions = filterValidFunctions(functions, config);
     const pairwiseResults = this.detectPairwiseSimilarities(validFunctions, config);
 
     return this.groupSimilarFunctions(pairwiseResults);
@@ -73,26 +74,7 @@ export class ASTSimilarityDetector implements SimilarityDetector {
     };
   }
 
-  private filterValidFunctions(
-    functions: FunctionInfo[],
-    config: { minLines: number }
-  ): FunctionInfo[] {
-    // Skip filtering if minLines is 0 or negative (i.e., DB filtering was already applied)
-    if (config.minLines <= 0) {
-      return functions;
-    }
-    
-    return functions.filter(func => {
-      // If no metrics available, include the function (conservative approach)
-      if (!func.metrics) return true;
-      
-      // If metrics exist but linesOfCode is undefined, include the function
-      if (func.metrics.linesOfCode === undefined) return true;
-      
-      // Otherwise, apply the filter
-      return func.metrics.linesOfCode >= config.minLines;
-    });
-  }
+  // Removed: filterValidFunctions - now using shared implementation
 
   private detectPairwiseSimilarities(
     functions: FunctionInfo[],

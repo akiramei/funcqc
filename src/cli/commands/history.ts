@@ -9,6 +9,7 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { formatDuration } from '../../utils/file-utils';
+import { formatDate } from '../../utils/date-utils';
 
 /**
  * History command as a Reader function
@@ -375,32 +376,7 @@ export function formatDiffValue(diff: number, width: number = 7): string {
   return diffStr.padStart(width);
 }
 
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-
-  // Less than 1 hour ago
-  if (diffMs < 60 * 60 * 1000) {
-    const minutes = Math.floor(diffMs / (60 * 1000));
-    return minutes <= 1 ? 'just now' : `${minutes}m ago`;
-  }
-
-  // Less than 24 hours ago
-  if (diffMs < 24 * 60 * 60 * 1000) {
-    const hours = Math.floor(diffMs / (60 * 60 * 1000));
-    return `${hours}h ago`;
-  }
-
-  // Less than 7 days ago
-  if (diffMs < 7 * 24 * 60 * 60 * 1000) {
-    const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-    return `${days}d ago`;
-  }
-
-  // More than 7 days ago - show date
-  return date.toLocaleDateString();
-}
+// Removed: formatDate - now using shared implementation from utils/date-utils
 
 /**
  * Find the previous snapshot with the same scope

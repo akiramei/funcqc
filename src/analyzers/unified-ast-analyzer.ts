@@ -13,6 +13,7 @@ import { FunctionInfo, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../
 import { QualityCalculator } from '../metrics/quality-calculator';
 // Option 1: Use custom LRU cache (better performance for our use case)
 import { LRUCache } from '../utils/lru-cache';
+import { determineFunctionType } from './shared/function-type-utils';
 import { globalHashCache } from '../utils/hash-cache';
 
 // Option 2: Use npm lru-cache (uncomment to switch)
@@ -195,7 +196,7 @@ export class UnifiedASTAnalyzer {
     // Extract contextPath and accessModifier
     const contextPath = this.extractContextPath(node);
     const accessModifier = this.extractAccessModifier(node);
-    const functionType = this.determineFunctionType(node);
+    const functionType = determineFunctionType(node);
     const nestingLevel = this.calculateNestingLevel(node);
     
 
@@ -442,35 +443,7 @@ export class UnifiedASTAnalyzer {
     return `${asyncModifier}${name}(${params}): ${returnType}`;
   }
 
-  /**
-   * Determine function type based on node type and context
-   */
-  private determineFunctionType(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration
-  ): 'function' | 'method' | 'arrow' | 'local' {
-    if (Node.isMethodDeclaration(node) || Node.isConstructorDeclaration(node)) {
-      return 'method';
-    }
-    if (Node.isArrowFunction(node)) {
-      return 'arrow';
-    }
-    // Check if it's a local function (inside another function)
-    let parent = node.getParent();
-    while (parent && !Node.isSourceFile(parent)) {
-      if (
-        Node.isFunctionDeclaration(parent) ||
-        Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent) ||
-        Node.isFunctionExpression(parent)
-      ) {
-        return 'local';
-      }
-      const nextParent = parent.getParent();
-      if (!nextParent) break;
-      parent = nextParent;
-    }
-    return 'function';
-  }
+  // Removed: determineFunctionType - now using shared implementation
 
   /**
    * Calculate nesting level for the function

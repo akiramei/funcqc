@@ -6,6 +6,7 @@ import {
   SimilarFunction,
 } from '../types';
 import { ASTSimilarityDetector } from './ast-similarity-detector';
+import { filterValidFunctions } from './shared/function-utils';
 
 /**
  * Hash-based similarity detector for ultra-fast duplicate detection
@@ -28,7 +29,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
     options: SimilarityOptions = {}
   ): Promise<SimilarityResult[]> {
     const config = this.parseDetectionOptions(options);
-    const validFunctions = this.filterValidFunctions(functions, config);
+    const validFunctions = filterValidFunctions(functions, config);
 
     // Enable hybrid mode for better accuracy (default: enabled)
     this.hybridMode = (options as SimilarityOptions & { astVerification?: boolean }).astVerification !== false;
@@ -56,26 +57,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
     };
   }
 
-  private filterValidFunctions(
-    functions: FunctionInfo[],
-    config: { minLines: number }
-  ): FunctionInfo[] {
-    // Skip filtering if minLines is 0 or negative (i.e., DB filtering was already applied)
-    if (config.minLines <= 0) {
-      return functions;
-    }
-    
-    return functions.filter(func => {
-      // If no metrics available, include the function (conservative approach)
-      if (!func.metrics) return true;
-      
-      // If metrics exist but linesOfCode is undefined, include the function
-      if (func.metrics.linesOfCode === undefined) return true;
-      
-      // Otherwise, apply the filter
-      return func.metrics.linesOfCode >= config.minLines;
-    });
-  }
+  // Removed: filterValidFunctions - now using shared implementation
 
   private detectHashSimilarities(
     functions: FunctionInfo[],
