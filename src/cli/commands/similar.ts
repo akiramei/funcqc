@@ -2,7 +2,7 @@ import ora from 'ora';
 import chalk from 'chalk';
 import fs from 'fs';
 import { SimilarityManager } from '../../similarity/similarity-manager';
-import { FunctionInfo, SimilarityResult, ConsensusStrategy } from '../../types';
+import { FunctionInfo, SimilarityResult, ConsensusStrategy, SimilarityOptions } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
@@ -24,7 +24,7 @@ export interface SimilarCommandOptions extends BaseCommandOptions {
   output?: string;
   limit?: string;
   archAnalysis?: boolean; // Architecture rule analysis for refactoring guidance
-  recall?: 'guaranteed' | 'deterministic' | 'fast'; // Completeness vs performance trade-off
+  recall?: SimilarityOptions['recall']; // Use the same type as SimilarityOptions
 }
 
 interface DetectionConfig {

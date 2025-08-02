@@ -2,7 +2,6 @@ import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
 import { LRUCache } from 'lru-cache';
 import pLimit from 'p-limit';
 import os from 'os';
-import crypto from 'crypto';
 import {
   FunctionInfo,
   SimilarityDetector,
@@ -55,8 +54,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
   private readonly DEFAULT_CACHE_SIZE = 1000; // Default cache size - used in calculateOptimalCacheSize
   private readonly DEFAULT_MAX_FUNCTION_SIZE = 300; // Default maximum function size
   
-  // Simple threshold for full analysis mode
-  private readonly SMALL_DATASET_THRESHOLD = 100; // Use full analysis for small datasets
 
   constructor(options: SimilarityOptions = {}) {
     this.config = this.createConfig(options);
@@ -120,18 +117,13 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
       case 'guaranteed':
         // Always use complete analysis - no sampling allowed
         console.log(`🔒 Guaranteed recall mode: Complete analysis (${validFunctions.length} functions)`);
-        if (validFunctions.length <= this.SMALL_DATASET_THRESHOLD) {
-          console.log(`📊 Using full advanced analysis (optimal for ≤${this.SMALL_DATASET_THRESHOLD} functions)`);
+        if (validFunctions.length <= 100) {
+          console.log(`📊 Using full advanced analysis (optimal for small datasets)`);
           return this.detectAdvancedMode(validFunctions, config);
         } else {
           console.log(`📊 Using two-stage approach (deterministic hierarchical LSH)`);
           return this.detectTwoStageMode(validFunctions, config);
         }
-        
-      case 'deterministic':
-        // Deterministic subset selection - same input always gives same result
-        console.log(`🎯 Deterministic recall mode: Reproducible subset analysis`);
-        return this.detectDeterministicMode(validFunctions, config);
         
       case 'fast':
         // Legacy sampling mode - may miss similarities
@@ -144,55 +136,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
     }
   }
 
-  /**
-   * Deterministic mode - reproducible subset selection using consistent hashing
-   */
-  private async detectDeterministicMode(
-    functions: FunctionInfo[],
-    config: ReturnType<typeof this.parseDetectionOptions>
-  ): Promise<SimilarityResult[]> {
-    const targetSize = 1000; // Deterministic subset size
-    
-    if (functions.length <= targetSize) {
-      return this.detectTwoStageMode(functions, config);
-    }
-
-    console.log(`🔄 Selecting ${targetSize} functions deterministically from ${functions.length} total`);
-    
-    // Deterministic selection using consistent hashing
-    const selectedFunctions = this.deterministicSelect(functions, targetSize);
-    
-    console.log(`✅ Selected ${selectedFunctions.length} functions (deterministic)`);
-    
-    // Run complete analysis on deterministic subset
-    return this.detectTwoStageMode(selectedFunctions, config);
-  }
-
-  /**
-   * Deterministic function selection using consistent hashing
-   */
-  private deterministicSelect(functions: FunctionInfo[], targetSize: number): FunctionInfo[] {
-    // Create stable hash-based keys for each function
-    const functionsWithKeys = functions.map(func => ({
-      func,
-      key: this.createDeterministicKey(func)
-    }));
-    
-    // Sort by hash key for deterministic ordering
-    functionsWithKeys.sort((a, b) => a.key.localeCompare(b.key));
-    
-    // Select first N functions - always same result for same input
-    return functionsWithKeys.slice(0, targetSize).map(item => item.func);
-  }
-
-  /**
-   * Create deterministic key for function based on stable properties
-   */
-  private createDeterministicKey(func: FunctionInfo): string {
-    // Use stable properties that don't change between runs
-    const stableData = `${func.filePath}:${func.name}:${func.startLine}:${func.endLine}`;
-    return crypto.createHash('sha256').update(stableData).digest('hex');
-  }
 
   /**
    * Sampling-based detection for very large datasets (legacy fast mode)
