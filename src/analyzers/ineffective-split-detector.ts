@@ -89,10 +89,6 @@ export class IneffectiveSplitDetector {
     const functionMap = new Map(functions.map(f => [f.id, f]));
     const callsByFunction = this.buildCallMaps(callEdges);
     
-    // Calculate fan-in/fan-out for all functions
-    const fanInMap = this.calculateFanIn(callEdges);
-    const fanOutMap = this.calculateFanOut(callEdges);
-    
     // Analyze each function
     for (const func of functions) {
       // Skip test files if requested
@@ -100,12 +96,12 @@ export class IneffectiveSplitDetector {
         continue;
       }
       
-      // Get metrics
+      // Get metrics (use unique call counts from Sets)
       const metrics = {
         cc: func.metrics?.cyclomaticComplexity || 1,
         sloc: func.metrics?.linesOfCode || 0,
-        fanIn: fanInMap.get(func.id) || 0,
-        fanOut: fanOutMap.get(func.id) || 0
+        fanIn: callsByFunction.incoming.get(func.id)?.size || 0,
+        fanOut: callsByFunction.outgoing.get(func.id)?.size || 0
       };
       
       // Skip if below minimum lines threshold
@@ -154,6 +150,9 @@ export class IneffectiveSplitDetector {
           continue;
         }
         
+        // Generate chain sample for CC=1 chains
+        const chainSample = this.generateChainSample(func, callsByFunction, functionMap, rulesHit);
+        
         findings.push({
           functionId: func.id,
           name: func.name,
@@ -166,7 +165,8 @@ export class IneffectiveSplitDetector {
           suggestions: this.generateSuggestions(rulesHit),
           related: {
             callers: Array.from(callsByFunction.incoming.get(func.id) || []),
-            callees: Array.from(callsByFunction.outgoing.get(func.id) || [])
+            callees: Array.from(callsByFunction.outgoing.get(func.id) || []),
+            ...(chainSample && { chainSample })
           }
         });
       }
@@ -187,8 +187,8 @@ export class IneffectiveSplitDetector {
     const outgoing = new Map<string, Set<string>>();
     
     for (const edge of callEdges) {
-      // Skip external calls
-      if (!edge.calleeFunctionId) continue;
+      // Skip external calls or invalid edges
+      if (!edge.calleeFunctionId || !edge.callerFunctionId) continue;
       
       // Incoming
       if (!incoming.has(edge.calleeFunctionId)) {
@@ -206,35 +206,6 @@ export class IneffectiveSplitDetector {
     return { incoming, outgoing };
   }
 
-  /**
-   * Calculate fan-in for all functions
-   */
-  private calculateFanIn(callEdges: CallEdge[]): Map<string, number> {
-    const fanIn = new Map<string, number>();
-    
-    for (const edge of callEdges) {
-      if (edge.calleeFunctionId) {
-        const current = fanIn.get(edge.calleeFunctionId) || 0;
-        fanIn.set(edge.calleeFunctionId, current + 1);
-      }
-    }
-    
-    return fanIn;
-  }
-
-  /**
-   * Calculate fan-out for all functions
-   */
-  private calculateFanOut(callEdges: CallEdge[]): Map<string, number> {
-    const fanOut = new Map<string, number>();
-    
-    for (const edge of callEdges) {
-      const current = fanOut.get(edge.callerFunctionId) || 0;
-      fanOut.set(edge.callerFunctionId, current + 1);
-    }
-    
-    return fanOut;
-  }
 
   /**
    * R1: Check if function is an inline candidate
@@ -301,7 +272,7 @@ export class IneffectiveSplitDetector {
     callMaps: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
     functionMap: Map<string, FunctionInfo>
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
-    if (metrics.cc !== 1) return null;
+    if (metrics.cc !== 1 || metrics.fanIn > 1) return null;
     
     // Trace CC=1 chain
     let chainLength = 0;
@@ -388,11 +359,8 @@ export class IneffectiveSplitDetector {
   private checkPseudoBoundary(
     func: FunctionInfo,
     metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
-    options: DetectionOptions
+    _options: DetectionOptions
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
-    // Skip if boundaries are included
-    if (options.includeBoundaries) return null;
-    
     // Check if it's NOT a boundary but looks like one
     if (!this.isBoundaryCandidate(func) && 
         metrics.cc <= 1 && 
@@ -419,12 +387,12 @@ export class IneffectiveSplitDetector {
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const callers = incomingCalls.get(func.id) || new Set();
     
-    if (callers.size === 1 && func.functionType === 'local') {
+    if (callers.size === 1) {
       const callerId = Array.from(callers)[0];
       const caller = functionMap.get(callerId);
       
-      // Check if declared in same file
-      if (caller && caller.filePath === func.filePath) {
+      // Check if declared in same file and not exported
+      if (caller && caller.filePath === func.filePath && !func.isExported) {
         return {
           code: IneffectiveSplitRule.LOCAL_THROWAWAY,
           score: 0.7,
@@ -483,9 +451,12 @@ export class IneffectiveSplitDetector {
    * Check if function is a boundary candidate
    */
   private isBoundaryCandidate(func: FunctionInfo): boolean {
+    // Normalize path for Windows compatibility
+    const normalizedPath = func.filePath.replace(/\\/g, '/');
+    
     // Check file path patterns
     for (const pattern of this.BOUNDARY_PATTERNS) {
-      if (pattern.test(func.filePath)) return true;
+      if (pattern.test(normalizedPath)) return true;
     }
     
     // Check function names
@@ -494,7 +465,7 @@ export class IneffectiveSplitDetector {
     }
     
     // Check if exported from index files
-    if (func.isExported && func.filePath.endsWith('/index.ts')) {
+    if (func.isExported && normalizedPath.endsWith('/index.ts')) {
       return true;
     }
     
@@ -520,9 +491,10 @@ export class IneffectiveSplitDetector {
     // Exact match
     if (this.GENERIC_NAMES.has(lowerName)) return 1.0;
     
-    // Partial match
+    // Word boundary match (more precise)
     for (const generic of this.GENERIC_NAMES) {
-      if (lowerName.includes(generic)) return 0.7;
+      const regex = new RegExp(`\\b${generic}\\b`, 'i');
+      if (regex.test(name)) return 0.7;
     }
     
     // Pattern match
@@ -535,7 +507,7 @@ export class IneffectiveSplitDetector {
    * Calculate total score from rules
    */
   private calculateTotalScore(rulesHit: Array<{ score: number }>): number {
-    // Weighted sum with sigmoid normalization
+    // Weighted sum with linear normalization
     const rawScore = rulesHit.reduce((sum, rule) => sum + rule.score, 0);
     
     // Apply penalties for suppression patterns
@@ -552,6 +524,42 @@ export class IneffectiveSplitDetector {
     if (score >= 7.5) return 'High';
     if (score >= 5.5) return 'Medium';
     return 'Low';
+  }
+
+  /**
+   * Generate chain sample for CC=1 chains
+   */
+  private generateChainSample(
+    func: FunctionInfo,
+    callMaps: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
+    functionMap: Map<string, FunctionInfo>,
+    rulesHit: Array<{ code: IneffectiveSplitRule }>
+  ): string[] | undefined {
+    // Only generate for CC=1 chain rules
+    const hasChainRule = rulesHit.some(rule => rule.code === IneffectiveSplitRule.LINEAR_CHAIN_CC1);
+    if (!hasChainRule) return undefined;
+    
+    const chainSample: string[] = [func.name];
+    let current = func.id;
+    const visited = new Set<string>();
+    
+    // Follow the chain
+    while (!visited.has(current) && chainSample.length < 5) {
+      visited.add(current);
+      
+      const callees = callMaps.outgoing.get(current) || new Set();
+      if (callees.size !== 1) break;
+      
+      const nextId = Array.from(callees)[0];
+      const nextFunc = functionMap.get(nextId);
+      
+      if (!nextFunc || nextFunc.metrics?.cyclomaticComplexity !== 1) break;
+      
+      chainSample.push(nextFunc.name);
+      current = nextId;
+    }
+    
+    return chainSample.length > 1 ? chainSample : undefined;
   }
 
   /**
