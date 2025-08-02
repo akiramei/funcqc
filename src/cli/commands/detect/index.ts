@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { VoidCommand } from '../../../types/command';
 import { CommandEnvironment } from '../../../types/environment';
-import { createErrorHandler } from '../../../utils/error-handler';
+import { createErrorHandler, ErrorCode } from '../../../utils/error-handler';
 import { DetectCommandOptions, DetectSubcommand } from './types';
 import { detectIneffectiveSplitsCommand } from './ineffective-splits';
 
@@ -36,7 +36,7 @@ export const detectCommand = (subcommand: string): VoidCommand<DetectCommandOpti
       
     } catch (error) {
       const funcqcError = errorHandler.createError(
-        'UNKNOWN_ERROR' as any,
+        ErrorCode.UNKNOWN_ERROR,
         `Detect command failed: ${error instanceof Error ? error.message : String(error)}`,
         {},
         error instanceof Error ? error : undefined

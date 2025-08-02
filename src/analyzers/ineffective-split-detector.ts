@@ -539,7 +539,7 @@ export class IneffectiveSplitDetector {
     const rawScore = rulesHit.reduce((sum, rule) => sum + rule.score, 0);
     
     // Apply penalties for suppression patterns
-    let penalty = 0;
+    const penalty = 0;
     
     // Normalize to 0-10 scale
     return Math.min(10, Math.max(0, rawScore * 3 - penalty));
