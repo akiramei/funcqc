@@ -24,7 +24,7 @@ function performSingleFunctionAnalysis(
     targetFunction.id,
     callEdges,
     functions,
-    options.direction || 'both',
+    options.direction || 'out',  // Default to 'out' for more natural flow
     maxDepth,
     options.includeExternal || false,
     {
