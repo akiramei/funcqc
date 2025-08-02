@@ -434,12 +434,10 @@ export class PresetManager {
       analysis.detectedDependencies.frontend.push('react');
     }
     if (deps['vue']) {
-      analysis.hasReactComponents = true;
       analysis.detectedFrameworks.push('Vue');
       analysis.detectedDependencies.frontend.push('vue');
     }
     if (deps['angular'] || deps['@angular/core']) {
-      analysis.hasReactComponents = true;
       analysis.detectedFrameworks.push('Angular');
       analysis.detectedDependencies.frontend.push('angular');
     }
@@ -478,7 +476,13 @@ export class PresetManager {
    * Analyze package.json for project characteristics
    */
   private analyzePackageJson(
-    packageJson: Record<string, unknown>,
+    packageJson: {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+      bin?: Record<string, string> | string;
+      main?: string;
+      private?: boolean;
+    },
     deps: Record<string, string>,
     analysis: ProjectAnalysisResult
   ): void {
@@ -558,7 +562,7 @@ export class PresetManager {
     const reasons: string[] = [];
 
     // Score based on project characteristics
-    if (preset.id === 'web-frontend' && analysis.hasReactComponents) {
+    if (preset.id === 'web-frontend' && (analysis.hasReactComponents || analysis.detectedFrameworks.length > 0)) {
       score += 80;
       reasons.push('Project appears to be a frontend application');
     }
