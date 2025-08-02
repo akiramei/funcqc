@@ -79,5 +79,8 @@ D:\\*
 .claude/
 ai-state/
 
+# FuncQC database files
+data/
+
 # PR Reviews
 pr/

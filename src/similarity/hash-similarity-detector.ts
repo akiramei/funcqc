@@ -5,6 +5,7 @@ import {
   SimilarityResult,
   SimilarFunction,
 } from '../types';
+import { ASTSimilarityDetector } from './ast-similarity-detector';
 
 /**
  * Hash-based similarity detector for ultra-fast duplicate detection
@@ -14,6 +15,9 @@ export class HashSimilarityDetector implements SimilarityDetector {
   name = 'hash-duplicate';
   version = '1.0.0';
   supportedLanguages = ['typescript', 'javascript'];
+  
+  private astDetector: ASTSimilarityDetector | null = null;
+  private hybridMode: boolean = false;
 
   async isAvailable(): Promise<boolean> {
     return true; // Always available
@@ -26,10 +30,22 @@ export class HashSimilarityDetector implements SimilarityDetector {
     const config = this.parseDetectionOptions(options);
     const validFunctions = this.filterValidFunctions(functions, config);
 
-    // Group functions by hash for O(n) performance
-    const results = this.detectHashSimilarities(validFunctions, config);
+    // Enable hybrid mode for better accuracy (default: enabled)
+    this.hybridMode = (options as any).astVerification !== false;
+    if (this.hybridMode && !this.astDetector) {
+      this.astDetector = new ASTSimilarityDetector();
+    }
 
-    return this.groupSimilarFunctions(results);
+    // Group functions by hash for O(n) performance
+    const hashResults = this.detectHashSimilarities(validFunctions, config);
+    
+    // Apply AST verification if hybrid mode is enabled
+    if (this.hybridMode && this.astDetector) {
+      console.log(`🔍 Hash found ${hashResults.length} groups, verifying with AST...`);
+      return await this.verifyWithAST(hashResults, config);
+    }
+
+    return this.groupSimilarFunctions(hashResults);
   }
 
   private parseDetectionOptions(options: SimilarityOptions) {
@@ -282,5 +298,137 @@ export class HashSimilarityDetector implements SimilarityDetector {
         ((b.metadata?.['groupSize'] as number) || 0) - ((a.metadata?.['groupSize'] as number) || 0)
       );
     });
+  }
+
+  // Constants for minimum information thresholds
+  private static readonly MIN_SOURCE_CHARS = 50;   // 小さすぎる関数は比較しない
+  private static readonly MIN_TOKENS = 8;          // トークン数が少なすぎる場合も除外
+
+  /**
+   * Check if source code has enough information for reliable comparison
+   */
+  private hasMinimumInformation(sourceCode: string): boolean {
+    if (sourceCode.length < HashSimilarityDetector.MIN_SOURCE_CHARS) {
+      return false;
+    }
+    
+    // Simple tokenization check
+    const tokens = sourceCode.split(/\b/).filter(t => /\w+/.test(t));
+    return tokens.length >= HashSimilarityDetector.MIN_TOKENS;
+  }
+
+  /**
+   * Apply safety valve to prevent false 1.0 similarities
+   */
+  private applySafetyValve(similarity: number, astResult: any): number {
+    // 1.0 should only be allowed for structural digest equality
+    const hasStructuralDigestEqual = astResult.metadata?.structuralDigestEqual === true;
+    
+    if (similarity >= 1.0 && !hasStructuralDigestEqual) {
+      // Cap at 0.99 unless we have confirmed structural digest equality
+      return 0.99;
+    }
+    
+    return similarity;
+  }
+
+  /**
+   * Verify hash results with AST analysis for better accuracy
+   */
+  private async verifyWithAST(
+    hashResults: SimilarityResult[],
+    config: { threshold: number }
+  ): Promise<SimilarityResult[]> {
+    const verifiedResults: SimilarityResult[] = [];
+    const startTime = Date.now();
+    let totalComparisons = 0;
+    let skippedDueToMinInfo = 0;
+
+    for (const hashResult of hashResults) {
+      const functions = hashResult.functions;
+      
+      if (functions.length < 2) continue;
+      
+      // Convert SimilarFunction to FunctionInfo for AST detector
+      const functionInfos = functions.map(sf => ({
+        id: sf.functionId,
+        name: sf.functionName,
+        filePath: sf.filePath,
+        startLine: sf.startLine,
+        sourceCode: sf.originalFunction?.sourceCode || '',
+        metrics: sf.originalFunction?.metrics || {}
+      })) as FunctionInfo[];
+
+      // Perform pairwise AST comparison within the group
+      for (let i = 0; i < functionInfos.length; i++) {
+        for (let j = i + 1; j < functionInfos.length; j++) {
+          totalComparisons++;
+          
+          const funcA = functionInfos[i];
+          const funcB = functionInfos[j];
+          
+          // Pre-filter: Check minimum information requirements
+          if (!this.hasMinimumInformation(funcA.sourceCode || '') || 
+              !this.hasMinimumInformation(funcB.sourceCode || '')) {
+            skippedDueToMinInfo++;
+            console.debug('[AST-verify-skip] Insufficient info: %s vs %s (len: %d, %d)',
+              funcA.name, funcB.name, 
+              funcA.sourceCode?.length ?? 0, funcB.sourceCode?.length ?? 0
+            );
+            continue; // 検証不能 → ハッシュ一致だけでは昇格させない
+          }
+
+          try {
+            const astResults = await this.astDetector!.detect(
+              [funcA, funcB], 
+              { threshold: Math.max(0.85, config.threshold) }
+            );
+            
+            if (astResults.length === 0) {
+              console.debug('[AST-verify-reject] Below threshold: %s vs %s', funcA.name, funcB.name);
+              continue; // AST検証で類似度不足
+            }
+
+            const astResult = astResults[0];
+            const rawSimilarity = astResult.similarity;
+            
+            // Apply safety valve for 1.0 similarities
+            const safeSimilarity = this.applySafetyValve(rawSimilarity, astResult);
+            
+            console.debug('[AST-verify-accept] %s vs %s: raw=%.3f, safe=%.3f', 
+              funcA.name, funcB.name, rawSimilarity, safeSimilarity
+            );
+
+            verifiedResults.push({
+              type: 'structural',
+              functions: [functions[i], functions[j]],
+              similarity: safeSimilarity,
+              detector: 'AST-verified (hash pre-filtered)',
+              metadata: {
+                ...hashResult.metadata,
+                originalHashSimilarity: hashResult.similarity,
+                verificationMethod: 'ast',
+                rawAstSimilarity: rawSimilarity,
+                appliedSafetyValve: safeSimilarity !== rawSimilarity,
+                reason: `AST similarity: ${(safeSimilarity * 100).toFixed(1)}%`,
+                comparisonTime: Date.now() - startTime
+              }
+            });
+          } catch (error) {
+            console.warn('[AST-verify-error] Failed to compare %s vs %s: %s', 
+              funcA.name, funcB.name, error instanceof Error ? error.message : String(error)
+            );
+            // エラーの場合は昇格させない（ハッシュ結果を破棄）
+          }
+        }
+      }
+    }
+
+    const endTime = Date.now();
+    console.log(`✅ AST verification completed: ${totalComparisons} comparisons in ${endTime - startTime}ms`);
+    console.log(`📊 Results: ${hashResults.length} hash groups → ${verifiedResults.length} verified similarities`);
+    console.log(`⚠️  Skipped ${skippedDueToMinInfo} comparisons due to insufficient information`);
+
+    return this.groupSimilarFunctions(verifiedResults);
   }
 }
