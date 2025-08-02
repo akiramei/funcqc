@@ -9,6 +9,8 @@ export interface RouteComplexityInfo {
   complexityBreakdown: Array<{
     functionId: string;
     functionName: string;
+    filePath?: string | undefined;
+    startLine?: number | undefined;
     cyclomaticComplexity: number;
     cognitiveComplexity: number;
   }>;

@@ -136,7 +136,7 @@ export function getCallTypeColor(type: string): (text: string) => string {
  */
 export function calculateRouteComplexity(
   path: string[],
-  functions: Array<{ id: string; name: string }>,
+  functions: Array<{ id: string; name: string; filePath?: string; startLine?: number }>,
   qualityMetrics?: Map<string, { cyclomaticComplexity: number; cognitiveComplexity: number }>
 ): RouteComplexityInfo | null {
   // Comprehensive null checks
@@ -161,6 +161,8 @@ export function calculateRouteComplexity(
         return {
           functionId: id,
           functionName: func?.name || 'unknown',
+          filePath: func?.filePath,
+          startLine: func?.startLine,
           cyclomaticComplexity: 1,
           cognitiveComplexity: 1,
         };
@@ -184,6 +186,8 @@ export function calculateRouteComplexity(
       complexityBreakdown.push({
         functionId,
         functionName,
+        filePath: functionInfo?.filePath,
+        startLine: functionInfo?.startLine,
         cyclomaticComplexity: metrics.cyclomaticComplexity ?? 1,
         cognitiveComplexity: metrics.cognitiveComplexity ?? 1,
       });
@@ -192,6 +196,8 @@ export function calculateRouteComplexity(
       complexityBreakdown.push({
         functionId,
         functionName,
+        filePath: functionInfo?.filePath,
+        startLine: functionInfo?.startLine,
         cyclomaticComplexity: 1,
         cognitiveComplexity: 1,
       });
@@ -305,7 +311,7 @@ function createVirtualDependencyNode(
 export function buildDependencyTree(
   functionId: string,
   edges: CallEdge[],
-  functions: Array<{ id: string; name: string; contextPath?: string[] }>,
+  functions: Array<{ id: string; name: string; contextPath?: string[]; filePath?: string; startLine?: number }>,
   direction: 'in' | 'out' | 'both',
   maxDepth: number,
   includeExternal: boolean,

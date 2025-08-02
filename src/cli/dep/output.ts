@@ -37,10 +37,15 @@ function displayRouteComplexityBreakdown(route: RouteComplexityInfo, index: numb
     const connector = pathIndex === 0 ? '  ' : isLast ? '      └─→ ' : '      ├─→ ';
     const complexityInfo = chalk.gray(`(CC: ${breakdown.cyclomaticComplexity})`);
     
+    // Add file path and line number for better identification
+    const locationInfo = breakdown.filePath && breakdown.startLine 
+      ? chalk.gray(` (${breakdown.filePath}:${breakdown.startLine})`)
+      : '';
+    
     if (pathIndex === 0) {
-      console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}`);
+      console.log(`  ${chalk.cyan(breakdown.functionName)} ${complexityInfo}${locationInfo}`);
     } else {
-      console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}`);
+      console.log(`${connector}${chalk.green(breakdown.functionName)} ${complexityInfo}${locationInfo}`);
     }
   });
   
