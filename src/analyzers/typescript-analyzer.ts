@@ -234,12 +234,12 @@ export class TypeScriptAnalyzer extends CacheAware {
       
       // Extract all function types
       for (const func of sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
-        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, content);
+        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile);
         if (info) functions.push(info);
       }
       
       for (const method of sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
-        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile, content);
+        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile);
         if (info) functions.push(info);
       }
       
@@ -249,8 +249,7 @@ export class TypeScriptAnalyzer extends CacheAware {
             constructor,
             relativePath,
             fileHash,
-            sourceFile,
-            content
+            sourceFile
           );
           if (info) functions.push(info);
         }
@@ -370,8 +369,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     func: FunctionDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile,
-_fileContent: string
+    _sourceFile: SourceFile
   ): Promise<FunctionInfo | null> {
     const name = func.getName();
     if (!name) return null;
@@ -457,8 +455,7 @@ _fileContent: string
     method: MethodDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile,
-_fileContent: string
+    _sourceFile: SourceFile
   ): Promise<FunctionInfo | null> {
     const name = method.getName();
     if (!name) return null;
@@ -568,8 +565,7 @@ _fileContent: string
     ctor: ConstructorDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile,
-_fileContent: string
+    _sourceFile: SourceFile
   ): Promise<FunctionInfo | null> {
     const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
     const fullName = `${className}.constructor`;
@@ -677,7 +673,6 @@ _fileContent: string
   private extractFunctionMetadata(
     functionNode: ArrowFunction | FunctionExpression,
     name: string,
-_fileContent: string,
     stmt: VariableStatement
   ): FunctionMetadata {
     const signature = this.getArrowFunctionSignature(name, functionNode);
@@ -799,7 +794,7 @@ _fileContent: string
         const functionNode = this.extractFunctionNodeFromVariable(initializer);
 
         if (functionNode) {
-          const metadata = this.extractFunctionMetadata(functionNode, name, _fileContent, stmt);
+          const metadata = this.extractFunctionMetadata(functionNode, name, stmt);
           const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
           functions.push(functionInfo);
         }
