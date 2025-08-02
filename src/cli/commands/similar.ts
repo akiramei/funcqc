@@ -24,6 +24,7 @@ export interface SimilarCommandOptions extends BaseCommandOptions {
   output?: string;
   limit?: string;
   archAnalysis?: boolean; // Architecture rule analysis for refactoring guidance
+  recall?: 'guaranteed' | 'fast'; // Completeness vs performance trade-off
 }
 
 interface DetectionConfig {
@@ -69,7 +70,7 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
         detectionConfig.enabledDetectors = ['advanced-structural'];
       }
       
-      let results = await detectSimilarities(functions, detectionConfig, spinner, dbFilteringApplied);
+      let results = await detectSimilarities(functions, detectionConfig, spinner, dbFilteringApplied, options);
       
       // Add architecture analysis if requested
       if (options.archAnalysis) {
@@ -161,7 +162,8 @@ async function detectSimilarities(
   functions: FunctionInfo[],
   config: DetectionConfig,
   spinner: ReturnType<typeof ora>,
-  dbFilteringApplied: boolean = false
+  dbFilteringApplied: boolean = false,
+  options: SimilarCommandOptions = {}
 ): Promise<SimilarityResult[]> {
   // Skip filtering if already done in DB
   const effectiveMinLines = dbFilteringApplied ? 0 : config.minLines;
@@ -170,6 +172,7 @@ async function detectSimilarities(
     threshold: config.threshold,
     minLines: effectiveMinLines,
     crossFile: config.crossFile,
+    recall: options.recall || 'guaranteed', // Default to guaranteed recall
   };
   const similarityManager = new SimilarityManager(undefined, similarityOptions);
 
@@ -186,6 +189,7 @@ async function detectSimilarities(
       threshold: config.threshold,
       minLines: effectiveMinLines,
       crossFile: config.crossFile,
+      recall: options.recall || 'guaranteed',
     },
     config.enabledDetectors,
     config.consensusStrategy

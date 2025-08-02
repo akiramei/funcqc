@@ -110,21 +110,29 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
     console.log(`🧬 Advanced detector processing ${validFunctions.length} valid functions`);
 
-    // Unified algorithm path for predictable performance
-    const TRIVIALLY_SMALL_THRESHOLD = 20; // Threshold where pairwise comparison is clearly faster
-
-    if (validFunctions.length <= TRIVIALLY_SMALL_THRESHOLD) {
-      // Only for truly small datasets where O(n²) is acceptable
-      console.log(`📊 Using full advanced analysis (trivially small dataset)`);
-      return this.detectAdvancedMode(validFunctions, config);
-    } else if (validFunctions.length > this.config.singleStageThreshold) {
-      // Large datasets require sampling
-      console.log(`📊 Using sampling approach for large scale (${validFunctions.length} functions)`);
-      return this.detectSamplingMode(validFunctions, config);
-    } else {
-      // All medium-sized datasets use the scalable two-stage approach
-      console.log(`📊 Using two-stage approach (scalable processing)`);
-      return this.detectTwoStageMode(validFunctions, config);
+    // Recall strategy determines completeness vs performance trade-off
+    const recallStrategy = options.recall || 'guaranteed';
+    
+    switch (recallStrategy) {
+      case 'guaranteed':
+        // Always use complete analysis - no sampling allowed
+        console.log(`🔒 Guaranteed recall mode: Complete analysis (${validFunctions.length} functions)`);
+        if (validFunctions.length <= 100) {
+          console.log(`📊 Using full advanced analysis (optimal for small datasets)`);
+          return this.detectAdvancedMode(validFunctions, config);
+        } else {
+          console.log(`📊 Using two-stage approach (deterministic hierarchical LSH)`);
+          return this.detectTwoStageMode(validFunctions, config);
+        }
+        
+      case 'fast':
+        // Legacy sampling mode - may miss similarities
+        console.log(`⚡ Fast recall mode: Sampling-based analysis (${validFunctions.length} functions)`);
+        console.log(`⚠️  Warning: May miss similarities not in sample. Use --recall guaranteed for complete analysis.`);
+        return this.detectSamplingMode(validFunctions, config);
+        
+      default:
+        throw new Error(`Unknown recall strategy: ${recallStrategy}`);
     }
   }
 
