@@ -35,6 +35,7 @@ export interface CacheProviderFactory {
     maxEntries?: number;
     maxSize?: number;
     persistentPath?: string;
+    useMainCache?: boolean;
   }): FunctionCacheProvider;
   
   createGenericCache<T>(name: string, options?: {
