@@ -9,11 +9,23 @@ export function findTargetFunction(
   functionRef: string,
   functions: FunctionInfo[]
 ): FunctionInfo | null {
-  // Search with priority: 1) ID exact match, 2) Name exact match, 3) Name partial match
-  const candidates = functions.filter(f => f.id === functionRef);
+  // Search with priority: 1) ID exact match, 2) ID shorthand match, 3) Name exact match, 4) Name partial match
+  const exactIdMatches = functions.filter(f => f.id === functionRef);
   
-  if (candidates.length > 0) {
-    return candidates[0];
+  if (exactIdMatches.length > 0) {
+    return exactIdMatches[0];
+  }
+  
+  // Try shorthand ID match (ID starts with functionRef)
+  const shorthandIdMatches = functions.filter(f => f.id.startsWith(functionRef));
+  
+  if (shorthandIdMatches.length === 1) {
+    const targetFunction = shorthandIdMatches[0];
+    console.log(chalk.dim(`Found ID match: ${targetFunction.name} (${targetFunction.id.substring(0, 8)})`));
+    return targetFunction;
+  } else if (shorthandIdMatches.length > 1) {
+    displayMultipleIdMatches(functionRef, shorthandIdMatches);
+    return null;
   }
   
   // Try exact name match
@@ -40,6 +52,21 @@ export function findTargetFunction(
     displayMultiplePartialMatches(functionRef, partialMatches);
     return null;
   }
+}
+
+/**
+ * Display multiple ID shorthand matches
+ */
+function displayMultipleIdMatches(
+  functionRef: string,
+  idMatches: FunctionInfo[]
+): void {
+  console.log(chalk.yellow(`Multiple functions with IDs starting with "${functionRef}" found:`));
+  idMatches.forEach((func, index) => {
+    console.log(`  ${index + 1}. ${chalk.cyan(func.name)} (${chalk.gray(func.id.substring(0, 8))}) - ${func.filePath}:${func.startLine}`);
+  });
+  console.log(chalk.blue('\nPlease use a longer ID prefix for precise selection:'));
+  console.log(chalk.gray(`  funcqc dep show ${idMatches[0].id.substring(0, 12)}`));
 }
 
 /**
