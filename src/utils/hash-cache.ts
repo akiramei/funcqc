@@ -185,7 +185,9 @@ export class HashCache {
 
   private calculateASTHash(content: string): string {
     const normalized = this.normalizeForAST(content);
-    return crypto.createHash('sha256').update(normalized).digest('hex').substring(0, 8);
+    // Use 16 characters (64 bits) to reduce collision probability
+    // 8 characters (32 bits) was causing collisions between different functions
+    return crypto.createHash('sha256').update(normalized).digest('hex').substring(0, 16);
   }
 
   private calculateSignatureHash(signature: string): string {
