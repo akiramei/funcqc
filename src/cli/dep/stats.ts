@@ -222,7 +222,7 @@ function outputDepStatsResults(
   } else if (options.json || options.format === 'json') {
     outputDepStatsJSON(metrics, stats, options);
   } else {
-    outputDepStatsTable(metrics, stats, options);
+    outputDepStatsTable(metrics, stats, functions, options);
   }
 }
 
@@ -284,12 +284,17 @@ function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats
 /**
  * Output dependency stats as formatted table
  */
-function outputDepStatsTable(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
+function outputDepStatsTable(
+  metrics: DependencyMetrics[], 
+  stats: DependencyStats, 
+  functions: FunctionInfo[],
+  options: DepStatsOptions
+): void {
   displayStatsSummary(stats);
   displayHubFunctions(stats, options);
   displayUtilityFunctions(stats, options);
   displayIsolatedFunctions(stats, options);
-  displayTopFunctionsTable(metrics, options);
+  displayTopFunctionsTable(metrics, functions, options);
 }
 
 /**
@@ -387,29 +392,59 @@ function sortMetricsByCriteria(metrics: DependencyMetrics[], sortField: string):
 /**
  * Display top functions table
  */
-function displayTopFunctionsTable(metrics: DependencyMetrics[], options: DepStatsOptions): void {
+function displayTopFunctionsTable(
+  metrics: DependencyMetrics[], 
+  functions: FunctionInfo[],
+  options: DepStatsOptions
+): void {
   const limit = parseDisplayLimit(options);
   const sortField = options.sort || 'fanin';
   const sortedMetrics = sortMetricsByCriteria(metrics, sortField);
 
+  // Create function lookup map
+  const functionMap = new Map<string, FunctionInfo>();
+  functions.forEach(func => functionMap.set(func.id, func));
+
   console.log(chalk.bold(`📈 Top ${limit} Functions (by ${sortField}):`));
-  console.log(chalk.bold('Name                     Fan-In  Fan-Out  Depth  Cyclic'));
-  console.log('─'.repeat(60));
+  console.log(chalk.bold('Name                     Location                              Fan-In  Fan-Out  Depth  Cyclic'));
+  console.log('─'.repeat(95));
 
   sortedMetrics.slice(0, limit).forEach((metric: DependencyMetrics) => {
-    displayMetricRow(metric);
+    displayMetricRow(metric, functionMap);
   });
+}
+
+/**
+ * Format location with file path and line number
+ */
+function formatLocation(filePath: string, line?: number, maxLength: number = 35): string {
+  const location = line ? `${filePath}:${line}` : filePath;
+  
+  if (location.length <= maxLength) {
+    return location.padEnd(maxLength);
+  }
+  
+  // Truncate from the beginning, keeping the end (file name and line)
+  const truncated = '...' + location.slice(-(maxLength - 3));
+  return truncated.padEnd(maxLength);
 }
 
 /**
  * Display a single metric row in the table
  */
-function displayMetricRow(metric: DependencyMetrics): void {
+function displayMetricRow(metric: DependencyMetrics, functionMap: Map<string, FunctionInfo>): void {
   const name = metric.functionName.padEnd(25).substring(0, 25);
+  
+  // Get line number from function info
+  const funcInfo = functionMap.get(metric.functionId);
+  const location = formatLocation(metric.filePath, funcInfo?.startLine, 35);
+  
   const fanIn = metric.fanIn.toString().padStart(6);
   const fanOut = metric.fanOut.toString().padStart(8);
   const depth = metric.depthFromEntry === -1 ? '  N/A' : metric.depthFromEntry.toString().padStart(5);
-  const cyclic = metric.isCyclic ? chalk.red(' ✓') : chalk.green(' ✗');
+  
+  // Fix the cyclic indicator - use clear text instead of confusing symbols
+  const cyclic = metric.isCyclic ? chalk.red(' Yes') : chalk.green('  No');
 
-  console.log(`${name} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
+  console.log(`${name} ${location} ${fanIn}  ${fanOut}  ${depth}  ${cyclic}`);
 }
