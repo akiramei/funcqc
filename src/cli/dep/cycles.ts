@@ -300,7 +300,10 @@ function outputEnhancedCyclesTable(
     });
   }
   
-  // Show filter summary
+  displayFilterSummary(result);
+}
+
+function displayFilterSummary(result: CyclesAnalysisResult): void {
   if (result.filterStats.excludedRecursive > 0 || result.filterStats.excludedClear > 0) {
     console.log(chalk.dim('💡 Filtered out:'));
     if (result.filterStats.excludedRecursive > 0) {

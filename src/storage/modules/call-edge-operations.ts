@@ -9,7 +9,9 @@ import {
 import { CallEdgeRow } from '../../types/common';
 import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
-import { StorageContext, StorageOperationModule } from './types';
+import { StorageOperationModule } from './types';
+import { BaseStorageOperations } from '../shared/base-storage-operations';
+import type { StorageContext } from './types';
 
 // Type for PGLite transaction object
 interface PGTransaction {
@@ -30,15 +32,9 @@ export interface CallEdgeStats {
   }>;
 }
 
-export class CallEdgeOperations implements StorageOperationModule {
-  readonly db;
-  readonly kysely;
-  private logger;
-
+export class CallEdgeOperations extends BaseStorageOperations implements StorageOperationModule {
   constructor(context: StorageContext) {
-    this.db = context.db;
-    this.kysely = context.kysely;
-    this.logger = context.logger;
+    super(context);
   }
 
   /**

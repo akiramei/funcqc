@@ -27,6 +27,9 @@ import {
 import { DatabaseError } from './errors/database-error';
 import { ErrorCode } from '../utils/error-handler';
 import { StorageContext } from './modules/types';
+
+// Re-export StorageContext for external modules
+export type { StorageContext };
 import { DatabaseCore } from './modules/database-core';
 import { SnapshotOperations } from './modules/snapshot-operations';
 import { FunctionOperations } from './modules/function-operations';
@@ -1002,140 +1005,20 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     const includeAbsent = options?.includeAbsent ?? false;
 
     try {
-      // Get all snapshots ordered by creation time
       const snapshots = await this.getSnapshots({ limit });
       
       if (this.logger) {
         this.logger.log(`getFunctionHistory: Found ${snapshots.length} snapshots for functionId: ${functionId}`);
       }
 
-      // Use a Map to store function presence by snapshot
-      const functionPresenceMap = new Map<string, FunctionInfo | null>();
-
-      // Fetch function history using optimized JOIN query (eliminates N+1 problem)
-      if (snapshots.length > 0) {
-        const snapshotIds = snapshots.map(s => s.id);
-        const query = `
-          SELECT 
-            s.id AS snapshot_id,
-            s.label AS snapshot_label,
-            s.created_at AS snapshot_created_at,
-            f.id AS function_id,
-            f.name,
-            f.display_name,
-            f.signature,
-            f.file_path,
-            f.start_line,
-            f.end_line,
-            f.is_exported,
-            f.is_async,
-            f.source_code,
-            -- Quality metrics with LEFT JOIN
-            qm.cyclomatic_complexity,
-            qm.cognitive_complexity,
-            qm.lines_of_code,
-            qm.total_lines,
-            -- Indicate presence
-            CASE WHEN f.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_present
-          FROM snapshots s
-          LEFT JOIN functions f ON s.id = f.snapshot_id 
-            AND (f.id = $2 OR f.semantic_id = $2 OR f.id LIKE $3)
-          LEFT JOIN quality_metrics qm ON f.id = qm.function_id
-          WHERE s.id = ANY($1::text[])
-          ORDER BY s.created_at DESC
-        `;
-        
-        const result = await this.db.query(query, [
-          snapshotIds,
-          functionId,
-          functionId.substring(0, 8) + '%' // Support partial IDs
-        ]);
-        
-        if (this.logger) {
-          this.logger.log(`getFunctionHistory optimized query returned ${result.rows.length} rows for functionId: ${functionId}`);
-        }
-
-        // Process results into the map (no additional queries needed!)
-        for (const row of result.rows as Record<string, unknown>[]) {
-          const snapshotId = row['snapshot_id'] as string;
-          
-          if (row['function_id']) {
-            // Function exists in this snapshot - build FunctionInfo from the row
-            const func: FunctionInfo = {
-              id: row['function_id'] as string,
-              semanticId: '', // Will be populated if needed
-              contentId: '', // Will be populated if needed
-              name: row['name'] as string,
-              displayName: row['display_name'] as string,
-              signature: row['signature'] as string,
-              signatureHash: '',
-              filePath: row['file_path'] as string,
-              fileHash: '',
-              startLine: row['start_line'] as number,
-              endLine: row['end_line'] as number,
-              startColumn: 0,
-              endColumn: 0,
-              positionId: '',
-              astHash: '',
-              contextPath: [],
-              functionType: 'function',
-              modifiers: [],
-              nestingLevel: 0,
-              isExported: row['is_exported'] as boolean,
-              isAsync: row['is_async'] as boolean,
-              isGenerator: false,
-              isArrowFunction: false,
-              isMethod: false,
-              isConstructor: false,
-              isStatic: false,
-              sourceCode: row['source_code'] as string,
-              parameters: [], // Could be populated with another JOIN if needed
-              metrics: {
-                cyclomaticComplexity: row['cyclomatic_complexity'] as number || 1,
-                cognitiveComplexity: row['cognitive_complexity'] as number || 0,
-                linesOfCode: row['lines_of_code'] as number || 0,
-                totalLines: row['total_lines'] as number || 0,
-                parameterCount: row['parameter_count'] as number || 0,
-                maxNestingLevel: row['max_nesting_level'] as number || 0,
-                returnStatementCount: row['return_statement_count'] as number || 0,
-                branchCount: row['branch_count'] as number || 0,
-                loopCount: row['loop_count'] as number || 0,
-                tryCatchCount: row['try_catch_count'] as number || 0,
-                asyncAwaitCount: row['async_await_count'] as number || 0,
-                callbackCount: row['callback_count'] as number || 0,
-                commentLines: row['comment_lines'] as number || 0,
-                codeToCommentRatio: row['code_to_comment_ratio'] as number || 0,
-                halsteadVolume: row['halstead_volume'] as number || 0,
-                halsteadDifficulty: row['halstead_difficulty'] as number || 0,
-                maintainabilityIndex: row['maintainability_index'] as number || 0
-              }
-            };
-            functionPresenceMap.set(snapshotId, func);
-          } else {
-            // Function doesn't exist in this snapshot
-            functionPresenceMap.set(snapshotId, null);
-          }
-        }
+      if (snapshots.length === 0) {
+        return [];
       }
 
-      // Build the result array
-      const history = snapshots.map(snapshot => {
-        const func = functionPresenceMap.get(snapshot.id) || null;
-        const isPresent = func !== null;
+      const functionPresenceMap = await this.buildFunctionPresenceMap(snapshots, functionId);
+      const history = this.buildFunctionHistory(snapshots, functionPresenceMap);
 
-        return {
-          snapshot,
-          function: func,
-          isPresent
-        };
-      });
-
-      // Filter out absent functions if not included
-      if (!includeAbsent) {
-        return history.filter(h => h.isPresent);
-      }
-
-      return history;
+      return includeAbsent ? history : history.filter(h => h.isPresent);
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
@@ -1143,6 +1026,149 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         error instanceof Error ? error : undefined
       );
     }
+  }
+
+  private async buildFunctionPresenceMap(
+    snapshots: SnapshotInfo[],
+    functionId: string
+  ): Promise<Map<string, FunctionInfo | null>> {
+    const snapshotIds = snapshots.map(s => s.id);
+    const query = this.buildFunctionHistoryQuery();
+    
+    const result = await this.db.query(query, [
+      snapshotIds,
+      functionId,
+      functionId.substring(0, 8) + '%' // Support partial IDs
+    ]);
+    
+    if (this.logger) {
+      this.logger.log(`getFunctionHistory optimized query returned ${result.rows.length} rows for functionId: ${functionId}`);
+    }
+
+    return this.mapQueryResultsToFunctionMap(result.rows as Record<string, unknown>[]);
+  }
+
+  private buildFunctionHistoryQuery(): string {
+    return `
+      SELECT 
+        s.id AS snapshot_id,
+        s.label AS snapshot_label,
+        s.created_at AS snapshot_created_at,
+        f.id AS function_id,
+        f.name,
+        f.display_name,
+        f.signature,
+        f.file_path,
+        f.start_line,
+        f.end_line,
+        f.is_exported,
+        f.is_async,
+        f.source_code,
+        -- Quality metrics with LEFT JOIN
+        qm.cyclomatic_complexity,
+        qm.cognitive_complexity,
+        qm.lines_of_code,
+        qm.total_lines,
+        -- Indicate presence
+        CASE WHEN f.id IS NOT NULL THEN TRUE ELSE FALSE END AS is_present
+      FROM snapshots s
+      LEFT JOIN functions f ON s.id = f.snapshot_id 
+        AND (f.id = $2 OR f.semantic_id = $2 OR f.id LIKE $3)
+      LEFT JOIN quality_metrics qm ON f.id = qm.function_id
+      WHERE s.id = ANY($1::text[])
+      ORDER BY s.created_at DESC
+    `;
+  }
+
+  private mapQueryResultsToFunctionMap(
+    rows: Record<string, unknown>[]
+  ): Map<string, FunctionInfo | null> {
+    const functionPresenceMap = new Map<string, FunctionInfo | null>();
+
+    for (const row of rows) {
+      const snapshotId = row['snapshot_id'] as string;
+      
+      if (row['function_id']) {
+        const func = this.buildFunctionInfoFromRow(row);
+        functionPresenceMap.set(snapshotId, func);
+      } else {
+        functionPresenceMap.set(snapshotId, null);
+      }
+    }
+
+    return functionPresenceMap;
+  }
+
+  private buildFunctionInfoFromRow(row: Record<string, unknown>): FunctionInfo {
+    return {
+      id: row['function_id'] as string,
+      semanticId: '',
+      contentId: '',
+      name: row['name'] as string,
+      displayName: row['display_name'] as string,
+      signature: row['signature'] as string,
+      signatureHash: '',
+      filePath: row['file_path'] as string,
+      fileHash: '',
+      startLine: row['start_line'] as number,
+      endLine: row['end_line'] as number,
+      startColumn: 0,
+      endColumn: 0,
+      positionId: '',
+      astHash: '',
+      contextPath: [],
+      functionType: 'function',
+      modifiers: [],
+      nestingLevel: 0,
+      isExported: row['is_exported'] as boolean,
+      isAsync: row['is_async'] as boolean,
+      isGenerator: false,
+      isArrowFunction: false,
+      isMethod: false,
+      isConstructor: false,
+      isStatic: false,
+      sourceCode: row['source_code'] as string,
+      parameters: [],
+      metrics: {
+        cyclomaticComplexity: row['cyclomatic_complexity'] as number || 1,
+        cognitiveComplexity: row['cognitive_complexity'] as number || 0,
+        linesOfCode: row['lines_of_code'] as number || 0,
+        totalLines: row['total_lines'] as number || 0,
+        parameterCount: row['parameter_count'] as number || 0,
+        maxNestingLevel: row['max_nesting_level'] as number || 0,
+        returnStatementCount: row['return_statement_count'] as number || 0,
+        branchCount: row['branch_count'] as number || 0,
+        loopCount: row['loop_count'] as number || 0,
+        tryCatchCount: row['try_catch_count'] as number || 0,
+        asyncAwaitCount: row['async_await_count'] as number || 0,
+        callbackCount: row['callback_count'] as number || 0,
+        commentLines: row['comment_lines'] as number || 0,
+        codeToCommentRatio: row['code_to_comment_ratio'] as number || 0,
+        halsteadVolume: row['halstead_volume'] as number || 0,
+        halsteadDifficulty: row['halstead_difficulty'] as number || 0,
+        maintainabilityIndex: row['maintainability_index'] as number || 0
+      }
+    };
+  }
+
+  private buildFunctionHistory(
+    snapshots: SnapshotInfo[],
+    functionPresenceMap: Map<string, FunctionInfo | null>
+  ): Array<{
+    snapshot: SnapshotInfo;
+    function: FunctionInfo | null;
+    isPresent: boolean;
+  }> {
+    return snapshots.map(snapshot => {
+      const func = functionPresenceMap.get(snapshot.id) || null;
+      const isPresent = func !== null;
+
+      return {
+        snapshot,
+        function: func,
+        isPresent
+      };
+    });
   }
 
 
