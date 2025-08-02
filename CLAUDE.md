@@ -30,98 +30,140 @@ src/schemas/database.sql
 - **Human Error Elimination**: No manual synchronization required
 - **Zero Risk**: Schema inconsistencies are physically impossible
 
-## Development Commands
-
-### Building and Development
-- `npm run dev` - Run CLI in development mode with tsx
-- `npm run build` - Build distribution files using tsup
-- `npm run typecheck` - TypeScript type checking without emit
-
-### Testing
-- `npm test` - Run unit tests with Vitest
-- `npm run test:watch` - Run tests in watch mode  
-- `npm run test:e2e` - Run end-to-end CLI tests
-- `npm run test:coverage` - Generate test coverage reports
-
-### Code Quality
-- `npm run lint` - ESLint validation
-- `npm run lint:fix` - Auto-fix ESLint issues
-- `npm run format` - Format code with Prettier
-- `npm run format:check` - Check code formatting
-
-### CLI Usage
-- `npm run dev init` - Initialize funcqc configuration
-- `npm run dev scan` - Analyze TypeScript functions
-- `npm run dev list` - Display function analysis results
-- `npm run dev history` - View snapshot history
-- `npm run dev diff` - Compare snapshots
-
-## Architecture Overview
-
-funcqc is a TypeScript function quality control tool with a layered architecture:
-
-### Core Components
-- **CLI Layer** (`src/cli.ts`, `src/cli/`): Commander.js-based interface with subcommands
-- **Core** (`src/core/`): Central analyzer and configuration management using cosmiconfig
-- **Storage** (`src/storage/`): PGLite adapter with Kysely query builder for zero-dependency persistence
-- **Analyzers** (`src/analyzers/`): TypeScript AST analysis using TypeScript Compiler API
-- **Metrics** (`src/metrics/`): Quality calculator computing 17 different metrics
-
-### Key Technologies
-- **Storage**: PGLite (embedded PostgreSQL) 
-- **Analysis**: TypeScript Compiler API for AST parsing
-- **CLI**: Commander.js with chalk/ora for rich output
-- **Build**: tsup bundler, TypeScript 5.3+, Vitest testing
-
-### 🚨 CRITICAL: Database Technology Understanding
-
-**PGLite is NOT SQLite**:
-- **PGLite**: PostgreSQL compiled to WebAssembly (WASM)
-- **SQLite**: Completely different database engine written in C
-- **No relation**: Despite similar names, they are entirely different technologies
-- **Different APIs**: PGLite uses PostgreSQL syntax, SQLite uses its own syntax
-- **Different features**: Never assume features from one exist in the other
-
-**Technical Facts**:
-```typescript
-// PGLite - PostgreSQL WASM
-const pgdb = new PGLite('./data');     // PostgreSQL in WASM
-await pgdb.exec('CREATE TABLE...');    // PostgreSQL SQL syntax
-```
-
-## Configuration
-
-Uses cosmiconfig for flexible configuration loading:
-- `.funcqcrc` (JSON/YAML)
-- `funcqc.config.js` (CommonJS)
-- `package.json` (funcqc field)
-
-Default scan excludes: `node_modules`, `dist`, `build`, `.git`
-
-## Testing Strategy
-
-- Unit tests for analyzers and calculators in `test/` (452 tests)
-- Test fixtures in `test/fixtures/`
-- Manual functional testing using `npm run dev` commands
-- Note: E2E tests removed due to high maintenance cost vs value ratio
-
-## Development Notes
-
-- Strict TypeScript configuration with comprehensive type safety
-- Husky pre-commit hooks for linting and formatting
-- PGLite provides embedded PostgreSQL without external dependencies
-- Kysely ensures type-safe database operations
-- Rich CLI output with progress indicators and colored formatting
-
 ## コード品質管理
 
-コミット前の必須手順として`funcqc`を使用してコードの品質を計測し、High Risk関数が0件であることを確認する。
+### 🎯 最重要原則：Health Score最優先
+
+**funcqcにおける品質管理の絶対原則**：**Health Score向上が唯一の目標**
+
+#### 🚨 CRITICAL: Health Command分析結果の重視
+
+**必須実行コマンド（例外なし）**：
+```bash
+# すべての品質改善作業の起点
+npm run dev -- health --verbose
+```
+
+#### 📊 Health Report分析で重視すべき指標
+
+**最優先指標（構造的問題）**：
+1. **Overall Health Index**: 数値が低いほど構造的問題が深刻
+2. **Structural Risk**: CRITICALの場合は緊急対応必要
+3. **Structural Penalty Breakdown**: 最大のペナルティ要因を特定
+   - **High Coupling (Fan-in)**: 最も重要な構造的問題
+   - **Cyclic Functions**: 循環依存の数
+   - **Hub Functions**: 過度な結合を持つ関数
+4. **PageRank Centrality Analysis**: 中心性の不平等度
+   - **Gini Coefficient**: 98%+は危険な集中状態
+   - **Most Central Functions**: ボトルネック関数の特定
+
+**注目すべき具体的数値**：
+- **Max Fan-in**: 100+は異常値、要改善
+- **Hub Functions**: 30個未満が目標
+- **Cyclic Functions**: 10個未満が目標
+- **Centrality Gini Coefficient**: 90%未満が目標
+
+#### 🚨 CRITICAL: Health Report解釈の絶対ルール
+
+**Health Reportの推奨アクション無視ルール**：
+- 報告書で「High-Risk Functions (CC: XX)」と表示されても **CC値は一切考慮しない**
+- 「analyzeFile() (Risk: 13, CC: 21)」のような表記に **惑わされない**
+- **構造的分析セクションのみ**に注目する
+
+**絶対禁止の思考パターン**：
+- ❌ 「CC値が高いから問題」
+- ❌ 「推奨アクションにCC値があるからCC重視」
+- ❌ 「High-Risk = 高CC」という誤解
+- ❌ Health ReportのCC値への一切の注目
+
+**正しい改善対象の特定方法**：
+1. **Structural Penalty Breakdown**で最大ペナルティ要因を特定
+2. **Most Central Functions**でボトルネック関数を特定
+3. **Max Fan-in**異常値の関数を特定
+4. **Hub Functions**リストから過度結合関数を特定
+
+**🚨 CRITICAL WARNING**：CC値による機械的リファクタリングは**禁止**
+- CC削減 ≠ 品質向上
+- CCは判断材料であり、分割決定ではない
+- Health Scoreが改善しないリファクタリングは無価値
+
+### 📈 スコア改善目標と成功基準
+
+**🎯 改善目標の設定方法**:
+1. **現在のHealth Index**を基準とした具体的な目標設定
+2. **構造的ペナルティ**の段階的削減
+3. **数値的な成功基準**の明確化
+
+**📊 具体的な改善目標例**:
+```
+現在: Overall Health Index 18.2/100 (Critical)
+目標: Overall Health Index 40.0/100 (Fair) 以上
+
+現在: Max Fan-in 265 (異常値)
+目標: Max Fan-in 100未満
+
+現在: Hub Functions 41個
+目標: Hub Functions 30個未満
+
+現在: Cyclic Functions 18個  
+目標: Cyclic Functions 10個未満
+
+現在: Centrality Gini Coefficient 98.0% (極度不平等)
+目標: Centrality Gini Coefficient 90%未満
+```
+
+**✅ 改善完了の判定基準**:
+- Health Index が20pt以上向上
+- Structural Risk が CRITICAL → WARNING 以上に改善
+- 最大ペナルティ要因が50%以上削減
+
+### 品質管理の基本フロー
+
+**必須手順（例外なし）**:
+1. **改善前**: `npm run dev -- health --verbose` で現状把握
+2. **目標設定**: 上記基準に基づく具体的数値目標
+3. **改善実施**: 構造的問題に集中した改善
+4. **改善後**: 再度health分析で目標達成を確認
+5. **PR作成前**: ファイル行数チェック（下記参照）
+6. **コミット**: 目標達成時のみコミット実行
+
+### 📏 PR作成前のファイル行数チェック（必須）
+
+**🚨 CRITICAL: 編集ファイルの巨大化防止**
+
+**必須チェックコマンド**:
+```bash
+# トップ10最大ファイル確認
+npm run dev -- files --sort lines --desc --limit 10
+```
+
+**分割必要性の判定基準**:
+- **編集したファイルがトップ10に入っている場合**: 必ず分割実施
+- **1,000行超えのファイル**: 分割を強く推奨
+- **500行超えのファイル**: 分割を検討
+
+**トップ10圏外にする手法**:
+1. **機能別分割**: 関連する関数群を別ファイルに抽出
+2. **レイヤー内shared/**: 共通機能を `layer/shared/` に分離
+3. **ユーティリティ抽出**: 汎用関数を `utils/` に移動
+4. **型定義分離**: 大きな型定義を別の `.types.ts` ファイルに分離
+
+**分割完了の確認**:
+```bash
+# 分割後に再確認（編集ファイルがトップ10圏外であることを確認）
+npm run dev -- files --sort lines --desc --limit 10
+```
+
+**🎯 分割目標**:
+- 編集ファイル: トップ10圏外
+- 理想的行数: 500行未満
+- 最大許容: 800行未満
 
 ### 品質改善の基本手法
-- **関数分割**: 大きな関数を小さな関数に分割
-- **早期リターン**: ネストを減らすために早期リターンを使用
-- **ヘルパーメソッド抽出**: 複雑なロジックを専用のヘルパーメソッドに抽出
-- **パラメータオブジェクト化**: 多数のパラメータをオブジェクトにまとめる
+- **Fan-in削減**: 過度な結合を持つ関数の責務分散
+- **Hub関数分割**: 中心的ボトルネック関数の分解
+- **循環依存解消**: Cyclic Functions の構造改善
+- **中心性分散**: PageRank不平等の改善
 
 ## PRレビュー対応フロー
 
@@ -355,14 +397,37 @@ npm run dev -- db --table functions --json | jq '.rows[0]'
 
 ### 🎯 品質指標の理解
 
-#### 複雑度（Cyclomatic Complexity）
-- **1-5**: シンプル（良好）
-- **6-10**: やや複雑（許容範囲）
-- **11-20**: 複雑（要改善）
-- **21+**: 非常に複雑（リファクタリング推奨）
+#### 🚨 CRITICAL: Cyclomatic Complexity（CC）の正しい理解
+
+**CCは「シグナル」であり「決定事項」ではない**
+
+##### ✅ 正しいCC理解
+- **CCは複雑さの存在を知らせる温度計**
+- **高CC = 判断が必要な箇所**であり、自動的な分割対象ではない
+- **複雑なロジックが複雑なのは当然**
+
+##### 🚨 絶対禁止：機械的CC削減
+```bash
+# ❌ これらは禁止 - CC値による機械的な対象選定
+npm run dev -- list --cc-ge 20
+npm run dev -- list --sort cc --desc
+```
+
+##### 📋 CC値の適切な判断基準
+
+**分割すべき場合**:
+- **複数責務混在**: 異なる理由で変更される部分が混在
+- **独立概念**: 別々に理解可能なドメイン概念が混在
+- **再利用性**: 他の場所でも使用される可能性がある部分
+
+**分割すべきでない場合**:
+- **本質的複雑さ**: アルゴリズムや仕様そのものの複雑さ
+- **順次処理**: 一連の流れとして理解すべき処理
+- **密結合**: 分離すると理解が困難になる部分
+
 
 #### High Risk関数
-以下の条件を満たす関数：
+以下の条件を満たす関数（**CC値単体ではない**）：
 - 複雑度が高い
 - ネストが深い
 - 行数が多い
@@ -371,12 +436,38 @@ npm run dev -- db --table functions --json | jq '.rows[0]'
 ### 💡 開発時の活用例
 
 #### 1. リファクタリング対象の特定
+
+**🎯 唯一の正しいアプローチ（例外なし）**:
 ```bash
-# High Risk関数を確認
+# 1. 必須：Health Score分析
 npm run dev -- health --verbose
 
-# 特定ファイルの複雑な関数を確認
-npm run dev -- list --file src/cli/dep.ts --cc-ge 10
+# 2. 構造的問題のみに注目（推奨アクションは無視）
+# - Structural Penalty Breakdown
+# - Most Central Functions  
+# - Max Fan-in異常値
+# - Hub Functions
+```
+
+**🎯 改善対象の優先順位**:
+1. **High Coupling (Fan-in)**: 最大ペナルティ要因（-26.5pts等）
+2. **Most Central Functions**: PageRank 100%の関数
+3. **Hub Functions**: fan-in ≥ 10の関数
+4. **Cyclic Functions**: 循環依存を持つ関数
+
+**絶対に従うべき改善目標**:
+- Overall Health Index: 現在値 → +20pt以上向上
+- Max Fan-in: 現在値 → 100未満
+- Hub Functions: 現在数 → 30個未満
+
+**⚠️ 特定ファイルのCC確認（新規関数チェック用のみ）**:
+```bash
+# ✅ 許可：新規作成したファイル/関数の品質確認
+npm run dev -- list --file src/new-feature.ts
+npm run dev -- list --name newFunction
+
+# ❌ 禁止：リファクタリング対象の選定
+npm run dev -- list --cc-ge 10  # これは禁止
 ```
 
 #### 2. 変更の影響確認
@@ -415,25 +506,26 @@ npm run dev -- diff feature/my-feature HEAD
 ```
 
 #### 品質チェックのポイント
-- **新規追加関数の複雑度**: CC（Cyclomatic Complexity）が10以下であることを確認
+
+**新規追加関数の品質基準（予防的品質管理）:**
+- **Health Score向上**: 新規追加によりHealth Scoreが悪化していないことを確認
+
+**リファクタリング効果の評価（改善的品質管理）:**
+- **Health Score向上**: 全体的な品質指標（18.2/100等）が改善していることを確認
+- **Component Scores改善**: Code Size, Maintainability, Complexityの各スコア向上を確認
+- **構造的問題の改善**: Hub関数、循環依存、巨大ファイル等の改善を確認
+
+**共通チェック項目:**
 - **High Risk関数の増加**: 新たにHigh Risk関数が生成されていないことを確認
 - **関数の分類**: 真の追加か、既存関数の変更・移動・リネームかを把握
-- **全体的な品質トレンド**: 品質が改善方向に向かっているかを確認
-
-#### 実際の出力例と対応
-```bash
-npm run dev -- diff feature/improve-diff-command HEAD
-# 出力: +15 functions added, -3 functions removed (CC改善)
-# → 高複雑度関数(CC: 18,13,11)を低複雑度関数(CC: 1-10)にリファクタリングした証拠
-```
 
 #### 品質問題発見時の対応
 ```bash
-# 問題のある関数を特定
-npm run dev -- list --cc-ge 10 --limit 10
+# Health Scoreで構造的問題を特定
+npm run dev -- health --verbose
 
-# 特定の関数の詳細確認
-npm run dev -- describe <function-name>
+# 構造的問題の詳細確認
+npm run dev -- dep lint
 
 # リファクタリング実施後に再確認
 npm run dev -- diff <before-label> HEAD
@@ -441,7 +533,7 @@ npm run dev -- diff <before-label> HEAD
 
 #### メリット
 1. **客観的な品質評価**: 数値による定量的な品質変化の把握
-2. **リファクタリング効果の可視化**: 複雑度改善の証拠を残せる
+2. **リファクタリング効果の可視化**: 構造的改善の証拠を残せる
 3. **品質劣化の早期発見**: コミット前に品質問題を検出
 4. **レビュー時の情報提供**: PRレビューで品質変化を明示可能
 
