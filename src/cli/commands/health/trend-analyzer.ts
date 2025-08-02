@@ -4,7 +4,7 @@
  */
 
 import chalk from 'chalk';
-import { HealthCommandOptions } from '../../../types';
+import { HealthCommandOptions, SnapshotInfo } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { TrendData, TrendAnalysis } from './types';
 
@@ -62,22 +62,72 @@ export async function displayTrendAnalysis(
 /**
  * Calculate comprehensive trend analysis - RESTORED from original implementation
  */
-export async function calculateTrendAnalysis(env: CommandEnvironment, period: number): Promise<TrendAnalysis> {
-  const cutoffDate = Date.now() - (period * 24 * 60 * 60 * 1000);
-  const snapshots = await env.storage.getSnapshots({ 
-    limit: 50, // Get more snapshots for trend analysis
-  });
-
-  const recentSnapshots = snapshots.filter(s => s.createdAt >= cutoffDate);
-  
-  // Group snapshots by reasonable intervals for analysis
-  const periods: TrendData[] = [];
-  const now = Date.now();
-  
+/**
+ * Calculate interval configuration for trend analysis
+ */
+function calculateIntervalConfig(period: number): {
+  intervalMs: number;
+  intervalName: string;
+  intervalCount: number;
+} {
   // For periods <= 7 days, group by day. For longer periods, group by week
   const intervalMs = period <= 7 ? 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000; // 1 day or 1 week
   const intervalName = period <= 7 ? 'Day' : 'Week';
   const intervalCount = period <= 7 ? period : Math.ceil(period / 7);
+  
+  return { intervalMs, intervalName, intervalCount };
+}
+
+/**
+ * Extract metrics from snapshot metadata with type safety
+ */
+function extractSnapshotMetrics(snapshots: SnapshotInfo[]): {
+  avgComplexity: number;
+  totalFunctions: number;
+  highRiskCount: number;
+} {
+  const avgComplexity = snapshots.reduce((sum, s) => {
+    // Use snapshot's metadata with type guard for safety
+    const metadata = s.metadata;
+    const avgComplexity = (metadata && typeof metadata === 'object' && 'avgComplexity' in metadata && typeof metadata.avgComplexity === 'number') 
+      ? metadata.avgComplexity 
+      : 0;
+    return sum + avgComplexity;
+  }, 0) / snapshots.length;
+  
+  const totalFunctions = snapshots.reduce((sum, s) => {
+    const metadata = s.metadata;
+    const totalFunctions = (metadata && typeof metadata === 'object' && 'totalFunctions' in metadata && typeof metadata.totalFunctions === 'number') 
+      ? metadata.totalFunctions 
+      : 0;
+    return sum + totalFunctions;
+  }, 0) / snapshots.length;
+  
+  const highRiskCount = snapshots.reduce((sum, s) => {
+    const metadata = s.metadata;
+    const complexityDistribution = (metadata && typeof metadata === 'object' && 'complexityDistribution' in metadata && 
+      metadata.complexityDistribution && typeof metadata.complexityDistribution === 'object') 
+      ? metadata.complexityDistribution as Record<string, number>
+      : {};
+    const highRisk = Object.entries(complexityDistribution)
+      .filter(([complexity]) => parseInt(complexity) >= 10)
+      .reduce((count, [, functions]) => count + (functions || 0), 0);
+    return sum + highRisk;
+  }, 0) / snapshots.length;
+
+  return { avgComplexity, totalFunctions, highRiskCount };
+}
+
+/**
+ * Process snapshots into trend periods
+ */
+function processSnapshotsIntoPeriods(
+  recentSnapshots: SnapshotInfo[],
+  intervalConfig: { intervalMs: number; intervalName: string; intervalCount: number },
+  now: number
+): TrendData[] {
+  const periods: TrendData[] = [];
+  const { intervalMs, intervalName, intervalCount } = intervalConfig;
 
   for (let i = 0; i < intervalCount; i++) {
     const intervalStart = now - ((i + 1) * intervalMs);
@@ -88,35 +138,7 @@ export async function calculateTrendAnalysis(env: CommandEnvironment, period: nu
 
     if (intervalSnapshots.length === 0) continue;
 
-    const avgComplexity = intervalSnapshots.reduce((sum, s) => {
-      // Use snapshot's metadata with type guard for safety
-      const metadata = s.metadata;
-      const avgComplexity = (metadata && typeof metadata === 'object' && 'avgComplexity' in metadata && typeof metadata.avgComplexity === 'number') 
-        ? metadata.avgComplexity 
-        : 0;
-      return sum + avgComplexity;
-    }, 0) / intervalSnapshots.length;
-    
-    const totalFunctions = intervalSnapshots.reduce((sum, s) => {
-      const metadata = s.metadata;
-      const totalFunctions = (metadata && typeof metadata === 'object' && 'totalFunctions' in metadata && typeof metadata.totalFunctions === 'number') 
-        ? metadata.totalFunctions 
-        : 0;
-      return sum + totalFunctions;
-    }, 0) / intervalSnapshots.length;
-    
-    const highRiskCount = intervalSnapshots.reduce((sum, s) => {
-      const metadata = s.metadata;
-      const complexityDistribution = (metadata && typeof metadata === 'object' && 'complexityDistribution' in metadata && 
-        metadata.complexityDistribution && typeof metadata.complexityDistribution === 'object') 
-        ? metadata.complexityDistribution as Record<string, number>
-        : {};
-      const highRisk = Object.entries(complexityDistribution)
-        .filter(([complexity]) => parseInt(complexity) >= 10)
-        .reduce((count, [, functions]) => count + (functions || 0), 0);
-      return sum + highRisk;
-    }, 0) / intervalSnapshots.length;
-
+    const { avgComplexity, totalFunctions, highRiskCount } = extractSnapshotMetrics(intervalSnapshots);
     const qualityScore = Math.max(0, 100 - (avgComplexity * 10));
 
     periods.push({
@@ -130,6 +152,23 @@ export async function calculateTrendAnalysis(env: CommandEnvironment, period: nu
     });
   }
 
+  return periods;
+}
+
+export async function calculateTrendAnalysis(env: CommandEnvironment, period: number): Promise<TrendAnalysis> {
+  const cutoffDate = Date.now() - (period * 24 * 60 * 60 * 1000);
+  const snapshots = await env.storage.getSnapshots({ 
+    limit: 50, // Get more snapshots for trend analysis
+  });
+
+  const recentSnapshots = snapshots.filter(s => s.createdAt >= cutoffDate);
+  const now = Date.now();
+  
+  // Calculate interval configuration
+  const intervalConfig = calculateIntervalConfig(period);
+  
+  // Process snapshots into trend periods
+  const periods = processSnapshotsIntoPeriods(recentSnapshots, intervalConfig, now);
   periods.reverse(); // Show oldest first
 
   const overallTrend = periods.length >= 2 

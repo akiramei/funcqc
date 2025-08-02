@@ -190,25 +190,13 @@ async function saveSourceFiles(
 /**
  * Perform basic analysis on stored files (can be called later)
  */
-export async function performBasicAnalysis(
-  snapshotId: string,
+/**
+ * Prepare batches for parallel processing
+ */
+function prepareBatchProcessing(
   sourceFiles: import('../../types').SourceFile[],
-  env: CommandEnvironment,
-  spinner: SpinnerInterface,
-  sourceFileIdMap?: Map<string, string>
-): Promise<void> {
-  spinner.start('Performing basic function analysis...');
-  
-  const components = await initializeComponents(env, spinner, sourceFiles.length);
-  let totalFunctions = 0; // Track total instead of accumulating all in memory
-  
-  // Determine optimal concurrency based on system resources
-  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
-  const maxConcurrency = components.optimalConfig.maxWorkers;
-  
-  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
-  
-  // Process files in parallel batches for improved performance
+  maxConcurrency: number
+): typeof sourceFiles[] {
   const batchSize = Math.ceil(sourceFiles.length / maxConcurrency);
   const batches: typeof sourceFiles[] = [];
   
@@ -216,7 +204,66 @@ export async function performBasicAnalysis(
     batches.push(sourceFiles.slice(i, i + batchSize));
   }
   
-  // Process batches with streaming storage to reduce peak memory usage
+  return batches;
+}
+
+/**
+ * Process a single source file and return function info
+ */
+async function processSingleSourceFile(
+  sourceFile: import('../../types').SourceFile,
+  components: Awaited<ReturnType<typeof initializeComponents>>,
+  sourceFileIdMap?: Map<string, string>
+): Promise<FunctionInfo[]> {
+  // Create virtual source file for TypeScript analyzer
+  const virtualFile = {
+    path: sourceFile.filePath,
+    content: sourceFile.fileContent,
+  };
+  
+  // Use analyzer with content instead of file path
+  const functions = await components.analyzer.analyzeContent(
+    virtualFile.content,
+    virtualFile.path
+  );
+  
+  // Set source file ID and verify metrics calculation
+  for (const func of functions) {
+    // Metrics are pre-calculated in TypeScriptAnalyzer.create*FunctionInfo methods
+    // This fallback exists for robustness and potential future analyzer implementations
+    // Note: TypeScriptAnalyzer always sets metrics, so this block is currently unused
+    if (!func.metrics) {
+      // Legacy compatibility: fallback to separate calculation if metrics missing
+      // This preserves backward compatibility and provides safety for edge cases
+      func.metrics = components.qualityCalculator.calculate(func);
+      
+      if (process.env['NODE_ENV'] !== 'production') {
+        console.warn(`⚠️  Fallback metrics calculation used for ${func.name} - analyzer may need optimization`);
+      }
+    }
+    
+    // Use sourceFileIdMap from N:1 design (must exist)
+    const mappedId = sourceFileIdMap?.get(func.filePath);
+    if (!mappedId) {
+      throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
+    }
+    func.sourceFileId = mappedId;
+  }
+  
+  sourceFile.functionCount = functions.length;
+  return functions;
+}
+
+/**
+ * Execute batch analysis and storage
+ */
+async function executeBatchAnalysis(
+  batches: import('../../types').SourceFile[][],
+  components: Awaited<ReturnType<typeof initializeComponents>>,
+  snapshotId: string,
+  env: CommandEnvironment,
+  sourceFileIdMap?: Map<string, string>
+): Promise<{ functionCount: number; errors: string[] }[]> {
   const batchPromises = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
@@ -225,44 +272,8 @@ export async function performBasicAnalysis(
     
     for (const sourceFile of batch) {
       try {
-        // Create virtual source file for TypeScript analyzer
-        const virtualFile = {
-          path: sourceFile.filePath,
-          content: sourceFile.fileContent,
-        };
-        
-        // Use analyzer with content instead of file path
-        const functions = await components.analyzer.analyzeContent(
-          virtualFile.content,
-          virtualFile.path
-        );
-        
-        // Set source file ID and verify metrics calculation
-        for (const func of functions) {
-          // Metrics are pre-calculated in TypeScriptAnalyzer.create*FunctionInfo methods
-          // This fallback exists for robustness and potential future analyzer implementations
-          // Note: TypeScriptAnalyzer always sets metrics, so this block is currently unused
-          if (!func.metrics) {
-            // Legacy compatibility: fallback to separate calculation if metrics missing
-            // This preserves backward compatibility and provides safety for edge cases
-            func.metrics = components.qualityCalculator.calculate(func);
-            
-            if (process.env['NODE_ENV'] !== 'production') {
-              console.warn(`⚠️  Fallback metrics calculation used for ${func.name} - analyzer may need optimization`);
-            }
-          }
-          
-          // Use sourceFileIdMap from N:1 design (must exist)
-          const mappedId = sourceFileIdMap?.get(func.filePath);
-          if (!mappedId) {
-            throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
-          }
-          func.sourceFileId = mappedId;
-        }
-        
+        const functions = await processSingleSourceFile(sourceFile, components, sourceFileIdMap);
         batchFunctions.push(...functions);
-        sourceFile.functionCount = functions.length;
-        
       } catch (error) {
         const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
         batchErrors.push(errorMessage);
@@ -300,32 +311,16 @@ export async function performBasicAnalysis(
     return { functionCount: batchFunctions.length, errors: batchErrors };
   });
   
-  // Wait for all batches to complete and collect summary results
-  const batchResults = await Promise.all(batchPromises);
-  const allErrors: string[] = [];
-  
-  for (const batchResult of batchResults) {
-    totalFunctions += batchResult.functionCount;
-    allErrors.push(...batchResult.errors);
-  }
-  
-  if (allErrors.length > 0) {
-    console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
-  } else {
-    console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
-  }
-  
-  // Update analysis level after all batches complete
-  await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-  
-  spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
-  
-  // Skip heavy summary calculation for performance unless explicitly requested
-  if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
-    // Summary requires function array but we optimized it away for memory efficiency
-    console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
-  }
-  
+  return Promise.all(batchPromises);
+}
+
+/**
+ * Perform cleanup operations
+ */
+async function performAnalysisCleanup(
+  components: Awaited<ReturnType<typeof initializeComponents>>,
+  env: CommandEnvironment
+): Promise<void> {
   // Clean up memory monitoring to prevent hanging process
   if (components.memoryMonitor) {
     clearInterval(components.memoryMonitor);
@@ -338,6 +333,60 @@ export async function performBasicAnalysis(
   // Clean up analyzer resources
   if (components.analyzer && typeof components.analyzer.cleanup === 'function') {
     await components.analyzer.cleanup();
+  }
+}
+
+export async function performBasicAnalysis(
+  snapshotId: string,
+  sourceFiles: import('../../types').SourceFile[],
+  env: CommandEnvironment,
+  spinner: SpinnerInterface,
+  sourceFileIdMap?: Map<string, string>
+): Promise<void> {
+  spinner.start('Performing basic function analysis...');
+  
+  const components = await initializeComponents(env, spinner, sourceFiles.length);
+  let totalFunctions = 0; // Track total instead of accumulating all in memory
+  
+  // Determine optimal concurrency based on system resources
+  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
+  const maxConcurrency = components.optimalConfig.maxWorkers;
+  
+  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
+  
+  try {
+    // Prepare batches for parallel processing
+    const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
+    
+    // Execute batch analysis
+    const batchResults = await executeBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
+    
+    // Collect summary results
+    const allErrors: string[] = [];
+    for (const batchResult of batchResults) {
+      totalFunctions += batchResult.functionCount;
+      allErrors.push(...batchResult.errors);
+    }
+    
+    if (allErrors.length > 0) {
+      console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
+    } else {
+      console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
+    }
+    
+    // Update analysis level after all batches complete
+    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+    
+    spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
+    
+    // Skip heavy summary calculation for performance unless explicitly requested
+    if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
+      // Summary requires function array but we optimized it away for memory efficiency
+      console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
+    }
+  } finally {
+    // Always perform cleanup
+    await performAnalysisCleanup(components, env);
   }
 }
 
