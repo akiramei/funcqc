@@ -31,7 +31,7 @@ export class HashSimilarityDetector implements SimilarityDetector {
     const validFunctions = this.filterValidFunctions(functions, config);
 
     // Enable hybrid mode for better accuracy (default: enabled)
-    this.hybridMode = (options as any).astVerification !== false;
+    this.hybridMode = (options as SimilarityOptions & { astVerification?: boolean }).astVerification !== false;
     if (this.hybridMode && !this.astDetector) {
       this.astDetector = new ASTSimilarityDetector();
     }
@@ -320,9 +320,9 @@ export class HashSimilarityDetector implements SimilarityDetector {
   /**
    * Apply safety valve to prevent false 1.0 similarities
    */
-  private applySafetyValve(similarity: number, astResult: any): number {
+  private applySafetyValve(similarity: number, astResult: SimilarityResult): number {
     // 1.0 should only be allowed for structural digest equality
-    const hasStructuralDigestEqual = astResult.metadata?.structuralDigestEqual === true;
+    const hasStructuralDigestEqual = astResult.metadata?.['structuralDigestEqual'] === true;
     
     if (similarity >= 1.0 && !hasStructuralDigestEqual) {
       // Cap at 0.99 unless we have confirmed structural digest equality
