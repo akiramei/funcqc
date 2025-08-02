@@ -186,6 +186,7 @@ async function displayBasicInfo(func: FunctionInfo, _env: CommandEnvironment): P
   const signature = buildFunctionSignature(func);
   console.log(`  Definition: ${signature}`);
   console.log(`  Location: ${func.filePath}:${func.startLine}-${func.endLine}`);
+  console.log(`  ID: ${func.id}`);
   
   // Description if available
   if (func.description) {
