@@ -28,7 +28,7 @@ import { globalHashCache } from '../utils/hash-cache';
 
 interface FunctionMetadata {
   signature: string;
-  functionBody: string;
+  sourceCodeText: string;
   astHash: string;
   signatureHash: string;
   returnType: ReturnTypeInfo | undefined;
@@ -371,20 +371,18 @@ export class TypeScriptAnalyzer extends CacheAware {
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
-    fileContent: string
+_fileContent: string
   ): Promise<FunctionInfo | null> {
     const name = func.getName();
     if (!name) return null;
 
     const signature = this.getFunctionSignature(func);
-    const startPos = func.getBody()?.getStart() || func.getStart();
-    const endPos = func.getBody()?.getEnd() || func.getEnd();
-    const functionBody = fileContent.substring(startPos, endPos);
+    const sourceCodeText = func.getFullText().trim();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
       relativePath,
-      functionBody,
+      sourceCodeText,
       undefined, // No modification time available
       signature
     );
@@ -407,9 +405,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       contextPath,
       modifiers
     );
-    const contentId = this.generateContentId(astHash, functionBody);
-
-    const sourceCodeText = func.getFullText().trim();
+    const contentId = this.generateContentId(astHash, sourceCodeText);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
@@ -462,7 +458,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
-    fileContent: string
+_fileContent: string
   ): Promise<FunctionInfo | null> {
     const name = method.getName();
     if (!name) return null;
@@ -482,14 +478,12 @@ export class TypeScriptAnalyzer extends CacheAware {
     
     const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
     const signature = this.getMethodSignature(method, className);
-    const startPos = method.getBody()?.getStart() || method.getStart();
-    const endPos = method.getBody()?.getEnd() || method.getEnd();
-    const methodBody = fileContent.substring(startPos, endPos);
+    const sourceCodeText = method.getFullText().trim();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
       relativePath,
-      methodBody,
+      sourceCodeText,
       undefined, // No modification time available
       signature
     );
@@ -519,7 +513,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       contextPath,
       modifiers
     );
-    const contentId = this.generateContentId(astHash, methodBody);
+    const contentId = this.generateContentId(astHash, sourceCodeText);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
@@ -553,7 +547,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: true,
       isConstructor: false,
       isStatic: method.isStatic(),
-      sourceCode: method.getFullText().trim(),
+      sourceCode: sourceCodeText,
       parameters: this.extractParameters(method),
     };
 
@@ -575,19 +569,17 @@ export class TypeScriptAnalyzer extends CacheAware {
     relativePath: string,
     fileHash: string,
     _sourceFile: SourceFile,
-    fileContent: string
+_fileContent: string
   ): Promise<FunctionInfo | null> {
     const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
     const fullName = `${className}.constructor`;
     const signature = this.getConstructorSignature(ctor, className);
-    const startPos = ctor.getBody()?.getStart() || ctor.getStart();
-    const endPos = ctor.getBody()?.getEnd() || ctor.getEnd();
-    const constructorBody = fileContent.substring(startPos, endPos);
+    const sourceCodeText = ctor.getFullText().trim();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
       relativePath,
-      constructorBody,
+      sourceCodeText,
       undefined, // No modification time available
       signature
     );
@@ -617,7 +609,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       contextPath,
       modifiers
     );
-    const contentId = this.generateContentId(astHash, constructorBody);
+    const contentId = this.generateContentId(astHash, sourceCodeText);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
@@ -651,7 +643,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: false,
       isConstructor: true,
       isStatic: false,
-      sourceCode: ctor.getFullText().trim(),
+      sourceCode: sourceCodeText,
       parameters: this.extractParameters(ctor),
     };
 
@@ -685,18 +677,16 @@ export class TypeScriptAnalyzer extends CacheAware {
   private extractFunctionMetadata(
     functionNode: ArrowFunction | FunctionExpression,
     name: string,
-    fileContent: string,
+_fileContent: string,
     stmt: VariableStatement
   ): FunctionMetadata {
     const signature = this.getArrowFunctionSignature(name, functionNode);
-    const startPos = functionNode.getBody()?.getStart() || functionNode.getStart();
-    const endPos = functionNode.getBody()?.getEnd() || functionNode.getEnd();
-    const functionBody = fileContent.substring(startPos, endPos);
+    const sourceCodeText = functionNode.getFullText().trim();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
       'temp', // No file path available in this context
-      functionBody,
+      sourceCodeText,
       undefined, // No modification time available
       signature
     );
@@ -714,7 +704,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     return {
       signature,
-      functionBody,
+      sourceCodeText,
       astHash,
       signatureHash,
       returnType,
@@ -744,7 +734,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       metadata.contextPath,
       metadata.modifiers
     );
-    const contentId = this.generateContentId(metadata.astHash, metadata.functionBody);
+    const contentId = this.generateContentId(metadata.astHash, metadata.sourceCodeText);
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
@@ -776,7 +766,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: false,
       isConstructor: false,
       isStatic: false,
-      sourceCode: functionNode.getFullText().trim(),
+      sourceCode: metadata.sourceCodeText,
       parameters: this.extractParameters(functionNode),
     };
 
@@ -796,7 +786,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     sourceFile: SourceFile,
     relativePath: string,
     fileHash: string,
-    fileContent: string
+_fileContent: string
   ): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
 
@@ -809,7 +799,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         const functionNode = this.extractFunctionNodeFromVariable(initializer);
 
         if (functionNode) {
-          const metadata = this.extractFunctionMetadata(functionNode, name, fileContent, stmt);
+          const metadata = this.extractFunctionMetadata(functionNode, name, _fileContent, stmt);
           const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
           functions.push(functionInfo);
         }
@@ -1345,11 +1335,11 @@ export class TypeScriptAnalyzer extends CacheAware {
    */
   private async analyzeFileContentWithCallGraph(
     filePath: string,
-    fileContent: string
+_fileContent: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     try {
       // First, analyze functions normally
-      const functions = await this.analyzeFileContent(filePath, fileContent);
+      const functions = await this.analyzeFileContent(filePath, _fileContent);
       
       // Create function map for call graph analysis
       const functionMap = new Map<string, { id: string; name: string; startLine: number; endLine: number }>();
