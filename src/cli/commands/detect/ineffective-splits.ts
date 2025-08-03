@@ -52,6 +52,10 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
       
       if (options.threshold) {
         detectionOptions.threshold = parseFloat(options.threshold);
+      } else {
+        // Default threshold for high-confidence findings (score >= 6.0)
+        // This provides ~20-30 reliable findings that users can trust without manual filtering
+        detectionOptions.threshold = 6.0;
       }
       
       if (options.minLines) {
@@ -265,7 +269,8 @@ function outputTable(
   console.log(chalk.dim('💡 Tips:'));
   console.log(chalk.dim('   • Use --json for machine-readable output'));
   console.log(chalk.dim('   • Add --include-test to analyze test files'));
-  console.log(chalk.dim('   • Use --min-severity Medium to filter results'));
+  console.log(chalk.dim('   • Use --threshold 7.0 for highest confidence findings'));
+  console.log(chalk.dim('   • Use --threshold 5.0 for comprehensive analysis (all candidates)'));
 }
 
 /**
