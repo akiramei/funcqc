@@ -13,6 +13,7 @@ export interface DetectCommandOptions extends BaseCommandOptions {
   limit?: string;
   threshold?: string;
   snapshot?: string;
+  minLines?: string;
 }
 
 /**

@@ -67,6 +67,8 @@ export class IneffectiveSplitDetector {
 
   private readonly BOUNDARY_PATTERNS = [
     /\/(cli|commands|adapter|transport|controller)\//,
+    /\/(usecase|application|infra|ports|gateway|entrypoints)\//,
+    /\/(middleware|interceptor|handler|presenter)\//,
     /^(main|handler|execute|bootstrap|index)$/,
     /\.(route|controller|adapter|service)\.ts$/
   ];
@@ -405,11 +407,21 @@ export class IneffectiveSplitDetector {
   }
 
   /**
-   * Analyze passthrough characteristics
+   * Analyze passthrough characteristics (conservative)
    */
   private analyzePassthrough(func: FunctionInfo): PassthroughAnalysis {
     // Simple heuristic based on function signature and name
     // In a real implementation, this would use AST analysis
+    
+    // Check for side effects (logging, metrics, validation, etc.)
+    if (this.hasSideEffectSuspicion(func)) {
+      return {
+        isPassthrough: false,
+        passthroughRatio: 0,
+        argPassthroughCount: 0,
+        totalArgs: func.parameters.length
+      };
+    }
     
     // Check if function name suggests delegation
     const delegationPatterns = /^(handle|process|execute|forward|delegate|proxy|wrap)/i;
@@ -418,11 +430,11 @@ export class IneffectiveSplitDetector {
     // Estimate based on parameters
     const paramCount = func.parameters.length;
     
-    // Simple heuristic: if it has delegation name and parameters, likely passthrough
+    // Conservative heuristic: delegation name suggests passthrough, but lower confidence
     if (isDelegationName && paramCount > 0) {
       return {
         isPassthrough: true,
-        passthroughRatio: 0.9, // High estimate for delegation patterns
+        passthroughRatio: 0.6, // Conservative estimate (reduced from 0.9)
         argPassthroughCount: paramCount,
         totalArgs: paramCount
       };
@@ -434,6 +446,32 @@ export class IneffectiveSplitDetector {
       argPassthroughCount: 0,
       totalArgs: paramCount
     };
+  }
+
+  /**
+   * Check if function likely has side effects (logging, validation, etc.)
+   */
+  private hasSideEffectSuspicion(func: FunctionInfo): boolean {
+    const sideEffectPatterns = [
+      /log/i, /audit/i, /metric/i, /track/i, /monitor/i,
+      /validate/i, /check/i, /verify/i, /ensure/i,
+      /cache/i, /store/i, /save/i, /persist/i,
+      /console/i, /process/i, /fs/i, /file/i
+    ];
+    
+    // Check function name
+    for (const pattern of sideEffectPatterns) {
+      if (pattern.test(func.name)) return true;
+    }
+    
+    // Check file path for side effect contexts
+    const filePath = func.filePath.toLowerCase();
+    if (filePath.includes('middleware') || filePath.includes('interceptor') || 
+        filePath.includes('logger') || filePath.includes('validator')) {
+      return true;
+    }
+    
+    return false;
   }
 
   /**

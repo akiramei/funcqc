@@ -49,6 +49,10 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
         detectionOptions.threshold = parseFloat(options.threshold);
       }
       
+      if (options.minLines) {
+        detectionOptions.minLines = parseInt(options.minLines, 10);
+      }
+      
       const findings = detector.detectIneffectiveSplits(functions, callEdges, detectionOptions);
 
       // Apply severity filter
@@ -187,6 +191,9 @@ function outputTable(
   // Group by severity
   const grouped = groupBySeverity(displayedFindings);
   
+  // Create function map once for efficient lookup
+  const functionMap = new Map(functions.map(f => [f.id, f]));
+
   // Display each severity group
   for (const [severity, findings] of Object.entries(grouped)) {
     if (findings.length === 0) continue;
@@ -212,7 +219,6 @@ function outputTable(
       
       // Related functions
       if (finding.related.callees.length > 0) {
-        const functionMap = new Map(functions.map(f => [f.id, f]));
         const callee = functionMap.get(finding.related.callees[0]);
         if (callee) {
           console.log(`    │   └──→ ${chalk.cyan(callee.name)} ${chalk.gray(`(${callee.filePath}:${callee.startLine})`)}`);
@@ -298,5 +304,7 @@ function getRuleDescription(rule: IneffectiveSplitRule): string {
       return 'Pseudo boundary';
     case IneffectiveSplitRule.LOCAL_THROWAWAY:
       return 'Local throwaway';
+    default:
+      return `Unknown rule (${rule})`;
   }
 }

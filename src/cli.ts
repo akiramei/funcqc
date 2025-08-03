@@ -438,6 +438,7 @@ program
   .option('--include-boundaries', 'include boundary functions in analysis')
   .option('--limit <num>', 'maximum findings to display')
   .option('--threshold <value>', 'minimum score threshold (0-10)')
+  .option('--min-lines <num>', 'minimum lines of code to analyze (excludes tiny functions)')
   .option('--snapshot <id>', 'analyze specific snapshot')
   .action(async (subcommand: string, options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
