@@ -382,18 +382,10 @@ export class IneffectiveSplitDetector {
       const isPureish = this.isPureish(func);
       
       if (isPureish) {
-        // Continuous score based on function characteristics
-        const baseScore = 0.6; // Strong base for inline candidates
-        const sizeBonus = Math.max(0, (7 - metrics.sloc) * 0.05); // Bonus for smaller functions
-        const complexityBonus = metrics.cc === 1 ? 0.2 : 0.1; // Bonus for simpler functions
-        const purityBonus = 0.15; // Bonus for being pure
-        
-        const finalScore = Math.min(1.0, baseScore + sizeBonus + complexityBonus + purityBonus);
-        
         return {
           code: IneffectiveSplitRule.INLINE_CANDIDATE,
-          score: finalScore,
-          evidence: `fanIn=1, cc=${metrics.cc}, sloc=${metrics.sloc}, pureish, score=${finalScore.toFixed(2)}`
+          score: 1.0,
+          evidence: `fanIn=1, cc=${metrics.cc}, sloc=${metrics.sloc}, pureish`
         };
       }
     }
@@ -497,17 +489,10 @@ export class IneffectiveSplitDetector {
     const genericScore = this.calculateGenericNameScore(func.name);
     
     if (genericScore >= 0.6 && metrics.cc <= 1 && metrics.fanIn === 0) {
-      // Continuous score based on generic name strength and function characteristics
-      const baseScore = 0.3 + (genericScore * 0.4); // 0.54-0.7 base range
-      const complexityBonus = metrics.cc === 0 ? 0.1 : 0.05; // Bonus for simpler functions
-      const sizeBonus = Math.max(0, (10 - metrics.sloc) / 20); // Bonus for smaller functions
-      
-      const finalScore = Math.min(0.8, baseScore + complexityBonus + sizeBonus);
-      
       return {
         code: IneffectiveSplitRule.GENERIC_NAME_LOW_REUSE,
-        score: finalScore,
-        evidence: `generic name="${func.name}", fanIn=${metrics.fanIn}, truly unused, score=${finalScore.toFixed(2)}`
+        score: 0.6,
+        evidence: `generic name="${func.name}", fanIn=${metrics.fanIn}, truly unused`
       };
     }
     
@@ -526,18 +511,10 @@ export class IneffectiveSplitDetector {
         metrics.cc <= 1 && 
         metrics.sloc <= 3 && 
         metrics.fanOut <= 1) {
-      // Continuous score based on function thinness and usage
-      const baseScore = 0.2; // Base for pseudo boundary
-      const thinBonus = (4 - metrics.sloc) * 0.08; // Bonus for thinner functions (max 0.24)
-      const complexityBonus = metrics.cc === 1 ? 0.1 : 0.05; // Bonus for simple functions
-      const usageBonus = metrics.fanOut === 0 ? 0.15 : 0.05; // Bonus for unused functions
-      
-      const finalScore = Math.min(0.6, baseScore + thinBonus + complexityBonus + usageBonus);
-      
       return {
         code: IneffectiveSplitRule.PSEUDO_BOUNDARY,
-        score: finalScore,
-        evidence: `non-boundary thin function, cc=${metrics.cc}, sloc=${metrics.sloc}, score=${finalScore.toFixed(2)}`
+        score: 0.5,
+        evidence: `non-boundary thin function, cc=${metrics.cc}, sloc=${metrics.sloc}`
       };
     }
     
@@ -981,12 +958,12 @@ export class IneffectiveSplitDetector {
   }
 
   /**
-   * Calculate severity from score (improved continuous distribution)
+   * Calculate severity from score
    */
   private calculateSeverity(score: number): 'High' | 'Medium' | 'Low' {
-    if (score >= 7.0) return 'High';    // 7.0+ for clear issues
-    if (score >= 4.0) return 'Medium';  // 4.0-6.9 for questionable splits  
-    return 'Low';                       // 1.0-3.9 for minor issues
+    if (score >= 7.5) return 'High';
+    if (score >= 5.5) return 'Medium';
+    return 'Low';
   }
 
   /**
