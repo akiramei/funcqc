@@ -91,7 +91,7 @@ const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'search', 'history', 'sim
 /**
  * List of commands that require call graph analysis
  */
-const CALL_GRAPH_COMMANDS = ['health', 'dep', 'safe-delete'];
+const CALL_GRAPH_COMMANDS = ['health', 'dep', 'safe-delete', 'detect'];
 
 /**
  * Determines if the current command is lightweight

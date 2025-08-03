@@ -58,7 +58,27 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
         detectionOptions.minLines = parseInt(options.minLines, 10);
       }
       
-      const findings = detector.detectIneffectiveSplits(functions, callEdges, detectionOptions);
+      // Add internal call edges provider for accurate fanIn/fanOut calculation
+      detectionOptions.internalCallsProvider = async () => {
+        const internalEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshot.id);
+        // Convert InternalCallEdge to CallEdge format
+        return internalEdges.map(edge => ({
+          id: edge.id,
+          callerFunctionId: edge.callerFunctionId,
+          calleeFunctionId: edge.calleeFunctionId,
+          calleeName: edge.calleeName,
+          callType: edge.callType as 'direct' | 'conditional' | 'async' | 'external' | 'dynamic' | 'virtual',
+          lineNumber: edge.lineNumber,
+          columnNumber: edge.columnNumber,
+          isAsync: false,
+          isChained: false,
+          confidenceScore: 1.0,
+          metadata: {},
+          createdAt: new Date().toISOString()
+        }));
+      };
+      
+      const findings = await detector.detectIneffectiveSplits(functions, callEdges, detectionOptions);
 
       // Apply severity filter
       const filteredFindings = filterBySeverity(findings, options.minSeverity);

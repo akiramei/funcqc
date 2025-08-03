@@ -51,6 +51,8 @@ export interface DetectionOptions {
   r2Ast?: boolean; // Enable AST-based R2 analysis
   r2MaxCandidates?: number; // Limit AST analysis to top N candidates
   sourceProvider?: (filePath: string) => string | undefined; // Provide actual source code for AST
+  includeInternalCalls?: boolean; // Include same-file function calls for accurate fanIn/fanOut
+  internalCallsProvider?: () => Promise<CallEdge[]>; // Provide internal call edges
 }
 
 export interface PassthroughAnalysis {
@@ -69,9 +71,10 @@ export class IneffectiveSplitDetector {
   private sharedProject?: Project; // Shared ts-morph project for performance
   
   private readonly GENERIC_NAMES = new Set([
-    'set', 'get', 'do', 'run', 'helper', 'process', 
+    'do', 'run', 'helper', 'process', 
     'handle', 'exec', 'execute', 'wrapper', 'delegate',
-    'forward', 'call', 'invoke', 'proxy'
+    'forward', 'call', 'invoke', 'proxy', 'doSomething',
+    'doStuff', 'temp', 'tmp', 'util', 'misc'
   ]);
 
   private readonly BOUNDARY_PATTERNS = [
@@ -88,20 +91,27 @@ export class IneffectiveSplitDetector {
   /**
    * Analyze functions to detect ineffective splits
    */
-  detectIneffectiveSplits(
+  async detectIneffectiveSplits(
     functions: FunctionInfo[],
     callEdges: CallEdge[],
     options: DetectionOptions = {}
-  ): IneffectiveSplitFinding[] {
-    // Build lookup maps
+  ): Promise<IneffectiveSplitFinding[]> {
+    // Set default threshold to filter out low-confidence findings
+    const effectiveOptions = {
+      threshold: 6.0, // Default threshold - detects genuine issues while filtering noise
+      includeInternalCalls: true, // Default: include internal calls for accurate fanIn/fanOut
+      ...options
+    };
+    
+    // Build lookup maps with optional internal calls integration
     const functionMap = new Map(functions.map(f => [f.id, f]));
-    const callsByFunction = this.buildCallMaps(callEdges);
+    const callsByFunction = await this.buildCallMapsWithInternal(callEdges, effectiveOptions);
     
     // Pre-filter and prioritize candidates for R2 AST analysis
-    const r2Candidates = this.prioritizeR2Candidates(functions, callsByFunction, options);
+    const r2Candidates = this.prioritizeR2Candidates(functions, callsByFunction, effectiveOptions);
     
     // Process all functions through analysis loop
-    const findings = this.processAnalysisLoop(functions, callsByFunction, functionMap, options, r2Candidates);
+    const findings = this.processAnalysisLoop(functions, callsByFunction, functionMap, effectiveOptions, r2Candidates);
     
     // Sort by score descending
     return findings.sort((a, b) => b.totalScore - a.totalScore);
@@ -159,6 +169,11 @@ export class IneffectiveSplitDetector {
   private shouldAnalyzeFunction(func: FunctionInfo, options: DetectionOptions): boolean {
     // Skip test files if requested
     if (!options.includeTest && this.isTestFile(func.filePath)) {
+      return false;
+    }
+    
+    // Only skip truly standard methods
+    if (/^(toString|toJSON|valueOf|Symbol\.)/.test(func.name)) {
       return false;
     }
     
@@ -363,6 +378,44 @@ export class IneffectiveSplitDetector {
     return { incoming, outgoing };
   }
 
+  /**
+   * Build call maps with optional internal calls integration
+   */
+  private async buildCallMapsWithInternal(
+    callEdges: CallEdge[], 
+    options: DetectionOptions
+  ): Promise<{ incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> }> {
+    // Start with regular inter-file call edges
+    const callMaps = this.buildCallMaps(callEdges);
+    
+    // Add internal calls if enabled and provider is available
+    if (options.includeInternalCalls && options.internalCallsProvider) {
+      try {
+        const internalEdges = await options.internalCallsProvider();
+        
+        // Merge internal edges into existing maps
+        for (const edge of internalEdges) {
+          if (!edge.calleeFunctionId || !edge.callerFunctionId) continue;
+          
+          // Add to incoming map
+          if (!callMaps.incoming.has(edge.calleeFunctionId)) {
+            callMaps.incoming.set(edge.calleeFunctionId, new Set());
+          }
+          callMaps.incoming.get(edge.calleeFunctionId)!.add(edge.callerFunctionId);
+          
+          // Add to outgoing map
+          if (!callMaps.outgoing.has(edge.callerFunctionId)) {
+            callMaps.outgoing.set(edge.callerFunctionId, new Set());
+          }
+          callMaps.outgoing.get(edge.callerFunctionId)!.add(edge.calleeFunctionId);
+        }
+      } catch (error) {
+        console.warn('Failed to load internal call edges:', error);
+      }
+    }
+    
+    return callMaps;
+  }
 
   /**
    * R1: Check if function is an inline candidate
@@ -377,15 +430,21 @@ export class IneffectiveSplitDetector {
       return null;
     }
     
-    if (metrics.fanIn === 1 && metrics.cc <= 1 && metrics.sloc <= 6) {
+    // Balanced criteria for inline candidates
+    if (metrics.fanIn === 1 && metrics.cc <= 1 && metrics.sloc <= 5) {
       // Check if it's likely a pure function (simple heuristic)
       const isPureish = this.isPureish(func);
       
-      if (isPureish) {
+      // Skip test helpers
+      if (this.isTestFile(func.filePath)) {
+        return null;
+      }
+      
+      if (isPureish && metrics.sloc >= 2) {
         return {
           code: IneffectiveSplitRule.INLINE_CANDIDATE,
-          score: 0.5,
-          evidence: `fanIn=1, cc=${metrics.cc}, sloc=${metrics.sloc}, pureish`
+          score: 0.7,  // Moderate score for inline candidates
+          evidence: `fanIn=1, cc=${metrics.cc}, sloc=${metrics.sloc}, pure function`
         };
       }
     }
@@ -488,6 +547,7 @@ export class IneffectiveSplitDetector {
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const genericScore = this.calculateGenericNameScore(func.name);
     
+    // Original criteria - detect generic names with low reuse
     if (genericScore >= 0.6 && metrics.cc <= 1 && metrics.fanIn <= 1) {
       return {
         code: IneffectiveSplitRule.GENERIC_NAME_LOW_REUSE,
@@ -506,15 +566,22 @@ export class IneffectiveSplitDetector {
     func: FunctionInfo,
     metrics: { cc: number; sloc: number; fanIn: number; fanOut: number }
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
-    // Check if it's NOT a boundary but looks like one
-    if (!this.isBoundaryCandidate(func) && 
-        metrics.cc <= 1 && 
-        metrics.sloc <= 3 && 
-        metrics.fanOut <= 1) {
+    // Skip if it's a real boundary candidate
+    if (this.isBoundaryCandidate(func)) {
+      return null;
+    }
+    
+    // Only flag truly problematic cases - very small functions with boundary-like names but unused
+    const boundaryLikeName = /^(handle|process|validate|transform|convert|parse|execute|run|do)[A-Z]/.test(func.name);
+    
+    if (boundaryLikeName && 
+        metrics.cc === 1 && 
+        metrics.sloc <= 2 && 
+        metrics.fanIn === 0) {  // Completely unused
       return {
         code: IneffectiveSplitRule.PSEUDO_BOUNDARY,
-        score: 0.5,
-        evidence: `non-boundary thin function, cc=${metrics.cc}, sloc=${metrics.sloc}`
+        score: 0.9,
+        evidence: `unused boundary-named function, cc=${metrics.cc}, sloc=${metrics.sloc}`
       };
     }
     
@@ -959,9 +1026,9 @@ export class IneffectiveSplitDetector {
    * Calculate severity from score
    */
   private calculateSeverity(score: number): 'High' | 'Medium' | 'Low' {
-    if (score >= 7.5) return 'High';
-    if (score >= 5.5) return 'Medium';
-    return 'Low';
+    if (score >= 8.0) return 'High';    // Very clear cases
+    if (score >= 6.5) return 'Medium';  // Probable issues
+    return 'Low';                       // Possible issues
   }
 
   /**
