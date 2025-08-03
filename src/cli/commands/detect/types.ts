@@ -14,6 +14,8 @@ export interface DetectCommandOptions extends BaseCommandOptions {
   threshold?: string;
   snapshot?: string;
   minLines?: string;
+  scoreMode?: string;
+  r2Ast?: boolean;
 }
 
 /**

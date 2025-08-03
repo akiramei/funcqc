@@ -1,4 +1,5 @@
 import { FunctionInfo, CallEdge } from '../types';
+import { Project } from 'ts-morph';
 
 /**
  * Detection rules for ineffective function splits
@@ -44,6 +45,9 @@ export interface DetectionOptions {
   minLines?: number;
   includeTest?: boolean;
   includeBoundaries?: boolean;
+  scoreMode?: 'sum' | 'prob'; // New: scoring strategy
+  r2Ast?: boolean; // Enable AST-based R2 analysis
+  r2MaxCandidates?: number; // Limit AST analysis to top N candidates
 }
 
 export interface PassthroughAnalysis {
@@ -118,8 +122,8 @@ export class IneffectiveSplitDetector {
       const r1 = this.checkInlineCandidate(func, metrics, options);
       if (r1) rulesHit.push(r1);
       
-      // R2: Thin wrapper
-      const r2 = this.checkThinWrapper(func, metrics, callsByFunction.outgoing);
+      // R2: Thin wrapper (enhanced with optional AST)
+      const r2 = this.checkThinWrapperEnhanced(func, metrics, callsByFunction.outgoing, options);
       if (r2) rulesHit.push(r2);
       
       // R3: Linear chain CC=1
@@ -144,7 +148,7 @@ export class IneffectiveSplitDetector {
       
       // Calculate total score and severity
       if (rulesHit.length > 0) {
-        const totalScore = this.calculateTotalScore(rulesHit);
+        const totalScore = this.calculateTotalScore(rulesHit, options);
         const severity = this.calculateSeverity(totalScore);
         
         // Apply threshold filter
@@ -238,32 +242,6 @@ export class IneffectiveSplitDetector {
     return null;
   }
 
-  /**
-   * R2: Check if function is a thin wrapper
-   */
-  private checkThinWrapper(
-    func: FunctionInfo,
-    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
-    outgoingCalls: Map<string, Set<string>>
-  ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
-    const callees = outgoingCalls.get(func.id) || new Set();
-    
-    // Check single callee, low complexity, and limited reuse (improved precision)
-    if (callees.size === 1 && metrics.cc <= 1 && metrics.fanIn <= 2) {
-      // Analyze passthrough characteristics
-      const passthroughAnalysis = this.analyzePassthrough(func);
-      
-      if (passthroughAnalysis.isPassthrough && passthroughAnalysis.passthroughRatio >= 0.8) {
-        return {
-          code: IneffectiveSplitRule.THIN_WRAPPER,
-          score: 0.9,
-          evidence: `single call, fanIn=${metrics.fanIn}, passthrough≈${passthroughAnalysis.passthroughRatio.toFixed(2)}`
-        };
-      }
-    }
-    
-    return null;
-  }
 
   /**
    * R3: Check for linear CC=1 chains
@@ -407,6 +385,80 @@ export class IneffectiveSplitDetector {
   }
 
   /**
+   * Enhanced R2 check with optional AST analysis
+   */
+  private checkThinWrapperEnhanced(
+    func: FunctionInfo,
+    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
+    outgoingCalls: Map<string, Set<string>>,
+    options: DetectionOptions
+  ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
+    const callees = outgoingCalls.get(func.id) || new Set();
+    
+    // Basic requirements: single callee, low complexity, limited reuse
+    if (callees.size === 1 && metrics.cc <= 1 && metrics.fanIn <= 2) {
+      // First-stage heuristic analysis
+      const basicAnalysis = this.analyzePassthrough(func);
+      
+      if (basicAnalysis.isPassthrough && basicAnalysis.passthroughRatio >= 0.6) {
+        // Use AST analysis if enabled and function qualifies
+        if (options.r2Ast) {
+          const astScore = this.analyzeWithAST(func);
+          if (astScore > 0) {
+            return {
+              code: IneffectiveSplitRule.THIN_WRAPPER,
+              score: astScore,
+              evidence: `AST: single call, fanIn=${metrics.fanIn}, ast-score=${astScore.toFixed(2)}`
+            };
+          }
+        } else {
+          // Fallback to basic analysis
+          return {
+            code: IneffectiveSplitRule.THIN_WRAPPER,
+            score: basicAnalysis.passthroughRatio,
+            evidence: `single call, fanIn=${metrics.fanIn}, passthrough≈${basicAnalysis.passthroughRatio.toFixed(2)}`
+          };
+        }
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * AST-based analysis for thin wrapper detection
+   */
+  private analyzeWithAST(func: FunctionInfo): number {
+    try {
+      // Create a minimal ts-morph project for this function
+      const project = new Project({ useInMemoryFileSystem: true });
+      const sourceFile = project.createSourceFile("temp.ts", this.createFunctionSource(func));
+      
+      // Find the function node and analyze
+      const functions = sourceFile.getFunctions();
+      if (functions.length > 0) {
+        const { analyzePassthroughAST, scoreR2AST } = require('./ast-passthrough-analyzer');
+        const astAnalysis = analyzePassthroughAST(functions[0]);
+        return scoreR2AST(astAnalysis);
+      }
+    } catch (error) {
+      // Fallback to basic analysis on AST errors
+      console.warn(`AST analysis failed for function ${func.name}:`, error);
+    }
+    
+    return 0;
+  }
+
+  /**
+   * Create minimal TypeScript source for function analysis
+   */
+  private createFunctionSource(func: FunctionInfo): string {
+    // Simple reconstruction - in real implementation would use actual source
+    const params = func.parameters.map(p => p.name).join(', ');
+    return `function ${func.name}(${params}) { /* placeholder */ }`;
+  }
+
+  /**
    * Analyze passthrough characteristics (conservative)
    */
   private analyzePassthrough(func: FunctionInfo): PassthroughAnalysis {
@@ -544,15 +596,50 @@ export class IneffectiveSplitDetector {
   /**
    * Calculate total score from rules
    */
-  private calculateTotalScore(rulesHit: Array<{ score: number }>): number {
-    // Weighted sum with linear normalization
-    const rawScore = rulesHit.reduce((sum, rule) => sum + rule.score, 0);
+  private calculateTotalScore(rulesHit: Array<{ score: number }>, options: DetectionOptions = {}): number {
+    const scoreMode = options.scoreMode || 'prob';
     
-    // Apply penalties for suppression patterns
-    const penalty = 0;
+    if (scoreMode === 'sum') {
+      // Legacy: Weighted sum with linear normalization
+      const rawScore = rulesHit.reduce((sum, rule) => sum + rule.score, 0);
+      const penalty = 0;
+      return Math.min(10, Math.max(0, rawScore * 3 - penalty));
+    } else {
+      // New: Independent probability combination
+      return this.calculateProbabilisticScore(rulesHit);
+    }
+  }
+
+  /**
+   * Calculate score using independent probability combination
+   */
+  private calculateProbabilisticScore(rulesHit: Array<{ score: number }>): number {
+    // Convert rule scores to probabilities (0-1 range)
+    const probabilities = rulesHit.map(rule => Math.max(0, Math.min(1, rule.score)));
     
-    // Normalize to 0-10 scale
-    return Math.min(10, Math.max(0, rawScore * 3 - penalty));
+    // Combine independent probabilities: P_total = 1 - ∏(1 - p_i)
+    const combinedProb = this.combineProbabilities(probabilities);
+    
+    // Convert to 0-10 scale
+    return this.toTenScale(combinedProb);
+  }
+
+  /**
+   * Combine independent probabilities
+   */
+  private combineProbabilities(probabilities: number[]): number {
+    let complement = 1;
+    for (const p of probabilities) {
+      complement *= (1 - Math.max(0, Math.min(1, p)));
+    }
+    return 1 - complement; // 0..1
+  }
+
+  /**
+   * Convert probability to 0-10 scale
+   */
+  private toTenScale(probability: number): number {
+    return Math.round(Math.max(0, Math.min(1, probability)) * 10 * 10) / 10; // 1 decimal place
   }
 
   /**

@@ -43,6 +43,9 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
       const detectionOptions: import('../../../analyzers/ineffective-split-detector').DetectionOptions = {
         includeTest: options.includeTest || false,
         includeBoundaries: options.includeBoundaries || false,
+        scoreMode: (options.scoreMode as 'sum' | 'prob') || 'prob',
+        r2Ast: options.r2Ast || false,
+        r2MaxCandidates: 200, // Default limit for performance
       };
       
       if (options.threshold) {
