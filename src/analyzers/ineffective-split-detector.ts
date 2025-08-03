@@ -384,7 +384,7 @@ export class IneffectiveSplitDetector {
       if (isPureish) {
         return {
           code: IneffectiveSplitRule.INLINE_CANDIDATE,
-          score: 1.0,
+          score: 0.5,
           evidence: `fanIn=1, cc=${metrics.cc}, sloc=${metrics.sloc}, pureish`
         };
       }
