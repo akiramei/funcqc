@@ -488,11 +488,11 @@ export class IneffectiveSplitDetector {
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const genericScore = this.calculateGenericNameScore(func.name);
     
-    if (genericScore >= 0.6 && metrics.cc <= 1 && metrics.fanIn === 0) {
+    if (genericScore >= 0.6 && metrics.cc <= 1 && metrics.fanIn <= 1) {
       return {
         code: IneffectiveSplitRule.GENERIC_NAME_LOW_REUSE,
         score: 0.6,
-        evidence: `generic name="${func.name}", fanIn=${metrics.fanIn}, truly unused`
+        evidence: `generic name="${func.name}", fanIn=${metrics.fanIn}`
       };
     }
     
@@ -900,10 +900,8 @@ export class IneffectiveSplitDetector {
       if (regex.test(name)) return 0.7;
     }
     
-    // Pattern match (refined: exclude common legitimate patterns)
-    if (/^(do|run|exec|execute)(?!r|tion)/.test(lowerName)) return 0.7;
-    if (/^(handle|process)(?!r|or|ing)/.test(lowerName)) return 0.6;
-    // Note: Removed 'get' and 'set' from pattern matching to reduce false positives
+    // Pattern match
+    if (/^(get|set|do|run|handle|process)/.test(lowerName)) return 0.6;
     
     return 0;
   }
