@@ -122,71 +122,104 @@ export class IneffectiveSplitDetector {
         continue;
       }
       
-      // Check all rules
-      const rulesHit = [];
+      // Apply all detection rules
+      const rulesHit = this.applyAllRules(func, metrics, callsByFunction, functionMap, options, r2Candidates);
       
-      // R1: Inline candidate
-      const r1 = this.checkInlineCandidate(func, metrics, options);
-      if (r1) rulesHit.push(r1);
-      
-      // R2: Thin wrapper (enhanced with optional AST)
-      const r2 = this.checkThinWrapperEnhanced(func, metrics, callsByFunction.outgoing, options, r2Candidates);
-      if (r2) rulesHit.push(r2);
-      
-      // R3: Linear chain CC=1
-      const r3 = this.checkLinearChain(func, metrics, callsByFunction, functionMap);
-      if (r3) rulesHit.push(r3);
-      
-      // R4: Parent CC unchanged
-      const r4 = this.checkParentComplexity(func, metrics, callsByFunction.incoming, functionMap, options);
-      if (r4) rulesHit.push(r4);
-      
-      // R5: Generic name low reuse
-      const r5 = this.checkGenericNameLowReuse(func, metrics);
-      if (r5) rulesHit.push(r5);
-      
-      // R6: Pseudo boundary
-      const r6 = this.checkPseudoBoundary(func, metrics);
-      if (r6) rulesHit.push(r6);
-      
-      // R7: Local throwaway
-      const r7 = this.checkLocalThrowaway(func, callsByFunction.incoming, functionMap);
-      if (r7) rulesHit.push(r7);
-      
-      // Calculate total score and severity
+      // Create finding if rules were hit
       if (rulesHit.length > 0) {
-        const totalScore = this.calculateTotalScore(rulesHit, options);
-        const severity = this.calculateSeverity(totalScore);
-        
-        // Apply threshold filter
-        if (options.threshold && totalScore < options.threshold) {
-          continue;
+        const finding = this.createFinding(func, metrics, rulesHit, callsByFunction, functionMap, options);
+        if (finding) {
+          findings.push(finding);
         }
-        
-        // Generate chain sample for CC=1 chains
-        const chainSample = this.generateChainSample(func, callsByFunction, functionMap, rulesHit);
-        
-        findings.push({
-          functionId: func.id,
-          name: func.name,
-          file: func.filePath,
-          range: { startLine: func.startLine, endLine: func.endLine },
-          metrics,
-          rulesHit,
-          totalScore,
-          severity,
-          suggestions: this.generateSuggestions(rulesHit),
-          related: {
-            callers: Array.from(callsByFunction.incoming.get(func.id) || []),
-            callees: Array.from(callsByFunction.outgoing.get(func.id) || []),
-            ...(chainSample && { chainSample })
-          }
-        });
       }
     }
     
     // Sort by score descending
     return findings.sort((a, b) => b.totalScore - a.totalScore);
+  }
+
+  /**
+   * Apply all detection rules to a function
+   */
+  private applyAllRules(
+    func: FunctionInfo,
+    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
+    callsByFunction: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
+    functionMap: Map<string, FunctionInfo>,
+    options: DetectionOptions,
+    r2Candidates: Set<string>
+  ): Array<{ code: IneffectiveSplitRule; score: number; evidence: string }> {
+    const rulesHit = [];
+    
+    // R1: Inline candidate
+    const r1 = this.checkInlineCandidate(func, metrics, options);
+    if (r1) rulesHit.push(r1);
+    
+    // R2: Thin wrapper (enhanced with optional AST)
+    const r2 = this.checkThinWrapperEnhanced(func, metrics, callsByFunction.outgoing, options, r2Candidates);
+    if (r2) rulesHit.push(r2);
+    
+    // R3: Linear chain CC=1
+    const r3 = this.checkLinearChain(func, metrics, callsByFunction, functionMap);
+    if (r3) rulesHit.push(r3);
+    
+    // R4: Parent CC unchanged
+    const r4 = this.checkParentComplexity(func, metrics, callsByFunction.incoming, functionMap, options);
+    if (r4) rulesHit.push(r4);
+    
+    // R5: Generic name low reuse
+    const r5 = this.checkGenericNameLowReuse(func, metrics);
+    if (r5) rulesHit.push(r5);
+    
+    // R6: Pseudo boundary
+    const r6 = this.checkPseudoBoundary(func, metrics);
+    if (r6) rulesHit.push(r6);
+    
+    // R7: Local throwaway
+    const r7 = this.checkLocalThrowaway(func, callsByFunction.incoming, functionMap);
+    if (r7) rulesHit.push(r7);
+    
+    return rulesHit;
+  }
+
+  /**
+   * Create a finding object from function analysis results
+   */
+  private createFinding(
+    func: FunctionInfo,
+    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
+    rulesHit: Array<{ code: IneffectiveSplitRule; score: number; evidence: string }>,
+    callsByFunction: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
+    functionMap: Map<string, FunctionInfo>,
+    options: DetectionOptions
+  ): IneffectiveSplitFinding | null {
+    const totalScore = this.calculateTotalScore(rulesHit, options);
+    const severity = this.calculateSeverity(totalScore);
+    
+    // Apply threshold filter
+    if (options.threshold && totalScore < options.threshold) {
+      return null;
+    }
+    
+    // Generate chain sample for CC=1 chains
+    const chainSample = this.generateChainSample(func, callsByFunction, functionMap, rulesHit);
+    
+    return {
+      functionId: func.id,
+      name: func.name,
+      file: func.filePath,
+      range: { startLine: func.startLine, endLine: func.endLine },
+      metrics,
+      rulesHit,
+      totalScore,
+      severity,
+      suggestions: this.generateSuggestions(rulesHit),
+      related: {
+        callers: Array.from(callsByFunction.incoming.get(func.id) || []),
+        callees: Array.from(callsByFunction.outgoing.get(func.id) || []),
+        ...(chainSample && { chainSample })
+      }
+    };
   }
 
   /**
