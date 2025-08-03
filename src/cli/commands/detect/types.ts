@@ -5,7 +5,6 @@ import { IneffectiveSplitRule } from '../../../analyzers/ineffective-split-detec
  * Options for detect command
  */
 export interface DetectCommandOptions extends BaseCommandOptions {
-  json?: boolean;
   format?: 'table' | 'json';
   minSeverity?: string;
   includeTest?: boolean;

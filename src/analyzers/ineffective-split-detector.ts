@@ -146,11 +146,11 @@ export class IneffectiveSplitDetector {
       if (r5) rulesHit.push(r5);
       
       // R6: Pseudo boundary
-      const r6 = this.checkPseudoBoundary(func, metrics, options);
+      const r6 = this.checkPseudoBoundary(func, metrics);
       if (r6) rulesHit.push(r6);
       
       // R7: Local throwaway
-      const r7 = this.checkLocalThrowaway(func, metrics, callsByFunction.incoming, functionMap);
+      const r7 = this.checkLocalThrowaway(func, callsByFunction.incoming, functionMap);
       if (r7) rulesHit.push(r7);
       
       // Calculate total score and severity
@@ -333,7 +333,7 @@ export class IneffectiveSplitDetector {
    */
   private checkParentComplexity(
     func: FunctionInfo,
-    _metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
+    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
     incomingCalls: Map<string, Set<string>>,
     functionMap: Map<string, FunctionInfo>,
     options: DetectionOptions = {}
@@ -341,13 +341,13 @@ export class IneffectiveSplitDetector {
     const callers = incomingCalls.get(func.id) || new Set();
     
     // Check single caller with high complexity
-    if (callers.size === 1 && _metrics.cc <= 2) {
+    if (callers.size === 1 && metrics.cc <= 2) {
       const callerId = Array.from(callers)[0];
       const caller = functionMap.get(callerId);
       
       if (caller && caller.metrics?.cyclomaticComplexity && caller.metrics.cyclomaticComplexity >= 5) {
         let score = 0.8;
-        let evidence = `parent cc=${caller.metrics.cyclomaticComplexity}, child cc=${_metrics.cc}`;
+        let evidence = `parent cc=${caller.metrics.cyclomaticComplexity}, child cc=${metrics.cc}`;
         
         // Initialize shared project for branch density analysis if needed
         if (options.sourceProvider && !this.sharedProject) {
@@ -418,8 +418,7 @@ export class IneffectiveSplitDetector {
    */
   private checkPseudoBoundary(
     func: FunctionInfo,
-    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
-    _options: DetectionOptions
+    metrics: { cc: number; sloc: number; fanIn: number; fanOut: number }
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     // Check if it's NOT a boundary but looks like one
     if (!this.isBoundaryCandidate(func) && 
@@ -441,7 +440,6 @@ export class IneffectiveSplitDetector {
    */
   private checkLocalThrowaway(
     func: FunctionInfo,
-    _metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
     incomingCalls: Map<string, Set<string>>,
     functionMap: Map<string, FunctionInfo>
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {

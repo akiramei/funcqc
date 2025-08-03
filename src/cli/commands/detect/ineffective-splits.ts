@@ -47,7 +47,7 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
         scoreMode: (options.scoreMode as 'sum' | 'prob') || 'prob',
         r2Ast: options.r2Ast || false,
         r2MaxCandidates: 200, // Default limit for performance
-        ...(options.r2Ast && { sourceProvider: createSourceProvider(env) }),
+        ...(options.r2Ast && { sourceProvider: createSourceProvider() }),
       };
       
       if (options.threshold) {
@@ -328,7 +328,7 @@ function getRuleDescription(rule: IneffectiveSplitRule): string {
 /**
  * Create a source provider that reads files from the filesystem
  */
-function createSourceProvider(_env: CommandEnvironment): (filePath: string) => string | undefined {
+function createSourceProvider(): (filePath: string) => string | undefined {
   return (filePath: string): string | undefined => {
     try {
       return readFileSync(filePath, 'utf-8');
