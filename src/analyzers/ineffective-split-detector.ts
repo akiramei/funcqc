@@ -93,8 +93,6 @@ export class IneffectiveSplitDetector {
     callEdges: CallEdge[],
     options: DetectionOptions = {}
   ): IneffectiveSplitFinding[] {
-    const findings: IneffectiveSplitFinding[] = [];
-    
     // Build lookup maps
     const functionMap = new Map(functions.map(f => [f.id, f]));
     const callsByFunction = this.buildCallMaps(callEdges);
@@ -102,10 +100,28 @@ export class IneffectiveSplitDetector {
     // Pre-filter and prioritize candidates for R2 AST analysis
     const r2Candidates = this.prioritizeR2Candidates(functions, callsByFunction, options);
     
-    // Analyze each function
+    // Process all functions through analysis loop
+    const findings = this.processAnalysisLoop(functions, callsByFunction, functionMap, options, r2Candidates);
+    
+    // Sort by score descending
+    return findings.sort((a, b) => b.totalScore - a.totalScore);
+  }
+
+  /**
+   * Process the main analysis loop for all functions
+   */
+  private processAnalysisLoop(
+    functions: FunctionInfo[],
+    callsByFunction: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
+    functionMap: Map<string, FunctionInfo>,
+    options: DetectionOptions,
+    r2Candidates: Set<string>
+  ): IneffectiveSplitFinding[] {
+    const findings: IneffectiveSplitFinding[] = [];
+    
     for (const func of functions) {
-      // Skip test files if requested
-      if (!options.includeTest && this.isTestFile(func.filePath)) {
+      // Apply filtering logic
+      if (!this.shouldAnalyzeFunction(func, options)) {
         continue;
       }
       
@@ -134,8 +150,19 @@ export class IneffectiveSplitDetector {
       }
     }
     
-    // Sort by score descending
-    return findings.sort((a, b) => b.totalScore - a.totalScore);
+    return findings;
+  }
+
+  /**
+   * Check if a function should be analyzed based on filtering criteria
+   */
+  private shouldAnalyzeFunction(func: FunctionInfo, options: DetectionOptions): boolean {
+    // Skip test files if requested
+    if (!options.includeTest && this.isTestFile(func.filePath)) {
+      return false;
+    }
+    
+    return true;
   }
 
   /**
@@ -220,6 +247,54 @@ export class IneffectiveSplitDetector {
         ...(chainSample && { chainSample })
       }
     };
+  }
+
+  /**
+   * Initialize shared project for AST analysis if needed
+   */
+  private initializeSharedProjectIfNeeded(options: DetectionOptions): void {
+    if (options.sourceProvider && !this.sharedProject) {
+      this.sharedProject = new Project({
+        useInMemoryFileSystem: true,
+        compilerOptions: {
+          target: ScriptTarget.ES2022,
+          module: ModuleKind.ESNext,
+          allowJs: true,
+          declaration: false,
+        },
+      });
+    }
+  }
+
+  /**
+   * Enhance score with branch density analysis
+   */
+  private enhanceScoreWithBranchDensity(
+    caller: FunctionInfo,
+    childName: string,
+    options: DetectionOptions
+  ): { adjustment: number; densityInfo: string } {
+    if (!options.sourceProvider || !this.sharedProject) {
+      return { adjustment: 0, densityInfo: '' };
+    }
+    
+    try {
+      const source = options.sourceProvider(caller.filePath);
+      if (source) {
+        const density = this.computeBranchDensityNearCall(source, caller, childName);
+        if (density > 0) {
+          const adjustment = Math.min(0.5, density * 0.5); // 0..0.5 bonus
+          return {
+            adjustment,
+            densityInfo: `, site density=${density.toFixed(2)}`
+          };
+        }
+      }
+    } catch {
+      // Silently fall back to basic analysis
+    }
+    
+    return { adjustment: 0, densityInfo: '' };
   }
 
   /**
@@ -383,34 +458,12 @@ export class IneffectiveSplitDetector {
         let evidence = `parent cc=${caller.metrics.cyclomaticComplexity}, child cc=${metrics.cc}`;
         
         // Initialize shared project for branch density analysis if needed
-        if (options.sourceProvider && !this.sharedProject) {
-          this.sharedProject = new Project({
-            useInMemoryFileSystem: true,
-            compilerOptions: {
-              target: ScriptTarget.ES2022,
-              module: ModuleKind.ESNext,
-              allowJs: true,
-              declaration: false,
-            },
-          });
-        }
+        this.initializeSharedProjectIfNeeded(options);
         
         // Enhanced R4: Check branch density at call site if source is available
-        if (options.sourceProvider && this.sharedProject) {
-          try {
-            const source = options.sourceProvider(caller.filePath);
-            if (source) {
-              const density = this.computeBranchDensityNearCall(source, caller, func.name);
-              if (density > 0) {
-                const adj = Math.min(0.5, density * 0.5); // 0..0.5 bonus
-                score += adj;
-                evidence += `, site density=${density.toFixed(2)}`;
-              }
-            }
-          } catch {
-            // Silently fall back to basic analysis
-          }
-        }
+        const { adjustment, densityInfo } = this.enhanceScoreWithBranchDensity(caller, func.name, options);
+        score += adjustment;
+        evidence += densityInfo;
         
         // Ensure score stays within bounds
         score = Math.min(1, score);
