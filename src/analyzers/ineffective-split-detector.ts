@@ -1,5 +1,7 @@
 import { FunctionInfo, CallEdge } from '../types';
-import { Project } from 'ts-morph';
+import { Project, SourceFile, FunctionDeclaration, MethodDeclaration, ArrowFunction, FunctionExpression, ConstructorDeclaration, SyntaxKind, ts, Node } from 'ts-morph';
+import { ScriptTarget, ModuleKind } from 'typescript';
+import { analyzePassthroughAST, scoreR2AST } from './ast-passthrough-analyzer';
 
 /**
  * Detection rules for ineffective function splits
@@ -48,6 +50,7 @@ export interface DetectionOptions {
   scoreMode?: 'sum' | 'prob'; // New: scoring strategy
   r2Ast?: boolean; // Enable AST-based R2 analysis
   r2MaxCandidates?: number; // Limit AST analysis to top N candidates
+  sourceProvider?: (filePath: string) => string | undefined; // Provide actual source code for AST
 }
 
 export interface PassthroughAnalysis {
@@ -63,6 +66,8 @@ export interface PassthroughAnalysis {
  * Identifies patterns where function splitting adds no value
  */
 export class IneffectiveSplitDetector {
+  private sharedProject?: Project; // Shared ts-morph project for performance
+  
   private readonly GENERIC_NAMES = new Set([
     'set', 'get', 'do', 'run', 'helper', 'process', 
     'handle', 'exec', 'execute', 'wrapper', 'delegate',
@@ -73,7 +78,6 @@ export class IneffectiveSplitDetector {
     /\/(cli|commands|adapter|transport|controller)\//,
     /\/(usecase|application|infra|ports|gateway|entrypoints)\//,
     /\/(middleware|interceptor|handler|presenter)\//,
-    /^(main|handler|execute|bootstrap|index)$/,
     /\.(route|controller|adapter|service)\.ts$/
   ];
 
@@ -94,6 +98,9 @@ export class IneffectiveSplitDetector {
     // Build lookup maps
     const functionMap = new Map(functions.map(f => [f.id, f]));
     const callsByFunction = this.buildCallMaps(callEdges);
+    
+    // Pre-filter and prioritize candidates for R2 AST analysis
+    const r2Candidates = this.prioritizeR2Candidates(functions, callsByFunction, options);
     
     // Analyze each function
     for (const func of functions) {
@@ -123,7 +130,7 @@ export class IneffectiveSplitDetector {
       if (r1) rulesHit.push(r1);
       
       // R2: Thin wrapper (enhanced with optional AST)
-      const r2 = this.checkThinWrapperEnhanced(func, metrics, callsByFunction.outgoing, options);
+      const r2 = this.checkThinWrapperEnhanced(func, metrics, callsByFunction.outgoing, options, r2Candidates);
       if (r2) rulesHit.push(r2);
       
       // R3: Linear chain CC=1
@@ -131,7 +138,7 @@ export class IneffectiveSplitDetector {
       if (r3) rulesHit.push(r3);
       
       // R4: Parent CC unchanged
-      const r4 = this.checkParentComplexity(func, metrics, callsByFunction.incoming, functionMap);
+      const r4 = this.checkParentComplexity(func, metrics, callsByFunction.incoming, functionMap, options);
       if (r4) rulesHit.push(r4);
       
       // R5: Generic name low reuse
@@ -180,6 +187,42 @@ export class IneffectiveSplitDetector {
     
     // Sort by score descending
     return findings.sort((a, b) => b.totalScore - a.totalScore);
+  }
+
+  /**
+   * Prioritize R2 candidates for AST analysis
+   */
+  private prioritizeR2Candidates(
+    functions: FunctionInfo[],
+    callsByFunction: { incoming: Map<string, Set<string>>; outgoing: Map<string, Set<string>> },
+    options: DetectionOptions
+  ): Set<string> {
+    if (!options.r2Ast) return new Set();
+
+    const maxCandidates = options.r2MaxCandidates || 200;
+    
+    // Score functions for R2 candidacy
+    const candidates = functions
+      .map(func => {
+        const fanIn = callsByFunction.incoming.get(func.id)?.size || 0;
+        const fanOut = callsByFunction.outgoing.get(func.id)?.size || 0;
+        const cc = func.metrics?.cyclomaticComplexity || 1;
+        const sloc = func.metrics?.linesOfCode || 0;
+        
+        // Basic R2 criteria: single callee, low complexity, limited reuse
+        if (fanOut === 1 && cc <= 2 && fanIn <= 3) {
+          // Priority score: lower is better for AST analysis
+          const priority = fanIn + cc * 2 + Math.max(0, sloc - 10) * 0.1;
+          return { id: func.id, priority };
+        }
+        return null;
+      })
+      .filter((candidate): candidate is { id: string; priority: number } => candidate !== null)
+      .sort((a, b) => a.priority - b.priority)
+      .slice(0, maxCandidates)
+      .map(c => c.id);
+
+    return new Set(candidates);
   }
 
   /**
@@ -292,7 +335,8 @@ export class IneffectiveSplitDetector {
     func: FunctionInfo,
     _metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
     incomingCalls: Map<string, Set<string>>,
-    functionMap: Map<string, FunctionInfo>
+    functionMap: Map<string, FunctionInfo>,
+    options: DetectionOptions = {}
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const callers = incomingCalls.get(func.id) || new Set();
     
@@ -302,10 +346,46 @@ export class IneffectiveSplitDetector {
       const caller = functionMap.get(callerId);
       
       if (caller && caller.metrics?.cyclomaticComplexity && caller.metrics.cyclomaticComplexity >= 5) {
+        let score = 0.8;
+        let evidence = `parent cc=${caller.metrics.cyclomaticComplexity}, child cc=${_metrics.cc}`;
+        
+        // Initialize shared project for branch density analysis if needed
+        if (options.sourceProvider && !this.sharedProject) {
+          this.sharedProject = new Project({
+            useInMemoryFileSystem: true,
+            compilerOptions: {
+              target: ScriptTarget.ES2022,
+              module: ModuleKind.ESNext,
+              allowJs: true,
+              declaration: false,
+            },
+          });
+        }
+        
+        // Enhanced R4: Check branch density at call site if source is available
+        if (options.sourceProvider && this.sharedProject) {
+          try {
+            const source = options.sourceProvider(caller.filePath);
+            if (source) {
+              const density = this.computeBranchDensityNearCall(source, caller, func.name);
+              if (density > 0) {
+                const adj = Math.min(0.5, density * 0.5); // 0..0.5 bonus
+                score += adj;
+                evidence += `, site density=${density.toFixed(2)}`;
+              }
+            }
+          } catch {
+            // Silently fall back to basic analysis
+          }
+        }
+        
+        // Ensure score stays within bounds
+        score = Math.min(1, score);
+        
         return {
           code: IneffectiveSplitRule.PARENT_CC_UNCHANGED,
-          score: 0.8,
-          evidence: `parent cc=${caller.metrics.cyclomaticComplexity}, child cc=${_metrics.cc}`
+          score,
+          evidence
         };
       }
     }
@@ -391,19 +471,21 @@ export class IneffectiveSplitDetector {
     func: FunctionInfo,
     metrics: { cc: number; sloc: number; fanIn: number; fanOut: number },
     outgoingCalls: Map<string, Set<string>>,
-    options: DetectionOptions
+    options: DetectionOptions,
+    r2Candidates: Set<string>
   ): { code: IneffectiveSplitRule; score: number; evidence: string } | null {
     const callees = outgoingCalls.get(func.id) || new Set();
     
     // Basic requirements: single callee, low complexity, limited reuse
-    if (callees.size === 1 && metrics.cc <= 1 && metrics.fanIn <= 2) {
+    const allowCc = options.r2Ast ? 2 : 1;
+    if (callees.size === 1 && metrics.cc <= allowCc && metrics.fanIn <= 2) {
       // First-stage heuristic analysis
       const basicAnalysis = this.analyzePassthrough(func);
       
       if (basicAnalysis.isPassthrough && basicAnalysis.passthroughRatio >= 0.6) {
         // Use AST analysis if enabled and function qualifies
-        if (options.r2Ast) {
-          const astScore = this.analyzeWithAST(func);
+        if (options.r2Ast && r2Candidates.has(func.id)) {
+          const astScore = this.analyzeWithAST(func, options);
           if (astScore > 0) {
             return {
               code: IneffectiveSplitRule.THIN_WRAPPER,
@@ -428,17 +510,35 @@ export class IneffectiveSplitDetector {
   /**
    * AST-based analysis for thin wrapper detection
    */
-  private analyzeWithAST(func: FunctionInfo): number {
+  private analyzeWithAST(func: FunctionInfo, options: DetectionOptions): number {
     try {
-      // Create a minimal ts-morph project for this function
-      const project = new Project({ useInMemoryFileSystem: true });
-      const sourceFile = project.createSourceFile("temp.ts", this.createFunctionSource(func));
+      // Get actual source code
+      const sourceCode = options.sourceProvider?.(func.filePath);
+      if (!sourceCode) {
+        return 0; // No source available, fallback to basic analysis
+      }
+
+      // Initialize shared project if needed
+      if (!this.sharedProject) {
+        this.sharedProject = new Project({
+          useInMemoryFileSystem: true,
+          compilerOptions: {
+            target: ScriptTarget.ES2022,
+            module: ModuleKind.ESNext,
+            allowJs: true,
+            declaration: false,
+          },
+        });
+      }
+
+      // Create or update source file
+      const sourceFile = this.sharedProject.createSourceFile(func.filePath, sourceCode, { overwrite: true });
       
-      // Find the function node and analyze
-      const functions = sourceFile.getFunctions();
-      if (functions.length > 0) {
-        const { analyzePassthroughAST, scoreR2AST } = require('./ast-passthrough-analyzer');
-        const astAnalysis = analyzePassthroughAST(functions[0]);
+      // Find the specific function node by position
+      const functionNode = this.findFunctionNodeByPosition(sourceFile, func);
+      if (functionNode) {
+        // Use the imported functions
+        const astAnalysis = analyzePassthroughAST(functionNode);
         return scoreR2AST(astAnalysis);
       }
     } catch (error) {
@@ -450,12 +550,141 @@ export class IneffectiveSplitDetector {
   }
 
   /**
-   * Create minimal TypeScript source for function analysis
+   * Find function node by start/end position with robust fallback
    */
-  private createFunctionSource(func: FunctionInfo): string {
-    // Simple reconstruction - in real implementation would use actual source
-    const params = func.parameters.map(p => p.name).join(', ');
-    return `function ${func.name}(${params}) { /* placeholder */ }`;
+  private findFunctionNodeByPosition(sourceFile: SourceFile, func: FunctionInfo): FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration | undefined {
+    // Find all function-like nodes
+    const functions = sourceFile.getFunctions();
+    const methods = sourceFile.getClasses().flatMap(c => c.getMethods());
+    const ctors = sourceFile.getClasses().flatMap(c => c.getConstructors());
+    const arrows = sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction);
+    const funExprs = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression);
+    
+    const allFunctions = [...functions, ...methods, ...ctors, ...funExprs, ...arrows];
+    
+    // First try: exact match with small variance
+    let node = allFunctions.find(fn => {
+      const start = fn.getStartLineNumber();
+      const end = fn.getEndLineNumber();
+      return start === func.startLine && Math.abs(end - func.endLine) <= 2;
+    });
+    
+    // Fallback: find the closest function that contains the start line
+    if (!node) {
+      const byContain = allFunctions
+        .filter(fn => {
+          const start = fn.getStartLineNumber();
+          const end = fn.getEndLineNumber();
+          return start <= func.startLine && func.startLine <= end;
+        })
+        .map(fn => ({ 
+          fn, 
+          dist: Math.abs(fn.getStartLineNumber() - func.startLine) 
+        }))
+        .sort((a, b) => a.dist - b.dist)[0]?.fn;
+      node = byContain;
+    }
+    
+    return node;
+  }
+
+  /**
+   * Compute branch density near call site (R4 enhancement)
+   */
+  private computeBranchDensityNearCall(source: string, caller: FunctionInfo, childFunctionName: string): number {
+    try {
+      if (!this.sharedProject) return 0;
+      
+      const sourceFile = this.sharedProject.createSourceFile(caller.filePath, source, { overwrite: true });
+      const callerNode = this.findFunctionNodeByPosition(sourceFile, caller);
+      
+      if (!callerNode) return 0;
+      
+      // Find call expressions to the child function
+      const callExpressions = callerNode.getDescendantsOfKind(SyntaxKind.CallExpression);
+      const childCalls = callExpressions.filter(call => {
+        const expr = call.getExpression();
+        return expr.getText() === childFunctionName || 
+               (expr.getKind() === SyntaxKind.PropertyAccessExpression && 
+                expr.getText().endsWith(`.${childFunctionName}`));
+      });
+      
+      if (childCalls.length === 0) return 0;
+      
+      // For each call, find the containing block and count branch constructs
+      let totalDensity = 0;
+      for (const call of childCalls) {
+        const containingBlock = this.findContainingBlock(call);
+        if (containingBlock) {
+          const branchCount = this.countBranchConstructs(containingBlock);
+          const lineCount = containingBlock.getEndLineNumber() - containingBlock.getStartLineNumber() + 1;
+          const density = lineCount > 0 ? branchCount / lineCount : 0;
+          totalDensity += density;
+        }
+      }
+      
+      return childCalls.length > 0 ? totalDensity / childCalls.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Find the smallest containing block (function body, if/for/while block, etc.)
+   */
+  private findContainingBlock(node: Node): Node | null {
+    let current = node.getParent();
+    
+    while (current) {
+      // Look for blocks, function bodies, etc. (exclude SourceFile to avoid density dilution)
+      if (current.getKind() === SyntaxKind.Block ||
+          current.getKind() === SyntaxKind.FunctionDeclaration ||
+          current.getKind() === SyntaxKind.MethodDeclaration ||
+          current.getKind() === SyntaxKind.ArrowFunction) {
+        return current;
+      }
+      current = current.getParent();
+    }
+    
+    return null;
+  }
+
+  /**
+   * Count branch constructs (if/switch/?:/&&/||/catch) in a block
+   */
+  private countBranchConstructs(block: Node): number {
+    const branchKinds = [
+      SyntaxKind.IfStatement,
+      SyntaxKind.SwitchStatement,
+      SyntaxKind.ConditionalExpression,
+      SyntaxKind.BinaryExpression, // For && and || operators
+      SyntaxKind.CatchClause,
+      SyntaxKind.ForStatement,
+      SyntaxKind.ForInStatement,
+      SyntaxKind.ForOfStatement,
+      SyntaxKind.WhileStatement,
+      SyntaxKind.DoStatement
+    ];
+    
+    let count = 0;
+    for (const kind of branchKinds) {
+      const nodes = block.getDescendantsOfKind(kind);
+      if (kind === SyntaxKind.BinaryExpression) {
+        // Only count logical AND/OR operations
+        count += nodes.filter((node: Node) => {
+          // Type guard for BinaryExpression
+          if (Node.isBinaryExpression(node)) {
+            const op = node.getOperatorToken().getKind();
+            return op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken;
+          }
+          return false;
+        }).length;
+      } else {
+        count += nodes.length;
+      }
+    }
+    
+    return count;
   }
 
   /**

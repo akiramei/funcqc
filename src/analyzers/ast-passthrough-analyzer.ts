@@ -1,9 +1,9 @@
 import {
   Node, SyntaxKind, CallExpression, FunctionDeclaration, MethodDeclaration,
-  ArrowFunction, FunctionExpression
+  ArrowFunction, FunctionExpression, ConstructorDeclaration
 } from "ts-morph";
 
-type FnNode = FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression;
+type FnNode = FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration;
 
 export interface PassthroughAnalysisAST {
   paramForwardingRatio: number;      // 0..1

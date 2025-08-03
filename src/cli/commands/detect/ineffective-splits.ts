@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import ora from 'ora';
+import { readFileSync } from 'fs';
 import { VoidCommand } from '../../../types/command';
 import { CommandEnvironment } from '../../../types/environment';
 import { createErrorHandler } from '../../../utils/error-handler';
@@ -46,6 +47,7 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
         scoreMode: (options.scoreMode as 'sum' | 'prob') || 'prob',
         r2Ast: options.r2Ast || false,
         r2MaxCandidates: 200, // Default limit for performance
+        ...(options.r2Ast && { sourceProvider: createSourceProvider(env) }),
       };
       
       if (options.threshold) {
@@ -96,7 +98,16 @@ function filterBySeverity(
     'Low': 1
   };
   
-  const minLevel = severityOrder[minSeverity as SeverityLevel] || 1;
+  // Normalize input with aliases
+  const level = (minSeverity || '').trim().toLowerCase();
+  const alias: Record<string, SeverityLevel> = { 
+    'high': 'High', 'h': 'High',
+    'medium': 'Medium', 'med': 'Medium', 'm': 'Medium',
+    'low': 'Low', 'l': 'Low'
+  };
+  
+  const normalized = alias[level] as SeverityLevel | undefined;
+  const minLevel = severityOrder[normalized ?? 'Low'];
   
   return findings.filter(f => severityOrder[f.severity] >= minLevel);
 }
@@ -139,12 +150,14 @@ function outputJSON(
       score: f.totalScore,
       rules: f.rulesHit.map(r => ({
         code: r.code,
+        score: r.score,
         evidence: r.evidence
       })),
       metrics: f.metrics,
       suggestions: f.suggestions,
       callers: f.related.callers,
-      callees: f.related.callees
+      callees: f.related.callees,
+      ...(f.related.chainSample && { chainSample: f.related.chainSample })
     }))
   };
   
@@ -310,4 +323,18 @@ function getRuleDescription(rule: IneffectiveSplitRule): string {
     default:
       return `Unknown rule (${rule})`;
   }
+}
+
+/**
+ * Create a source provider that reads files from the filesystem
+ */
+function createSourceProvider(_env: CommandEnvironment): (filePath: string) => string | undefined {
+  return (filePath: string): string | undefined => {
+    try {
+      return readFileSync(filePath, 'utf-8');
+    } catch {
+      // File not found or not readable, return undefined to fallback to basic analysis
+      return undefined;
+    }
+  };
 }

@@ -56,6 +56,7 @@ export interface IneffectiveSplitsOutput {
     score: number;
     rules: Array<{
       code: IneffectiveSplitRule;
+      score: number;
       evidence: string;
     }>;
     metrics: {
@@ -67,6 +68,7 @@ export interface IneffectiveSplitsOutput {
     suggestions: string[];
     callers: string[];
     callees: string[];
+    chainSample?: string[];
   }>;
 }
 
