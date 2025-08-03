@@ -426,6 +426,53 @@ Hybrid Search:
 `);
 
 
+// Add detect command for code quality issues
+program
+  .command('detect')
+  .description('Detect code quality issues and anti-patterns')
+  .argument('<subcommand>', 'detection type (ineffective-splits)')
+  .option('--json', 'output as JSON')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--min-severity <level>', 'minimum severity level (High, Medium, Low)')
+  .option('--include-test', 'include test files in analysis')
+  .option('--include-boundaries', 'include boundary functions in analysis')
+  .option('--limit <num>', 'maximum findings to display')
+  .option('--threshold <value>', 'minimum score threshold (0-10)')
+  .option('--min-lines <num>', 'minimum lines of code to analyze (excludes tiny functions)')
+  .option('--score-mode <mode>', 'scoring strategy: sum (legacy) or prob (default)', 'prob')
+  .option('--r2-ast', 'enable AST-based R2 analysis (more precise but slower)')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (subcommand: string, options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { detectCommand } = await import('./cli/commands/detect');
+    return withEnvironment(detectCommand(subcommand))(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # Detect ineffective function splits
+  $ funcqc detect ineffective-splits
+  
+  # High severity only
+  $ funcqc detect ineffective-splits --min-severity High
+  
+  # Include test files
+  $ funcqc detect ineffective-splits --include-test
+  
+  # JSON output for processing
+  $ funcqc detect ineffective-splits --json
+  
+  # Limit results
+  $ funcqc detect ineffective-splits --limit 10
+
+Detection Types:
+  ineffective-splits    Functions that were split but add no value
+                       (thin wrappers, passthrough functions, etc.)
+
+The detect command helps identify code quality issues that automated
+refactoring tools (including AI) might introduce, such as unnecessary
+function splits that don't improve maintainability or reusability.
+`);
+
 // Add evaluate command (v1.6 enhancement) - loaded dynamically
 program.addCommand(
   new Command('evaluate')
