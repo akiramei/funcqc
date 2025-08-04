@@ -561,8 +561,8 @@ export class TypeSystemAnalyzer {
     
     // Extract constructor
     const constructors = classDecl.getConstructors();
-    for (const constructor of constructors) {
-      const id = `member_${simpleHash(`${typeId}:constructor:${constructor.getStartLineNumber()}`)}`;
+    for (const ctor of constructors) {
+      const id = `member_${simpleHash(`${typeId}:constructor:${ctor.getStartLineNumber()}`)}`;
       members.push({
         id,
         snapshotId,
@@ -574,15 +574,15 @@ export class TypeSystemAnalyzer {
         isReadonly: false,
         isStatic: false,
         isAbstract: false,
-        accessModifier: this.getAccessModifier(constructor),
-        startLine: constructor.getStartLineNumber(),
-        endLine: constructor.getEndLineNumber(),
-        startColumn: this.getColumnPosition(constructor),
-        endColumn: this.getColumnPosition(constructor, true),
+        accessModifier: this.getAccessModifier(ctor),
+        startLine: ctor.getStartLineNumber(),
+        endLine: ctor.getEndLineNumber(),
+        startColumn: this.getColumnPosition(ctor),
+        endColumn: this.getColumnPosition(ctor, true),
         functionId: null,
-        jsdoc: constructor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        jsdoc: ctor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {
-          parameters: constructor.getParameters().map(p => ({
+          parameters: ctor.getParameters().map(p => ({
             name: p.getName(),
             type: this.safeGetTypeText(p.getType()),
             isOptional: p.isOptional()

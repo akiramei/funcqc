@@ -33,6 +33,31 @@ export class TypeSystemOperations {
   }
 
   /**
+   * Safely stringify data to JSON with error handling
+   */
+  private safeJsonStringify(data: unknown, fallback: string | null = null): string | null {
+    try {
+      return JSON.stringify(data);
+    } catch (error) {
+      this.context.logger?.warn(`JSON stringify failed, using fallback: ${error}`);
+      return fallback;
+    }
+  }
+
+  /**
+   * Safely parse JSON string with error handling
+   */
+  private safeJsonParse<T>(jsonString: string | null | undefined, fallback: T): T {
+    if (!jsonString) return fallback;
+    try {
+      return JSON.parse(String(jsonString)) as T;
+    } catch (error) {
+      this.context.logger?.warn(`JSON parse failed, using fallback: ${error}`);
+      return fallback;
+    }
+  }
+
+  /**
    * Save type definitions within a transaction
    */
   async saveTypeDefinitionsInTransaction(
@@ -59,12 +84,12 @@ export class TypeSystemOperations {
         is_exported: type.isExported,
         is_default_export: type.isDefaultExport,
         is_generic: type.isGeneric,
-        generic_parameters: JSON.stringify(type.genericParameters || []),
+        generic_parameters: this.safeJsonStringify(type.genericParameters || [], '[]'),
         type_text: type.typeText || null,
-        resolved_type: type.resolvedType ? JSON.stringify(type.resolvedType) : null,
-        modifiers: JSON.stringify(type.modifiers || []),
+        resolved_type: type.resolvedType ? this.safeJsonStringify(type.resolvedType, null) : null,
+        modifiers: this.safeJsonStringify(type.modifiers || [], '[]'),
         jsdoc: type.jsdoc || null,
-        metadata: JSON.stringify(type.metadata || {})
+        metadata: this.safeJsonStringify(type.metadata || {}, '{}')
       }));
 
       // Use the same bulk insert pattern as FunctionOperations
@@ -132,9 +157,9 @@ export class TypeSystemOperations {
         position: rel.position,
         is_array: rel.isArray,
         is_optional: rel.isOptional,
-        generic_arguments: JSON.stringify(rel.genericArguments || []),
+        generic_arguments: this.safeJsonStringify(rel.genericArguments || [], '[]'),
         confidence_score: rel.confidenceScore,
-        metadata: JSON.stringify(rel.metadata || {})
+        metadata: this.safeJsonStringify(rel.metadata || {}, '{}')
       }));
 
       const columns = ['id', 'snapshot_id', 'source_type_id', 'target_type_id', 'target_name', 'relationship_kind',
@@ -207,7 +232,7 @@ export class TypeSystemOperations {
         end_column: member.endColumn,
         function_id: member.functionId || null,
         jsdoc: member.jsdoc || null,
-        metadata: JSON.stringify(member.metadata || {})
+        metadata: this.safeJsonStringify(member.metadata || {}, '{}')
       }));
 
       const columns = ['id', 'snapshot_id', 'type_id', 'name', 'member_kind', 'type_text', 'is_optional', 'is_readonly',
@@ -273,9 +298,9 @@ export class TypeSystemOperations {
         target_type_id: override.targetTypeId || null,
         override_kind: override.overrideKind,
         is_compatible: override.isCompatible,
-        compatibility_errors: JSON.stringify(override.compatibilityErrors || []),
+        compatibility_errors: this.safeJsonStringify(override.compatibilityErrors || [], '[]'),
         confidence_score: override.confidenceScore,
-        metadata: JSON.stringify(override.metadata || {})
+        metadata: this.safeJsonStringify(override.metadata || {}, '{}')
       }));
 
       const columns = ['id', 'snapshot_id', 'method_member_id', 'source_type_id', 'target_member_id', 'target_type_id',
@@ -420,12 +445,12 @@ export class TypeSystemOperations {
         isExported: Boolean(row.is_exported),
         isDefaultExport: Boolean(row.is_default_export),
         isGeneric: Boolean(row.is_generic),
-        genericParameters: row.generic_parameters ? JSON.parse(String(row.generic_parameters)) : [],
+        genericParameters: this.safeJsonParse(row.generic_parameters, []),
         typeText: row.type_text ? String(row.type_text) : null,
-        resolvedType: row.resolved_type ? JSON.parse(String(row.resolved_type)) : null,
-        modifiers: row.modifiers ? JSON.parse(String(row.modifiers)) : [],
+        resolvedType: this.safeJsonParse(row.resolved_type, null),
+        modifiers: this.safeJsonParse(row.modifiers, []),
         jsdoc: row.jsdoc ? String(row.jsdoc) : null,
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return typeDefinitions;
@@ -461,9 +486,9 @@ export class TypeSystemOperations {
         position: Number(row.position),
         isArray: Boolean(row.is_array),
         isOptional: Boolean(row.is_optional),
-        genericArguments: row.generic_arguments ? JSON.parse(String(row.generic_arguments)) : [],
+        genericArguments: this.safeJsonParse(row.generic_arguments, []),
         confidenceScore: Number(row.confidence_score),
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return relationships;
@@ -507,7 +532,7 @@ export class TypeSystemOperations {
         endColumn: Number(row.end_column),
         functionId: row.function_id ? String(row.function_id) : null,
         jsdoc: row.jsdoc ? String(row.jsdoc) : null,
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return members;
@@ -542,9 +567,9 @@ export class TypeSystemOperations {
         targetTypeId: row.target_type_id ? String(row.target_type_id) : null,
         overrideKind: String(row.override_kind) as MethodOverride['overrideKind'],
         isCompatible: Boolean(row.is_compatible),
-        compatibilityErrors: row.compatibility_errors ? JSON.parse(String(row.compatibility_errors)) : [],
+        compatibilityErrors: this.safeJsonParse(row.compatibility_errors, []),
         confidenceScore: Number(row.confidence_score),
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return overrides;
@@ -590,12 +615,12 @@ export class TypeSystemOperations {
         isExported: Boolean(row.is_exported),
         isDefaultExport: Boolean(row.is_default_export),
         isGeneric: Boolean(row.is_generic),
-        genericParameters: row.generic_parameters ? JSON.parse(String(row.generic_parameters)) : [],
+        genericParameters: this.safeJsonParse(row.generic_parameters, []),
         typeText: row.type_text ? String(row.type_text) : null,
-        resolvedType: row.resolved_type ? JSON.parse(String(row.resolved_type)) : null,
-        modifiers: row.modifiers ? JSON.parse(String(row.modifiers)) : [],
+        resolvedType: this.safeJsonParse(row.resolved_type, null),
+        modifiers: this.safeJsonParse(row.modifiers, []),
         jsdoc: row.jsdoc ? String(row.jsdoc) : null,
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       };
 
       return typeDefinition;
@@ -638,12 +663,12 @@ export class TypeSystemOperations {
         isExported: Boolean(row.is_exported),
         isDefaultExport: Boolean(row.is_default_export),
         isGeneric: Boolean(row.is_generic),
-        genericParameters: row.generic_parameters ? JSON.parse(String(row.generic_parameters)) : [],
+        genericParameters: this.safeJsonParse(row.generic_parameters, []),
         typeText: row.type_text ? String(row.type_text) : null,
-        resolvedType: row.resolved_type ? JSON.parse(String(row.resolved_type)) : null,
-        modifiers: row.modifiers ? JSON.parse(String(row.modifiers)) : [],
+        resolvedType: this.safeJsonParse(row.resolved_type, null),
+        modifiers: this.safeJsonParse(row.modifiers, []),
         jsdoc: row.jsdoc ? String(row.jsdoc) : null,
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return classes;
@@ -679,9 +704,9 @@ export class TypeSystemOperations {
         targetTypeId: row.target_type_id ? String(row.target_type_id) : null,
         overrideKind: String(row.override_kind) as MethodOverride['overrideKind'],
         isCompatible: Boolean(row.is_compatible),
-        compatibilityErrors: row.compatibility_errors ? JSON.parse(String(row.compatibility_errors)) : [],
+        compatibilityErrors: this.safeJsonParse(row.compatibility_errors, []),
         confidenceScore: Number(row.confidence_score),
-        metadata: row.metadata ? JSON.parse(String(row.metadata)) : {}
+        metadata: this.safeJsonParse(row.metadata, {})
       }));
 
       return overrides;
