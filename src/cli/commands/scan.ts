@@ -418,7 +418,7 @@ export async function performCallGraphAnalysis(
   
   try {
     // Analyze call graph from stored content
-    const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions);
+    const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
     
     // Save call edges
     await env.storage.insertCallEdges(result.callEdges, snapshotId);

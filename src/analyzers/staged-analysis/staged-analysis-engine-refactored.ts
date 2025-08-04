@@ -11,7 +11,6 @@
 
 import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
-import { CHAAnalyzer } from '../cha-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
 import { RuntimeTraceIntegrator } from '../runtime-trace-integrator';
 import { SymbolCache } from '../../utils/symbol-cache';
@@ -20,7 +19,7 @@ import { Logger } from '../../utils/cli-utils';
 // Import stage modules
 import { LocalExactAnalysisStage } from './stages/local-exact-analysis';
 import { ImportExactAnalysisStage } from './stages/import-exact-analysis';
-import { CHAAnalysisStage } from './stages/cha-analysis';
+import { CHATypeSystemAnalysisStage } from './stages/cha-type-system-analysis';
 import { RTAAnalysisStage } from './stages/rta-analysis';
 import { RuntimeTraceIntegrationStage } from './stages/runtime-trace-integration';
 import { ExternalCallAnalysisStage } from './stages/external-call-analysis';
@@ -28,6 +27,7 @@ import { CallbackRegistrationAnalysisStage } from '../callback-registration/call
 
 // Import types and constants
 import { StagedAnalysisOptions, AnalysisState, AnalysisStatistics } from './types';
+import { StorageAdapter } from '../../types';
 
 export class StagedAnalysisEngine {
   private project: Project;
@@ -38,7 +38,6 @@ export class StagedAnalysisEngine {
   private _debug: boolean;
 
   // Core analyzers
-  private chaAnalyzer: CHAAnalyzer;
   private rtaAnalyzer: RTAAnalyzer;
   private runtimeTraceIntegrator: RuntimeTraceIntegrator;
   private symbolCache: SymbolCache;
@@ -46,35 +45,47 @@ export class StagedAnalysisEngine {
   // Analysis stages
   private localExactStage: LocalExactAnalysisStage;
   private importExactStage: ImportExactAnalysisStage;
-  private chaStage: CHAAnalysisStage;
+  private chaStage: CHATypeSystemAnalysisStage;
   private rtaStage: RTAAnalysisStage;
   private runtimeStage: RuntimeTraceIntegrationStage;
   private externalCallStage: ExternalCallAnalysisStage;
   private callbackRegistrationStage: CallbackRegistrationAnalysisStage;
 
+  // Storage adapter for type information
+  private storage: StorageAdapter | undefined;
+
   // Analysis state
   private state!: AnalysisState;
   private statistics!: AnalysisStatistics;
 
-  constructor(project: Project, typeChecker: TypeChecker, options: StagedAnalysisOptions = {}) {
+  constructor(project: Project, typeChecker: TypeChecker, options: StagedAnalysisOptions & {
+    snapshotId?: string;
+    storage?: StorageAdapter;
+  } = {}) {
     this.project = project;
     this._typeChecker = typeChecker;
     this.logger = options.logger ?? new Logger(false);
     this._debug = process.env['DEBUG_STAGED_ANALYSIS'] === 'true';
+    this.storage = options.storage;
 
     // Initialize state and statistics
     this.resetState();
 
     // Initialize core analyzers
     this.symbolCache = new SymbolCache(typeChecker);
-    this.chaAnalyzer = new CHAAnalyzer(project, typeChecker);
     this.rtaAnalyzer = new RTAAnalyzer(project, typeChecker);
     this.runtimeTraceIntegrator = new RuntimeTraceIntegrator();
 
     // Initialize analysis stages
     this.localExactStage = new LocalExactAnalysisStage(this.logger);
     this.importExactStage = new ImportExactAnalysisStage(project, typeChecker, this.symbolCache, this.logger);
-    this.chaStage = new CHAAnalysisStage(this.chaAnalyzer, this.logger);
+    this.chaStage = new CHATypeSystemAnalysisStage(project, typeChecker, this.logger);
+    
+    // Set storage adapter for type system integration if available
+    if (this.storage) {
+      this.chaStage.setStorage(this.storage);
+    }
+    
     this.rtaStage = new RTAAnalysisStage(this.rtaAnalyzer, this.logger);
     this.runtimeStage = new RuntimeTraceIntegrationStage(this.runtimeTraceIntegrator, this.logger);
     this.externalCallStage = new ExternalCallAnalysisStage(this.logger);
@@ -126,7 +137,7 @@ export class StagedAnalysisEngine {
   /**
    * Main entry point for staged analysis
    */
-  async performStagedAnalysis(functions: Map<string, FunctionMetadata>): Promise<IdealCallEdge[]> {
+  async performStagedAnalysis(functions: Map<string, FunctionMetadata>, snapshotId?: string): Promise<IdealCallEdge[]> {
     const startTime = performance.now();
     this.resetState();
 
@@ -147,7 +158,8 @@ export class StagedAnalysisEngine {
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
-      this.state
+      this.state,
+      snapshotId || 'unknown'
     );
     this.statistics.chaResolvedCount = chaResult.resolvedEdges;
     this.state.chaCandidates = chaResult.chaCandidates;
@@ -155,7 +167,8 @@ export class StagedAnalysisEngine {
 
     // Stage 4: RTA Analysis
     this.logger.debug('Stage 4: RTA analysis...');
-    const classToInterfacesMap = this.chaStage.getClassToInterfacesMap();
+    // Note: Type information is now extracted and stored during CHA stage
+    const classToInterfacesMap = new Map<string, string[]>(); // Placeholder for RTA compatibility
     const rtaResult = await this.rtaStage.performRTAAnalysis(
       functions,
       this.state.chaCandidates,

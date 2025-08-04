@@ -23,6 +23,10 @@ import {
   InternalCallEdge,
   SourceFile,
   BackupOptions,
+  TypeDefinition,
+  TypeRelationship,
+  TypeMember,
+  MethodOverride,
 } from '../types';
 import { DatabaseError } from './errors/database-error';
 import { ErrorCode } from '../utils/error-handler';
@@ -37,6 +41,7 @@ import { MetricsOperations } from './modules/metrics-operations';
 import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
+import { TypeSystemOperations } from './modules/type-system-operations';
 import { GracefulShutdown } from '../utils/graceful-shutdown';
 import { randomUUID } from 'crypto';
 
@@ -69,6 +74,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private callEdgeOps: CallEdgeOperations;
   private utilityOps: UtilityOperations;
   private sourceContentOps: SourceContentOperations;
+  private typeSystemOps: TypeSystemOperations;
   
   // Storage context shared by all modules
   private context: StorageContext;
@@ -99,6 +105,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
+    this.typeSystemOps = new TypeSystemOperations(this.context);
   }
 
   /**
@@ -120,8 +127,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-        this.callEdgeOps = new CallEdgeOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
+      this.typeSystemOps = new TypeSystemOperations(this.context);
       
       // Register this storage connection for graceful shutdown
       this.gracefulShutdown.registerStorageConnection(this);
@@ -967,6 +975,74 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async restore(backupData: string): Promise<void> {
     await this.ensureInitialized();
     return this.utilityOps.restore(backupData);
+  }
+
+  // Type system operations
+  async saveTypeDefinitions(types: TypeDefinition[]): Promise<void> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.saveTypeDefinitions(types);
+  }
+
+  async saveTypeRelationships(relationships: TypeRelationship[]): Promise<void> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.saveTypeRelationships(relationships);
+  }
+
+  async saveTypeMembers(members: TypeMember[]): Promise<void> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.saveTypeMembers(members);
+  }
+
+  async saveMethodOverrides(overrides: MethodOverride[]): Promise<void> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.saveMethodOverrides(overrides);
+  }
+
+  async saveAllTypeInformation(
+    typeInfo: {
+      typeDefinitions: TypeDefinition[];
+      typeRelationships: TypeRelationship[];
+      typeMembers: TypeMember[];
+      methodOverrides: MethodOverride[];
+    }
+  ): Promise<void> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.saveAllTypeInformation(typeInfo);
+  }
+
+  async getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getTypeDefinitions(snapshotId);
+  }
+
+  async getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getTypeRelationships(snapshotId);
+  }
+
+  async getTypeMembers(typeId: string): Promise<TypeMember[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getTypeMembers(typeId);
+  }
+
+  async getMethodOverrides(snapshotId: string): Promise<MethodOverride[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getMethodOverrides(snapshotId);
+  }
+
+  async findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.findTypeByName(name, snapshotId);
+  }
+
+  async getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getImplementingClasses(interfaceId);
+  }
+
+  async getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getMethodOverridesByFunction(functionId);
   }
 
   // ========================================

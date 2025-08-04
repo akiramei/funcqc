@@ -135,6 +135,90 @@ export interface SnapshotsTable {
  * Main database interface for Kysely
  * Add other table interfaces as needed
  */
+/**
+ * Type definitions table - stores TypeScript type definitions
+ */
+export interface TypeDefinitionsTable {
+  id: string;
+  snapshot_id: string;
+  name: string;
+  kind: 'class' | 'interface' | 'type_alias' | 'enum' | 'namespace';
+  file_path: string;
+  start_line: number;
+  end_line: number;
+  start_column: number;
+  end_column: number;
+  is_abstract: boolean;
+  is_exported: boolean;
+  is_default_export: boolean;
+  is_generic: boolean;
+  generic_parameters: string | null; // JSON
+  type_text: string | null;
+  resolved_type: string | null; // JSON
+  modifiers: string | null; // JSON
+  jsdoc: string | null;
+  metadata: string; // JSON
+}
+
+/**
+ * Type relationships table - stores inheritance and implementation relationships
+ */
+export interface TypeRelationshipsTable {
+  id: string;
+  snapshot_id: string;
+  source_type_id: string;
+  target_type_id: string | null;
+  target_name: string;
+  relationship_kind: 'extends' | 'implements' | 'union' | 'intersection' | 'generic_constraint' | 'type_parameter' | 'references';
+  position: number;
+  is_array: boolean;
+  is_optional: boolean;
+  generic_arguments: string | null; // JSON
+  confidence_score: number;
+  metadata: string; // JSON
+}
+
+/**
+ * Type members table - stores properties and methods of types
+ */
+export interface TypeMembersTable {
+  id: string;
+  snapshot_id: string;
+  type_id: string;
+  name: string;
+  member_kind: 'property' | 'method' | 'getter' | 'setter' | 'constructor' | 'index_signature' | 'call_signature';
+  type_text: string | null;
+  is_optional: boolean;
+  is_readonly: boolean;
+  is_static: boolean;
+  is_abstract: boolean;
+  access_modifier: 'public' | 'protected' | 'private' | null;
+  start_line: number;
+  end_line: number;
+  start_column: number;
+  end_column: number;
+  function_id: string | null;
+  jsdoc: string | null;
+  metadata: string; // JSON
+}
+
+/**
+ * Method overrides table - tracks method overrides and implementations
+ */
+export interface MethodOverridesTable {
+  id: string;
+  snapshot_id: string;
+  method_member_id: string;
+  source_type_id: string;
+  target_member_id: string | null;
+  target_type_id: string | null;
+  override_kind: 'override' | 'implement' | 'abstract_implement' | 'signature_implement';
+  is_compatible: boolean;
+  compatibility_errors: string; // JSON
+  confidence_score: number;
+  metadata: string; // JSON
+}
+
 export interface Database {
   call_edges: CallEdgeTable;
   internal_call_edges: InternalCallEdgeTable;
@@ -142,6 +226,10 @@ export interface Database {
   source_file_refs: SourceFileRefsTable;
   functions: FunctionsTable;
   snapshots: SnapshotsTable;
-  // 他のテーブルは必要に応じて追加
+  // Type system tables
+  type_definitions: TypeDefinitionsTable;
+  type_relationships: TypeRelationshipsTable;
+  type_members: TypeMembersTable;
+  method_overrides: MethodOverridesTable;
 }
 

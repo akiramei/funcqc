@@ -13,8 +13,12 @@ export * from './dynamic-weights';
 // Re-export debug residue types
 export * from './debug-residue';
 
+// Re-export type system types
+export * from './type-system';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
+import { TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from './type-system';
 
 // Core configuration types
 export interface FuncqcConfig {
@@ -673,6 +677,22 @@ export interface StorageAdapter {
   cleanup(retentionDays: number): Promise<number>;
   backup(options: BackupOptions): Promise<string>;
   restore(backupData: string): Promise<void>;
+
+  // Type system operations
+  saveTypeDefinitions(types: TypeDefinition[]): Promise<void>;
+  saveTypeRelationships(relationships: TypeRelationship[]): Promise<void>;
+  saveTypeMembers(members: TypeMember[]): Promise<void>;
+  saveMethodOverrides(overrides: MethodOverride[]): Promise<void>;
+  
+  getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]>;
+  getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]>;
+  getTypeMembers(typeId: string): Promise<TypeMember[]>;
+  getMethodOverrides(snapshotId: string): Promise<MethodOverride[]>;
+  
+  // Type query operations
+  findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null>;
+  getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]>;
+  getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]>;
 }
 
 export interface BackupOptions {

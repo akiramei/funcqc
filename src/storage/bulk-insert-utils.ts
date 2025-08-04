@@ -4,10 +4,9 @@
 
 import { FunctionInfo } from '../types';
 
-/**
- * Format array for PostgreSQL array literal
- * Properly handles empty arrays and special characters
- */
+// Note: formatPostgresArray was replaced with JSON.stringify for JSONB fields
+// Keeping for reference if PostgreSQL array format is needed in the future
+/*
 function formatPostgresArray(arr: string[]): string {
   if (!arr || arr.length === 0) return '{}'; // Use empty PostgreSQL array for empty arrays
   // PostgreSQL array elements need both backslash and quote escaping
@@ -19,6 +18,7 @@ function formatPostgresArray(arr: string[]): string {
     return `"${escaped}"`;
   }).join(',')}}`;
 }
+*/
 
 
 export interface BulkInsertData {
@@ -71,9 +71,9 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.startColumn,
     func.endColumn,
     func.astHash,
-    formatPostgresArray(func.contextPath || []),
+    JSON.stringify(func.contextPath || []),
     func.functionType || null,
-    formatPostgresArray(func.modifiers || []),
+    JSON.stringify(func.modifiers || []),
     func.nestingLevel || 0,
     func.isExported,
     func.isAsync,
@@ -103,11 +103,6 @@ function buildParameterRows(func: FunctionInfo): unknown[][] {
 }
 
 function buildMetricsRow(func: FunctionInfo): unknown[] {
-  // Debug: log the actual metrics structure
-  if (process.env['DEBUG_METRICS']) {
-    console.log('DEBUG_METRICS: func.metrics structure:', JSON.stringify(func.metrics, null, 2));
-  }
-  
   return [
     func.id,
     func.metrics!.linesOfCode,
