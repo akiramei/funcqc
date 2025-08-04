@@ -153,8 +153,8 @@ export class TypeSystemAnalyzer {
       filePath,
       startLine: classDecl.getStartLineNumber(),
       endLine: classDecl.getEndLineNumber(),
-      startColumn: classDecl.getStart(),
-      endColumn: classDecl.getEnd(),
+      startColumn: this.getColumnPosition(classDecl),
+      endColumn: this.getColumnPosition(classDecl, true),
       isAbstract: classDecl.isAbstract(),
       isExported: classDecl.isExported(),
       isDefaultExport: classDecl.isDefaultExport(),
@@ -189,8 +189,8 @@ export class TypeSystemAnalyzer {
       filePath,
       startLine: interfaceDecl.getStartLineNumber(),
       endLine: interfaceDecl.getEndLineNumber(),
-      startColumn: interfaceDecl.getStart(),
-      endColumn: interfaceDecl.getEnd(),
+      startColumn: this.getColumnPosition(interfaceDecl),
+      endColumn: this.getColumnPosition(interfaceDecl, true),
       isAbstract: false,
       isExported: interfaceDecl.isExported(),
       isDefaultExport: interfaceDecl.isDefaultExport(),
@@ -225,8 +225,8 @@ export class TypeSystemAnalyzer {
       filePath,
       startLine: typeAlias.getStartLineNumber(),
       endLine: typeAlias.getEndLineNumber(),
-      startColumn: typeAlias.getStart(),
-      endColumn: typeAlias.getEnd(),
+      startColumn: this.getColumnPosition(typeAlias),
+      endColumn: this.getColumnPosition(typeAlias, true),
       isAbstract: false,
       isExported: typeAlias.isExported(),
       isDefaultExport: typeAlias.isDefaultExport(),
@@ -261,8 +261,8 @@ export class TypeSystemAnalyzer {
       filePath,
       startLine: enumDecl.getStartLineNumber(),
       endLine: enumDecl.getEndLineNumber(),
-      startColumn: enumDecl.getStart(),
-      endColumn: enumDecl.getEnd(),
+      startColumn: this.getColumnPosition(enumDecl),
+      endColumn: this.getColumnPosition(enumDecl, true),
       isAbstract: false,
       isExported: enumDecl.isExported(),
       isDefaultExport: enumDecl.isDefaultExport(),
@@ -298,8 +298,8 @@ export class TypeSystemAnalyzer {
       filePath,
       startLine: moduleDecl.getStartLineNumber(),
       endLine: moduleDecl.getEndLineNumber(),
-      startColumn: moduleDecl.getStart(),
-      endColumn: moduleDecl.getEnd(),
+      startColumn: this.getColumnPosition(moduleDecl),
+      endColumn: this.getColumnPosition(moduleDecl, true),
       isAbstract: false,
       isExported: moduleDecl.isExported(),
       isDefaultExport: moduleDecl.isDefaultExport(),
@@ -466,8 +466,8 @@ export class TypeSystemAnalyzer {
         accessModifier: this.getAccessModifier(property),
         startLine: property.getStartLineNumber(),
         endLine: property.getEndLineNumber(),
-        startColumn: property.getStart(),
-        endColumn: property.getEnd(),
+        startColumn: this.getColumnPosition(property),
+        endColumn: this.getColumnPosition(property, true),
         functionId: null,
         jsdoc: property.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -494,8 +494,8 @@ export class TypeSystemAnalyzer {
         accessModifier: this.getAccessModifier(method),
         startLine: method.getStartLineNumber(),
         endLine: method.getEndLineNumber(),
-        startColumn: method.getStart(),
-        endColumn: method.getEnd(),
+        startColumn: this.getColumnPosition(method),
+        endColumn: this.getColumnPosition(method, true),
         functionId,
         jsdoc: method.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {
@@ -527,8 +527,8 @@ export class TypeSystemAnalyzer {
         accessModifier: this.getAccessModifier(accessor),
         startLine: accessor.getStartLineNumber(),
         endLine: accessor.getEndLineNumber(),
-        startColumn: accessor.getStart(),
-        endColumn: accessor.getEnd(),
+        startColumn: this.getColumnPosition(accessor),
+        endColumn: this.getColumnPosition(accessor, true),
         functionId: null,
         jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -551,8 +551,8 @@ export class TypeSystemAnalyzer {
         accessModifier: this.getAccessModifier(accessor),
         startLine: accessor.getStartLineNumber(),
         endLine: accessor.getEndLineNumber(),
-        startColumn: accessor.getStart(),
-        endColumn: accessor.getEnd(),
+        startColumn: this.getColumnPosition(accessor),
+        endColumn: this.getColumnPosition(accessor, true),
         functionId: null,
         jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -577,8 +577,8 @@ export class TypeSystemAnalyzer {
         accessModifier: this.getAccessModifier(constructor),
         startLine: constructor.getStartLineNumber(),
         endLine: constructor.getEndLineNumber(),
-        startColumn: constructor.getStart(),
-        endColumn: constructor.getEnd(),
+        startColumn: this.getColumnPosition(constructor),
+        endColumn: this.getColumnPosition(constructor, true),
         functionId: null,
         jsdoc: constructor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {
@@ -617,8 +617,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: property.getStartLineNumber(),
         endLine: property.getEndLineNumber(),
-        startColumn: property.getStart(),
-        endColumn: property.getEnd(),
+        startColumn: this.getColumnPosition(property),
+        endColumn: this.getColumnPosition(property, true),
         functionId: null,
         jsdoc: property.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -642,8 +642,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: method.getStartLineNumber(),
         endLine: method.getEndLineNumber(),
-        startColumn: method.getStart(),
-        endColumn: method.getEnd(),
+        startColumn: this.getColumnPosition(method),
+        endColumn: this.getColumnPosition(method, true),
         functionId: null,
         jsdoc: method.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {
@@ -673,8 +673,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: accessor.getStartLineNumber(),
         endLine: accessor.getEndLineNumber(),
-        startColumn: accessor.getStart(),
-        endColumn: accessor.getEnd(),
+        startColumn: this.getColumnPosition(accessor),
+        endColumn: this.getColumnPosition(accessor, true),
         functionId: null,
         jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -697,8 +697,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: accessor.getStartLineNumber(),
         endLine: accessor.getEndLineNumber(),
-        startColumn: accessor.getStart(),
-        endColumn: accessor.getEnd(),
+        startColumn: this.getColumnPosition(accessor),
+        endColumn: this.getColumnPosition(accessor, true),
         functionId: null,
         jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {}
@@ -722,8 +722,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: indexSig.getStartLineNumber(),
         endLine: indexSig.getEndLineNumber(),
-        startColumn: indexSig.getStart(),
-        endColumn: indexSig.getEnd(),
+        startColumn: this.getColumnPosition(indexSig),
+        endColumn: this.getColumnPosition(indexSig, true),
         functionId: null,
         jsdoc: indexSig.getJsDocs().map(jsdoc => jsdoc.getText()).join('\n') || null,
         metadata: {
@@ -749,8 +749,8 @@ export class TypeSystemAnalyzer {
         accessModifier: null,
         startLine: callSig.getStartLineNumber(),
         endLine: callSig.getEndLineNumber(),
-        startColumn: callSig.getStart(),
-        endColumn: callSig.getEnd(),
+        startColumn: this.getColumnPosition(callSig),
+        endColumn: this.getColumnPosition(callSig, true),
         functionId: null,
         jsdoc: callSig.getJsDocs().map(jsdoc => jsdoc.getText()).join('\n') || null,
         metadata: {
@@ -764,6 +764,16 @@ export class TypeSystemAnalyzer {
     }
     
     return members;
+  }
+
+  /**
+   * Get column position from node position
+   */
+  private getColumnPosition(node: { getStart(): number; getEnd(): number; getSourceFile(): { getLineAndColumnAtPos(pos: number): { line: number; column: number } } }, isEnd: boolean = false): number {
+    const pos = isEnd ? node.getEnd() : node.getStart();
+    const sourceFile = node.getSourceFile();
+    const lineAndChar = sourceFile.getLineAndColumnAtPos(pos);
+    return lineAndChar.column;
   }
 
   /**

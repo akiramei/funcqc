@@ -46,6 +46,9 @@ health-analysis.json
 .funcqc-backup*/
 .funcqc.backup*/
 
+# General backup files
+*.backup
+
 # function-indexer generated files
 .function-indexer/
 .function-metrics/
