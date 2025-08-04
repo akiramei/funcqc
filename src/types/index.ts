@@ -673,6 +673,22 @@ export interface StorageAdapter {
   cleanup(retentionDays: number): Promise<number>;
   backup(options: BackupOptions): Promise<string>;
   restore(backupData: string): Promise<void>;
+
+  // Type system operations
+  saveTypeDefinitions(types: import('./type-system').TypeDefinition[]): Promise<void>;
+  saveTypeRelationships(relationships: import('./type-system').TypeRelationship[]): Promise<void>;
+  saveTypeMembers(members: import('./type-system').TypeMember[]): Promise<void>;
+  saveMethodOverrides(overrides: import('./type-system').MethodOverride[]): Promise<void>;
+  
+  getTypeDefinitions(snapshotId: string): Promise<import('./type-system').TypeDefinition[]>;
+  getTypeRelationships(snapshotId: string): Promise<import('./type-system').TypeRelationship[]>;
+  getTypeMembers(typeId: string): Promise<import('./type-system').TypeMember[]>;
+  getMethodOverrides(snapshotId: string): Promise<import('./type-system').MethodOverride[]>;
+  
+  // Type query operations
+  findTypeByName(name: string, snapshotId: string): Promise<import('./type-system').TypeDefinition | null>;
+  getImplementingClasses(interfaceId: string): Promise<import('./type-system').TypeDefinition[]>;
+  getMethodOverridesByFunction(functionId: string): Promise<import('./type-system').MethodOverride[]>;
 }
 
 export interface BackupOptions {

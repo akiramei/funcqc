@@ -436,5 +436,188 @@ CREATE TRIGGER function_content_change_detection
 
 
 -- =============================================================================
+-- TYPE SYSTEM TABLES (Unified type information storage)
+-- =============================================================================
+
+-- -----------------------------------------------------------------------------
+-- Type Definitions: All type declarations (class, interface, type alias, enum)
+-- -----------------------------------------------------------------------------
+CREATE TABLE type_definitions (
+  id TEXT PRIMARY KEY,                          -- UUID
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this definition belongs to
+  name TEXT NOT NULL,                           -- Type name
+  kind TEXT NOT NULL CHECK (kind IN (          -- Kind of type definition
+    'class', 'interface', 'type_alias', 'enum', 'namespace'
+  )),
+  file_path TEXT NOT NULL,                      -- Source file path
+  start_line INTEGER NOT NULL,                  -- Start line in file
+  end_line INTEGER NOT NULL,                    -- End line in file
+  start_column INTEGER NOT NULL DEFAULT 0,      -- Start column
+  end_column INTEGER NOT NULL DEFAULT 0,        -- End column
+  
+  -- Type-specific attributes
+  is_abstract BOOLEAN DEFAULT FALSE,            -- For classes
+  is_exported BOOLEAN DEFAULT FALSE,            -- Export status
+  is_default_export BOOLEAN DEFAULT FALSE,      -- Default export
+  is_generic BOOLEAN DEFAULT FALSE,             -- Has generic parameters
+  generic_parameters JSONB DEFAULT '[]',        -- Generic parameters with constraints
+  
+  -- Type content
+  type_text TEXT,                               -- Original type definition text
+  resolved_type JSONB,                          -- Resolved type structure (for type aliases)
+  
+  -- Metadata
+  modifiers TEXT[],                             -- ['export', 'declare', 'const', etc.]
+  jsdoc TEXT,                                   -- JSDoc comments
+  metadata JSONB DEFAULT '{}',                  -- Additional metadata
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  UNIQUE(snapshot_id, file_path, name, start_line)
+);
+
+-- Indexes for type definitions
+CREATE INDEX idx_type_definitions_snapshot ON type_definitions(snapshot_id);
+CREATE INDEX idx_type_definitions_name ON type_definitions(name);
+CREATE INDEX idx_type_definitions_kind ON type_definitions(kind);
+CREATE INDEX idx_type_definitions_file_path ON type_definitions(file_path);
+CREATE INDEX idx_type_definitions_exported ON type_definitions(is_exported) WHERE is_exported = TRUE;
+
+-- -----------------------------------------------------------------------------
+-- Type Relationships: Inheritance, implementation, and type algebra
+-- -----------------------------------------------------------------------------
+CREATE TABLE type_relationships (
+  id TEXT PRIMARY KEY,                          -- UUID
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this relationship belongs to
+  source_type_id TEXT NOT NULL,                 -- Source type ID
+  target_type_id TEXT,                          -- Target type ID (NULL for external/primitive)
+  target_name TEXT NOT NULL,                    -- Target type name (for external references)
+  relationship_kind TEXT NOT NULL CHECK (       -- Kind of relationship
+    relationship_kind IN (
+      'extends',           -- Class/Interface inheritance
+      'implements',        -- Interface implementation
+      'union',            -- Union type member
+      'intersection',     -- Intersection type member
+      'generic_constraint', -- Generic type constraint
+      'type_parameter',   -- Generic type parameter usage
+      'references'        -- General type reference
+    )
+  ),
+  
+  -- Relationship metadata
+  position INTEGER DEFAULT 0,                   -- Order in union/intersection/implements
+  is_array BOOLEAN DEFAULT FALSE,              -- Is array type reference
+  is_optional BOOLEAN DEFAULT FALSE,           -- Is optional/nullable
+  generic_arguments JSONB DEFAULT '[]',         -- Generic type arguments
+  confidence_score REAL DEFAULT 1.0,           -- Resolution confidence
+  metadata JSONB DEFAULT '{}',                  -- Additional metadata
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_type_id) REFERENCES type_definitions(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_type_id) REFERENCES type_definitions(id) ON DELETE SET NULL
+);
+
+-- Indexes for type relationships
+CREATE INDEX idx_type_relationships_snapshot ON type_relationships(snapshot_id);
+CREATE INDEX idx_type_relationships_source ON type_relationships(source_type_id);
+CREATE INDEX idx_type_relationships_target ON type_relationships(target_type_id);
+CREATE INDEX idx_type_relationships_kind ON type_relationships(relationship_kind);
+CREATE INDEX idx_type_relationships_target_name ON type_relationships(target_name);
+
+-- -----------------------------------------------------------------------------
+-- Type Members: Properties and methods of types
+-- -----------------------------------------------------------------------------
+CREATE TABLE type_members (
+  id TEXT PRIMARY KEY,                          -- UUID
+  snapshot_id TEXT NOT NULL,                    -- Snapshot this member belongs to
+  type_id TEXT NOT NULL,                        -- Parent type ID
+  name TEXT NOT NULL,                           -- Member name
+  member_kind TEXT NOT NULL CHECK (             -- Kind of member
+    member_kind IN (
+      'property', 'method', 'getter', 'setter', 
+      'constructor', 'index_signature', 'call_signature'
+    )
+  ),
+  
+  -- Member details
+  type_text TEXT,                               -- Type annotation
+  is_optional BOOLEAN DEFAULT FALSE,           -- Optional member
+  is_readonly BOOLEAN DEFAULT FALSE,           -- Readonly property
+  is_static BOOLEAN DEFAULT FALSE,             -- Static member
+  is_abstract BOOLEAN DEFAULT FALSE,           -- Abstract member
+  access_modifier TEXT CHECK (                  -- Access level
+    access_modifier IN ('public', 'protected', 'private')
+  ),
+  
+  -- Position info
+  start_line INTEGER NOT NULL,
+  end_line INTEGER NOT NULL,
+  start_column INTEGER NOT NULL DEFAULT 0,
+  end_column INTEGER NOT NULL DEFAULT 0,
+  
+  -- Function linkage (for methods)
+  function_id TEXT,                             -- Link to functions table
+  
+  -- Metadata
+  jsdoc TEXT,                                   -- Member-specific JSDoc
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (type_id) REFERENCES type_definitions(id) ON DELETE CASCADE,
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE SET NULL,
+  
+  UNIQUE(snapshot_id, type_id, name, member_kind, start_line)
+);
+
+-- Indexes for type members
+CREATE INDEX idx_type_members_snapshot ON type_members(snapshot_id);
+CREATE INDEX idx_type_members_type ON type_members(type_id);
+CREATE INDEX idx_type_members_name ON type_members(name);
+CREATE INDEX idx_type_members_kind ON type_members(member_kind);
+CREATE INDEX idx_type_members_function ON type_members(function_id);
+
+-- -----------------------------------------------------------------------------
+-- Method Override Tracking: Enhanced with type system integration
+-- -----------------------------------------------------------------------------
+CREATE TABLE method_overrides (
+  id TEXT PRIMARY KEY,                          -- UUID
+  snapshot_id TEXT NOT NULL,                    -- Snapshot
+  method_member_id TEXT NOT NULL,               -- Type member ID of the method
+  source_type_id TEXT NOT NULL,                 -- Type containing the method
+  target_member_id TEXT,                        -- Overridden member ID
+  target_type_id TEXT,                          -- Type containing overridden method
+  override_kind TEXT NOT NULL CHECK (           -- Kind of override
+    override_kind IN (
+      'override',           -- Class method override
+      'implement',          -- Interface implementation
+      'abstract_implement', -- Abstract method implementation
+      'signature_implement' -- Call/Index signature implementation
+    )
+  ),
+  
+  -- Override validation
+  is_compatible BOOLEAN DEFAULT TRUE,           -- Type compatibility check
+  compatibility_errors JSONB DEFAULT '[]',      -- Type errors if incompatible
+  confidence_score REAL DEFAULT 1.0,
+  metadata JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (method_member_id) REFERENCES type_members(id) ON DELETE CASCADE,
+  FOREIGN KEY (source_type_id) REFERENCES type_definitions(id) ON DELETE CASCADE,
+  FOREIGN KEY (target_member_id) REFERENCES type_members(id) ON DELETE SET NULL,
+  FOREIGN KEY (target_type_id) REFERENCES type_definitions(id) ON DELETE SET NULL
+);
+
+-- Indexes for method overrides
+CREATE INDEX idx_method_overrides_v2_snapshot ON method_overrides(snapshot_id);
+CREATE INDEX idx_method_overrides_v2_method ON method_overrides(method_member_id);
+CREATE INDEX idx_method_overrides_v2_source ON method_overrides(source_type_id);
+CREATE INDEX idx_method_overrides_v2_target ON method_overrides(target_type_id);
+CREATE INDEX idx_method_overrides_v2_kind ON method_overrides(override_kind);
+
+-- =============================================================================
 -- END OF SCHEMA DEFINITION
 -- =============================================================================

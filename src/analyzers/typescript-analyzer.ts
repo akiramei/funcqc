@@ -26,6 +26,8 @@ import { Logger } from '../utils/cli-utils';
 import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
+import { TypeSystemAnalyzer } from './type-system-analyzer-simple';
+import { TypeExtractionResult } from '../types/type-system';
 
 interface FunctionMetadata {
   signature: string;
@@ -82,6 +84,7 @@ export class TypeScriptAnalyzer extends CacheAware {
   
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
+  private typeSystemAnalyzer: TypeSystemAnalyzer;
 
   constructor(
     maxSourceFilesInMemory: number = ANALYZER_CONSTANTS.DEFAULT_MAX_SOURCE_FILES, 
@@ -133,6 +136,9 @@ export class TypeScriptAnalyzer extends CacheAware {
       maxFileSize: 10 * 1024 * 1024, // 10MB limit
       timeout: 30000 // 30 second timeout per file
     });
+    
+    // Initialize type system analyzer
+    this.typeSystemAnalyzer = new TypeSystemAnalyzer(this.project, this.logger);
   }
 
   /**
@@ -1422,6 +1428,41 @@ _fileContent: string
    */
   clearCallGraphCache(): void {
     this.callGraphAnalyzer.clearCache();
+  }
+
+  /**
+   * Extract type information from TypeScript files
+   */
+  async extractTypeInformation(filePaths: string[], snapshotId: string): Promise<TypeExtractionResult> {
+    const sourceFiles = filePaths.map(filePath => {
+      try {
+        return this.project.addSourceFileAtPath(filePath);
+      } catch (error) {
+        this.logger.warn(`Failed to add source file: ${filePath}`, error);
+        return null;
+      }
+    }).filter((sf): sf is NonNullable<typeof sf> => sf !== null);
+
+    return this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
+  }
+
+  /**
+   * Extract type information from file contents (for virtual files)
+   */
+  async extractTypeInformationFromContents(
+    fileContents: Map<string, string>,
+    snapshotId: string
+  ): Promise<TypeExtractionResult> {
+    const sourceFiles = Array.from(fileContents.entries()).map(([filePath, content]) => {
+      try {
+        return this.project.createSourceFile(filePath, content, { overwrite: true });
+      } catch (error) {
+        this.logger.warn(`Failed to create virtual source file: ${filePath}`, error);
+        return null;
+      }
+    }).filter((sf): sf is NonNullable<typeof sf> => sf !== null);
+
+    return this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
   }
 
   /**
