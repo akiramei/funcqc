@@ -91,7 +91,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
           // Collect type information for the candidate
           typeInfo = await this.typeAwareSafety.analyzeDeletionSafety(func, foundationData.snapshotId);
         } catch (error) {
-          this.logger.debug(`Type-aware analysis failed for ${func.name}: ${error}`);
+          this.logger.warn(`Type-aware analysis failed for ${func.name}:`, error);
           // Continue without type information
         }
       }
