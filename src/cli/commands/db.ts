@@ -125,6 +125,27 @@ async function queryTable(env: CommandEnvironment, options: DbCommandOptions): P
     return;
   }
   
+  // Special handling for type system tables using Storage API
+  if (tableName === 'type_definitions' && !options.where) {
+    await queryTypeDefinitionsViaStorage(env, options);
+    return;
+  }
+  
+  if (tableName === 'type_relationships' && !options.where) {
+    await queryTypeRelationshipsViaStorage(env, options);
+    return;
+  }
+  
+  if (tableName === 'type_members' && !options.where) {
+    await queryTypeMembersViaStorage(env, options);
+    return;
+  }
+  
+  if (tableName === 'method_overrides' && !options.where) {
+    await queryMethodOverridesViaStorage(env, options);
+    return;
+  }
+  
   // For other cases, use direct SQL query
   await queryTableDirect(env, options);
 }
@@ -669,5 +690,231 @@ function outputTable(rows: unknown[], tableName: string, limit: number): void {
   // Show quick debug suggestions if result count is low
   if (rows.length < 5 && limit >= 5) {
     console.log(chalk.yellow(`💡 Debug tip: Try removing WHERE clause or increasing --limit for more data`));
+  }
+}
+
+/**
+ * Query type_definitions using Storage API
+ */
+async function queryTypeDefinitionsViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  const typeDefinitions = await env.storage.getTypeDefinitions(latestSnapshot.id);
+  
+  // Apply limit if specified
+  const limitedTypes = limit > 0 ? typeDefinitions.slice(0, limit) : typeDefinitions;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'type_definitions',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedTypes.length,
+      totalCount: typeDefinitions.length,
+      rows: limitedTypes 
+    }, null, 2));
+  } else {
+    if (limitedTypes.length === 0) {
+      console.log(chalk.yellow('No type definitions found in latest snapshot.'));
+      console.log(chalk.gray('Type information may not be available. Make sure type extraction is enabled.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: type_definitions (showing ${limitedTypes.length} of ${typeDefinitions.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedTypes.map(type => ({
+        id: type.id.substring(0, 8) + '...',
+        name: type.name,
+        kind: type.kind,
+        file_path: type.filePath.replace(process.cwd(), '.'),
+        start_line: type.startLine,
+        is_exported: type.isExported ? 'yes' : 'no',
+        is_generic: type.isGeneric ? 'yes' : 'no'
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${typeDefinitions.length} rows`));
+    }
+  }
+}
+
+/**
+ * Query type_relationships using Storage API
+ */
+async function queryTypeRelationshipsViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  const relationships = await env.storage.getTypeRelationships(latestSnapshot.id);
+  
+  // Apply limit if specified
+  const limitedRelationships = limit > 0 ? relationships.slice(0, limit) : relationships;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'type_relationships',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedRelationships.length,
+      totalCount: relationships.length,
+      rows: limitedRelationships 
+    }, null, 2));
+  } else {
+    if (limitedRelationships.length === 0) {
+      console.log(chalk.yellow('No type relationships found in latest snapshot.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: type_relationships (showing ${limitedRelationships.length} of ${relationships.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedRelationships.map(rel => ({
+        id: rel.id.substring(0, 8) + '...',
+        source_type_id: rel.sourceTypeId.substring(0, 8) + '...',
+        target_name: rel.targetName,
+        relationship_kind: rel.relationshipKind,
+        confidence_score: rel.confidenceScore.toFixed(2)
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${relationships.length} rows`));
+    }
+  }
+}
+
+/**
+ * Query type_members using Storage API
+ */
+async function queryTypeMembersViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  // Since getTypeMembers requires a typeId, we'll get all type definitions first
+  const typeDefinitions = await env.storage.getTypeDefinitions(latestSnapshot.id);
+  
+  if (typeDefinitions.length === 0) {
+    console.log(chalk.yellow('No type definitions found. Cannot query type members.'));
+    return;
+  }
+  
+  // Get members for all types (this could be optimized)
+  const allMembers = [];
+  for (const type of typeDefinitions.slice(0, Math.min(10, typeDefinitions.length))) {
+    const members = await env.storage.getTypeMembers(type.id);
+    allMembers.push(...members);
+  }
+  
+  // Apply limit if specified
+  const limitedMembers = limit > 0 ? allMembers.slice(0, limit) : allMembers;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'type_members',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedMembers.length,
+      totalCount: allMembers.length,
+      rows: limitedMembers 
+    }, null, 2));
+  } else {
+    if (limitedMembers.length === 0) {
+      console.log(chalk.yellow('No type members found in latest snapshot.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: type_members (showing ${limitedMembers.length} of ${allMembers.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedMembers.map(member => ({
+        id: member.id.substring(0, 8) + '...',
+        type_id: member.typeId.substring(0, 8) + '...',
+        name: member.name,
+        member_kind: member.memberKind,
+        is_static: member.isStatic ? 'yes' : 'no',
+        access_modifier: member.accessModifier || 'public'
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${allMembers.length} rows`));
+    }
+  }
+}
+
+/**
+ * Query method_overrides using Storage API
+ */
+async function queryMethodOverridesViaStorage(env: CommandEnvironment, options: DbCommandOptions): Promise<void> {
+  const limit = validateAndParseLimit(options.limit, options.limitAll);
+  
+  // Get latest snapshot
+  const snapshots = await env.storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    console.log(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));
+    return;
+  }
+  
+  const latestSnapshot = snapshots[0];
+  const overrides = await env.storage.getMethodOverrides(latestSnapshot.id);
+  
+  // Apply limit if specified
+  const limitedOverrides = limit > 0 ? overrides.slice(0, limit) : overrides;
+  
+  if (options.json) {
+    console.log(JSON.stringify({ 
+      table: 'method_overrides',
+      snapshot: latestSnapshot.id,
+      rowCount: limitedOverrides.length,
+      totalCount: overrides.length,
+      rows: limitedOverrides 
+    }, null, 2));
+  } else {
+    if (limitedOverrides.length === 0) {
+      console.log(chalk.yellow('No method overrides found in latest snapshot.'));
+    } else {
+      const limitDisplay = limit === 0 ? 'unlimited' : limit.toString();
+      console.log(chalk.cyan(`📊 Table: method_overrides (showing ${limitedOverrides.length} of ${overrides.length} rows, limit: ${limitDisplay})`));
+      console.log();
+      
+      // Convert to display format
+      const displayData = limitedOverrides.map(override => ({
+        id: override.id.substring(0, 8) + '...',
+        method_member_id: override.methodMemberId.substring(0, 8) + '...',
+        source_type_id: override.sourceTypeId.substring(0, 8) + '...',
+        override_kind: override.overrideKind,
+        is_compatible: override.isCompatible ? 'yes' : 'no',
+        confidence_score: override.confidenceScore.toFixed(2)
+      }));
+      
+      console.table(displayData);
+      console.log();
+      console.log(chalk.gray(`📍 Data from snapshot: ${latestSnapshot.id.substring(0, 8)}... (${new Date(latestSnapshot.createdAt).toLocaleString()})`));
+      console.log(chalk.gray(`💡 Use --json for complete data or --limit-all for all ${overrides.length} rows`));
+    }
   }
 }

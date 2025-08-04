@@ -3,7 +3,7 @@ import { FunctionRegistry } from './function-registry';
 import { StagedAnalysisEngine } from './staged-analysis/staged-analysis-engine-refactored';
 import { ConfidenceCalculator } from './confidence-calculator';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
-import { CallEdge } from '../types';
+import { CallEdge, StorageAdapter } from '../types';
 import { Logger } from '../utils/cli-utils';
 
 export interface IdealCallEdge extends CallEdge {
@@ -79,12 +79,24 @@ export class IdealCallGraphAnalyzer {
   private runtimeIntegrator: RuntimeTraceIntegrator;
   private typeChecker: TypeChecker;
   private logger: import('../utils/cli-utils').Logger;
+  private snapshotId: string | undefined;
+  private storage: StorageAdapter | undefined;
 
-  constructor(project: Project, options: { logger?: Logger } = {}) {
+  constructor(project: Project, options: { 
+    logger?: Logger;
+    snapshotId?: string;
+    storage?: StorageAdapter;
+  } = {}) {
     this.typeChecker = project.getTypeChecker();
     this.functionRegistry = new FunctionRegistry(project);
     this.logger = options.logger || new Logger();
-    this.analysisEngine = new StagedAnalysisEngine(project, this.typeChecker, { logger: this.logger });
+    this.snapshotId = options.snapshotId;
+    this.storage = options.storage;
+    this.analysisEngine = new StagedAnalysisEngine(project, this.typeChecker, { 
+      logger: this.logger,
+      ...(this.snapshotId && { snapshotId: this.snapshotId }),
+      ...(this.storage && { storage: this.storage })
+    });
     this.confidenceCalculator = new ConfidenceCalculator();
     this.runtimeIntegrator = new RuntimeTraceIntegrator();
   }
@@ -102,7 +114,7 @@ export class IdealCallGraphAnalyzer {
 
     // Phase 2: Staged Analysis (Local → Import → CHA → RTA)
     this.logger.debug('Phase 2: Performing staged analysis...');
-    const rawEdges = await this.analysisEngine.performStagedAnalysis(functions);
+    const rawEdges = await this.analysisEngine.performStagedAnalysis(functions, this.snapshotId);
     this.logger.debug(`Generated ${rawEdges.length} raw edges`);
 
     // Phase 3: Confidence Calculation

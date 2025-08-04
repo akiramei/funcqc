@@ -22,26 +22,26 @@ export interface TypeDefinition {
   genericParameters: GenericParameter[];
   
   // Type content
-  typeText?: string;
-  resolvedType?: any; // JSON structure for type aliases
+  typeText: string | null;
+  resolvedType: Record<string, unknown> | null; // JSON structure for type aliases
   
   // Metadata
   modifiers: string[];
-  jsdoc?: string;
-  metadata: Record<string, any>;
+  jsdoc: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface GenericParameter {
   name: string;
-  constraint?: string;
-  default?: string;
+  constraint: string | null;
+  default: string | null;
 }
 
 export interface TypeRelationship {
   id: string;
   snapshotId: string;
   sourceTypeId: string;
-  targetTypeId?: string;
+  targetTypeId: string | null;
   targetName: string;
   relationshipKind: 
     | 'extends'
@@ -58,7 +58,7 @@ export interface TypeRelationship {
   isOptional: boolean;
   genericArguments: string[];
   confidenceScore: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 export interface TypeMember {
@@ -76,12 +76,12 @@ export interface TypeMember {
     | 'call_signature';
   
   // Member details
-  typeText?: string;
+  typeText: string | null;
   isOptional: boolean;
   isReadonly: boolean;
   isStatic: boolean;
   isAbstract: boolean;
-  accessModifier?: 'public' | 'protected' | 'private';
+  accessModifier: 'public' | 'protected' | 'private' | null;
   
   // Position info
   startLine: number;
@@ -90,11 +90,11 @@ export interface TypeMember {
   endColumn: number;
   
   // Function linkage
-  functionId?: string;
+  functionId: string | null;
   
   // Metadata
-  jsdoc?: string;
-  metadata: Record<string, any>;
+  jsdoc: string | null;
+  metadata: Record<string, unknown>;
 }
 
 export interface MethodOverride {
@@ -102,8 +102,8 @@ export interface MethodOverride {
   snapshotId: string;
   methodMemberId: string;
   sourceTypeId: string;
-  targetMemberId?: string;
-  targetTypeId?: string;
+  targetMemberId: string | null;
+  targetTypeId: string | null;
   overrideKind: 
     | 'override'
     | 'implement'
@@ -114,7 +114,7 @@ export interface MethodOverride {
   isCompatible: boolean;
   compatibilityErrors: string[];
   confidenceScore: number;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }
 
 /**

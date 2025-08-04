@@ -13,8 +13,12 @@ export * from './dynamic-weights';
 // Re-export debug residue types
 export * from './debug-residue';
 
+// Re-export type system types
+export * from './type-system';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
+import { TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from './type-system';
 
 // Core configuration types
 export interface FuncqcConfig {
@@ -675,20 +679,20 @@ export interface StorageAdapter {
   restore(backupData: string): Promise<void>;
 
   // Type system operations
-  saveTypeDefinitions(types: import('./type-system').TypeDefinition[]): Promise<void>;
-  saveTypeRelationships(relationships: import('./type-system').TypeRelationship[]): Promise<void>;
-  saveTypeMembers(members: import('./type-system').TypeMember[]): Promise<void>;
-  saveMethodOverrides(overrides: import('./type-system').MethodOverride[]): Promise<void>;
+  saveTypeDefinitions(types: TypeDefinition[]): Promise<void>;
+  saveTypeRelationships(relationships: TypeRelationship[]): Promise<void>;
+  saveTypeMembers(members: TypeMember[]): Promise<void>;
+  saveMethodOverrides(overrides: MethodOverride[]): Promise<void>;
   
-  getTypeDefinitions(snapshotId: string): Promise<import('./type-system').TypeDefinition[]>;
-  getTypeRelationships(snapshotId: string): Promise<import('./type-system').TypeRelationship[]>;
-  getTypeMembers(typeId: string): Promise<import('./type-system').TypeMember[]>;
-  getMethodOverrides(snapshotId: string): Promise<import('./type-system').MethodOverride[]>;
+  getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]>;
+  getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]>;
+  getTypeMembers(typeId: string): Promise<TypeMember[]>;
+  getMethodOverrides(snapshotId: string): Promise<MethodOverride[]>;
   
   // Type query operations
-  findTypeByName(name: string, snapshotId: string): Promise<import('./type-system').TypeDefinition | null>;
-  getImplementingClasses(interfaceId: string): Promise<import('./type-system').TypeDefinition[]>;
-  getMethodOverridesByFunction(functionId: string): Promise<import('./type-system').MethodOverride[]>;
+  findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null>;
+  getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]>;
+  getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]>;
 }
 
 export interface BackupOptions {

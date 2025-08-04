@@ -7,6 +7,7 @@ import {
   AnalysisFoundationData, 
   DependencyAnalysisOptions 
 } from './dependency-analysis-engine';
+import { TypeAwareDeletionSafety, TypeAwareDeletionInfo } from './type-aware-deletion-safety';
 
 /**
  * Safe Deletion Candidate with specialized properties
@@ -15,6 +16,7 @@ export interface SafeDeletionCandidate extends AnalysisCandidate {
   reason: 'unreachable' | 'no-high-confidence-callers' | 'isolated';
   callersCount: number;
   sourceLines: string[];
+  typeInfo?: TypeAwareDeletionInfo;
 }
 
 /**
@@ -25,9 +27,11 @@ export interface SafeDeletionCandidate extends AnalysisCandidate {
  */
 export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDeletionCandidate> {
   private logger: Logger;
+  private typeAwareSafety: TypeAwareDeletionSafety;
 
   constructor(logger?: Logger) {
     this.logger = logger || new Logger(false, false);
+    this.typeAwareSafety = new TypeAwareDeletionSafety(this.logger);
   }
   
   /**
@@ -43,7 +47,16 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     console.time('processCandidates');
     
     const candidates: SafeDeletionCandidate[] = [];
-    const stats = { skippedAnonymous: 0, skippedInternal: 0 };
+    const stats = { 
+      skippedAnonymous: 0, 
+      skippedInternal: 0, 
+      skippedTypeProtected: 0 
+    };
+
+    // Set up type-aware safety analysis
+    if (foundationData.storage) {
+      this.typeAwareSafety.setStorage(foundationData.storage);
+    }
     
     // Process only truly unreachable functions
     for (const functionId of foundationData.reachabilityResult.unreachable) {
@@ -54,6 +67,33 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       if (skipReason) {
         this.updateSkipStats(stats, skipReason);
         continue;
+      }
+
+      // NEW: Check type-aware deletion safety
+      let typeInfo: TypeAwareDeletionInfo | undefined;
+      if (foundationData.snapshotId) {
+        try {
+          const isTypeProtected = await this.typeAwareSafety.shouldProtectFromDeletion(
+            func, 
+            foundationData.snapshotId,
+            0.7 // Confidence threshold
+          );
+          
+          if (isTypeProtected) {
+            stats.skippedTypeProtected++;
+            if (config.verbose) {
+              const reason = await this.typeAwareSafety.getProtectionReason(func, foundationData.snapshotId);
+              console.warn(`⚠️  Function ${func.name} protected by type information: ${reason}`);
+            }
+            continue;
+          }
+
+          // Collect type information for the candidate
+          typeInfo = await this.typeAwareSafety.analyzeDeletionSafety(func, foundationData.snapshotId);
+        } catch (error) {
+          this.logger.debug(`Type-aware analysis failed for ${func.name}: ${error}`);
+          // Continue without type information
+        }
       }
 
       const callers = foundationData.reverseCallGraph.get(functionId) || new Set();
@@ -86,7 +126,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       // Skip source line loading in dry run mode for performance
       const sourceLines = config.dryRun ? [] : await this.extractSourceLines(func);
 
-      candidates.push({
+      const candidate: SafeDeletionCandidate = {
         functionInfo: func,
         reason,
         confidenceScore,
@@ -96,17 +136,35 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
         metadata: {
           reason,
           callersCount: callers.size,
-          highConfidenceCallers: highConfidenceCallers.length
+          highConfidenceCallers: highConfidenceCallers.length,
+          typeProtection: typeInfo?.protectionReason || 'none',
+          typeEvidence: typeInfo ? {
+            interfaceCount: typeInfo.evidenceStrength.interfaceCount,
+            classCount: typeInfo.evidenceStrength.classCount,
+            overrideCount: typeInfo.evidenceStrength.overrideCount,
+            compatibilityScore: typeInfo.signatureCompatibility?.compatibilityScore || 0,
+            protectionScore: typeInfo.confidenceScore
+          } : null
         },
         estimatedImpact: DependencyUtils.estimateImpact(func, callers.size)
-      });
+      };
+
+      if (typeInfo) {
+        candidate.typeInfo = typeInfo;
+      }
+
+      candidates.push(candidate);
     }
     
     console.timeEnd('processCandidates');
     
     // Log safety check summary (only if verbose or if significant skips occurred)
-    if (config.verbose || stats.skippedAnonymous > 0 || stats.skippedInternal > 0) {
-      this.logger.info(`Safety checks: ${stats.skippedAnonymous} anonymous functions, ${stats.skippedInternal} internal functions protected`);
+    if (config.verbose || stats.skippedAnonymous > 0 || stats.skippedInternal > 0 || stats.skippedTypeProtected > 0) {
+      this.logger.info(
+        `Safety checks: ${stats.skippedAnonymous} anonymous functions, ` +
+        `${stats.skippedInternal} internal functions, ` +
+        `${stats.skippedTypeProtected} type-protected functions`
+      );
     }
     
     // Sort candidates by confidence score and impact (safer deletions first)
@@ -768,7 +826,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Update skip statistics based on skip reason
    */
-  private updateSkipStats(stats: { skippedAnonymous: number; skippedInternal: number }, reason: string): void {
+  private updateSkipStats(stats: { skippedAnonymous: number; skippedInternal: number; skippedTypeProtected: number }, reason: string): void {
     if (reason === 'anonymous') {
       stats.skippedAnonymous++;
     } else if (reason === 'internal') {

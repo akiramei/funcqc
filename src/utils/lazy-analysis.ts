@@ -144,7 +144,9 @@ async function performLazyCallGraphAnalysis(
     // Perform call graph analysis from stored content
     const result = await analyzer.analyzeCallGraphFromContent(
       fileContentMap,
-      functions
+      functions,
+      snapshotId,
+      env.storage
     );
 
     // Store call graph results

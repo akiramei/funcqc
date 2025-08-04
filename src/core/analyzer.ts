@@ -1,4 +1,4 @@
-import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError, CallEdge } from '../types';
+import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError, CallEdge, StorageAdapter } from '../types';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
@@ -498,7 +498,9 @@ export class FunctionAnalyzer {
    */
   async analyzeCallGraphFromContent(
     fileContentMap: Map<string, string>, 
-    functions: FunctionInfo[]
+    functions: FunctionInfo[],
+    snapshotId: string,
+    storage?: StorageAdapter
   ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
     this.logger.debug('Starting call graph analysis from stored content...');
     
@@ -522,7 +524,11 @@ export class FunctionAnalyzer {
       this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
-      const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { logger: this.logger });
+      const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
+        logger: this.logger,
+        ...(snapshotId && { snapshotId }),
+        ...(storage && { storage })
+      });
       
       try {
         // Perform call graph analysis on virtual project

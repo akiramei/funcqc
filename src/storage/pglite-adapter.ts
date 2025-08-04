@@ -23,6 +23,10 @@ import {
   InternalCallEdge,
   SourceFile,
   BackupOptions,
+  TypeDefinition,
+  TypeRelationship,
+  TypeMember,
+  MethodOverride,
 } from '../types';
 import { DatabaseError } from './errors/database-error';
 import { ErrorCode } from '../utils/error-handler';
@@ -101,7 +105,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
-    this.typeSystemOps = new TypeSystemOperations();
+    this.typeSystemOps = new TypeSystemOperations(this.context);
   }
 
   /**
@@ -125,7 +129,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       this.metricsOps = new MetricsOperations(this.context);
       this.callEdgeOps = new CallEdgeOperations(this.context);
       this.utilityOps = new UtilityOperations(this.context);
-      this.typeSystemOps = new TypeSystemOperations();
+      this.typeSystemOps = new TypeSystemOperations(this.context);
       
       // Register this storage connection for graceful shutdown
       this.gracefulShutdown.registerStorageConnection(this);
@@ -974,59 +978,71 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // Type system operations
-  async saveTypeDefinitions(types: import('../types/type-system').TypeDefinition[]): Promise<void> {
+  async saveTypeDefinitions(types: TypeDefinition[]): Promise<void> {
     await this.ensureInitialized();
-    return this.typeSystemOps.saveTypeDefinitions(this.context.kysely, types);
+    return this.typeSystemOps.saveTypeDefinitions(types);
   }
 
-  async saveTypeRelationships(relationships: import('../types/type-system').TypeRelationship[]): Promise<void> {
+  async saveTypeRelationships(relationships: TypeRelationship[]): Promise<void> {
     await this.ensureInitialized();
-    return this.typeSystemOps.saveTypeRelationships(this.context.kysely, relationships);
+    return this.typeSystemOps.saveTypeRelationships(relationships);
   }
 
-  async saveTypeMembers(members: import('../types/type-system').TypeMember[]): Promise<void> {
+  async saveTypeMembers(members: TypeMember[]): Promise<void> {
     await this.ensureInitialized();
-    return this.typeSystemOps.saveTypeMembers(this.context.kysely, members);
+    return this.typeSystemOps.saveTypeMembers(members);
   }
 
-  async saveMethodOverrides(overrides: import('../types/type-system').MethodOverride[]): Promise<void> {
+  async saveMethodOverrides(overrides: MethodOverride[]): Promise<void> {
     await this.ensureInitialized();
-    return this.typeSystemOps.saveMethodOverrides(this.context.kysely, overrides);
+    return this.typeSystemOps.saveMethodOverrides(overrides);
   }
 
-  async getTypeDefinitions(snapshotId: string): Promise<import('../types/type-system').TypeDefinition[]> {
+  async saveAllTypeInformation(
+    typeInfo: {
+      typeDefinitions: TypeDefinition[];
+      typeRelationships: TypeRelationship[];
+      typeMembers: TypeMember[];
+      methodOverrides: MethodOverride[];
+    }
+  ): Promise<void> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getTypeDefinitions(this.context.kysely, snapshotId);
+    return this.typeSystemOps.saveAllTypeInformation(typeInfo);
   }
 
-  async getTypeRelationships(snapshotId: string): Promise<import('../types/type-system').TypeRelationship[]> {
+  async getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getTypeRelationships(this.context.kysely, snapshotId);
+    return this.typeSystemOps.getTypeDefinitions(snapshotId);
   }
 
-  async getTypeMembers(typeId: string): Promise<import('../types/type-system').TypeMember[]> {
+  async getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getTypeMembers(this.context.kysely, typeId);
+    return this.typeSystemOps.getTypeRelationships(snapshotId);
   }
 
-  async getMethodOverrides(snapshotId: string): Promise<import('../types/type-system').MethodOverride[]> {
+  async getTypeMembers(typeId: string): Promise<TypeMember[]> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getMethodOverrides(this.context.kysely, snapshotId);
+    return this.typeSystemOps.getTypeMembers(typeId);
   }
 
-  async findTypeByName(name: string, snapshotId: string): Promise<import('../types/type-system').TypeDefinition | null> {
+  async getMethodOverrides(snapshotId: string): Promise<MethodOverride[]> {
     await this.ensureInitialized();
-    return this.typeSystemOps.findTypeByName(this.context.kysely, name, snapshotId);
+    return this.typeSystemOps.getMethodOverrides(snapshotId);
   }
 
-  async getImplementingClasses(interfaceId: string): Promise<import('../types/type-system').TypeDefinition[]> {
+  async findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getImplementingClasses(this.context.kysely, interfaceId);
+    return this.typeSystemOps.findTypeByName(name, snapshotId);
   }
 
-  async getMethodOverridesByFunction(functionId: string): Promise<import('../types/type-system').MethodOverride[]> {
+  async getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]> {
     await this.ensureInitialized();
-    return this.typeSystemOps.getMethodOverridesByFunction(this.context.kysely, functionId);
+    return this.typeSystemOps.getImplementingClasses(interfaceId);
+  }
+
+  async getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]> {
+    await this.ensureInitialized();
+    return this.typeSystemOps.getMethodOverridesByFunction(functionId);
   }
 
   // ========================================

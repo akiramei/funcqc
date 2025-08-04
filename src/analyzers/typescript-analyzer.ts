@@ -26,7 +26,7 @@ import { Logger } from '../utils/cli-utils';
 import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
-import { TypeSystemAnalyzer } from './type-system-analyzer-simple';
+import { TypeSystemAnalyzer } from './type-system-analyzer';
 import { TypeExtractionResult } from '../types/type-system';
 
 interface FunctionMetadata {

@@ -42,6 +42,10 @@ funcqc-*.sql
 .funcqc-cache/
 health-analysis.json
 
+# funcqc backup directories
+.funcqc-backup*/
+.funcqc.backup*/
+
 # function-indexer generated files
 .function-indexer/
 .function-metrics/

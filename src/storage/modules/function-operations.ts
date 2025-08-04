@@ -462,10 +462,10 @@ export class FunctionOperations implements StorageOperationModule {
         func.startColumn,
         func.endColumn,
         func.astHash,
-        func.contextPath,
-        func.functionType,
-        func.modifiers,
-        func.nestingLevel,
+        func.contextPath ? JSON.stringify(func.contextPath) : '[]',
+        func.functionType || null,
+        func.modifiers ? JSON.stringify(func.modifiers) : '[]',
+        func.nestingLevel || 0,
         func.isExported,
         func.isAsync,
         func.isGenerator,
@@ -473,9 +473,9 @@ export class FunctionOperations implements StorageOperationModule {
         func.isMethod,
         func.isConstructor,
         func.isStatic,
-        func.accessModifier,
-        func.sourceCode,
-        func.sourceFileId,
+        func.accessModifier || null,
+        func.sourceCode || null,
+        func.sourceFileId || null,
       ]
     );
   }

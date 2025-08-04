@@ -1,145 +1,152 @@
-import {
-  Project,
-  SourceFile,
-  ClassDeclaration,
-  InterfaceDeclaration,
-  TypeAliasDeclaration,
-  EnumDeclaration,
-  ModuleDeclaration,
-  Node,
-  PropertySignature,
-  MethodSignature,
-  PropertyDeclaration,
-  MethodDeclaration,
-  GetAccessorDeclaration,
-  SetAccessorDeclaration,
-  ConstructorDeclaration,
-  SyntaxKind,
-  JSDocableNode,
-  TypeParameteredNode,
-} from 'ts-morph';
-import { v4 as uuidv4 } from 'uuid';
-import {
-  TypeDefinition,
-  TypeMember,
-  MethodOverride,
-  TypeExtractionResult,
-  GenericParameter,
-} from '../types/type-system';
+import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasDeclaration, EnumDeclaration, ModuleDeclaration } from 'ts-morph';
+import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
 import { Logger } from '../utils/cli-utils';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { simpleHash } from '../utils/hash-utils';
 
 /**
- * Type System Analyzer
- * Extracts complete type information from TypeScript source files
+ * TypeSystemAnalyzer - Extracts comprehensive type information from TypeScript code
+ * 
+ * This analyzer extracts:
+ * - Type definitions (classes, interfaces, type aliases, enums, namespaces)
+ * - Type relationships (extends, implements, etc.)
+ * - Type members (properties, methods, etc.)
+ * - Method overrides and implementations
  */
 export class TypeSystemAnalyzer {
-  private typeIdMap: Map<string, string> = new Map(); // type full name -> UUID
+  private logger: Logger;
 
-  constructor(private project: Project, private logger: Logger = new Logger(false, false)) {
+  constructor(_project: Project, logger: Logger = new Logger(false, false)) {
+    this.logger = logger;
   }
 
   /**
-   * Extract all type information from the project
+   * Extract comprehensive type information from source files
    */
   async extractTypeInformation(snapshotId: string, sourceFiles: SourceFile[]): Promise<TypeExtractionResult> {
-    const result: TypeExtractionResult = {
-      typeDefinitions: [],
-      typeRelationships: [],
-      typeMembers: [],
-      methodOverrides: [],
+    this.logger.debug(`Extracting type information from ${sourceFiles.length} files for snapshot ${snapshotId}`);
+    
+    const typeDefinitions: TypeDefinition[] = [];
+    const typeRelationships: TypeRelationship[] = [];
+    const typeMembers: TypeMember[] = [];
+    const methodOverrides: MethodOverride[] = [];
+
+    // Track all extracted types for relationship resolution
+    const typeMap = new Map<string, TypeDefinition>();
+    // Keep track of source files by file path for member extraction
+    const sourceFileMap = new Map<string, SourceFile>();
+    for (const sourceFile of sourceFiles) {
+      const normalizedPath = PathNormalizer.normalize(sourceFile.getFilePath());
+      sourceFileMap.set(normalizedPath, sourceFile);
+    }
+
+    // Phase 1: Extract all type definitions
+    for (const sourceFile of sourceFiles) {
+      const filePath = PathNormalizer.normalize(sourceFile.getFilePath());
+      
+      // Extract classes
+      const classes = sourceFile.getClasses();
+      for (const classDecl of classes) {
+        const typeDef = this.extractClassDefinition(classDecl, snapshotId, filePath);
+        if (typeDef) {
+          typeDefinitions.push(typeDef);
+          typeMap.set(typeDef.name, typeDef);
+        }
+      }
+
+      // Extract interfaces
+      const interfaces = sourceFile.getInterfaces();
+      for (const interfaceDecl of interfaces) {
+        const typeDef = this.extractInterfaceDefinition(interfaceDecl, snapshotId, filePath);
+        if (typeDef) {
+          typeDefinitions.push(typeDef);
+          typeMap.set(typeDef.name, typeDef);
+        }
+      }
+
+      // Extract type aliases
+      const typeAliases = sourceFile.getTypeAliases();
+      for (const typeAlias of typeAliases) {
+        const typeDef = this.extractTypeAliasDefinition(typeAlias, snapshotId, filePath);
+        if (typeDef) {
+          typeDefinitions.push(typeDef);
+          typeMap.set(typeDef.name, typeDef);
+        }
+      }
+
+      // Extract enums
+      const enums = sourceFile.getEnums();
+      for (const enumDecl of enums) {
+        const typeDef = this.extractEnumDefinition(enumDecl, snapshotId, filePath);
+        if (typeDef) {
+          typeDefinitions.push(typeDef);
+          typeMap.set(typeDef.name, typeDef);
+        }
+      }
+
+      // Extract namespaces/modules
+      const modules = sourceFile.getModules();
+      for (const moduleDecl of modules) {
+        const typeDef = this.extractModuleDefinition(moduleDecl, snapshotId, filePath);
+        if (typeDef) {
+          typeDefinitions.push(typeDef);
+          typeMap.set(typeDef.name, typeDef);
+        }
+      }
+    }
+
+    // Phase 2: Extract type relationships
+    for (const sourceFile of sourceFiles) {
+      const classes = sourceFile.getClasses();
+      for (const classDecl of classes) {
+        const relationships = this.extractClassRelationships(classDecl, snapshotId, typeMap);
+        typeRelationships.push(...relationships);
+      }
+
+      const interfaces = sourceFile.getInterfaces();
+      for (const interfaceDecl of interfaces) {
+        const relationships = this.extractInterfaceRelationships(interfaceDecl, snapshotId, typeMap);
+        typeRelationships.push(...relationships);
+      }
+    }
+
+    // Phase 3: Extract type members
+    for (const typeDef of typeDefinitions) {
+      if (typeDef.kind === 'class' || typeDef.kind === 'interface') {
+        const members = await this.extractTypeMembers(typeDef, snapshotId, sourceFileMap);
+        typeMembers.push(...members);
+      }
+    }
+
+    // Phase 4: Extract method overrides
+    for (const typeDef of typeDefinitions) {
+      if (typeDef.kind === 'class') {
+        const overrides = await this.extractMethodOverrides(typeDef, snapshotId, typeMap, typeMembers);
+        methodOverrides.push(...overrides);
+      }
+    }
+
+    this.logger.debug(`Extracted: ${typeDefinitions.length} types, ${typeRelationships.length} relationships, ${typeMembers.length} members, ${methodOverrides.length} overrides`);
+
+    return {
+      typeDefinitions,
+      typeRelationships,
+      typeMembers,
+      methodOverrides
     };
-
-    // First pass: collect all type definitions
-    for (const sourceFile of sourceFiles) {
-      await this.extractTypeDefinitionsFromFile(sourceFile, snapshotId, result);
-    }
-
-    // Second pass: extract relationships and members
-    for (const sourceFile of sourceFiles) {
-      await this.extractRelationshipsAndMembers(sourceFile, snapshotId, result);
-    }
-
-    // Third pass: detect method overrides
-    await this.detectMethodOverrides(result, snapshotId);
-
-    return result;
-  }
-
-  /**
-   * Extract type definitions from a source file
-   */
-  private async extractTypeDefinitionsFromFile(
-    sourceFile: SourceFile,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    const filePath = PathNormalizer.normalize(sourceFile.getFilePath());
-
-    // Extract classes
-    const classes = sourceFile.getClasses();
-    for (const classDecl of classes) {
-      const typeDef = this.extractClassDefinition(classDecl, filePath, snapshotId);
-      if (typeDef) {
-        result.typeDefinitions.push(typeDef);
-        this.typeIdMap.set(this.getTypeFullName(typeDef), typeDef.id);
-      }
-    }
-
-    // Extract interfaces
-    const interfaces = sourceFile.getInterfaces();
-    for (const interfaceDecl of interfaces) {
-      const typeDef = this.extractInterfaceDefinition(interfaceDecl, filePath, snapshotId);
-      if (typeDef) {
-        result.typeDefinitions.push(typeDef);
-        this.typeIdMap.set(this.getTypeFullName(typeDef), typeDef.id);
-      }
-    }
-
-    // Extract type aliases
-    const typeAliases = sourceFile.getTypeAliases();
-    for (const typeAlias of typeAliases) {
-      const typeDef = this.extractTypeAliasDefinition(typeAlias, filePath, snapshotId);
-      if (typeDef) {
-        result.typeDefinitions.push(typeDef);
-        this.typeIdMap.set(this.getTypeFullName(typeDef), typeDef.id);
-      }
-    }
-
-    // Extract enums
-    const enums = sourceFile.getEnums();
-    for (const enumDecl of enums) {
-      const typeDef = this.extractEnumDefinition(enumDecl, filePath, snapshotId);
-      if (typeDef) {
-        result.typeDefinitions.push(typeDef);
-        this.typeIdMap.set(this.getTypeFullName(typeDef), typeDef.id);
-      }
-    }
-
-    // Extract namespaces
-    const namespaces = sourceFile.getModules();
-    for (const namespace of namespaces) {
-      const typeDef = this.extractNamespaceDefinition(namespace, filePath, snapshotId);
-      if (typeDef) {
-        result.typeDefinitions.push(typeDef);
-        this.typeIdMap.set(this.getTypeFullName(typeDef), typeDef.id);
-      }
-    }
   }
 
   /**
    * Extract class definition
    */
-  private extractClassDefinition(
-    classDecl: ClassDeclaration,
-    filePath: string,
-    snapshotId: string
-  ): TypeDefinition | null {
+  private extractClassDefinition(classDecl: ClassDeclaration, snapshotId: string, filePath: string): TypeDefinition | undefined {
     const name = classDecl.getName();
-    if (!name) return null;
+    if (!name) return undefined;
+
+    const id = `type_${simpleHash(`${filePath}:${name}:${classDecl.getStartLineNumber()}`)}`;
 
     return {
-      id: uuidv4(),
+      id,
       snapshotId,
       name,
       kind: 'class',
@@ -152,26 +159,32 @@ export class TypeSystemAnalyzer {
       isExported: classDecl.isExported(),
       isDefaultExport: classDecl.isDefaultExport(),
       isGeneric: classDecl.getTypeParameters().length > 0,
-      genericParameters: this.extractGenericParameters(classDecl),
-      typeText: classDecl.getText(),
-      modifiers: this.extractModifiers(classDecl),
-      jsdoc: this.extractJSDoc(classDecl) || undefined,
-      metadata: {},
+      genericParameters: classDecl.getTypeParameters().map(tp => ({
+        name: tp.getName(),
+        constraint: tp.getConstraint()?.getText() || null,
+        default: tp.getDefault()?.getText() || null
+      })),
+      typeText: null,
+      resolvedType: null,
+      modifiers: classDecl.getModifiers().map(m => m.getText()),
+      jsdoc: classDecl.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+      metadata: {}
     };
   }
 
   /**
    * Extract interface definition
    */
-  private extractInterfaceDefinition(
-    interfaceDecl: InterfaceDeclaration,
-    filePath: string,
-    snapshotId: string
-  ): TypeDefinition {
+  private extractInterfaceDefinition(interfaceDecl: InterfaceDeclaration, snapshotId: string, filePath: string): TypeDefinition | undefined {
+    const name = interfaceDecl.getName();
+    if (!name) return undefined;
+
+    const id = `type_${simpleHash(`${filePath}:${name}:${interfaceDecl.getStartLineNumber()}`)}`;
+
     return {
-      id: uuidv4(),
+      id,
       snapshotId,
-      name: interfaceDecl.getName(),
+      name,
       kind: 'interface',
       filePath,
       startLine: interfaceDecl.getStartLineNumber(),
@@ -182,26 +195,32 @@ export class TypeSystemAnalyzer {
       isExported: interfaceDecl.isExported(),
       isDefaultExport: interfaceDecl.isDefaultExport(),
       isGeneric: interfaceDecl.getTypeParameters().length > 0,
-      genericParameters: this.extractGenericParameters(interfaceDecl),
-      typeText: interfaceDecl.getText(),
-      modifiers: this.extractModifiers(interfaceDecl),
-      jsdoc: this.extractJSDoc(interfaceDecl),
-      metadata: {},
+      genericParameters: interfaceDecl.getTypeParameters().map(tp => ({
+        name: tp.getName(),
+        constraint: tp.getConstraint()?.getText() || null,
+        default: tp.getDefault()?.getText() || null
+      })),
+      typeText: null,
+      resolvedType: null,
+      modifiers: interfaceDecl.getModifiers().map(m => m.getText()),
+      jsdoc: interfaceDecl.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+      metadata: {}
     };
   }
 
   /**
    * Extract type alias definition
    */
-  private extractTypeAliasDefinition(
-    typeAlias: TypeAliasDeclaration,
-    filePath: string,
-    snapshotId: string
-  ): TypeDefinition {
+  private extractTypeAliasDefinition(typeAlias: TypeAliasDeclaration, snapshotId: string, filePath: string): TypeDefinition | undefined {
+    const name = typeAlias.getName();
+    if (!name) return undefined;
+
+    const id = `type_${simpleHash(`${filePath}:${name}:${typeAlias.getStartLineNumber()}`)}`;
+
     return {
-      id: uuidv4(),
+      id,
       snapshotId,
-      name: typeAlias.getName(),
+      name,
       kind: 'type_alias',
       filePath,
       startLine: typeAlias.getStartLineNumber(),
@@ -212,27 +231,32 @@ export class TypeSystemAnalyzer {
       isExported: typeAlias.isExported(),
       isDefaultExport: typeAlias.isDefaultExport(),
       isGeneric: typeAlias.getTypeParameters().length > 0,
-      genericParameters: this.extractGenericParameters(typeAlias),
-      typeText: typeAlias.getTypeNode()?.getText(),
-      resolvedType: this.resolveTypeStructure(typeAlias.getTypeNode()),
-      modifiers: this.extractModifiers(typeAlias),
-      jsdoc: this.extractJSDoc(typeAlias),
-      metadata: {},
+      genericParameters: typeAlias.getTypeParameters().map(tp => ({
+        name: tp.getName(),
+        constraint: tp.getConstraint()?.getText() || null,
+        default: tp.getDefault()?.getText() || null
+      })),
+      typeText: typeAlias.getTypeNode()?.getText() || null,
+      resolvedType: null,
+      modifiers: typeAlias.getModifiers().map(m => m.getText()),
+      jsdoc: typeAlias.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+      metadata: {}
     };
   }
 
   /**
    * Extract enum definition
    */
-  private extractEnumDefinition(
-    enumDecl: EnumDeclaration,
-    filePath: string,
-    snapshotId: string
-  ): TypeDefinition {
+  private extractEnumDefinition(enumDecl: EnumDeclaration, snapshotId: string, filePath: string): TypeDefinition | undefined {
+    const name = enumDecl.getName();
+    if (!name) return undefined;
+
+    const id = `type_${simpleHash(`${filePath}:${name}:${enumDecl.getStartLineNumber()}`)}`;
+
     return {
-      id: uuidv4(),
+      id,
       snapshotId,
-      name: enumDecl.getName(),
+      name,
       kind: 'enum',
       filePath,
       startLine: enumDecl.getStartLineNumber(),
@@ -244,688 +268,562 @@ export class TypeSystemAnalyzer {
       isDefaultExport: enumDecl.isDefaultExport(),
       isGeneric: false,
       genericParameters: [],
-      typeText: enumDecl.getText(),
-      modifiers: this.extractModifiers(enumDecl),
-      jsdoc: this.extractJSDoc(enumDecl),
+      typeText: null,
+      resolvedType: null,
+      modifiers: enumDecl.getModifiers().map(m => m.getText()),
+      jsdoc: enumDecl.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
       metadata: {
-        members: enumDecl.getMembers().map(m => ({
-          name: m.getName(),
-          value: m.getValue(),
-        })),
-      },
+        members: enumDecl.getMembers().map(member => ({
+          name: member.getName(),
+          value: member.getValue()
+        }))
+      }
     };
   }
 
   /**
-   * Extract namespace definition
+   * Extract module/namespace definition
    */
-  private extractNamespaceDefinition(
-    namespace: ModuleDeclaration,
-    filePath: string,
-    snapshotId: string
-  ): TypeDefinition | null {
-    const name = namespace.getName();
-    if (!name) return null;
+  private extractModuleDefinition(moduleDecl: ModuleDeclaration, snapshotId: string, filePath: string): TypeDefinition | undefined {
+    const name = moduleDecl.getName();
+    if (!name) return undefined;
+
+    const id = `type_${simpleHash(`${filePath}:${name}:${moduleDecl.getStartLineNumber()}`)}`;
 
     return {
-      id: uuidv4(),
+      id,
       snapshotId,
       name,
       kind: 'namespace',
       filePath,
-      startLine: namespace.getStartLineNumber(),
-      endLine: namespace.getEndLineNumber(),
-      startColumn: namespace.getStart(),
-      endColumn: namespace.getEnd(),
+      startLine: moduleDecl.getStartLineNumber(),
+      endLine: moduleDecl.getEndLineNumber(),
+      startColumn: moduleDecl.getStart(),
+      endColumn: moduleDecl.getEnd(),
       isAbstract: false,
-      isExported: namespace.isExported(),
-      isDefaultExport: namespace.isDefaultExport(),
+      isExported: moduleDecl.isExported(),
+      isDefaultExport: moduleDecl.isDefaultExport(),
       isGeneric: false,
       genericParameters: [],
-      typeText: namespace.getText(),
-      modifiers: this.extractModifiers(namespace),
-      jsdoc: this.extractJSDoc(namespace),
-      metadata: {},
+      typeText: null,
+      resolvedType: null,
+      modifiers: moduleDecl.getModifiers().map(m => m.getText()),
+      jsdoc: moduleDecl.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+      metadata: {}
     };
   }
 
   /**
-   * Extract relationships and members in second pass
+   * Extract class relationships (extends, implements)
    */
-  private async extractRelationshipsAndMembers(
-    sourceFile: SourceFile,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    // Process classes
-    const classes = sourceFile.getClasses();
-    for (const classDecl of classes) {
-      await this.extractClassRelationshipsAndMembers(classDecl, snapshotId, result);
-    }
-
-    // Process interfaces
-    const interfaces = sourceFile.getInterfaces();
-    for (const interfaceDecl of interfaces) {
-      await this.extractInterfaceRelationshipsAndMembers(interfaceDecl, snapshotId, result);
-    }
-
-    // Process type aliases
-    const typeAliases = sourceFile.getTypeAliases();
-    for (const typeAlias of typeAliases) {
-      await this.extractTypeAliasRelationships(typeAlias, snapshotId, result);
-    }
-  }
-
-  /**
-   * Extract class relationships and members
-   */
-  private async extractClassRelationshipsAndMembers(
-    classDecl: ClassDeclaration,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
+  private extractClassRelationships(classDecl: ClassDeclaration, snapshotId: string, typeMap: Map<string, TypeDefinition>): TypeRelationship[] {
+    const relationships: TypeRelationship[] = [];
     const className = classDecl.getName();
-    if (!className) return;
+    if (!className) return relationships;
 
-    const classId = this.getTypeId(classDecl);
-    if (!classId) return;
+    const sourceType = typeMap.get(className);
+    if (!sourceType) return relationships;
 
     // Extract extends relationship
-    const extendsExpr = classDecl.getExtends();
-    if (extendsExpr) {
-      const parentName = extendsExpr.getExpression().getText();
-      result.typeRelationships.push({
-        id: uuidv4(),
+    const extendsClause = classDecl.getExtends();
+    if (extendsClause) {
+      const targetName = extendsClause.getExpression().getText();
+      const targetType = typeMap.get(targetName);
+      
+      relationships.push({
+        id: `rel_${simpleHash(`${sourceType.id}:extends:${targetName}`)}`,
         snapshotId,
-        sourceTypeId: classId,
-        targetTypeId: this.resolveTypeId(parentName),
-        targetName: parentName,
+        sourceTypeId: sourceType.id,
+        targetTypeId: targetType?.id || null,
+        targetName,
         relationshipKind: 'extends',
         position: 0,
         isArray: false,
         isOptional: false,
-        genericArguments: this.extractGenericArguments(extendsExpr),
-        confidenceScore: 1.0,
-        metadata: {},
+        genericArguments: [],
+        confidenceScore: targetType ? 1.0 : 0.8,
+        metadata: {}
       });
     }
 
     // Extract implements relationships
-    const implementsExprs = classDecl.getImplements();
-    implementsExprs.forEach((impl, index) => {
-      const interfaceName = impl.getExpression().getText();
-      result.typeRelationships.push({
-        id: uuidv4(),
+    const implementsClauses = classDecl.getImplements();
+    implementsClauses.forEach((implementsClause, index) => {
+      const targetName = implementsClause.getExpression().getText();
+      const targetType = typeMap.get(targetName);
+      
+      relationships.push({
+        id: `rel_${simpleHash(`${sourceType.id}:implements:${targetName}:${index}`)}`,
         snapshotId,
-        sourceTypeId: classId,
-        targetTypeId: this.resolveTypeId(interfaceName),
-        targetName: interfaceName,
+        sourceTypeId: sourceType.id,
+        targetTypeId: targetType?.id || null,
+        targetName,
         relationshipKind: 'implements',
         position: index,
         isArray: false,
         isOptional: false,
-        genericArguments: this.extractGenericArguments(impl),
-        confidenceScore: 1.0,
-        metadata: {},
+        genericArguments: [],
+        confidenceScore: targetType ? 1.0 : 0.8,
+        metadata: {}
       });
     });
 
-    // Extract members
-    await this.extractClassMembers(classDecl, classId, snapshotId, result);
+    return relationships;
   }
 
   /**
-   * Extract class members
+   * Extract interface relationships (extends)
    */
-  private async extractClassMembers(
-    classDecl: ClassDeclaration,
-    classId: string,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    // Properties
-    const properties = classDecl.getProperties();
-    for (const prop of properties) {
-      const member = this.extractPropertyMember(prop, classId, snapshotId);
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
+  private extractInterfaceRelationships(interfaceDecl: InterfaceDeclaration, snapshotId: string, typeMap: Map<string, TypeDefinition>): TypeRelationship[] {
+    const relationships: TypeRelationship[] = [];
+    const interfaceName = interfaceDecl.getName();
+    if (!interfaceName) return relationships;
 
-    // Methods
-    const methods = classDecl.getMethods();
-    for (const method of methods) {
-      const member = this.extractMethodMember(method, classId, snapshotId, 'method');
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
-
-    // Getters
-    const getters = classDecl.getGetAccessors();
-    for (const getter of getters) {
-      const member = this.extractAccessorMember(getter, classId, snapshotId, 'getter');
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
-
-    // Setters
-    const setters = classDecl.getSetAccessors();
-    for (const setter of setters) {
-      const member = this.extractAccessorMember(setter, classId, snapshotId, 'setter');
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
-
-    // Constructors
-    const constructors = classDecl.getConstructors();
-    for (const ctor of constructors) {
-      const member = this.extractConstructorMember(ctor, classId, snapshotId);
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
-  }
-
-  /**
-   * Extract interface relationships and members
-   */
-  private async extractInterfaceRelationshipsAndMembers(
-    interfaceDecl: InterfaceDeclaration,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    const interfaceId = this.getTypeId(interfaceDecl);
-    if (!interfaceId) return;
+    const sourceType = typeMap.get(interfaceName);
+    if (!sourceType) return relationships;
 
     // Extract extends relationships
-    const extendsExprs = interfaceDecl.getExtends();
-    extendsExprs.forEach((ext, index) => {
-      const parentName = ext.getExpression().getText();
-      result.typeRelationships.push({
-        id: uuidv4(),
+    const extendsClause = interfaceDecl.getExtends();
+    extendsClause.forEach((extend, index) => {
+      const targetName = extend.getExpression().getText();
+      const targetType = typeMap.get(targetName);
+      
+      relationships.push({
+        id: `rel_${simpleHash(`${sourceType.id}:extends:${targetName}:${index}`)}`,
         snapshotId,
-        sourceTypeId: interfaceId,
-        targetTypeId: this.resolveTypeId(parentName),
-        targetName: parentName,
+        sourceTypeId: sourceType.id,
+        targetTypeId: targetType?.id || null,
+        targetName,
         relationshipKind: 'extends',
         position: index,
         isArray: false,
         isOptional: false,
-        genericArguments: this.extractGenericArguments(ext),
-        confidenceScore: 1.0,
-        metadata: {},
+        genericArguments: [],
+        confidenceScore: targetType ? 1.0 : 0.8,
+        metadata: {}
       });
     });
 
-    // Extract members
-    await this.extractInterfaceMembers(interfaceDecl, interfaceId, snapshotId, result);
+    return relationships;
   }
 
   /**
-   * Extract interface members
+   * Extract type members (methods, properties, etc.)
    */
-  private async extractInterfaceMembers(
-    interfaceDecl: InterfaceDeclaration,
-    interfaceId: string,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    // Property signatures
-    const properties = interfaceDecl.getProperties();
-    for (const prop of properties) {
-      const member = this.extractPropertySignatureMember(prop, interfaceId, snapshotId);
-      if (member) {
-        result.typeMembers.push(member);
+  private async extractTypeMembers(typeDef: TypeDefinition, snapshotId: string, sourceFileMap: Map<string, SourceFile>): Promise<TypeMember[]> {
+    const members: TypeMember[] = [];
+    
+    // Use the existing source file instead of re-parsing
+    const sourceFile = sourceFileMap.get(typeDef.filePath);
+    if (!sourceFile) {
+      this.logger.warn(`Source file not found for type ${typeDef.name} at ${typeDef.filePath}`);
+      return members;
+    }
+    
+    if (typeDef.kind === 'class') {
+      const classDecl = sourceFile.getClasses().find(c => 
+        c.getName() === typeDef.name && 
+        c.getStartLineNumber() === typeDef.startLine
+      );
+      
+      if (classDecl) {
+        members.push(...this.extractClassMembers(classDecl, typeDef.id, snapshotId));
+      }
+    } else if (typeDef.kind === 'interface') {
+      const interfaceDecl = sourceFile.getInterfaces().find(i => 
+        i.getName() === typeDef.name && 
+        i.getStartLineNumber() === typeDef.startLine
+      );
+      
+      if (interfaceDecl) {
+        members.push(...this.extractInterfaceMembers(interfaceDecl, typeDef.id, snapshotId));
       }
     }
+    
+    return members;
+  }
 
-    // Method signatures
-    const methods = interfaceDecl.getMethods();
-    for (const method of methods) {
-      const member = this.extractMethodSignatureMember(method, interfaceId, snapshotId);
-      if (member) {
-        result.typeMembers.push(member);
-      }
-    }
-
-    // Call signatures
-    const callSignatures = interfaceDecl.getCallSignatures();
-    for (const callSig of callSignatures) {
-      const member: TypeMember = {
-        id: uuidv4(),
+  /**
+   * Extract members from a class declaration
+   */
+  private extractClassMembers(classDecl: ClassDeclaration, typeId: string, snapshotId: string): TypeMember[] {
+    const members: TypeMember[] = [];
+    
+    // Extract properties
+    for (const property of classDecl.getProperties()) {
+      const id = `member_${simpleHash(`${typeId}:${property.getName()}:${property.getStartLineNumber()}`)}`;
+      members.push({
+        id,
         snapshotId,
-        typeId: interfaceId,
-        name: '()',
-        memberKind: 'call_signature',
-        typeText: callSig.getText(),
+        typeId,
+        name: property.getName(),
+        memberKind: 'property',
+        typeText: this.safeGetTypeText(property.getType()),
+        isOptional: property.hasQuestionToken(),
+        isReadonly: property.isReadonly(),
+        isStatic: property.isStatic(),
+        isAbstract: property.isAbstract(),
+        accessModifier: this.getAccessModifier(property),
+        startLine: property.getStartLineNumber(),
+        endLine: property.getEndLineNumber(),
+        startColumn: property.getStart(),
+        endColumn: property.getEnd(),
+        functionId: null,
+        jsdoc: property.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
+    }
+    
+    // Extract methods
+    for (const method of classDecl.getMethods()) {
+      const id = `member_${simpleHash(`${typeId}:${method.getName()}:${method.getStartLineNumber()}`)}`;
+      // TODO: Link to actual function ID from database - for now set to null
+      const functionId = null;
+      
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: method.getName(),
+        memberKind: 'method',
+        typeText: this.safeGetTypeText(method.getReturnType()),
+        isOptional: false,
+        isReadonly: false,
+        isStatic: method.isStatic(),
+        isAbstract: method.isAbstract(),
+        accessModifier: this.getAccessModifier(method),
+        startLine: method.getStartLineNumber(),
+        endLine: method.getEndLineNumber(),
+        startColumn: method.getStart(),
+        endColumn: method.getEnd(),
+        functionId,
+        jsdoc: method.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {
+          isAsync: method.isAsync(),
+          isGenerator: method.isGenerator(),
+          parameters: method.getParameters().map(p => ({
+            name: p.getName(),
+            type: this.safeGetTypeText(p.getType()),
+            isOptional: p.isOptional()
+          }))
+        }
+      });
+    }
+    
+    // Extract getters/setters
+    for (const accessor of classDecl.getGetAccessors()) {
+      const id = `member_${simpleHash(`${typeId}:get_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: accessor.getName(),
+        memberKind: 'getter',
+        typeText: this.safeGetTypeText(accessor.getReturnType()),
+        isOptional: false,
+        isReadonly: true,
+        isStatic: accessor.isStatic(),
+        isAbstract: accessor.isAbstract(),
+        accessModifier: this.getAccessModifier(accessor),
+        startLine: accessor.getStartLineNumber(),
+        endLine: accessor.getEndLineNumber(),
+        startColumn: accessor.getStart(),
+        endColumn: accessor.getEnd(),
+        functionId: null,
+        jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
+    }
+    
+    for (const accessor of classDecl.getSetAccessors()) {
+      const id = `member_${simpleHash(`${typeId}:set_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: accessor.getName(),
+        memberKind: 'setter',
+        typeText: 'void',
+        isOptional: false,
+        isReadonly: false,
+        isStatic: accessor.isStatic(),
+        isAbstract: accessor.isAbstract(),
+        accessModifier: this.getAccessModifier(accessor),
+        startLine: accessor.getStartLineNumber(),
+        endLine: accessor.getEndLineNumber(),
+        startColumn: accessor.getStart(),
+        endColumn: accessor.getEnd(),
+        functionId: null,
+        jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
+    }
+    
+    // Extract constructor
+    const constructors = classDecl.getConstructors();
+    for (const constructor of constructors) {
+      const id = `member_${simpleHash(`${typeId}:constructor:${constructor.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: 'constructor',
+        memberKind: 'constructor',
+        typeText: classDecl.getName() || 'unknown',
+        isOptional: false,
+        isReadonly: false,
+        isStatic: false,
+        isAbstract: false,
+        accessModifier: this.getAccessModifier(constructor),
+        startLine: constructor.getStartLineNumber(),
+        endLine: constructor.getEndLineNumber(),
+        startColumn: constructor.getStart(),
+        endColumn: constructor.getEnd(),
+        functionId: null,
+        jsdoc: constructor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {
+          parameters: constructor.getParameters().map(p => ({
+            name: p.getName(),
+            type: this.safeGetTypeText(p.getType()),
+            isOptional: p.isOptional()
+          }))
+        }
+      });
+    }
+    
+    return members;
+  }
+
+  /**
+   * Extract members from an interface declaration
+   */
+  private extractInterfaceMembers(interfaceDecl: InterfaceDeclaration, typeId: string, snapshotId: string): TypeMember[] {
+    const members: TypeMember[] = [];
+    
+    // Extract properties
+    for (const property of interfaceDecl.getProperties()) {
+      const id = `member_${simpleHash(`${typeId}:${property.getName()}:${property.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: property.getName(),
+        memberKind: 'property',
+        typeText: this.safeGetTypeText(property.getType()),
+        isOptional: property.hasQuestionToken(),
+        isReadonly: property.isReadonly(),
+        isStatic: false,
+        isAbstract: false,
+        accessModifier: null,
+        startLine: property.getStartLineNumber(),
+        endLine: property.getEndLineNumber(),
+        startColumn: property.getStart(),
+        endColumn: property.getEnd(),
+        functionId: null,
+        jsdoc: property.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
+    }
+    
+    // Extract methods
+    for (const method of interfaceDecl.getMethods()) {
+      const id = `member_${simpleHash(`${typeId}:${method.getName()}:${method.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: method.getName(),
+        memberKind: 'method',
+        typeText: this.safeGetTypeText(method.getReturnType()),
+        isOptional: method.hasQuestionToken(),
+        isReadonly: false,
+        isStatic: false,
+        isAbstract: true, // Interface methods are always abstract
+        accessModifier: null,
+        startLine: method.getStartLineNumber(),
+        endLine: method.getEndLineNumber(),
+        startColumn: method.getStart(),
+        endColumn: method.getEnd(),
+        functionId: null,
+        jsdoc: method.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {
+          parameters: method.getParameters().map(p => ({
+            name: p.getName(),
+            type: this.safeGetTypeText(p.getType()),
+            isOptional: p.isOptional()
+          }))
+        }
+      });
+    }
+    
+    // Extract getters/setters
+    for (const accessor of interfaceDecl.getGetAccessors()) {
+      const id = `member_${simpleHash(`${typeId}:get_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: accessor.getName(),
+        memberKind: 'getter',
+        typeText: this.safeGetTypeText(accessor.getReturnType()),
+        isOptional: false,
+        isReadonly: true,
+        isStatic: false,
+        isAbstract: true,
+        accessModifier: null,
+        startLine: accessor.getStartLineNumber(),
+        endLine: accessor.getEndLineNumber(),
+        startColumn: accessor.getStart(),
+        endColumn: accessor.getEnd(),
+        functionId: null,
+        jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
+    }
+    
+    for (const accessor of interfaceDecl.getSetAccessors()) {
+      const id = `member_${simpleHash(`${typeId}:set_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: accessor.getName(),
+        memberKind: 'setter',
+        typeText: 'void',
         isOptional: false,
         isReadonly: false,
         isStatic: false,
         isAbstract: true,
-        startLine: callSig.getStartLineNumber(),
-        endLine: callSig.getEndLineNumber(),
-        startColumn: callSig.getStartLinePos(),
-        endColumn: callSig.getEndLinePos(),
-        metadata: {},
-      };
-      result.typeMembers.push(member);
+        accessModifier: null,
+        startLine: accessor.getStartLineNumber(),
+        endLine: accessor.getEndLineNumber(),
+        startColumn: accessor.getStart(),
+        endColumn: accessor.getEnd(),
+        functionId: null,
+        jsdoc: accessor.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
+        metadata: {}
+      });
     }
-
-    // Index signatures
-    const indexSignatures = interfaceDecl.getIndexSignatures();
-    for (const indexSig of indexSignatures) {
-      const member: TypeMember = {
-        id: uuidv4(),
+    
+    // Extract index signatures
+    for (const indexSig of interfaceDecl.getIndexSignatures()) {
+      const id = `member_${simpleHash(`${typeId}:index:${indexSig.getStartLineNumber()}`)}`;
+      members.push({
+        id,
         snapshotId,
-        typeId: interfaceId,
-        name: `[${indexSig.getKeyName()}]`,
+        typeId,
+        name: '[index]',
         memberKind: 'index_signature',
-        typeText: indexSig.getReturnTypeNode()?.getText(),
+        typeText: indexSig.getReturnType().getText(),
         isOptional: false,
         isReadonly: indexSig.isReadonly(),
         isStatic: false,
         isAbstract: true,
+        accessModifier: null,
         startLine: indexSig.getStartLineNumber(),
         endLine: indexSig.getEndLineNumber(),
-        startColumn: indexSig.getStartLinePos(),
-        endColumn: indexSig.getEndLinePos(),
-        metadata: {},
-      };
-      result.typeMembers.push(member);
-    }
-  }
-
-  /**
-   * Extract type alias relationships
-   */
-  private async extractTypeAliasRelationships(
-    typeAlias: TypeAliasDeclaration,
-    snapshotId: string,
-    result: TypeExtractionResult
-  ): Promise<void> {
-    const typeAliasId = this.getTypeId(typeAlias);
-    if (!typeAliasId) return;
-
-    const typeNode = typeAlias.getTypeNode();
-    if (!typeNode) return;
-
-    // Handle union types
-    if (Node.isUnionTypeNode(typeNode)) {
-      const unionTypes = typeNode.getTypeNodes();
-      unionTypes.forEach((unionType, index) => {
-        const typeName = unionType.getText();
-        result.typeRelationships.push({
-          id: uuidv4(),
-          snapshotId,
-          sourceTypeId: typeAliasId,
-          targetTypeId: this.resolveTypeId(typeName),
-          targetName: typeName,
-          relationshipKind: 'union',
-          position: index,
-          isArray: false,
-          isOptional: false,
-          genericArguments: [],
-          confidenceScore: 1.0,
-          metadata: {},
-        });
-      });
-    }
-    
-    // Handle intersection types
-    else if (Node.isIntersectionTypeNode(typeNode)) {
-      const intersectionTypes = typeNode.getTypeNodes();
-      intersectionTypes.forEach((intersectionType, index) => {
-        const typeName = intersectionType.getText();
-        result.typeRelationships.push({
-          id: uuidv4(),
-          snapshotId,
-          sourceTypeId: typeAliasId,
-          targetTypeId: this.resolveTypeId(typeName),
-          targetName: typeName,
-          relationshipKind: 'intersection',
-          position: index,
-          isArray: false,
-          isOptional: false,
-          genericArguments: [],
-          confidenceScore: 1.0,
-          metadata: {},
-        });
-      });
-    }
-    
-    // Handle reference types
-    else {
-      const typeName = typeNode.getText();
-      result.typeRelationships.push({
-        id: uuidv4(),
-        snapshotId,
-        sourceTypeId: typeAliasId,
-        targetTypeId: this.resolveTypeId(typeName),
-        targetName: typeName,
-        relationshipKind: 'references',
-        position: 0,
-        isArray: Node.isArrayTypeNode(typeNode),
-        isOptional: false,
-        genericArguments: [],
-        confidenceScore: 1.0,
-        metadata: {},
-      });
-    }
-  }
-
-  /**
-   * Detect method overrides
-   */
-  private async detectMethodOverrides(
-    result: TypeExtractionResult,
-    snapshotId: string
-  ): Promise<void> {
-    // Group methods by name
-    const methodsByName = new Map<string, TypeMember[]>();
-    for (const member of result.typeMembers) {
-      if (member.memberKind === 'method' || member.memberKind === 'constructor') {
-        const methods = methodsByName.get(member.name) || [];
-        methods.push(member);
-        methodsByName.set(member.name, methods);
-      }
-    }
-
-    // Check for overrides based on inheritance relationships
-    for (const relationship of result.typeRelationships) {
-      if (relationship.relationshipKind === 'extends' || relationship.relationshipKind === 'implements') {
-        const sourceMethods = result.typeMembers.filter(
-          m => m.typeId === relationship.sourceTypeId && 
-               (m.memberKind === 'method' || m.memberKind === 'constructor')
-        );
-        
-        const targetMethods = result.typeMembers.filter(
-          m => m.typeId === relationship.targetTypeId && 
-               (m.memberKind === 'method' || m.memberKind === 'constructor')
-        );
-
-        for (const sourceMethod of sourceMethods) {
-          const targetMethod = targetMethods.find(m => m.name === sourceMethod.name);
-          if (targetMethod) {
-            const override: MethodOverride = {
-              id: uuidv4(),
-              snapshotId,
-              methodMemberId: sourceMethod.id,
-              sourceTypeId: relationship.sourceTypeId,
-              targetMemberId: targetMethod.id,
-              targetTypeId: relationship.targetTypeId,
-              overrideKind: relationship.relationshipKind === 'extends' ? 'override' : 
-                            targetMethod.isAbstract ? 'abstract_implement' : 'implement',
-              isCompatible: true, // TODO: Implement type compatibility check
-              compatibilityErrors: [],
-              confidenceScore: 1.0,
-              metadata: {},
-            };
-            result.methodOverrides.push(override);
-          }
+        startColumn: indexSig.getStart(),
+        endColumn: indexSig.getEnd(),
+        functionId: null,
+        jsdoc: indexSig.getJsDocs().map(jsdoc => jsdoc.getText()).join('\n') || null,
+        metadata: {
+          keyType: this.safeGetTypeText(indexSig.getKeyType())
         }
-      }
-    }
-  }
-
-  // Helper methods
-
-  private extractGenericParameters(node: TypeParameteredNode): GenericParameter[] {
-    return node.getTypeParameters().map(param => ({
-      name: param.getName(),
-      constraint: param.getConstraint()?.getText(),
-      default: param.getDefault()?.getText(),
-    }));
-  }
-
-  private extractModifiers(node: Node): string[] {
-    const modifiers: string[] = [];
-    
-    if (Node.isExportableNode(node) && node.isExported()) {
-      modifiers.push('export');
+      });
     }
     
-    if (Node.isModifieredNode(node)) {
-      if (node.hasModifier(SyntaxKind.AbstractKeyword)) modifiers.push('abstract');
-      if (node.hasModifier(SyntaxKind.StaticKeyword)) modifiers.push('static');
-      if (node.hasModifier(SyntaxKind.ReadonlyKeyword)) modifiers.push('readonly');
-      if (node.hasModifier(SyntaxKind.AsyncKeyword)) modifiers.push('async');
-      if (node.hasModifier(SyntaxKind.ConstKeyword)) modifiers.push('const');
-      if (node.hasModifier(SyntaxKind.DeclareKeyword)) modifiers.push('declare');
+    // Extract call signatures
+    for (const callSig of interfaceDecl.getCallSignatures()) {
+      const id = `member_${simpleHash(`${typeId}:call:${callSig.getStartLineNumber()}`)}`;
+      members.push({
+        id,
+        snapshotId,
+        typeId,
+        name: '[call]',
+        memberKind: 'call_signature',
+        typeText: callSig.getReturnType().getText(),
+        isOptional: false,
+        isReadonly: false,
+        isStatic: false,
+        isAbstract: true,
+        accessModifier: null,
+        startLine: callSig.getStartLineNumber(),
+        endLine: callSig.getEndLineNumber(),
+        startColumn: callSig.getStart(),
+        endColumn: callSig.getEnd(),
+        functionId: null,
+        jsdoc: callSig.getJsDocs().map(jsdoc => jsdoc.getText()).join('\n') || null,
+        metadata: {
+          parameters: callSig.getParameters().map(p => ({
+            name: p.getName(),
+            type: this.safeGetTypeText(p.getType()),
+            isOptional: p.isOptional()
+          }))
+        }
+      });
     }
     
-    return modifiers;
+    return members;
   }
 
-  private extractJSDoc(node: JSDocableNode): string | undefined {
-    const jsDocs = node.getJsDocs();
-    if (jsDocs.length > 0) {
-      return jsDocs.map(doc => doc.getText()).join('\n');
+  /**
+   * Get access modifier from a class member
+   */
+  private getAccessModifier(member: any): 'public' | 'protected' | 'private' | null {
+    if ('getScope' in member) {
+      const scope = member.getScope();
+      if (scope === 'public') return 'public';
+      if (scope === 'protected') return 'protected';
+      if (scope === 'private') return 'private';
     }
-    return undefined;
+    return null;
   }
 
-  private extractGenericArguments(node: Node): string[] {
-    // TODO: Implement generic argument extraction
+  /**
+   * Safely extract type text, handling potential issues with special characters
+   */
+  private safeGetTypeText(type: any): string {
+    try {
+      const typeText = type.getText();
+      // Sanitize potentially problematic characters
+      return typeText
+        .replace(/\x00/g, '') // Remove null bytes
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+        .substring(0, 1000); // Limit length to prevent oversized data
+    } catch (error) {
+      this.logger.warn('Failed to get type text:', error);
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Safely extract text from node, handling potential issues
+   */
+  private safeGetText(node: any): string {
+    try {
+      const text = node.getText();
+      return text
+        .replace(/\x00/g, '') // Remove null bytes
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '') // Remove control characters
+        .substring(0, 2000); // Limit length
+    } catch (error) {
+      this.logger.warn('Failed to get node text:', error);
+      return '';
+    }
+  }
+
+  /**
+   * Extract method overrides and implementations
+   */
+  private async extractMethodOverrides(
+    _typeDef: TypeDefinition, 
+    _snapshotId: string, 
+    _typeMap: Map<string, TypeDefinition>,
+    _typeMembers: TypeMember[]
+  ): Promise<MethodOverride[]> {
+    // This is a placeholder - in a full implementation, we would analyze
+    // method signatures and match them against parent/interface methods
+    // For now, return empty array to avoid breaking changes
     return [];
-  }
-
-  private resolveTypeStructure(typeNode: Node | undefined): any {
-    if (!typeNode) return null;
-    
-    // TODO: Implement complete type structure resolution
-    return {
-      kind: typeNode.getKindName(),
-      text: typeNode.getText(),
-    };
-  }
-
-  private getTypeFullName(typeDef: TypeDefinition): string {
-    return `${typeDef.filePath}#${typeDef.name}`;
-  }
-
-  private getTypeId(node: ClassDeclaration | InterfaceDeclaration | TypeAliasDeclaration): string | undefined {
-    const name = node.getName();
-    if (!name) return undefined;
-    
-    const filePath = PathNormalizer.normalize(node.getSourceFile().getFilePath());
-    const fullName = `${filePath}#${name}`;
-    return this.typeIdMap.get(fullName);
-  }
-
-  private resolveTypeId(typeName: string): string | undefined {
-    // TODO: Implement proper type resolution
-    // For now, return undefined for external types
-    return undefined;
-  }
-
-  private extractPropertyMember(
-    prop: PropertyDeclaration,
-    classId: string,
-    snapshotId: string
-  ): TypeMember | null {
-    const name = prop.getName();
-    if (!name) return null;
-
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: classId,
-      name,
-      memberKind: 'property',
-      typeText: prop.getTypeNode()?.getText(),
-      isOptional: prop.hasQuestionToken(),
-      isReadonly: prop.isReadonly(),
-      isStatic: prop.isStatic(),
-      isAbstract: prop.isAbstract(),
-      accessModifier: this.getAccessModifier(prop),
-      startLine: prop.getStartLineNumber(),
-      endLine: prop.getEndLineNumber(),
-      startColumn: prop.getStartLinePos(),
-      endColumn: prop.getEndLinePos(),
-      jsdoc: this.extractJSDoc(prop),
-      metadata: {},
-    };
-  }
-
-  private extractMethodMember(
-    method: MethodDeclaration,
-    classId: string,
-    snapshotId: string,
-    kind: 'method'
-  ): TypeMember {
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: classId,
-      name: method.getName(),
-      memberKind: kind,
-      typeText: method.getReturnTypeNode()?.getText(),
-      isOptional: false,
-      isReadonly: false,
-      isStatic: method.isStatic(),
-      isAbstract: method.isAbstract(),
-      accessModifier: this.getAccessModifier(method),
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      startColumn: method.getStartLinePos(),
-      endColumn: method.getEndLinePos(),
-      jsdoc: this.extractJSDoc(method),
-      metadata: {
-        parameters: method.getParameters().map(p => ({
-          name: p.getName(),
-          type: p.getTypeNode()?.getText(),
-          optional: p.hasQuestionToken(),
-        })),
-      },
-    };
-  }
-
-  private extractAccessorMember(
-    accessor: GetAccessorDeclaration | SetAccessorDeclaration,
-    classId: string,
-    snapshotId: string,
-    kind: 'getter' | 'setter'
-  ): TypeMember {
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: classId,
-      name: accessor.getName(),
-      memberKind: kind,
-      typeText: Node.isGetAccessorDeclaration(accessor) ? 
-        accessor.getReturnTypeNode()?.getText() : 
-        accessor.getParameters()[0]?.getTypeNode()?.getText(),
-      isOptional: false,
-      isReadonly: kind === 'getter',
-      isStatic: accessor.isStatic(),
-      isAbstract: accessor.isAbstract(),
-      accessModifier: this.getAccessModifier(accessor),
-      startLine: accessor.getStartLineNumber(),
-      endLine: accessor.getEndLineNumber(),
-      startColumn: accessor.getStartLinePos(),
-      endColumn: accessor.getEndLinePos(),
-      jsdoc: this.extractJSDoc(accessor),
-      metadata: {},
-    };
-  }
-
-  private extractConstructorMember(
-    ctor: ConstructorDeclaration,
-    classId: string,
-    snapshotId: string
-  ): TypeMember {
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: classId,
-      name: 'constructor',
-      memberKind: 'constructor',
-      typeText: undefined,
-      isOptional: false,
-      isReadonly: false,
-      isStatic: false,
-      isAbstract: false,
-      accessModifier: this.getAccessModifier(ctor),
-      startLine: ctor.getStartLineNumber(),
-      endLine: ctor.getEndLineNumber(),
-      startColumn: ctor.getStartLinePos(),
-      endColumn: ctor.getEndLinePos(),
-      jsdoc: this.extractJSDoc(ctor),
-      metadata: {
-        parameters: ctor.getParameters().map(p => ({
-          name: p.getName(),
-          type: p.getTypeNode()?.getText(),
-          optional: p.hasQuestionToken(),
-        })),
-      },
-    };
-  }
-
-  private extractPropertySignatureMember(
-    prop: PropertySignature,
-    interfaceId: string,
-    snapshotId: string
-  ): TypeMember {
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: interfaceId,
-      name: prop.getName(),
-      memberKind: 'property',
-      typeText: prop.getTypeNode()?.getText(),
-      isOptional: prop.hasQuestionToken(),
-      isReadonly: prop.isReadonly(),
-      isStatic: false,
-      isAbstract: true,
-      startLine: prop.getStartLineNumber(),
-      endLine: prop.getEndLineNumber(),
-      startColumn: prop.getStartLinePos(),
-      endColumn: prop.getEndLinePos(),
-      jsdoc: this.extractJSDoc(prop),
-      metadata: {},
-    };
-  }
-
-  private extractMethodSignatureMember(
-    method: MethodSignature,
-    interfaceId: string,
-    snapshotId: string
-  ): TypeMember {
-    return {
-      id: uuidv4(),
-      snapshotId,
-      typeId: interfaceId,
-      name: method.getName(),
-      memberKind: 'method',
-      typeText: method.getReturnTypeNode()?.getText(),
-      isOptional: method.hasQuestionToken(),
-      isReadonly: false,
-      isStatic: false,
-      isAbstract: true,
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      startColumn: method.getStartLinePos(),
-      endColumn: method.getEndLinePos(),
-      jsdoc: this.extractJSDoc(method),
-      metadata: {
-        parameters: method.getParameters().map(p => ({
-          name: p.getName(),
-          type: p.getTypeNode()?.getText(),
-          optional: p.hasQuestionToken(),
-        })),
-      },
-    };
-  }
-
-  private getAccessModifier(
-    node: MethodDeclaration | PropertyDeclaration | GetAccessorDeclaration | SetAccessorDeclaration | ConstructorDeclaration
-  ): 'public' | 'protected' | 'private' | undefined {
-    if (node.hasModifier(SyntaxKind.PrivateKeyword)) return 'private';
-    if (node.hasModifier(SyntaxKind.ProtectedKeyword)) return 'protected';
-    if (node.hasModifier(SyntaxKind.PublicKeyword)) return 'public';
-    return undefined;
   }
 }
