@@ -769,9 +769,9 @@ export class TypeSystemAnalyzer {
   /**
    * Get access modifier from a class member
    */
-  private getAccessModifier(member: any): 'public' | 'protected' | 'private' | null {
-    if ('getScope' in member) {
-      const scope = member.getScope();
+  private getAccessModifier(member: unknown): 'public' | 'protected' | 'private' | null {
+    if (member && typeof member === 'object' && 'getScope' in member) {
+      const scope = (member as { getScope: () => string }).getScope();
       if (scope === 'public') return 'public';
       if (scope === 'protected') return 'protected';
       if (scope === 'private') return 'private';
@@ -782,7 +782,7 @@ export class TypeSystemAnalyzer {
   /**
    * Safely extract type text, handling potential issues with special characters
    */
-  private safeGetTypeText(type: any): string {
+  private safeGetTypeText(type: { getText: () => string }): string {
     try {
       const typeText = type.getText();
       // Sanitize potentially problematic characters
@@ -799,7 +799,7 @@ export class TypeSystemAnalyzer {
   /**
    * Safely extract text from node, handling potential issues
    */
-  private safeGetText(node: any): string {
+  private safeGetText(node: { getText: () => string }): string {
     try {
       const text = node.getText();
       return text

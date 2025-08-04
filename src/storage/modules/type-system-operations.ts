@@ -13,6 +13,10 @@ import {
   calculateOptimalBatchSize
 } from '../bulk-insert-utils';
 
+interface PGTransaction {
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
 /**
  * Type System Database Operations
  * Complete implementation for managing type information in the database
@@ -32,7 +36,7 @@ export class TypeSystemOperations {
    * Save type definitions within a transaction
    */
   async saveTypeDefinitionsInTransaction(
-    trx: any,
+    trx: PGTransaction,
     types: TypeDefinition[]
   ): Promise<void> {
     if (types.length === 0) {
@@ -69,7 +73,7 @@ export class TypeSystemOperations {
                       'resolved_type', 'modifiers', 'jsdoc', 'metadata'];
       
       await this.executeBulkInsertInTransaction(trx, 'type_definitions', columns, insertData.map(row => 
-        columns.map(col => (row as any)[col])
+        columns.map(col => (row as Record<string, unknown>)[col])
       ));
     } catch (error) {
       
@@ -93,7 +97,7 @@ export class TypeSystemOperations {
     }
 
     try {
-      await this.context.db.transaction(async (trx: any) => {
+      await this.context.db.transaction(async (trx: PGTransaction) => {
         await this.saveTypeDefinitionsInTransaction(trx, types);
       });
     } catch (error) {
@@ -109,7 +113,7 @@ export class TypeSystemOperations {
    * Save type relationships within a transaction
    */
   async saveTypeRelationshipsInTransaction(
-    trx: any,
+    trx: PGTransaction,
     relationships: TypeRelationship[]
   ): Promise<void> {
     if (relationships.length === 0) {
@@ -137,7 +141,7 @@ export class TypeSystemOperations {
                       'position', 'is_array', 'is_optional', 'generic_arguments', 'confidence_score', 'metadata'];
       
       await this.executeBulkInsertInTransaction(trx, 'type_relationships', columns, insertData.map(row => 
-        columns.map(col => (row as any)[col])
+        columns.map(col => (row as Record<string, unknown>)[col])
       ));
     } catch (error) {
       throw new DatabaseError(
@@ -160,7 +164,7 @@ export class TypeSystemOperations {
     }
 
     try {
-      await this.context.db.transaction(async (trx: any) => {
+      await this.context.db.transaction(async (trx: PGTransaction) => {
         await this.saveTypeRelationshipsInTransaction(trx, relationships);
       });
     } catch (error) {
@@ -176,7 +180,7 @@ export class TypeSystemOperations {
    * Save type members within a transaction
    */
   async saveTypeMembersInTransaction(
-    trx: any,
+    trx: PGTransaction,
     members: TypeMember[]
   ): Promise<void> {
     if (members.length === 0) {
@@ -211,7 +215,7 @@ export class TypeSystemOperations {
                       'end_column', 'function_id', 'jsdoc', 'metadata'];
       
       await this.executeBulkInsertInTransaction(trx, 'type_members', columns, insertData.map(row => 
-        columns.map(col => (row as any)[col])
+        columns.map(col => (row as Record<string, unknown>)[col])
       ));
     } catch (error) {
       throw new DatabaseError(
@@ -234,7 +238,7 @@ export class TypeSystemOperations {
     }
 
     try {
-      await this.context.db.transaction(async (trx: any) => {
+      await this.context.db.transaction(async (trx: PGTransaction) => {
         await this.saveTypeMembersInTransaction(trx, members);
       });
     } catch (error) {
@@ -251,7 +255,7 @@ export class TypeSystemOperations {
    * Save method overrides within a transaction
    */
   async saveMethodOverridesInTransaction(
-    trx: any,
+    trx: PGTransaction,
     overrides: MethodOverride[]
   ): Promise<void> {
     if (overrides.length === 0) {
@@ -278,7 +282,7 @@ export class TypeSystemOperations {
                       'override_kind', 'is_compatible', 'compatibility_errors', 'confidence_score', 'metadata'];
       
       await this.executeBulkInsertInTransaction(trx, 'method_overrides', columns, insertData.map(row => 
-        columns.map(col => (row as any)[col])
+        columns.map(col => (row as Record<string, unknown>)[col])
       ));
     } catch (error) {
       throw new DatabaseError(
@@ -301,7 +305,7 @@ export class TypeSystemOperations {
     }
 
     try {
-      await this.context.db.transaction(async (trx: any) => {
+      await this.context.db.transaction(async (trx: PGTransaction) => {
         await this.saveMethodOverridesInTransaction(trx, overrides);
       });
     } catch (error) {
@@ -317,7 +321,7 @@ export class TypeSystemOperations {
    * Execute bulk insert within a transaction with optimal batching (following FunctionOperations pattern)
    */
   private async executeBulkInsertInTransaction(
-    trx: any,
+    trx: PGTransaction,
     tableName: string,
     columns: string[],
     data: unknown[][]
@@ -340,7 +344,7 @@ export class TypeSystemOperations {
    * Save all type information within a single transaction (following FunctionOperations pattern)
    */
   async saveAllTypeInformationInTransaction(
-    trx: any,
+    trx: PGTransaction,
     typeInfo: {
       typeDefinitions: TypeDefinition[];
       typeRelationships: TypeRelationship[];
@@ -377,7 +381,7 @@ export class TypeSystemOperations {
     }
   ): Promise<void> {
     try {
-      await this.context.db.transaction(async (trx: any) => {
+      await this.context.db.transaction(async (trx: PGTransaction) => {
         await this.saveAllTypeInformationInTransaction(trx, typeInfo);
       });
     } catch (error) {
