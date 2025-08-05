@@ -14,6 +14,7 @@ import {
 } from '../types/index.js';
 import { Logger } from './cli-utils.js';
 import { v4 as uuidv4 } from 'uuid';
+import { createDefaultGitProvider, GitProvider, GitInfo } from './git/index.js';
 
 /**
  * Snapshot Creation Options
@@ -72,14 +73,6 @@ export const DefaultAutomaticSnapshotConfig: AutomaticSnapshotConfig = {
   maxRetentionCount: 20,
 };
 
-/**
- * Git Information Interface
- */
-interface GitInfo {
-  commit?: string;
-  branch?: string;
-  tag?: string;
-}
 
 /**
  * Snapshot Manager
@@ -97,6 +90,7 @@ export class SnapshotManager {
   private readonly logger: Logger;
   private readonly config: AutomaticSnapshotConfig;
   private readonly projectRoot: string;
+  private readonly gitProvider: GitProvider;
   
   constructor(
     private storage: StorageAdapter,
@@ -107,6 +101,7 @@ export class SnapshotManager {
     this.logger = logger || new Logger(false, false);
     this.config = { ...DefaultAutomaticSnapshotConfig, ...config };
     this.projectRoot = funcqcConfig.roots[0] || process.cwd();
+    this.gitProvider = createDefaultGitProvider();
   }
 
   /**
@@ -243,39 +238,7 @@ export class SnapshotManager {
    */
   private async getGitInfo(): Promise<GitInfo> {
     try {
-      const gitInfo: GitInfo = {};
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      
-      try {
-        gitInfo.commit = (await execAsync('git rev-parse HEAD', { 
-          cwd: this.projectRoot,
-          timeout: 5000,
-        })).stdout.trim();
-      } catch {
-        // Git commit not available
-      }
-      
-      try {
-        gitInfo.branch = (await execAsync('git rev-parse --abbrev-ref HEAD', { 
-          cwd: this.projectRoot,
-          timeout: 5000,
-        })).stdout.trim();
-      } catch {
-        // Git branch not available
-      }
-      
-      try {
-        gitInfo.tag = (await execAsync('git describe --tags --exact-match HEAD', { 
-          cwd: this.projectRoot,
-          timeout: 5000,
-        })).stdout.trim();
-      } catch {
-        // Git tag not available (this is normal)
-      }
-      
-      return gitInfo;
+      return await this.gitProvider.getGitInfo();
     } catch (error) {
       this.logger.warn('Failed to get Git information', {
         error: error instanceof Error ? error.message : String(error),

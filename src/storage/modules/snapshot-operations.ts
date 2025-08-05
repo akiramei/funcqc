@@ -603,8 +603,7 @@ export class SnapshotOperations implements StorageOperationModule {
   // Git helper methods
   private async getGitCommit(): Promise<string | null> {
     try {
-      const result = await this.git.revparse(['HEAD']);
-      return result?.trim() || null;
+      return await this.git.getCurrentCommit();
     } catch {
       return null;
     }
@@ -612,8 +611,7 @@ export class SnapshotOperations implements StorageOperationModule {
 
   private async getGitBranch(): Promise<string | null> {
     try {
-      const result = await this.git.branch(['--show-current']);
-      return result.current || null;
+      return await this.git.getCurrentBranch();
     } catch {
       return null;
     }
@@ -621,9 +619,7 @@ export class SnapshotOperations implements StorageOperationModule {
 
   private async getGitTag(): Promise<string | null> {
     try {
-      const result = await this.git.tag(['--points-at', 'HEAD']);
-      const tags = result.split('\n').filter(t => t.trim());
-      return tags.length > 0 ? tags[0] : null;
+      return await this.git.getCurrentTag();
     } catch {
       return null;
     }

@@ -4,7 +4,7 @@
 
 import { Kysely } from 'kysely';
 import { PGlite } from '@electric-sql/pglite';
-import { SimpleGit } from 'simple-git';
+import { GitProvider } from '../../utils/git/index.js';
 import { Database } from '../types/kysely-types';
 
 /**
@@ -21,7 +21,7 @@ export interface StorageOperationModule {
 export interface StorageContext {
   db: PGlite;
   kysely: Kysely<Database>;
-  git: SimpleGit;
+  git: GitProvider;
   dbPath: string;
   logger?: {
     log: (msg: string) => void;

@@ -6,9 +6,9 @@
  * residue detection accuracy with zero user configuration cost.
  */
 
-import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createGitProvider, GitProvider, GitProviderConfig, GitCommitInfo } from '../utils/git/index.js';
 
 export interface DebugCodePattern {
   id: string;
@@ -48,6 +48,7 @@ export class GitHistoryLearner {
   private learningDbPath: string;
   private database: LearningDatabase;
   private verbose: boolean;
+  private gitProvider: GitProvider;
 
   // Debug-related keywords in commit messages
   private static DEBUG_KEYWORDS = [
@@ -72,6 +73,15 @@ export class GitHistoryLearner {
     this.learningDbPath = path.join(repoPath, '.funcqc', 'debug-learning.json');
     this.verbose = options.verbose ?? (process.env['FUNCQC_VERBOSE'] === 'true');
     this.database = this.loadDatabase();
+    
+    const gitConfig: GitProviderConfig = {
+      cwd: repoPath,
+      verbose: this.verbose
+    };
+    this.gitProvider = createGitProvider({ 
+      ...gitConfig,
+      provider: 'native' // Use native provider for history analysis
+    });
   }
 
   /**
@@ -97,7 +107,7 @@ export class GitHistoryLearner {
     
     try {
       // Get relevant commits
-      const commits = this.getRelevantCommits(monthsBack, maxCommits);
+      const commits = await this.getRelevantCommits(monthsBack, maxCommits);
       this.log(`📊 Found ${commits.length} potentially relevant commits`);
 
       let patternsLearned = 0;
@@ -129,30 +139,24 @@ export class GitHistoryLearner {
   /**
    * Get commits that likely contain debug-related changes
    */
-  private getRelevantCommits(monthsBack: number, maxCommits: number): GitCommit[] {
-    const since = new Date();
-    since.setMonth(since.getMonth() - monthsBack);
-    const sinceStr = since.toISOString().split('T')[0];
-
+  private async getRelevantCommits(monthsBack: number, maxCommits: number): Promise<GitCommitInfo[]> {
     try {
-      // Get commits with debug-related keywords in messages
-      const keywordPattern = GitHistoryLearner.DEBUG_KEYWORDS
-        .map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .join('|');
-      const gitCmd = `git log --oneline --grep="${keywordPattern}" --since="${sinceStr}" -${maxCommits} --pretty=format:"%H|%s|%ad|%an" --date=iso`;
-      
-      const output = execSync(gitCmd, { 
-        cwd: this.repoPath, 
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe']
-      }).trim();
-
-      if (!output) return [];
-
-      return output.split('\n').map(line => {
-        const [hash, message, date, author] = line.split('|');
-        return { hash, message, date, author };
+      const historyResult = await this.gitProvider.getHistory({
+        monthsBack,
+        maxCommits
       });
+
+      // Filter commits that contain debug-related keywords
+      const keywordPattern = new RegExp(
+        GitHistoryLearner.DEBUG_KEYWORDS
+          .map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+          .join('|'),
+        'i'
+      );
+
+      return historyResult.commits.filter(commit => 
+        keywordPattern.test(commit.message)
+      );
       
     } catch {
       console.warn('⚠️ Could not analyze Git history - not in a Git repository or no matching commits');
@@ -163,17 +167,14 @@ export class GitHistoryLearner {
   /**
    * Analyze a single commit for debug patterns
    */
-  private async analyzeCommit(commit: GitCommit, excludePaths: string[]): Promise<DebugCodePattern[]> {
+  private async analyzeCommit(commit: GitCommitInfo, excludePaths: string[]): Promise<DebugCodePattern[]> {
     const patterns: DebugCodePattern[] = [];
 
     try {
-      // Get detailed diff
-      const detailDiffCmd = `git show -p ${commit.hash}`;
-      const detailDiff = execSync(detailDiffCmd, { 
-        cwd: this.repoPath, 
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore']
-      });
+      // Get detailed diff using GitProvider
+      const detailDiff = 'execGitCommandSync' in this.gitProvider && typeof this.gitProvider.execGitCommandSync === 'function'
+        ? this.gitProvider.execGitCommandSync(`git show -p ${commit.hash}`)
+        : await this.getCommitDiff(commit.hash);
 
       // Extract patterns from diff
       const extractedPatterns = this.extractPatternsFromDiff(
@@ -196,7 +197,7 @@ export class GitHistoryLearner {
    */
   private extractPatternsFromDiff(
     diff: string, 
-    commit: GitCommit, 
+    commit: GitCommitInfo, 
     excludePaths: string[]
   ): DebugCodePattern[] {
     const patterns: DebugCodePattern[] = [];
@@ -399,11 +400,24 @@ export class GitHistoryLearner {
       'utf8'
     );
   }
+
+  /**
+   * Fallback method to get commit diff when NativeGitProvider's execGitCommandSync is not available
+   */
+  private async getCommitDiff(commitHash: string): Promise<string> {
+    try {
+      // This is a fallback - in practice, we should extend GitProvider interface
+      // to include commit diff functionality
+      const { execSync } = await import('child_process');
+      return execSync(`git show -p ${commitHash}`, { 
+        cwd: this.repoPath, 
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore']
+      });
+    } catch (error) {
+      console.warn(`Failed to get diff for commit ${commitHash}:`, error);
+      return '';
+    }
+  }
 }
 
-interface GitCommit {
-  hash: string;
-  message: string;
-  date: string;
-  author: string;
-}
