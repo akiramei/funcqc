@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { TypeScriptAnalyzer } from '../src/analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../src/storage/pglite-adapter';
+import { globalHashCache } from '../src/utils/hash-cache';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -11,8 +12,11 @@ describe('Semantic ID Stability', () => {
   let storage: PGLiteStorageAdapter;
 
   beforeEach(async () => {
+    // Clear hash cache to ensure fresh analysis
+    globalHashCache.clear();
+    
     tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'funcqc-semantic-'));
-    analyzer = new TypeScriptAnalyzer(100);
+    analyzer = new TypeScriptAnalyzer(100, false); // Disable cache for testing
     
     const dbPath = path.join(tempDir, 'test.db');
     storage = new PGLiteStorageAdapter(dbPath);
@@ -172,6 +176,9 @@ describe('Semantic ID Stability', () => {
     const contentIds: string[] = [];
 
     for (const [index, implementation] of implementations.entries()) {
+      // Clear hash cache before each analysis to ensure fresh results
+      globalHashCache.clear();
+      
       await fs.promises.writeFile(testFile, implementation);
       const functions = await analyzer.analyzeFile(testFile);
       const calculateSum = functions.find(f => f.name === 'calculateSum');
@@ -184,8 +191,13 @@ describe('Semantic ID Stability', () => {
       contentIds.push(calculateSum!.contentId!);
       
       console.log(`  Implementation ${index + 1}:`);
+      console.log(`    Functions found: ${functions.length}`);
+      console.log(`    calculateSum found: ${calculateSum ? 'YES' : 'NO'}`);
       console.log(`    Semantic: ${calculateSum!.semanticId?.substring(0, 16)}...`);
       console.log(`    Content:  ${calculateSum!.contentId?.substring(0, 16)}...`);
+      console.log(`    Source Length: ${implementation.length}`);
+      console.log(`    Function Source: ${calculateSum!.signature?.substring(0, 50)}...`);
+      console.log(`    File Hash: ${calculateSum!.fileHash?.substring(0, 16)}...`);
     }
 
     // All semantic IDs should be identical

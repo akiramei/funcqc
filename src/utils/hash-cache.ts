@@ -197,13 +197,30 @@ export class HashCache {
   /**
    * Normalize content for AST comparison
    * Removes whitespace and comments for structural comparison
+   * BUT preserves semantic differences in implementation
    */
   private normalizeForAST(content: string): string {
-    return content
-      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//g, '') // Fixed ReDoS vulnerability: more efficient multiline comment removal
-      .replace(/\/\/.*$/gm, '') // Remove single-line comments first, before normalizing whitespace
-      .replace(/\s+/g, ' ') // Then normalize whitespace
+    // First remove comments to focus on actual code structure
+    let normalized = content
+      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//g, '') // Remove multiline comments
+      .replace(/\/\/.*$/gm, ''); // Remove single-line comments
+    
+    // Preserve significant whitespace patterns that indicate structural differences
+    // but normalize insignificant whitespace
+    normalized = normalized
+      .replace(/^\s+/gm, '') // Remove leading whitespace on each line
+      .replace(/\s+$/gm, '') // Remove trailing whitespace on each line
+      .replace(/\n\s*\n/g, '\n') // Collapse multiple empty lines to single
+      .replace(/\s*{\s*/g, '{') // Normalize brace spacing
+      .replace(/\s*}\s*/g, '}')
+      .replace(/\s*;\s*/g, ';') // Normalize semicolon spacing
+      .replace(/\s*,\s*/g, ',') // Normalize comma spacing
+      .replace(/\s*\(\s*/g, '(') // Normalize parenthesis spacing
+      .replace(/\s*\)\s*/g, ')')
+      .replace(/[ \t]+/g, ' ') // Normalize internal whitespace but preserve line breaks
       .trim();
+    
+    return normalized;
   }
 
   /**

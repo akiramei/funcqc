@@ -167,14 +167,23 @@ export class TypeScriptAnalyzer extends CacheAware {
   private async analyzeFileContent(filePath: string, fileContent: string): Promise<FunctionInfo[]> {
     try {
       // Check cache first using injected cache provider
+      // But validate that the cached content is still fresh
+      const currentFileHash = this.calculateFileHash(fileContent);
       try {
         const cachedResult = await this.functionCacheProvider.get(filePath);
-        if (cachedResult) {
-          // Generate new physical IDs for cached functions to ensure uniqueness
-          return cachedResult.map(func => ({
-            ...func,
-            id: this.generatePhysicalId(),
-          }));
+        if (cachedResult && cachedResult.length > 0) {
+          // Check if the cached result is still valid by comparing file hashes
+          const cachedFileHash = cachedResult[0].fileHash;
+          if (cachedFileHash === currentFileHash) {
+            // Generate new physical IDs for cached functions to ensure uniqueness
+            return cachedResult.map(func => ({
+              ...func,
+              id: this.generatePhysicalId(),
+            }));
+          } else {
+            // File has changed, cache is invalid - proceed with fresh analysis
+            this.logger.debug(`File hash changed for ${filePath}, invalidating cache`);
+          }
         }
       } catch (error) {
         this.logger.warn(
@@ -1014,9 +1023,18 @@ _fileContent: string
   /**
    * Generate a content ID that identifies the same implementation
    * Changes when function body or AST structure changes
+   * Uses raw source code instead of AST hash to ensure implementation differences are captured
    */
   private generateContentId(astHash: string, sourceCode: string): string {
-    const contentComponents = [astHash, sourceCode.trim()];
+    // Primary component: the actual source code (trimmed but preserving structure)
+    const normalizedSource = sourceCode.trim()
+      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//g, '') // Remove multiline comments
+      .replace(/\/\/.*$/gm, '') // Remove single-line comments
+      .replace(/^\s+/gm, '') // Remove leading whitespace
+      .replace(/\s+$/gm, ''); // Remove trailing whitespace
+    
+    // Secondary component: AST hash for additional structural information
+    const contentComponents = [normalizedSource, astHash];
 
     return crypto.createHash('sha256').update(contentComponents.join('|')).digest('hex');
   }
