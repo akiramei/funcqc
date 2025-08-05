@@ -101,5 +101,37 @@ module.exports = {
   "git": {
     "enabled": true,
     "autoLabel": true
+  },
+  "backup": {
+    "outputDir": ".funcqc/backups",
+    "naming": {
+      "format": "YYYYMMDD-HHMMSS",
+      "includeLabel": true,
+      "includeGitInfo": true
+    },
+    "defaults": {
+      "includeSourceCode": false,
+      "compress": false,
+      "format": "json",
+      "tableOrder": "auto"
+    },
+    "retention": {
+      "maxBackups": 10,
+      "maxAge": "30d",
+      "autoCleanup": true
+    },
+    "schema": {
+      "autoDetectVersion": true,
+      "conversionRulesDir": ".funcqc/conversion-rules"
+    },
+    "security": {
+      "excludeSensitiveData": true,
+      "encryptBackups": false
+    },
+    "advanced": {
+      "parallelTableExport": true,
+      "verifyIntegrity": true,
+      "includeMetrics": true
+    }
   }
 };
