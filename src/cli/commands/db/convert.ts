@@ -43,7 +43,13 @@ async function validateConversionInputs(
 /**
  * Load and validate source manifest
  */
-async function loadSourceManifest(inputPath: string): Promise<any> {
+async function loadSourceManifest(inputPath: string): Promise<{
+  metadata: { backupFormat: string; funcqcVersion: string };
+  tables: Record<string, unknown>;
+  schemaHash: string;
+  createdAt: string;
+  tableOrder: string[];
+}> {
   const manifestPath = path.join(inputPath, 'manifest.json');
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8');
@@ -57,7 +63,12 @@ async function loadSourceManifest(inputPath: string): Promise<any> {
 /**
  * Display source backup information
  */
-function displaySourceInfo(sourceManifest: any, targetFormat: string): void {
+function displaySourceInfo(sourceManifest: {
+  metadata: { backupFormat: string };
+  tables: Record<string, unknown>;
+  schemaHash: string;
+  createdAt: string;
+}, targetFormat: string): void {
   console.log(chalk.cyan('📋 Source Backup Information:'));
   console.log(`  • Format: ${sourceManifest.metadata.backupFormat}`);
   console.log(`  • Tables: ${Object.keys(sourceManifest.tables).length}`);
@@ -70,7 +81,9 @@ function displaySourceInfo(sourceManifest: any, targetFormat: string): void {
 /**
  * Check if conversion is needed and handle force flag
  */
-function checkConversionNeeded(sourceManifest: any, targetFormat: string, force: boolean): boolean {
+function checkConversionNeeded(sourceManifest: {
+  metadata: { backupFormat: string };
+}, targetFormat: string, force: boolean): boolean {
   if (sourceManifest.metadata.backupFormat === targetFormat) {
     console.log(chalk.yellow(`⚠️  Source is already in ${targetFormat} format`));
     
@@ -90,7 +103,7 @@ function checkConversionNeeded(sourceManifest: any, targetFormat: string, force:
  */
 async function analyzeSchemaChanges(
   schemaAnalyzer: SchemaAnalyzer, 
-  sourceManifest: any, 
+  sourceManifest: { schemaHash: string }, 
   allowSchemaMismatch: boolean
 ): Promise<{ schemaChanged: boolean; currentSchemaHash: string }> {
   let schemaChanged = false;
@@ -135,7 +148,10 @@ async function analyzeSchemaChanges(
 async function convertDataFiles(
   inputPath: string,
   outputPath: string,
-  sourceManifest: any,
+  sourceManifest: {
+    tableOrder: string[];
+    metadata: { backupFormat: string };
+  },
   targetFormat: string
 ): Promise<{ convertedFiles: number; totalRows: number }> {
   const dataDir = path.join(inputPath, 'data');
@@ -213,7 +229,12 @@ async function handleSchemaFile(
  */
 async function createUpdatedManifest(
   outputPath: string,
-  sourceManifest: any,
+  sourceManifest: {
+    metadata: { funcqcVersion: string; backupFormat: string };
+    createdAt: string;
+    schemaHash: string;
+    [key: string]: unknown;
+  },
   targetFormat: string,
   updateSchema: boolean,
   schemaChanged: boolean,
@@ -233,7 +254,7 @@ async function createUpdatedManifest(
   };
 
   // Add conversion metadata
-  newManifest.conversionInfo = {
+  (newManifest as Record<string, unknown>)['conversionInfo'] = {
     convertedFrom: sourceManifest.metadata.backupFormat,
     convertedAt: new Date().toISOString(),
     originalCreatedAt: sourceManifest.createdAt,

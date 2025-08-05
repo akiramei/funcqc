@@ -18,7 +18,7 @@ export const dbImportCommand: VoidCommand<OptionValues> = (options) =>
       const backupManager = new BackupManager(env.config, env.storage);
       
       // Resolve backup path
-      let backupPath = options['backup'];
+      const backupPath = options['backup'];
       if (!backupPath) {
         console.log(chalk.yellow('📂 No backup path specified. Listing available backups...'));
         console.log();
