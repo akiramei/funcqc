@@ -51,6 +51,9 @@ export class BackupManager {
   constructor(config: FuncqcConfig, storage: StorageAdapter) {
     this.backupConfig = config.backup || this.getDefaultBackupConfig();
     this.schemaAnalyzer = new SchemaAnalyzer();
+    if (!('query' in storage) || typeof (storage as Record<string, unknown>).query !== 'function') {
+      throw new Error('Storage adapter must implement query method for backup operations');
+    }
     this.storage = storage as BackupStorageAdapter;
   }
 
@@ -530,7 +533,7 @@ export class BackupManager {
       
       for (const tableName of tablesToCheck) {
         try {
-          const result = await this.storage.query(`SELECT COUNT(*) as count FROM ${tableName} LIMIT 1`);
+          const result = await this.storage.query(`SELECT COUNT(*) as count FROM "${tableName}" LIMIT 1`);
           const rows = (result as { rows: { count: number }[] }).rows;
           
           if (rows && rows.length > 0 && rows[0].count > 0) {
