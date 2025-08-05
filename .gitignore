@@ -94,3 +94,6 @@ data/
 **/.test-db*/
 **/test.db
 **/test-*.db
+
+# PR Reviews
+pr/
