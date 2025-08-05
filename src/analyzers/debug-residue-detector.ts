@@ -23,6 +23,7 @@ import {
 } from '../types/debug-residue';
 import { StorageProvider } from '../core/storage-provider';
 import { FunctionInfo } from '../types';
+import { getFileModificationTime } from '../utils/hash-utils';
 
 /**
  * Default configuration for residue detection
@@ -63,6 +64,7 @@ export class DebugResidueDetector {
   private functionsAnalyzed = 0;
   private functionMetadata: Map<string, FunctionInfo> = new Map();
   private storageProvider: StorageProvider;
+  private snapshotTimestamp: number = 0;
 
   constructor(config: Partial<ResidueDetectionConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -87,9 +89,13 @@ export class DebugResidueDetector {
     this.filesAnalyzed = 0;
     this.functionsAnalyzed = 0;
     this.functionMetadata.clear();
+    this.snapshotTimestamp = 0;
 
     // Load function metadata from funcqc database
     await this.loadFunctionMetadata(filePaths);
+
+    // HOTFIX: Validate file integrity before proceeding
+    await this.validateFileIntegrity(filePaths);
 
     // Add source files to project
     for (const filePath of filePaths) {
@@ -128,6 +134,7 @@ export class DebugResidueDetector {
       }
       
       const latestSnapshot = snapshots[0];
+      this.snapshotTimestamp = new Date(latestSnapshot.createdAt).getTime();
       
       // Get all functions from the latest snapshot
       const functions = await storage.getFunctionsBySnapshotId(latestSnapshot.id);
@@ -145,6 +152,59 @@ export class DebugResidueDetector {
     } catch (error) {
       // If we can't load metadata, continue without it
       console.warn('Could not load function metadata from funcqc database:', error);
+    }
+  }
+
+  /**
+   * HOTFIX: Validate file integrity against snapshot
+   */
+  private async validateFileIntegrity(filePaths: string[]): Promise<void> {
+    if (this.snapshotTimestamp === 0) {
+      console.warn('⚠️  SAFETY WARNING: No snapshot timestamp available - cannot validate file freshness');
+      return;
+    }
+
+    const warnings: string[] = [];
+    
+    for (const filePath of filePaths) {
+      try {
+        const resolvedPath = path.resolve(filePath);
+        
+        // Check file modification time vs snapshot timestamp
+        const fileModTime = await getFileModificationTime(resolvedPath);
+        
+        if (fileModTime > this.snapshotTimestamp) {
+          const timeDiff = Math.round((fileModTime - this.snapshotTimestamp) / 1000);
+          warnings.push(`${path.relative(process.cwd(), resolvedPath)} (modified ${timeDiff}s after snapshot)`);
+        }
+        
+      } catch (error) {
+        console.warn(`Failed to validate ${filePath}: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+
+    if (warnings.length > 0) {
+      
+      console.error('\n🚨 CRITICAL SAFETY WARNING:');
+      console.error('The following files have been modified AFTER the funcqc snapshot was created:');
+      warnings.forEach(warning => console.error(`  • ${warning}`));
+      console.error('\nThis means residue-check is operating on STALE DATA and may report incorrect line numbers.');
+      console.error('Recommendations:');
+      console.error('  • Run "npm run dev -- scan" to create a fresh snapshot');
+      console.error('  • Rerun residue-check after updating the snapshot');
+      console.error('  • DO NOT use --fix mode until files are synchronized\n');
+      
+      // SAFETY: Add warning to findings
+      const safetyWarning: ResidueFinding = {
+        filePath: 'SYSTEM_WARNING',
+        line: 0,
+        column: 0,
+        kind: 'NeedsReview',
+        pattern: 'file-integrity-warning',
+        reason: `${warnings.length} files modified after snapshot - results may be unreliable`,
+        code: warnings.join(', ')
+      };
+      this.findings.unshift(safetyWarning);
     }
   }
 

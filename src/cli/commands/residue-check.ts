@@ -156,10 +156,16 @@ export const residueCheckCommand: VoidCommand<ResidueCheckOptions> = (options) =
 
       console.log(formatted);
 
-      // Handle fix mode (future implementation)
+      // HOTFIX: Completely disable --fix mode for safety
       if (fixMode !== 'none') {
-        console.log(chalk.yellow(`\nNote: Fix mode '${fixMode}' is not yet implemented.`));
-        console.log(chalk.gray('This feature will be available in a future release.'));
+        console.error(chalk.red('\n🚨 CRITICAL SAFETY NOTICE: --fix mode is DISABLED'));
+        console.error(chalk.red('This feature has been disabled due to file integrity safety concerns.'));
+        console.error(chalk.yellow('\nReason: residue-check operates on snapshot data which may be stale.'));
+        console.error(chalk.yellow('Using --fix on stale data could delete wrong code sections.'));
+        console.error(chalk.gray('\nThis safety measure will remain until file integrity validation is fully implemented.'));
+        console.error(chalk.blue('\nFor now, please review and manually remove the identified residue code.'));
+        process.exitCode = 1;
+        return;
       }
 
       // Handle exit code

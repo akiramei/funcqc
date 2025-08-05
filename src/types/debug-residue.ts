@@ -23,6 +23,7 @@ export type ResiduePattern =
   | 'process.stdout.write'
   | 'process.stderr.write'
   | 'debug-marker'
+  | 'file-integrity-warning'
   | 'custom';
 
 /**
