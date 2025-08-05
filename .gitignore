@@ -89,5 +89,11 @@ ai-state/
 # FuncQC database files
 data/
 
-# PR Reviews
-pr/.test-db-perf/
+# Test databases (should never be committed)
+.test-db*/
+**/.test-db*/
+**/test.db
+**/test-*.db
+
+# PR Reviews (but exclude any test databases within)
+pr/**/.test-db*/
