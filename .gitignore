@@ -94,6 +94,3 @@ data/
 **/.test-db*/
 **/test.db
 **/test-*.db
-
-# PR Reviews (but exclude any test databases within)
-pr/**/.test-db*/
