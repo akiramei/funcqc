@@ -102,6 +102,9 @@ export interface FuncqcConfig {
     // Enable/disable specific detectors
     enableFunctionSplitDetection?: boolean; // Default: true
   };
+
+  // Backup and data protection configuration
+  backup?: BackupConfig;
 }
 
 export interface SimilarityDetectorConfig {
@@ -700,6 +703,76 @@ export interface BackupOptions {
   includeSourceCode?: boolean;
   compress?: boolean;
   filters?: QueryFilter[];
+}
+
+// Enhanced backup configuration for comprehensive data protection
+export interface BackupConfig {
+  // Output directory configuration
+  outputDir: string;
+  
+  // Naming conventions
+  naming: {
+    format: string;           // 'YYYYMMDD-HHMMSS' format
+    includeLabel: boolean;    // Include --label in directory name
+    includeGitInfo: boolean;  // Include git branch/commit info
+  };
+  
+  // Default export settings
+  defaults: {
+    includeSourceCode: boolean;
+    compress: boolean;
+    format: 'sql' | 'json';
+    tableOrder: 'auto' | 'manual' | string[];
+  };
+  
+  // Retention policy
+  retention: {
+    maxBackups: number;       // Maximum number of backups to keep
+    maxAge: string;           // Maximum age (e.g., '30d', '6m', '1y')
+    autoCleanup: boolean;     // Automatically clean old backups
+  };
+  
+  // Schema management
+  schema: {
+    autoDetectVersion: boolean;     // Automatically detect schema version
+    conversionRulesDir: string;     // Directory for conversion rules
+  };
+  
+  // Security settings
+  security: {
+    excludeSensitiveData: boolean;  // Exclude potentially sensitive data
+    encryptBackups: boolean;        // Encrypt backup files
+  };
+  
+  // Advanced options
+  advanced: {
+    parallelTableExport: boolean;   // Export tables in parallel
+    verifyIntegrity: boolean;       // Verify backup integrity
+    includeMetrics: boolean;        // Include quality metrics
+  };
+}
+
+// Backup manifest structure
+export interface BackupManifest {
+  createdAt: string;
+  schemaHash: string;
+  label?: string;
+  tableOrder: string[];
+  tables: Record<string, {
+    rows: number;
+    dependencies: string[];
+  }>;
+  schemaInfo: {
+    version: string;
+    constraints: 'verified' | 'warning' | 'error';
+    circularDeps: string[];
+  };
+  metadata: {
+    funcqcVersion: string;
+    backupFormat: string;
+    compressed: boolean;
+    includesSourceCode: boolean;
+  };
 }
 
 // Similarity detection types (for future phases)

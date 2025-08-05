@@ -531,7 +531,7 @@ AI Integration:
 
 program
   .command('db')
-  .description('Inspect database contents for debugging and testing')
+  .description('Database management and backup operations')
   .option('--list', 'list all available tables')
   .option('--table <name>', 'table name to query')
   .option('--limit <num>', 'limit number of rows (default: 10, max: 10000)')
@@ -545,7 +545,7 @@ program
     return withEnvironment(dbCommand)(options, command);
   })
   .addHelpText('after', `
-Examples:
+Database Query Examples:
   # List all available tables
   $ funcqc db --list
   
@@ -564,14 +564,77 @@ Examples:
   # JSON output for processing
   $ funcqc db --table snapshots --json | jq '.rows[0]'
 
+Database Backup Examples:
+  # Create a backup with label
+  $ funcqc db export --label "before-refactor"
+  
+  # List all available backups
+  $ funcqc db list-backups
+  
+  # Restore from backup
+  $ funcqc db import --backup .funcqc/backups/20241201-143022-before-refactor
+  
+  # Convert backup format
+  $ funcqc db convert --input backup1 --output backup2 --format json
+
 Safety Features:
   - Read-only access (SELECT statements only)
   - Input validation and sanitization
   - Row limits to prevent overwhelming output
-  - Designed for debugging and testing purposes
+  - Comprehensive backup and restore capabilities
 `);
 
+// Add db subcommands for backup operations
+const dbCommand = program.commands.find(cmd => cmd.name() === 'db')!;
 
+dbCommand.command('export')
+  .description('Create comprehensive database backup')
+  .option('--label <text>', 'label for this backup')
+  .option('--output-dir <path>', 'output directory for backup (overrides config)')
+  .option('--include-source-code', 'include source code in backup')
+  .option('--compress', 'compress backup files')
+  .option('--format <format>', 'backup format (json, sql)', 'json')
+  .option('--dry-run', 'preview backup without creating files')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbExportCommand } = await import('./cli/commands/db/export');
+    return withEnvironment(dbExportCommand)(options);
+  });
+
+dbCommand.command('import')
+  .description('Restore database from backup')
+  .option('--backup <path>', 'path to backup directory')
+  .option('--no-verify-schema', 'skip schema version verification')
+  .option('--overwrite', 'overwrite existing data (dangerous!)')
+  .option('--dry-run', 'preview import without modifying data')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbImportCommand } = await import('./cli/commands/db/import');
+    return withEnvironment(dbImportCommand)(options);
+  });
+
+dbCommand.command('list-backups')
+  .description('List available database backups')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbListBackupsCommand } = await import('./cli/commands/db/list-backups');
+    return withEnvironment(dbListBackupsCommand)(options);
+  });
+
+dbCommand.command('convert')
+  .description('Convert backup between formats and handle schema migrations')
+  .option('--input <path>', 'input backup directory')
+  .option('--output <path>', 'output backup directory')
+  .option('--format <format>', 'target format (json, sql)', 'json')
+  .option('--allow-schema-mismatch', 'proceed even if schema versions differ')
+  .option('--update-schema', 'update backup to current schema version')
+  .option('--force', 'force conversion even if formats are the same')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbConvertCommand } = await import('./cli/commands/db/convert');
+    return withEnvironment(dbConvertCommand)(options);
+  });
 
 // Dep command - Function dependency analysis
 program
