@@ -157,22 +157,26 @@ export class SimpleGitProvider implements GitProvider {
       const sinceStr = since.toISOString().split('T')[0];
 
       const gitOptions: string[] = [
+        'log',
         '--oneline',
         '--since', sinceStr,
         '--max-count', maxCommits.toString(),
-        '--format=%H|%s|%an|%ai'
+        '--format=%H%x00%s%x00%an%x00%ai'
       ];
 
       // 除外パスを追加
-      for (const excludePath of excludePaths) {
-        gitOptions.push('--', `:(exclude)${excludePath}`);
+      if (excludePaths.length > 0) {
+        gitOptions.push('--');
+        for (const excludePath of excludePaths) {
+          gitOptions.push(`:(exclude)${excludePath}`);
+        }
       }
 
       const result = await this.git.raw(gitOptions);
       const lines = result.trim().split('\n').filter(line => line.length > 0);
 
       const commits: GitCommitInfo[] = lines.map(line => {
-        const [hash, message, author, date] = line.split('|');
+        const [hash, message, author, date] = line.split('\x00');
         return {
           hash: hash.trim(),
           message: message.trim(),
@@ -195,10 +199,10 @@ export class SimpleGitProvider implements GitProvider {
       const result = await this.git.show([
         commitHash,
         '--no-patch',
-        '--format=%H|%s|%an|%ai'
+        '--format=%H%x00%s%x00%an%x00%ai'
       ]);
 
-      const [hash, message, author, date] = result.trim().split('|');
+      const [hash, message, author, date] = result.trim().split('\x00');
       return {
         hash: hash.trim(),
         message: message.trim(),
@@ -207,6 +211,15 @@ export class SimpleGitProvider implements GitProvider {
       };
     } catch (error) {
       throw this.createGitError(`Failed to get commit info: ${commitHash}`, error);
+    }
+  }
+
+  async getCommitDiff(commitHash: string): Promise<string> {
+    try {
+      const result = await this.git.show([commitHash, '-p']);
+      return result;
+    } catch (error) {
+      throw this.createGitError(`Failed to get commit diff: ${commitHash}`, error);
     }
   }
 

@@ -200,7 +200,10 @@ export class GitFactory {
 
     // 環境変数から設定を読み込み
     if (process.env['FUNCQC_GIT_PROVIDER']) {
-      config.provider = process.env['FUNCQC_GIT_PROVIDER'] as GitProviderType;
+      const envProvider = process.env['FUNCQC_GIT_PROVIDER'];
+      if (['simple-git', 'native', 'mock'].includes(envProvider)) {
+        config.provider = envProvider as GitProviderType;
+      }
     }
 
     if (process.env['FUNCQC_GIT_TIMEOUT']) {

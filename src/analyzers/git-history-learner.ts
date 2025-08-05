@@ -172,9 +172,7 @@ export class GitHistoryLearner {
 
     try {
       // Get detailed diff using GitProvider
-      const detailDiff = 'execGitCommandSync' in this.gitProvider && typeof this.gitProvider.execGitCommandSync === 'function'
-        ? this.gitProvider.execGitCommandSync(`git show -p ${commit.hash}`)
-        : await this.getCommitDiff(commit.hash);
+      const detailDiff = await this.gitProvider.getCommitDiff(commit.hash);
 
       // Extract patterns from diff
       const extractedPatterns = this.extractPatternsFromDiff(
@@ -401,23 +399,5 @@ export class GitHistoryLearner {
     );
   }
 
-  /**
-   * Fallback method to get commit diff when NativeGitProvider's execGitCommandSync is not available
-   */
-  private async getCommitDiff(commitHash: string): Promise<string> {
-    try {
-      // This is a fallback - in practice, we should extend GitProvider interface
-      // to include commit diff functionality
-      const { execSync } = await import('child_process');
-      return execSync(`git show -p ${commitHash}`, { 
-        cwd: this.repoPath, 
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore']
-      });
-    } catch (error) {
-      console.warn(`Failed to get diff for commit ${commitHash}:`, error);
-      return '';
-    }
-  }
 }
 

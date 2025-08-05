@@ -81,6 +81,11 @@ export interface GitProvider {
   getCommitInfo(commitHash: string): Promise<GitCommitInfo>;
 
   /**
+   * 指定されたコミットの差分を取得
+   */
+  getCommitDiff(commitHash: string): Promise<string>;
+
+  /**
    * ワークツリーを作成
    */
   createWorktree(commitHash: string, path: string): Promise<void>;

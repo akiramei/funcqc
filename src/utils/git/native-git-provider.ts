@@ -2,7 +2,7 @@
  * child_processを使用したネイティブGitProvider実装
  */
 
-import { execSync, exec } from 'child_process';
+import { execSync, execFile } from 'child_process';
 import { promisify } from 'util';
 import {
   GitProvider,
@@ -15,7 +15,7 @@ import {
   GitTimeoutError
 } from './git-provider';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 export class NativeGitProvider implements GitProvider {
   private config: Required<GitProviderConfig>;
@@ -30,7 +30,7 @@ export class NativeGitProvider implements GitProvider {
 
   async getCurrentCommit(): Promise<string> {
     try {
-      const result = await this.execGitCommand('git rev-parse HEAD');
+      const result = await this.execGitCommandArgs(['rev-parse', 'HEAD']);
       return result.trim();
     } catch (error) {
       throw this.createGitError('Failed to get current commit', error);
@@ -39,7 +39,7 @@ export class NativeGitProvider implements GitProvider {
 
   async getCurrentBranch(): Promise<string> {
     try {
-      const result = await this.execGitCommand('git rev-parse --abbrev-ref HEAD');
+      const result = await this.execGitCommandArgs(['rev-parse', '--abbrev-ref', 'HEAD']);
       return result.trim();
     } catch (error) {
       throw this.createGitError('Failed to get current branch', error);
@@ -48,7 +48,7 @@ export class NativeGitProvider implements GitProvider {
 
   async getCurrentTag(): Promise<string | null> {
     try {
-      const result = await this.execGitCommand('git describe --tags --exact-match HEAD');
+      const result = await this.execGitCommandArgs(['describe', '--tags', '--exact-match', 'HEAD']);
       return result.trim() || null;
     } catch (error) {
       // タグが存在しない場合は正常な状態
@@ -86,7 +86,7 @@ export class NativeGitProvider implements GitProvider {
 
   async resolveCommit(identifier: string): Promise<string> {
     try {
-      const result = await this.execGitCommand(`git rev-parse ${this.sanitizeInput(identifier)}`);
+      const result = await this.execGitCommandArgs(['rev-parse', identifier]);
       return result.trim();
     } catch (error) {
       throw this.createGitError(`Failed to resolve commit: ${identifier}`, error);
@@ -95,7 +95,7 @@ export class NativeGitProvider implements GitProvider {
 
   async branchExists(branchName: string): Promise<boolean> {
     try {
-      await this.execGitCommand(`git rev-parse --verify ${this.sanitizeInput(branchName)}`);
+      await this.execGitCommandArgs(['rev-parse', '--verify', branchName]);
       return true;
     } catch {
       return false;
@@ -104,7 +104,7 @@ export class NativeGitProvider implements GitProvider {
 
   async tagExists(tagName: string): Promise<boolean> {
     try {
-      await this.execGitCommand(`git rev-parse --verify refs/tags/${this.sanitizeInput(tagName)}`);
+      await this.execGitCommandArgs(['rev-parse', '--verify', `refs/tags/${tagName}`]);
       return true;
     } catch {
       return false;
@@ -113,7 +113,7 @@ export class NativeGitProvider implements GitProvider {
 
   async isValidGitReference(identifier: string): Promise<boolean> {
     try {
-      await this.execGitCommand(`git rev-parse --verify ${this.sanitizeInput(identifier)}`);
+      await this.execGitCommandArgs(['rev-parse', '--verify', identifier]);
       return true;
     } catch {
       return false;
@@ -132,19 +132,27 @@ export class NativeGitProvider implements GitProvider {
       since.setMonth(since.getMonth() - monthsBack);
       const sinceStr = since.toISOString().split('T')[0];
 
-      let gitCmd = `git log --oneline --since="${sinceStr}" --max-count=${maxCommits} --format="%H|%s|%an|%ai"`;
+      const args = [
+        'log',
+        '--oneline',
+        `--since=${sinceStr}`,
+        `--max-count=${maxCommits}`,
+        '--format=%H%x00%s%x00%an%x00%ai'
+      ];
 
       // 除外パスを追加
       if (excludePaths.length > 0) {
-        const excludeArgs = excludePaths.map(path => `:(exclude)${path}`).join(' ');
-        gitCmd += ` -- ${excludeArgs}`;
+        args.push('--');
+        for (const path of excludePaths) {
+          args.push(`:(exclude)${path}`);
+        }
       }
 
-      const result = await this.execGitCommand(gitCmd);
+      const result = await this.execGitCommandArgs(args);
       const lines = result.trim().split('\n').filter(line => line.length > 0);
 
       const commits: GitCommitInfo[] = lines.map(line => {
-        const [hash, message, author, date] = line.split('|');
+        const [hash, message, author, date] = line.split('\x00');
         return {
           hash: hash.trim(),
           message: message.trim(),
@@ -164,12 +172,14 @@ export class NativeGitProvider implements GitProvider {
 
   async getCommitInfo(commitHash: string): Promise<GitCommitInfo> {
     try {
-      const sanitizedHash = this.sanitizeInput(commitHash);
-      const result = await this.execGitCommand(
-        `git show ${sanitizedHash} --no-patch --format="%H|%s|%an|%ai"`
-      );
+      const result = await this.execGitCommandArgs([
+        'show',
+        commitHash,
+        '--no-patch',
+        '--format=%H%x00%s%x00%an%x00%ai'
+      ]);
 
-      const [hash, message, author, date] = result.trim().split('|');
+      const [hash, message, author, date] = result.trim().split('\x00');
       return {
         hash: hash.trim(),
         message: message.trim(),
@@ -181,11 +191,18 @@ export class NativeGitProvider implements GitProvider {
     }
   }
 
+  async getCommitDiff(commitHash: string): Promise<string> {
+    try {
+      const result = await this.execGitCommandArgs(['show', commitHash, '-p']);
+      return result;
+    } catch (error) {
+      throw this.createGitError(`Failed to get commit diff: ${commitHash}`, error);
+    }
+  }
+
   async createWorktree(commitHash: string, path: string): Promise<void> {
     try {
-      const sanitizedHash = this.sanitizeInput(commitHash);
-      const sanitizedPath = this.sanitizeInput(path);
-      await this.execGitCommand(`git worktree add ${sanitizedPath} ${sanitizedHash}`);
+      await this.execGitCommandArgs(['worktree', 'add', path, commitHash]);
     } catch (error) {
       throw this.createGitError(`Failed to create worktree at ${path}`, error);
     }
@@ -193,8 +210,7 @@ export class NativeGitProvider implements GitProvider {
 
   async removeWorktree(path: string): Promise<void> {
     try {
-      const sanitizedPath = this.sanitizeInput(path);
-      await this.execGitCommand(`git worktree remove ${sanitizedPath} --force`);
+      await this.execGitCommandArgs(['worktree', 'remove', path, '--force']);
     } catch (error) {
       throw this.createGitError(`Failed to remove worktree at ${path}`, error);
     }
@@ -202,7 +218,7 @@ export class NativeGitProvider implements GitProvider {
 
   async isGitAvailable(): Promise<boolean> {
     try {
-      await this.execGitCommand('git --version');
+      await this.execGitCommandArgs(['--version']);
       return true;
     } catch {
       return false;
@@ -211,7 +227,7 @@ export class NativeGitProvider implements GitProvider {
 
   async getRepositoryRoot(): Promise<string> {
     try {
-      const result = await this.execGitCommand('git rev-parse --show-toplevel');
+      const result = await this.execGitCommandArgs(['rev-parse', '--show-toplevel']);
       return result.trim();
     } catch (error) {
       throw this.createGitError('Failed to get repository root', error);
@@ -224,28 +240,6 @@ export class NativeGitProvider implements GitProvider {
     }
   }
 
-  /**
-   * Gitコマンドを安全に実行
-   */
-  private async execGitCommand(command: string): Promise<string> {
-    try {
-      const { stdout } = await execAsync(command, {
-        cwd: this.config.cwd,
-        timeout: this.config.timeout,
-        encoding: 'utf8'
-      });
-      return stdout;
-    } catch (error: unknown) {
-      if (error && typeof error === 'object' && 'killed' in error && 'signal' in error && 
-          error.killed && error.signal === 'SIGTERM') {
-        throw new GitTimeoutError(
-          `Git command timed out after ${this.config.timeout}ms: ${command}`,
-          this.config.timeout
-        );
-      }
-      throw error;
-    }
-  }
 
   /**
    * 同期的にGitコマンドを実行（レガシーサポート用）
@@ -305,14 +299,27 @@ export class NativeGitProvider implements GitProvider {
     return new GitError(message, 'UNKNOWN_ERROR');
   }
 
+
   /**
-   * 入力値をサニタイズしてコマンドインジェクションを防ぐ
+   * Gitコマンドを引数配列形式で安全に実行
    */
-  private sanitizeInput(input: string): string {
-    // 危険な文字を除外
-    const sanitized = input.replace(/[;&|`$(){}[\]<>'"\\]/g, '');
-    
-    // 空白文字のエスケープ
-    return `"${sanitized}"`;
+  private async execGitCommandArgs(args: string[]): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync('git', args, {
+        cwd: this.config.cwd,
+        timeout: this.config.timeout,
+        encoding: 'utf8'
+      });
+      return stdout;
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'killed' in error && 'signal' in error && 
+          error.killed && error.signal === 'SIGTERM') {
+        throw new GitTimeoutError(
+          `Git command timed out after ${this.config.timeout}ms: git ${args.join(' ')}`,
+          this.config.timeout
+        );
+      }
+      throw this.createGitError(`Failed to execute git command: git ${args.join(' ')}`, error);
+    }
   }
 }

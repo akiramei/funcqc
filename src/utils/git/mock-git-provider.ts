@@ -174,6 +174,21 @@ export class MockGitProvider implements GitProvider {
     };
   }
 
+  async getCommitDiff(_commitHash: string): Promise<string> {
+    this.checkDisposed();
+    
+    // モックの差分データを返す
+    return `diff --git a/mock/file.ts b/mock/file.ts
+index 0000000..1111111 100644
+--- a/mock/file.ts
++++ b/mock/file.ts
+@@ -1,5 +1,5 @@
+ export function mockFunction() {
+-  console.log('old code');
++  console.log('new code');
+ }`;
+  }
+
   async createWorktree(commitHash: string, path: string): Promise<void> {
     this.checkDisposed();
     
