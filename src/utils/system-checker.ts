@@ -1,6 +1,6 @@
-import { execSync } from 'child_process';
 import { existsSync, writeFileSync, unlinkSync } from 'fs';
 import { Logger } from './cli-utils';
+import { createDefaultGitProvider } from './git/index.js';
 
 export interface SystemRequirement {
   name: string;
@@ -38,8 +38,8 @@ export class SystemChecker {
 
   private checkGitAvailable(): boolean {
     try {
-      // Try to get git version to check if git is available
-      execSync('git --version', { stdio: 'ignore' });
+      // GitProvider作成が成功すればGitが利用可能と仮定
+      createDefaultGitProvider();
       return true;
     } catch {
       return false;

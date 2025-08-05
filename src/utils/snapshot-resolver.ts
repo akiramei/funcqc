@@ -1,7 +1,7 @@
-import simpleGit, { SimpleGit } from 'simple-git';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
+import { createDefaultGitProvider, GitProvider } from './git/index.js';
 import { CommandEnvironment } from '../types/environment';
 import { FunctionInfo } from '../types';
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
@@ -70,14 +70,14 @@ async function resolveGitCommitReference(
   identifier: string
 ): Promise<string | null> {
   try {
-    const git = simpleGit();
+    const git = createDefaultGitProvider();
 
     // Check if identifier looks like a git reference
-    const isGitReference = await isValidGitReference(git, identifier);
+    const isGitReference = await git.isValidGitReference(identifier);
     if (!isGitReference) return null;
 
     // Get actual commit hash
-    const commitHash = await git.revparse([identifier]);
+    const commitHash = await git.resolveCommit(identifier);
 
     // Check if we already have a snapshot for this commit
     const existingSnapshot = await findSnapshotByGitCommit(env, commitHash);
@@ -94,39 +94,6 @@ async function resolveGitCommitReference(
   }
 }
 
-/**
- * Checks if the given identifier is a valid git reference.
- */
-async function isValidGitReference(git: SimpleGit, identifier: string): Promise<boolean> {
-  try {
-    // Check for commit hash pattern (7-40 hex chars)
-    if (/^[0-9a-f]{7,40}$/i.test(identifier)) {
-      return true;
-    }
-
-    // Check for git references (HEAD~N, branch names, tag names)
-    if (identifier.startsWith('HEAD~') || identifier.startsWith('HEAD^')) {
-      return true;
-    }
-
-    // Check if it's a valid branch/tag name
-    const branches = await git.branchLocal();
-    if (branches.all.includes(identifier)) {
-      return true;
-    }
-
-    const tags = await git.tags();
-    if (tags.all.includes(identifier)) {
-      return true;
-    }
-
-    // Try to resolve as git reference
-    await git.revparse([identifier]);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Finds an existing snapshot for the given git commit hash.
@@ -144,7 +111,7 @@ async function findSnapshotByGitCommit(
  */
 async function createSnapshotForGitCommit(
   env: CommandEnvironment,
-  git: SimpleGit,
+  git: GitProvider,
   identifier: string,
   commitHash: string
 ): Promise<string> {
@@ -153,11 +120,11 @@ async function createSnapshotForGitCommit(
   try {
     // Create worktree for the specific commit
     await fs.promises.mkdir(tempDir, { recursive: true });
-    await git.raw(['worktree', 'add', tempDir, commitHash]);
+    await git.createWorktree(commitHash, tempDir);
 
     // Get commit info for labeling
-    const commitInfo = await git.show([commitHash, '--no-patch', '--format=%s']);
-    const commitMessage = commitInfo.split('\n')[0] || 'Unknown commit';
+    const commitInfo = await git.getCommitInfo(commitHash);
+    const commitMessage = commitInfo.message || 'Unknown commit';
 
     // Create label for the snapshot
     const label = `${identifier}@${commitHash.substring(0, 8)}`;
@@ -192,7 +159,7 @@ async function createSnapshotForGitCommit(
   } finally {
     // Clean up worktree
     try {
-      await git.raw(['worktree', 'remove', tempDir, '--force']);
+      await git.removeWorktree(tempDir);
     } catch {
       // Ignore cleanup errors
     }

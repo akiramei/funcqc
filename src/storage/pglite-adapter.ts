@@ -7,7 +7,7 @@
 
 import { PGlite } from '@electric-sql/pglite';
 import { Kysely } from 'kysely';
-import simpleGit, { SimpleGit } from 'simple-git';
+import { createDefaultGitProvider, GitProvider } from '../utils/git/index.js';
 import * as path from 'path';
 import { Database } from './types/kysely-types';
 import {
@@ -59,7 +59,7 @@ export { DatabaseError };
 export class PGLiteStorageAdapter implements StorageAdapter {
   private db: PGlite;
   // private kysely!: Kysely<any>; // Accessed through context
-  private git: SimpleGit;
+  private git: GitProvider;
   private dbPath: string;
   private logger: { log: (msg: string) => void; warn: (msg: string) => void; error: (msg: string) => void; debug: (msg: string) => void } | undefined;
   private isInitialized: boolean = false;
@@ -85,7 +85,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Store original path if needed later
     this.dbPath = path.resolve(dbPath);
     this.db = new PGlite(dbPath);
-    this.git = simpleGit();
+    this.git = createDefaultGitProvider();
     this.gracefulShutdown = GracefulShutdown.getInstance();
 
     // Create storage context
