@@ -47,6 +47,7 @@ export class GitHistoryLearner {
   private repoPath: string;
   private learningDbPath: string;
   private database: LearningDatabase;
+  private verbose: boolean;
 
   // Debug-related keywords in commit messages
   private static DEBUG_KEYWORDS = [
@@ -66,10 +67,20 @@ export class GitHistoryLearner {
     /alert\s*\(/
   ];
 
-  constructor(repoPath: string = process.cwd()) {
+  constructor(repoPath: string = process.cwd(), options: { verbose?: boolean } = {}) {
     this.repoPath = repoPath;
     this.learningDbPath = path.join(repoPath, '.funcqc', 'debug-learning.json');
+    this.verbose = options.verbose ?? (process.env['FUNCQC_VERBOSE'] === 'true');
     this.database = this.loadDatabase();
+  }
+
+  /**
+   * Log message with verbosity control
+   */
+  private log(message: string): void {
+    if (this.verbose) {
+      console.log(message);
+    }
   }
 
   /**
@@ -82,12 +93,12 @@ export class GitHistoryLearner {
   } = {}): Promise<void> {
     const { monthsBack = 6, maxCommits = 1000, excludePaths = [] } = options;
 
-    console.log('🔍 Analyzing Git history for debug patterns...');
+    this.log('🔍 Analyzing Git history for debug patterns...');
     
     try {
       // Get relevant commits
       const commits = this.getRelevantCommits(monthsBack, maxCommits);
-      console.log(`📊 Found ${commits.length} potentially relevant commits`);
+      this.log(`📊 Found ${commits.length} potentially relevant commits`);
 
       let patternsLearned = 0;
       
@@ -106,8 +117,8 @@ export class GitHistoryLearner {
       
       await this.saveDatabase();
       
-      console.log(`✅ Learning complete: ${patternsLearned} patterns learned from ${commits.length} commits`);
-      console.log(`📝 Total patterns in database: ${this.database.patterns.length}`);
+      this.log(`✅ Learning complete: ${patternsLearned} patterns learned from ${commits.length} commits`);
+      this.log(`📝 Total patterns in database: ${this.database.patterns.length}`);
       
     } catch (error) {
       console.error('❌ Failed to analyze Git history:', error instanceof Error ? error.message : error);
@@ -125,13 +136,15 @@ export class GitHistoryLearner {
 
     try {
       // Get commits with debug-related keywords in messages
-      const keywordPattern = GitHistoryLearner.DEBUG_KEYWORDS.join('|');
+      const keywordPattern = GitHistoryLearner.DEBUG_KEYWORDS
+        .map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('|');
       const gitCmd = `git log --oneline --grep="${keywordPattern}" --since="${sinceStr}" -${maxCommits} --pretty=format:"%H|%s|%ad|%an" --date=iso`;
       
       const output = execSync(gitCmd, { 
         cwd: this.repoPath, 
         encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore'] // Suppress stderr
+        stdio: ['pipe', 'pipe', 'pipe']
       }).trim();
 
       if (!output) return [];
@@ -196,9 +209,10 @@ export class GitHistoryLearner {
 
       // Track current file
       if (line.startsWith('diff --git')) {
-        const match = line.match(/diff --git a\/(.*) b\/(.*)/);
+        // Handle quoted paths with spaces
+        const match = line.match(/diff --git a\/(.+?) b\/(.+?)$/);
         if (match) {
-          currentFile = match[2];
+          currentFile = match[2].replace(/^"(.+)"$/, '$1');
         }
       }
 
@@ -373,12 +387,14 @@ export class GitHistoryLearner {
     const dir = path.dirname(this.learningDbPath);
     
     // Ensure directory exists
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+    } catch {
+      // Directory might already exist
     }
 
-    fs.writeFileSync(
-      this.learningDbPath, 
+    await fs.promises.writeFile(
+      this.learningDbPath,
       JSON.stringify(this.database, null, 2),
       'utf8'
     );

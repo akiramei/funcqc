@@ -71,7 +71,7 @@ export class DebugResidueDetector {
   constructor(config: Partial<ResidueDetectionConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.storageProvider = StorageProvider.getInstance();
-    this.gitLearner = new GitHistoryLearner();
+    this.gitLearner = new GitHistoryLearner(process.cwd(), { verbose: true });
     this.project = new Project({
       ...(this.config.tsconfigPath ? { tsConfigFilePath: this.config.tsconfigPath } : {}),
       skipAddingFilesFromTsConfig: !this.config.tsconfigPath,
