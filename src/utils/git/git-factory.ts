@@ -176,9 +176,10 @@ export class GitFactory {
       return 'mock';
     }
 
-    // 自動検出が有効な場合は推奨プロバイダーを使用
+    // 自動検出が有効な場合
     if (config.autoDetect !== false) {
-      // 非同期なので一旦デフォルトを返し、後で推奨プロバイダーに切り替える
+      // 注意: getRecommendedProviderは非同期メソッドのため、
+      // ここではデフォルトを返す。実際の自動検出は呼び出し側で行う必要がある
       return 'simple-git';
     }
 
