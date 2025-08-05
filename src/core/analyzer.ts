@@ -260,16 +260,6 @@ export class FunctionAnalyzer {
           const startIndex = Math.max(0, func.startLine - 1); // Convert to 0-based
           const endIndex = Math.min(lines.length, func.endLine); // endLine is inclusive
           sourceCode = lines.slice(startIndex, endIndex).join('\n');
-          
-          // Debug: Check if sourceCode is properly extracted
-          if (func.name === 'extractFunctionInfo') {
-            console.log(`🔍 DEBUG: Extracting sourceCode for ${func.name} (${func.startLine}-${func.endLine}):`);
-            console.log(`  - File content length: ${fileContent.length}`);
-            console.log(`  - Total lines: ${lines.length}`);
-            console.log(`  - StartIndex: ${startIndex}, EndIndex: ${endIndex}`);
-            console.log(`  - SourceCode length: ${sourceCode.length}`);
-            console.log(`  - SourceCode preview: ${sourceCode.substring(0, 100)}...`);
-          }
         }
         
         const legacyFunc: FunctionInfo = {

@@ -634,14 +634,6 @@ export class RTAAnalyzer {
         }
       }
       
-      // Debug: log failed match attempts
-      console.warn(`RTA: Failed to find function ID for candidate:`, {
-        name: candidate.name,
-        className: candidate.className,
-        filePath: candidate.filePath,
-        startLine: candidate.startLine
-      });
-      
       return undefined;
     } catch (error) {
       console.warn(`RTA: Error in findMatchingFunctionId:`, error);

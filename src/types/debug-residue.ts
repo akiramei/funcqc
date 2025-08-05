@@ -23,6 +23,7 @@ export type ResiduePattern =
   | 'process.stdout.write'
   | 'process.stderr.write'
   | 'debug-marker'
+  | 'file-integrity-warning'
   | 'custom';
 
 /**
@@ -90,7 +91,7 @@ export interface ResidueDetectionConfig {
   exemptFunctionNames?: string[];
   /** Custom patterns to detect as AutoRemove */
   autoRemovePatterns?: string[];
-  /** Custom debug markers (e.g., // DEBUG:, // TEMP:) */
+  /** Custom debug markers */
   customMarkers?: string[];
   /** Files or patterns to exclude from analysis */
   exclude?: string[];

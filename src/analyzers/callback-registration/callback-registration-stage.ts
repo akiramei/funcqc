@@ -123,7 +123,6 @@ export class CallbackRegistrationAnalysisStage {
     for (const sourceFile of sourceFiles) {
       const fileResults = await this.analyzeSourceFile(sourceFile, functions, state, config);
       
-      // Debug: Always log which files are being analyzed
       const filePath = sourceFile.getFilePath();
       this.logger.debug(`[CallbackRegistration] Analyzed ${filePath}: ${fileResults.size} frameworks detected`);
       

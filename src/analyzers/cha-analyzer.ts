@@ -656,14 +656,6 @@ export class CHAAnalyzer {
         }
       }
       
-      // Debug: log failed match attempts
-      console.warn(`CHA: Failed to find function ID for candidate:`, {
-        name: candidate.name,
-        className: candidate.className,
-        filePath: candidate.filePath,
-        startLine: candidate.startLine
-      });
-      
       return undefined;
     } catch {
       return undefined;
