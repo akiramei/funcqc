@@ -90,4 +90,4 @@ ai-state/
 data/
 
 # PR Reviews
-pr/
+pr/.test-db-perf/

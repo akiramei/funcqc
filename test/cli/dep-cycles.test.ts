@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import stripAnsi from 'strip-ansi';
 import { depCyclesCommand } from '../../src/cli/dep/cycles';
 import { CommandEnvironment } from '../../src/types/environment';
 import { CallEdge, FunctionInfo } from '../../src/types';
@@ -241,8 +242,8 @@ describe('depCyclesCommand', () => {
       const command = depCyclesCommand({ limit: '1', excludeRecursive: false });
       await command(mockEnv);
 
-      const output = mockConsoleLog.mock.calls.map(call => call[0]).join('\n');
-      expect(output).toContain('Displayed cycles: 1'); // Legacy mode uses different format
+      const output = stripAnsi(mockConsoleLog.mock.calls.map(call => call[0]).join('\n'));
+      expect(output).toMatch(/Displayed cycles:\s*1/); // More flexible matching for ANSI-cleaned output
     });
   });
 
