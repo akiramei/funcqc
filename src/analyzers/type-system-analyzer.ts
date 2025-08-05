@@ -2,7 +2,7 @@ import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasD
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
 import { Logger } from '../utils/cli-utils';
 import { PathNormalizer } from '../utils/path-normalizer';
-import { simpleHash } from '../utils/hash-utils';
+import { randomUUID } from 'crypto';
 
 /**
  * TypeSystemAnalyzer - Extracts comprehensive type information from TypeScript code
@@ -143,7 +143,7 @@ export class TypeSystemAnalyzer {
     const name = classDecl.getName();
     if (!name) return undefined;
 
-    const id = `type_${simpleHash(`${filePath}:${name}:${classDecl.getStartLineNumber()}`)}`;
+    const id = randomUUID();
 
     return {
       id,
@@ -179,7 +179,7 @@ export class TypeSystemAnalyzer {
     const name = interfaceDecl.getName();
     if (!name) return undefined;
 
-    const id = `type_${simpleHash(`${filePath}:${name}:${interfaceDecl.getStartLineNumber()}`)}`;
+    const id = randomUUID();
 
     return {
       id,
@@ -215,7 +215,7 @@ export class TypeSystemAnalyzer {
     const name = typeAlias.getName();
     if (!name) return undefined;
 
-    const id = `type_${simpleHash(`${filePath}:${name}:${typeAlias.getStartLineNumber()}`)}`;
+    const id = randomUUID();
 
     return {
       id,
@@ -251,7 +251,7 @@ export class TypeSystemAnalyzer {
     const name = enumDecl.getName();
     if (!name) return undefined;
 
-    const id = `type_${simpleHash(`${filePath}:${name}:${enumDecl.getStartLineNumber()}`)}`;
+    const id = randomUUID();
 
     return {
       id,
@@ -288,7 +288,7 @@ export class TypeSystemAnalyzer {
     const name = moduleDecl.getName();
     if (!name) return undefined;
 
-    const id = `type_${simpleHash(`${filePath}:${name}:${moduleDecl.getStartLineNumber()}`)}`;
+    const id = randomUUID();
 
     return {
       id,
@@ -331,7 +331,7 @@ export class TypeSystemAnalyzer {
       const targetType = typeMap.get(targetName);
       
       relationships.push({
-        id: `rel_${simpleHash(`${sourceType.id}:extends:${targetName}`)}`,
+        id: randomUUID(),
         snapshotId,
         sourceTypeId: sourceType.id,
         targetTypeId: targetType?.id || null,
@@ -353,7 +353,7 @@ export class TypeSystemAnalyzer {
       const targetType = typeMap.get(targetName);
       
       relationships.push({
-        id: `rel_${simpleHash(`${sourceType.id}:implements:${targetName}:${index}`)}`,
+        id: randomUUID(),
         snapshotId,
         sourceTypeId: sourceType.id,
         targetTypeId: targetType?.id || null,
@@ -389,7 +389,7 @@ export class TypeSystemAnalyzer {
       const targetType = typeMap.get(targetName);
       
       relationships.push({
-        id: `rel_${simpleHash(`${sourceType.id}:extends:${targetName}:${index}`)}`,
+        id: randomUUID(),
         snapshotId,
         sourceTypeId: sourceType.id,
         targetTypeId: targetType?.id || null,
@@ -451,7 +451,7 @@ export class TypeSystemAnalyzer {
     
     // Extract properties
     for (const property of classDecl.getProperties()) {
-      const id = `member_${simpleHash(`${typeId}:${property.getName()}:${property.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -476,7 +476,7 @@ export class TypeSystemAnalyzer {
     
     // Extract methods
     for (const method of classDecl.getMethods()) {
-      const id = `member_${simpleHash(`${typeId}:${method.getName()}:${method.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       // TODO: Link to actual function ID from database - for now set to null
       const functionId = null;
       
@@ -512,7 +512,7 @@ export class TypeSystemAnalyzer {
     
     // Extract getters/setters
     for (const accessor of classDecl.getGetAccessors()) {
-      const id = `member_${simpleHash(`${typeId}:get_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -536,7 +536,7 @@ export class TypeSystemAnalyzer {
     }
     
     for (const accessor of classDecl.getSetAccessors()) {
-      const id = `member_${simpleHash(`${typeId}:set_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -562,7 +562,7 @@ export class TypeSystemAnalyzer {
     // Extract constructor
     const constructors = classDecl.getConstructors();
     for (const ctor of constructors) {
-      const id = `member_${simpleHash(`${typeId}:constructor:${ctor.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -602,7 +602,7 @@ export class TypeSystemAnalyzer {
     
     // Extract properties
     for (const property of interfaceDecl.getProperties()) {
-      const id = `member_${simpleHash(`${typeId}:${property.getName()}:${property.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -627,7 +627,7 @@ export class TypeSystemAnalyzer {
     
     // Extract methods
     for (const method of interfaceDecl.getMethods()) {
-      const id = `member_${simpleHash(`${typeId}:${method.getName()}:${method.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -658,7 +658,7 @@ export class TypeSystemAnalyzer {
     
     // Extract getters/setters
     for (const accessor of interfaceDecl.getGetAccessors()) {
-      const id = `member_${simpleHash(`${typeId}:get_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -682,7 +682,7 @@ export class TypeSystemAnalyzer {
     }
     
     for (const accessor of interfaceDecl.getSetAccessors()) {
-      const id = `member_${simpleHash(`${typeId}:set_${accessor.getName()}:${accessor.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -707,7 +707,7 @@ export class TypeSystemAnalyzer {
     
     // Extract index signatures
     for (const indexSig of interfaceDecl.getIndexSignatures()) {
-      const id = `member_${simpleHash(`${typeId}:index:${indexSig.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
@@ -734,7 +734,7 @@ export class TypeSystemAnalyzer {
     
     // Extract call signatures
     for (const callSig of interfaceDecl.getCallSignatures()) {
-      const id = `member_${simpleHash(`${typeId}:call:${callSig.getStartLineNumber()}`)}`;
+      const id = randomUUID();
       members.push({
         id,
         snapshotId,
