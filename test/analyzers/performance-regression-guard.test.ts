@@ -1,6 +1,6 @@
-import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { Project } from 'ts-morph';
 import { FunctionAnalyzer } from '../../src/core/analyzer';
 import { PGLiteStorageAdapter } from '../../src/storage/pglite-adapter';
@@ -55,6 +55,40 @@ describe('Performance Regression Guard Tests', () => {
       await fs.rm(tempDbPath, { recursive: true, force: true });
     } catch {
       // Ignore cleanup errors
+    }
+  });
+
+  // Global cleanup to handle any remaining test artifacts
+  afterAll(async () => {
+    // Clean up any remaining test database directories
+    const testDbPatterns = [
+      join(__dirname, '../../.test-db-perf'),
+      join(__dirname, '../../.temp-perf-test'),
+      join(__dirname, '../.test-db*'),
+      join(__dirname, '../../data')
+    ];
+
+    for (const pattern of testDbPatterns) {
+      try {
+        // Handle both exact paths and glob patterns
+        if (pattern.includes('*')) {
+          // For glob patterns, we need to check parent directory
+          const parentDir = dirname(pattern);
+          const files = await fs.readdir(parentDir).catch(() => []);
+          const matchingFiles = files.filter(file => 
+            file.startsWith('.test-db') || file.startsWith('.temp-perf')
+          );
+          
+          for (const file of matchingFiles) {
+            const fullPath = join(parentDir, file);
+            await fs.rm(fullPath, { recursive: true, force: true }).catch(() => {});
+          }
+        } else {
+          await fs.rm(pattern, { recursive: true, force: true });
+        }
+      } catch {
+        // Ignore cleanup errors - these are best-effort cleanups
+      }
     }
   });
 
@@ -122,10 +156,10 @@ describe('Performance Regression Guard Tests', () => {
         }
       };
     } finally {
-      // Clean up temporary file
+      // Clean up temporary file and directory
       try {
         await fs.unlink(tempFile);
-        await fs.rmdir(tempDir);
+        await fs.rm(tempDir, { recursive: true, force: true });
       } catch {
         // Ignore cleanup errors
       }

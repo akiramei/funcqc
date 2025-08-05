@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -50,6 +50,45 @@ describe('Performance Optimization Tests', () => {
     
     // Restore all mocks after each test
     vi.restoreAllMocks();
+  });
+
+  // Global cleanup to handle any remaining test artifacts
+  afterAll(async () => {
+    // Clean up any remaining test database directories and temporary files
+    const cleanupPaths = [
+      path.join(__dirname, '../../.test-db-perf'),
+      path.join(__dirname, '../../.temp-perf-test'),
+      path.join(__dirname, '../../data')
+    ];
+
+    for (const cleanupPath of cleanupPaths) {
+      try {
+        const stats = await fs.promises.stat(cleanupPath);
+        if (stats.isDirectory()) {
+          await fs.promises.rm(cleanupPath, { recursive: true, force: true });
+        }
+      } catch {
+        // Path doesn't exist or other error - ignore
+      }
+    }
+
+    // Also clean up any test-related directories in the temp directory pattern
+    try {
+      const parentDir = path.join(__dirname, '../..');
+      const files = await fs.promises.readdir(parentDir);
+      const testDbDirs = files.filter(file => 
+        file.startsWith('.test-db') || 
+        file.startsWith('.temp-perf') ||
+        file.match(/^funcqc-perf-/)
+      );
+      
+      for (const dir of testDbDirs) {
+        const fullPath = path.join(parentDir, dir);
+        await fs.promises.rm(fullPath, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch {
+      // Ignore errors - this is best-effort cleanup
+    }
   });
 
   it('should demonstrate transaction batching performance improvement', async () => {

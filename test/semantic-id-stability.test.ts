@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { TypeScriptAnalyzer } from '../src/analyzers/typescript-analyzer';
 import { PGLiteStorageAdapter } from '../src/storage/pglite-adapter';
 import { globalHashCache } from '../src/utils/hash-cache';
@@ -31,6 +31,23 @@ describe('Semantic ID Stability', () => {
       await storage.close();
     }
     await fs.promises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  // Global cleanup to handle any remaining test artifacts
+  afterAll(async () => {
+    // Clean up any remaining funcqc-semantic- temporary directories
+    try {
+      const tmpDir = os.tmpdir();
+      const files = await fs.promises.readdir(tmpDir);
+      const semanticTestDirs = files.filter(file => file.startsWith('funcqc-semantic-'));
+      
+      for (const dir of semanticTestDirs) {
+        const fullPath = path.join(tmpDir, dir);
+        await fs.promises.rm(fullPath, { recursive: true, force: true }).catch(() => {});
+      }
+    } catch {
+      // Ignore errors - this is best-effort cleanup
+    }
   });
 
   it('should maintain same semantic ID when implementation changes', async () => {
