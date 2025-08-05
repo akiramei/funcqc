@@ -138,8 +138,10 @@ export class SchemaAnalyzer {
    * Extract the complete CREATE TABLE block for a table
    */
   private extractTableBlock(content: string, tableName: string): string {
+    // Escape special regex characters
+    const escapedTableName = tableName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(
-      `CREATE\\s+TABLE\\s+${tableName}\\s*\\([\\s\\S]*?\\);`,
+      `CREATE\\s+TABLE\\s+${escapedTableName}\\s*\\([\\s\\S]*?\\);`,
       'i'
     );
     const match = content.match(regex);

@@ -623,10 +623,10 @@ dbCommand.command('list-backups')
   });
 
 dbCommand.command('convert')
-  .description('Convert backup between formats and handle schema migrations')
+  .description('Convert backup between formats and handle schema migrations (Note: SQL format conversion is currently not implemented)')
   .option('--input <path>', 'input backup directory')
   .option('--output <path>', 'output backup directory')
-  .option('--format <format>', 'target format (json, sql)', 'json')
+  .option('--format <format>', 'target format (currently only json is supported)', 'json')
   .option('--allow-schema-mismatch', 'proceed even if schema versions differ')
   .option('--update-schema', 'update backup to current schema version')
   .option('--force', 'force conversion even if formats are the same')

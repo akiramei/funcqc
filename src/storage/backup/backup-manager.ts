@@ -372,10 +372,15 @@ export class BackupManager {
    * Export data from a single table
    */
   private async exportTableData(tableName: string): Promise<unknown[]> {
-    // This needs to be implemented with actual database queries
-    // For now, return empty array
     try {
-      const result = await this.storage.query(`SELECT * FROM ${tableName}`);
+      // Validate table name against known tables
+      const validTables = await this.schemaAnalyzer.analyzeSchema();
+      if (!validTables.tables.includes(tableName)) {
+        throw new Error(`Invalid table name: ${tableName}`);
+      }
+      
+      // Use escaped identifier to prevent SQL injection
+      const result = await this.storage.query(`SELECT * FROM "${tableName}"`);
       return (result as { rows: unknown[] }).rows || [];
     } catch {
       return [];
@@ -475,7 +480,7 @@ export class BackupManager {
 
     try {
       // First, clear the table (if overwrite is enabled)
-      await this.storage.query(`DELETE FROM ${tableName}`);
+      await this.storage.query(`DELETE FROM "${tableName}"`);
       
       let restoredRows = 0;
       
@@ -492,7 +497,8 @@ export class BackupManager {
             
             if (columns.length > 0) {
               const placeholders = values.map((_, index) => `$${index + 1}`).join(', ');
-              const query = `INSERT INTO ${tableName} (${columns.join(', ')}) VALUES (${placeholders})`;
+              const escapedColumns = columns.map(col => `"${col}"`).join(', ');
+              const query = `INSERT INTO "${tableName}" (${escapedColumns}) VALUES (${placeholders})`;
               
               await this.storage.query(query, values);
               restoredRows++;

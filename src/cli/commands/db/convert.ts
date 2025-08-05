@@ -2,6 +2,7 @@ import chalk from 'chalk';
 import { OptionValues } from 'commander';
 import { VoidCommand } from '../../../types/command';
 import { CommandEnvironment } from '../../../types/environment';
+import { BackupManifest } from '../../../types';
 import { ErrorCode, createErrorHandler } from '../../../utils/error-handler';
 import { SchemaAnalyzer } from '../../../storage/backup/schema-analyzer';
 import * as fs from 'fs/promises';
@@ -43,17 +44,11 @@ async function validateConversionInputs(
 /**
  * Load and validate source manifest
  */
-async function loadSourceManifest(inputPath: string): Promise<{
-  metadata: { backupFormat: string; funcqcVersion: string };
-  tables: Record<string, unknown>;
-  schemaHash: string;
-  createdAt: string;
-  tableOrder: string[];
-}> {
+async function loadSourceManifest(inputPath: string): Promise<BackupManifest> {
   const manifestPath = path.join(inputPath, 'manifest.json');
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8');
-    return JSON.parse(manifestContent);
+    return JSON.parse(manifestContent) as BackupManifest;
   } catch (error) {
     console.log(chalk.red(`❌ Failed to load source manifest: ${error instanceof Error ? error.message : String(error)}`));
     throw error;
@@ -229,12 +224,7 @@ async function handleSchemaFile(
  */
 async function createUpdatedManifest(
   outputPath: string,
-  sourceManifest: {
-    metadata: { funcqcVersion: string; backupFormat: string };
-    createdAt: string;
-    schemaHash: string;
-    [key: string]: unknown;
-  },
+  sourceManifest: BackupManifest,
   targetFormat: string,
   updateSchema: boolean,
   schemaChanged: boolean,
