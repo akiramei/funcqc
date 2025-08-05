@@ -89,7 +89,6 @@ export class CHATypeSystemAnalysisStage {
       }
     }
 
-    // Debug: Log unresolved method calls for debugging
     if (this._debug) {
       for (const call of unresolvedMethodCalls.slice(0, 5)) { // Log first 5 calls
         this.logger.debug(`🐛 Unresolved call: ${call.methodName} on ${call.receiverType || 'unknown'} from ${call.callerFunctionId}`);

@@ -199,7 +199,6 @@ export class StagedAnalysisEngine {
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
     this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
     
-    // Debug: Log callback analysis results
     this.logger.debug(`[CallbackRegistration] Stage 7 complete: ${callbackResult.totalRegistrations} registrations, ${callbackResult.totalVirtualEdges} virtual edges`);
     if (callbackResult.totalVirtualEdges > 0) {
       this.logger.debug(`[CallbackRegistration] Virtual edges found: ${callbackResult.totalVirtualEdges} edges`);

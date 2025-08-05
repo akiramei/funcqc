@@ -82,12 +82,9 @@ function processTypeScriptImports(sf: SourceFile, map: Map<string, ImportRecord>
         map.set(name, { module: mod, kind: "require" });
       }
     }
-  } catch (error) {
+  } catch {
     // ImportEqualsDeclarations API not available in this ts-morph version
     // This is expected for older versions and can be safely ignored
-    if (process.env['NODE_ENV'] === 'development') {
-      console.debug('TypeScript import=require parsing not available:', error);
-    }
   }
 }
 
@@ -101,11 +98,8 @@ function processCommonJSImports(sf: SourceFile, map: Map<string, ImportRecord>):
     for (const v of variableDeclarations) {
       processRequireDeclaration(v, map);
     }
-  } catch (error) {
+  } catch {
     // VariableDeclarations API not available in this ts-morph version
-    if (process.env['NODE_ENV'] === 'development') {
-      console.debug('CommonJS require parsing not available:', error);
-    }
   }
 }
 
@@ -162,10 +156,8 @@ function processDestructuringRequire(nameNode: any, module: string, map: Map<str
       const alias = be.getNameNode().getText();
       map.set(alias, { module, kind: "named" });
     }
-  } catch (error) {
-    if (process.env['NODE_ENV'] === 'development') {
-      console.debug('Failed to process destructuring require:', error);
-    }
+  } catch {
+    // Failed to process destructuring require - this is expected and can be safely ignored
   }
 }
 

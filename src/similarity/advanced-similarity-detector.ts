@@ -303,7 +303,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
         bucketFunctions.forEach(funcId => candidateIds.add(funcId));
         // LSH bucket has candidates
         
-        // Debug: Check if target function is in this bucket
         if (this.debugMode) {
           const targetFunctionIds = bucketFunctions.filter(funcId => {
             const func = allFunctions.find(f => f.id === funcId);
@@ -328,7 +327,6 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
         hierarchicalCandidates.forEach(funcId => candidateIds.add(funcId));
         // Hierarchical LSH applied to large bucket
         
-        // Debug: Check if target function is in this large bucket
         if (this.debugMode) {
           const targetFunctionIds = bucketFunctions.filter(funcId => {
             const func = allFunctions.find(f => f.id === funcId);

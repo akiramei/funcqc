@@ -104,9 +104,8 @@ export function analyzeSourceCodeForSuggestions(functionInfo: FunctionInfo): str
       suggestions.push(`Extract duplicated logic blocks into helper methods`);
     }
     
-  } catch (error) {
+  } catch {
     // If AST parsing fails, fall back gracefully
-    console.debug('AST analysis failed:', error);
   }
   
   return suggestions;

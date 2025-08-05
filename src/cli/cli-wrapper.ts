@@ -137,11 +137,9 @@ async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOpt
           snapshot: callGraphData.snapshot
         };
       }
-    } catch (error) {
+    } catch {
       // Let the individual commands handle the error appropriately
       // This ensures call graph analysis failure doesn't break the wrapper
-      const logger = commandEnv.commandLogger;
-      logger.debug(`Call graph analysis failed for ${process.argv[2]}: ${error instanceof Error ? error.message : String(error)}`);
       // Don't throw here - let the command handle it
     }
   }

@@ -76,8 +76,8 @@ export class HealthAnalysisService implements IHealthAnalysisService {
         // functionInfo.sourceCode and extract actual AST patterns
         // For now, use suggestion-based pattern detection as a viable alternative
         patterns = this.extractPatternsFromSuggestions(healthSuggestions, astSuggestions);
-      } catch (error) {
-        console.debug('Pattern analysis failed:', error);
+      } catch {
+        // Pattern analysis failed - continue with basic analysis
       }
     }
     

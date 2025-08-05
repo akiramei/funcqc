@@ -24,6 +24,7 @@ import {
 import { StorageProvider } from '../core/storage-provider';
 import { FunctionInfo } from '../types';
 import { getFileModificationTime } from '../utils/hash-utils';
+import { GitHistoryLearner } from './git-history-learner';
 
 /**
  * Default configuration for residue detection
@@ -65,10 +66,12 @@ export class DebugResidueDetector {
   private functionMetadata: Map<string, FunctionInfo> = new Map();
   private storageProvider: StorageProvider;
   private snapshotTimestamp: number = 0;
+  private gitLearner: GitHistoryLearner;
 
   constructor(config: Partial<ResidueDetectionConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.storageProvider = StorageProvider.getInstance();
+    this.gitLearner = new GitHistoryLearner();
     this.project = new Project({
       ...(this.config.tsconfigPath ? { tsConfigFilePath: this.config.tsconfigPath } : {}),
       skipAddingFilesFromTsConfig: !this.config.tsconfigPath,
@@ -96,6 +99,9 @@ export class DebugResidueDetector {
 
     // HOTFIX: Validate file integrity before proceeding
     await this.validateFileIntegrity(filePaths);
+
+    // AUTO-LEARNING: Analyze Git history for debug patterns (zero-cost precision improvement)
+    await this.performAutoLearning();
 
     // Add source files to project
     for (const filePath of filePaths) {
@@ -205,6 +211,41 @@ export class DebugResidueDetector {
         code: warnings.join(', ')
       };
       this.findings.unshift(safetyWarning);
+    }
+  }
+
+  /**
+   * AUTO-LEARNING: Perform zero-cost learning from Git history
+   */
+  private async performAutoLearning(): Promise<void> {
+    try {
+      // Check if learning data is fresh (avoid repeated analysis)
+      const patterns = this.gitLearner.getLearnedPatterns();
+      const lastLearning = patterns.length > 0 ? 
+        Math.max(...patterns.map(p => new Date(p.lastSeen).getTime())) : 0;
+      
+      const daysSinceLastLearning = (Date.now() - lastLearning) / (1000 * 60 * 60 * 24);
+      
+      // Only re-learn if it's been more than 7 days or no patterns exist
+      if (patterns.length === 0 || daysSinceLastLearning > 7) {
+        console.log('🤖 Auto-learning from Git history...');
+        
+        await this.gitLearner.analyzeHistory({
+          monthsBack: 3, // Last 3 months
+          maxCommits: 500, // Reasonable limit
+          excludePaths: this.config.exclude || []
+        });
+        
+        const learnedCount = this.gitLearner.getLearnedPatterns().length;
+        if (learnedCount > 0) {
+          console.log(`✅ Learned ${learnedCount} debug patterns from Git history`);
+        }
+      } else {
+        console.log(`ℹ️ Using existing learned patterns (${patterns.length} patterns)`);
+      }
+    } catch {
+      // Auto-learning failure should not block analysis
+      console.warn('⚠️ Auto-learning from Git history failed, proceeding with default patterns');
     }
   }
 
@@ -352,9 +393,19 @@ export class DebugResidueDetector {
   }
 
   /**
-   * Enhanced classification for console/process output using AST and function metadata
+   * Enhanced classification for console/process output using AST, function metadata, and Git learning
    */
   private classifyConsoleOutput(node: CallExpression, filePath: string): { kind: ResidueKind; reason: string } {
+    const codeText = node.getText();
+    
+    // ZERO-COST PRECISION: Use Git-learned patterns
+    const gitConfidence = this.gitLearner.getConfidenceScore(codeText, filePath);
+    if (gitConfidence > 0.8) {
+      return { kind: 'AutoRemove', reason: `high confidence debug pattern (Git-learned: ${Math.round(gitConfidence * 100)}%)` };
+    }
+    if (gitConfidence > 0.6) {
+      return { kind: 'NeedsReview', reason: `potential debug pattern (Git-learned: ${Math.round(gitConfidence * 100)}%)` };
+    }
     // Check file path patterns first - strongest indicator
     if (this.isInScriptsDirectory(filePath)) {
       return { kind: 'Exempt', reason: 'in scripts directory (build/utility script)' };

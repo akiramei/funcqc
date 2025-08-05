@@ -68,7 +68,6 @@ export class HashSimilarityDetector implements SimilarityDetector {
     // Group by AST hash for exact matches (similarity = 1.0)
     if (config.threshold <= 1.0) {
       const astHashGroups = this.groupByHash(functions, 'astHash', config.crossFile);
-      // Debug: log group sizes
       if (astHashGroups.size > 0) {
         const largestGroup = Math.max(...Array.from(astHashGroups.values()).map(g => g.length));
         if (largestGroup > 10) {
@@ -353,10 +352,6 @@ export class HashSimilarityDetector implements SimilarityDetector {
           if (!this.hasMinimumInformation(funcA.sourceCode || '') || 
               !this.hasMinimumInformation(funcB.sourceCode || '')) {
             skippedDueToMinInfo++;
-            console.debug('[AST-verify-skip] Insufficient info: %s vs %s (len: %d, %d)',
-              funcA.name, funcB.name, 
-              funcA.sourceCode?.length ?? 0, funcB.sourceCode?.length ?? 0
-            );
             continue; // 検証不能 → ハッシュ一致だけでは昇格させない
           }
 
@@ -367,7 +362,6 @@ export class HashSimilarityDetector implements SimilarityDetector {
             );
             
             if (astResults.length === 0) {
-              console.debug('[AST-verify-reject] Below threshold: %s vs %s', funcA.name, funcB.name);
               continue; // AST検証で類似度不足
             }
 
@@ -376,10 +370,6 @@ export class HashSimilarityDetector implements SimilarityDetector {
             
             // Apply safety valve for 1.0 similarities
             const safeSimilarity = this.applySafetyValve(rawSimilarity, astResult);
-            
-            console.debug('[AST-verify-accept] %s vs %s: raw=%.3f, safe=%.3f', 
-              funcA.name, funcB.name, rawSimilarity, safeSimilarity
-            );
 
             verifiedResults.push({
               type: 'structural',
