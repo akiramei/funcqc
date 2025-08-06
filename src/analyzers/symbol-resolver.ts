@@ -366,11 +366,50 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
       }
     }
     
-    // import default/named による関数呼び出し（外部）判定
+    // import default/named による関数呼び出し判定
     const alias = ctx.importIndex?.get(expr.getText());
-    if (alias && isExternalModule(alias.module, internalPrefixes)) {
-      const id = `external:${alias.module}:${expr.getText()}`;
-      return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+    if (alias) {
+      if (isExternalModule(alias.module, internalPrefixes)) {
+        // 外部モジュールの場合
+        const id = `external:${alias.module}:${expr.getText()}`;
+        return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+      } else {
+        // 内部モジュール（相対インポート）の場合
+        // インポートされた関数を探索するため、利用可能なすべての関数から一致するものを探す
+        const functionName = expr.getText();
+        
+        // functionMapから名前が一致する関数を探す
+        if (ctx.functionMap) {
+          for (const [, funcInfo] of ctx.functionMap) {
+            if (funcInfo.name === functionName) {
+              // 関数名が一致したら、その関数のIDを返す
+              return { kind: "internal", functionId: funcInfo.id, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "import" };
+            }
+          }
+        }
+        
+        // functionMapで見つからない場合は、declarationLookupから探す
+        if (ctx.declarationLookup) {
+          for (const [decl, funcId] of ctx.declarationLookup) {
+            // 宣言の名前を取得
+            let declName: string | undefined;
+            if (Node.isFunctionDeclaration(decl)) {
+              declName = decl.getName();
+            } else if (Node.isMethodDeclaration(decl)) {
+              declName = decl.getName();
+            } else if (Node.isVariableDeclaration(decl)) {
+              declName = decl.getName();
+            }
+            
+            if (declName === functionName) {
+              return { kind: "internal", functionId: funcId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "import" };
+            }
+          }
+        }
+        
+        // それでも見つからない場合はunknownとして扱う
+        return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
+      }
     }
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
   }
