@@ -35,9 +35,16 @@ export interface ResolverContext {
   importIndex?: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }>;
   /** 内部モジュールとみなすパス接頭辞（例: ["src/", "@/"]）。相対("./", "../")は常に内部扱い。*/
   internalModulePrefixes?: string[];
+  /** Optional: Resolve imported symbol from module specifier and exported name */
+  resolveImportedSymbol?: (moduleSpecifier: string, exportedName: string) => Node | undefined;
 }
 
-type ImportRecord = { module: string; kind: "namespace" | "named" | "default" | "require" };
+type ImportRecord = {
+  module: string;
+  kind: "namespace" | "named" | "default" | "require";
+  local: string;      // ローカル名（alias名）
+  imported?: string;  // 元のexport名（namedの場合の実名、defaultの場合は"default"）
+};
 
 /**
  * Process ES Module import statements
@@ -49,19 +56,22 @@ function processESModuleImports(sf: SourceFile, map: Map<string, ImportRecord>):
     // import * as name from 'module'
     const ns = imp.getNamespaceImport();
     if (ns) {
-      map.set(ns.getText(), { module: mod, kind: "namespace" });
+      const local = ns.getText();
+      map.set(local, { module: mod, kind: "namespace", local });
     }
     
     // import name from 'module'
     const def = imp.getDefaultImport();
     if (def) {
-      map.set(def.getText(), { module: mod, kind: "default" });
+      const local = def.getText();
+      map.set(local, { module: mod, kind: "default", local, imported: "default" });
     }
     
     // import { name1, name2 as alias } from 'module'
     for (const n of imp.getNamedImports()) {
-      const name = n.getAliasNode()?.getText() ?? n.getNameNode().getText();
-      map.set(name, { module: mod, kind: "named" });
+      const local = n.getAliasNode()?.getText() ?? n.getNameNode().getText();
+      const imported = n.getNameNode().getText(); // 元のexport名
+      map.set(local, { module: mod, kind: "named", local, imported });
     }
   }
 }
@@ -77,9 +87,9 @@ function processTypeScriptImports(sf: SourceFile, map: Map<string, ImportRecord>
       const ref = ie.getModuleReference();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const mod = (ref as any)?.getExpression?.()?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
-      const name = ie.getNameNode().getText();
-      if (mod && name) {
-        map.set(name, { module: mod, kind: "require" });
+      const local = ie.getNameNode().getText();
+      if (mod && local) {
+        map.set(local, { module: mod, kind: "require", local });
       }
     }
   } catch {
@@ -137,7 +147,8 @@ function processDirectRequire(v: any, init: any, map: Map<string, ImportRecord>)
     const nameNode = v.getNameNode();
     if (nameNode.getKindName() === "Identifier") {
       // const path = require('path')
-      map.set(nameNode.getText(), { module: arg0, kind: "namespace" });
+      const local = nameNode.getText();
+      map.set(local, { module: arg0, kind: "namespace", local });
     } else if (nameNode.getKindName() === "ObjectBindingPattern") {
       // const { resolve, join: pathJoin } = require('path')
       processDestructuringRequire(nameNode, arg0, map);
@@ -153,8 +164,9 @@ function processDestructuringRequire(nameNode: any, module: string, map: Map<str
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const be of (nameNode as any).getElements()) {
-      const alias = be.getNameNode().getText();
-      map.set(alias, { module, kind: "named" });
+      const local = be.getNameNode().getText();
+      // TODO: For aliased destructuring, we'd need to get the original name too
+      map.set(local, { module, kind: "named", local, imported: local });
     }
   } catch {
     // Failed to process destructuring require - this is expected and can be safely ignored
@@ -175,9 +187,9 @@ function processPropertyRequire(v: any, init: any, map: Map<string, ImportRecord
       left.getExpression().getText() === "require") {
     const args = left.getArguments?.();
     const arg0 = args?.[0]?.getText?.()?.replace?.(/^['"]|['"]$/g, "");
-    const alias = v.getNameNode().getText();
-    if (arg0 && alias && name) {
-      map.set(alias, { module: arg0, kind: "named" });
+    const local = v.getNameNode().getText();
+    if (arg0 && local && name) {
+      map.set(local, { module: arg0, kind: "named", local, imported: name });
     }
   }
 }
@@ -366,11 +378,32 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
       }
     }
     
-    // import default/named による関数呼び出し（外部）判定
+    // import default/named による関数呼び出し判定
     const alias = ctx.importIndex?.get(expr.getText());
-    if (alias && isExternalModule(alias.module, internalPrefixes)) {
-      const id = `external:${alias.module}:${expr.getText()}`;
-      return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+    if (alias) {
+      if (isExternalModule(alias.module, internalPrefixes)) {
+        // 外部モジュールの場合
+        const id = `external:${alias.module}:${expr.getText()}`;
+        return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+      } else {
+        // 内部モジュール（相対インポート）の場合
+        // resolveImportedSymbolで宣言ノードを取得を試みる
+        if (ctx.resolveImportedSymbol) {
+          // CRITICAL FIX: Use imported name (original export name) instead of local name
+          const exportedName = alias.kind === "named" || alias.kind === "default" 
+            ? ('imported' in alias ? alias.imported : expr.getText())  // Use imported name if available
+            : expr.getText(); // For namespace/require, use local name
+          const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
+          if (declNode) {
+            const functionId = ctx.getFunctionIdByDeclaration(declNode);
+            if (functionId) {
+              return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
+            }
+          }
+        }
+        // 解決できない場合はunknownとして扱う
+        return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
+      }
     }
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
   }

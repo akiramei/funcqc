@@ -112,6 +112,57 @@ funcqc diff HEAD~1 HEAD --json
 | `funcqc similar` | 類似関数検出 |
 | `funcqc suggest` | AI改善提案 (Phase 3) |
 
+## 環境変数
+
+funcqcは動作をカスタマイズするための環境変数をサポートしています：
+
+### 一般設定
+- `NODE_ENV`: 動作モード (`production`, `development`, `test`)
+- `DEBUG`: 汎用デバッグフラグ (`true`で有効)
+
+### funcqc固有設定
+- `FUNCQC_DB_PATH`: データベースファイルパス (デフォルト: `.funcqc/funcqc.db`)
+- `FUNCQC_SHOW_SUMMARY`: スキャン完了時のサマリー表示 (`true`で強制表示)
+- `FUNCQC_FORCE_FALLBACK`: フォールバック分析の強制実行 (`1`で有効)
+
+### Git統合設定
+- `FUNCQC_GIT_PROVIDER`: Git プロバイダー (`simple-git`, `native`, `mock`)
+- `FUNCQC_GIT_TIMEOUT`: Git操作のタイムアウト (秒)
+- `FUNCQC_GIT_VERBOSE`: Git操作の詳細ログ (`true`で有効)
+- `FUNCQC_GIT_AUTO_DETECT`: Git設定の自動検出 (`true`で有効)
+- `FUNCQC_VERBOSE`: 詳細ログ出力 (`true`で有効)
+
+### デバッグ・開発用
+- `DEBUG_STAGED_ANALYSIS`: 段階的分析のデバッグ (`true`で有効)
+- `DEBUG_EXTERNAL_ANALYSIS`: 外部呼び出し分析のデバッグ (`true`で有効)
+- `DEBUG_CALLBACK_REGISTRATION`: コールバック登録のデバッグ (`true`で有効)
+- `DEBUG_DB`: データベースクエリのデバッグ (`true`で有効)
+- `FUNCQC_DEBUG_PERFORMANCE`: パフォーマンス計測 (`true`で有効)
+- `FUNCQC_DEBUG_SIMILARITY`: 類似度分析のデバッグ (`true`で有効)
+- `FUNCQC_DEBUG_TARGET`: デバッグ対象関数名 (特定関数のみ)
+
+### パフォーマンス調整
+- `FUNCQC_ENABLE_LAYER_PAGERANK`: レイヤーベースPageRank分析 (`true`で有効)
+- `FUNCQC_EXCLUDE_INTRA_FILE_CALLS`: ファイル内呼び出しの除外 (`false`で無効化)
+- `FUNCQC_LAYER_PR_BUDGET_MV`: PageRank計算の計算量制限 (デフォルト: 150,000)
+
+### CI/CD環境
+- `CI`, `GITHUB_ACTIONS`, `CONTINUOUS_INTEGRATION`, `BUILD_NUMBER`: CI環境の検出
+
+### 使用例
+```bash
+# 詳細デバッグ有効でスキャン
+DEBUG=true FUNCQC_DEBUG_PERFORMANCE=true funcqc scan
+
+# レイヤーベースPageRank分析を有効化
+FUNCQC_ENABLE_LAYER_PAGERANK=true funcqc health
+
+# 特定関数の類似度分析をデバッグ
+FUNCQC_DEBUG_SIMILARITY=true FUNCQC_DEBUG_TARGET=myFunction funcqc similar
+```
+
+詳細な環境変数リファレンスは [docs/environment-variables.md](./docs/environment-variables.md) をご覧ください。
+
 ## ドキュメント
 
 詳細な設計資料は [docs/](./docs/) フォルダをご覧ください：
@@ -123,6 +174,7 @@ funcqc diff HEAD~1 HEAD --json
 - [データモデル](./docs/data-model.md)
 - [実装ガイド](./docs/implementation-guide.md)
 - [ユーザーシナリオ](./docs/user-scenarios.md)
+- [環境変数リファレンス](./docs/environment-variables.md)
 
 ### 関数系譜追跡（Lineage Tracking）
 - [系譜追跡概要](./docs/lineage-tracking.md) - 機能概要と利用シーン

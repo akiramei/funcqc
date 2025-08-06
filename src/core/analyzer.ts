@@ -2,9 +2,10 @@ import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError, CallEdge, Stor
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
-import { Project } from 'ts-morph';
+import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
+import * as path from 'path';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
@@ -132,15 +133,28 @@ export class FunctionAnalyzer {
       }
       
       // Perform ideal call graph analysis
+      this.logger.warn('🔍 IDEAL: Starting ideal call graph analysis...');
+      this.logger.debug('[PATH] IDEAL - Starting analysis');
+      
+      // TEMPORARY: Force fallback for debugging
+      if (process.env['FUNCQC_FORCE_FALLBACK'] === '1') {
+        throw new Error('Forced fallback for debugging');
+      }
+      
       const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
       
       // Convert to legacy format for compatibility
       const functions = await this.convertToLegacyFormat(callGraphResult.functions);
-      const callEdges = this.convertCallEdges(callGraphResult.edges);
+      
+      // CRITICAL FIX: Use ID mapping for IDEAL path consistency
+      const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
+      const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
       
       // Perform internal call analysis while the project is still active
       const internalCallEdges = await this.analyzeInternalCalls(functions);
       
+      this.logger.info(`[PATH] IDEAL SUCCESS - Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
+      this.logger.warn(`🔍 IDEAL SUCCESS: Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
       
       return {
         functions,
@@ -153,18 +167,139 @@ export class FunctionAnalyzer {
     } catch (error) {
       this.logger.debug('Ideal call graph analysis failed:', error);
       
-      // Fallback to regular analysis
-      this.logger.debug('Falling back to regular analysis...');
+      // Fallback to regular analysis with improved call graph resolution
+      this.logger.debug('[PATH] FALLBACK - Falling back to improved analysis');
+      this.logger.warn('🔍 FALLBACK: Falling back to improved call graph analysis...');
       const result = await this.analyzeFiles(filePaths);
+      
+      // Try to perform improved call graph analysis with global function context
+      let callEdges: CallEdge[] = [];
+      let internalCallEdges: import('../types').InternalCallEdge[] = [];
+      
+      if (result.data && result.data.length > 0) {
+        try {
+          const improvedAnalysisResult = await this.performImprovedCallGraphAnalysis(
+            filePaths, 
+            result.data
+          );
+          callEdges = improvedAnalysisResult.callEdges;
+          internalCallEdges = improvedAnalysisResult.internalCallEdges;
+        } catch (error) {
+          this.logger.debug('Improved call graph analysis failed:', error);
+          // Continue with empty call edges
+        }
+      }
       
       return {
         functions: result.data || [],
-        callEdges: [],
-        internalCallEdges: [],
+        callEdges,
+        internalCallEdges,
         errors: result.errors,
         warnings: result.warnings
       };
     }
+  }
+
+  /**
+   * Perform improved call graph analysis with global function context
+   * This implements the two-tier index approach: 
+   * 1. Collect all functions (already done)
+   * 2. Analyze call graph with global allowedFunctionIdSet
+   */
+  private async performImprovedCallGraphAnalysis(
+    filePaths: string[], 
+    allFunctions: FunctionInfo[]
+  ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
+    this.logger.warn('🔍 STARTING: Improved call graph analysis...');
+    
+    // Initialize ts-morph project for call graph analysis
+    await this.initializeProject(filePaths);
+    
+    if (!this.project) {
+      throw new Error('Failed to initialize project for improved analysis');
+    }
+
+    // Step 1: Create global allowedFunctionIdSet from all functions
+    const allowedFunctionIdSet = new Set(allFunctions.map(f => f.id));
+    
+    // Step 2: Initialize FunctionRegistry and populate with existing function data
+    const { FunctionRegistry } = await import('../analyzers/function-registry');
+    const functionRegistry = new FunctionRegistry(this.project);
+    const registryFunctions = await functionRegistry.collectAllFunctions();
+    
+    // Step 2.5: Create registryId → FunctionInfoId bridge mapping (CRITICAL FIX)
+    const registryToInfoIdMap = this.createRegistryToInfoIdMapping(registryFunctions, allFunctions);
+    this.logger.warn(`🔍 CRITICAL DEBUG: Created registry bridge mapping: ${registryToInfoIdMap.size} entries (registry: ${registryFunctions.size}, info: ${allFunctions.length})`);
+    
+    // Step 3: Initialize CallGraphAnalyzer with improved configuration
+    const { CallGraphAnalyzer } = await import('../analyzers/call-graph-analyzer');
+    const callGraphAnalyzer = new CallGraphAnalyzer(this.project, true, this.logger);
+    
+    const allCallEdges: CallEdge[] = [];
+    
+    // Step 4: Group functions by file for efficient analysis
+    const functionsByFile = new Map<string, FunctionInfo[]>();
+    for (const func of allFunctions) {
+      if (!functionsByFile.has(func.filePath)) {
+        functionsByFile.set(func.filePath, []);
+      }
+      functionsByFile.get(func.filePath)!.push(func);
+    }
+    
+    // Step 5: Analyze each file with global function context
+    for (const [filePath, fileFunctions] of functionsByFile) {
+      try {
+        // Create local function map for this file
+        const localFunctionMap = new Map<string, { id: string; name: string; startLine: number; endLine: number }>();
+        
+        for (const func of fileFunctions) {
+          localFunctionMap.set(func.id, {
+            id: func.id,
+            name: func.name,
+            startLine: func.startLine,
+            endLine: func.endLine
+          });
+        }
+        
+        // Create composite reverse lookup function (CRITICAL FIX for ID space mismatch)
+        const compositeDeclarationLookup = (decl: Node): string | undefined => {
+          // First try: registry Node → registryId → FunctionInfoId conversion
+          const regId = functionRegistry.getFunctionIdByDeclaration(decl);
+          const infoId = regId ? registryToInfoIdMap.get(regId) : undefined;
+          if (infoId) {
+            return infoId;
+          }
+          
+          // Fallback: use local declaration index (same file matching)
+          const localDeclIndex = this.buildLocalDeclarationIndex(fileFunctions, filePath);
+          return localDeclIndex.get(decl);
+        };
+        
+        // Analyze with global allowed function set but local function map
+        const fileCallEdges = await callGraphAnalyzer.analyzeFile(
+          filePath,
+          localFunctionMap,
+          compositeDeclarationLookup,
+          allowedFunctionIdSet
+        );
+        
+        allCallEdges.push(...fileCallEdges);
+        
+      } catch (error) {
+        this.logger.warn(`Call graph analysis failed for ${filePath}: ${error}`);
+        // Continue with other files
+      }
+    }
+    
+    // Step 6: Analyze internal call edges
+    const internalCallEdges = await this.analyzeInternalCalls(allFunctions);
+    
+    this.logger.debug(`Improved analysis completed: ${allCallEdges.length} call edges, ${internalCallEdges.length} internal edges`);
+    
+    return {
+      callEdges: allCallEdges,
+      internalCallEdges
+    };
   }
 
   /**
@@ -188,10 +323,11 @@ export class FunctionAnalyzer {
     
     this.project = new Project(projectOptions);
     
-    // Add specific files we want to analyze
+    // Add specific files we want to analyze with normalized paths
     this.logger.debug(`Adding ${filePaths.length} files to project...`);
     for (const filePath of filePaths) {
-      this.project.addSourceFileAtPath(filePath);
+      const normalizedPath = path.resolve(filePath); // Ensure absolute path
+      this.project.addSourceFileAtPath(normalizedPath);
     }
     
     // Initialize ideal call graph analyzer
@@ -402,37 +538,7 @@ export class FunctionAnalyzer {
     }).filter((edge): edge is NonNullable<typeof edge> => edge !== null); // Remove null entries
   }
 
-  /**
-   * Convert ideal call edges to legacy format (deprecated - use convertCallEdgesWithMapping)
-   */
-  private convertCallEdges(edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]): CallEdge[] {
-    return edges.map((edge, index) => ({
-      id: `edge_${index}`,
-      callerFunctionId: edge.callerFunctionId,
-      calleeFunctionId: edge.calleeFunctionId,
-      calleeName: edge.calleeFunctionId || 'unknown',
-      calleeSignature: edge.calleeSignature || '',
-      callType: edge.callType || 'direct' as const,
-      callContext: edge.resolutionSource,
-      lineNumber: edge.lineNumber || 0,
-      columnNumber: edge.columnNumber || 0,
-      isAsync: edge.isAsync || false,
-      isChained: edge.isChained || false,
-      confidenceScore: edge.confidenceScore,
-      metadata: {
-        resolutionLevel: edge.resolutionLevel,
-        resolutionSource: edge.resolutionSource,
-        runtimeConfirmed: edge.runtimeConfirmed
-      },
-      createdAt: new Date().toISOString(),
-      
-      // Extensions for ideal system
-      calleeCandidates: edge.candidates,
-      resolutionLevel: edge.resolutionLevel,
-      resolutionSource: edge.resolutionSource,
-      runtimeConfirmed: edge.runtimeConfirmed
-    }));
-  }
+  /* DEPRECATED: convertCallEdges method removed - use convertCallEdgesWithMapping for proper ID mapping */
 
   /**
    * Analyze internal function calls while the project is active
@@ -492,6 +598,7 @@ export class FunctionAnalyzer {
     snapshotId: string,
     storage?: StorageAdapter
   ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
+    this.logger.debug('[PATH] CONTENT - Starting call graph analysis from stored content');
     this.logger.debug('Starting call graph analysis from stored content...');
     
     try {
@@ -536,6 +643,8 @@ export class FunctionAnalyzer {
           functions, 
           virtualPaths
         );
+        
+        this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
         
         return {
           callEdges,
@@ -611,6 +720,110 @@ export class FunctionAnalyzer {
     } finally {
       internalCallAnalyzer.dispose();
     }
+  }
+
+  /**
+   * Create mapping between registry function IDs and FunctionInfo IDs
+   * Uses filePath + startLine ±1 matching for robustness
+   */
+  private createRegistryToInfoIdMapping(
+    registryFunctions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>,
+    allFunctions: FunctionInfo[]
+  ): Map<string, string> {
+    const mapping = new Map<string, string>();
+    
+    // Create lookup for FunctionInfo by file and line
+    const infoLookup = new Map<string, FunctionInfo[]>();
+    for (const func of allFunctions) {
+      const key = func.filePath;
+      if (!infoLookup.has(key)) {
+        infoLookup.set(key, []);
+      }
+      infoLookup.get(key)!.push(func);
+    }
+    
+    // Match registry functions to FunctionInfo by file path and line (±1 tolerance)
+    let matchedCount = 0;
+    let unmatchedCount = 0;
+    
+    for (const [registryId, regFunc] of registryFunctions) {
+      const candidates = infoLookup.get(regFunc.filePath) || [];
+      let matched = false;
+      
+      for (const infoFunc of candidates) {
+        const lineDiff = Math.abs(infoFunc.startLine - regFunc.startLine);
+        const nameDiff = infoFunc.name === regFunc.name;
+        
+        // Match by line ±1 and exact name match
+        if (lineDiff <= 1 && nameDiff) {
+          mapping.set(registryId, infoFunc.id);
+          this.logger.debug(`Registry bridge: ${regFunc.name} (${registryId.substring(0, 8)}) → ${infoFunc.id.substring(0, 8)}`);
+          matched = true;
+          matchedCount++;
+          break; // First match wins
+        }
+      }
+      
+      if (!matched) {
+        unmatchedCount++;
+        this.logger.debug(`Registry unmatched: ${regFunc.name} at ${regFunc.filePath}:${regFunc.startLine} (${registryId.substring(0, 8)})`);
+      }
+    }
+    
+    this.logger.warn(`🔍 Registry bridge stats: matched=${matchedCount}, unmatched=${unmatchedCount}`);
+    return mapping;
+  }
+
+  /**
+   * Build local declaration index for same-file function lookup
+   */
+  private buildLocalDeclarationIndex(fileFunctions: FunctionInfo[], filePath: string): Map<Node, string> {
+    const localIndex = new Map<Node, string>();
+    
+    if (!this.project) {
+      return localIndex;
+    }
+    
+    const sourceFile = this.project.getSourceFile(filePath);
+    if (!sourceFile) {
+      return localIndex;
+    }
+    
+    // Get all function nodes in the file
+    const functionNodes: Node[] = [];
+    sourceFile.forEachDescendant(node => {
+      if (this.isFunctionDeclaration(node)) {
+        functionNodes.push(node);
+      }
+    });
+    
+    // Match function nodes to FunctionInfo by line ±1
+    for (const func of fileFunctions) {
+      const matchingNode = functionNodes.find(node => {
+        const nodeStart = node.getStartLineNumber();
+        const startDiff = Math.abs(nodeStart - func.startLine);
+        return startDiff <= 1;
+      });
+      
+      if (matchingNode) {
+        localIndex.set(matchingNode, func.id);
+      }
+    }
+    
+    return localIndex;
+  }
+
+  /**
+   * Check if a node is a function declaration of any type
+   */
+  private isFunctionDeclaration(node: Node): boolean {
+    return Node.isFunctionDeclaration(node) ||
+           Node.isMethodDeclaration(node) ||
+           Node.isArrowFunction(node) ||
+           Node.isFunctionExpression(node) ||
+           Node.isConstructorDeclaration(node) ||
+           Node.isGetAccessorDeclaration(node) ||
+           Node.isSetAccessorDeclaration(node);
   }
 
   /**

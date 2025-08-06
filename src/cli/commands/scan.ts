@@ -23,7 +23,6 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
-import { getCallGraphCommands } from '../cli-wrapper';
 
 /**
  * Scan command as a Reader function
@@ -78,7 +77,18 @@ async function executeScanCommand(
     const files = await discoverFiles(scanPaths, env.config, spinner, options.scope);
 
     if (files.length === 0) {
-      console.log(chalk.yellow('No TypeScript files found to analyze.'));
+      if (options.json) {
+        console.log(JSON.stringify({
+          success: false,
+          message: 'No TypeScript files found to analyze',
+          filesAnalyzed: 0,
+          functionsAnalyzed: 0,
+          snapshotId: null,
+          timestamp: new Date().toISOString()
+        }, null, 2));
+      } else {
+        console.log(chalk.yellow('No TypeScript files found to analyze.'));
+      }
       return;
     }
 
@@ -88,17 +98,40 @@ async function executeScanCommand(
     
     // Step 2: Perform basic analysis (configurable timing)
     const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
+    let functionsAnalyzed = 0;
     if (shouldPerformBasicAnalysis) {
-      await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+      const basicResult = await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+      functionsAnalyzed = basicResult?.functionsAnalyzed || 0;
     } else {
-      console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
+      if (!options.json) {
+        console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
+      }
     }
     
-    // Step 3: Call graph analysis - deferred until needed by heavy commands
-    const callGraphCommands = getCallGraphCommands().join('/');
-    console.log(chalk.gray(`📊 Call graph analysis will be performed when needed by ${callGraphCommands} commands.`));
+    // Step 3: Call graph analysis - perform immediately for optimal performance
+    if (!options.json) {
+      console.log(chalk.blue('📊 Performing call graph analysis...'));
+    }
+    const callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
     
-    showCompletionMessage();
+    // Output results
+    if (options.json) {
+      outputScanResultsJSON({
+        success: true,
+        snapshotId,
+        filesAnalyzed: sourceFiles.length,
+        functionsAnalyzed,
+        callEdges: callGraphResult?.callEdges?.length || 0,
+        internalCallEdges: callGraphResult?.internalCallEdges?.length || 0,
+        scope: options.scope || 'src',
+        ...(options.label && { label: options.label }),
+        ...(options.comment && { comment: options.comment }),
+        timestamp: new Date().toISOString(),
+        analysisLevel: shouldPerformBasicAnalysis ? 'CALL_GRAPH' : 'PARTIAL'
+      });
+    } else {
+      showCompletionMessage();
+    }
   } catch (error) {
     handleScanError(error, options, spinner);
   }
@@ -342,7 +375,7 @@ export async function performBasicAnalysis(
   env: CommandEnvironment,
   spinner: SpinnerInterface,
   sourceFileIdMap?: Map<string, string>
-): Promise<void> {
+): Promise<{ functionsAnalyzed: number }> {
   spinner.start('Performing basic function analysis...');
   
   const components = await initializeComponents(env, spinner, sourceFiles.length);
@@ -384,6 +417,8 @@ export async function performBasicAnalysis(
       // Summary requires function array but we optimized it away for memory efficiency
       console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
     }
+    
+    return { functionsAnalyzed: totalFunctions };
   } finally {
     // Always perform cleanup
     await performAnalysisCleanup(components, env);
@@ -422,7 +457,13 @@ export async function performCallGraphAnalysis(
     
     // Save call edges
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
-    await env.storage.insertInternalCallEdges(result.internalCallEdges);
+    
+    // Update snapshotId for internal call edges and save
+    const internalCallEdgesWithSnapshotId = result.internalCallEdges.map(edge => ({
+      ...edge,
+      snapshotId: snapshotId
+    }));
+    await env.storage.insertInternalCallEdges(internalCallEdgesWithSnapshotId);
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
     
     if (showSpinner) {
@@ -628,7 +669,6 @@ async function performFullAnalysis(
   
   try {
     spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
-    console.log('🔍 DEBUG: Starting ideal call graph analysis...');
     const result = await functionAnalyzer.analyzeFilesWithIdealCallGraph(files);
     
     spinner.text = `Ideal analysis completed: ${result.functions.length} functions, ${result.callEdges.length} call edges`;
@@ -660,7 +700,6 @@ async function performFullAnalysis(
   } catch (error) {
     console.warn('⚠️  Ideal call graph analysis failed, falling back to legacy analysis');
     console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    console.log('🔍 DEBUG: Falling back to legacy analysis - sourceCode should be properly set there');
     
     // Fallback to legacy analysis
     const fallbackResult = await performLegacyAnalysis(files, components, spinner);
@@ -1042,6 +1081,25 @@ async function _saveResults(
 }
 
 
+interface ScanResultsJSON {
+  success: boolean;
+  snapshotId?: string;
+  filesAnalyzed: number;
+  functionsAnalyzed: number;
+  callEdges: number;
+  internalCallEdges: number;
+  scope: string;
+  label?: string;
+  comment?: string;
+  timestamp: string;
+  analysisLevel: string;
+  message?: string;
+}
+
+function outputScanResultsJSON(results: ScanResultsJSON): void {
+  console.log(JSON.stringify(results, null, 2));
+}
+
 function showCompletionMessage(): void {
   console.log(chalk.green('✓ Scan completed successfully!'));
   console.log();
@@ -1061,11 +1119,23 @@ function handleScanError(
   options: ScanCommandOptions,
   spinner: SpinnerInterface
 ): void {
-  spinner.fail('Scan failed');
-  console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
+  if (options.json) {
+    console.log(JSON.stringify({
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+      stack: options.verbose && error instanceof Error ? error.stack : undefined,
+      filesAnalyzed: 0,
+      functionsAnalyzed: 0,
+      snapshotId: null,
+      timestamp: new Date().toISOString()
+    }, null, 2));
+  } else {
+    spinner.fail('Scan failed');
+    console.error(chalk.red('Error:'), error instanceof Error ? error.message : String(error));
 
-  if (options.verbose && error instanceof Error) {
-    console.error(chalk.gray(error.stack));
+    if (options.verbose && error instanceof Error) {
+      console.error(chalk.gray(error.stack));
+    }
   }
 
   process.exit(1);

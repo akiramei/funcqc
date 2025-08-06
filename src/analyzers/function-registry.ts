@@ -17,6 +17,7 @@ import { getRelativePath } from '../utils/path-utils';
 export class FunctionRegistry {
   private project: Project;
   private functionMap = new Map<string, FunctionMetadata>();
+  private declToIdMap = new WeakMap<Node, string>(); // 宣言ノード → functionId 逆引き
 
   constructor(project: Project) {
     this.project = project;
@@ -34,6 +35,13 @@ export class FunctionRegistry {
     return this.functionMap;
   }
 
+  /**
+   * Get function ID by declaration node (for symbol resolution)
+   */
+  getFunctionIdByDeclaration(decl: Node): string | undefined {
+    return this.declToIdMap.get(decl);
+  }
+
   private async collectFunctionsFromFile(sourceFile: SourceFile): Promise<number> {
     let functionCount = 0;
     const filePath = sourceFile.getFilePath();
@@ -44,6 +52,8 @@ export class FunctionRegistry {
         try {
           const metadata = this.createFunctionMetadata(node, filePath);
           this.functionMap.set(metadata.id, metadata);
+          // 宣言ノード → functionId のマッピングを記録
+          this.declToIdMap.set(node, metadata.id);
           functionCount++;
         } catch (error) {
           console.warn(`   ⚠️ Failed to process function in ${filePath}: ${error}`);

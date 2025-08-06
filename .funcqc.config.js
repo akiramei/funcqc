@@ -1,7 +1,7 @@
 // funcqc configuration
 // See https://github.com/yourusername/funcqc for documentation
 
-module.exports = {
+export default {
   "roots": [
     "src"
   ],

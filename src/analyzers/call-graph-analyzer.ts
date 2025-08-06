@@ -12,6 +12,9 @@ import { CacheProvider } from '../utils/cache-interfaces';
 import { CacheServiceLocator } from '../utils/cache-injection';
 import { buildImportIndex, resolveCallee, CalleeResolution } from './symbol-resolver';
 import { Logger } from '../utils/cli-utils';
+import { PerformanceProfiler, measureSync } from '../utils/performance-metrics';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Removed legacy CallContext - no longer needed with symbol resolution
 
@@ -22,10 +25,13 @@ import { Logger } from '../utils/cli-utils';
  * Identifies calls between functions, methods, and external libraries
  */
 export class CallGraphAnalyzer {
-  private project: Project;
+  protected project: Project;
   private cache: AnalysisCache;
   private callEdgeCache: CacheProvider<CallEdge[]>;
   private logger: Logger | undefined;
+  private profiler: PerformanceProfiler;
+  private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
+  private importResolutionCache: Map<string, Node | undefined> = new Map();
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
   constructor(
@@ -35,6 +41,7 @@ export class CallGraphAnalyzer {
     callEdgeCache?: CacheProvider<CallEdge[]>
   ) {
     this.logger = logger ?? undefined;
+    this.profiler = new PerformanceProfiler('CallGraphAnalyzer');
     // 🔧 CRITICAL FIX: Share Project instance with TypeScriptAnalyzer to ensure consistent parsing
     // This prevents line number mismatches that cause call edge detection failures
     this.project = project || new Project({
@@ -111,11 +118,13 @@ export class CallGraphAnalyzer {
     filePath: string,
     sourceFile: SourceFile,
     typeChecker: TypeChecker,
-    importIndex: ReturnType<typeof buildImportIndex>,
-    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    importIndex: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require"; local: string; imported?: string }>,
+    allowedFunctionIdSet: Set<string>,
     getFunctionIdByDeclaration: (decl: Node) => string | undefined
   ): Promise<CallEdge[]> {
     const callEdges: CallEdge[] = [];
+    let idMismatchCount = 0;
+    let resolvedCount = 0;
 
     for (const callExpr of callExpressions) {
       try {
@@ -125,13 +134,18 @@ export class CallGraphAnalyzer {
           importIndex,
           internalModulePrefixes: ["src/", "@/", "#/"],
           getFunctionIdByDeclaration,
+          resolveImportedSymbol: (moduleSpecifier: string, exportedName: string) => {
+            return this.resolveImportedSymbolWithCache(moduleSpecifier, exportedName, filePath);
+          }
         });
 
         // Only create edges for internal function calls
         if (resolution.kind === "internal" && resolution.functionId) {
-          // Verify the resolved function ID exists in our function map
-          if (!Array.from(functionMap.values()).some(f => f.id === resolution.functionId)) {
-            this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in function map`);
+          resolvedCount++;
+          // Verify the resolved function ID exists in allowed functions set
+          if (!allowedFunctionIdSet.has(resolution.functionId)) {
+            idMismatchCount++;
+            this.logger?.debug(`ID mismatch: Resolved function ID ${resolution.functionId} not found in allowed functions set (${resolution.via})`);
             continue;
           }
           const callEdge = this.createCallEdgeFromResolution(
@@ -149,36 +163,89 @@ export class CallGraphAnalyzer {
       }
     }
 
+    // Report statistics (CRITICAL for debugging ID space issues)
+    if (resolvedCount > 0 || idMismatchCount > 0) {
+      this.logger?.warn(`🔍 Call resolution stats for ${sourceFunctionId.substring(0, 8)}: resolved=${resolvedCount}, id_mismatch=${idMismatchCount}, edges_created=${callEdges.length}`);
+    }
+
     return callEdges;
   }
 
+  // New signature with allowedFunctionIdSet
+  async analyzeFile(
+    filePath: string,
+    localFunctionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    getFunctionIdByDeclaration: (decl: Node) => string | undefined,
+    allowedFunctionIdSet: Set<string>
+  ): Promise<CallEdge[]>;
+
+  // Backward compatibility overload - uses local function map as allowed set
   async analyzeFile(
     filePath: string,
     functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
     getFunctionIdByDeclaration?: (decl: Node) => string | undefined
+  ): Promise<CallEdge[]>;
+
+  async analyzeFile(
+    filePath: string,
+    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    getFunctionIdByDeclaration?: (decl: Node) => string | undefined,
+    allowedFunctionIdSet?: Set<string>
   ): Promise<CallEdge[]> {
+    this.profiler.start();
+    this.profiler.startPhase('file_analysis');
+    
     try {
+      // Backward compatibility: if allowedFunctionIdSet not provided, create from functionMap
+      const actualAllowedFunctionIdSet = allowedFunctionIdSet || 
+        new Set(Array.from(functionMap.values()).map(f => f.id));
+      
+      // Ensure getFunctionIdByDeclaration is not undefined  
+      const actualGetFunctionIdByDeclaration = getFunctionIdByDeclaration || (() => undefined);
+
       // Use existing source file if already loaded, avoid double parsing
+      this.profiler.startPhase('source_file_loading');
       let sourceFile = this.project.getSourceFile(filePath);
       if (!sourceFile) {
         sourceFile = this.project.addSourceFileAtPath(filePath);
+        this.profiler.recordDetail('source_file_loading', 'new_files_loaded', 1);
+      } else {
+        this.profiler.recordDetail('source_file_loading', 'cached_files_used', 1);
       }
+      this.profiler.endPhase();
       
       const callEdges: CallEdge[] = [];
+      
+      this.profiler.startPhase('type_checking_setup');
       const typeChecker = this.project.getTypeChecker();
+      this.profiler.endPhase();
+      
+      this.profiler.startPhase('import_index_building');
       const importIndex = buildImportIndex(sourceFile);
+      this.profiler.recordDetail('import_index_building', 'imports_processed', importIndex.size);
+      this.profiler.endPhase();
+      
+      // Clean up debug logging - import index construction is working correctly
 
       // Get all function nodes in the file
+      this.profiler.startPhase('function_node_discovery');
       const functionNodes = this.getAllFunctionNodes(sourceFile);
+      this.profiler.recordDetail('function_node_discovery', 'nodes_found', functionNodes.length);
+      this.profiler.endPhase();
       
-      // Build function node index for efficient lookup
+      // Build function node index for efficient lookup (using local functions only)
+      this.profiler.startPhase('function_index_building');
       const localDeclIndex = this.buildFunctionNodeIndex(functionNodes, functionMap);
+      this.profiler.recordDetail('function_index_building', 'mappings_created', localDeclIndex.size);
+      this.profiler.endPhase();
       
-      // Create fallback function for declaration lookup
-      const declarationLookup = getFunctionIdByDeclaration ?? ((decl: Node) => localDeclIndex.get(decl));
+      // Create fallback function for declaration lookup with proper chaining
+      const declarationLookup = (decl: Node) =>
+        actualGetFunctionIdByDeclaration(decl) ?? localDeclIndex.get(decl);
 
-      // Process each function and extract call edges
+      // Process each function and extract call edges (using local functions only)
       for (const [, functionInfo] of functionMap.entries()) {
+        
         // Find matching function node with line tolerance
         const functionNode = functionNodes.find(node => {
           const nodeStart = node.getStartLineNumber();
@@ -190,8 +257,13 @@ export class CallGraphAnalyzer {
         });
 
         if (functionNode) {
+          if (functionInfo.name === 'performSingleFunctionAnalysis') {
+            console.log(`🅱️ STEP B: Function node found for ${functionInfo.name}`);
+            console.log(`   Node lines: ${functionNode.getStartLineNumber()}-${functionNode.getEndLineNumber()}`);
+          }
           // Extract call expressions from function body
           const callExpressions = this.extractCallExpressions(functionNode);
+          
 
           // Process call expressions and create call edges
           const functionCallEdges = await this.processCallEdges(
@@ -201,14 +273,23 @@ export class CallGraphAnalyzer {
             sourceFile,
             typeChecker,
             importIndex,
-            functionMap,
+            actualAllowedFunctionIdSet,
             declarationLookup
           );
+          
           
           callEdges.push(...functionCallEdges);
         }
       }
 
+      this.profiler.endPhase(); // End file_analysis phase
+      
+      // Print performance summary if debug logging is enabled
+      if (process.env['FUNCQC_DEBUG_PERFORMANCE']) {
+        this.profiler.printSummary();
+      }
+      
+      this.profiler.recordDetail('file_analysis', 'call_edges_created', callEdges.length);
       return callEdges;
     } catch (error) {
       throw new Error(
@@ -300,16 +381,6 @@ export class CallGraphAnalyzer {
     return nodes;
   }
 
-  /**
-   * Check if a node is a function declaration of any type
-   */
-  private isFunctionDeclaration(node: Node): boolean {
-    return Node.isFunctionDeclaration(node) ||
-           Node.isMethodDeclaration(node) ||
-           Node.isArrowFunction(node) ||
-           Node.isFunctionExpression(node) ||
-           Node.isConstructorDeclaration(node);
-  }
 
   /**
    * Get cache statistics for monitoring
@@ -330,12 +401,218 @@ export class CallGraphAnalyzer {
   }
 
   /**
-   * Clear the analysis cache
+   * Resolve imported symbol with caching and performance metrics
+   */
+  protected resolveImportedSymbolWithCache(
+    moduleSpecifier: string, 
+    exportedName: string, 
+    currentFilePath: string
+  ): Node | undefined {
+    
+    const cacheKey = `${moduleSpecifier}:${exportedName}`;
+    
+    // Check if we have cached result for this specific import resolution
+    if (this.importResolutionCache.has(cacheKey)) {
+      this.profiler.recordDetail('import_resolution', 'cache_hits', 1);
+      return this.importResolutionCache.get(cacheKey)!;
+    }
+
+    this.profiler.recordDetail('import_resolution', 'cache_misses', 1);
+    
+    return measureSync(() => {
+      if (exportedName === 'buildDependencyTree') {
+        console.log(`       Processing path resolution for ${moduleSpecifier}`);
+      }
+      
+      // 🔧 CRITICAL FIX: Handle virtual filesystem paths
+      // Check if we're working with virtual paths (used in analyzeCallGraphFromContent)
+      const isVirtual = currentFilePath.startsWith('/virtual');
+      
+      // Enhanced import resolution: relative + tsconfig paths + absolute
+      let resolvedPath: string;
+      
+      if (moduleSpecifier.startsWith('./') || moduleSpecifier.startsWith('../')) {
+        // 🔧 CRITICAL FIX: Use path.resolve for cross-platform compatibility
+        const baseDir = path.dirname(path.resolve(currentFilePath));
+        resolvedPath = path.resolve(baseDir, moduleSpecifier);
+        
+        if (exportedName === 'buildDependencyTree') {
+          console.log(`       Base directory: '${baseDir}'`);
+          console.log(`       Module specifier: '${moduleSpecifier}'`);
+          console.log(`       Virtual filesystem detected: ${isVirtual}`);
+          console.log(`       Resolved path (before ext): '${resolvedPath}'`);
+        }
+      } else if (moduleSpecifier.startsWith('@/') || moduleSpecifier.startsWith('#/')) {
+        // 🔧 CRITICAL FIX: tsconfig paths aliases with path.join
+        const projectRoot = this.findProjectRoot();
+        
+        if (moduleSpecifier.startsWith('@/')) {
+          // @/ -> src/ mapping (common convention)
+          const relativePath = moduleSpecifier.substring(2); // Remove '@/'
+          if (isVirtual) {
+            resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+          } else {
+            resolvedPath = path.join(projectRoot, 'src', relativePath);
+          }
+        } else if (moduleSpecifier.startsWith('#/')) {
+          // #/ -> project root mapping
+          const relativePath = moduleSpecifier.substring(2); // Remove '#/'
+          if (isVirtual) {
+            resolvedPath = path.join('/virtual', projectRoot, relativePath);
+          } else {
+            resolvedPath = path.join(projectRoot, relativePath);
+          }
+        } else {
+          return undefined;
+        }
+      } else if (moduleSpecifier.startsWith('/')) {
+        // 🔧 CRITICAL FIX: Absolute path with proper handling
+        if (isVirtual) {
+          resolvedPath = path.join('/virtual', moduleSpecifier);
+        } else {
+          resolvedPath = path.resolve(moduleSpecifier);
+        }
+      } else {
+        // External module or unsupported pattern
+        this.profiler.recordDetail('import_resolution', 'external_modules', 1);
+        return undefined;
+      }
+      
+      // Try to find the source file with comprehensive extension support
+      const extensionCandidates = [
+        '.ts', '.tsx',           // TypeScript files
+        '.js', '.jsx',           // JavaScript files  
+        '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
+        '/index.ts', '/index.tsx', // Index files
+        '/index.js', '/index.jsx'
+      ];
+      
+      let targetSourceFile;
+      for (const ext of extensionCandidates) {
+        const tryPathRaw = resolvedPath + ext;
+        
+        // 🔧 CRITICAL FIX: パス正規化（ts-morph は登録時の表記差で取りこぼしが出ます）
+        const tryPath = path.resolve(tryPathRaw);
+
+        targetSourceFile = this.project.getSourceFile(tryPath);
+        
+        // 🔧 CRITICAL FIX: インポート先ファイルの遅延ロード
+        if (!targetSourceFile && fs.existsSync(tryPath)) {
+          try {
+            targetSourceFile = this.project.addSourceFileAtPath(tryPath);
+            if (exportedName === 'buildDependencyTree') {
+              console.log(`       📥 Added target source file: ${tryPath}`);
+            }
+            this.logger?.debug(`Added missing source file: ${tryPath}`);
+          } catch (e) {
+            this.logger?.debug(`Failed to add source file: ${tryPath}: ${String(e)}`);
+          }
+        }
+
+        if (targetSourceFile) {
+          if (exportedName === 'buildDependencyTree') {
+            console.log(`       ✅ Found target source file: ${tryPath}`);
+          }
+          this.logger?.debug(`🔍 FOUND: ${tryPath}`);
+          break;
+        } else if (exportedName === 'buildDependencyTree') {
+          console.log(`       ❌ Not found: ${tryPath}`);
+        }
+      }
+      
+      this.logger?.debug(`Target source file: ${targetSourceFile?.getFilePath() || 'not found'}`);
+      
+      if (targetSourceFile) {
+        this.profiler.recordDetail('import_resolution', 'files_found', 1);
+        
+        // Get or create cached export declarations for this file
+        const filePath = targetSourceFile.getFilePath();
+        let fileExportsCache = this.exportDeclarationsByFile.get(filePath);
+        
+        if (!fileExportsCache) {
+          // Cache miss - build export declarations cache for entire file
+          fileExportsCache = measureSync(() => {
+            return targetSourceFile!.getExportedDeclarations();
+          }, this.profiler, 'get_exported_declarations');
+          
+          this.exportDeclarationsByFile.set(filePath, fileExportsCache);
+          this.profiler.recordDetail('import_resolution', 'export_cache_builds', 1);
+        }
+        
+        // Find the exported function
+        const decls = fileExportsCache.get(exportedName);
+        this.logger?.debug(`Exported declarations for ${exportedName}: ${decls?.length || 0} found`);
+        
+        if (decls && decls.length > 0) {
+          // Return the first declaration (function/method)
+          for (const decl of decls) {
+            this.logger?.debug(`Checking declaration: ${decl.getKindName()}`);
+            if (this.isFunctionDeclaration(decl)) {
+              this.logger?.debug(`Found function declaration for ${exportedName}`);
+              this.profiler.recordDetail('import_resolution', 'successful_resolutions', 1);
+              // Cache the successful result
+              this.importResolutionCache.set(cacheKey, decl);
+              return decl;
+            }
+          }
+        }
+      } else {
+        this.profiler.recordDetail('import_resolution', 'files_not_found', 1);
+      }
+      
+      this.profiler.recordDetail('import_resolution', 'failed_resolutions', 1);
+      // Cache the failed result to avoid repeated attempts
+      this.importResolutionCache.set(cacheKey, undefined);
+      return undefined;
+    }, this.profiler, 'resolve_imported_symbol');
+  }
+
+  /**
+   * Find project root directory (for tsconfig paths resolution)
+   */
+  protected findProjectRoot(): string {
+    // Simplified project root detection without require()
+    return process.cwd();
+  }
+
+  /**
+   * Check if a declaration node represents a function
+   */
+  protected isFunctionDeclaration(decl: unknown): boolean {
+    if (!decl || typeof decl !== 'object') {
+      return false;
+    }
+    
+    const node = decl as Node;
+    return Node.isFunctionDeclaration(node) ||
+           Node.isMethodDeclaration(node) ||
+           Node.isFunctionExpression(node) ||
+           Node.isArrowFunction(node);
+  }
+
+  /**
+   * Get performance metrics from the profiler
+   */
+  getPerformanceMetrics() {
+    return this.profiler.getMetrics();
+  }
+
+  /**
+   * Print performance summary
+   */
+  printPerformanceSummary(): void {
+    this.profiler.printSummary();
+  }
+
+  /**
+   * Clear all caches including export declarations cache
    */
   async clearCache(): Promise<void> {
     await Promise.all([
       this.cache.clear(),
       this.callEdgeCache.clear()
     ]);
+    this.exportDeclarationsByFile.clear();
+    this.importResolutionCache.clear();
   }
 }
