@@ -47,7 +47,7 @@ class NoCacheCallGraphAnalyzer extends CallGraphAnalyzer {
       resolvedPath = path.normalize(path.resolve(path.dirname(currentFilePath), moduleSpecifier));
     } else if (moduleSpecifier.startsWith('@/') || moduleSpecifier.startsWith('#/')) {
       // tsconfig paths aliases (basic support)
-      const projectRoot = (this as unknown as { findProjectRoot(): string }).findProjectRoot();
+      const projectRoot = this.findProjectRoot();
       
       if (moduleSpecifier.startsWith('@/')) {
         const relativePath = moduleSpecifier.substring(2);
@@ -73,7 +73,7 @@ class NoCacheCallGraphAnalyzer extends CallGraphAnalyzer {
     
     let targetSourceFile;
     for (const ext of extensionCandidates) {
-      targetSourceFile = (this as unknown as { project: { getSourceFile(path: string): { getExportedDeclarations(): Map<string, unknown[]> } | undefined } }).project.getSourceFile(resolvedPath + ext);
+      targetSourceFile = this.project.getSourceFile(resolvedPath + ext);
       if (targetSourceFile) {
         break;
       }
@@ -90,7 +90,7 @@ class NoCacheCallGraphAnalyzer extends CallGraphAnalyzer {
       
       if (decls && decls.length > 0) {
         for (const decl of decls) {
-          if ((this as unknown as { isFunctionDeclaration(decl: unknown): boolean }).isFunctionDeclaration(decl)) {
+          if (this.isFunctionDeclaration(decl)) {
             const duration = performance.now() - startTime;
             this.baselineProfiler.recordDetail('import_resolution', 'successful_resolutions', 1);
             this.baselineProfiler.recordDetail('import_resolution', 'total_duration', duration);

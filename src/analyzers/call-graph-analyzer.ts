@@ -25,7 +25,7 @@ import * as path from 'path';
  * Identifies calls between functions, methods, and external libraries
  */
 export class CallGraphAnalyzer {
-  private project: Project;
+  protected project: Project;
   private cache: AnalysisCache;
   private callEdgeCache: CacheProvider<CallEdge[]>;
   private logger: Logger | undefined;
@@ -580,9 +580,24 @@ export class CallGraphAnalyzer {
   /**
    * Find project root directory (for tsconfig paths resolution)
    */
-  private findProjectRoot(): string {
+  protected findProjectRoot(): string {
     // Simplified project root detection without require()
     return process.cwd();
+  }
+
+  /**
+   * Check if a declaration node represents a function
+   */
+  protected isFunctionDeclaration(decl: unknown): boolean {
+    if (!decl || typeof decl !== 'object') {
+      return false;
+    }
+    
+    const node = decl as Node;
+    return Node.isFunctionDeclaration(node) ||
+           Node.isMethodDeclaration(node) ||
+           Node.isFunctionExpression(node) ||
+           Node.isArrowFunction(node);
   }
 
   /**
