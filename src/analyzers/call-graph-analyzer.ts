@@ -112,7 +112,7 @@ export class CallGraphAnalyzer {
     sourceFile: SourceFile,
     typeChecker: TypeChecker,
     importIndex: ReturnType<typeof buildImportIndex>,
-    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    allowedFunctionIdSet: Set<string>,
     getFunctionIdByDeclaration: (decl: Node) => string | undefined
   ): Promise<CallEdge[]> {
     const callEdges: CallEdge[] = [];
@@ -129,9 +129,9 @@ export class CallGraphAnalyzer {
 
         // Only create edges for internal function calls
         if (resolution.kind === "internal" && resolution.functionId) {
-          // Verify the resolved function ID exists in our function map
-          if (!Array.from(functionMap.values()).some(f => f.id === resolution.functionId)) {
-            this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in function map`);
+          // Verify the resolved function ID exists in allowed functions set
+          if (!allowedFunctionIdSet.has(resolution.functionId)) {
+            this.logger?.warn(`Resolved function ID ${resolution.functionId} not found in allowed functions set`);
             continue;
           }
           const callEdge = this.createCallEdgeFromResolution(
@@ -152,12 +152,35 @@ export class CallGraphAnalyzer {
     return callEdges;
   }
 
+  // New signature with allowedFunctionIdSet
+  async analyzeFile(
+    filePath: string,
+    localFunctionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    getFunctionIdByDeclaration: (decl: Node) => string | undefined,
+    allowedFunctionIdSet: Set<string>
+  ): Promise<CallEdge[]>;
+
+  // Backward compatibility overload - uses local function map as allowed set
   async analyzeFile(
     filePath: string,
     functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
     getFunctionIdByDeclaration?: (decl: Node) => string | undefined
+  ): Promise<CallEdge[]>;
+
+  async analyzeFile(
+    filePath: string,
+    functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>,
+    getFunctionIdByDeclaration?: (decl: Node) => string | undefined,
+    allowedFunctionIdSet?: Set<string>
   ): Promise<CallEdge[]> {
     try {
+      // Backward compatibility: if allowedFunctionIdSet not provided, create from functionMap
+      const actualAllowedFunctionIdSet = allowedFunctionIdSet || 
+        new Set(Array.from(functionMap.values()).map(f => f.id));
+      
+      // Ensure getFunctionIdByDeclaration is not undefined
+      const actualGetFunctionIdByDeclaration = getFunctionIdByDeclaration || (() => undefined);
+
       // Use existing source file if already loaded, avoid double parsing
       let sourceFile = this.project.getSourceFile(filePath);
       if (!sourceFile) {
@@ -171,13 +194,13 @@ export class CallGraphAnalyzer {
       // Get all function nodes in the file
       const functionNodes = this.getAllFunctionNodes(sourceFile);
       
-      // Build function node index for efficient lookup
+      // Build function node index for efficient lookup (using local functions only)
       const localDeclIndex = this.buildFunctionNodeIndex(functionNodes, functionMap);
       
       // Create fallback function for declaration lookup
-      const declarationLookup = getFunctionIdByDeclaration ?? ((decl: Node) => localDeclIndex.get(decl));
+      const declarationLookup = actualGetFunctionIdByDeclaration ?? ((decl: Node) => localDeclIndex.get(decl));
 
-      // Process each function and extract call edges
+      // Process each function and extract call edges (using local functions only)
       for (const [, functionInfo] of functionMap.entries()) {
         // Find matching function node with line tolerance
         const functionNode = functionNodes.find(node => {
@@ -201,7 +224,7 @@ export class CallGraphAnalyzer {
             sourceFile,
             typeChecker,
             importIndex,
-            functionMap,
+            actualAllowedFunctionIdSet,
             declarationLookup
           );
           
