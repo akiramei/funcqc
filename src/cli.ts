@@ -101,6 +101,7 @@ program
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .option('--scope <name>', 'scan specific scope (src, test, all, or custom scope)')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
+  .option('-j, --json', 'output as JSON for script processing')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { scanCommand } = await import('./cli/commands/scan');
