@@ -955,48 +955,8 @@ Exit codes:
 `);
 
 // Add types command (experimental type analysis)
-const typesCommand = program
-  .command('types')
-  .description('🧩 TypeScript type analysis (experimental)')
-  .addHelpText('before', '⚠️  This is an experimental feature for TypeScript type analysis');
-
-typesCommand
-  .command('list')
-  .description('📋 List TypeScript types with filtering options')
-  .option('--kind <kind>', 'Filter by type kind (interface|class|type_alias|enum|namespace)')
-  .option('--exported', 'Show only exported types')
-  .option('--generic', 'Show only generic types')
-  .option('--file <path>', 'Filter by file path')
-  .option('--limit <number>', 'Limit number of results', parseInt)
-  .option('--sort <field>', 'Sort by field (name|fields|complexity|usage)', 'name')
-  .option('--desc', 'Sort in descending order')
-  .option('--json', 'Output in JSON format')
-  .action(async (options) => {
-    const { executeTypesList } = await import('./cli/commands/types');
-    await executeTypesList(options);
-  });
-
-typesCommand
-  .command('health')
-  .description('🏥 Analyze type quality and health metrics')
-  .option('--verbose', 'Show detailed health information')
-  .option('--json', 'Output in JSON format')
-  .option('--thresholds <path>', 'Path to custom thresholds file')
-  .action(async (options) => {
-    const { executeTypesHealth } = await import('./cli/commands/types');
-    await executeTypesHealth(options);
-  });
-
-typesCommand
-  .command('deps <typeName>')
-  .description('🔗 Analyze type dependencies and usage')
-  .option('--depth <number>', 'Maximum dependency depth to analyze', parseInt, 3)
-  .option('--circular', 'Show only circular dependencies')
-  .option('--json', 'Output in JSON format')
-  .action(async (typeName, options) => {
-    const { executeTypesDeps } = await import('./cli/commands/types');
-    await executeTypesDeps(typeName, options);
-  });
+import { createTypesCommand } from './cli/commands/types';
+program.addCommand(createTypesCommand());
 
 // Handle unknown commands
 program.on('command:*', () => {

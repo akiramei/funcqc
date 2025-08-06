@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { Project } from 'ts-morph';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
-import { TypeDependencyAnalyzer, TypeDependency } from '../../analyzers/type-dependency-analyzer';
+import { TypeDependencyAnalyzer, TypeDependency, CircularDependency } from '../../analyzers/type-dependency-analyzer';
 import { TypeMetricsCalculator, TypeQualityScore, TypeHealthReport } from '../../analyzers/type-metrics-calculator';
 import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
@@ -107,7 +107,8 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
     }
     
     if (options.file) {
-      filteredTypes = filteredTypes.filter(t => t.filePath.includes(options.file!));
+      const filePath = options.file;
+      filteredTypes = filteredTypes.filter(t => t.filePath.includes(filePath));
     }
 
     // Sort types
@@ -139,7 +140,7 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
   try {
     logger.info('🏥 Analyzing type health...');
     
-    const { types, dependencies } = await analyzeProjectTypes();
+    const { types, dependencies, project } = await analyzeProjectTypes();
     
     // Load custom thresholds if provided
     let thresholds = {};
@@ -152,8 +153,9 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
     
     // Calculate type quality scores
     const typeScores: TypeQualityScore[] = [];
+    const typeAnalyzer = new TypeAnalyzer(project);
     for (const type of types) {
-      const metrics = new TypeAnalyzer(new Project()).calculateTypeMetrics(type);
+      const metrics = typeAnalyzer.calculateTypeMetrics(type);
       const typeDependencies = dependencies.filter(d => d.sourceTypeId === type.id);
       const score = calculator.calculateTypeQuality(type, metrics, undefined, typeDependencies);
       typeScores.push(score);
@@ -209,7 +211,7 @@ export async function executeTypesDeps(typeName: string, options: TypeDepsOption
       if (options.json) {
         console.log(JSON.stringify(typeCircularDeps, null, 2));
       } else {
-        displayCircularDependencies(typeCircularDeps as unknown as Array<Record<string, unknown>>);
+        displayCircularDependencies(typeCircularDeps);
       }
     } else {
       const typeDependencies = dependencies.filter(d => 
@@ -260,8 +262,9 @@ async function analyzeProjectTypes(): Promise<{
   for (const filePath of typeScriptFiles) {
     try {
       project.addSourceFileAtPath(filePath);
-    } catch {
-      console.warn(`⚠️  Could not add file: ${filePath}`);
+    } catch (error) {
+      console.warn(`⚠️  Could not add file: ${filePath}`, error);
+      // Consider whether to continue or throw based on the error type
     }
   }
 
@@ -434,7 +437,7 @@ function displayHealthReport(
 /**
  * Display circular dependencies
  */
-function displayCircularDependencies(circularDeps: Array<Record<string, unknown>>): void {
+function displayCircularDependencies(circularDeps: CircularDependency[]): void {
   if (circularDeps.length === 0) {
     console.log('✅ No circular dependencies found');
     return;
@@ -443,9 +446,8 @@ function displayCircularDependencies(circularDeps: Array<Record<string, unknown>
   console.log(`\n🔄 Found ${circularDeps.length} circular dependencies:\n`);
   
   circularDeps.forEach((cycle, index) => {
-    const severityIcon = cycle['severity'] === 'error' ? '🔴' : '🟡';
-    const typeNames = cycle['typeNames'] as string[];
-    console.log(`${index + 1}. ${severityIcon} ${typeNames.join(' → ')}`);
+    const severityIcon = cycle.severity === 'error' ? '🔴' : '🟡';
+    console.log(`${index + 1}. ${severityIcon} ${cycle.typeNames.join(' → ')}`);
   });
 }
 

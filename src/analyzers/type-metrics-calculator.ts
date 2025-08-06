@@ -59,7 +59,9 @@ export class TypeMetricsCalculator {
     minUsageForReusability: 3
   };
 
-  constructor(private thresholds: Partial<TypeThresholds> = {}) {
+  private thresholds: TypeThresholds;
+
+  constructor(thresholds: Partial<TypeThresholds> = {}) {
     this.thresholds = { ...this.defaultThresholds, ...thresholds };
   }
 
@@ -237,7 +239,7 @@ export class TypeMetricsCalculator {
     }
 
     // Excessive literal types
-    if (typeMetrics.literalTypeCount > this.thresholds.maxLiteralTypes!) {
+    if (typeMetrics.literalTypeCount > this.thresholds.maxLiteralTypes) {
       score -= 10;
       issues.push({
         severity: 'warning',
@@ -265,7 +267,7 @@ export class TypeMetricsCalculator {
     }
 
     // Usage frequency bonus
-    if (usageInfo.usageCount >= this.thresholds.minUsageForReusability!) {
+    if (usageInfo.usageCount >= this.thresholds.minUsageForReusability) {
       score += Math.min(30, usageInfo.usageCount * 5);
     } else if (usageInfo.usageCount === 0) {
       score = 20;
@@ -314,7 +316,7 @@ export class TypeMetricsCalculator {
     }
 
     // Excessive intersection types penalty
-    if (typeMetrics.intersectionMemberCount > this.thresholds.maxIntersectionMembers!) {
+    if (typeMetrics.intersectionMemberCount > this.thresholds.maxIntersectionMembers) {
       score -= 15;
       issues?.push({
         severity: 'warning',

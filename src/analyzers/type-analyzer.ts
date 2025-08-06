@@ -327,14 +327,10 @@ export class TypeAnalyzer {
   private extractModifiers(node: Node): string[] {
     const modifiers: string[] = [];
     
-    // Simple approach for ts-morph compatibility
-    const text = node.getText();
-    const commonModifiers = ['export', 'declare', 'const', 'abstract', 'static', 'readonly'];
-    
-    for (const modifier of commonModifiers) {
-      if (text.includes(modifier + ' ')) {
-        modifiers.push(modifier);
-      }
+    if (Node.isModifierable(node)) {
+      node.getModifiers().forEach(modifier => {
+        modifiers.push(modifier.getText());
+      });
     }
     
     return modifiers;

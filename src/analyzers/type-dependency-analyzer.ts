@@ -398,29 +398,24 @@ export class TypeDependencyAnalyzer {
   private extractTypeNamesFromTypeNode(typeNode: TypeNode | undefined): string[] {
     if (!typeNode) return [];
 
-    const typeNames: string[] = [];
+    const typeNames = new Set<string>();
 
-    // Simple implementation - can be enhanced for complex type structures
-    const typeText = typeNode.getText();
-    
-    // Extract type references
+    // Extract direct type reference
     if (Node.isTypeReference(typeNode)) {
-      typeNames.push(typeNode.getTypeName().getText());
+      typeNames.add(typeNode.getTypeName().getText());
     }
 
-    // For union types, intersection types, etc., we'd need more sophisticated parsing
-    // This is a simplified version that looks for basic type references
-    const typeReferencePattern = /\b[A-Z][a-zA-Z0-9_]*\b/g;
-    const matches = typeText.match(typeReferencePattern);
-    if (matches) {
-      matches.forEach(match => {
-        if (!typeNames.includes(match) && this.typeDefinitions.has(match)) {
-          typeNames.push(match);
+    // Recursively extract type names from descendants
+    typeNode.forEachDescendant((node) => {
+      if (Node.isTypeReference(node)) {
+        const typeName = node.getTypeName().getText();
+        if (this.typeDefinitions.has(typeName)) {
+          typeNames.add(typeName);
         }
-      });
-    }
+      }
+    });
 
-    return typeNames;
+    return Array.from(typeNames);
   }
 
   /**
