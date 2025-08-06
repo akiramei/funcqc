@@ -3,7 +3,7 @@
  * Ensures that key function call relationships are properly detected
  */
 
-import { describe, it, expect, beforeAll } from '@jest/globals';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { ConfigManager } from '../../core/config';
 import { PGLiteStorageAdapter } from '../../storage/pglite-adapter';
 import { loadComprehensiveCallGraphData } from '../../utils/lazy-analysis';
