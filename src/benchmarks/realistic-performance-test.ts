@@ -95,6 +95,7 @@ async function runRealisticPerformanceTest(): Promise<void> {
   });
 
   // Analyze call graph with performance measurement enabled
+  const originalDebugPerf = process.env['FUNCQC_DEBUG_PERFORMANCE'];
   process.env['FUNCQC_DEBUG_PERFORMANCE'] = 'true';
   
   const analysisResult = await analyzer.analyzeCallGraphFromContent(
@@ -103,6 +104,13 @@ async function runRealisticPerformanceTest(): Promise<void> {
     'temp', // Use temp snapshot ID
     storage
   );
+  
+  // Restore original value
+  if (originalDebugPerf !== undefined) {
+    process.env['FUNCQC_DEBUG_PERFORMANCE'] = originalDebugPerf;
+  } else {
+    delete process.env['FUNCQC_DEBUG_PERFORMANCE'];
+  }
 
   const test2Time = performance.now() - test2Start;
   const memAfter2 = process.memoryUsage().heapUsed / 1024 / 1024;
@@ -198,7 +206,9 @@ async function runRealisticPerformanceTest(): Promise<void> {
   console.log(`   Ratio: ${dbVsAnalysis.toFixed(2)}x (${dbVsAnalysis > 1 ? 'slower' : 'faster'})\n`);
 
   // Quality of analysis
-  const edgeDetectionImprovement = ((test2Results.callEdgesFound - test1Results.callEdgesFound) / test1Results.callEdgesFound * 100);
+  const edgeDetectionImprovement = test1Results.callEdgesFound > 0
+    ? ((test2Results.callEdgesFound - test1Results.callEdgesFound) / test1Results.callEdgesFound * 100)
+    : 0;
   console.log(`🔍 Call Edge Detection:`);
   console.log(`   Existing (DB): ${test1Results.callEdgesFound} edges`);
   console.log(`   Fresh Analysis: ${test2Results.callEdgesFound} edges`);
@@ -224,7 +234,7 @@ async function runRealisticPerformanceTest(): Promise<void> {
   console.log('✅ Realistic performance test completed!');
   
   // Cleanup
-  process.env['FUNCQC_DEBUG_PERFORMANCE'] = '';
+  delete process.env['FUNCQC_DEBUG_PERFORMANCE'];
 }
 
 // Run test if this file is executed directly

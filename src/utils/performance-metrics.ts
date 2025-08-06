@@ -134,20 +134,23 @@ interface PhaseData {
  * Decorator for measuring method performance
  */
 export function measurePerformance<T extends (...args: unknown[]) => unknown>(
-  _target: unknown,
+  _target: object,
   propertyKey: string,
   descriptor: TypedPropertyDescriptor<T>
 ): TypedPropertyDescriptor<T> {
   const originalMethod = descriptor.value!;
 
-  descriptor.value = function(this: { profiler?: PerformanceProfiler }, ...args: unknown[]) {
+  descriptor.value = function(this: unknown, ...args: Parameters<T>) {
     const start = performance.now();
-    const result = originalMethod.apply(this, args as Parameters<T>);
+    const result = originalMethod.apply(this, args) as ReturnType<T>;
     const duration = performance.now() - start;
 
     // If the instance has a profiler, record the measurement
-    if (this.profiler && this.profiler instanceof PerformanceProfiler) {
-      this.profiler.recordDetail('method_calls', propertyKey, duration);
+    if (this && typeof this === 'object' && 'profiler' in this) {
+      const profiler = (this as { profiler: unknown }).profiler;
+      if (profiler instanceof PerformanceProfiler) {
+        profiler.recordDetail('method_calls', propertyKey, duration);
+      }
     }
 
     return result;
