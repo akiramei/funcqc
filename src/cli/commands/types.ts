@@ -149,7 +149,7 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
     }
 
     const calculator = new TypeMetricsCalculator(thresholds);
-    const dependencyAnalyzer = new TypeDependencyAnalyzer(new Project());
+    const dependencyAnalyzer = new TypeDependencyAnalyzer(project);
     
     // Calculate type quality scores
     const typeScores: TypeQualityScore[] = [];
@@ -191,7 +191,7 @@ export async function executeTypesDeps(typeName: string, options: TypeDepsOption
   try {
     logger.info(`🔗 Analyzing dependencies for type: ${typeName}`);
     
-    const { types, dependencies } = await analyzeProjectTypes();
+    const { types, dependencies, project } = await analyzeProjectTypes();
     const targetType = types.find(t => t.name === typeName);
     
     if (!targetType) {
@@ -199,7 +199,7 @@ export async function executeTypesDeps(typeName: string, options: TypeDepsOption
       process.exit(1);
     }
 
-    const dependencyAnalyzer = new TypeDependencyAnalyzer(new Project());
+    const dependencyAnalyzer = new TypeDependencyAnalyzer(project);
     dependencyAnalyzer.setTypeDefinitions(types);
 
     if (options.circular) {

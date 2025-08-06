@@ -452,7 +452,7 @@ export class TypeAnalyzer {
         currentDepth++;
         maxDepth = Math.max(maxDepth, currentDepth);
       } else if (char === '>' || char === '}' || char === ']') {
-        currentDepth--;
+        currentDepth = Math.max(0, currentDepth - 1);
       }
     }
     
@@ -463,6 +463,8 @@ export class TypeAnalyzer {
    * Count union members (simple heuristic)
    */
   private countUnionMembers(typeText: string): number {
+    // TODO: Exclude | operators inside string literals for accuracy
+    // Example: type Status = "pending|processing" | "completed"
     // Simple count of | operators (may not be fully accurate)
     const matches = typeText.match(/\s*\|\s*/g);
     return matches ? matches.length + 1 : 0;
@@ -472,6 +474,7 @@ export class TypeAnalyzer {
    * Count intersection members (simple heuristic)
    */
   private countIntersectionMembers(typeText: string): number {
+    // TODO: Exclude & operators inside string literals for accuracy
     // Simple count of & operators (may not be fully accurate)
     const matches = typeText.match(/\s*&\s*/g);
     return matches ? matches.length + 1 : 0;

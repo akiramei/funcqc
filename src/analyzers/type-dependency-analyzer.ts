@@ -439,14 +439,12 @@ export class TypeDependencyAnalyzer {
     typeNode: TypeNode, 
     _targetTypeName: string
   ): TypeDependency['dependencyKind'] {
-    const typeText = typeNode.getText();
-    
-    if (typeText.includes(' | ')) {
+    if (Node.isUnionTypeNode(typeNode)) {
       return 'union_member';
-    } else if (typeText.includes(' & ')) {
+    } else if (Node.isIntersectionTypeNode(typeNode)) {
       return 'intersection_member';
     } else {
-      return 'property'; // Default for type aliases
+      return 'property';
     }
   }
 
