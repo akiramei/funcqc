@@ -5,6 +5,7 @@ import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
+import * as path from 'path';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
@@ -324,7 +325,6 @@ export class FunctionAnalyzer {
     
     // Add specific files we want to analyze with normalized paths
     this.logger.debug(`Adding ${filePaths.length} files to project...`);
-    const path = require('path');
     for (const filePath of filePaths) {
       const normalizedPath = path.resolve(filePath); // Ensure absolute path
       this.project.addSourceFileAtPath(normalizedPath);

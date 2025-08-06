@@ -391,9 +391,9 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
         if (ctx.resolveImportedSymbol) {
           // CRITICAL FIX: Use imported name (original export name) instead of local name
           const exportedName = alias.kind === "named" || alias.kind === "default" 
-            ? (alias as any).imported || expr.getText()  // Use imported name if available
+            ? ('imported' in alias ? alias.imported : expr.getText())  // Use imported name if available
             : expr.getText(); // For namespace/require, use local name
-          const declNode = ctx.resolveImportedSymbol(alias.module, exportedName);
+          const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
           if (declNode) {
             const functionId = ctx.getFunctionIdByDeclaration(declNode);
             if (functionId) {
