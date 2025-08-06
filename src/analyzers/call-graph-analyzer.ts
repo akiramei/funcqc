@@ -381,16 +381,6 @@ export class CallGraphAnalyzer {
     return nodes;
   }
 
-  /**
-   * Check if a node is a function declaration of any type
-   */
-  private isFunctionDeclaration(node: Node): boolean {
-    return Node.isFunctionDeclaration(node) ||
-           Node.isMethodDeclaration(node) ||
-           Node.isArrowFunction(node) ||
-           Node.isFunctionExpression(node) ||
-           Node.isConstructorDeclaration(node);
-  }
 
   /**
    * Get cache statistics for monitoring
