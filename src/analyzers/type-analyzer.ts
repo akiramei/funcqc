@@ -357,11 +357,11 @@ export class TypeAnalyzer {
     // Basic implementation - can be enhanced with actual AST analysis
     const metadata = typeDefinition.metadata as Record<string, unknown>;
     return {
-      fieldCount: (metadata.propertyCount || 0) + (metadata.methodCount || 0),
+      fieldCount: ((metadata['propertyCount'] as number) || 0) + ((metadata['methodCount'] as number) || 0),
       nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
       genericParameterCount: typeDefinition.genericParameters.length,
       unionMemberCount: 0, // Interfaces don't have unions directly
-      intersectionMemberCount: metadata.extendsCount || 0,
+      intersectionMemberCount: (metadata['extendsCount'] as number) || 0,
       literalTypeCount: this.countLiteralTypes(typeDefinition.typeText),
       discriminantCaseCount: 0 // Would need deeper analysis
     };
@@ -373,11 +373,11 @@ export class TypeAnalyzer {
   private calculateClassMetrics(typeDefinition: TypeDefinition): TypeMetrics {
     const metadata = typeDefinition.metadata as Record<string, unknown>;
     return {
-      fieldCount: (metadata.propertyCount || 0) + (metadata.methodCount || 0),
+      fieldCount: ((metadata['propertyCount'] as number) || 0) + ((metadata['methodCount'] as number) || 0),
       nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
       genericParameterCount: typeDefinition.genericParameters.length,
       unionMemberCount: 0, // Classes don't have unions directly
-      intersectionMemberCount: metadata.implementsCount || 0,
+      intersectionMemberCount: (metadata['implementsCount'] as number) || 0,
       literalTypeCount: this.countLiteralTypes(typeDefinition.typeText),
       discriminantCaseCount: 0
     };
@@ -404,13 +404,13 @@ export class TypeAnalyzer {
   private calculateEnumMetrics(typeDefinition: TypeDefinition): TypeMetrics {
     const metadata = typeDefinition.metadata as Record<string, unknown>;
     return {
-      fieldCount: metadata.memberCount || 0,
+      fieldCount: (metadata['memberCount'] as number) || 0,
       nestingDepth: 1, // Enums are flat
       genericParameterCount: 0, // Enums cannot be generic
-      unionMemberCount: metadata.memberCount || 0, // Each enum member is like a union case
+      unionMemberCount: (metadata['memberCount'] as number) || 0, // Each enum member is like a union case
       intersectionMemberCount: 0,
-      literalTypeCount: metadata.memberCount || 0, // Each member is a literal
-      discriminantCaseCount: metadata.memberCount || 0
+      literalTypeCount: (metadata['memberCount'] as number) || 0, // Each member is a literal
+      discriminantCaseCount: (metadata['memberCount'] as number) || 0
     };
   }
 

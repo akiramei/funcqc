@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { Project } from 'ts-morph';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
 import { TypeDependencyAnalyzer, TypeDependency } from '../../analyzers/type-dependency-analyzer';
-import { TypeMetricsCalculator, TypeQualityScore } from '../../analyzers/type-metrics-calculator';
+import { TypeMetricsCalculator, TypeQualityScore, TypeHealthReport } from '../../analyzers/type-metrics-calculator';
 import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
 import * as fs from 'fs';
@@ -209,7 +209,7 @@ export async function executeTypesDeps(typeName: string, options: TypeDepsOption
       if (options.json) {
         console.log(JSON.stringify(typeCircularDeps, null, 2));
       } else {
-        displayCircularDependencies(typeCircularDeps);
+        displayCircularDependencies(typeCircularDeps as unknown as Array<Record<string, unknown>>);
       }
     } else {
       const typeDependencies = dependencies.filter(d => 
@@ -381,7 +381,7 @@ function displayTypesList(types: TypeDefinition[]): void {
  * Display health report
  */
 function displayHealthReport(
-  healthReport: Record<string, unknown>,
+  healthReport: TypeHealthReport,
   typeScores: TypeQualityScore[],
   verbose?: boolean
 ): void {
@@ -399,10 +399,10 @@ function displayHealthReport(
     console.log(`\n🔄 Circular Dependencies: ${healthReport.circularDependencies.length}`);
   }
 
-  const topIssues = healthReport.topIssues as Array<Record<string, unknown>>;
+  const topIssues = healthReport.topIssues;
   if (topIssues.length > 0) {
     console.log(`\n⚠️  Top Issues:`);
-    topIssues.slice(0, 5).forEach((issue: Record<string, unknown>, index: number) => {
+    topIssues.slice(0, 5).forEach((issue, index: number) => {
       const severityIcon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '💡';
       console.log(`   ${index + 1}. ${severityIcon} ${issue.message}`);
       if (issue.suggestion) {
@@ -411,7 +411,7 @@ function displayHealthReport(
     });
   }
 
-  const recommendations = healthReport.recommendations as string[];
+  const recommendations = healthReport.recommendations;
   if (recommendations.length > 0) {
     console.log(`\n💡 Recommendations:`);
     recommendations.forEach((rec: string, index: number) => {
@@ -443,8 +443,9 @@ function displayCircularDependencies(circularDeps: Array<Record<string, unknown>
   console.log(`\n🔄 Found ${circularDeps.length} circular dependencies:\n`);
   
   circularDeps.forEach((cycle, index) => {
-    const severityIcon = cycle.severity === 'error' ? '🔴' : '🟡';
-    console.log(`${index + 1}. ${severityIcon} ${cycle.typeNames.join(' → ')}`);
+    const severityIcon = cycle['severity'] === 'error' ? '🔴' : '🟡';
+    const typeNames = cycle['typeNames'] as string[];
+    console.log(`${index + 1}. ${severityIcon} ${typeNames.join(' → ')}`);
   });
 }
 
