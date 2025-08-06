@@ -13,12 +13,13 @@ import { AnalysisState } from '../types';
 import { SymbolCache } from '../../../utils/symbol-cache';
 import { buildImportIndex, resolveCallee } from '../../symbol-resolver';
 import { addEdge } from '../../shared/graph-utils';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class ImportExactAnalysisStage {
   private logger: Logger;
   private _debug: boolean;
   private _typeChecker: TypeChecker;
-  // @ts-expect-error - Reserved for future use
   private _project: Project;
   private symbolCache: SymbolCache;
   private functionLookupMap: Map<string, string> = new Map();
@@ -227,7 +228,10 @@ export class ImportExactAnalysisStage {
         typeChecker: this._typeChecker,
         importIndex,
         internalModulePrefixes: ["src/", "@/", "#/"],
-        getFunctionIdByDeclaration
+        getFunctionIdByDeclaration,
+        resolveImportedSymbol: (moduleSpecifier: string, exportedName: string) => {
+          return this.resolveImportedSymbol(moduleSpecifier, exportedName, sourceFile.getFilePath());
+        }
       });
 
       // 外部呼び出しは未解決として CHA に送らない（循環の原因を遮断）
@@ -532,6 +536,134 @@ export class ImportExactAnalysisStage {
       lineNumber: callNode.getStartLineNumber(),
       columnNumber: callNode.getStart() - callNode.getStartLinePos()
     };
+  }
+
+  /**
+   * Resolve imported symbol with cross-file import resolution
+   * Reused from CallGraphAnalyzer implementation
+   */
+  private resolveImportedSymbol(
+    moduleSpecifier: string, 
+    exportedName: string, 
+    currentFilePath: string
+  ): Node | undefined {
+    // Check if we're working with virtual paths (used in analyzeCallGraphFromContent)
+    const isVirtual = currentFilePath.startsWith('/virtual');
+    
+    // Enhanced import resolution: relative + tsconfig paths + absolute
+    let resolvedPath: string;
+    
+    if (moduleSpecifier.startsWith('./') || moduleSpecifier.startsWith('../')) {
+      // Use path.resolve for cross-platform compatibility
+      const baseDir = path.dirname(path.resolve(currentFilePath));
+      resolvedPath = path.resolve(baseDir, moduleSpecifier);
+    } else if (moduleSpecifier.startsWith('@/') || moduleSpecifier.startsWith('#/')) {
+      // tsconfig paths aliases with path.join
+      const projectRoot = this.findProjectRoot();
+      
+      if (moduleSpecifier.startsWith('@/')) {
+        // @/ -> src/ mapping (common convention)
+        const relativePath = moduleSpecifier.substring(2); // Remove '@/'
+        if (isVirtual) {
+          resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+        } else {
+          resolvedPath = path.join(projectRoot, 'src', relativePath);
+        }
+      } else if (moduleSpecifier.startsWith('#/')) {
+        // #/ -> project root mapping
+        const relativePath = moduleSpecifier.substring(2); // Remove '#/'
+        if (isVirtual) {
+          resolvedPath = path.join('/virtual', projectRoot, relativePath);
+        } else {
+          resolvedPath = path.join(projectRoot, relativePath);
+        }
+      } else {
+        return undefined;
+      }
+    } else if (moduleSpecifier.startsWith('/')) {
+      // Absolute path with proper handling
+      if (isVirtual) {
+        resolvedPath = path.join('/virtual', moduleSpecifier);
+      } else {
+        resolvedPath = path.resolve(moduleSpecifier);
+      }
+    } else {
+      // External module or unsupported pattern
+      return undefined;
+    }
+    
+    // Try to find the source file with comprehensive extension support
+    const extensionCandidates = [
+      '.ts', '.tsx',           // TypeScript files
+      '.js', '.jsx',           // JavaScript files  
+      '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
+      '/index.ts', '/index.tsx', // Index files
+      '/index.js', '/index.jsx'
+    ];
+    
+    let targetSourceFile;
+    for (const ext of extensionCandidates) {
+      const tryPathRaw = resolvedPath + ext;
+      
+      // Path normalization (ts-morph has issues with path format differences)
+      const tryPath = path.resolve(tryPathRaw);
+
+      targetSourceFile = this._project.getSourceFile(tryPath);
+      
+      // Lazy loading of import target files
+      if (!targetSourceFile && fs.existsSync(tryPath)) {
+        try {
+          targetSourceFile = this._project.addSourceFileAtPath(tryPath);
+          this.logger.debug(`Added missing source file: ${tryPath}`);
+        } catch (e) {
+          this.logger.debug(`Failed to add source file: ${tryPath}: ${String(e)}`);
+        }
+      }
+
+      if (targetSourceFile) {
+        break;
+      }
+    }
+    
+    
+    if (targetSourceFile) {
+      // Find the exported function
+      const exportedDeclarations = targetSourceFile.getExportedDeclarations();
+      const decls = exportedDeclarations.get(exportedName);
+      this.logger.debug(`Exported declarations for ${exportedName}: ${decls?.length || 0} found`);
+      
+      if (decls && decls.length > 0) {
+        // Return the first declaration (function/method)
+        for (const decl of decls) {
+          this.logger.debug(`Checking declaration: ${decl.getKindName()}`);
+          if (this.isFunctionDeclaration(decl)) {
+            this.logger.debug(`Found function declaration for ${exportedName}`);
+            return decl;
+          }
+        }
+      }
+    }
+    
+    return undefined;
+  }
+
+  /**
+   * Check if a node is a function declaration of any type
+   */
+  private isFunctionDeclaration(node: Node): boolean {
+    return Node.isFunctionDeclaration(node) ||
+           Node.isMethodDeclaration(node) ||
+           Node.isArrowFunction(node) ||
+           Node.isFunctionExpression(node) ||
+           Node.isConstructorDeclaration(node);
+  }
+
+  /**
+   * Find project root directory (for tsconfig paths resolution)
+   */
+  private findProjectRoot(): string {
+    // Simplified project root detection
+    return process.cwd();
   }
 
 }

@@ -161,7 +161,6 @@ async function performLazyCallGraphAnalysis(
       
       await env.storage.insertInternalCallEdges(internalCallEdgesWithCorrectSnapshotId);
     } catch (error) {
-      console.error(`❌ Failed to insert internal call edges:`, error);
       throw error;
     }
     
@@ -211,7 +210,28 @@ export async function loadCallGraphWithLazyAnalysis(
   // Get functions first
   const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
 
-  // Ensure call graph data is available
+  // First check if call graph data already exists
+  const existingCallEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
+  
+  // If call graph data already exists and is complete, use it directly
+  const callGraphCompleted = snapshot.metadata && 'callGraphAnalysisCompleted' in snapshot.metadata ? 
+    snapshot.metadata.callGraphAnalysisCompleted : false;
+    
+  if (callGraphCompleted && existingCallEdges.length > 0) {
+    if (showProgress) {
+      const spinner = ora();
+      spinner.succeed(`Call graph data loaded: ${existingCallEdges.length} edges`);
+    }
+    
+    return {
+      snapshot,
+      callEdges: existingCallEdges,
+      functions,
+      lazyAnalysisPerformed: false
+    };
+  }
+
+  // Only perform analysis if data doesn't exist
   const callGraphResult = await ensureCallGraphData(env, { showProgress });
 
   if (!callGraphResult.success) {
