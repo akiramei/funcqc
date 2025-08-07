@@ -158,7 +158,7 @@ function padOrTruncate(str: string, length: number): string {
  */
 function shortenFilePath(filePath: string, maxLength: number): string {
   // Remove common prefix and shorten
-  const relativePath = filePath.replace('/mnt/c/Users/akira/source/repos/funcqc/', '');
+  const relativePath = filePath.replace(process.cwd() + '/', '');
   const srcPath = relativePath.replace(/^src\//, '');
   
   if (srcPath.length <= maxLength) {

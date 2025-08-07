@@ -42,7 +42,7 @@ export function createTypesCommand(): Command {
     .action(async (options: TypeListOptions, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
-      const mergedOptions = { ...globalOpts, ...options, verbose: options.detail };
+      const mergedOptions = { ...globalOpts, ...options };
       await executeTypesList(mergedOptions);
     });
 
@@ -129,7 +129,7 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
     if (options.json) {
       console.log(JSON.stringify(filteredTypes, null, 2));
     } else {
-      displayTypesList(filteredTypes, options.verbose);
+      displayTypesList(filteredTypes, options.detail);
     }
 
   } catch (error) {
