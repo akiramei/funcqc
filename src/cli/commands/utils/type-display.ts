@@ -39,12 +39,56 @@ export function sortTypes(types: TypeDefinition[], sortBy: string, desc?: boolea
 /**
  * Display types list in formatted output
  */
-export function displayTypesList(types: TypeDefinition[]): void {
+export function displayTypesList(types: TypeDefinition[], verbose?: boolean): void {
   if (!types || types.length === 0) {
     console.log('📭 No types found matching the criteria');
     return;
   }
 
+  
+  if (verbose === true) {
+    displayTypesListVerbose(types);
+  } else {
+    displayTypesListTable(types);
+  }
+}
+
+/**
+ * Display types in table format (default)
+ */
+function displayTypesListTable(types: TypeDefinition[]): void {
+  console.log(`\n📋 Found ${types.length} types:\n`);
+  
+  // Table header
+  console.log('ID       Name                         Kind        Exp LOC Props Methods File                          Line');
+  console.log('──────── ──────────────────────────── ─────────── ─── ─── ───── ─────── ───────────────────────────── ────');
+  
+  for (const type of types) {
+    const id = shortenId(type.id);
+    const name = padOrTruncate(type.name, 28);
+    const kind = padOrTruncate(getKindText(type.kind), 11);
+    const exportIcon = type.isExported ? '🌐' : '🔒';
+    const loc = calculateLOC(type);
+    const locStr = loc.toString().padStart(3);
+    
+    // Safe access to metadata properties
+    const metadata = type.metadata || {};
+    const props = ((metadata['propertyCount'] as number) ?? 0).toString().padStart(5);
+    const methods = ((metadata['methodCount'] as number) ?? 0).toString().padStart(7);
+    
+    const file = shortenFilePath(type.filePath, 29);
+    const line = type.startLine.toString().padStart(4);
+    
+    console.log(`${id} ${name} ${kind} ${exportIcon}   ${locStr} ${props} ${methods} ${file} ${line}`);
+  }
+  
+  console.log('');
+}
+
+/**
+ * Display types in verbose format (original multi-line format)
+ */
+function displayTypesListVerbose(types: TypeDefinition[]): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   for (const type of types) {
@@ -56,6 +100,7 @@ export function displayTypesList(types: TypeDefinition[]): void {
     
     console.log(`${kindIcon} ${exportStatus} ${type.name}${genericStatus}`);
     console.log(`   📁 ${type.filePath}:${type.startLine}`);
+    console.log(`   🆔 ${type.id}`);
     
     // Safe access to metadata properties
     const metadata = type.metadata || {};
@@ -68,6 +113,79 @@ export function displayTypesList(types: TypeDefinition[]): void {
     
     console.log('');
   }
+}
+
+/**
+ * Shorten ID for display (first 8 characters)
+ */
+function shortenId(id: string): string {
+  return id.substring(0, 8);
+}
+
+/**
+ * Calculate Lines of Code for a type
+ */
+function calculateLOC(type: TypeDefinition): number {
+  return type.endLine - type.startLine + 1;
+}
+
+/**
+ * Get text representation of type kind
+ */
+function getKindText(kind: string): string {
+  switch (kind) {
+    case 'interface': return 'interface';
+    case 'class': return 'class';
+    case 'type_alias': return 'type';
+    case 'enum': return 'enum';
+    case 'namespace': return 'namespace';
+    default: return kind;
+  }
+}
+
+/**
+ * Pad or truncate string to specified length
+ */
+function padOrTruncate(str: string, length: number): string {
+  if (str.length > length) {
+    return str.substring(0, length - 3) + '...';
+  }
+  return str.padEnd(length);
+}
+
+/**
+ * Shorten file path for display
+ */
+function shortenFilePath(filePath: string, maxLength: number): string {
+  // Remove common prefix and shorten
+  const relativePath = filePath.replace(process.cwd() + '/', '');
+  const srcPath = relativePath.replace(/^src\//, '');
+  
+  if (srcPath.length <= maxLength) {
+    return srcPath.padEnd(maxLength);
+  }
+  
+  // Shorten by keeping directory structure readable
+  const parts = srcPath.split('/');
+  if (parts.length > 1) {
+    const fileName = parts[parts.length - 1];
+    const dirParts = parts.slice(0, -1);
+    
+    // Try to fit as much as possible
+    let shortened = fileName;
+    for (let i = dirParts.length - 1; i >= 0; i--) {
+      const candidate = dirParts[i] + '/' + shortened;
+      if (candidate.length <= maxLength - 3) {
+        shortened = candidate;
+      } else {
+        shortened = '...' + shortened;
+        break;
+      }
+    }
+    return shortened.padEnd(maxLength);
+  }
+  
+  return (srcPath.substring(0, maxLength - 3) + '...').padEnd(maxLength);
 }
 
 /**
