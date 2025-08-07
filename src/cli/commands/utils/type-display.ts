@@ -1,6 +1,6 @@
 import { TypeDefinition } from '../../../analyzers/type-analyzer';
 import { TypeDependency, CircularDependency } from '../../../analyzers/type-dependency-analyzer';
-import { TypeQualityScore, TypeHealthReport } from '../../../analyzers/type-metrics-calculator';
+import { TypeQualityScore, TypeHealthReport, TypeQualityIssue } from '../../../analyzers/type-metrics-calculator';
 
 /**
  * Sort types based on specified criteria
@@ -278,16 +278,33 @@ export function displayHealthReport(
       });
   }
 
+  // Show Top Issues or Improvement Opportunities based on risk levels
+  const hasSignificantRisks = highRiskTypes.length > 0 || 
+                             healthReport.riskDistribution.medium > 0 || 
+                             healthReport.riskDistribution.critical > 0;
+  
   const topIssues = healthReport.topIssues;
-  if (topIssues.length > 0 && !highRiskTypes.length) {
-    console.log(`\n⚠️  Top Issues:`);
-    topIssues.slice(0, 5).forEach((issue, index: number) => {
-      const severityIcon = issue.severity === 'error' ? '🔴' : issue.severity === 'warning' ? '🟡' : '💡';
-      console.log(`   ${index + 1}. ${severityIcon} ${issue.message}`);
-      if (issue.suggestion) {
-        console.log(`      💡 ${issue.suggestion}`);
-      }
-    });
+  if (topIssues.length > 0) {
+    if (hasSignificantRisks) {
+      // Show as critical issues when there are actual risks
+      console.log(`\n⚠️  Top Issues:`);
+      topIssues.slice(0, 5).forEach((issue, index: number) => {
+        const issueIcon = getIssueIconByImpact(issue);
+        console.log(`   ${index + 1}. ${issueIcon} ${issue.message}`);
+        if (issue.suggestion) {
+          console.log(`      💡 ${issue.suggestion}`);
+        }
+      });
+    } else {
+      // Show as improvement opportunities when all types are low risk
+      console.log(`\n🔵 Improvement Opportunities:`);
+      topIssues.slice(0, 3).forEach((issue, index: number) => {
+        console.log(`   ${index + 1}. 🔵 ${issue.message}`);
+        if (issue.suggestion) {
+          console.log(`      💡 ${issue.suggestion}`);
+        }
+      });
+    }
   }
 
   // Next Actions with specific CLI examples
@@ -420,6 +437,18 @@ function getDirectionLabel(score: number): string {
   if (score >= 50) return '(→ fair)';
   if (score >= 30) return '(↓ needs work)';
   return '(↓ critical)';
+}
+
+/**
+ * Get issue icon based on impact level, consistent with risk level coloring
+ */
+function getIssueIconByImpact(issue: TypeQualityIssue): string {
+  // Priority-based impact assessment
+  if (issue.category === 'complexity' && issue.severity === 'error') return '🟡'; // Medium impact
+  if (issue.category === 'maintainability' && issue.severity === 'error') return '🟡'; // Medium impact  
+  if (issue.severity === 'error') return '🟠'; // High impact
+  if (issue.severity === 'warning') return '🟡'; // Medium impact
+  return '💡'; // Low impact (info)
 }
 
 /**
