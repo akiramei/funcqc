@@ -369,7 +369,7 @@ export class ASTTypeMetrics {
       case SyntaxKind.ArrayType:
         if (Node.isArrayTypeNode(typeNode)) {
           const elementType = typeNode.getElementTypeNode();
-          const childMetrics = this.analyzeTypeNode(elementType);
+          const childMetrics = this.analyzeTypeNode(elementType, visited);
           result.nestingDepth = childMetrics.nestingDepth + 1;
           result.unionMemberCount += childMetrics.unionMemberCount;
           result.intersectionMemberCount += childMetrics.intersectionMemberCount;
@@ -382,7 +382,7 @@ export class ASTTypeMetrics {
         if (Node.isTupleTypeNode(typeNode)) {
           const elements = typeNode.getElements();
           for (const element of elements) {
-            const childMetrics = this.analyzeTypeNode(element);
+            const childMetrics = this.analyzeTypeNode(element, visited);
             result.nestingDepth = Math.max(result.nestingDepth, childMetrics.nestingDepth + 1);
             result.unionMemberCount += childMetrics.unionMemberCount;
             result.intersectionMemberCount += childMetrics.intersectionMemberCount;
@@ -395,7 +395,7 @@ export class ASTTypeMetrics {
       case SyntaxKind.ParenthesizedType:
         if (Node.isParenthesizedTypeNode(typeNode)) {
           const innerType = typeNode.getTypeNode();
-          const childMetrics = this.analyzeTypeNode(innerType);
+          const childMetrics = this.analyzeTypeNode(innerType, visited);
           // Parentheses don't add nesting depth
           result.nestingDepth = childMetrics.nestingDepth;
           result.unionMemberCount += childMetrics.unionMemberCount;
