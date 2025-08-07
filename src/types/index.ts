@@ -464,6 +464,7 @@ export interface ListCommandOptions extends CommandOptions {
   file?: string;
   name?: string;
   scope?: string; // Filter by scope (src, test, all, or custom scope)
+  includeTypes?: boolean; // Include type context information for functions
 }
 
 export interface ShowCommandOptions extends CommandOptions {
