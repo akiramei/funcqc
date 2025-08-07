@@ -55,6 +55,7 @@ export function createTypesCommand(): Command {
     .option('--verbose', 'Show detailed health information')
     .option('--json', 'Output in JSON format')
     .option('--thresholds <path>', 'Path to custom thresholds file')
+    .option('--legend', 'Show score ranges and color coding explanation')
     .action(async (options: TypeHealthOptions, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
@@ -191,7 +192,7 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
         typeScores: options.verbose ? typeScores : undefined
       }, null, 2));
     } else {
-      displayHealthReport(healthReport, typeScores, options.verbose, types, previousHealth || null);
+      displayHealthReport(healthReport, typeScores, options.verbose, types, previousHealth || null, options.legend);
     }
 
   } catch (error) {

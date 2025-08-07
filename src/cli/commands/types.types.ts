@@ -15,6 +15,7 @@ export interface TypeHealthOptions {
   verbose?: boolean;
   json?: boolean;
   thresholds?: string;
+  legend?: boolean;
 }
 
 export interface TypeDepsOptions {

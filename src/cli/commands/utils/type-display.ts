@@ -196,7 +196,8 @@ export function displayHealthReport(
   typeScores: TypeQualityScore[],
   verbose?: boolean,
   typeDefinitions?: TypeDefinition[],
-  previousHealth?: Partial<TypeHealthReport & { date?: string; timestamp?: string }> | null
+  previousHealth?: Partial<TypeHealthReport & { date?: string; timestamp?: string }> | null,
+  showLegend?: boolean
 ): void {
   // Show diff information if previous data exists
   const diffInfo = calculateDifference(healthReport, previousHealth || null);
@@ -209,10 +210,20 @@ export function displayHealthReport(
   
   console.log(`📊 Overall Health .............. ${healthReport.overallHealth}/100`);
   if (componentScores.count > 0) {
-    console.log(`┣╸ Complexity .................. ${componentScores.complexity} (p95=${componentScores.complexityP95}, worst=${componentScores.complexityWorst})`);
-    console.log(`┣╸ Maintainability ............. ${componentScores.maintainability}`);
-    console.log(`┣╸ Design / CK-WMC ............. ${componentScores.design}`);
-    console.log(`┗╸ Dependencies (Σ cycles=${healthReport.circularDependencies.length}) .. ${componentScores.dependency}`);
+    console.log(`┣╸ Complexity .................. ${componentScores.complexity}/100 ${getDirectionLabel(componentScores.complexity)} (p95=${componentScores.complexityP95}, worst=${componentScores.complexityWorst})`);
+    console.log(`┣╸ Maintainability ............. ${componentScores.maintainability}/100 ${getDirectionLabel(componentScores.maintainability)}`);
+    console.log(`┣╸ Design / CK-WMC ............. ${componentScores.design}/100 ${getDirectionLabel(componentScores.design)}`);
+    console.log(`┗╸ Dependencies (Σ cycles=${healthReport.circularDependencies.length}) .. ${componentScores.dependency}/100 ${getDirectionLabel(componentScores.dependency)}`);
+    
+    // Show penalty breakdown for Dependencies if score is below 80
+    if (componentScores.dependency < 80) {
+      const penalties = analyzeDependencyPenalties(typeScores, healthReport);
+      if (penalties.length > 0) {
+        penalties.forEach(penalty => {
+          console.log(`     • ${penalty}`);
+        });
+      }
+    }
   }
   console.log(`📦 Total Types: ${healthReport.totalTypes}`);
   
@@ -248,14 +259,14 @@ export function displayHealthReport(
   if (highRiskTypes.length > 0) {
     console.log(`\n🔍 High-Risk Types (${highRiskTypes.length} total):`);
     highRiskTypes
-      .sort((a, b) => a.overallScore - b.overallScore)
+      .sort((a, b) => b.riskScore - a.riskScore) // Sort by risk score descending (highest risk first)
       .forEach((score, index) => {
         const riskIcon = getRiskIcon(score.riskLevel);
         // Find the type definition to get file location
         const typeInfo = typeDefinitions?.find(t => t.name === score.typeName);
         const location = typeInfo ? ` (${shortenFilePath(typeInfo.filePath, 30)}:${typeInfo.startLine})` : '';
         
-        console.log(`   ${index + 1}. ${riskIcon} ${score.typeName}${location} ${score.overallScore}/100`);
+        console.log(`   ${index + 1}. ${riskIcon} ${score.typeName}${location} risk ${score.riskScore}/100`);
         
         // Show top 2 issues for this type
         if (score.issues.length > 0) {
@@ -316,6 +327,11 @@ export function displayHealthReport(
   // Thresholds information
   const thresholds = healthReport.thresholds;
   console.log(`\n使用閾値: ${thresholds.name || 'default'} (maxField=${thresholds.maxFieldCount}, maxDepth=${thresholds.maxNestingDepth}, ...) — \`--thresholds <path>\` で変更可`);
+  
+  // Show legend if requested
+  if (showLegend) {
+    displayLegend();
+  }
 
   if (verbose && typeScores.length > 0) {
     console.log(`\n📋 Individual Type Scores:`);
@@ -393,6 +409,55 @@ export function getRiskIcon(riskLevel: string): string {
     case 'critical': return '🔴';
     default: return '❓';
   }
+}
+
+/**
+ * Get direction label for score (higher scores are better for health metrics)
+ */
+function getDirectionLabel(score: number): string {
+  if (score >= 90) return '(↑ excellent)';
+  if (score >= 70) return '(↑ good)';
+  if (score >= 50) return '(→ fair)';
+  if (score >= 30) return '(↓ needs work)';
+  return '(↓ critical)';
+}
+
+/**
+ * Analyze dependency penalties to explain low dependency scores
+ */
+function analyzeDependencyPenalties(typeScores: TypeQualityScore[], healthReport: TypeHealthReport): string[] {
+  const penalties: string[] = [];
+  
+  // Check for common dependency issues
+  const highCouplingTypes = typeScores.filter(s => 
+    s.ckMetrics && s.ckMetrics.CBO > 10
+  );
+  if (highCouplingTypes.length > 0) {
+    penalties.push(`High coupling: ${highCouplingTypes.length} types with >10 dependencies`);
+  }
+  
+  // Check for circular dependencies
+  if (healthReport.circularDependencies.length > 0) {
+    penalties.push(`Circular dependencies: ${healthReport.circularDependencies.length} cycles detected`);
+  }
+  
+  // Check for deeply nested types
+  const deepTypes = typeScores.filter(s => 
+    s.issues.some(issue => issue.message.includes('nesting depth'))
+  );
+  if (deepTypes.length > 0) {
+    penalties.push(`Deep nesting: ${deepTypes.length} types exceed depth threshold`);
+  }
+  
+  // Check for overly complex inheritance
+  const complexInheritanceTypes = typeScores.filter(s =>
+    s.ckMetrics && s.ckMetrics.DIT > 3
+  );
+  if (complexInheritanceTypes.length > 0) {
+    penalties.push(`Deep inheritance: ${complexInheritanceTypes.length} types with >3 levels`);
+  }
+  
+  return penalties;
 }
 
 /**
@@ -485,6 +550,26 @@ function calculateComponentScores(typeScores: TypeQualityScore[]): {
     design: Math.round(designScores.reduce((a, b) => a + b, 0) / designScores.length),
     dependency: Math.round(ckScores.reduce((a, b) => a + b, 0) / ckScores.length)
   };
+}
+
+/**
+ * Display legend for score ranges and risk levels
+ */
+function displayLegend(): void {
+  console.log(`\n📖 Legend:`);
+  console.log(`   Health Scores (0-100, higher = better):`);
+  console.log(`   🟢 71-100: Low Risk       (↑ excellent/good)`);
+  console.log(`   🟡 51-70:  Medium Risk    (→ fair)`);
+  console.log(`   🟠 31-50:  High Risk      (↓ needs work)`);
+  console.log(`   🔴 0-30:   Critical Risk  (↓ critical)`);
+  console.log(`   `);
+  console.log(`   Risk Scores (0-100, higher = worse):`);
+  console.log(`   Risk Score = 100 - Health Score`);
+  console.log(`   `);
+  console.log(`   Score Direction Indicators:`);
+  console.log(`   ↑ = Higher scores are better (health metrics)`);
+  console.log(`   ↓ = Lower scores indicate problems`);
+  console.log(`   → = Neutral/fair performance`);
 }
 
 /**

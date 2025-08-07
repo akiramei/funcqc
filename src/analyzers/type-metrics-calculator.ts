@@ -6,7 +6,8 @@ import { Project } from 'ts-morph';
 export interface TypeQualityScore {
   typeId: string;
   typeName: string;
-  overallScore: number; // 0-100 scale
+  overallScore: number; // 0-100 scale (health score - higher is better)
+  riskScore: number; // 0-100 scale (risk score - higher is worse, = 100 - overallScore)
   complexityScore: number;
   maintainabilityScore: number;
   reusabilityScore: number;
@@ -114,13 +115,17 @@ export class TypeMetricsCalculator {
       ckScore * 0.20
     );
 
-    // Determine risk level
-    const riskLevel = this.determineRiskLevel(overallScore, issues);
+    // Calculate risk score (inverted health score for intuitive risk understanding)
+    const riskScore = 100 - overallScore;
+    
+    // Determine risk level based purely on risk score for consistency
+    const riskLevel = this.determineRiskLevel(riskScore);
 
     return {
       typeId: typeDefinition.id,
       typeName: typeDefinition.name,
       overallScore,
+      riskScore,
       complexityScore,
       maintainabilityScore,
       reusabilityScore,
@@ -371,16 +376,14 @@ export class TypeMetricsCalculator {
   }
 
   /**
-   * Determine risk level based on score and issues
+   * Determine risk level based on risk score (0-100, higher = worse)
+   * This provides intuitive risk assessment where high numbers mean high risk
    */
-  private determineRiskLevel(score: number, issues: TypeQualityIssue[]): TypeQualityScore['riskLevel'] {
-    const errorCount = issues.filter(i => i.severity === 'error').length;
-    const warningCount = issues.filter(i => i.severity === 'warning').length;
-
-    if (score < 30 || errorCount >= 3) return 'critical';
-    if (score < 50 || errorCount >= 1 || warningCount >= 5) return 'high';
-    if (score < 70 || warningCount >= 3) return 'medium';
-    return 'low';
+  private determineRiskLevel(riskScore: number): TypeQualityScore['riskLevel'] {
+    if (riskScore >= 70) return 'critical';  // health score 0-30
+    if (riskScore >= 50) return 'high';      // health score 31-50  
+    if (riskScore >= 30) return 'medium';    // health score 51-70
+    return 'low';                            // health score 71-100
   }
 
   /**
