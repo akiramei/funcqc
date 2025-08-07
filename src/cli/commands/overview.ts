@@ -1,5 +1,6 @@
 import { Command } from 'commander';
 import { Project } from 'ts-morph';
+import path from 'path';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
 import { FunctionRegistry } from '../../analyzers/function-registry';
 import { FunctionMetadata } from '../../analyzers/ideal-call-graph-analyzer';
@@ -52,6 +53,33 @@ Examples:
 }
 
 /**
+ * Check if a file path matches the file filter with precise matching
+ */
+function matchesFileFilter(filePath: string, fileFilter: string): boolean {
+  // Normalize paths for consistent comparison
+  const normalizedFilePath = path.normalize(filePath);
+  const normalizedFilter = path.normalize(fileFilter);
+  
+  // Try exact match first
+  if (normalizedFilePath === normalizedFilter) {
+    return true;
+  }
+  
+  // Try endsWith match for relative paths (e.g., "service.ts" matches "user-service.ts")
+  if (normalizedFilePath.endsWith(normalizedFilter)) {
+    return true;
+  }
+  
+  // Try exact filename match (handle cases where filter is just filename)
+  const fileName = path.basename(normalizedFilePath);
+  if (fileName === normalizedFilter) {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
  * Execute the overview command
  */
 export async function executeOverview(options: OverviewOptions): Promise<void> {
@@ -92,7 +120,7 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
       
       for (const sourceFile of sourceFiles) {
         const filePath = sourceFile.getFilePath();
-        if (!options.file || filePath.includes(options.file)) {
+        if (!options.file || matchesFileFilter(filePath, options.file)) {
           const fileTypes = typeAnalyzer.analyzeFile(filePath, snapshotId);
           types.push(...fileTypes);
         }
@@ -107,7 +135,7 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
       const allFunctions = await functionRegistry.collectAllFunctions();
       
       functions = Array.from(allFunctions.values()).filter(func => {
-        return !options.file || func.filePath.includes(options.file);
+        return !options.file || matchesFileFilter(func.filePath, options.file);
       });
     }
 
@@ -125,7 +153,7 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
       crossReferences = linker.linkTypesAndFunctions(types, functions);
 
       // Enrich data with cross-references
-      enrichedTypes = types.map(type => linker.enrichTypeWithFunctionInfo(type, functions));
+      enrichedTypes = await Promise.all(types.map(type => linker.enrichTypeWithFunctionInfo(type, functions)));
       enrichedFunctions = functions.map(func => linker.enrichFunctionWithTypeInfo(func, types));
 
       // Validate type-function links
@@ -167,7 +195,7 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
 
   } catch (error) {
     logger.error('❌ Failed to analyze types and functions:', error);
-    process.exit(1);
+    throw error; // 呼び出し元にエラーを伝播させ、終了処理を委譲
   }
 }
 
