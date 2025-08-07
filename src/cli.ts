@@ -954,6 +954,9 @@ Exit codes:
   1: AutoRemove items detected (action required)
 `);
 
+// Add types command (experimental type analysis)
+import { createTypesCommand } from './cli/commands/types';
+program.addCommand(createTypesCommand());
 
 // Handle unknown commands
 program.on('command:*', () => {
