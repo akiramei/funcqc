@@ -75,10 +75,14 @@ export class StorageManager {
 
   /**
    * Close storage connection
+   * Note: This method only nullifies the instance reference.
+   * Actual connection closing is handled by the storage instance itself
+   * via graceful shutdown mechanisms to prevent circular dependencies.
    */
   static async close(): Promise<void> {
     if (StorageManager.instance) {
-      await StorageManager.instance.close();
+      // Don't call instance.close() here to break circular dependency
+      // The instance will be closed through graceful shutdown coordinator
       StorageManager.instance = null;
     }
   }

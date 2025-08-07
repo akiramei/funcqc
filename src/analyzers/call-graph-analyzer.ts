@@ -54,7 +54,6 @@ export class CallGraphAnalyzer {
     });
     this.cache = new AnalysisCache({
       maxMemoryEntries: enableCache ? 100 : 0,
-      maxMemorySize: enableCache ? 10 : 0, // 10MB cache
     });
     this.callEdgeCache = callEdgeCache || CacheServiceLocator.getGenericCache<CallEdge[]>('call-graph-edges');
   }

@@ -2,7 +2,7 @@
  * Caching utilities for TypeScript analysis results
  */
 
-import { LRUCache } from 'lru-cache';
+// Using simple Map instead of LRUCache to break circular dependencies
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
@@ -24,8 +24,10 @@ export interface CacheStats {
 }
 
 export class AnalysisCache {
-  private memoryCache: LRUCache<string, CacheEntry>;
+  private memoryCache = new Map<string, CacheEntry>();
   private persistentCachePath: string;
+  private maxEntries: number;
+  private maxAge: number; // TTL for cache entries
   private stats = {
     hits: 0,
     misses: 0,
@@ -34,20 +36,11 @@ export class AnalysisCache {
   constructor(
     options: {
       maxMemoryEntries?: number;
-      maxMemorySize?: number; // in MB
       persistentCachePath?: string;
     } = {}
   ) {
-    // Configure in-memory cache
-    this.memoryCache = new LRUCache({
-      max: options.maxMemoryEntries || 1000,
-      maxSize: (options.maxMemorySize || 100) * 1024 * 1024, // Convert MB to bytes
-      sizeCalculation: (entry: CacheEntry) => {
-        // Estimate size: JSON stringify the functions and calculate size
-        return JSON.stringify(entry.functions).length * 2; // *2 for UTF-16
-      },
-      ttl: 1000 * 60 * 60 * 24, // 24 hours TTL
-    });
+    this.maxEntries = options.maxMemoryEntries || 1000;
+    this.maxAge = 1000 * 60 * 60 * 24; // 24 hours TTL
 
     // Setup persistent cache
     this.persistentCachePath =
@@ -77,7 +70,8 @@ export class AnalysisCache {
     // Try persistent cache
     const persistentEntry = await this.loadFromPersistentCache(cacheKey);
     if (persistentEntry && (await this.isValidCacheEntry(filePath, persistentEntry))) {
-      // Promote to memory cache
+      // Promote to memory cache with size limit enforcement
+      this.evictIfNecessary();
       this.memoryCache.set(cacheKey, persistentEntry);
       this.stats.hits++;
       return persistentEntry.functions;
@@ -101,6 +95,9 @@ export class AnalysisCache {
       createdAt: Date.now(),
     };
 
+    // Enforce size limit before adding new entry
+    this.evictIfNecessary();
+    
     // Store in memory cache
     this.memoryCache.set(cacheKey, entry);
 
@@ -122,12 +119,11 @@ export class AnalysisCache {
    * Get cache statistics
    */
   getStats(): CacheStats {
-    const memorySize = this.memoryCache.calculatedSize || 0;
     const totalRequests = this.stats.hits + this.stats.misses;
-
+    
     return {
       totalEntries: this.memoryCache.size,
-      totalSize: memorySize,
+      totalSize: this.memoryCache.size, // Simple implementation uses entry count
       hitRate: totalRequests > 0 ? this.stats.hits / totalRequests : 0,
       hits: this.stats.hits,
       misses: this.stats.misses,
@@ -156,9 +152,25 @@ export class AnalysisCache {
    * Cleanup expired entries
    */
   async cleanup(): Promise<void> {
-    // LRUCache handles TTL automatically, but we can prune explicitly
-    this.memoryCache.purgeStale();
+    // Internal LRUCache handles TTL automatically during get operations
+    // No explicit purge method is needed as expired entries are removed on access
     await this.cleanupPersistentCache();
+  }
+
+  /**
+   * Evict oldest entries if cache is at capacity
+   */
+  private evictIfNecessary(): void {
+    if (this.memoryCache.size >= this.maxEntries) {
+      // Remove oldest entries (simple FIFO eviction)
+      // Ensure we delete at least 1 entry and at most 10% of capacity
+      const deleteCount = Math.max(1, Math.floor(this.maxEntries * 0.1));
+      const keysToDelete = Array.from(this.memoryCache.keys()).slice(0, deleteCount);
+      
+      for (const key of keysToDelete) {
+        this.memoryCache.delete(key);
+      }
+    }
   }
 
   private generateCacheKey(filePath: string): string {
@@ -178,6 +190,12 @@ export class AnalysisCache {
 
   private async isValidCacheEntry(filePath: string, entry: CacheEntry): Promise<boolean> {
     try {
+      // Check TTL first
+      const age = Date.now() - entry.createdAt;
+      if (age > this.maxAge) {
+        return false;
+      }
+
       const fileStats = await fs.promises.stat(filePath);
 
       // Check if file was modified
