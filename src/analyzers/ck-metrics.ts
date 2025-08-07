@@ -219,7 +219,7 @@ export class CKMetricsCalculator {
       return 0;
     }
 
-    // Build property usage map for each method
+    // Build property usage map for each method using AST analysis
     const propertyUsage = new Map<string, Set<string>>();
     const propertyNames = properties.map(p => p.getName()).filter(name => name);
 
@@ -227,13 +227,19 @@ export class CKMetricsCalculator {
       const methodName = method.getName();
       const usedProperties = new Set<string>();
       
-      // Simple heuristic: look for property names in method text
-      const methodText = method.getText();
-      for (const propName of propertyNames) {
-        if (methodText.includes(`this.${propName}`) || methodText.includes(`.${propName}`)) {
-          usedProperties.add(propName);
+      // AST-based property usage detection
+      method.forEachDescendant(node => {
+        if (Node.isPropertyAccessExpression(node)) {
+          const propName = node.getName();
+          if (propertyNames.includes(propName)) {
+            // Check if it's a this.property access
+            const expression = node.getExpression();
+            if (Node.isThisExpression(expression)) {
+              usedProperties.add(propName);
+            }
+          }
         }
-      }
+      });
       
       propertyUsage.set(methodName, usedProperties);
     }
@@ -269,12 +275,18 @@ export class CKMetricsCalculator {
     const methods = classDecl.getMethods();
     let responseSet = methods.length; // Local methods
     
-    // Count method calls (simplified heuristic)
+    // Count method calls using AST analysis
     for (const method of methods) {
-      const methodText = method.getText();
-      // Simple regex to count method calls (this is a rough approximation)
-      const methodCalls = methodText.match(/\w+\s*\(/g) || [];
-      responseSet += methodCalls.length;
+      let methodCallCount = 0;
+      
+      // Traverse AST to find actual method call expressions
+      method.forEachDescendant(node => {
+        if (Node.isCallExpression(node)) {
+          methodCallCount++;
+        }
+      });
+      
+      responseSet += methodCallCount;
     }
     
     return responseSet;
@@ -469,7 +481,8 @@ export class CKMetricsCalculator {
       for (const interfaceName of inheritanceInfo.extendedInterfaces) {
         const interfaceInfo = this.inheritanceMap.get(interfaceName);
         if (interfaceInfo) {
-          interfaceInfo.extendedInterfaces.push(typeName);
+          // This interface is extended by typeName, so typeName is a child
+          interfaceInfo.childClasses.push(typeName);
         }
       }
     }

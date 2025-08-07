@@ -295,6 +295,7 @@ export class TypeSCCAnalyzer {
               
               if (deps1 && deps1.length > 0 && deps2 && deps2.length > 0) {
                 path.push(deps1[0]);
+                path.push(deps2[0]);
                 break;
               }
             }
