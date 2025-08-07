@@ -36,11 +36,9 @@ export class AnalysisCache {
   constructor(
     options: {
       maxMemoryEntries?: number;
-      maxMemorySize?: number; // in MB (ignored in simple implementation)
       persistentCachePath?: string;
     } = {}
   ) {
-    // Simple Map-based cache to break circular dependencies
     this.maxEntries = options.maxMemoryEntries || 1000;
     this.maxAge = 1000 * 60 * 60 * 24; // 24 hours TTL
 
@@ -165,7 +163,10 @@ export class AnalysisCache {
   private evictIfNecessary(): void {
     if (this.memoryCache.size >= this.maxEntries) {
       // Remove oldest entries (simple FIFO eviction)
-      const keysToDelete = Array.from(this.memoryCache.keys()).slice(0, Math.floor(this.maxEntries * 0.1));
+      // Ensure we delete at least 1 entry and at most 10% of capacity
+      const deleteCount = Math.max(1, Math.floor(this.maxEntries * 0.1));
+      const keysToDelete = Array.from(this.memoryCache.keys()).slice(0, deleteCount);
+      
       for (const key of keysToDelete) {
         this.memoryCache.delete(key);
       }

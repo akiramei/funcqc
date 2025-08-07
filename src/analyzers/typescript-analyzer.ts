@@ -115,13 +115,11 @@ export class TypeScriptAnalyzer extends CacheAware {
     if (enableCache) {
       this.cache = new AnalysisCache({
         maxMemoryEntries: Math.max(500, maxSourceFilesInMemory * 10),
-        maxMemorySize: 50, // 50MB cache
         persistentCachePath: path.join(process.cwd(), '.funcqc-cache'),
       });
     } else {
       this.cache = new AnalysisCache({
         maxMemoryEntries: 0,
-        maxMemorySize: 0,
       });
     }
 
