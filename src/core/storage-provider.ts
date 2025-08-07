@@ -83,10 +83,14 @@ export class StorageProvider {
 
   /**
    * Close storage connection and reset instance
+   * Note: This method only nullifies the instance reference.
+   * Actual connection closing is handled by the storage instance itself
+   * via graceful shutdown mechanisms to prevent circular dependencies.
    */
   async close(): Promise<void> {
     if (this.storageAdapter) {
-      await this.storageAdapter.close();
+      // Don't call storageAdapter.close() here to break circular dependency
+      // The adapter will be closed through graceful shutdown coordinator
       this.storageAdapter = null;
     }
   }
@@ -96,9 +100,9 @@ export class StorageProvider {
    */
   static reset(): void {
     if (StorageProvider.instance?.storageAdapter) {
-      StorageProvider.instance.storageAdapter.close().catch(() => {
-        // Ignore errors during reset
-      });
+      // Don't call close() here to prevent circular dependency
+      // Testing scenarios should handle cleanup through graceful shutdown
+      StorageProvider.instance.storageAdapter = null;
     }
     StorageProvider.instance = undefined!;
   }
