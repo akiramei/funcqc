@@ -38,8 +38,12 @@ export function createTypesCommand(): Command {
     .option('--sort <field>', 'Sort by field (name|fields|complexity|usage)', 'name')
     .option('--desc', 'Sort in descending order')
     .option('--json', 'Output in JSON format')
-    .action(async (options: TypeListOptions) => {
-      await executeTypesList(options);
+    .option('--detail', 'Show detailed information in multi-line format')
+    .action(async (options: TypeListOptions, command) => {
+      // Merge global options
+      const globalOpts = command.parent?.opts() || {};
+      const mergedOptions = { ...globalOpts, ...options, verbose: options.detail };
+      await executeTypesList(mergedOptions);
     });
 
   // Type health command
@@ -49,8 +53,11 @@ export function createTypesCommand(): Command {
     .option('--verbose', 'Show detailed health information')
     .option('--json', 'Output in JSON format')
     .option('--thresholds <path>', 'Path to custom thresholds file')
-    .action(async (options: TypeHealthOptions) => {
-      await executeTypesHealth(options);
+    .action(async (options: TypeHealthOptions, command) => {
+      // Merge global options
+      const globalOpts = command.parent?.opts() || {};
+      const mergedOptions = { ...globalOpts, ...options };
+      await executeTypesHealth(mergedOptions);
     });
 
   // Type dependencies command
@@ -60,8 +67,11 @@ export function createTypesCommand(): Command {
     .option('--depth <number>', 'Maximum dependency depth to analyze', parseInt, 3)
     .option('--circular', 'Show only circular dependencies')
     .option('--json', 'Output in JSON format')
-    .action(async (typeName: string, options: TypeDepsOptions) => {
-      await executeTypesDeps(typeName, options);
+    .action(async (typeName: string, options: TypeDepsOptions, command) => {
+      // Merge global options
+      const globalOpts = command.parent?.opts() || {};
+      const mergedOptions = { ...globalOpts, ...options };
+      await executeTypesDeps(typeName, mergedOptions);
     });
 
   return typesCmd;
@@ -119,7 +129,7 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
     if (options.json) {
       console.log(JSON.stringify(filteredTypes, null, 2));
     } else {
-      displayTypesList(filteredTypes);
+      displayTypesList(filteredTypes, options.verbose);
     }
 
   } catch (error) {

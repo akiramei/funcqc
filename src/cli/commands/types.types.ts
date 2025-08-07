@@ -7,6 +7,8 @@ export interface TypeListOptions {
   sort?: 'name' | 'fields' | 'complexity' | 'usage';
   desc?: boolean;
   json?: boolean;
+  verbose?: boolean;
+  detail?: boolean;
 }
 
 export interface TypeHealthOptions {
