@@ -958,6 +958,10 @@ Exit codes:
 import { createTypesCommand } from './cli/commands/types';
 program.addCommand(createTypesCommand());
 
+// Add overview command (integrated type-function analysis)
+import { createOverviewCommand } from './cli/commands/overview';
+program.addCommand(createOverviewCommand());
+
 // Handle unknown commands
 program.on('command:*', () => {
   console.error(chalk.red('Invalid command: %s'), program.args.join(' '));
