@@ -8,4 +8,5 @@ export interface OverviewOptions {
   riskThreshold?: number;
   json?: boolean;
   verbose?: boolean;
+  snapshotId?: string;
 }

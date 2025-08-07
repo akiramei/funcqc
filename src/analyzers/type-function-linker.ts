@@ -63,6 +63,13 @@ export interface EnrichedTypeInfo extends TypeDefinition {
  * - Enriching type data with implementation quality metrics
  */
 export class TypeFunctionLinker {
+  private static readonly RISK_THRESHOLDS = {
+    SIGNATURE_LENGTH_WARNING: 100,
+    SIGNATURE_LENGTH_CRITICAL: 150,
+    NAME_LENGTH_WARNING: 30,
+    NAME_LENGTH_CRITICAL: 40,
+  };
+
   constructor(_project: Project) {
     // Project might be used for future AST analysis improvements
   }
@@ -317,21 +324,21 @@ export class TypeFunctionLinker {
       };
     }
 
-    // Note: FunctionMetadata doesn't include complexity/LOC metrics
-    // In a real implementation, these would be fetched from the quality_metrics table
-    const averageComplexity = undefined; // Would calculate from metrics data
+    // TODO: Fetch actual complexity metrics from quality_metrics table
+    const averageComplexity = undefined;
 
     const highRiskMethods = methods
       .filter(method => {
         // Simple heuristic based on available metadata
-        return method.signature.length > 100 || method.name.length > 30;
+        return method.signature.length > TypeFunctionLinker.RISK_THRESHOLDS.SIGNATURE_LENGTH_WARNING ||
+               method.name.length > TypeFunctionLinker.RISK_THRESHOLDS.NAME_LENGTH_WARNING;
       })
       .map(method => ({
         functionId: method.id,
         functionName: method.name,
         riskFactors: [
-          ...(method.signature.length > 150 ? ['Long Signature'] : []),
-          ...(method.name.length > 40 ? ['Long Name'] : []),
+          ...(method.signature.length > TypeFunctionLinker.RISK_THRESHOLDS.SIGNATURE_LENGTH_CRITICAL ? ['Long Signature'] : []),
+          ...(method.name.length > TypeFunctionLinker.RISK_THRESHOLDS.NAME_LENGTH_CRITICAL ? ['Long Name'] : []),
           ...(method.signature.includes('Promise<') ? ['Async Complexity'] : [])
         ]
       }));
@@ -353,14 +360,19 @@ export class TypeFunctionLinker {
 
   /**
    * Extract type members from type definition text (simplified)
+   * TODO: Replace with AST-based extraction using ts-morph for accurate parsing
+   * Current regex-based approach has limitations:
+   * - Cannot handle complex TypeScript syntax (generics, decorators, access modifiers)
+   * - May miss properties, getters/setters, static/async methods
+   * - May incorrectly parse method names with modifiers
    */
   private extractTypeMembersFromDefinition(type: TypeDefinition): Array<{
     name: string;
     kind: 'method' | 'constructor' | 'getter' | 'setter';
     lineNumber: number;
   }> {
-    // This is a simplified implementation
-    // In reality, this would parse the AST to extract member information
+    // WARNING: This is a simplified implementation with known limitations
+    // Will be replaced with proper AST parsing in a future iteration
     const members: Array<{
       name: string;
       kind: 'method' | 'constructor' | 'getter' | 'setter';

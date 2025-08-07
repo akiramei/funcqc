@@ -87,7 +87,8 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
       logger.info('🧩 Analyzing TypeScript types...');
       const typeAnalyzer = new TypeAnalyzer(project);
       const sourceFiles = project.getSourceFiles();
-      const snapshotId = 'overview-snapshot';
+      // Generate unique snapshot ID or use provided snapshot ID to avoid conflicts
+      const snapshotId = options.snapshotId || `overview-${Date.now()}`;
       
       for (const sourceFile of sourceFiles) {
         const filePath = sourceFile.getFilePath();

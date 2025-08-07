@@ -157,7 +157,9 @@ export class IntegratedDisplayUtils {
     console.log(chalk.blue('\n📊 Summary:'));
     console.log(`   Types: ${totalTypes} (${typesWithMethods} with methods)`);
     console.log(`   Functions: ${totalFunctions}`);
-    console.log(`   Linked Functions: ${linkedFunctions} (${this.formatPercentage(linkedFunctions / totalFunctions)})`);
+    console.log(`   Linked Functions: ${linkedFunctions} (${this.formatPercentage(
+      totalFunctions > 0 ? linkedFunctions / totalFunctions : 0
+    )})`);
     console.log(`   Standalone Functions: ${orphanedFunctions}`);
     console.log(`   Cross References: ${crossRefs.length}`);
 
