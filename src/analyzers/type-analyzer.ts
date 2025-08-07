@@ -30,7 +30,7 @@ export interface TypeDefinition {
   
   // Type content
   typeText: string;
-  resolvedType?: unknown;
+  resolvedType?: string | { kind: string; text: string; [key: string]: unknown };
   
   // Metadata
   modifiers: string[];
@@ -49,13 +49,26 @@ export interface TypeMetrics {
 }
 
 /**
- * Analyzes TypeScript type definitions and extracts structural information
+ * Analyzes TypeScript type definitions and extracts structural information.
+ * Provides comprehensive type analysis including metrics calculation and dependency tracking.
+ * 
+ * @example
+ * ```ts
+ * const analyzer = new TypeAnalyzer(project);
+ * const types = analyzer.analyzeFile('src/types.ts', snapshotId);
+ * const metrics = analyzer.calculateTypeMetrics(types[0]);
+ * ```
  */
 export class TypeAnalyzer {
   constructor(private project: Project) {}
 
   /**
-   * Analyze a TypeScript file to extract type definitions
+   * Analyze a TypeScript file to extract type definitions.
+   * 
+   * @param filePath - Absolute path to the TypeScript file to analyze
+   * @param snapshotId - Unique identifier for the analysis snapshot
+   * @returns Array of type definitions found in the file
+   * @throws {Error} When the source file cannot be found or loaded
    */
   analyzeFile(filePath: string, snapshotId: string): TypeDefinition[] {
     const sourceFile = this.project.getSourceFile(filePath);
@@ -94,23 +107,32 @@ export class TypeAnalyzer {
   }
 
   /**
-   * Calculate metrics for a type definition
+   * Calculate comprehensive metrics for a type definition.
+   * Analyzes complexity, structure depth, and other quality indicators.
+   * 
+   * @param typeDefinition - The type definition to analyze
+   * @returns Calculated metrics including field count, nesting depth, etc.
    */
   calculateTypeMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    // Implementation will depend on the specific type kind
-    switch (typeDefinition.kind) {
-      case 'interface':
-        return this.calculateInterfaceMetrics(typeDefinition);
-      case 'class':
-        return this.calculateClassMetrics(typeDefinition);
-      case 'type_alias':
-        return this.calculateTypeAliasMetrics(typeDefinition);
-      case 'enum':
-        return this.calculateEnumMetrics(typeDefinition);
-      case 'namespace':
-        return this.calculateNamespaceMetrics(typeDefinition);
-      default:
-        return this.getDefaultMetrics();
+    try {
+      // Implementation will depend on the specific type kind
+      switch (typeDefinition.kind) {
+        case 'interface':
+          return this.calculateInterfaceMetrics(typeDefinition);
+        case 'class':
+          return this.calculateClassMetrics(typeDefinition);
+        case 'type_alias':
+          return this.calculateTypeAliasMetrics(typeDefinition);
+        case 'enum':
+          return this.calculateEnumMetrics(typeDefinition);
+        case 'namespace':
+          return this.calculateNamespaceMetrics(typeDefinition);
+        default:
+          return this.getDefaultMetrics();
+      }
+    } catch {
+      // Fallback to default metrics if calculation fails
+      return this.getDefaultMetrics();
     }
   }
 
@@ -183,7 +205,7 @@ export class TypeAnalyzer {
       genericParameters: typeParameters.map(tp => tp.getName()),
       
       typeText: typeAlias.getText(),
-      resolvedType: this.analyzeTypeNode(typeAlias.getTypeNodeOrThrow()),
+      resolvedType: this.analyzeTypeNode(typeAlias.getTypeNodeOrThrow()) as string | { kind: string; text: string; [key: string]: unknown },
       
       modifiers: this.extractModifiers(typeAlias),
       jsdoc: this.extractJSDoc(typeAlias),
