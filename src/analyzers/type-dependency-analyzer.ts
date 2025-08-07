@@ -10,6 +10,7 @@ import {
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
 import { TypeDefinition } from './type-analyzer';
+import { TypeSCCAnalyzer } from './type-scc-analyzer';
 
 export interface TypeDependency {
   id: string;
@@ -89,31 +90,37 @@ export class TypeDependencyAnalyzer {
   }
 
   /**
-   * Detect circular dependencies among types
+   * Detect circular dependencies among types using Tarjan's algorithm
    */
   detectCircularDependencies(dependencies: TypeDependency[]): CircularDependency[] {
-    const dependencyGraph = this.buildDependencyGraph(dependencies);
-    const circularDependencies: CircularDependency[] = [];
-    const visited = new Set<string>();
-    const recursionStack = new Set<string>();
-
-    for (const typeId of dependencyGraph.keys()) {
-      if (!visited.has(typeId)) {
-        const cycle = this.findCycleInDependencyGraph(
-          typeId, 
-          dependencyGraph, 
-          visited, 
-          recursionStack, 
-          [],
-          dependencies
-        );
-        if (cycle) {
-          circularDependencies.push(cycle);
-        }
+    // Filter and enhance dependencies with targetTypeId
+    const enhancedDependencies: TypeDependency[] = [];
+    
+    for (const dep of dependencies) {
+      const targetTypeId = dep.targetTypeId || this.getTypeIdFromName(dep.targetTypeName);
+      if (targetTypeId) {
+        enhancedDependencies.push({
+          ...dep,
+          targetTypeId
+        });
       }
     }
 
-    return circularDependencies;
+    // Use Tarjan's algorithm via TypeSCCAnalyzer
+    const sccAnalyzer = new TypeSCCAnalyzer();
+    
+    // Build type name mapping for better display
+    const typeNameMapping = new Map<string, string>();
+    for (const [name, typeDef] of this.typeDefinitions) {
+      typeNameMapping.set(typeDef.id, name);
+    }
+    
+    const sccResult = sccAnalyzer.findStronglyConnectedComponents(
+      enhancedDependencies,
+      typeNameMapping
+    );
+
+    return sccResult.circularDependencies;
   }
 
   /**
@@ -451,96 +458,27 @@ export class TypeDependencyAnalyzer {
   }
 
   /**
-   * Build a dependency graph for circular dependency detection
+   * Calculate condensation graph (DAG of type SCCs)
    */
-  private buildDependencyGraph(dependencies: TypeDependency[]): Map<string, string[]> {
-    const graph = new Map<string, string[]>();
-
-    dependencies.forEach(dep => {
-      if (!graph.has(dep.sourceTypeId)) {
-        graph.set(dep.sourceTypeId, []);
-      }
-      
-      const targetTypeDef = this.typeDefinitions.get(dep.targetTypeName);
-      
-      if (targetTypeDef) {
-        graph.get(dep.sourceTypeId)!.push(targetTypeDef.id);
-      }
-    });
-
-    return graph;
-  }
-
-  /**
-   * Find cycles in the dependency graph using DFS
-   */
-  private findCycleInDependencyGraph(
-    typeId: string,
-    graph: Map<string, string[]>,
-    visited: Set<string>,
-    recursionStack: Set<string>,
-    currentPath: string[],
-    allDependencies: TypeDependency[]
-  ): CircularDependency | null {
-    visited.add(typeId);
-    recursionStack.add(typeId);
-    currentPath.push(typeId);
-
-    const neighbors = graph.get(typeId) || [];
-    for (const neighborId of neighbors) {
-      if (!visited.has(neighborId)) {
-        const cycle = this.findCycleInDependencyGraph(
-          neighborId, graph, visited, recursionStack, currentPath, allDependencies
-        );
-        if (cycle) return cycle;
-      } else if (recursionStack.has(neighborId)) {
-        // Found a cycle
-        const cycleStartIndex = currentPath.indexOf(neighborId);
-        const cycleTypeIds = currentPath.slice(cycleStartIndex);
-        cycleTypeIds.push(neighborId); // Complete the cycle
-
-        const cycleTypeNames = cycleTypeIds.map(id => {
-          const typeDef = this.typeDefinitionsById.get(id);
-          return typeDef?.name || 'Unknown';
+  calculateCondensationGraph(dependencies: TypeDependency[]): {
+    nodes: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+    edges: Array<{ from: string; to: string; count: number }>;
+  } {
+    // Filter and enhance dependencies with targetTypeId
+    const enhancedDependencies: TypeDependency[] = [];
+    
+    for (const dep of dependencies) {
+      const targetTypeId = dep.targetTypeId || this.getTypeIdFromName(dep.targetTypeName);
+      if (targetTypeId) {
+        enhancedDependencies.push({
+          ...dep,
+          targetTypeId
         });
-
-        const dependencyPath = this.findDependencyPath(cycleTypeIds, allDependencies);
-
-        return {
-          typeIds: cycleTypeIds,
-          typeNames: cycleTypeNames,
-          dependencyPath,
-          severity: cycleTypeIds.length > 3 ? 'error' : 'warning'
-        };
       }
     }
 
-    currentPath.pop();
-    recursionStack.delete(typeId);
-    return null;
-  }
-
-  /**
-   * Find the dependency path for a cycle
-   */
-  private findDependencyPath(cycleTypeIds: string[], allDependencies: TypeDependency[]): TypeDependency[] {
-    const path: TypeDependency[] = [];
-    
-    for (let i = 0; i < cycleTypeIds.length - 1; i++) {
-      const sourceId = cycleTypeIds[i];
-      const targetId = cycleTypeIds[i + 1];
-      
-      const dependency = allDependencies.find(dep => 
-        dep.sourceTypeId === sourceId && 
-        this.getTypeIdFromName(dep.targetTypeName) === targetId
-      );
-      
-      if (dependency) {
-        path.push(dependency);
-      }
-    }
-    
-    return path;
+    const sccAnalyzer = new TypeSCCAnalyzer();
+    return sccAnalyzer.calculateCondensationGraph(enhancedDependencies);
   }
 
   /**
