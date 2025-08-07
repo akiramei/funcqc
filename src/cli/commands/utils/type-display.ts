@@ -40,7 +40,7 @@ export function sortTypes(types: TypeDefinition[], sortBy: string, desc?: boolea
  * Display types list in formatted output
  */
 export function displayTypesList(types: TypeDefinition[]): void {
-  if (types.length === 0) {
+  if (!types || types.length === 0) {
     console.log('📭 No types found matching the criteria');
     return;
   }
@@ -50,14 +50,19 @@ export function displayTypesList(types: TypeDefinition[]): void {
   for (const type of types) {
     const kindIcon = getKindIcon(type.kind);
     const exportStatus = type.isExported ? '🌐' : '🔒';
-    const genericStatus = type.isGeneric ? `<${type.genericParameters.join(', ')}>` : '';
+    const genericStatus = type.isGeneric && type.genericParameters.length > 0 
+      ? `<${type.genericParameters.join(', ')}>` 
+      : '';
     
     console.log(`${kindIcon} ${exportStatus} ${type.name}${genericStatus}`);
     console.log(`   📁 ${type.filePath}:${type.startLine}`);
     
-    if (type.metadata['propertyCount'] || type.metadata['methodCount']) {
-      const props = type.metadata['propertyCount'] as number || 0;
-      const methods = type.metadata['methodCount'] as number || 0;
+    // Safe access to metadata properties
+    const metadata = type.metadata || {};
+    const props = (metadata['propertyCount'] as number) ?? 0;
+    const methods = (metadata['methodCount'] as number) ?? 0;
+    
+    if (props > 0 || methods > 0) {
       console.log(`   📊 ${props} properties, ${methods} methods`);
     }
     

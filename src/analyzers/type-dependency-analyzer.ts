@@ -43,6 +43,7 @@ export interface CircularDependency {
  */
 export class TypeDependencyAnalyzer {
   private typeDefinitions: Map<string, TypeDefinition> = new Map();
+  private typeDefinitionsById: Map<string, TypeDefinition> = new Map();
 
   constructor(private project: Project) {}
 
@@ -51,8 +52,10 @@ export class TypeDependencyAnalyzer {
    */
   setTypeDefinitions(typeDefinitions: TypeDefinition[]): void {
     this.typeDefinitions.clear();
+    this.typeDefinitionsById.clear();
     typeDefinitions.forEach(typeDef => {
       this.typeDefinitions.set(typeDef.name, typeDef);
+      this.typeDefinitionsById.set(typeDef.id, typeDef);
     });
   }
 
@@ -132,8 +135,7 @@ export class TypeDependencyAnalyzer {
 
     // Count dependencies (incoming edges = usage count)
     dependencies.forEach(dep => {
-      const targetTypeDef = Array.from(this.typeDefinitions.values())
-        .find(def => def.name === dep.targetTypeName);
+      const targetTypeDef = this.typeDefinitions.get(dep.targetTypeName);
       
       if (targetTypeDef && usageMap.has(targetTypeDef.id)) {
         const usage = usageMap.get(targetTypeDef.id)!;
@@ -459,8 +461,7 @@ export class TypeDependencyAnalyzer {
         graph.set(dep.sourceTypeId, []);
       }
       
-      const targetTypeDef = Array.from(this.typeDefinitions.values())
-        .find(def => def.name === dep.targetTypeName);
+      const targetTypeDef = this.typeDefinitions.get(dep.targetTypeName);
       
       if (targetTypeDef) {
         graph.get(dep.sourceTypeId)!.push(targetTypeDef.id);
@@ -499,8 +500,7 @@ export class TypeDependencyAnalyzer {
         cycleTypeIds.push(neighborId); // Complete the cycle
 
         const cycleTypeNames = cycleTypeIds.map(id => {
-          const typeDef = Array.from(this.typeDefinitions.values())
-            .find(def => def.id === id);
+          const typeDef = this.typeDefinitionsById.get(id);
           return typeDef?.name || 'Unknown';
         });
 

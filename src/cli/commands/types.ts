@@ -81,6 +81,11 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
 
     // Apply filters
     if (options.kind) {
+      const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
+      if (!validKinds.includes(options.kind as typeof validKinds[number])) {
+        logger.error(`❌ Invalid kind: ${options.kind}. Valid options are: ${validKinds.join(', ')}`);
+        process.exit(1);
+      }
       filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
     }
     
@@ -98,7 +103,13 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
     }
 
     // Sort types
-    filteredTypes = sortTypes(filteredTypes, options.sort || 'name', options.desc);
+    const validSortOptions = ['name', 'fields', 'complexity', 'usage'] as const;
+    const sortField = options.sort || 'name';
+    if (!validSortOptions.includes(sortField as typeof validSortOptions[number])) {
+      logger.error(`❌ Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
+      process.exit(1);
+    }
+    filteredTypes = sortTypes(filteredTypes, sortField, options.desc);
 
     // Apply limit
     if (options.limit && options.limit > 0) {
@@ -248,9 +259,9 @@ async function analyzeProjectTypes(): Promise<{
   for (const filePath of typeScriptFiles) {
     try {
       project.addSourceFileAtPath(filePath);
-    } catch (error) {
-      console.warn(`⚠️  Could not add file: ${filePath}`, error);
-      // Consider whether to continue or throw based on the error type
+    } catch {
+      console.warn(`⚠️  Could not add file: ${filePath}`);
+      // Continue processing other files even if one fails
     }
   }
 
