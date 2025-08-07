@@ -199,13 +199,61 @@ export class CKMetricsCalculator {
   }
 
   /**
-   * Calculate Weighted Methods per Class
+   * Calculate Weighted Methods per Class using complexity-based weighting
    */
   private calculateWMC(classDecl: ClassDeclaration): number {
     const methods = classDecl.getMethods();
-    // For simplicity, assign weight of 1 to each method
-    // In a more sophisticated implementation, this could be cyclomatic complexity
-    return methods.length;
+    let totalWeight = 0;
+    
+    for (const method of methods) {
+      // Calculate complexity-based weight for each method
+      const methodWeight = this.calculateMethodComplexity(method);
+      totalWeight += methodWeight;
+    }
+    
+    return totalWeight;
+  }
+
+  /**
+   * Calculate complexity weight for a single method using AST analysis
+   */
+  private calculateMethodComplexity(method: any): number { // eslint-disable-line @typescript-eslint/no-explicit-any
+    let complexity = 1; // Base complexity
+    
+    // Count decision points using AST traversal
+    method.forEachDescendant((node: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      // Conditional statements add complexity
+      if (Node.isIfStatement(node) || 
+          Node.isConditionalExpression(node) ||
+          Node.isSwitchStatement(node)) {
+        complexity++;
+      }
+      
+      // Loops add complexity  
+      else if (Node.isForStatement(node) ||
+               Node.isForInStatement(node) ||
+               Node.isForOfStatement(node) ||
+               Node.isWhileStatement(node) ||
+               Node.isDoStatement(node)) {
+        complexity++;
+      }
+      
+      // Try-catch blocks add complexity
+      else if (Node.isTryStatement(node)) {
+        complexity++;
+      }
+      
+      // Logical operators add complexity
+      else if (Node.isBinaryExpression(node)) {
+        const operatorToken = node.getOperatorToken();
+        const operator = operatorToken.getText();
+        if (operator === '&&' || operator === '||') {
+          complexity++;
+        }
+      }
+    });
+    
+    return complexity;
   }
 
   /**
@@ -244,18 +292,37 @@ export class CKMetricsCalculator {
       propertyUsage.set(methodName, usedProperties);
     }
 
-    // Calculate LCOM1: pairs of methods that don't share properties
+    // Optimized LCOM1 calculation using bitset approach
+    const methodNames = Array.from(propertyUsage.keys());
+    
+    // Create property index mapping for bitset operations
+    const propertyIndexMap = new Map<string, number>();
+    propertyNames.forEach((prop, index) => propertyIndexMap.set(prop, index));
+    
+    // Convert property usage to bitsets for efficient operations
+    const methodBitsets = new Map<string, number>();
+    for (const [methodName, usedProps] of propertyUsage) {
+      let bitset = 0;
+      for (const prop of usedProps) {
+        const propIndex = propertyIndexMap.get(prop);
+        if (propIndex !== undefined) {
+          bitset |= (1 << propIndex);
+        }
+      }
+      methodBitsets.set(methodName, bitset);
+    }
+    
+    // Calculate sharing pairs using bitwise operations
     let sharingPairs = 0;
     let nonSharingPairs = 0;
     
-    const methodNames = Array.from(propertyUsage.keys());
     for (let i = 0; i < methodNames.length; i++) {
       for (let j = i + 1; j < methodNames.length; j++) {
-        const method1Props = propertyUsage.get(methodNames[i]) || new Set();
-        const method2Props = propertyUsage.get(methodNames[j]) || new Set();
+        const bitset1 = methodBitsets.get(methodNames[i]) || 0;
+        const bitset2 = methodBitsets.get(methodNames[j]) || 0;
         
-        // Check if methods share any properties
-        const hasSharedProperty = Array.from(method1Props).some(prop => method2Props.has(prop));
+        // Check if methods share any properties using bitwise AND
+        const hasSharedProperty = (bitset1 & bitset2) !== 0;
         
         if (hasSharedProperty) {
           sharingPairs++;

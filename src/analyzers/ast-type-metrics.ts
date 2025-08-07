@@ -18,6 +18,8 @@ import { TypeDefinition, TypeMetrics } from './type-analyzer';
  * union/intersection counting being prone to errors.
  */
 export class ASTTypeMetrics {
+  private memoizedAnalysis = new WeakMap<any, any>(); // eslint-disable-line @typescript-eslint/no-explicit-any
+
   constructor(private project: Project) {}
 
   /**
@@ -258,16 +260,35 @@ export class ASTTypeMetrics {
   }
 
   /**
-   * Analyze a TypeNode recursively to extract metrics
+   * Analyze a TypeNode recursively to extract metrics with memoization
    * This is the core AST-based analysis that replaces string parsing
    */
-  private analyzeTypeNode(typeNode: TypeNode): {
+  private analyzeTypeNode(typeNode: TypeNode, visited = new Set<TypeNode>()): {
     nestingDepth: number;
     unionMemberCount: number;
     intersectionMemberCount: number;
     literalTypeCount: number;
     discriminantCaseCount: number;
   } {
+    // Prevent infinite recursion and stack overflow
+    if (visited.has(typeNode)) {
+      return {
+        nestingDepth: 0,
+        unionMemberCount: 0,
+        intersectionMemberCount: 0,
+        literalTypeCount: 0,
+        discriminantCaseCount: 0
+      };
+    }
+
+    // Check memoization cache
+    const cached = this.memoizedAnalysis.get(typeNode);
+    if (cached) {
+      return cached;
+    }
+
+    // Add to visited set to prevent cycles
+    visited.add(typeNode);
     const result = {
       nestingDepth: 1,
       unionMemberCount: 0,
@@ -284,7 +305,7 @@ export class ASTTypeMetrics {
         
         // Recursively analyze union members
         for (const unionMember of unionTypes) {
-          const childMetrics = this.analyzeTypeNode(unionMember);
+          const childMetrics = this.analyzeTypeNode(unionMember, visited);
           result.nestingDepth = Math.max(result.nestingDepth, childMetrics.nestingDepth + 1);
           result.intersectionMemberCount += childMetrics.intersectionMemberCount;
           result.literalTypeCount += childMetrics.literalTypeCount;
@@ -299,7 +320,7 @@ export class ASTTypeMetrics {
         
         // Recursively analyze intersection members
         for (const intersectionMember of intersectionTypes) {
-          const childMetrics = this.analyzeTypeNode(intersectionMember);
+          const childMetrics = this.analyzeTypeNode(intersectionMember, visited);
           result.nestingDepth = Math.max(result.nestingDepth, childMetrics.nestingDepth + 1);
           result.unionMemberCount += childMetrics.unionMemberCount;
           result.literalTypeCount += childMetrics.literalTypeCount;
@@ -388,6 +409,12 @@ export class ASTTypeMetrics {
         // For other node types (TypeReference, etc.), keep default values
         break;
     }
+
+    // Cache the result for memoization
+    this.memoizedAnalysis.set(typeNode, result);
+    
+    // Remove from visited set to allow for proper traversal in other contexts
+    visited.delete(typeNode);
 
     return result;
   }
