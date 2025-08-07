@@ -60,8 +60,8 @@ function displayTypesListTable(types: TypeDefinition[]): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   // Table header
-  console.log('ID       Name                         Kind        Exp LOC Props Methods File                          Line');
-  console.log('──────── ──────────────────────────── ─────────── ─── ─── ───── ─────── ───────────────────────────── ────');
+  console.log('ID       Name                         Kind        Exp LOC Pro Met File                         Line');
+  console.log('──────── ──────────────────────────── ─────────── ─── ─── ─── ─── ──────────────────────────── ────');
   
   for (const type of types) {
     const id = shortenId(type.id);
@@ -73,13 +73,13 @@ function displayTypesListTable(types: TypeDefinition[]): void {
     
     // Safe access to metadata properties
     const metadata = type.metadata || {};
-    const props = ((metadata['propertyCount'] as number) ?? 0).toString().padStart(5);
-    const methods = ((metadata['methodCount'] as number) ?? 0).toString().padStart(7);
+    const props = ((metadata['propertyCount'] as number) ?? 0).toString().padStart(3);
+    const methods = ((metadata['methodCount'] as number) ?? 0).toString().padStart(3);
     
-    const file = shortenFilePath(type.filePath, 29);
+    const file = shortenFilePath(type.filePath, 28);
     const line = type.startLine.toString().padStart(4);
     
-    console.log(`${id} ${name} ${kind} ${exportIcon}   ${locStr} ${props} ${methods} ${file} ${line}`);
+    console.log(`${id} ${name} ${kind} ${exportIcon} ${locStr} ${props} ${methods} ${file} ${line}`);
   }
   
   console.log('');
