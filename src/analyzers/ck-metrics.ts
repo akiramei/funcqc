@@ -132,7 +132,7 @@ export class CKMetricsCalculator {
     const DIT = this.calculateInterfaceDIT(interfaceName);
     
     // NOC: Number of extending interfaces or implementing classes
-    const NOC = inheritanceInfo.childClasses.length + inheritanceInfo.extendedInterfaces.length;
+    const NOC = inheritanceInfo.childClasses.length;
     
     // WMC: For interfaces, count method signatures
     const WMC = interfaceDecl.getMethods().length;
@@ -180,18 +180,27 @@ export class CKMetricsCalculator {
    */
   private calculateInterfaceDIT(interfaceName: string): number {
     let depth = 0;
-    const queue = [interfaceName];
+    let currentLevel = [interfaceName];
     const visited = new Set<string>();
     
-    while (queue.length > 0 && depth < 20) {
-      const currentInterface = queue.shift()!;
-      if (visited.has(currentInterface)) continue;
-      visited.add(currentInterface);
+    while (currentLevel.length > 0 && depth < 20) {
+      const nextLevel: string[] = [];
       
-      const inheritanceInfo = this.inheritanceMap.get(currentInterface);
-      if (inheritanceInfo?.extendedInterfaces.length) {
+      for (const currentInterface of currentLevel) {
+        if (visited.has(currentInterface)) continue;
+        visited.add(currentInterface);
+        
+        const inheritanceInfo = this.inheritanceMap.get(currentInterface);
+        if (inheritanceInfo?.extendedInterfaces.length) {
+          nextLevel.push(...inheritanceInfo.extendedInterfaces);
+        }
+      }
+      
+      if (nextLevel.length > 0) {
         depth++;
-        queue.push(...inheritanceInfo.extendedInterfaces);
+        currentLevel = nextLevel;
+      } else {
+        break;
       }
     }
     
@@ -480,7 +489,10 @@ export class CKMetricsCalculator {
   private isBuiltInType(typeName: string): boolean {
     const builtInTypes = [
       'string', 'number', 'boolean', 'object', 'undefined', 'null', 'void', 'never',
-      'Array', 'Map', 'Set', 'Date', 'Promise', 'Error', 'RegExp', 'Function'
+      'Array', 'Map', 'Set', 'Date', 'Promise', 'Error', 'RegExp', 'Function',
+      'any', 'unknown', 'bigint', 'symbol',
+      'Partial', 'Required', 'Readonly', 'Pick', 'Omit', 'Record', 'Exclude', 'Extract',
+      'NonNullable', 'Parameters', 'ReturnType', 'InstanceType', 'ThisType'
     ];
     return builtInTypes.includes(typeName);
   }

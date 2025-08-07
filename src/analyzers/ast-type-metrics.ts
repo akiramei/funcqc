@@ -351,7 +351,7 @@ export class ASTTypeMetrics {
             if (Node.isPropertySignature(prop)) {
               const propType = prop.getTypeNode();
               if (propType) {
-                const childMetrics = this.analyzeTypeNode(propType);
+                const childMetrics = this.analyzeTypeNode(propType, visited);
                 result.nestingDepth = Math.max(result.nestingDepth, childMetrics.nestingDepth + 1);
                 result.unionMemberCount += childMetrics.unionMemberCount;
                 result.intersectionMemberCount += childMetrics.intersectionMemberCount;

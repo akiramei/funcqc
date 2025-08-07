@@ -89,7 +89,7 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
   try {
     logger.info('🔍 Analyzing TypeScript types...');
     
-    const { types } = await analyzeProjectTypes();
+    const { types, dependencies, project } = await analyzeProjectTypes();
     let filteredTypes = types;
 
     // Apply filters
@@ -100,6 +100,31 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
         process.exit(1);
       }
       filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
+    }
+
+    // Calculate type quality scores if risk filtering is needed
+    const typeScores: TypeQualityScore[] = [];
+    if (options.risk) {
+      const validRisks = ['critical', 'high', 'medium', 'low'] as const;
+      if (!validRisks.includes(options.risk as typeof validRisks[number])) {
+        logger.error(`❌ Invalid risk level: ${options.risk}. Valid options are: ${validRisks.join(', ')}`);
+        process.exit(1);
+      }
+
+      // Calculate scores for risk filtering
+      const calculator = new TypeMetricsCalculator({ name: 'default' });
+      const typeAnalyzer = new TypeAnalyzer(project);
+      for (const type of filteredTypes) {
+        const metrics = typeAnalyzer.calculateTypeMetrics(type);
+        const typeDependencies = dependencies.filter(d => d.sourceTypeId === type.id);
+        const score = calculator.calculateTypeQuality(type, metrics, undefined, typeDependencies);
+        typeScores.push(score);
+      }
+
+      // Filter by risk level
+      const scoresByRisk = typeScores.filter(score => score.riskLevel === options.risk);
+      const typeIdsByRisk = new Set(scoresByRisk.map(score => score.typeId));
+      filteredTypes = filteredTypes.filter(t => typeIdsByRisk.has(t.id));
     }
     
     if (options.exported) {
