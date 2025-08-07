@@ -60,8 +60,8 @@ function displayTypesListTable(types: TypeDefinition[]): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   // Table header
-  console.log('ID       Name                         Kind        Exp LOC Pro Met File                         Line');
-  console.log('──────── ──────────────────────────── ─────────── ─── ─── ─── ─── ──────────────────────────── ────');
+  console.log('ID       Name                         Kind        Exp  LOC Pro Met File                         Line');
+  console.log('──────── ──────────────────────────── ─────────── ─── ──── ─── ─── ──────────────────────────── ────');
   
   for (const type of types) {
     const id = shortenId(type.id);
@@ -69,7 +69,7 @@ function displayTypesListTable(types: TypeDefinition[]): void {
     const kind = padOrTruncate(getKindText(type.kind), 11);
     const exportIcon = type.isExported ? '🌐' : '🔒';
     const loc = calculateLOC(type);
-    const locStr = loc.toString().padStart(3);
+    const locStr = loc.toString().padStart(4);
     
     // Safe access to metadata properties
     const metadata = type.metadata || {};
