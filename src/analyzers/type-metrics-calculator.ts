@@ -1,5 +1,7 @@
 import { TypeDefinition, TypeMetrics } from './type-analyzer';
 import { TypeDependency, TypeUsageInfo, CircularDependency } from './type-dependency-analyzer';
+import { CKMetricsCalculator, CKMetrics } from './ck-metrics';
+import { Project } from 'ts-morph';
 
 export interface TypeQualityScore {
   typeId: string;
@@ -9,8 +11,10 @@ export interface TypeQualityScore {
   maintainabilityScore: number;
   reusabilityScore: number;
   designScore: number;
+  ckScore: number; // New CK metrics score
   riskLevel: 'low' | 'medium' | 'high' | 'critical';
   issues: TypeQualityIssue[];
+  ckMetrics?: CKMetrics | undefined; // Include CK metrics for detailed analysis
 }
 
 export interface TypeQualityIssue {
@@ -60,13 +64,26 @@ export class TypeMetricsCalculator {
   };
 
   private thresholds: TypeThresholds;
+  private ckCalculator: CKMetricsCalculator | null = null;
 
-  constructor(thresholds: Partial<TypeThresholds> = {}) {
+  constructor(thresholds: Partial<TypeThresholds> = {}, project?: Project) {
     this.thresholds = { ...this.defaultThresholds, ...thresholds };
+    if (project) {
+      this.ckCalculator = new CKMetricsCalculator(project);
+    }
   }
 
   /**
-   * Calculate quality score for a single type
+   * Set type definitions for CK metrics calculation
+   */
+  setTypeDefinitions(typeDefinitions: TypeDefinition[]): void {
+    if (this.ckCalculator) {
+      this.ckCalculator.setTypeDefinitions(typeDefinitions);
+    }
+  }
+
+  /**
+   * Calculate quality score for a single type including CK metrics
    */
   calculateTypeQuality(
     typeDefinition: TypeDefinition,
@@ -81,13 +98,19 @@ export class TypeMetricsCalculator {
     const maintainabilityScore = this.calculateMaintainabilityScore(typeDefinition, typeMetrics, issues);
     const reusabilityScore = this.calculateReusabilityScore(typeDefinition, usageInfo, issues);
     const designScore = this.calculateDesignScore(typeDefinition, typeMetrics, dependencies, issues);
+    
+    // Calculate CK metrics score
+    const ckMetrics = this.ckCalculator?.calculateCKMetrics(typeDefinition.name);
+    const ckScore = this.calculateCKScore(ckMetrics, issues);
 
-    // Calculate overall score (weighted average)
+    // Calculate overall score with updated weights to include CK metrics
+    // Adjusted weights: Complexity 25%, Maintainability 20%, Reusability 15%, Design 20%, CK 20%
     const overallScore = Math.round(
-      complexityScore * 0.3 +
-      maintainabilityScore * 0.25 +
-      reusabilityScore * 0.20 +
-      designScore * 0.25
+      complexityScore * 0.25 +
+      maintainabilityScore * 0.20 +
+      reusabilityScore * 0.15 +
+      designScore * 0.20 +
+      ckScore * 0.20
     );
 
     // Determine risk level
@@ -101,8 +124,10 @@ export class TypeMetricsCalculator {
       maintainabilityScore,
       reusabilityScore,
       designScore,
+      ckScore,
       riskLevel,
-      issues
+      issues,
+      ckMetrics: ckMetrics || undefined
     };
   }
 
@@ -427,6 +452,92 @@ export class TypeMetricsCalculator {
     }
 
     return recommendations;
+  }
+
+  /**
+   * Calculate CK metrics score (0-100, higher is better)
+   */
+  private calculateCKScore(ckMetrics?: CKMetrics, issues?: TypeQualityIssue[]): number {
+    if (!ckMetrics) {
+      return 70; // Neutral score if CK metrics not available
+    }
+
+    let score = 100;
+
+    // DIT penalty: Deep inheritance is problematic
+    if (ckMetrics.DIT > 5) {
+      const penalty = Math.min(20, (ckMetrics.DIT - 5) * 4);
+      score -= penalty;
+      issues?.push({
+        severity: ckMetrics.DIT > 8 ? 'error' : 'warning',
+        category: 'design',
+        message: `Deep inheritance tree (DIT: ${ckMetrics.DIT})`,
+        suggestion: 'Consider composition over inheritance or flattening the hierarchy'
+      });
+    }
+
+    // LCOM penalty: High lack of cohesion is bad
+    if (ckMetrics.LCOM > 10) {
+      const penalty = Math.min(15, ckMetrics.LCOM * 0.5);
+      score -= penalty;
+      issues?.push({
+        severity: ckMetrics.LCOM > 20 ? 'error' : 'warning',
+        category: 'design',
+        message: `Low cohesion detected (LCOM: ${ckMetrics.LCOM})`,
+        suggestion: 'Consider splitting class into more cohesive components'
+      });
+    }
+
+    // CBO penalty: High coupling is problematic
+    if (ckMetrics.CBO > 10) {
+      const penalty = Math.min(15, (ckMetrics.CBO - 10) * 1.5);
+      score -= penalty;
+      issues?.push({
+        severity: ckMetrics.CBO > 15 ? 'error' : 'warning',
+        category: 'design',
+        message: `High coupling (CBO: ${ckMetrics.CBO})`,
+        suggestion: 'Reduce dependencies to improve modularity'
+      });
+    }
+
+    // RFC penalty: Large response set indicates complexity
+    if (ckMetrics.RFC > 20) {
+      const penalty = Math.min(10, (ckMetrics.RFC - 20) * 0.5);
+      score -= penalty;
+      issues?.push({
+        severity: 'warning',
+        category: 'complexity',
+        message: `Large response set (RFC: ${ckMetrics.RFC})`,
+        suggestion: 'Consider breaking down into smaller, more focused classes'
+      });
+    }
+
+    // WMC penalty: High weighted methods count
+    if (ckMetrics.WMC > 15) {
+      const penalty = Math.min(10, (ckMetrics.WMC - 15) * 0.8);
+      score -= penalty;
+      issues?.push({
+        severity: 'warning',
+        category: 'complexity',
+        message: `High method complexity (WMC: ${ckMetrics.WMC})`,
+        suggestion: 'Consider reducing method complexity or splitting methods'
+      });
+    }
+
+    // NOC bonus/penalty: Some children are good, too many indicate design issues
+    if (ckMetrics.NOC > 10) {
+      score -= Math.min(10, (ckMetrics.NOC - 10) * 1);
+      issues?.push({
+        severity: 'warning',
+        category: 'design',
+        message: `Too many child classes (NOC: ${ckMetrics.NOC})`,
+        suggestion: 'Review inheritance hierarchy design'
+      });
+    } else if (ckMetrics.NOC > 0 && ckMetrics.NOC <= 5) {
+      score += 5; // Small bonus for reasonable inheritance
+    }
+
+    return Math.max(0, score);
   }
 
   /**
