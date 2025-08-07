@@ -37,6 +37,7 @@ export interface TypeHealthReport {
   topIssues: TypeQualityIssue[];
   circularDependencies: CircularDependency[];
   recommendations: string[];
+  thresholds: TypeThresholds & { name?: string };
 }
 
 export interface TypeThresholds {
@@ -63,10 +64,10 @@ export class TypeMetricsCalculator {
     minUsageForReusability: 3
   };
 
-  private thresholds: TypeThresholds;
+  private thresholds: TypeThresholds & { name?: string };
   private ckCalculator: CKMetricsCalculator | null = null;
 
-  constructor(thresholds: Partial<TypeThresholds> = {}, project?: Project) {
+  constructor(thresholds: Partial<TypeThresholds> & { name?: string } = {}, project?: Project) {
     this.thresholds = { ...this.defaultThresholds, ...thresholds };
     if (project) {
       this.ckCalculator = new CKMetricsCalculator(project);
@@ -168,7 +169,8 @@ export class TypeMetricsCalculator {
       riskDistribution,
       topIssues,
       circularDependencies,
-      recommendations
+      recommendations,
+      thresholds: this.thresholds
     };
   }
 
