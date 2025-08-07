@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { Project } from 'ts-morph';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
 import { TypeDependencyAnalyzer, TypeDependency } from '../../analyzers/type-dependency-analyzer';
-import { TypeMetricsCalculator, TypeQualityScore } from '../../analyzers/type-metrics-calculator';
+import { TypeMetricsCalculator, TypeQualityScore, TypeHealthReport } from '../../analyzers/type-metrics-calculator';
 import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
@@ -15,6 +15,7 @@ import {
 } from './utils/type-display';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 
 /**
@@ -37,6 +38,7 @@ export function createTypesCommand(): Command {
     .option('--limit <number>', 'Limit number of results', parseInt)
     .option('--sort <field>', 'Sort by field (name|fields|complexity|usage)', 'name')
     .option('--desc', 'Sort in descending order')
+    .option('--risk <level>', 'Filter by risk level (low|medium|high|critical)')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
     .action(async (options: TypeListOptions, command) => {
@@ -53,6 +55,7 @@ export function createTypesCommand(): Command {
     .option('--verbose', 'Show detailed health information')
     .option('--json', 'Output in JSON format')
     .option('--thresholds <path>', 'Path to custom thresholds file')
+    .option('--legend', 'Show score ranges and color coding explanation')
     .action(async (options: TypeHealthOptions, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
@@ -86,7 +89,7 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
   try {
     logger.info('🔍 Analyzing TypeScript types...');
     
-    const { types } = await analyzeProjectTypes();
+    const { types, dependencies, project } = await analyzeProjectTypes();
     let filteredTypes = types;
 
     // Apply filters
@@ -97,6 +100,31 @@ export async function executeTypesList(options: TypeListOptions): Promise<void> 
         process.exit(1);
       }
       filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
+    }
+
+    // Calculate type quality scores if risk filtering is needed
+    const typeScores: TypeQualityScore[] = [];
+    if (options.risk) {
+      const validRisks = ['critical', 'high', 'medium', 'low'] as const;
+      if (!validRisks.includes(options.risk as typeof validRisks[number])) {
+        logger.error(`❌ Invalid risk level: ${options.risk}. Valid options are: ${validRisks.join(', ')}`);
+        process.exit(1);
+      }
+
+      // Calculate scores for risk filtering
+      const calculator = new TypeMetricsCalculator({ name: 'default' });
+      const typeAnalyzer = new TypeAnalyzer(project);
+      for (const type of filteredTypes) {
+        const metrics = typeAnalyzer.calculateTypeMetrics(type);
+        const typeDependencies = dependencies.filter(d => d.sourceTypeId === type.id);
+        const score = calculator.calculateTypeQuality(type, metrics, undefined, typeDependencies);
+        typeScores.push(score);
+      }
+
+      // Filter by risk level
+      const scoresByRisk = typeScores.filter(score => score.riskLevel === options.risk);
+      const typeIdsByRisk = new Set(scoresByRisk.map(score => score.typeId));
+      filteredTypes = filteredTypes.filter(t => typeIdsByRisk.has(t.id));
     }
     
     if (options.exported) {
@@ -150,9 +178,12 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
     const { types, dependencies, project } = await analyzeProjectTypes();
     
     // Load custom thresholds if provided
-    let thresholds = {};
+    let thresholds: Record<string, unknown> = { name: 'default-v2' };
     if (options.thresholds && fs.existsSync(options.thresholds)) {
-      thresholds = JSON.parse(fs.readFileSync(options.thresholds, 'utf-8'));
+      thresholds = { 
+        ...JSON.parse(fs.readFileSync(options.thresholds, 'utf-8')),
+        name: path.basename(options.thresholds, '.json')
+      };
     }
 
     const calculator = new TypeMetricsCalculator(thresholds);
@@ -174,13 +205,19 @@ export async function executeTypesHealth(options: TypeHealthOptions): Promise<vo
     // Generate health report
     const healthReport = calculator.generateHealthReport(typeScores, circularDeps);
 
+    // Load previous health data for comparison
+    const previousHealth = loadPreviousHealthData();
+    
+    // Save current health data for future comparisons
+    saveHealthData(healthReport);
+
     if (options.json) {
       console.log(JSON.stringify({
         healthReport,
         typeScores: options.verbose ? typeScores : undefined
       }, null, 2));
     } else {
-      displayHealthReport(healthReport, typeScores, options.verbose);
+      displayHealthReport(healthReport, typeScores, options.verbose, types, previousHealth || null, options.legend);
     }
 
   } catch (error) {
@@ -304,6 +341,57 @@ async function analyzeProjectTypes(): Promise<{
     dependencies: allDependencies,
     project
   };
+}
+
+/**
+ * Get cache directory path
+ */
+function getCacheDir(): string {
+  const homeDir = os.homedir();
+  const cacheDir = path.join(homeDir, '.funcqc-cache');
+  
+  if (!fs.existsSync(cacheDir)) {
+    fs.mkdirSync(cacheDir, { recursive: true });
+  }
+  
+  return cacheDir;
+}
+
+/**
+ * Load previous health data for comparison
+ */
+function loadPreviousHealthData(): Partial<TypeHealthReport & { date?: string; timestamp?: string }> | null {
+  try {
+    const cacheFile = path.join(getCacheDir(), 'type-health.json');
+    if (fs.existsSync(cacheFile)) {
+      const data = fs.readFileSync(cacheFile, 'utf-8');
+      return JSON.parse(data);
+    }
+  } catch {
+    // Ignore errors when loading cache
+  }
+  return null;
+}
+
+/**
+ * Save current health data for future comparisons
+ */
+function saveHealthData(healthReport: TypeHealthReport): void {
+  try {
+    const cacheFile = path.join(getCacheDir(), 'type-health.json');
+    const dataToSave = {
+      overallHealth: healthReport.overallHealth,
+      totalTypes: healthReport.totalTypes,
+      riskDistribution: healthReport.riskDistribution,
+      circularDependencies: healthReport.circularDependencies.length,
+      timestamp: new Date().toISOString(),
+      date: new Date().toLocaleDateString('ja-JP')
+    };
+    
+    fs.writeFileSync(cacheFile, JSON.stringify(dataToSave, null, 2));
+  } catch {
+    // Ignore errors when saving cache
+  }
 }
 
 /**

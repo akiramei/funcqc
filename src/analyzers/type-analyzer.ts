@@ -9,6 +9,7 @@ import {
   TypeNode
 } from 'ts-morph';
 import { v4 as uuidv4 } from 'uuid';
+import { ASTTypeMetrics } from './ast-type-metrics';
 
 export interface TypeDefinition {
   id: string;
@@ -60,7 +61,11 @@ export interface TypeMetrics {
  * ```
  */
 export class TypeAnalyzer {
-  constructor(private project: Project) {}
+  private astMetrics: ASTTypeMetrics;
+
+  constructor(private project: Project) {
+    this.astMetrics = new ASTTypeMetrics(project);
+  }
 
   /**
    * Analyze a TypeScript file to extract type definitions.
@@ -107,31 +112,18 @@ export class TypeAnalyzer {
   }
 
   /**
-   * Calculate comprehensive metrics for a type definition.
-   * Analyzes complexity, structure depth, and other quality indicators.
+   * Calculate comprehensive metrics for a type definition using AST-based analysis.
+   * This replaces the previous string-based parsing with proper TypeScript AST traversal.
    * 
    * @param typeDefinition - The type definition to analyze
    * @returns Calculated metrics including field count, nesting depth, etc.
    */
   calculateTypeMetrics(typeDefinition: TypeDefinition): TypeMetrics {
     try {
-      // Implementation will depend on the specific type kind
-      switch (typeDefinition.kind) {
-        case 'interface':
-          return this.calculateInterfaceMetrics(typeDefinition);
-        case 'class':
-          return this.calculateClassMetrics(typeDefinition);
-        case 'type_alias':
-          return this.calculateTypeAliasMetrics(typeDefinition);
-        case 'enum':
-          return this.calculateEnumMetrics(typeDefinition);
-        case 'namespace':
-          return this.calculateNamespaceMetrics(typeDefinition);
-        default:
-          return this.getDefaultMetrics();
-      }
+      // Use AST-based analysis for accurate metrics calculation
+      return this.astMetrics.calculateMetrics(typeDefinition);
     } catch {
-      // Fallback to default metrics if calculation fails
+      // Fallback to default metrics if AST analysis fails
       return this.getDefaultMetrics();
     }
   }
@@ -369,86 +361,9 @@ export class TypeAnalyzer {
   }
 
   /**
-   * Calculate metrics for interface types
-   */
-  private calculateInterfaceMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    // Basic implementation - can be enhanced with actual AST analysis
-    const metadata = typeDefinition.metadata as Record<string, unknown>;
-    return {
-      fieldCount: ((metadata['propertyCount'] as number) || 0) + ((metadata['methodCount'] as number) || 0),
-      nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
-      genericParameterCount: typeDefinition.genericParameters.length,
-      unionMemberCount: 0, // Interfaces don't have unions directly
-      intersectionMemberCount: (metadata['extendsCount'] as number) || 0,
-      literalTypeCount: this.countLiteralTypes(typeDefinition.typeText),
-      discriminantCaseCount: 0 // Would need deeper analysis
-    };
-  }
-
-  /**
-   * Calculate metrics for class types
-   */
-  private calculateClassMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    const metadata = typeDefinition.metadata as Record<string, unknown>;
-    return {
-      fieldCount: ((metadata['propertyCount'] as number) || 0) + ((metadata['methodCount'] as number) || 0),
-      nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
-      genericParameterCount: typeDefinition.genericParameters.length,
-      unionMemberCount: 0, // Classes don't have unions directly
-      intersectionMemberCount: (metadata['implementsCount'] as number) || 0,
-      literalTypeCount: this.countLiteralTypes(typeDefinition.typeText),
-      discriminantCaseCount: 0
-    };
-  }
-
-  /**
-   * Calculate metrics for type alias types
-   */
-  private calculateTypeAliasMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    return {
-      fieldCount: 0, // Type aliases don't have fields directly
-      nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
-      genericParameterCount: typeDefinition.genericParameters.length,
-      unionMemberCount: this.countUnionMembers(typeDefinition.typeText),
-      intersectionMemberCount: this.countIntersectionMembers(typeDefinition.typeText),
-      literalTypeCount: this.countLiteralTypes(typeDefinition.typeText),
-      discriminantCaseCount: this.countDiscriminantCases(typeDefinition.typeText)
-    };
-  }
-
-  /**
-   * Calculate metrics for enum types
-   */
-  private calculateEnumMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    const metadata = typeDefinition.metadata as Record<string, unknown>;
-    return {
-      fieldCount: (metadata['memberCount'] as number) || 0,
-      nestingDepth: 1, // Enums are flat
-      genericParameterCount: 0, // Enums cannot be generic
-      unionMemberCount: (metadata['memberCount'] as number) || 0, // Each enum member is like a union case
-      intersectionMemberCount: 0,
-      literalTypeCount: (metadata['memberCount'] as number) || 0, // Each member is a literal
-      discriminantCaseCount: (metadata['memberCount'] as number) || 0
-    };
-  }
-
-  /**
-   * Calculate metrics for namespace types
-   */
-  private calculateNamespaceMetrics(typeDefinition: TypeDefinition): TypeMetrics {
-    return {
-      fieldCount: 0, // Namespaces contain various declarations
-      nestingDepth: this.calculateNestingDepth(typeDefinition.typeText),
-      genericParameterCount: 0, // Namespaces cannot be generic
-      unionMemberCount: 0,
-      intersectionMemberCount: 0,
-      literalTypeCount: 0,
-      discriminantCaseCount: 0
-    };
-  }
-
-  /**
-   * Get default metrics for unknown type kinds
+   * Get default metrics for fallback cases
+   * Note: The old string-based metric calculation methods have been replaced
+   * by AST-based analysis in ASTTypeMetrics class for better accuracy.
    */
   private getDefaultMetrics(): TypeMetrics {
     return {
@@ -460,65 +375,5 @@ export class TypeAnalyzer {
       literalTypeCount: 0,
       discriminantCaseCount: 0
     };
-  }
-
-  /**
-   * Calculate nesting depth in type text (simple heuristic)
-   */
-  private calculateNestingDepth(typeText: string): number {
-    let maxDepth = 0;
-    let currentDepth = 0;
-    
-    for (const char of typeText) {
-      if (char === '<' || char === '{' || char === '[') {
-        currentDepth++;
-        maxDepth = Math.max(maxDepth, currentDepth);
-      } else if (char === '>' || char === '}' || char === ']') {
-        currentDepth = Math.max(0, currentDepth - 1);
-      }
-    }
-    
-    return maxDepth;
-  }
-
-  /**
-   * Count union members (simple heuristic)
-   */
-  private countUnionMembers(typeText: string): number {
-    // TODO: Exclude | operators inside string literals for accuracy
-    // Example: type Status = "pending|processing" | "completed"
-    // Simple count of | operators (may not be fully accurate)
-    const matches = typeText.match(/\s*\|\s*/g);
-    return matches ? matches.length + 1 : 0;
-  }
-
-  /**
-   * Count intersection members (simple heuristic)
-   */
-  private countIntersectionMembers(typeText: string): number {
-    // TODO: Exclude & operators inside string literals for accuracy
-    // Simple count of & operators (may not be fully accurate)
-    const matches = typeText.match(/\s*&\s*/g);
-    return matches ? matches.length + 1 : 0;
-  }
-
-  /**
-   * Count literal types (simple heuristic)
-   */
-  private countLiteralTypes(typeText: string): number {
-    // Count string and number literals
-    const stringLiterals = typeText.match(/['"`][^'"`]*['"`]/g) || [];
-    const numberLiterals = typeText.match(/\b\d+(\.\d+)?\b/g) || [];
-    return stringLiterals.length + numberLiterals.length;
-  }
-
-  /**
-   * Count discriminant cases (simple heuristic)
-   */
-  private countDiscriminantCases(typeText: string): number {
-    // This is a very simplified approach - would need AST analysis for accuracy
-    const discriminantPattern = /\{\s*[a-zA-Z_][a-zA-Z0-9_]*\s*:\s*['"`][^'"`]*['"`]/g;
-    const matches = typeText.match(discriminantPattern);
-    return matches ? matches.length : 0;
   }
 }
