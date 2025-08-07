@@ -313,16 +313,16 @@ export function displayHealthReport(
     console.log(`\n💡 Next Actions`);
     
     if (highRiskTypes.length > 0) {
-      console.log(`  • \`types list --risk high --detail\` で詳細確認`);
+      console.log(`  • \`types list --risk high --detail\` for detailed analysis`);
       const firstHighRisk = highRiskTypes[0];
-      console.log(`  • \`types deps ${firstHighRisk.typeName} --circular\` で依存サイクルを調査`);
-      console.log(`  • 分割候補: ${highRiskTypes.slice(0, 3).map(t => t.typeName).join(', ')}`);
+      console.log(`  • \`types deps ${firstHighRisk.typeName} --circular\` to investigate dependency cycles`);
+      console.log(`  • Refactoring candidates: ${highRiskTypes.slice(0, 3).map(t => t.typeName).join(', ')}`);
     }
     
     if (healthReport.circularDependencies.length > 0) {
       const firstCycle = healthReport.circularDependencies[0];
       if (firstCycle.typeNames.length > 0) {
-        console.log(`  • \`types deps ${firstCycle.typeNames[0]} --depth 2\` で循環依存の詳細分析`);
+        console.log(`  • \`types deps ${firstCycle.typeNames[0]} --depth 2\` for circular dependency analysis`);
       }
     }
     
@@ -330,7 +330,7 @@ export function displayHealthReport(
       s.issues.some(issue => issue.message.includes('documentation') || issue.message.includes('JSDoc'))
     ).length;
     if (missingDocsCount > 0) {
-      console.log(`  • JSDoc 追加候補: ${missingDocsCount} 未記載型（\`--missing-docs\`）`);
+      console.log(`  • Documentation candidates: ${missingDocsCount} types missing JSDoc comments`);
     }
     
     // Original recommendations
@@ -343,7 +343,8 @@ export function displayHealthReport(
 
   // Thresholds information
   const thresholds = healthReport.thresholds;
-  console.log(`\n使用閾値: ${thresholds.name || 'default'} (maxField=${thresholds.maxFieldCount}, maxDepth=${thresholds.maxNestingDepth}, ...) — \`--thresholds <path>\` で変更可`);
+  const thresholdName = thresholds.name === 'default-v2' ? 'default' : (thresholds.name || 'default');
+  console.log(`\nUsing thresholds: ${thresholdName} (maxField=${thresholds.maxFieldCount}, maxDepth=${thresholds.maxNestingDepth}, ...) — Use \`--thresholds <path>\` to customize`);
   
   // Show legend if requested
   if (showLegend) {
