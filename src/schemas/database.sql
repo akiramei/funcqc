@@ -660,6 +660,39 @@ CREATE INDEX idx_method_overrides_member_join ON method_overrides(method_member_
 -- Note: Using standard multi-column index instead of INCLUDE for PGLite compatibility
 CREATE INDEX idx_method_overrides_covering ON method_overrides(method_member_id, snapshot_id, override_kind, source_type_id, target_member_id, target_type_id);
 
+-- -----------------------------------------------------------------------------
+-- Parameter Property Usage: Coupling analysis data
+-- -----------------------------------------------------------------------------
+CREATE TABLE parameter_property_usage (
+  id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  snapshot_id TEXT NOT NULL,                    -- Snapshot reference
+  function_id TEXT NOT NULL,                    -- Function using the parameter
+  parameter_name TEXT NOT NULL,                 -- Parameter name
+  parameter_type_id TEXT,                       -- Type ID if resolvable
+  accessed_property TEXT NOT NULL,              -- Property that was accessed
+  access_type TEXT NOT NULL CHECK (             -- Type of access
+    access_type IN ('read', 'write', 'modify', 'pass')
+  ),
+  access_line INTEGER NOT NULL,                 -- Line where access occurs
+  access_context TEXT,                          -- Context: 'assignment', 'function_call', etc.
+  created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (parameter_type_id) REFERENCES type_definitions(id) ON DELETE SET NULL
+);
+
+-- Indexes for coupling analysis performance
+CREATE INDEX idx_parameter_property_usage_snapshot ON parameter_property_usage(snapshot_id);
+CREATE INDEX idx_parameter_property_usage_function ON parameter_property_usage(function_id);
+CREATE INDEX idx_parameter_property_usage_type ON parameter_property_usage(parameter_type_id);
+CREATE INDEX idx_parameter_property_usage_param_name ON parameter_property_usage(parameter_name);
+CREATE INDEX idx_parameter_property_usage_access_type ON parameter_property_usage(access_type);
+
+-- Composite index for coupling analysis queries
+CREATE INDEX idx_parameter_property_usage_analysis ON parameter_property_usage(
+  function_id, parameter_name, parameter_type_id
+);
+
 -- =============================================================================
 -- END OF SCHEMA DEFINITION
 -- =============================================================================
