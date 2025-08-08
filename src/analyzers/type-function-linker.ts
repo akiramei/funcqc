@@ -777,7 +777,12 @@ export class TypeFunctionLinker {
    * Analyze type usage patterns to provide insights for refactoring
    */
   analyzeTypeUsagePatterns(type: TypeDefinition, functions: FunctionMetadata[]): TypeUsageAnalysis {
-    const relevantFunctions = this.findMethodsForType(type, functions);
+    // For interface/type alias analysis, check ALL functions that might use this type
+    // For class analysis, focus on methods within the class
+    const relevantFunctions = type.kind === 'class' 
+      ? this.findMethodsForType(type, functions)
+      : functions; // Check all functions for interface/type alias usage
+    
     const allUsages = this.collectPropertyUsages(type, relevantFunctions);
     
     return {
@@ -1054,7 +1059,7 @@ export class TypeFunctionLinker {
   }
 
   /**
-   * Analyze property accesses in a function using AST analysis
+   * Analyze property accesses in a function using Symbol/TypeChecker-based analysis
    */
   private analyzePropertyAccesses(
     func: FunctionMetadata, 
@@ -1071,10 +1076,19 @@ export class TypeFunctionLinker {
       const typeMembers = this.getTypeMembers(type);
       const memberNames = new Set(typeMembers.map(m => m.name));
 
+      // Get TypeChecker for type analysis
+      const checker = this.project.getTypeChecker();
+      
       // Find the function node in the source file
       const targetFunctionNode = this.findFunctionNodeByMetadata(sourceFile, func);
       
       if (targetFunctionNode) {
+        
+        // Build parameter type map for type checking
+        const paramTypeMap = this.buildParameterTypeMap(targetFunctionNode, checker);
+        
+        // Get target type symbol for comparison
+        const targetTypeSymbol = this.getTypeSymbol(type, sourceFile, checker);
         
         // Analyze property accesses within this function
         targetFunctionNode.forEachDescendant((child) => {
@@ -1082,8 +1096,10 @@ export class TypeFunctionLinker {
             const propAccess = child.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
             const propertyName = propAccess.getName();
             
-            // Only analyze if this property belongs to our target type
-            if (memberNames.has(propertyName)) {
+            // Check if this property belongs to our target type using Symbol-based matching
+            if (memberNames.has(propertyName) && 
+                this.belongsToTargetType(propAccess, targetTypeSymbol, checker, paramTypeMap)) {
+              
               const accessType = this.classifyAccess(propAccess);
               coAccessedProperties.add(propertyName);
               
@@ -1108,6 +1124,191 @@ export class TypeFunctionLinker {
     } catch (error) {
       console.warn(`Failed to analyze property accesses in function ${func.name}: ${error}`);
       return new Map();
+    }
+  }
+
+  /**
+   * Build parameter type map for Symbol-based type checking
+   */
+  private buildParameterTypeMap(functionNode: Node, _checker: any): Map<string, any> {
+    const paramTypeMap = new Map<string, any>();
+    
+    try {
+      // Handle different function node types
+      if (functionNode.asKind(SyntaxKind.FunctionDeclaration) || 
+          functionNode.asKind(SyntaxKind.MethodDeclaration) ||
+          functionNode.asKind(SyntaxKind.ArrowFunction) ||
+          functionNode.asKind(SyntaxKind.FunctionExpression)) {
+        
+        const params = this.getFunctionParameters(functionNode);
+        
+        for (const param of params) {
+          try {
+            const paramName = param.getName?.() || param.getText();
+            const paramType = param.getType?.();
+            const paramSymbol = paramType?.getSymbol?.() ?? paramType?.getApparentType?.()?.getSymbol?.();
+            
+            if (paramName && paramSymbol) {
+              paramTypeMap.set(paramName, paramSymbol);
+            }
+          } catch {
+            // Skip parameters that fail type analysis
+          }
+        }
+      }
+    } catch {
+      // Return empty map if parameter analysis fails
+    }
+    
+    return paramTypeMap;
+  }
+
+  /**
+   * Get function parameters based on node type
+   */
+  private getFunctionParameters(functionNode: Node): any[] {
+    try {
+      if (functionNode.asKind(SyntaxKind.FunctionDeclaration)) {
+        return functionNode.asKindOrThrow(SyntaxKind.FunctionDeclaration).getParameters();
+      }
+      if (functionNode.asKind(SyntaxKind.MethodDeclaration)) {
+        return functionNode.asKindOrThrow(SyntaxKind.MethodDeclaration).getParameters();
+      }
+      if (functionNode.asKind(SyntaxKind.ArrowFunction)) {
+        return functionNode.asKindOrThrow(SyntaxKind.ArrowFunction).getParameters();
+      }
+      if (functionNode.asKind(SyntaxKind.FunctionExpression)) {
+        return functionNode.asKindOrThrow(SyntaxKind.FunctionExpression).getParameters();
+      }
+    } catch {
+      // Return empty array if parameter extraction fails
+    }
+    
+    return [];
+  }
+
+  /**
+   * Get type symbol for target type
+   */
+  private getTypeSymbol(type: TypeDefinition, sourceFile: any, _checker: any): any {
+    try {
+      // Find type declaration in source file
+      const typeNode = this.findTypeDeclaration(type, sourceFile);
+      if (typeNode) {
+        const symbol = typeNode.getSymbol?.();
+        if (symbol) {
+          return symbol;
+        }
+      }
+      
+      // Fallback: try to get symbol by name
+      const typeSymbols = sourceFile.getExportedDeclarations();
+      const targetSymbol = typeSymbols?.get?.(type.name)?.[0]?.getSymbol?.();
+      return targetSymbol;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Find type declaration node in source file
+   */
+  private findTypeDeclaration(type: TypeDefinition, sourceFile: any): any {
+    let foundNode: any = undefined;
+    
+    try {
+      sourceFile.forEachDescendant((node: any) => {
+        if (foundNode) return; // Early exit if found
+        
+        if ((node.asKind?.(SyntaxKind.InterfaceDeclaration) || 
+             node.asKind?.(SyntaxKind.ClassDeclaration) ||
+             node.asKind?.(SyntaxKind.TypeAliasDeclaration)) &&
+            node.getName?.() === type.name) {
+          foundNode = node;
+        }
+      });
+    } catch {
+      // Return undefined if search fails
+    }
+    
+    return foundNode;
+  }
+
+  /**
+   * Check if PropertyAccessExpression belongs to target type using Symbol-based matching
+   */
+  private belongsToTargetType(
+    propAccess: any, 
+    targetTypeSymbol: any, 
+    checker: any, 
+    paramTypeMap: Map<string, any>
+  ): boolean {
+    try {
+      if (!targetTypeSymbol || !checker) {
+        return true; // Fallback to member name matching if symbols unavailable
+      }
+
+      const expression = propAccess.getExpression();
+      const exprName = expression.getText();
+      
+      // Check if expression corresponds to a parameter with compatible type
+      const paramSymbol = paramTypeMap.get(exprName);
+      if (paramSymbol) {
+        // Use symbol comparison for type compatibility
+        return this.isSymbolCompatible(paramSymbol, targetTypeSymbol, checker);
+      }
+      
+      // Fallback: check expression type directly
+      const exprType = expression.getType?.();
+      if (exprType && targetTypeSymbol) {
+        const targetType = checker.getTypeOfSymbolAtLocation?.(targetTypeSymbol, expression);
+        if (targetType) {
+          return this.isTypeCompatible(exprType, targetType, checker);
+        }
+      }
+      
+      return true; // Fallback to member name matching
+    } catch {
+      return true; // Fallback to member name matching on error
+    }
+  }
+
+  /**
+   * Check symbol compatibility (handles inheritance, generics, etc.)
+   */
+  private isSymbolCompatible(sourceSymbol: any, targetSymbol: any, checker: any): boolean {
+    try {
+      if (sourceSymbol === targetSymbol) {
+        return true;
+      }
+      
+      // Get types from symbols and check assignability
+      const sourceType = checker.getTypeOfSymbolAtLocation?.(sourceSymbol, sourceSymbol.valueDeclaration);
+      const targetType = checker.getTypeOfSymbolAtLocation?.(targetSymbol, targetSymbol.valueDeclaration);
+      
+      if (sourceType && targetType) {
+        return this.isTypeCompatible(sourceType, targetType, checker);
+      }
+      
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Check type compatibility using TypeChecker
+   */
+  private isTypeCompatible(sourceType: any, targetType: any, checker: any): boolean {
+    try {
+      // Handle apparent types for unions/intersections
+      const source = sourceType.getApparentType?.() ?? sourceType;
+      const target = targetType.getApparentType?.() ?? targetType;
+      
+      // Use TypeChecker's assignability check
+      return checker.isTypeAssignableTo?.(source, target) || false;
+    } catch {
+      return false;
     }
   }
 
