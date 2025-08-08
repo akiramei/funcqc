@@ -962,28 +962,203 @@ export class TypeFunctionLinker {
   }
 
   /**
-   * Get type members (simplified version)
+   * Get type members using ts-morph AST analysis
    */
-  private getTypeMembers(_type: TypeDefinition): { name: string; kind: MemberKind }[] {
-    // TODO: This is a stub implementation that needs to be completed
-    // It should extract actual properties and methods from the type definition
-    // using AST analysis to return real type members
-    // For now, return empty array to allow compilation
-    return [];
+  private getTypeMembers(type: TypeDefinition): { name: string; kind: MemberKind }[] {
+    try {
+      // Find the source file and AST node for this type
+      const sourceFile = this.project.getSourceFile(type.filePath);
+      if (!sourceFile) {
+        return [];
+      }
+
+      const members: { name: string; kind: MemberKind }[] = [];
+
+      // Search for the type declaration in the source file
+      sourceFile.forEachDescendant((node) => {
+        // Handle Interface declarations
+        if (node.asKind(SyntaxKind.InterfaceDeclaration)) {
+          const interfaceDecl = node.asKindOrThrow(SyntaxKind.InterfaceDeclaration);
+          if (interfaceDecl.getName() === type.name) {
+            // Extract properties
+            for (const prop of interfaceDecl.getProperties()) {
+              members.push({
+                name: prop.getName(),
+                kind: MemberKind.Property
+              });
+            }
+            // Extract methods
+            for (const method of interfaceDecl.getMethods()) {
+              members.push({
+                name: method.getName(),
+                kind: MemberKind.Method
+              });
+            }
+          }
+        }
+
+        // Handle Class declarations
+        if (node.asKind(SyntaxKind.ClassDeclaration)) {
+          const classDecl = node.asKindOrThrow(SyntaxKind.ClassDeclaration);
+          if (classDecl.getName() === type.name) {
+            // Extract instance properties
+            for (const prop of classDecl.getInstanceProperties()) {
+              members.push({
+                name: prop.getName(),
+                kind: MemberKind.Property
+              });
+            }
+            // Extract instance methods
+            for (const method of classDecl.getInstanceMethods()) {
+              members.push({
+                name: method.getName(),
+                kind: MemberKind.Method
+              });
+            }
+          }
+        }
+
+        // Handle Type alias declarations
+        if (node.asKind(SyntaxKind.TypeAliasDeclaration)) {
+          const typeAlias = node.asKindOrThrow(SyntaxKind.TypeAliasDeclaration);
+          if (typeAlias.getName() === type.name) {
+            const typeNode = typeAlias.getTypeNode();
+            if (typeNode?.asKind(SyntaxKind.TypeLiteral)) {
+              const typeLiteral = typeNode.asKindOrThrow(SyntaxKind.TypeLiteral);
+              for (const prop of typeLiteral.getProperties()) {
+                if (prop.asKind(SyntaxKind.PropertySignature)) {
+                  const propSig = prop.asKindOrThrow(SyntaxKind.PropertySignature);
+                  members.push({
+                    name: propSig.getName(),
+                    kind: MemberKind.Property
+                  });
+                }
+                if (prop.asKind(SyntaxKind.MethodSignature)) {
+                  const methodSig = prop.asKindOrThrow(SyntaxKind.MethodSignature);
+                  members.push({
+                    name: methodSig.getName(),
+                    kind: MemberKind.Method
+                  });
+                }
+              }
+            }
+          }
+        }
+      });
+
+      return members;
+    } catch (error) {
+      console.warn(`Failed to extract members for type ${type.name}: ${error}`);
+      return [];
+    }
   }
 
   /**
-   * Analyze property accesses in a function (simplified)
+   * Analyze property accesses in a function using AST analysis
    */
   private analyzePropertyAccesses(
-    _func: FunctionMetadata, 
-    _type: TypeDefinition
+    func: FunctionMetadata, 
+    type: TypeDefinition
   ): Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }> {
-    // TODO: This is a stub implementation that needs to be completed
-    // It should analyze the function's AST to detect how it accesses
-    // properties of the given type (read/write/modify/pass)
-    // For now, return empty map to allow compilation
-    return new Map();
+    try {
+      const sourceFile = this.project.getSourceFile(func.filePath);
+      if (!sourceFile) {
+        return new Map();
+      }
+
+      const accessMap = new Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }>();
+      const coAccessedProperties = new Set<string>();
+      const typeMembers = this.getTypeMembers(type);
+      const memberNames = new Set(typeMembers.map(m => m.name));
+
+      // Find the function node in the source file
+      sourceFile.forEachDescendant((node) => {
+        if (node.asKind(SyntaxKind.FunctionDeclaration) || 
+            node.asKind(SyntaxKind.MethodDeclaration) ||
+            node.asKind(SyntaxKind.ArrowFunction) ||
+            node.asKind(SyntaxKind.FunctionExpression)) {
+          
+          // Check if this is our target function by comparing position
+          if (node.getStartLineNumber() === func.startLine) {
+            
+            // Analyze property accesses within this function
+            node.forEachDescendant((child) => {
+              if (child.asKind(SyntaxKind.PropertyAccessExpression)) {
+                const propAccess = child.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+                const propertyName = propAccess.getName();
+                
+                // Only analyze if this property belongs to our target type
+                if (memberNames.has(propertyName)) {
+                  const accessType = this.classifyAccess(propAccess);
+                  coAccessedProperties.add(propertyName);
+                  
+                  if (!accessMap.has(propertyName)) {
+                    accessMap.set(propertyName, {
+                      accessType,
+                      coAccessedWith: []
+                    });
+                  }
+                }
+              }
+            });
+
+            // Set co-accessed properties for each property
+            const coAccessedArray = Array.from(coAccessedProperties);
+            for (const [propertyName, access] of accessMap.entries()) {
+              access.coAccessedWith = coAccessedArray.filter(p => p !== propertyName);
+            }
+          }
+        }
+      });
+
+      return accessMap;
+    } catch (error) {
+      console.warn(`Failed to analyze property accesses in function ${func.name}: ${error}`);
+      return new Map();
+    }
+  }
+
+  /**
+   * Classify property access type based on AST context
+   */
+  private classifyAccess(propAccess: Node): 'read' | 'write' | 'modify' | 'pass' {
+    const parent = propAccess.getParent();
+    
+    if (!parent) return 'read';
+
+    // Check if it's a write access (assignment)
+    if (parent.asKind(SyntaxKind.BinaryExpression)) {
+      const binExpr = parent.asKindOrThrow(SyntaxKind.BinaryExpression);
+      if (binExpr.getOperatorToken().getKind() === SyntaxKind.EqualsToken && 
+          binExpr.getLeft() === propAccess) {
+        return 'write';
+      }
+      // Check for modify operations (+=, -=, etc.)
+      const opKind = binExpr.getOperatorToken().getKind();
+      if ([SyntaxKind.PlusEqualsToken, SyntaxKind.MinusEqualsToken, 
+           SyntaxKind.AsteriskEqualsToken, SyntaxKind.SlashEqualsToken].includes(opKind)) {
+        return 'modify';
+      }
+    }
+
+    // Check if it's a method call
+    if (parent.asKind(SyntaxKind.CallExpression)) {
+      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
+      if (callExpr.getExpression() === propAccess) {
+        return 'read'; // Method call is considered a read access
+      }
+    }
+
+    // Check if it's passed to another function
+    if (parent.asKind(SyntaxKind.CallExpression)) {
+      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
+      if (callExpr.getArguments().some(arg => arg === propAccess)) {
+        return 'pass';
+      }
+    }
+
+    // Default to read access
+    return 'read';
   }
 
   /**
