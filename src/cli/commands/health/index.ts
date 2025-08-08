@@ -29,6 +29,7 @@ import { displayTrendAnalysis } from './trend-analyzer';
 import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthData, PageRankMetrics } from './types';
 import { FunctionContext } from '../../../types/dynamic-weights';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
+import { analyzeProgrammingStyleDistribution, displayProgrammingStyleDistribution } from './programming-style-analyzer';
 
 /**
  * Health command as a Reader function
@@ -311,6 +312,12 @@ async function displayHealthResults(
   if (structuralData) {
     displayStructuralHealth(structuralData, options.verbose);
   }
+
+  // Display programming style distribution
+  const styleDistribution = analyzeProgrammingStyleDistribution(functions);
+  displayProgrammingStyleDistribution(styleDistribution, options.verbose);
+  
+  console.log();
 
   // Display risk assessment and recommendations
   if (riskEvaluation) {
