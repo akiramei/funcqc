@@ -165,6 +165,22 @@ export class StagedAnalysisEngine {
     this.state.chaCandidates = chaResult.chaCandidates;
     this.state.unresolvedMethodCallsForRTA = chaResult.unresolvedMethodCallsForRTA;
 
+    // Save type information to database using transaction-based approach (責務分離)
+    if (this.storage && chaResult.typeInfo) {
+      try {
+        this.logger.debug('Saving type information to database...');
+        // Use the CHA stage to save the type information with proper transaction handling
+        // Note: This should use transaction-based save methods to avoid duplicate key violations
+        // For now, we defer to the existing save methods in storage adapter
+        await this.storage.saveAllTypeInformation(chaResult.typeInfo);
+        this.logger.debug(`Successfully saved ${chaResult.typeInfo.typeDefinitions.length} type definitions`);
+      } catch (error) {
+        // Log error but don't fail the entire analysis
+        this.logger.error(`Failed to save type information: ${error}`);
+        this.logger.debug('Analysis will continue despite type information save failure');
+      }
+    }
+
     // Stage 4: RTA Analysis
     this.logger.debug('Stage 4: RTA analysis...');
     // Note: Type information is now extracted and stored during CHA stage

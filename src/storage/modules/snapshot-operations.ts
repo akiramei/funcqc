@@ -24,8 +24,10 @@ export class SnapshotOperations implements StorageOperationModule {
   readonly kysely;
   private git;
   private logger;
+  private context: StorageContext;
 
   constructor(context: StorageContext) {
+    this.context = context;
     this.db = context.db;
     this.kysely = context.kysely;
     this.git = context.git;
@@ -554,19 +556,29 @@ export class SnapshotOperations implements StorageOperationModule {
   }
 
   private parseMetadata(metadata: unknown): Record<string, unknown> {
-    if (typeof metadata === 'string') {
-      try {
-        return JSON.parse(metadata);
-      } catch {
-        return {};
-      }
+    // Use utilityOps if available, otherwise fallback to manual parsing
+    if (this.context.utilityOps) {
+      return this.context.utilityOps.parseJsonSafely(metadata, {});
     }
     
-    if (typeof metadata === 'object' && metadata !== null) {
-      return metadata as Record<string, unknown>;
+    // Fallback manual parsing for cases where utilityOps is not yet available
+    if (metadata == null) {
+      return {};
     }
     
-    return {};
+    if (typeof metadata !== 'string') {
+      return (metadata as Record<string, unknown>) ?? {};
+    }
+
+    if (metadata === '') {
+      return {};
+    }
+
+    try {
+      return JSON.parse(metadata) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
   }
 
   private mapRowToSnapshotInfo(row: SnapshotRow): SnapshotInfo {

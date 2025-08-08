@@ -958,9 +958,7 @@ Exit codes:
 import { createTypesCommand } from './cli/commands/types';
 program.addCommand(createTypesCommand());
 
-// Add overview command (integrated type-function analysis)
-import { createOverviewCommand } from './cli/commands/overview';
-program.addCommand(createOverviewCommand());
+// Overview command functionality has been integrated into the types command
 
 // Handle unknown commands
 program.on('command:*', () => {

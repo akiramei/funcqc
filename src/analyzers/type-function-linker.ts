@@ -11,11 +11,14 @@ import {
   PropertyDeclaration,
   MethodSignature,
   PropertySignature,
+  PropertyAccessExpression,
+  TypeChecker,
   SyntaxKind
 } from 'ts-morph';
 import { TypeDefinition } from './type-analyzer';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import { QualityMetrics } from '../types';
+import { OnePassASTVisitor, CouplingDataMap } from './shared/one-pass-visitor';
 
 /**
  * Member kinds for type analysis
@@ -775,6 +778,7 @@ export class TypeFunctionLinker {
 
   /**
    * Analyze type usage patterns to provide insights for refactoring
+   * Enhanced with optimized 1-pass AST traversal for better performance
    */
   analyzeTypeUsagePatterns(type: TypeDefinition, functions: FunctionMetadata[]): TypeUsageAnalysis {
     // For interface/type alias analysis, check ALL functions that might use this type
@@ -783,7 +787,8 @@ export class TypeFunctionLinker {
       ? this.findMethodsForType(type, functions)
       : functions; // Check all functions for interface/type alias usage
     
-    const allUsages = this.collectPropertyUsages(type, relevantFunctions);
+    // Use optimized 1-pass AST traversal instead of individual analysis
+    const allUsages = this.collectPropertyUsagesOptimized(type, relevantFunctions);
     
     return {
       typeName: type.name,
@@ -792,6 +797,175 @@ export class TypeFunctionLinker {
       functionGroups: this.groupFunctionsByUsage(allUsages),
       accessContexts: this.analyzeAccessContexts(allUsages)
     };
+  }
+
+  /**
+   * Optimized property usage collection using 1-pass AST traversal
+   */
+  private collectPropertyUsagesOptimized(
+    type: TypeDefinition,
+    functions: FunctionMetadata[]
+  ): Map<string, PropertyUsageInfo[]> {
+    const usageMap = new Map<string, PropertyUsageInfo[]>();
+    const typeMembers = this.getTypeMembers(type);
+    const memberNames = new Set(typeMembers.map(m => m.name));
+    
+    // Initialize usage map for all type members
+    for (const member of typeMembers) {
+      if (member.kind === MemberKind.Property) {
+        usageMap.set(member.name, []);
+      }
+    }
+    
+    // Group functions by file for efficient processing
+    const functionsByFile = new Map<string, FunctionMetadata[]>();
+    for (const func of functions) {
+      if (!functionsByFile.has(func.filePath)) {
+        functionsByFile.set(func.filePath, []);
+      }
+      functionsByFile.get(func.filePath)!.push(func);
+    }
+    
+    // Process each file once with 1-pass traversal
+    for (const [filePath, fileFunctions] of functionsByFile) {
+      this.analyzeSingleFileOptimized(filePath, fileFunctions, type, memberNames, usageMap);
+    }
+    
+    return usageMap;
+  }
+  
+  /**
+   * Analyze a single file using 1-pass AST traversal
+   */
+  private analyzeSingleFileOptimized(
+    filePath: string,
+    functions: FunctionMetadata[],
+    type: TypeDefinition,
+    memberNames: Set<string>,
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): void {
+    try {
+      const sourceFile = this.project.getSourceFile(filePath);
+      if (!sourceFile) return;
+      
+      const checker = this.project.getTypeChecker();
+      const targetTypeSymbol = this.getTypeSymbol(type, sourceFile, checker);
+      
+      // Create function range map for efficient lookup
+      const functionRanges = new Map<string, FunctionMetadata>();
+      for (const func of functions) {
+        for (let line = func.startLine; line <= func.endLine; line++) {
+          functionRanges.set(`${line}`, func);
+        }
+      }
+      
+      // Single AST traversal to collect all property accesses
+      const allPropertyAccesses: Array<{
+        propertyName: string;
+        accessType: 'read' | 'write' | 'modify' | 'pass';
+        line: number;
+        containingFunction: FunctionMetadata | undefined;
+        node: Node;
+      }> = [];
+      
+      sourceFile.forEachDescendant((node) => {
+        if (node.asKind(SyntaxKind.PropertyAccessExpression)) {
+          const propAccess = node.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+          const propertyName = propAccess.getName();
+          
+          if (memberNames.has(propertyName)) {
+            const line = propAccess.getStartLineNumber();
+            const containingFunction = functionRanges.get(`${line}`);
+            
+            if (containingFunction) {
+              // Check if this property belongs to our target type using optimized approach
+              if (this.belongsToTargetTypeOptimized(propAccess, targetTypeSymbol, checker)) {
+                allPropertyAccesses.push({
+                  propertyName,
+                  accessType: this.classifyAccess(propAccess),
+                  line,
+                  containingFunction,
+                  node: propAccess
+                });
+              }
+            }
+          }
+        }
+      });
+      
+      // Process collected accesses and build co-access patterns
+      const functionCoAccesses = new Map<string, Set<string>>();
+      
+      for (const access of allPropertyAccesses) {
+        const funcKey = `${access.containingFunction!.name}:${access.containingFunction!.filePath}`;
+        if (!functionCoAccesses.has(funcKey)) {
+          functionCoAccesses.set(funcKey, new Set());
+        }
+        functionCoAccesses.get(funcKey)!.add(access.propertyName);
+        
+        // Add to usage map
+        if (!usageMap.has(access.propertyName)) {
+          usageMap.set(access.propertyName, []);
+        }
+        
+        const coAccessedWith = Array.from(functionCoAccesses.get(funcKey)!)
+          .filter(prop => prop !== access.propertyName);
+        
+        usageMap.get(access.propertyName)!.push({
+          functionName: access.containingFunction!.name,
+          filePath: access.containingFunction!.filePath,
+          line: access.line,
+          accessType: access.accessType,
+          coAccessedWith
+        });
+      }
+      
+    } catch (error) {
+      console.warn(`Failed to analyze file ${filePath}: ${error}`);
+    }
+  }
+  
+  /**
+   * Optimized type checking for property access
+   */
+  private belongsToTargetTypeOptimized(
+    propAccess: PropertyAccessExpression,
+    targetTypeSymbol: unknown,
+    checker: TypeChecker
+  ): boolean {
+    try {
+      if (!targetTypeSymbol || !checker) {
+        return true; // Fallback to name-based matching
+      }
+      
+      const expression = propAccess.getExpression();
+      const exprType = expression.getType();
+      
+      if (exprType) {
+        // Quick symbol comparison
+        const exprSymbol = exprType.getSymbol() ?? exprType.getApparentType()?.getSymbol();
+        if (exprSymbol === targetTypeSymbol) {
+          return true;
+        }
+        
+        // Check for type compatibility
+        if (targetTypeSymbol && typeof targetTypeSymbol === 'object' && 
+            'getDeclarations' in targetTypeSymbol && 
+            typeof targetTypeSymbol.getDeclarations === 'function') {
+          const declarations = targetTypeSymbol.getDeclarations();
+          if (declarations && declarations.length > 0) {
+            const targetType = checker.getTypeAtLocation(declarations[0]);
+            if (targetType && checker.isTypeAssignableTo(exprType, targetType)) {
+              return true;
+            }
+          }
+        }
+      }
+      
+      return false;
+    } catch {
+      return true; // Fallback to name-based matching
+    }
   }
 
   /**
@@ -808,41 +982,6 @@ export class TypeFunctionLinker {
     };
   }
 
-  /**
-   * Collect all property usage information for a type
-   */
-  private collectPropertyUsages(
-    type: TypeDefinition, 
-    functions: FunctionMetadata[]
-  ): Map<string, PropertyUsageInfo[]> {
-    const usageMap = new Map<string, PropertyUsageInfo[]>();
-    const typeMembers = this.getTypeMembers(type);
-    
-    for (const member of typeMembers) {
-      if (member.kind === MemberKind.Property) {
-        usageMap.set(member.name, []);
-      }
-    }
-    
-    for (const func of functions) {
-      const propertyAccesses = this.analyzePropertyAccesses(func, type);
-      
-      for (const [property, usage] of propertyAccesses) {
-        if (!usageMap.has(property)) {
-          usageMap.set(property, []);
-        }
-        usageMap.get(property)!.push({
-          functionName: func.name,
-          filePath: func.filePath,
-          line: func.startLine,
-          accessType: usage.accessType,
-          coAccessedWith: usage.coAccessedWith
-        });
-      }
-    }
-    
-    return usageMap;
-  }
 
   /**
    * Analyze property access patterns
@@ -1058,139 +1197,14 @@ export class TypeFunctionLinker {
     }
   }
 
-  /**
-   * Analyze property accesses in a function using Symbol/TypeChecker-based analysis
-   */
-  private analyzePropertyAccesses(
-    func: FunctionMetadata, 
-    type: TypeDefinition
-  ): Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }> {
-    try {
-      const sourceFile = this.project.getSourceFile(func.filePath);
-      if (!sourceFile) {
-        return new Map();
-      }
+  // analyzePropertyAccesses method replaced by optimized 1-pass traversal
 
-      const accessMap = new Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }>();
-      const coAccessedProperties = new Set<string>();
-      const typeMembers = this.getTypeMembers(type);
-      const memberNames = new Set(typeMembers.map(m => m.name));
-
-      // Get TypeChecker for type analysis
-      const checker = this.project.getTypeChecker();
-      
-      // Find the function node in the source file
-      const targetFunctionNode = this.findFunctionNodeByMetadata(sourceFile, func);
-      
-      if (targetFunctionNode) {
-        
-        // Build parameter type map for type checking
-        const paramTypeMap = this.buildParameterTypeMap(targetFunctionNode, checker);
-        
-        // Get target type symbol for comparison
-        const targetTypeSymbol = this.getTypeSymbol(type, sourceFile, checker);
-        
-        // Analyze property accesses within this function
-        targetFunctionNode.forEachDescendant((child) => {
-          if (child.asKind(SyntaxKind.PropertyAccessExpression)) {
-            const propAccess = child.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
-            const propertyName = propAccess.getName();
-            
-            // Check if this property belongs to our target type using Symbol-based matching
-            if (memberNames.has(propertyName) && 
-                this.belongsToTargetType(propAccess, targetTypeSymbol, checker, paramTypeMap)) {
-              
-              const accessType = this.classifyAccess(propAccess);
-              coAccessedProperties.add(propertyName);
-              
-              if (!accessMap.has(propertyName)) {
-                accessMap.set(propertyName, {
-                  accessType,
-                  coAccessedWith: []
-                });
-              }
-            }
-          }
-        });
-
-        // Set co-accessed properties for each property
-        const coAccessedArray = Array.from(coAccessedProperties);
-        for (const [propertyName, access] of accessMap.entries()) {
-          access.coAccessedWith = coAccessedArray.filter(p => p !== propertyName);
-        }
-      }
-
-      return accessMap;
-    } catch (error) {
-      console.warn(`Failed to analyze property accesses in function ${func.name}: ${error}`);
-      return new Map();
-    }
-  }
-
-  /**
-   * Build parameter type map for Symbol-based type checking
-   */
-  private buildParameterTypeMap(functionNode: Node, _checker: any): Map<string, any> {
-    const paramTypeMap = new Map<string, any>();
-    
-    try {
-      // Handle different function node types
-      if (functionNode.asKind(SyntaxKind.FunctionDeclaration) || 
-          functionNode.asKind(SyntaxKind.MethodDeclaration) ||
-          functionNode.asKind(SyntaxKind.ArrowFunction) ||
-          functionNode.asKind(SyntaxKind.FunctionExpression)) {
-        
-        const params = this.getFunctionParameters(functionNode);
-        
-        for (const param of params) {
-          try {
-            const paramName = param.getName?.() || param.getText();
-            const paramType = param.getType?.();
-            const paramSymbol = paramType?.getSymbol?.() ?? paramType?.getApparentType?.()?.getSymbol?.();
-            
-            if (paramName && paramSymbol) {
-              paramTypeMap.set(paramName, paramSymbol);
-            }
-          } catch {
-            // Skip parameters that fail type analysis
-          }
-        }
-      }
-    } catch {
-      // Return empty map if parameter analysis fails
-    }
-    
-    return paramTypeMap;
-  }
-
-  /**
-   * Get function parameters based on node type
-   */
-  private getFunctionParameters(functionNode: Node): any[] {
-    try {
-      if (functionNode.asKind(SyntaxKind.FunctionDeclaration)) {
-        return functionNode.asKindOrThrow(SyntaxKind.FunctionDeclaration).getParameters();
-      }
-      if (functionNode.asKind(SyntaxKind.MethodDeclaration)) {
-        return functionNode.asKindOrThrow(SyntaxKind.MethodDeclaration).getParameters();
-      }
-      if (functionNode.asKind(SyntaxKind.ArrowFunction)) {
-        return functionNode.asKindOrThrow(SyntaxKind.ArrowFunction).getParameters();
-      }
-      if (functionNode.asKind(SyntaxKind.FunctionExpression)) {
-        return functionNode.asKindOrThrow(SyntaxKind.FunctionExpression).getParameters();
-      }
-    } catch {
-      // Return empty array if parameter extraction fails
-    }
-    
-    return [];
-  }
+  // getFunctionParameters method removed - no longer needed with optimized approach
 
   /**
    * Get type symbol for target type
    */
-  private getTypeSymbol(type: TypeDefinition, sourceFile: any, _checker: any): any {
+  private getTypeSymbol(type: TypeDefinition, sourceFile: SourceFile, _checker: TypeChecker): unknown {
     try {
       // Find type declaration in source file
       const typeNode = this.findTypeDeclaration(type, sourceFile);
@@ -1213,18 +1227,21 @@ export class TypeFunctionLinker {
   /**
    * Find type declaration node in source file
    */
-  private findTypeDeclaration(type: TypeDefinition, sourceFile: any): any {
-    let foundNode: any = undefined;
+  private findTypeDeclaration(type: TypeDefinition, sourceFile: SourceFile): Node | undefined {
+    let foundNode: Node | undefined = undefined;
     
     try {
-      sourceFile.forEachDescendant((node: any) => {
+      sourceFile.forEachDescendant((node: Node) => {
         if (foundNode) return; // Early exit if found
         
-        if ((node.asKind?.(SyntaxKind.InterfaceDeclaration) || 
-             node.asKind?.(SyntaxKind.ClassDeclaration) ||
-             node.asKind?.(SyntaxKind.TypeAliasDeclaration)) &&
-            node.getName?.() === type.name) {
-          foundNode = node;
+        if (Node.isInterfaceDeclaration(node) || 
+            Node.isClassDeclaration(node) ||
+            Node.isTypeAliasDeclaration(node)) {
+          const name = 'getName' in node && typeof node.getName === 'function' 
+            ? node.getName() : undefined;
+          if (name === type.name) {
+            foundNode = node;
+          }
         }
       });
     } catch {
@@ -1234,83 +1251,7 @@ export class TypeFunctionLinker {
     return foundNode;
   }
 
-  /**
-   * Check if PropertyAccessExpression belongs to target type using Symbol-based matching
-   */
-  private belongsToTargetType(
-    propAccess: any, 
-    targetTypeSymbol: any, 
-    checker: any, 
-    paramTypeMap: Map<string, any>
-  ): boolean {
-    try {
-      if (!targetTypeSymbol || !checker) {
-        return true; // Fallback to member name matching if symbols unavailable
-      }
-
-      const expression = propAccess.getExpression();
-      const exprName = expression.getText();
-      
-      // Check if expression corresponds to a parameter with compatible type
-      const paramSymbol = paramTypeMap.get(exprName);
-      if (paramSymbol) {
-        // Use symbol comparison for type compatibility
-        return this.isSymbolCompatible(paramSymbol, targetTypeSymbol, checker);
-      }
-      
-      // Fallback: check expression type directly
-      const exprType = expression.getType?.();
-      if (exprType && targetTypeSymbol) {
-        const targetType = checker.getTypeOfSymbolAtLocation?.(targetTypeSymbol, expression);
-        if (targetType) {
-          return this.isTypeCompatible(exprType, targetType, checker);
-        }
-      }
-      
-      return true; // Fallback to member name matching
-    } catch {
-      return true; // Fallback to member name matching on error
-    }
-  }
-
-  /**
-   * Check symbol compatibility (handles inheritance, generics, etc.)
-   */
-  private isSymbolCompatible(sourceSymbol: any, targetSymbol: any, checker: any): boolean {
-    try {
-      if (sourceSymbol === targetSymbol) {
-        return true;
-      }
-      
-      // Get types from symbols and check assignability
-      const sourceType = checker.getTypeOfSymbolAtLocation?.(sourceSymbol, sourceSymbol.valueDeclaration);
-      const targetType = checker.getTypeOfSymbolAtLocation?.(targetSymbol, targetSymbol.valueDeclaration);
-      
-      if (sourceType && targetType) {
-        return this.isTypeCompatible(sourceType, targetType, checker);
-      }
-      
-      return false;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check type compatibility using TypeChecker
-   */
-  private isTypeCompatible(sourceType: any, targetType: any, checker: any): boolean {
-    try {
-      // Handle apparent types for unions/intersections
-      const source = sourceType.getApparentType?.() ?? sourceType;
-      const target = targetType.getApparentType?.() ?? targetType;
-      
-      // Use TypeChecker's assignability check
-      return checker.isTypeAssignableTo?.(source, target) || false;
-    } catch {
-      return false;
-    }
-  }
+  // Old type compatibility methods replaced by optimized 1-pass implementation
 
   /**
    * Classify property access type based on AST context with comprehensive edge case handling
@@ -1535,25 +1476,73 @@ export class TypeFunctionLinker {
   /**
    * Detect over-coupled parameters in a function
    */
-  private detectOverCoupledParameters(_func: FunctionMetadata) {
-    // TODO: This is a stub implementation that needs to be completed
-    // It should analyze function parameters to detect when a parameter
-    // of a complex type only uses a small subset of its properties,
-    // indicating potential over-coupling
-    // For now, return empty array to allow compilation
-    return [];
+  private detectOverCoupledParameters(func: FunctionMetadata) {
+    try {
+      const sourceFile = this.project.getSourceFile(func.filePath);
+      if (!sourceFile) {
+        return [];
+      }
+
+      const couplingData = this.analyzeFunctionCoupling(sourceFile, func);
+      const analyses = couplingData.overCoupling.get(func.id) || [];
+
+      return analyses.map(analysis => ({
+        parameterName: analysis.parameterName,
+        typeName: 'unknown', // Could be enhanced with actual type name
+        totalProperties: analysis.totalProperties,
+        usedProperties: analysis.usedProperties,
+        unusedProperties: [], // Could be calculated from totalProperties - usedProperties
+        usageRatio: analysis.usageRatio,
+        severity: analysis.severity.toLowerCase() as 'low' | 'medium' | 'high'
+      }));
+    } catch (error) {
+      console.warn(`Failed to analyze coupling for function ${func.name}: ${error}`);
+      return [];
+    }
   }
 
   /**
    * Detect bucket brigade patterns
    */
-  private detectBucketBrigade(_func: FunctionMetadata) {
-    // TODO: This is a stub implementation that needs to be completed
-    // It should detect when a function receives parameters that it
-    // doesn't use directly but only passes them to other functions,
-    // indicating a bucket brigade anti-pattern
-    // For now, return empty array to allow compilation
-    return [];
+  private detectBucketBrigade(func: FunctionMetadata) {
+    try {
+      const sourceFile = this.project.getSourceFile(func.filePath);
+      if (!sourceFile) {
+        return [];
+      }
+
+      const couplingData = this.analyzeFunctionCoupling(sourceFile, func);
+      const bucketBrigadeData = couplingData.bucketBrigade.get(func.id);
+      
+      if (!bucketBrigadeData) {
+        return [];
+      }
+
+      const indicators: {
+        parameter: string;
+        passedWithoutUse: boolean;
+        chainLength: number;
+      }[] = [];
+
+      for (const [parameter, calleeIds] of bucketBrigadeData) {
+        // Check if parameter is passed without direct property access
+        const paramUsage = couplingData.parameterUsage.get(func.id)?.get(parameter);
+        const passedWithoutUse = !paramUsage || paramUsage.size === 0;
+        
+        indicators.push({
+          parameter,
+          passedWithoutUse,
+          chainLength: calleeIds.size
+        });
+      }
+
+      return indicators.filter(indicator => 
+        indicator.passedWithoutUse && indicator.chainLength > 0
+      );
+    } catch (error) {
+      console.warn(`Failed to analyze bucket brigade for function ${func.name}: ${error}`);
+      return [];
+    }
   }
 
   /**
@@ -2000,5 +1989,16 @@ export class TypeFunctionLinker {
     return func.filePath === type.filePath &&
            func.startLine >= type.startLine &&
            func.endLine <= type.endLine;
+  }
+
+  /**
+   * Analyze function coupling using OnePassASTVisitor
+   */
+  private analyzeFunctionCoupling(sourceFile: SourceFile, _func: FunctionMetadata): CouplingDataMap {
+    const checker = this.project.getTypeChecker();
+    const visitor = new OnePassASTVisitor();
+    const context = visitor.scanFile(sourceFile, checker);
+    
+    return context.couplingData;
   }
 }

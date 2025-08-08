@@ -1,72 +1,56 @@
 import { Command } from 'commander';
-import { Project } from 'ts-morph';
-import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
-import { TypeDependencyAnalyzer, TypeDependency } from '../../analyzers/type-dependency-analyzer';
-import { TypeMetricsCalculator, TypeQualityScore, TypeHealthReport } from '../../analyzers/type-metrics-calculator';
-import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
-import { 
-  sortTypes, 
-  displayTypesList, 
-  displayHealthReport, 
-  displayCircularDependencies, 
-  displayTypeDependencies 
-} from './utils/type-display';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-
+import { TypeDefinition, TypeRelationship, StorageAdapter } from '../../types';
+import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
 
 /**
- * Types command - independent type analysis functionality
- * Completely separate from function analysis to maintain system integrity
+ * Database-driven types command
+ * Uses stored type information from scan phase instead of real-time analysis
  */
 export function createTypesCommand(): Command {
   const typesCmd = new Command('types')
-    .description('🧩 TypeScript type analysis (experimental)')
-    .addHelpText('before', '⚠️  This is an experimental feature for TypeScript type analysis');
+    .description('🧩 TypeScript type analysis (database-driven)')
+    .addHelpText('before', '💾 Uses pre-analyzed type data from database');
 
   // List types command
   typesCmd
     .command('list')
-    .description('📋 List TypeScript types with filtering options')
+    .description('📋 List TypeScript types from database')
     .option('--kind <kind>', 'Filter by type kind (interface|class|type_alias|enum|namespace)')
     .option('--exported', 'Show only exported types')
     .option('--generic', 'Show only generic types')
     .option('--file <path>', 'Filter by file path')
     .option('--limit <number>', 'Limit number of results', parseInt)
-    .option('--sort <field>', 'Sort by field (name|fields|complexity|usage)', 'name')
+    .option('--sort <field>', 'Sort by field (name|kind|file)', 'name')
     .option('--desc', 'Sort in descending order')
-    .option('--risk <level>', 'Filter by risk level (low|medium|high|critical)')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
-    .action(async (options: TypeListOptions, command) => {
+    .option('--analyze-coupling', 'Include coupling analysis for types')
+    .action(async (options: TypeListOptions & { analyzeCoupling?: boolean }, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
       const mergedOptions = { ...globalOpts, ...options };
-      await executeTypesList(mergedOptions);
+      return executeTypesListDB(mergedOptions);
     });
 
   // Type health command
   typesCmd
     .command('health')
-    .description('🏥 Analyze type quality and health metrics')
+    .description('🏥 Analyze type quality from database')
     .option('--verbose', 'Show detailed health information')
     .option('--json', 'Output in JSON format')
-    .option('--thresholds <path>', 'Path to custom thresholds file')
-    .option('--legend', 'Show score ranges and color coding explanation')
     .action(async (options: TypeHealthOptions, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
       const mergedOptions = { ...globalOpts, ...options };
-      await executeTypesHealth(mergedOptions);
+      return executeTypesHealthDB(mergedOptions);
     });
 
   // Type dependencies command
   typesCmd
     .command('deps <typeName>')
-    .description('🔗 Analyze type dependencies and usage')
+    .description('🔗 Analyze type dependencies from database')
     .option('--depth <number>', 'Maximum dependency depth to analyze', parseInt, 3)
     .option('--circular', 'Show only circular dependencies')
     .option('--json', 'Output in JSON format')
@@ -74,341 +58,624 @@ export function createTypesCommand(): Command {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
       const mergedOptions = { ...globalOpts, ...options };
-      await executeTypesDeps(typeName, mergedOptions);
+      return executeTypesDepsDB(typeName, mergedOptions);
     });
 
   return typesCmd;
 }
 
 /**
- * Execute types list command
+ * Execute types list command using database
  */
-export async function executeTypesList(options: TypeListOptions): Promise<void> {
+async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?: boolean }): Promise<void> {
   const logger = new Logger();
+  const errorHandler = createErrorHandler(logger);
   
   try {
-    logger.info('🔍 Analyzing TypeScript types...');
+    logger.info('🔍 Loading types from database...');
     
-    const { types, dependencies, project } = await analyzeProjectTypes();
-    let filteredTypes = types;
-
+    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    let types = await storage.getTypeDefinitions(latestSnapshot.id);
+    
+    if (types.length === 0) {
+      if (options.json) {
+        console.log(JSON.stringify([], null, 2));
+      } else {
+        console.log('No types found. Run scan first to analyze types.');
+      }
+      return;
+    }
+    
     // Apply filters
-    if (options.kind) {
-      const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
-      if (!validKinds.includes(options.kind as typeof validKinds[number])) {
-        logger.error(`❌ Invalid kind: ${options.kind}. Valid options are: ${validKinds.join(', ')}`);
-        process.exit(1);
-      }
-      filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
-    }
-
-    // Calculate type quality scores if risk filtering is needed
-    const typeScores: TypeQualityScore[] = [];
-    if (options.risk) {
-      const validRisks = ['critical', 'high', 'medium', 'low'] as const;
-      if (!validRisks.includes(options.risk as typeof validRisks[number])) {
-        logger.error(`❌ Invalid risk level: ${options.risk}. Valid options are: ${validRisks.join(', ')}`);
-        process.exit(1);
-      }
-
-      // Calculate scores for risk filtering
-      const calculator = new TypeMetricsCalculator({ name: 'default' });
-      const typeAnalyzer = new TypeAnalyzer(project);
-      for (const type of filteredTypes) {
-        const metrics = typeAnalyzer.calculateTypeMetrics(type);
-        const typeDependencies = dependencies.filter(d => d.sourceTypeId === type.id);
-        const score = calculator.calculateTypeQuality(type, metrics, undefined, typeDependencies);
-        typeScores.push(score);
-      }
-
-      // Filter by risk level
-      const scoresByRisk = typeScores.filter(score => score.riskLevel === options.risk);
-      const typeIdsByRisk = new Set(scoresByRisk.map(score => score.typeId));
-      filteredTypes = filteredTypes.filter(t => typeIdsByRisk.has(t.id));
-    }
+    types = await applyTypeFilters(types, options);
     
-    if (options.exported) {
-      filteredTypes = filteredTypes.filter(t => t.isExported);
-    }
-    
-    if (options.generic) {
-      filteredTypes = filteredTypes.filter(t => t.isGeneric);
-    }
-    
-    if (options.file) {
-      const filePath = options.file;
-      filteredTypes = filteredTypes.filter(t => t.filePath.includes(filePath));
-    }
-
     // Sort types
-    const validSortOptions = ['name', 'fields', 'complexity', 'usage'] as const;
-    const sortField = options.sort || 'name';
-    if (!validSortOptions.includes(sortField as typeof validSortOptions[number])) {
-      logger.error(`❌ Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
-      process.exit(1);
-    }
-    filteredTypes = sortTypes(filteredTypes, sortField, options.desc);
-
+    types = sortTypesDB(types, options.sort || 'name', options.desc);
+    
     // Apply limit
     if (options.limit && options.limit > 0) {
-      filteredTypes = filteredTypes.slice(0, options.limit);
+      types = types.slice(0, options.limit);
     }
-
+    
+    // Add coupling analysis if requested
+    let couplingData: Map<string, CouplingInfo> = new Map();
+    if (options.analyzeCoupling) {
+      couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
+    }
+    
+    // Output results
     if (options.json) {
-      console.log(JSON.stringify(filteredTypes, null, 2));
+      const output = types.map(type => ({
+        ...type,
+        ...(couplingData.has(type.id) && { coupling: couplingData.get(type.id) })
+      }));
+      console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesList(filteredTypes, options.detail);
+      displayTypesListDB(types, couplingData, options.detail);
     }
 
+    await storage.close();
   } catch (error) {
-    logger.error('❌ Failed to analyze types:', error);
-    process.exit(1);
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to list types: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
 /**
- * Execute types health command
+ * Execute types health command using database
  */
-export async function executeTypesHealth(options: TypeHealthOptions): Promise<void> {
+async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
   const logger = new Logger();
+  const errorHandler = createErrorHandler(logger);
   
   try {
-    logger.info('🏥 Analyzing type health...');
+    logger.info('🏥 Analyzing type health from database...');
     
-    const { types, dependencies, project } = await analyzeProjectTypes();
+    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    const types = await storage.getTypeDefinitions(latestSnapshot.id);
     
-    // Load custom thresholds if provided
-    let thresholds: Record<string, unknown> = { name: 'default-v2' };
-    if (options.thresholds && fs.existsSync(options.thresholds)) {
-      thresholds = { 
-        ...JSON.parse(fs.readFileSync(options.thresholds, 'utf-8')),
-        name: path.basename(options.thresholds, '.json')
-      };
+    if (types.length === 0) {
+      console.log('No types found. Run scan first to analyze types.');
+      return;
     }
-
-    const calculator = new TypeMetricsCalculator(thresholds);
-    const dependencyAnalyzer = new TypeDependencyAnalyzer(project);
     
-    // Calculate type quality scores
-    const typeScores: TypeQualityScore[] = [];
-    const typeAnalyzer = new TypeAnalyzer(project);
-    for (const type of types) {
-      const metrics = typeAnalyzer.calculateTypeMetrics(type);
-      const typeDependencies = dependencies.filter(d => d.sourceTypeId === type.id);
-      const score = calculator.calculateTypeQuality(type, metrics, undefined, typeDependencies);
-      typeScores.push(score);
-    }
-
-    // Detect circular dependencies
-    const circularDeps = dependencyAnalyzer.detectCircularDependencies(dependencies);
+    // Calculate health metrics
+    const healthReport = calculateTypeHealthFromDB(types);
     
-    // Generate health report
-    const healthReport = calculator.generateHealthReport(typeScores, circularDeps);
-
-    // Load previous health data for comparison
-    const previousHealth = loadPreviousHealthData();
-    
-    // Save current health data for future comparisons
-    saveHealthData(healthReport);
-
     if (options.json) {
-      console.log(JSON.stringify({
-        healthReport,
-        typeScores: options.verbose ? typeScores : undefined
-      }, null, 2));
+      console.log(JSON.stringify(healthReport, null, 2));
     } else {
-      displayHealthReport(healthReport, typeScores, options.verbose, types, previousHealth || null, options.legend);
+      displayTypeHealthDB(healthReport, options.verbose);
     }
-
+    
+    await storage.close();
   } catch (error) {
-    logger.error('❌ Failed to analyze type health:', error);
-    process.exit(1);
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to analyze type health: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
 /**
- * Execute types deps command
+ * Execute types deps command using database
  */
-export async function executeTypesDeps(typeName: string, options: TypeDepsOptions): Promise<void> {
+async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): Promise<void> {
   const logger = new Logger();
+  const errorHandler = createErrorHandler(logger);
   
   try {
     logger.info(`🔗 Analyzing dependencies for type: ${typeName}`);
     
-    const { types, dependencies, project } = await analyzeProjectTypes();
-    const targetType = types.find(t => t.name === typeName);
+    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    const targetType = await storage.findTypeByName(typeName, latestSnapshot.id);
     
     if (!targetType) {
       logger.error(`❌ Type '${typeName}' not found`);
       process.exit(1);
     }
-
-    const dependencyAnalyzer = new TypeDependencyAnalyzer(project);
-    dependencyAnalyzer.setTypeDefinitions(types);
-
+    
+    const relationships = await storage.getTypeRelationships(latestSnapshot.id);
+    const dependencies = analyzeDependenciesFromDB(targetType, relationships, options.depth || 3);
+    
     if (options.circular) {
-      const circularDeps = dependencyAnalyzer.detectCircularDependencies(dependencies);
-      const typeCircularDeps = circularDeps.filter(cd => 
-        cd.typeNames.includes(typeName)
-      );
-
+      const circularDeps = findCircularDependencies(dependencies);
       if (options.json) {
-        console.log(JSON.stringify(typeCircularDeps, null, 2));
+        console.log(JSON.stringify(circularDeps, null, 2));
       } else {
-        displayCircularDependencies(typeCircularDeps);
+        displayCircularDependenciesDB(circularDeps);
       }
     } else {
-      const typeDependencies = dependencies.filter(d => 
-        d.sourceTypeId === targetType.id || 
-        types.find(t => t.name === d.targetTypeName)?.id === targetType.id
-      );
-
       if (options.json) {
-        console.log(JSON.stringify(typeDependencies, null, 2));
+        console.log(JSON.stringify(dependencies, null, 2));
       } else {
-        displayTypeDependencies(typeName, typeDependencies, types);
+        displayDependenciesDB(typeName, dependencies);
       }
     }
-
+    
+    await storage.close();
   } catch (error) {
-    logger.error('❌ Failed to analyze type dependencies:', error);
-    process.exit(1);
+    const funcqcError = errorHandler.createError(
+      ErrorCode.UNKNOWN_ERROR,
+      `Failed to analyze type dependencies: ${error instanceof Error ? error.message : String(error)}`,
+      {},
+      error instanceof Error ? error : undefined
+    );
+    errorHandler.handleError(funcqcError);
   }
 }
 
+// Helper types and functions
+
+interface CouplingInfo {
+  parameterUsage: {
+    functionId: string;
+    parameterName: string;
+    usedProperties: string[];
+    totalProperties: number;
+    usageRatio: number;
+    severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  }[];
+  totalFunctions: number;
+  averageUsageRatio: number;
+}
+
+interface TypeHealthReport {
+  totalTypes: number;
+  typeDistribution: Record<string, number>;
+  complexityStats: {
+    averageMembers: number;
+    maxMembers: number;
+    typesWithManyMembers: number;
+  };
+  couplingStats: {
+    highCouplingTypes: number;
+    averageUsageRatio: number;
+  };
+  overallHealth: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR';
+}
+
 /**
- * Analyze project types and dependencies
+ * Get storage adapter and latest snapshot
  */
-async function analyzeProjectTypes(): Promise<{
-  types: TypeDefinition[];
-  dependencies: TypeDependency[];
-  project: Project;
-}> {
+async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; latestSnapshot: any }> {
+  // Get storage from environment or create new instance
+  const { PGLiteStorageAdapter } = await import('../../storage/pglite-adapter');
+  const { ConfigManager } = await import('../../core/config');
+  
   const configManager = new ConfigManager();
   const config = await configManager.load();
   
-  // Create ts-morph project
-  const project = new Project({
-    skipAddingFilesFromTsConfig: true,
-    skipFileDependencyResolution: true,
-    skipLoadingLibFiles: true,
+  const logger = new Logger();
+  const storage = new PGLiteStorageAdapter(
+    config.storage.path || '.funcqc/funcqc.db',
+    logger
+  );
+  
+  await storage.init();
+  
+  const snapshots = await storage.getSnapshots({ limit: 1 });
+  if (snapshots.length === 0) {
+    throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+  }
+  
+  return { storage, latestSnapshot: snapshots[0] };
+}
+
+/**
+ * Apply filters to types
+ */
+async function applyTypeFilters(
+  types: TypeDefinition[],
+  options: TypeListOptions
+): Promise<TypeDefinition[]> {
+  let filteredTypes = types;
+  
+  if (options.kind) {
+    const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
+    if (!validKinds.includes(options.kind as any)) {
+      throw new Error(`Invalid kind: ${options.kind}. Valid options are: ${validKinds.join(', ')}`);
+    }
+    filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
+  }
+  
+  if (options.exported) {
+    filteredTypes = filteredTypes.filter(t => t.isExported);
+  }
+  
+  if (options.generic) {
+    filteredTypes = filteredTypes.filter(t => t.isGeneric);
+  }
+  
+  if (options.file) {
+    const filePath = options.file;
+    filteredTypes = filteredTypes.filter(t => t.filePath.includes(filePath));
+  }
+  
+  return filteredTypes;
+}
+
+/**
+ * Sort types by field
+ */
+function sortTypesDB(types: TypeDefinition[], sortField: string, desc?: boolean): TypeDefinition[] {
+  const validSortOptions = ['name', 'kind', 'file'] as const;
+  if (!validSortOptions.includes(sortField as any)) {
+    throw new Error(`Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
+  }
+  
+  const sorted = [...types].sort((a, b) => {
+    let aVal: string;
+    let bVal: string;
+    
+    switch (sortField) {
+      case 'name':
+        aVal = a.name;
+        bVal = b.name;
+        break;
+      case 'kind':
+        aVal = a.kind;
+        bVal = b.kind;
+        break;
+      case 'file':
+        aVal = a.filePath;
+        bVal = b.filePath;
+        break;
+      default:
+        aVal = a.name;
+        bVal = b.name;
+    }
+    
+    return desc ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
   });
+  
+  return sorted;
+}
 
-  // Find TypeScript files
-  const typeScriptFiles: string[] = [];
-  for (const root of config.roots || ['src']) {
-    if (fs.existsSync(root)) {
-      findTypeScriptFiles(root, typeScriptFiles);
+/**
+ * Analyze coupling for types using parameter property usage data
+ */
+async function analyzeCouplingForTypes(
+  storage: StorageAdapter,
+  types: TypeDefinition[],
+  snapshotId: string
+): Promise<Map<string, CouplingInfo>> {
+  const couplingMap = new Map<string, CouplingInfo>();
+  
+  try {
+    // Get coupling data for each type
+    for (const type of types) {
+      const couplingQuery = await storage.query(`
+        SELECT 
+          ppu.function_id,
+          ppu.parameter_name,
+          ppu.accessed_property,
+          ppu.access_type,
+          COUNT(*) as access_count
+        FROM parameter_property_usage ppu
+        WHERE ppu.snapshot_id = $1 
+          AND ppu.parameter_type_id = $2
+        GROUP BY ppu.function_id, ppu.parameter_name, ppu.accessed_property, ppu.access_type
+        ORDER BY ppu.function_id, ppu.parameter_name
+      `, [snapshotId, type.id]);
+      
+      if (couplingQuery.rows.length > 0) {
+        const parameterUsage = processCouplingQueryResults(couplingQuery.rows);
+        const totalFunctions = new Set(couplingQuery.rows.map((row: any) => row.function_id)).size;
+        
+        const averageUsageRatio = parameterUsage.length > 0 
+          ? parameterUsage.reduce((sum, p) => sum + p.usageRatio, 0) / parameterUsage.length
+          : 0;
+        
+        couplingMap.set(type.id, {
+          parameterUsage,
+          totalFunctions,
+          averageUsageRatio
+        });
+      }
+    }
+  } catch (error) {
+    console.warn(`Warning: Failed to analyze coupling: ${error}`);
+  }
+  
+  return couplingMap;
+}
+
+/**
+ * Process coupling query results into structured format
+ */
+function processCouplingQueryResults(rows: any[]): CouplingInfo['parameterUsage'] {
+  const parameterMap = new Map<string, Map<string, Set<string>>>();
+  
+  // Group by function and parameter
+  for (const row of rows) {
+    const key = `${row.function_id}:${row.parameter_name}`;
+    if (!parameterMap.has(key)) {
+      parameterMap.set(key, new Map());
+    }
+    
+    const funcParamMap = parameterMap.get(key)!;
+    if (!funcParamMap.has(row.parameter_name)) {
+      funcParamMap.set(row.parameter_name, new Set());
+    }
+    
+    funcParamMap.get(row.parameter_name)!.add(row.accessed_property);
+  }
+  
+  // Convert to structured format
+  const result: CouplingInfo['parameterUsage'] = [];
+  for (const [key, paramMap] of parameterMap) {
+    const [functionId] = key.split(':');
+    
+    for (const [paramName, properties] of paramMap) {
+      const usedProperties = Array.from(properties);
+      const totalProperties = usedProperties.length; // Simplified - would need type member count
+      const usageRatio = totalProperties > 0 ? usedProperties.length / totalProperties : 1;
+      
+      let severity: 'LOW' | 'MEDIUM' | 'HIGH';
+      if (usageRatio <= 0.25) severity = 'HIGH';
+      else if (usageRatio <= 0.5) severity = 'MEDIUM';
+      else severity = 'LOW';
+      
+      result.push({
+        functionId,
+        parameterName: paramName,
+        usedProperties,
+        totalProperties,
+        usageRatio,
+        severity
+      });
     }
   }
+  
+  return result;
+}
 
-  // Add files to project
-  for (const filePath of typeScriptFiles) {
-    try {
-      project.addSourceFileAtPath(filePath);
-    } catch {
-      console.warn(`⚠️  Could not add file: ${filePath}`);
-      // Continue processing other files even if one fails
-    }
+/**
+ * Calculate type health from database
+ */
+function calculateTypeHealthFromDB(
+  types: TypeDefinition[]
+): TypeHealthReport {
+  const totalTypes = types.length;
+  
+  // Type distribution
+  const typeDistribution: Record<string, number> = {};
+  for (const type of types) {
+    typeDistribution[type.kind] = (typeDistribution[type.kind] || 0) + 1;
   }
-
-  const typeAnalyzer = new TypeAnalyzer(project);
-  const dependencyAnalyzer = new TypeDependencyAnalyzer(project);
   
-  // Analyze types
-  const allTypes: TypeDefinition[] = [];
-  const allDependencies: TypeDependency[] = [];
+  // Complexity stats (simplified)
+  const complexityStats = {
+    averageMembers: 0, // Would need to query type_members
+    maxMembers: 0,
+    typesWithManyMembers: 0
+  };
   
-  const snapshotId = 'type-analysis-' + Date.now();
+  // Coupling stats (simplified)
+  const couplingStats = {
+    highCouplingTypes: 0,
+    averageUsageRatio: 0
+  };
   
-  for (const sourceFile of project.getSourceFiles()) {
-    const filePath = sourceFile.getFilePath();
-    const types = typeAnalyzer.analyzeFile(filePath, snapshotId);
-    allTypes.push(...types);
-  }
-
-  // Set type definitions context for dependency analysis
-  dependencyAnalyzer.setTypeDefinitions(allTypes);
+  // Overall health assessment
+  let overallHealth: TypeHealthReport['overallHealth'] = 'GOOD';
+  if (totalTypes < 10) overallHealth = 'POOR';
+  else if (totalTypes < 50) overallHealth = 'FAIR';
+  else if (totalTypes > 200) overallHealth = 'EXCELLENT';
   
-  for (const sourceFile of project.getSourceFiles()) {
-    const filePath = sourceFile.getFilePath();
-    const dependencies = dependencyAnalyzer.analyzeDependencies(filePath, snapshotId);
-    allDependencies.push(...dependencies);
-  }
-
   return {
-    types: allTypes,
-    dependencies: allDependencies,
-    project
+    totalTypes,
+    typeDistribution,
+    complexityStats,
+    couplingStats,
+    overallHealth
   };
 }
 
 /**
- * Get cache directory path
+ * Analyze dependencies from database relationships
  */
-function getCacheDir(): string {
-  const homeDir = os.homedir();
-  const cacheDir = path.join(homeDir, '.funcqc-cache');
+function analyzeDependenciesFromDB(
+  targetType: TypeDefinition,
+  relationships: TypeRelationship[],
+  maxDepth: number
+): any[] {
+  const dependencies: any[] = [];
+  const visited = new Set<string>();
   
-  if (!fs.existsSync(cacheDir)) {
-    fs.mkdirSync(cacheDir, { recursive: true });
-  }
-  
-  return cacheDir;
-}
-
-/**
- * Load previous health data for comparison
- */
-function loadPreviousHealthData(): Partial<TypeHealthReport & { date?: string; timestamp?: string }> | null {
-  try {
-    const cacheFile = path.join(getCacheDir(), 'type-health.json');
-    if (fs.existsSync(cacheFile)) {
-      const data = fs.readFileSync(cacheFile, 'utf-8');
-      return JSON.parse(data);
-    }
-  } catch {
-    // Ignore errors when loading cache
-  }
-  return null;
-}
-
-/**
- * Save current health data for future comparisons
- */
-function saveHealthData(healthReport: TypeHealthReport): void {
-  try {
-    const cacheFile = path.join(getCacheDir(), 'type-health.json');
-    const dataToSave = {
-      overallHealth: healthReport.overallHealth,
-      totalTypes: healthReport.totalTypes,
-      riskDistribution: healthReport.riskDistribution,
-      circularDependencies: healthReport.circularDependencies.length,
-      timestamp: new Date().toISOString(),
-      date: new Date().toLocaleDateString('ja-JP')
-    };
+  function traverse(typeId: string, depth: number) {
+    if (depth >= maxDepth || visited.has(typeId)) return;
+    visited.add(typeId);
     
-    fs.writeFileSync(cacheFile, JSON.stringify(dataToSave, null, 2));
-  } catch {
-    // Ignore errors when saving cache
-  }
-}
-
-/**
- * Find TypeScript files recursively
- */
-function findTypeScriptFiles(dir: string, files: string[]): void {
-  const items = fs.readdirSync(dir);
-  
-  for (const item of items) {
-    const itemPath = path.join(dir, item);
-    const stat = fs.statSync(itemPath);
-    
-    if (stat.isDirectory() && !item.startsWith('.') && item !== 'node_modules') {
-      findTypeScriptFiles(itemPath, files);
-    } else if (item.endsWith('.ts') || item.endsWith('.tsx')) {
-      files.push(itemPath);
+    const relatedRelationships = relationships.filter(r => r.sourceTypeId === typeId);
+    for (const rel of relatedRelationships) {
+      dependencies.push({
+        source: typeId,
+        target: rel.targetTypeId,
+        relationship: rel.relationshipKind,
+        depth
+      });
+      
+      if (rel.targetTypeId) {
+        traverse(rel.targetTypeId, depth + 1);
+      }
     }
   }
+  
+  traverse(targetType.id, 0);
+  return dependencies;
 }
 
+/**
+ * Find circular dependencies
+ */
+function findCircularDependencies(dependencies: any[]): any[] {
+  // Simplified circular dependency detection
+  const graph = new Map<string, Set<string>>();
+  
+  // Build graph
+  for (const dep of dependencies) {
+    if (!graph.has(dep.source)) {
+      graph.set(dep.source, new Set());
+    }
+    if (dep.target) {
+      graph.get(dep.source)!.add(dep.target);
+    }
+  }
+  
+  // Find cycles (simplified DFS)
+  const cycles: any[] = [];
+  const visited = new Set<string>();
+  const recursionStack = new Set<string>();
+  
+  function hasCycle(node: string, path: string[]): boolean {
+    if (recursionStack.has(node)) {
+      const cycleStart = path.indexOf(node);
+      cycles.push({
+        cycle: path.slice(cycleStart).concat(node),
+        length: path.length - cycleStart + 1
+      });
+      return true;
+    }
+    
+    if (visited.has(node)) return false;
+    
+    visited.add(node);
+    recursionStack.add(node);
+    path.push(node);
+    
+    const neighbors = graph.get(node) || new Set();
+    for (const neighbor of neighbors) {
+      if (hasCycle(neighbor, [...path])) {
+        return true;
+      }
+    }
+    
+    recursionStack.delete(node);
+    return false;
+  }
+  
+  for (const node of graph.keys()) {
+    if (!visited.has(node)) {
+      hasCycle(node, []);
+    }
+  }
+  
+  return cycles;
+}
+
+/**
+ * Display functions
+ */
+function displayTypesListDB(
+  types: TypeDefinition[],
+  couplingData: Map<string, CouplingInfo>,
+  detailed?: boolean
+): void {
+  console.log(`\n📋 Found ${types.length} types:\n`);
+  
+  for (const type of types) {
+    const kindIcon = getTypeKindIcon(type.kind);
+    const exportIcon = type.isExported ? '📤' : '  ';
+    const genericIcon = type.isGeneric ? '<T>' : '   ';
+    
+    if (detailed) {
+      console.log(`${kindIcon} ${exportIcon} ${type.name} ${genericIcon}`);
+      console.log(`   📁 ${type.filePath}:${type.startLine}`);
+      console.log(`   🏷️  ${type.kind}`);
+      
+      if (couplingData.has(type.id)) {
+        const coupling = couplingData.get(type.id)!;
+        console.log(`   🔗 Coupling: ${coupling.totalFunctions} functions, avg usage: ${(coupling.averageUsageRatio * 100).toFixed(1)}%`);
+      }
+      
+      console.log();
+    } else {
+      const location = `${type.filePath.split('/').pop()}:${type.startLine}`;
+      const couplingInfo = couplingData.has(type.id) 
+        ? ` (${couplingData.get(type.id)!.totalFunctions}fn)`
+        : '';
+      
+      console.log(`${kindIcon} ${exportIcon} ${type.name.padEnd(30)} ${type.kind.padEnd(12)} ${location}${couplingInfo}`);
+    }
+  }
+}
+
+function displayTypeHealthDB(report: TypeHealthReport, verbose?: boolean): void {
+  console.log(`\n🏥 Type Health Report:\n`);
+  console.log(`Overall Health: ${getHealthIcon(report.overallHealth)} ${report.overallHealth}`);
+  console.log(`Total Types: ${report.totalTypes}`);
+  
+  console.log(`\nType Distribution:`);
+  for (const [kind, count] of Object.entries(report.typeDistribution)) {
+    const percentage = ((count / report.totalTypes) * 100).toFixed(1);
+    console.log(`  ${getTypeKindIcon(kind)} ${kind}: ${count} (${percentage}%)`);
+  }
+  
+  if (verbose) {
+    console.log(`\nComplexity Statistics:`);
+    console.log(`  Average Members: ${report.complexityStats.averageMembers}`);
+    console.log(`  Max Members: ${report.complexityStats.maxMembers}`);
+    console.log(`  Complex Types: ${report.complexityStats.typesWithManyMembers}`);
+    
+    console.log(`\nCoupling Statistics:`);
+    console.log(`  High Coupling Types: ${report.couplingStats.highCouplingTypes}`);
+    console.log(`  Average Usage Ratio: ${(report.couplingStats.averageUsageRatio * 100).toFixed(1)}%`);
+  }
+}
+
+function displayCircularDependenciesDB(cycles: any[]): void {
+  console.log(`\n🔄 Found ${cycles.length} circular dependencies:\n`);
+  
+  for (const cycle of cycles) {
+    console.log(`Cycle (length ${cycle.length}): ${cycle.cycle.join(' → ')}`);
+  }
+}
+
+function displayDependenciesDB(typeName: string, dependencies: any[]): void {
+  console.log(`\n🔗 Dependencies for type '${typeName}':\n`);
+  
+  const depsByDepth = dependencies.reduce((acc, dep) => {
+    if (!acc[dep.depth]) acc[dep.depth] = [];
+    acc[dep.depth].push(dep);
+    return acc;
+  }, {} as Record<number, any[]>);
+  
+  for (const [depth, deps] of Object.entries(depsByDepth)) {
+    console.log(`Depth ${depth}:`);
+    for (const dep of deps as any[]) {
+      const indent = '  '.repeat(parseInt(depth) + 1);
+      console.log(`${indent}${dep.relationship} → ${dep.target}`);
+    }
+  }
+}
+
+function getTypeKindIcon(kind: string): string {
+  switch (kind) {
+    case 'interface': return '🔗';
+    case 'class': return '🏗️';
+    case 'type_alias': return '🏷️';
+    case 'enum': return '🔢';
+    case 'namespace': return '📦';
+    default: return '❓';
+  }
+}
+
+function getHealthIcon(health: string): string {
+  switch (health) {
+    case 'EXCELLENT': return '🌟';
+    case 'GOOD': return '✅';
+    case 'FAIR': return '⚠️';
+    case 'POOR': return '❌';
+    default: return '❓';
+  }
+}

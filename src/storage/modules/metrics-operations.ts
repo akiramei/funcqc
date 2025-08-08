@@ -15,8 +15,10 @@ import { BatchProcessor } from '../../utils/batch-processor';
 export class MetricsOperations implements StorageOperationModule {
   readonly db;
   readonly kysely;
+  private context: StorageContext;
 
   constructor(context: StorageContext) {
+    this.context = context;
     this.db = context.db;
     this.kysely = context.kysely;
   }
@@ -560,8 +562,8 @@ export class MetricsOperations implements StorageOperationModule {
       return {
         functionId: row.function_id,
         rating: row.rating,
-        issues: row.issues ? JSON.parse(row.issues) : [row.explanation],
-        suggestions: JSON.parse(row.suggestions || '[]'),
+        issues: row.issues ? this.context.utilityOps?.parseJsonSafely(row.issues, [row.explanation]) ?? [row.explanation] : [row.explanation],
+        suggestions: this.context.utilityOps?.parseJsonSafely(row.suggestions, []) ?? [],
         createdAt: new Date(row.created_at),
         updatedAt: new Date(row.updated_at)
       };
@@ -660,8 +662,8 @@ export class MetricsOperations implements StorageOperationModule {
           evaluation: {
             functionId: r.function_id,
             rating: r.rating,
-            issues: JSON.parse(r.issues || '[]'),
-            suggestions: JSON.parse(r.suggestions || '[]'),
+            issues: this.context.utilityOps?.parseJsonSafely(r.issues, []) ?? [],
+            suggestions: this.context.utilityOps?.parseJsonSafely(r.suggestions, []) ?? [],
             createdAt: new Date(r.created_at),
             updatedAt: new Date(r.updated_at)
           }

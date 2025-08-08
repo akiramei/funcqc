@@ -699,6 +699,14 @@ export interface StorageAdapter {
   saveTypeMembers(members: TypeMember[]): Promise<void>;
   saveMethodOverrides(overrides: MethodOverride[]): Promise<void>;
   
+  // Transactional type save operation
+  saveAllTypeInformation(typeInfo: {
+    typeDefinitions: TypeDefinition[];
+    typeRelationships: TypeRelationship[];
+    typeMembers: TypeMember[];
+    methodOverrides: MethodOverride[];
+  }): Promise<void>;
+  
   getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]>;
   getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]>;
   getTypeMembers(typeId: string): Promise<TypeMember[]>;

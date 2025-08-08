@@ -36,7 +36,7 @@ export class CHATypeSystemIntegration {
   }
 
   /**
-   * Perform enhanced CHA analysis with type system integration
+   * Perform enhanced CHA analysis with type system integration (分析のみ、DB保存は別途実行)
    */
   async performEnhancedCHAAnalysis(
     functions: Map<string, FunctionMetadata>,
@@ -47,7 +47,7 @@ export class CHATypeSystemIntegration {
     edges: IdealCallEdge[];
     typeInfo: TypeExtractionResult;
   }> {
-    this.logger.debug('Starting enhanced CHA analysis with type system integration');
+    this.logger.debug('Starting enhanced CHA analysis with type system integration (analysis only)');
 
     // Phase 1: Perform standard CHA analysis
     const edges = await this.chaAnalyzer.performCHAAnalysis(functions, unresolvedEdges);
@@ -61,18 +61,52 @@ export class CHATypeSystemIntegration {
     const enhancedTypeInfo = await this.enhanceTypeInfoWithCHA(typeInfo, snapshotId);
     this.logger.debug(`Enhanced type info with ${enhancedTypeInfo.methodOverrides.length} method overrides`);
 
-    // Phase 4: Save type information to database
-    if (this.storage) {
-      await this.saveTypeInformation(enhancedTypeInfo);
-      this.logger.debug('Type information saved to database');
-    } else {
-      this.logger.warn('No storage adapter provided - type information not saved');
-    }
+    // Note: DB保存は呼び出し元で適切なトランザクションを使って実行する
+    this.logger.debug('Type information extraction completed - saving to DB should be done by caller');
 
     return {
       edges,
       typeInfo: enhancedTypeInfo
     };
+  }
+
+  /**
+   * Save type information using transactional approach (責務分離後の保存専用メソッド)
+   */
+  async saveTypeInformationWithTransaction(typeInfo: TypeExtractionResult): Promise<void> {
+    if (!this.storage) {
+      throw new Error('Storage adapter not set');
+    }
+
+    try {
+      // Use transaction-based approach following best practices
+      const hasTransactionalSave = (storage: StorageAdapter): storage is StorageAdapter & {
+        saveAllTypeInformation: (info: TypeExtractionResult) => Promise<void>
+      } => {
+        return 'saveAllTypeInformation' in storage && typeof storage.saveAllTypeInformation === 'function';
+      };
+      
+      if (hasTransactionalSave(this.storage)) {
+        await this.storage.saveAllTypeInformation(typeInfo);
+      } else {
+        // Use transactional version if available
+        const hasTransactionalMethods = 'saveTypeDefinitionsInTransaction' in this.storage;
+        if (hasTransactionalMethods) {
+          this.logger.debug('Using transactional type save methods');
+          // TODO: Implement proper transaction wrapper here
+          // For now, fall back to individual saves
+        }
+        
+        // Fallback to individual saves
+        await this.storage.saveTypeDefinitions(typeInfo.typeDefinitions);
+        await this.storage.saveTypeRelationships(typeInfo.typeRelationships);
+        await this.storage.saveTypeMembers(typeInfo.typeMembers);
+        await this.storage.saveMethodOverrides(typeInfo.methodOverrides);
+      }
+    } catch (error) {
+      this.logger.error('❌ Failed to save type information to database:', error);
+      throw error;
+    }
   }
 
   /**
@@ -283,34 +317,7 @@ export class CHATypeSystemIntegration {
   /**
    * Save type information to database using transaction-based approach
    */
-  private async saveTypeInformation(typeInfo: TypeExtractionResult): Promise<void> {
-    if (!this.storage) {
-      throw new Error('Storage adapter not set');
-    }
-
-    try {
-      // Use transaction-based approach following FunctionOperations pattern
-      // Define type guard
-      const hasTransactionalSave = (storage: StorageAdapter): storage is StorageAdapter & {
-        saveAllTypeInformation: (info: TypeExtractionResult) => Promise<void>
-      } => {
-        return 'saveAllTypeInformation' in storage && typeof storage.saveAllTypeInformation === 'function';
-      };
-      
-      if (hasTransactionalSave(this.storage)) {
-        await this.storage.saveAllTypeInformation(typeInfo);
-      } else {
-        // Fallback to individual saves with transactions
-        await this.storage.saveTypeDefinitions(typeInfo.typeDefinitions);
-        await this.storage.saveTypeRelationships(typeInfo.typeRelationships);
-        await this.storage.saveTypeMembers(typeInfo.typeMembers);
-        await this.storage.saveMethodOverrides(typeInfo.methodOverrides);
-      }
-    } catch (error) {
-      this.logger.error('❌ Failed to save type information to database:', error);
-      throw error;
-    }
-  }
+  // 古いsaveTypeInformationメソッドは削除 - 責務分離のためsaveTypeInformationWithTransactionを使用
 
 
   /**

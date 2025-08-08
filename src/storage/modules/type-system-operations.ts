@@ -47,14 +47,9 @@ export class TypeSystemOperations {
   /**
    * Safely parse JSON string with error handling
    */
-  private safeJsonParse<T>(jsonString: string | null | undefined, fallback: T): T {
-    if (!jsonString) return fallback;
-    try {
-      return JSON.parse(String(jsonString)) as T;
-    } catch (error) {
-      this.context.logger?.warn(`JSON parse failed, using fallback: ${error}`);
-      return fallback;
-    }
+  private safeJsonParse<T>(value: unknown, fallback: T): T {
+    // Delegate to the utility operations for consistent handling
+    return this.context.utilityOps?.parseJsonSafely(value, fallback) ?? fallback;
   }
 
   /**

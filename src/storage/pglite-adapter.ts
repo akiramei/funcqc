@@ -97,13 +97,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(this.logger && { logger: this.logger }),
     };
 
-    // Initialize operation modules
+    // Initialize utility operations first and add to context
+    this.utilityOps = new UtilityOperations(this.context);
+    this.context.utilityOps = this.utilityOps;
+    
+    // Initialize other operation modules with context that includes utilityOps
     this.databaseCore = new DatabaseCore(this.context);
     this.snapshotOps = new SnapshotOperations(this.context);
     this.functionOps = new FunctionOperations(this.context);
     this.metricsOps = new MetricsOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
-    this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
     this.typeSystemOps = new TypeSystemOperations(this.context);
   }
@@ -122,14 +125,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (!this.context.kysely) {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
-      // Reinitialize modules with the updated context
-      this.sourceContentOps = new SourceContentOperations(this.context);
-      this.functionOps = new FunctionOperations(this.context);
-      this.snapshotOps = new SnapshotOperations(this.context);
-      this.metricsOps = new MetricsOperations(this.context);
-      this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
-      this.typeSystemOps = new TypeSystemOperations(this.context);
+      // Modules are already initialized in constructor with utilityOps in context
+      // No need to reinitialize them here
       
       // Register this storage connection for graceful shutdown
       this.gracefulShutdown.registerStorageConnection(this);
@@ -163,12 +160,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
       // Reinitialize modules with the updated context
+      this.utilityOps = new UtilityOperations(this.context);
+      this.context.utilityOps = this.utilityOps; // Update context with new utilityOps
+      
       this.sourceContentOps = new SourceContentOperations(this.context);
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-        this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
+      this.typeSystemOps = new TypeSystemOperations(this.context);
       
       this.isInitialized = true;
     } catch (error) {
