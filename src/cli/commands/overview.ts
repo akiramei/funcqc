@@ -5,9 +5,10 @@ import chalk from 'chalk';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
 import { FunctionRegistry } from '../../analyzers/function-registry';
 import { FunctionMetadata } from '../../analyzers/ideal-call-graph-analyzer';
-import { TypeFunctionLinker, EnrichedTypeInfo, EnrichedFunctionInfo, CrossReference, ValidationResult, TypeUsageAnalysis, CouplingAnalysis } from '../../analyzers/type-function-linker';
+import { TypeFunctionLinker, EnrichedTypeInfo, EnrichedFunctionInfo, CrossReference, ValidationResult } from '../../analyzers/type-function-linker';
 import { IntegratedDisplayUtils } from './utils/integrated-display';
-import { UsageAnalysisDisplay } from './utils/usage-analysis-display';
+// TODO: Uncomment when implementations are completed
+// import { UsageAnalysisDisplay } from './utils/usage-analysis-display';
 import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
 import { OverviewOptions } from './overview.types';
@@ -22,9 +23,10 @@ export function createOverviewCommand(): Command {
     .option('--show-functions', 'Include function analysis in overview', true)
     .option('--show-integration', 'Show type-function integration details', true)
     .option('--show-validation', 'Show validation results for type-function links')
-    .option('--analyze-usage', 'Analyze type usage patterns and property correlations')
-    .option('--analyze-coupling', 'Analyze coupling issues and over-coupled parameters')
-    .option('--analyze-cohesion', 'Analyze type cohesion and potential splits')
+    // TODO: Uncomment when implementations are completed
+    // .option('--analyze-usage', 'Analyze type usage patterns and property correlations')
+    // .option('--analyze-coupling', 'Analyze coupling issues and over-coupled parameters')
+    // .option('--analyze-cohesion', 'Analyze type cohesion and potential splits')
     .option('--file <path>', 'Filter by specific file path')
     .option('--limit <number>', 'Limit number of results shown', parseInt, 20)
     .option('--risk-threshold <number>', 'Complexity threshold for high-risk identification', parseInt, 10)
@@ -149,8 +151,9 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
     let enrichedFunctions: EnrichedFunctionInfo[] = [];
     let crossReferences: CrossReference[] = [];
     let validationResults: ValidationResult[] = [];
-    const usageAnalyses: TypeUsageAnalysis[] = [];
-    const couplingAnalyses: CouplingAnalysis[] = [];
+    // TODO: Uncomment when implementations are completed
+    // const usageAnalyses: TypeUsageAnalysis[] = [];
+    // const couplingAnalyses: CouplingAnalysis[] = [];
 
     if (options.showIntegration !== false || options.showValidation) {
       logger.info('🔗 Analyzing type-function integration...');
@@ -168,27 +171,29 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
         validationResults = linker.validateTypeMethodLinks(types, functions);
       }
 
+      // TODO: Uncomment when implementation is completed
       // Perform usage pattern analysis
-      if (options.analyzeUsage) {
-        logger.info('📊 Analyzing type usage patterns...');
-        for (const type of types.slice(0, options.limit || 10)) {
-          if (type.kind === 'class' || type.kind === 'interface') {
-            const analysis = linker.analyzeTypeUsagePatterns(type, functions);
-            usageAnalyses.push(analysis);
-          }
-        }
-      }
+      // if (options.analyzeUsage) {
+      //   logger.info('📊 Analyzing type usage patterns...');
+      //   for (const type of types.slice(0, options.limit || 10)) {
+      //     if (type.kind === 'class' || type.kind === 'interface') {
+      //       const analysis = linker.analyzeTypeUsagePatterns(type, functions);
+      //       usageAnalyses.push(analysis);
+      //     }
+      //   }
+      // }
 
+      // TODO: Uncomment when implementation is completed
       // Perform coupling analysis
-      if (options.analyzeCoupling) {
-        logger.info('🔗 Analyzing coupling patterns...');
-        for (const func of functions.slice(0, options.limit || 20)) {
-          const analysis = linker.analyzeCouplingIssues(func);
-          if (analysis.overCoupledParameters.length > 0 || analysis.bucketBrigadeIndicators.length > 0) {
-            couplingAnalyses.push(analysis);
-          }
-        }
-      }
+      // if (options.analyzeCoupling) {
+      //   logger.info('🔗 Analyzing coupling patterns...');
+      //   for (const func of functions.slice(0, options.limit || 20)) {
+      //     const analysis = linker.analyzeCouplingIssues(func);
+      //     if (analysis.overCoupledParameters.length > 0 || analysis.bucketBrigadeIndicators.length > 0) {
+      //       couplingAnalyses.push(analysis);
+      //     }
+      //   }
+      // }
     } else {
       // Create basic enriched objects without integration analysis
       enrichedTypes = types.map(type => ({ ...type } as EnrichedTypeInfo));
@@ -207,9 +212,10 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
         types: enrichedTypes.slice(0, options.limit),
         functions: enrichedFunctions.slice(0, options.limit),
         crossReferences: crossReferences.slice(0, options.limit),
-        validation: validationResults,
-        usageAnalyses,
-        couplingAnalyses
+        validation: validationResults
+        // TODO: Uncomment when implementations are completed
+        // usageAnalyses,
+        // couplingAnalyses
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -218,8 +224,9 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
         enrichedFunctions,
         crossReferences,
         validationResults,
-        usageAnalyses,
-        couplingAnalyses,
+        // TODO: Uncomment when implementations are completed
+        // usageAnalyses,
+        // couplingAnalyses,
         options
       });
     }
@@ -240,32 +247,36 @@ function displayOverviewResults({
   enrichedFunctions,
   crossReferences,
   validationResults,
-  usageAnalyses,
-  couplingAnalyses,
+  // TODO: Uncomment when implementations are completed
+  // usageAnalyses,
+  // couplingAnalyses,
   options
 }: {
   enrichedTypes: EnrichedTypeInfo[];
   enrichedFunctions: EnrichedFunctionInfo[];
   crossReferences: CrossReference[];
   validationResults: ValidationResult[];
-  usageAnalyses: TypeUsageAnalysis[];
-  couplingAnalyses: CouplingAnalysis[];
+  // TODO: Uncomment when implementations are completed
+  // usageAnalyses: TypeUsageAnalysis[];
+  // couplingAnalyses: CouplingAnalysis[];
   options: OverviewOptions;
 }): void {
 
+  // TODO: Uncomment when implementation is completed
   // Display new usage analysis if requested
-  if (options.analyzeUsage && usageAnalyses.length > 0) {
-    for (const analysis of usageAnalyses) {
-      UsageAnalysisDisplay.displayTypeUsageAnalysis(analysis);
-    }
-    return; // Show only usage analysis when requested
-  }
+  // if (options.analyzeUsage && usageAnalyses.length > 0) {
+  //   for (const analysis of usageAnalyses) {
+  //     UsageAnalysisDisplay.displayTypeUsageAnalysis(analysis);
+  //   }
+  //   return; // Show only usage analysis when requested
+  // }
 
+  // TODO: Uncomment when implementation is completed
   // Display coupling analysis if requested
-  if (options.analyzeCoupling && couplingAnalyses.length > 0) {
-    UsageAnalysisDisplay.displayCouplingAnalysis(couplingAnalyses);
-    return; // Show only coupling analysis when requested
-  }
+  // if (options.analyzeCoupling && couplingAnalyses.length > 0) {
+  //   UsageAnalysisDisplay.displayCouplingAnalysis(couplingAnalyses);
+  //   return; // Show only coupling analysis when requested
+  // }
 
   // Display improved integrated overview (without misleading metrics)
   displayImprovedIntegratedOverview(
@@ -334,9 +345,10 @@ function displayOverviewResults({
   
   const standaloneFunctionCount = enrichedFunctions.filter(f => !f.typeContext).length;
   
-  console.log('   • Use --analyze-usage to explore type usage patterns');
-  console.log('   • Use --analyze-coupling to examine parameter coupling');
-  console.log('   • Use --analyze-cohesion to investigate type cohesion');
+  // TODO: Uncomment when implementations are completed
+  // console.log('   • Use --analyze-usage to explore type usage patterns');
+  // console.log('   • Use --analyze-coupling to examine parameter coupling');
+  // console.log('   • Use --analyze-cohesion to investigate type cohesion');
   console.log('   • Use --verbose for detailed integration analysis');
   console.log('   • Use --json for programmatic data export');
   
