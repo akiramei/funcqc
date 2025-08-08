@@ -1072,44 +1072,37 @@ export class TypeFunctionLinker {
       const memberNames = new Set(typeMembers.map(m => m.name));
 
       // Find the function node in the source file
-      sourceFile.forEachDescendant((node) => {
-        if (node.asKind(SyntaxKind.FunctionDeclaration) || 
-            node.asKind(SyntaxKind.MethodDeclaration) ||
-            node.asKind(SyntaxKind.ArrowFunction) ||
-            node.asKind(SyntaxKind.FunctionExpression)) {
-          
-          // Check if this is our target function by comparing position
-          if (node.getStartLineNumber() === func.startLine) {
+      const targetFunctionNode = this.findFunctionNodeByMetadata(sourceFile, func);
+      
+      if (targetFunctionNode) {
+        
+        // Analyze property accesses within this function
+        targetFunctionNode.forEachDescendant((child) => {
+          if (child.asKind(SyntaxKind.PropertyAccessExpression)) {
+            const propAccess = child.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+            const propertyName = propAccess.getName();
             
-            // Analyze property accesses within this function
-            node.forEachDescendant((child) => {
-              if (child.asKind(SyntaxKind.PropertyAccessExpression)) {
-                const propAccess = child.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
-                const propertyName = propAccess.getName();
-                
-                // Only analyze if this property belongs to our target type
-                if (memberNames.has(propertyName)) {
-                  const accessType = this.classifyAccess(propAccess);
-                  coAccessedProperties.add(propertyName);
-                  
-                  if (!accessMap.has(propertyName)) {
-                    accessMap.set(propertyName, {
-                      accessType,
-                      coAccessedWith: []
-                    });
-                  }
-                }
+            // Only analyze if this property belongs to our target type
+            if (memberNames.has(propertyName)) {
+              const accessType = this.classifyAccess(propAccess);
+              coAccessedProperties.add(propertyName);
+              
+              if (!accessMap.has(propertyName)) {
+                accessMap.set(propertyName, {
+                  accessType,
+                  coAccessedWith: []
+                });
               }
-            });
-
-            // Set co-accessed properties for each property
-            const coAccessedArray = Array.from(coAccessedProperties);
-            for (const [propertyName, access] of accessMap.entries()) {
-              access.coAccessedWith = coAccessedArray.filter(p => p !== propertyName);
             }
           }
+        });
+
+        // Set co-accessed properties for each property
+        const coAccessedArray = Array.from(coAccessedProperties);
+        for (const [propertyName, access] of accessMap.entries()) {
+          access.coAccessedWith = coAccessedArray.filter(p => p !== propertyName);
         }
-      });
+      }
 
       return accessMap;
     } catch (error) {
@@ -1119,46 +1112,121 @@ export class TypeFunctionLinker {
   }
 
   /**
-   * Classify property access type based on AST context
+   * Classify property access type based on AST context with comprehensive edge case handling
    */
   private classifyAccess(propAccess: Node): 'read' | 'write' | 'modify' | 'pass' {
     const parent = propAccess.getParent();
     
     if (!parent) return 'read';
 
-    // Check if it's a write access (assignment)
-    if (parent.asKind(SyntaxKind.BinaryExpression)) {
-      const binExpr = parent.asKindOrThrow(SyntaxKind.BinaryExpression);
-      if (binExpr.getOperatorToken().getKind() === SyntaxKind.EqualsToken && 
-          binExpr.getLeft() === propAccess) {
-        return 'write';
+    // Handle increment/decrement operations (++, --)
+    if (parent.asKind(SyntaxKind.PrefixUnaryExpression)) {
+      const prefixExpr = parent.asKindOrThrow(SyntaxKind.PrefixUnaryExpression);
+      const operatorKind = prefixExpr.getOperatorToken();
+      if (operatorKind === SyntaxKind.PlusPlusToken || operatorKind === SyntaxKind.MinusMinusToken) {
+        return 'modify';
       }
-      // Check for modify operations (+=, -=, etc.)
-      const opKind = binExpr.getOperatorToken().getKind();
-      if ([SyntaxKind.PlusEqualsToken, SyntaxKind.MinusEqualsToken, 
-           SyntaxKind.AsteriskEqualsToken, SyntaxKind.SlashEqualsToken].includes(opKind)) {
+    }
+    
+    if (parent.asKind(SyntaxKind.PostfixUnaryExpression)) {
+      const postfixExpr = parent.asKindOrThrow(SyntaxKind.PostfixUnaryExpression);
+      const operatorKind = postfixExpr.getOperatorToken();
+      if (operatorKind === SyntaxKind.PlusPlusToken || operatorKind === SyntaxKind.MinusMinusToken) {
         return 'modify';
       }
     }
 
-    // Check if it's a method call
-    if (parent.asKind(SyntaxKind.CallExpression)) {
-      const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
-      if (callExpr.getExpression() === propAccess) {
-        return 'read'; // Method call is considered a read access
+    // Handle delete operations
+    if (parent.asKind(SyntaxKind.DeleteExpression)) {
+      return 'write';
+    }
+
+    // Check if it's a write access (assignment) - improved logic for nested property access
+    if (parent.asKind(SyntaxKind.BinaryExpression)) {
+      const binExpr = parent.asKindOrThrow(SyntaxKind.BinaryExpression);
+      const opKind = binExpr.getOperatorToken().getKind();
+      
+      // Direct assignment
+      if (opKind === SyntaxKind.EqualsToken && binExpr.getLeft() === propAccess) {
+        return 'write';
+      }
+      
+      // Compound assignment operations
+      const compoundOps = [
+        SyntaxKind.PlusEqualsToken, SyntaxKind.MinusEqualsToken, 
+        SyntaxKind.AsteriskEqualsToken, SyntaxKind.SlashEqualsToken,
+        SyntaxKind.PercentEqualsToken, SyntaxKind.AmpersandEqualsToken,
+        SyntaxKind.BarEqualsToken, SyntaxKind.CaretEqualsToken,
+        SyntaxKind.LessThanLessThanEqualsToken, SyntaxKind.GreaterThanGreaterThanEqualsToken,
+        SyntaxKind.GreaterThanGreaterThanGreaterThanEqualsToken
+      ];
+      
+      if (compoundOps.includes(opKind) && binExpr.getLeft() === propAccess) {
+        return 'modify';
       }
     }
 
-    // Check if it's passed to another function
+    // Handle method calls - distinguish between regular calls and mutator methods
     if (parent.asKind(SyntaxKind.CallExpression)) {
       const callExpr = parent.asKindOrThrow(SyntaxKind.CallExpression);
+      
+      // If this property access is the function being called
+      if (callExpr.getExpression() === propAccess) {
+        // Check if it's a known mutator method
+        const propertyName = this.getPropertyName(propAccess);
+        const mutatorMethods = new Set([
+          'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse',
+          'fill', 'copyWithin', 'set', 'add', 'delete', 'clear', 'append'
+        ]);
+        
+        if (propertyName && mutatorMethods.has(propertyName)) {
+          return 'modify';
+        }
+        return 'read'; // Regular method call
+      }
+      
+      // If this property access is passed as an argument
       if (callExpr.getArguments().some(arg => arg === propAccess)) {
         return 'pass';
       }
     }
 
+    // Handle spread operations in function calls (...obj.prop)
+    if (parent.asKind(SyntaxKind.SpreadElement)) {
+      const spreadParent = parent.getParent();
+      if (spreadParent?.asKind(SyntaxKind.CallExpression)) {
+        return 'pass';
+      }
+    }
+
+    // Handle object literal shorthand ({prop} where prop is obj.prop)
+    if (parent.asKind(SyntaxKind.ShorthandPropertyAssignment)) {
+      return 'pass';
+    }
+
+    // Handle element access (obj['prop'])
+    if (parent.asKind(SyntaxKind.ElementAccessExpression)) {
+      // Recursively classify the element access
+      return this.classifyAccess(parent);
+    }
+
     // Default to read access
     return 'read';
+  }
+
+  /**
+   * Extract property name from PropertyAccessExpression
+   */
+  private getPropertyName(propAccess: Node): string | undefined {
+    try {
+      if (propAccess.asKind(SyntaxKind.PropertyAccessExpression)) {
+        const expr = propAccess.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+        return expr.getName();
+      }
+    } catch {
+      // Ignore errors and return undefined
+    }
+    return undefined;
   }
 
   /**
