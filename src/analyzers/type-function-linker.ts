@@ -41,6 +41,86 @@ export const LinkageStatus = {
 
 export type LinkageStatus = typeof LinkageStatus[keyof typeof LinkageStatus];
 
+/**
+ * Type usage pattern analysis results
+ */
+export interface TypeUsageAnalysis {
+  typeName: string;
+  totalMembers: number;
+  propertyAccessPatterns: {
+    alwaysTogether: PropertyGroup[];
+    neverTogether: PropertyGroup[];
+    frequency: PropertyFrequency[];
+    correlations: PropertyCorrelation[];
+  };
+  functionGroups: {
+    byUsagePattern: FunctionUsageGroup[];
+  };
+  accessContexts: {
+    readOnly: number;
+    modified: number;
+    passedThrough: number;
+    unused: string[];
+  };
+}
+
+export interface PropertyGroup {
+  properties: string[];
+  occurrences: number;
+  percentage: number;
+}
+
+export interface PropertyFrequency {
+  property: string;
+  usageCount: number;
+  totalFunctions: number;
+  percentage: number;
+}
+
+export interface PropertyCorrelation {
+  property1: string;
+  property2: string;
+  correlation: number; // 0-1, where 1 means always used together
+  cooccurrences: number;
+}
+
+export interface FunctionUsageGroup {
+  groupName: string;
+  properties: string[];
+  functions: {
+    name: string;
+    filePath: string;
+    line: number;
+  }[];
+}
+
+export interface CouplingAnalysis {
+  functionName: string;
+  overCoupledParameters: {
+    parameterName: string;
+    typeName: string;
+    totalProperties: number;
+    usedProperties: string[];
+    unusedProperties: string[];
+    usageRatio: number;
+    severity: 'low' | 'medium' | 'high';
+  }[];
+  bucketBrigadeIndicators: {
+    parameter: string;
+    passedWithoutUse: boolean;
+    chainLength: number;
+  }[];
+}
+
+// Helper interfaces for usage analysis
+interface PropertyUsageInfo {
+  functionName: string;
+  filePath: string;
+  line: number;
+  accessType: 'read' | 'write' | 'modify' | 'pass';
+  coAccessedWith: string[];
+}
+
 export interface TypeFunctionLinkerOptions {
   /**
    * Risk thresholds for identifying high-risk methods
@@ -691,6 +771,335 @@ export class TypeFunctionLinker {
     if (method.signature.includes('Promise<')) {
       riskFactors.push('Async Complexity');
     }
+  }
+
+  /**
+   * Analyze type usage patterns to provide insights for refactoring
+   */
+  analyzeTypeUsagePatterns(type: TypeDefinition, functions: FunctionMetadata[]): TypeUsageAnalysis {
+    const relevantFunctions = this.findMethodsForType(type, functions);
+    const allUsages = this.collectPropertyUsages(type, relevantFunctions);
+    
+    return {
+      typeName: type.name,
+      totalMembers: this.getTypeMembers(type).length,
+      propertyAccessPatterns: this.analyzePropertyPatterns(allUsages),
+      functionGroups: this.groupFunctionsByUsage(allUsages),
+      accessContexts: this.analyzeAccessContexts(allUsages)
+    };
+  }
+
+  /**
+   * Analyze coupling issues in function parameters
+   */
+  analyzeCouplingIssues(func: FunctionMetadata): CouplingAnalysis {
+    const overCoupledParams = this.detectOverCoupledParameters(func);
+    const bucketBrigade = this.detectBucketBrigade(func);
+    
+    return {
+      functionName: func.name,
+      overCoupledParameters: overCoupledParams,
+      bucketBrigadeIndicators: bucketBrigade
+    };
+  }
+
+  /**
+   * Collect all property usage information for a type
+   */
+  private collectPropertyUsages(
+    type: TypeDefinition, 
+    functions: FunctionMetadata[]
+  ): Map<string, PropertyUsageInfo[]> {
+    const usageMap = new Map<string, PropertyUsageInfo[]>();
+    const typeMembers = this.getTypeMembers(type);
+    
+    for (const member of typeMembers) {
+      if (member.kind === MemberKind.Property) {
+        usageMap.set(member.name, []);
+      }
+    }
+    
+    for (const func of functions) {
+      const propertyAccesses = this.analyzePropertyAccesses(func, type);
+      
+      for (const [property, usage] of propertyAccesses) {
+        if (!usageMap.has(property)) {
+          usageMap.set(property, []);
+        }
+        usageMap.get(property)!.push({
+          functionName: func.name,
+          filePath: func.filePath,
+          line: func.startLine,
+          accessType: usage.accessType,
+          coAccessedWith: usage.coAccessedWith
+        });
+      }
+    }
+    
+    return usageMap;
+  }
+
+  /**
+   * Analyze property access patterns
+   */
+  private analyzePropertyPatterns(
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): TypeUsageAnalysis['propertyAccessPatterns'] {
+    const correlations = this.calculatePropertyCorrelations(usageMap);
+    const frequency = this.calculatePropertyFrequency(usageMap);
+    
+    const alwaysTogether = this.findAlwaysTogetherGroups(correlations, 0.9);
+    const neverTogether = this.findNeverTogetherGroups(correlations, 0.1);
+    
+    return {
+      alwaysTogether,
+      neverTogether,
+      frequency,
+      correlations
+    };
+  }
+
+  /**
+   * Group functions by their property usage patterns
+   */
+  private groupFunctionsByUsage(
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): { byUsagePattern: FunctionUsageGroup[] } {
+    const functionUsageSignatures = new Map<string, string[]>();
+    
+    // Create usage signatures for each function
+    const allFunctions = new Set<string>();
+    for (const usages of usageMap.values()) {
+      for (const usage of usages) {
+        const funcKey = `${usage.functionName}:${usage.filePath}`;
+        if (!functionUsageSignatures.has(funcKey)) {
+          functionUsageSignatures.set(funcKey, []);
+        }
+        allFunctions.add(funcKey);
+      }
+    }
+    
+    // Collect properties used by each function
+    for (const [property, usages] of usageMap) {
+      for (const usage of usages) {
+        const funcKey = `${usage.functionName}:${usage.filePath}`;
+        const signature = functionUsageSignatures.get(funcKey)!;
+        if (!signature.includes(property)) {
+          signature.push(property);
+        }
+      }
+    }
+    
+    // Group functions by similar usage patterns
+    const groups = new Map<string, FunctionUsageGroup>();
+    
+    for (const [funcKey, properties] of functionUsageSignatures) {
+      const sortedProps = properties.sort();
+      const signature = sortedProps.join(',');
+      
+      if (!groups.has(signature)) {
+        groups.set(signature, {
+          groupName: `Group using {${sortedProps.join(', ')}}`,
+          properties: sortedProps,
+          functions: []
+        });
+      }
+      
+      const [funcName, filePath] = funcKey.split(':');
+      groups.get(signature)!.functions.push({
+        name: funcName,
+        filePath,
+        line: 0 // Would need to get from original function metadata
+      });
+    }
+    
+    return {
+      byUsagePattern: Array.from(groups.values())
+        .filter(group => group.functions.length > 1)
+        .sort((a, b) => b.functions.length - a.functions.length)
+    };
+  }
+
+  /**
+   * Analyze access contexts (read-only, modified, passed through)
+   */
+  private analyzeAccessContexts(
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): TypeUsageAnalysis['accessContexts'] {
+    let readOnly = 0;
+    let modified = 0;
+    let passedThrough = 0;
+    const unused: string[] = [];
+    
+    for (const [property, usages] of usageMap) {
+      if (usages.length === 0) {
+        unused.push(property);
+        continue;
+      }
+      
+      for (const usage of usages) {
+        switch (usage.accessType) {
+          case 'read':
+            readOnly++;
+            break;
+          case 'write':
+          case 'modify':
+            modified++;
+            break;
+          case 'pass':
+            passedThrough++;
+            break;
+        }
+      }
+    }
+    
+    return {
+      readOnly,
+      modified,
+      passedThrough,
+      unused
+    };
+  }
+
+  /**
+   * Get type members (simplified version)
+   */
+  private getTypeMembers(_type: TypeDefinition): { name: string; kind: MemberKind }[] {
+    // This would be enhanced with actual AST analysis
+    // For now, return basic structure
+    return [];
+  }
+
+  /**
+   * Analyze property accesses in a function (simplified)
+   */
+  private analyzePropertyAccesses(
+    _func: FunctionMetadata, 
+    _type: TypeDefinition
+  ): Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }> {
+    // This would need sophisticated AST analysis
+    // For now, return empty map
+    return new Map();
+  }
+
+  /**
+   * Calculate correlation between properties
+   */
+  private calculatePropertyCorrelations(
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): PropertyCorrelation[] {
+    const properties = Array.from(usageMap.keys());
+    const correlations: PropertyCorrelation[] = [];
+    
+    for (let i = 0; i < properties.length; i++) {
+      for (let j = i + 1; j < properties.length; j++) {
+        const prop1 = properties[i];
+        const prop2 = properties[j];
+        
+        const usage1Functions = new Set(
+          usageMap.get(prop1)?.map(u => `${u.functionName}:${u.filePath}`) || []
+        );
+        const usage2Functions = new Set(
+          usageMap.get(prop2)?.map(u => `${u.functionName}:${u.filePath}`) || []
+        );
+        
+        const intersection = new Set(
+          [...usage1Functions].filter(f => usage2Functions.has(f))
+        );
+        const union = new Set([...usage1Functions, ...usage2Functions]);
+        
+        const correlation = union.size > 0 ? intersection.size / union.size : 0;
+        
+        if (correlation > 0) {
+          correlations.push({
+            property1: prop1,
+            property2: prop2,
+            correlation,
+            cooccurrences: intersection.size
+          });
+        }
+      }
+    }
+    
+    return correlations.sort((a, b) => b.correlation - a.correlation);
+  }
+
+  /**
+   * Calculate property usage frequency
+   */
+  private calculatePropertyFrequency(
+    usageMap: Map<string, PropertyUsageInfo[]>
+  ): PropertyFrequency[] {
+    const totalFunctions = new Set(
+      Array.from(usageMap.values())
+        .flat()
+        .map(u => `${u.functionName}:${u.filePath}`)
+    ).size;
+    
+    return Array.from(usageMap.entries())
+      .map(([property, usages]) => {
+        const uniqueFunctions = new Set(
+          usages.map(u => `${u.functionName}:${u.filePath}`)
+        ).size;
+        
+        return {
+          property,
+          usageCount: uniqueFunctions,
+          totalFunctions,
+          percentage: totalFunctions > 0 ? uniqueFunctions / totalFunctions * 100 : 0
+        };
+      })
+      .sort((a, b) => b.usageCount - a.usageCount);
+  }
+
+  /**
+   * Find properties that are always used together
+   */
+  private findAlwaysTogetherGroups(
+    correlations: PropertyCorrelation[], 
+    threshold: number
+  ): PropertyGroup[] {
+    return correlations
+      .filter(c => c.correlation >= threshold)
+      .map(c => ({
+        properties: [c.property1, c.property2],
+        occurrences: c.cooccurrences,
+        percentage: c.correlation * 100
+      }));
+  }
+
+  /**
+   * Find properties that are never used together
+   */
+  private findNeverTogetherGroups(
+    correlations: PropertyCorrelation[], 
+    threshold: number
+  ): PropertyGroup[] {
+    return correlations
+      .filter(c => c.correlation <= threshold)
+      .map(c => ({
+        properties: [c.property1, c.property2],
+        occurrences: c.cooccurrences,
+        percentage: c.correlation * 100
+      }));
+  }
+
+  /**
+   * Detect over-coupled parameters in a function
+   */
+  private detectOverCoupledParameters(_func: FunctionMetadata) {
+    // This would analyze function parameters and their usage
+    // For now, return empty array
+    return [];
+  }
+
+  /**
+   * Detect bucket brigade patterns
+   */
+  private detectBucketBrigade(_func: FunctionMetadata) {
+    // This would analyze parameter passing without usage
+    // For now, return empty array
+    return [];
   }
 
   /**

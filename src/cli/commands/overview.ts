@@ -1,11 +1,13 @@
 import { Command } from 'commander';
 import { Project } from 'ts-morph';
 import path from 'path';
+import chalk from 'chalk';
 import { TypeAnalyzer, TypeDefinition } from '../../analyzers/type-analyzer';
 import { FunctionRegistry } from '../../analyzers/function-registry';
 import { FunctionMetadata } from '../../analyzers/ideal-call-graph-analyzer';
-import { TypeFunctionLinker, EnrichedTypeInfo, EnrichedFunctionInfo, CrossReference, ValidationResult } from '../../analyzers/type-function-linker';
+import { TypeFunctionLinker, EnrichedTypeInfo, EnrichedFunctionInfo, CrossReference, ValidationResult, TypeUsageAnalysis, CouplingAnalysis } from '../../analyzers/type-function-linker';
 import { IntegratedDisplayUtils } from './utils/integrated-display';
+import { UsageAnalysisDisplay } from './utils/usage-analysis-display';
 import { ConfigManager } from '../../core/config';
 import { Logger } from '../../utils/cli-utils';
 import { OverviewOptions } from './overview.types';
@@ -20,6 +22,9 @@ export function createOverviewCommand(): Command {
     .option('--show-functions', 'Include function analysis in overview', true)
     .option('--show-integration', 'Show type-function integration details', true)
     .option('--show-validation', 'Show validation results for type-function links')
+    .option('--analyze-usage', 'Analyze type usage patterns and property correlations')
+    .option('--analyze-coupling', 'Analyze coupling issues and over-coupled parameters')
+    .option('--analyze-cohesion', 'Analyze type cohesion and potential splits')
     .option('--file <path>', 'Filter by specific file path')
     .option('--limit <number>', 'Limit number of results shown', parseInt, 20)
     .option('--risk-threshold <number>', 'Complexity threshold for high-risk identification', parseInt, 10)
@@ -144,6 +149,8 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
     let enrichedFunctions: EnrichedFunctionInfo[] = [];
     let crossReferences: CrossReference[] = [];
     let validationResults: ValidationResult[] = [];
+    const usageAnalyses: TypeUsageAnalysis[] = [];
+    const couplingAnalyses: CouplingAnalysis[] = [];
 
     if (options.showIntegration !== false || options.showValidation) {
       logger.info('🔗 Analyzing type-function integration...');
@@ -159,6 +166,28 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
       // Validate type-function links
       if (options.showValidation) {
         validationResults = linker.validateTypeMethodLinks(types, functions);
+      }
+
+      // Perform usage pattern analysis
+      if (options.analyzeUsage) {
+        logger.info('📊 Analyzing type usage patterns...');
+        for (const type of types.slice(0, options.limit || 10)) {
+          if (type.kind === 'class' || type.kind === 'interface') {
+            const analysis = linker.analyzeTypeUsagePatterns(type, functions);
+            usageAnalyses.push(analysis);
+          }
+        }
+      }
+
+      // Perform coupling analysis
+      if (options.analyzeCoupling) {
+        logger.info('🔗 Analyzing coupling patterns...');
+        for (const func of functions.slice(0, options.limit || 20)) {
+          const analysis = linker.analyzeCouplingIssues(func);
+          if (analysis.overCoupledParameters.length > 0 || analysis.bucketBrigadeIndicators.length > 0) {
+            couplingAnalyses.push(analysis);
+          }
+        }
       }
     } else {
       // Create basic enriched objects without integration analysis
@@ -178,7 +207,9 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
         types: enrichedTypes.slice(0, options.limit),
         functions: enrichedFunctions.slice(0, options.limit),
         crossReferences: crossReferences.slice(0, options.limit),
-        validation: validationResults
+        validation: validationResults,
+        usageAnalyses,
+        couplingAnalyses
       };
       console.log(JSON.stringify(result, null, 2));
     } else {
@@ -187,6 +218,8 @@ export async function executeOverview(options: OverviewOptions): Promise<void> {
         enrichedFunctions,
         crossReferences,
         validationResults,
+        usageAnalyses,
+        couplingAnalyses,
         options
       });
     }
@@ -207,17 +240,35 @@ function displayOverviewResults({
   enrichedFunctions,
   crossReferences,
   validationResults,
+  usageAnalyses,
+  couplingAnalyses,
   options
 }: {
   enrichedTypes: EnrichedTypeInfo[];
   enrichedFunctions: EnrichedFunctionInfo[];
   crossReferences: CrossReference[];
   validationResults: ValidationResult[];
+  usageAnalyses: TypeUsageAnalysis[];
+  couplingAnalyses: CouplingAnalysis[];
   options: OverviewOptions;
 }): void {
 
-  // Display integrated overview
-  IntegratedDisplayUtils.displayIntegratedOverview(
+  // Display new usage analysis if requested
+  if (options.analyzeUsage && usageAnalyses.length > 0) {
+    for (const analysis of usageAnalyses) {
+      UsageAnalysisDisplay.displayTypeUsageAnalysis(analysis);
+    }
+    return; // Show only usage analysis when requested
+  }
+
+  // Display coupling analysis if requested
+  if (options.analyzeCoupling && couplingAnalyses.length > 0) {
+    UsageAnalysisDisplay.displayCouplingAnalysis(couplingAnalyses);
+    return; // Show only coupling analysis when requested
+  }
+
+  // Display improved integrated overview (without misleading metrics)
+  displayImprovedIntegratedOverview(
     enrichedTypes, 
     enrichedFunctions, 
     crossReferences
@@ -273,33 +324,118 @@ function displayOverviewResults({
     IntegratedDisplayUtils.displayValidationResults(validationResults);
   }
 
-  // Show next steps suggestions
+  // Show information-oriented insights (non-prescriptive)
   console.log('\n' + '='.repeat(50));
-  console.log('💡 Suggested Next Steps:');
+  console.log('💡 Analysis Options:');
   
   const highRiskTypeCount = enrichedTypes.filter(t => 
     t.methodQuality && t.methodQuality.highRiskMethods.length > 0
   ).length;
   
-  const unlinkedFunctionCount = enrichedFunctions.filter(f => !f.typeContext).length;
+  const standaloneeFunctionCount = enrichedFunctions.filter(f => !f.typeContext).length;
+  
+  console.log('   • Use --analyze-usage to explore type usage patterns');
+  console.log('   • Use --analyze-coupling to examine parameter coupling');
+  console.log('   • Use --analyze-cohesion to investigate type cohesion');
+  console.log('   • Use --verbose for detailed integration analysis');
+  console.log('   • Use --json for programmatic data export');
   
   if (highRiskTypeCount > 0) {
-    console.log(`   • Review ${highRiskTypeCount} types with high-risk methods`);
-    console.log('   • Consider refactoring complex methods for better maintainability');
+    console.log(`   • ${highRiskTypeCount} types contain complex methods`);
   }
   
-  if (unlinkedFunctionCount > 0) {
-    console.log(`   • Investigate ${unlinkedFunctionCount} standalone functions`);
-    console.log('   • Consider organizing functions into appropriate classes/modules');
+  if (standaloneeFunctionCount > 0) {
+    console.log(`   • ${standaloneeFunctionCount} functions exist independently of types`);
   }
+}
+
+/**
+ * Display improved integrated overview without misleading metrics
+ */
+function displayImprovedIntegratedOverview(
+  types: EnrichedTypeInfo[], 
+  functions: EnrichedFunctionInfo[],
+  _crossRefs: CrossReference[]
+): void {
+  console.log(chalk.cyan.bold('\n🎯 Type-Function Overview'));
+  console.log('='.repeat(50));
+
+  // Basic statistics (factual, non-judgmental)
+  const totalTypes = types.length;
+  const totalFunctions = functions.length;
+  const classesWithMethods = types.filter(t => t.kind === 'class' && t.methodQuality && t.methodQuality.totalMethods > 0).length;
+  const interfacesWithMethods = types.filter(t => t.kind === 'interface' && t.methodQuality && t.methodQuality.totalMethods > 0).length;
+  const standaloneeFunctions = functions.filter(f => !f.typeContext).length;
   
-  if (validationResults.length > 0) {
-    const issueCount = validationResults.reduce((sum, result) => sum + result.issues.length, 0);
-    if (issueCount > 0) {
-      console.log(`   • Address ${issueCount} type-function linkage issues`);
+  console.log(chalk.blue('\n📊 Overview Statistics:'));
+  console.log(`   Types: ${totalTypes} total`);
+  console.log(`     • Classes: ${types.filter(t => t.kind === 'class').length} (${classesWithMethods} with methods)`);
+  console.log(`     • Interfaces: ${types.filter(t => t.kind === 'interface').length} (${interfacesWithMethods} with methods)`);
+  console.log(`     • Type aliases: ${types.filter(t => t.kind === 'type_alias').length}`);
+  console.log(`   Functions: ${totalFunctions} total`);
+  console.log(`     • Associated with types: ${totalFunctions - standaloneeFunctions}`);
+  console.log(`     • Standalone: ${standaloneeFunctions}`);
+
+  // Programming paradigm analysis (neutral)
+  const paradigmAnalysis = analyzeParadigmUsage(types, functions);
+  console.log(chalk.blue('\n🎨 Programming Style Distribution:'));
+  console.log(`   Object-oriented patterns: ${paradigmAnalysis.oopPercentage.toFixed(1)}% (${paradigmAnalysis.classBasedFunctions} functions)`);
+  console.log(`   Functional patterns: ${paradigmAnalysis.functionalPercentage.toFixed(1)}% (${paradigmAnalysis.standaloneeFunctions} functions)`);
+  console.log(`   Mixed patterns: ${paradigmAnalysis.mixedPercentage.toFixed(1)}% (${paradigmAnalysis.mixedPatterns} cases)`);
+
+  // Type complexity distribution (informational)
+  if (types.some(t => t.methodQuality)) {
+    console.log(chalk.blue('\n📈 Method Complexity Distribution:'));
+    
+    const methodCounts = types
+      .filter(t => t.methodQuality && t.methodQuality.totalMethods > 0)
+      .map(t => t.methodQuality!.totalMethods);
+    
+    if (methodCounts.length > 0) {
+      const avgMethods = methodCounts.reduce((a, b) => a + b, 0) / methodCounts.length;
+      const maxMethods = Math.max(...methodCounts);
+      
+      console.log(`   Average methods per type: ${avgMethods.toFixed(1)}`);
+      console.log(`   Maximum methods in single type: ${maxMethods}`);
+      
+      const highRiskTypes = types.filter(t => 
+        t.methodQuality && t.methodQuality.highRiskMethods.length > 0
+      ).length;
+      
+      if (highRiskTypes > 0) {
+        console.log(`   Types with complex methods: ${highRiskTypes}`);
+      }
     }
   }
+}
+
+/**
+ * Analyze programming paradigm usage patterns
+ */
+function analyzeParadigmUsage(
+  _types: EnrichedTypeInfo[], 
+  functions: EnrichedFunctionInfo[]
+): {
+  oopPercentage: number;
+  functionalPercentage: number;
+  mixedPercentage: number;
+  classBasedFunctions: number;
+  standaloneeFunctions: number;
+  mixedPatterns: number;
+} {
+  const totalFunctions = functions.length;
+  const classBasedFunctions = functions.filter(f => f.typeContext && f.typeContext.isClassMethod).length;
+  const standaloneeFunctions = functions.filter(f => !f.typeContext).length;
+  const interfaceBasedFunctions = functions.filter(f => f.typeContext && f.typeContext.isInterfaceMethod).length;
   
-  console.log('   • Run with --verbose for detailed analysis');
-  console.log('   • Use --json for programmatic processing');
+  const mixedPatterns = interfaceBasedFunctions; // Interface methods are mixed paradigm
+  
+  return {
+    oopPercentage: totalFunctions > 0 ? (classBasedFunctions / totalFunctions) * 100 : 0,
+    functionalPercentage: totalFunctions > 0 ? (standaloneeFunctions / totalFunctions) * 100 : 0,
+    mixedPercentage: totalFunctions > 0 ? (mixedPatterns / totalFunctions) * 100 : 0,
+    classBasedFunctions,
+    standaloneeFunctions,
+    mixedPatterns
+  };
 }
