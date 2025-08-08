@@ -965,8 +965,10 @@ export class TypeFunctionLinker {
    * Get type members (simplified version)
    */
   private getTypeMembers(_type: TypeDefinition): { name: string; kind: MemberKind }[] {
-    // This would be enhanced with actual AST analysis
-    // For now, return basic structure
+    // TODO: This is a stub implementation that needs to be completed
+    // It should extract actual properties and methods from the type definition
+    // using AST analysis to return real type members
+    // For now, return empty array to allow compilation
     return [];
   }
 
@@ -977,8 +979,10 @@ export class TypeFunctionLinker {
     _func: FunctionMetadata, 
     _type: TypeDefinition
   ): Map<string, { accessType: 'read' | 'write' | 'modify' | 'pass'; coAccessedWith: string[] }> {
-    // This would need sophisticated AST analysis
-    // For now, return empty map
+    // TODO: This is a stub implementation that needs to be completed
+    // It should analyze the function's AST to detect how it accesses
+    // properties of the given type (read/write/modify/pass)
+    // For now, return empty map to allow compilation
     return new Map();
   }
 
@@ -1088,8 +1092,11 @@ export class TypeFunctionLinker {
    * Detect over-coupled parameters in a function
    */
   private detectOverCoupledParameters(_func: FunctionMetadata) {
-    // This would analyze function parameters and their usage
-    // For now, return empty array
+    // TODO: This is a stub implementation that needs to be completed
+    // It should analyze function parameters to detect when a parameter
+    // of a complex type only uses a small subset of its properties,
+    // indicating potential over-coupling
+    // For now, return empty array to allow compilation
     return [];
   }
 
@@ -1097,8 +1104,11 @@ export class TypeFunctionLinker {
    * Detect bucket brigade patterns
    */
   private detectBucketBrigade(_func: FunctionMetadata) {
-    // This would analyze parameter passing without usage
-    // For now, return empty array
+    // TODO: This is a stub implementation that needs to be completed
+    // It should detect when a function receives parameters that it
+    // doesn't use directly but only passes them to other functions,
+    // indicating a bucket brigade anti-pattern
+    // For now, return empty array to allow compilation
     return [];
   }
 

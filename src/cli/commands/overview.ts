@@ -332,7 +332,7 @@ function displayOverviewResults({
     t.methodQuality && t.methodQuality.highRiskMethods.length > 0
   ).length;
   
-  const standaloneeFunctionCount = enrichedFunctions.filter(f => !f.typeContext).length;
+  const standaloneFunctionCount = enrichedFunctions.filter(f => !f.typeContext).length;
   
   console.log('   • Use --analyze-usage to explore type usage patterns');
   console.log('   • Use --analyze-coupling to examine parameter coupling');
@@ -344,8 +344,8 @@ function displayOverviewResults({
     console.log(`   • ${highRiskTypeCount} types contain complex methods`);
   }
   
-  if (standaloneeFunctionCount > 0) {
-    console.log(`   • ${standaloneeFunctionCount} functions exist independently of types`);
+  if (standaloneFunctionCount > 0) {
+    console.log(`   • ${standaloneFunctionCount} functions exist independently of types`);
   }
 }
 
@@ -365,7 +365,7 @@ function displayImprovedIntegratedOverview(
   const totalFunctions = functions.length;
   const classesWithMethods = types.filter(t => t.kind === 'class' && t.methodQuality && t.methodQuality.totalMethods > 0).length;
   const interfacesWithMethods = types.filter(t => t.kind === 'interface' && t.methodQuality && t.methodQuality.totalMethods > 0).length;
-  const standaloneeFunctions = functions.filter(f => !f.typeContext).length;
+  const standaloneFunctions = functions.filter(f => !f.typeContext).length;
   
   console.log(chalk.blue('\n📊 Overview Statistics:'));
   console.log(`   Types: ${totalTypes} total`);
@@ -373,14 +373,14 @@ function displayImprovedIntegratedOverview(
   console.log(`     • Interfaces: ${types.filter(t => t.kind === 'interface').length} (${interfacesWithMethods} with methods)`);
   console.log(`     • Type aliases: ${types.filter(t => t.kind === 'type_alias').length}`);
   console.log(`   Functions: ${totalFunctions} total`);
-  console.log(`     • Associated with types: ${totalFunctions - standaloneeFunctions}`);
-  console.log(`     • Standalone: ${standaloneeFunctions}`);
+  console.log(`     • Associated with types: ${totalFunctions - standaloneFunctions}`);
+  console.log(`     • Standalone: ${standaloneFunctions}`);
 
   // Programming paradigm analysis (neutral)
   const paradigmAnalysis = analyzeParadigmUsage(types, functions);
   console.log(chalk.blue('\n🎨 Programming Style Distribution:'));
   console.log(`   Object-oriented patterns: ${paradigmAnalysis.oopPercentage.toFixed(1)}% (${paradigmAnalysis.classBasedFunctions} functions)`);
-  console.log(`   Functional patterns: ${paradigmAnalysis.functionalPercentage.toFixed(1)}% (${paradigmAnalysis.standaloneeFunctions} functions)`);
+  console.log(`   Functional patterns: ${paradigmAnalysis.functionalPercentage.toFixed(1)}% (${paradigmAnalysis.standaloneFunctions} functions)`);
   console.log(`   Mixed patterns: ${paradigmAnalysis.mixedPercentage.toFixed(1)}% (${paradigmAnalysis.mixedPatterns} cases)`);
 
   // Type complexity distribution (informational)
@@ -420,22 +420,22 @@ function analyzeParadigmUsage(
   functionalPercentage: number;
   mixedPercentage: number;
   classBasedFunctions: number;
-  standaloneeFunctions: number;
+  standaloneFunctions: number;
   mixedPatterns: number;
 } {
   const totalFunctions = functions.length;
   const classBasedFunctions = functions.filter(f => f.typeContext && f.typeContext.isClassMethod).length;
-  const standaloneeFunctions = functions.filter(f => !f.typeContext).length;
+  const standaloneFunctions = functions.filter(f => !f.typeContext).length;
   const interfaceBasedFunctions = functions.filter(f => f.typeContext && f.typeContext.isInterfaceMethod).length;
   
   const mixedPatterns = interfaceBasedFunctions; // Interface methods are mixed paradigm
   
   return {
     oopPercentage: totalFunctions > 0 ? (classBasedFunctions / totalFunctions) * 100 : 0,
-    functionalPercentage: totalFunctions > 0 ? (standaloneeFunctions / totalFunctions) * 100 : 0,
+    functionalPercentage: totalFunctions > 0 ? (standaloneFunctions / totalFunctions) * 100 : 0,
     mixedPercentage: totalFunctions > 0 ? (mixedPatterns / totalFunctions) * 100 : 0,
     classBasedFunctions,
-    standaloneeFunctions,
+    standaloneFunctions,
     mixedPatterns
   };
 }
