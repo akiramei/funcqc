@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { Logger } from '../../utils/cli-utils';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
-import { TypeDefinition, TypeRelationship, StorageAdapter } from '../../types';
+import { TypeDefinition, TypeRelationship, StorageAdapter, SnapshotInfo } from '../../types';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
 
 /**
@@ -246,7 +246,7 @@ interface TypeHealthReport {
 /**
  * Get storage adapter and latest snapshot
  */
-async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; latestSnapshot: any }> {
+async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; latestSnapshot: SnapshotInfo }> {
   // Get storage from environment or create new instance
   const { PGLiteStorageAdapter } = await import('../../storage/pglite-adapter');
   const { ConfigManager } = await import('../../core/config');
@@ -281,7 +281,7 @@ async function applyTypeFilters(
   
   if (options.kind) {
     const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
-    if (!validKinds.includes(options.kind as any)) {
+    if (!validKinds.includes(options.kind as typeof validKinds[number])) {
       throw new Error(`Invalid kind: ${options.kind}. Valid options are: ${validKinds.join(', ')}`);
     }
     filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
@@ -308,7 +308,7 @@ async function applyTypeFilters(
  */
 function sortTypesDB(types: TypeDefinition[], sortField: string, desc?: boolean): TypeDefinition[] {
   const validSortOptions = ['name', 'kind', 'file'] as const;
-  if (!validSortOptions.includes(sortField as any)) {
+  if (!validSortOptions.includes(sortField as typeof validSortOptions[number])) {
     throw new Error(`Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
   }
   
@@ -368,8 +368,8 @@ async function analyzeCouplingForTypes(
       `, [snapshotId, type.id]);
       
       if (couplingQuery.rows.length > 0) {
-        const parameterUsage = processCouplingQueryResults(couplingQuery.rows);
-        const totalFunctions = new Set(couplingQuery.rows.map((row: any) => row.function_id)).size;
+        const parameterUsage = processCouplingQueryResults(couplingQuery.rows as Array<Record<string, unknown>>);
+        const totalFunctions = new Set((couplingQuery.rows as Array<Record<string, unknown>>).map(row => row['function_id'])).size;
         
         const averageUsageRatio = parameterUsage.length > 0 
           ? parameterUsage.reduce((sum, p) => sum + p.usageRatio, 0) / parameterUsage.length
@@ -408,22 +408,23 @@ async function analyzeCouplingForTypes(
 /**
  * Process coupling query results into structured format
  */
-function processCouplingQueryResults(rows: any[]): CouplingInfo['parameterUsage'] {
+function processCouplingQueryResults(rows: Array<Record<string, unknown>>): CouplingInfo['parameterUsage'] {
   const parameterMap = new Map<string, Map<string, Set<string>>>();
   
   // Group by function and parameter
   for (const row of rows) {
-    const key = `${row.function_id}:${row.parameter_name}`;
+    const key = `${row['function_id']}:${row['parameter_name']}`;
     if (!parameterMap.has(key)) {
       parameterMap.set(key, new Map());
     }
     
     const funcParamMap = parameterMap.get(key)!;
-    if (!funcParamMap.has(row.parameter_name)) {
-      funcParamMap.set(row.parameter_name, new Set());
+    const paramName = String(row['parameter_name']);
+    if (!funcParamMap.has(paramName)) {
+      funcParamMap.set(paramName, new Set());
     }
     
-    funcParamMap.get(row.parameter_name)!.add(row.accessed_property);
+    funcParamMap.get(paramName)!.add(String(row['accessed_property']));
   }
   
   // Convert to structured format
@@ -504,8 +505,8 @@ function analyzeDependenciesFromDB(
   targetType: TypeDefinition,
   relationships: TypeRelationship[],
   maxDepth: number
-): any[] {
-  const dependencies: any[] = [];
+): Array<{ source: string; target: string | undefined; relationship: string; depth: number }> {
+  const dependencies: Array<{ source: string; target: string | undefined; relationship: string; depth: number }> = [];
   const visited = new Set<string>();
   
   function traverse(typeId: string, depth: number) {
@@ -516,7 +517,7 @@ function analyzeDependenciesFromDB(
     for (const rel of relatedRelationships) {
       dependencies.push({
         source: typeId,
-        target: rel.targetTypeId,
+        target: rel.targetTypeId || undefined,
         relationship: rel.relationshipKind,
         depth
       });
@@ -534,7 +535,7 @@ function analyzeDependenciesFromDB(
 /**
  * Find circular dependencies
  */
-function findCircularDependencies(dependencies: any[]): any[] {
+function findCircularDependencies(dependencies: Array<{ source: string; target: string | undefined; relationship: string; depth: number }>): Array<{ cycle: string[]; length: number }> {
   // Simplified circular dependency detection
   const graph = new Map<string, Set<string>>();
   
@@ -549,7 +550,7 @@ function findCircularDependencies(dependencies: any[]): any[] {
   }
   
   // Find cycles (simplified DFS)
-  const cycles: any[] = [];
+  const cycles: Array<{ cycle: string[]; length: number }> = [];
   const visited = new Set<string>();
   const recursionStack = new Set<string>();
   
@@ -649,7 +650,7 @@ function displayTypeHealthDB(report: TypeHealthReport, verbose?: boolean): void 
   }
 }
 
-function displayCircularDependenciesDB(cycles: any[]): void {
+function displayCircularDependenciesDB(cycles: Array<{ cycle: string[]; length: number }>): void {
   console.log(`\n🔄 Found ${cycles.length} circular dependencies:\n`);
   
   for (const cycle of cycles) {
@@ -657,18 +658,18 @@ function displayCircularDependenciesDB(cycles: any[]): void {
   }
 }
 
-function displayDependenciesDB(typeName: string, dependencies: any[]): void {
+function displayDependenciesDB(typeName: string, dependencies: Array<{ source: string; target: string | undefined; relationship: string; depth: number }>): void {
   console.log(`\n🔗 Dependencies for type '${typeName}':\n`);
   
   const depsByDepth = dependencies.reduce((acc, dep) => {
     if (!acc[dep.depth]) acc[dep.depth] = [];
     acc[dep.depth].push(dep);
     return acc;
-  }, {} as Record<number, any[]>);
+  }, {} as Record<number, Array<{ source: string; target: string | undefined; relationship: string; depth: number }>>);
   
   for (const [depth, deps] of Object.entries(depsByDepth)) {
     console.log(`Depth ${depth}:`);
-    for (const dep of deps as any[]) {
+    for (const dep of deps) {
       const indent = '  '.repeat(parseInt(depth) + 1);
       console.log(`${indent}${dep.relationship} → ${dep.target}`);
     }

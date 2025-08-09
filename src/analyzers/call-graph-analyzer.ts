@@ -10,7 +10,7 @@ import { CallEdge } from '../types';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { CacheProvider } from '../utils/cache-interfaces';
 import { CacheServiceLocator } from '../utils/cache-injection';
-import { buildImportIndex, resolveCallee, CalleeResolution } from './symbol-resolver';
+import { buildImportIndex, resolveCallee, CalleeResolution, ImportRecord } from './symbol-resolver';
 import { Logger } from '../utils/cli-utils';
 import { PerformanceProfiler, measureSync } from '../utils/performance-metrics';
 import * as fs from 'fs';
@@ -32,7 +32,7 @@ export class CallGraphAnalyzer {
   private profiler: PerformanceProfiler;
   private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
-  private importIndexCache: WeakMap<SourceFile, Map<string, any>> = new WeakMap();
+  private importIndexCache: WeakMap<SourceFile, Map<string, ImportRecord>> = new WeakMap();
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
   constructor(
@@ -175,7 +175,7 @@ export class CallGraphAnalyzer {
     filePath: string,
     sourceFile: SourceFile,
     typeChecker: TypeChecker,
-    importIndex: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require"; local: string; imported?: string }>,
+    importIndex: Map<string, ImportRecord>,
     allowedFunctionIdSet: Set<string>,
     getFunctionIdByDeclaration: (decl: Node) => string | undefined,
     candidateNames?: Set<string>
@@ -680,10 +680,14 @@ export class CallGraphAnalyzer {
    * Clear all caches including export declarations cache
    */
   async clearCache(): Promise<void> {
-    await Promise.all([
-      this.cache.clear(),
-      this.callEdgeCache.clear()
-    ]);
+    const clearPromises: Promise<void>[] = [this.cache.clear()];
+    
+    // Only clear callEdgeCache if it has a clear method (avoid WeakMap issues)
+    if ('clear' in this.callEdgeCache && typeof this.callEdgeCache.clear === 'function') {
+      clearPromises.push(this.callEdgeCache.clear());
+    }
+    
+    await Promise.all(clearPromises);
     this.exportDeclarationsByFile.clear();
     this.importResolutionCache.clear();
     // WeakMap doesn't need explicit clearing - it's garbage collected automatically
