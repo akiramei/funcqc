@@ -346,7 +346,7 @@ export interface SnapshotMetadata {
   typeSystemAnalysisCompleted?: boolean;
   analysisLevel?: AnalysisLevel;
   scanDuration?: number; // Time taken for scan in milliseconds
-  scanMode?: 'quick' | 'standard' | 'full';
+  scanMode?: 'quick' | 'basic' | 'standard' | 'full';
   [key: string]: unknown; // Allow additional metadata
 }
 
@@ -473,7 +473,8 @@ export interface ScanCommandOptions extends CommandOptions {
   force?: boolean;
   skipBasicAnalysis?: boolean; // Skip basic analysis for fast scan
   // Performance-focused scan levels
-  quick?: boolean; // Quick scan (10-15s): basic + coupling only
+  quick?: boolean; // Quick scan (5-10s): snapshot only
+  withBasic?: boolean; // Basic scan (40-50s): includes basic + coupling analysis
   withGraph?: boolean; // Standard scan (30-40s): includes call graph
   withTypes?: boolean; // Extended scan: includes type system analysis
   full?: boolean; // Full scan (50-60s): all analyses

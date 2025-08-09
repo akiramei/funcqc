@@ -103,7 +103,8 @@ program
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
   .option('-j, --json', 'output as JSON for script processing')
   // Performance-focused scan levels
-  .option('--quick', 'quick scan (10-15s): basic + coupling only')
+  .option('--quick', 'quick scan (5-10s): snapshot only')
+  .option('--with-basic', 'basic scan (40-50s): includes function analysis')
   .option('--with-graph', 'standard scan (30-40s): includes call graph')
   .option('--with-types', 'extended scan: includes type system analysis')
   .option('--full', 'full scan (50-60s): all analyses')

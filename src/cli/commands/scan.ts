@@ -32,7 +32,7 @@ import { SnapshotMetadata } from '../../types';
  * Scan level configuration
  */
 interface ScanLevel {
-  mode: 'quick' | 'standard' | 'full';
+  mode: 'quick' | 'basic' | 'standard' | 'full';
   includes: string[];
   targetTime: string;
 }
@@ -65,19 +65,37 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     };
   }
   
-  if (options.quick || (!options.withGraph && !options.withTypes && !options.full)) {
+  // New option: --with-basic for including basic analysis
+  if (options.withBasic) {
     return {
-      mode: 'quick',
+      mode: 'basic',
       includes: ['BASIC', 'COUPLING'],
-      targetTime: '10-15s'
+      targetTime: '40-50s'
     };
   }
   
-  // Default to quick scan
+  if (options.quick) {
+    return {
+      mode: 'quick',
+      includes: [],  // No analysis, just snapshot
+      targetTime: '5-10s'
+    };
+  }
+  
+  // Default to snapshot-only for maximum speed
+  if (!options.withGraph && !options.withTypes && !options.full && !options.withBasic) {
+    return {
+      mode: 'quick',
+      includes: [],  // Snapshot only by default
+      targetTime: '5-10s'
+    };
+  }
+  
+  // Fallback
   return {
     mode: 'quick',
-    includes: ['BASIC', 'COUPLING'],
-    targetTime: '10-15s'
+    includes: [],
+    targetTime: '5-10s'
   };
 }
 
@@ -282,6 +300,9 @@ async function executeScanCommand(
       
       // Show next steps based on scan level
       if (scanLevel.mode === 'quick') {
+        console.log(chalk.gray('  Run `funcqc scan --with-basic` for function analysis'));
+        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
+      } else if (scanLevel.mode === 'basic') {
         console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
       } else if (scanLevel.mode === 'standard') {
         console.log(chalk.gray('  Run `funcqc analyze --types` for type system analysis'));
