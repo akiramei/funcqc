@@ -44,11 +44,14 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     if (callEdges.length === 0) return;
 
     try {
-      // Use optimized bulk insert for better performance
+      // Conservative approach: keep existing threshold but with improved chunking
       if (callEdges.length >= 10) {
         await this.insertCallEdgesBulk(snapshotId, callEdges);
       } else {
-        await this.insertCallEdgesIndividual(snapshotId, callEdges);
+        // Use existing individual insert for small batches
+        await this.db.transaction(async (trx: PGTransaction) => {
+          await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+        });
       }
       
       this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId}`);
@@ -79,10 +82,31 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }
   }
 
+
+
   /**
    * Insert call edges using bulk insert for better performance
+   * Processes large datasets in optimized chunks
    */
   private async insertCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    // Conservative chunking - keep existing approach with smaller chunk size
+    const CHUNK_SIZE = 500; // Reduced from 1000 for better PGLite performance
+    
+    if (callEdges.length <= CHUNK_SIZE) {
+      await this.insertCallEdgesChunk(snapshotId, callEdges);
+    } else {
+      // Process in chunks sequentially 
+      for (let i = 0; i < callEdges.length; i += CHUNK_SIZE) {
+        const chunk = callEdges.slice(i, i + CHUNK_SIZE);
+        await this.insertCallEdgesChunk(snapshotId, chunk);
+      }
+    }
+  }
+
+  /**
+   * Insert a single chunk of call edges
+   */
+  private async insertCallEdgesChunk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
       id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
@@ -175,47 +199,6 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }
   }
 
-  /**
-   * Insert call edges individually (for smaller batches)
-   */
-  private async insertCallEdgesIndividual(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edge of callEdges) {
-      const params = [
-        edge.id || uuidv4(),
-        snapshotId,
-        edge.callerFunctionId,
-        edge.calleeFunctionId,
-        edge.calleeName,
-        edge.calleeSignature || null,
-        edge.callerClassName || null,
-        edge.calleeClassName || null,
-        edge.callType || 'direct',
-        this.mapCallContext(edge.callContext),
-        edge.lineNumber || 0,
-        edge.columnNumber || 0,
-        edge.isAsync || false,
-        edge.isChained || false,
-        edge.confidenceScore || 1.0,
-        edge.metadata ? JSON.stringify(edge.metadata) : '{}',
-      ];
-      
-      try {
-        await this.db.query(
-          `
-          INSERT INTO call_edges (
-            id, snapshot_id, caller_function_id, callee_function_id, callee_name,
-            callee_signature, caller_class_name, callee_class_name, call_type, call_context,
-            line_number, column_number, is_async, is_chained, confidence_score, metadata
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-          `,
-          params
-        );
-      } catch (error) {
-        this.logger?.error(`Failed to insert call edge: ${error}, params: ${JSON.stringify(params.slice(0, 5))}`);
-        throw error;
-      }
-    }
-  }
 
   /**
    * Insert call edges individually within a transaction
@@ -258,11 +241,14 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert internal call edges (optimized version)
    */
   async insertInternalCallEdges(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    const internalEdges = callEdges.filter(edge => edge.callType === 'direct');
+    // Include all internal call types (direct, async, conditional, dynamic)
+    // Only exclude external calls if needed
+    const internalEdges = callEdges.filter(edge => edge.callType !== 'external');
     
     if (internalEdges.length === 0) return;
 
     try {
+      // Conservative threshold with improved filter
       if (internalEdges.length >= 10) {
         await this.insertInternalCallEdgesBulk(snapshotId, internalEdges);
       } else {
@@ -286,10 +272,10 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     const internalCallEdgeRows = callEdges.map(edge => ({
       id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
-      file_path: (edge.metadata as Record<string, unknown>)?.filePath || null,
+      file_path: (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId!,
-      caller_name: (edge.metadata as Record<string, unknown>)?.callerName || 'unknown', // Use actual caller function name
+      caller_name: (edge.metadata as Record<string, unknown>)?.['callerName'] || 'unknown', // Use actual caller function name
       callee_name: edge.calleeName,
       caller_class_name: edge.callerClassName || null,
       callee_class_name: edge.calleeClassName || null,
@@ -298,7 +284,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       call_type: edge.callType || 'direct',
       call_context: edge.callContext || 'normal',
       confidence_score: edge.confidenceScore || 1.0,
-      detected_by: (edge.metadata as Record<string, unknown>)?.detectedBy || 'ast',
+      detected_by: (edge.metadata as Record<string, unknown>)?.['detectedBy'] || 'ast',
     }));
 
     try {
@@ -376,10 +362,10 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         [
           edge.id || uuidv4(),
           snapshotId,
-          (edge.metadata as Record<string, unknown>)?.filePath || null,
+          (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
           edge.callerFunctionId,
           edge.calleeFunctionId,
-          (edge.metadata as Record<string, unknown>)?.callerName || 'unknown', // Use actual caller function name
+          (edge.metadata as Record<string, unknown>)?.['callerName'] || 'unknown', // Use actual caller function name
           edge.calleeName,
           edge.callerClassName || null,
           edge.calleeClassName || null,
@@ -388,7 +374,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           edge.callType || 'direct',
           edge.callContext || 'normal',
           edge.confidenceScore || 1.0,
-          (edge.metadata as Record<string, unknown>)?.detectedBy || 'ast',
+          (edge.metadata as Record<string, unknown>)?.['detectedBy'] || 'ast',
         ]
       );
     }

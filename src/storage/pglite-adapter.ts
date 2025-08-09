@@ -730,7 +730,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     // Derive snapshotId from edges and delegate to operations module (JSON bulk insert)
     const snapshotId = edges[0]?.snapshotId;
     if (!snapshotId) {
-      throw new DatabaseError(ErrorCode.INVALID_INPUT, 'insertInternalCallEdges: snapshotId missing in edges');
+      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'insertInternalCallEdges: snapshotId missing in edges');
     }
 
     // Convert InternalCallEdge to CallEdge format for compatibility with call-edge-operations

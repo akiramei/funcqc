@@ -90,7 +90,7 @@ export class InternalCallAnalyzer {
    * Find all calls from a specific function to other functions in the same file
    */
   private async findInternalCallsInFunction(
-    sourceFile: SourceFile,
+    _sourceFile: SourceFile,
     callerFunction: FunctionInfo,
     functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
@@ -347,6 +347,7 @@ export class InternalCallAnalyzer {
     const calleeClassName = className || this.extractClassName(calleeFunction);
 
     return {
+      id: `${callerFunction.id}-${calleeFunction.id}-${lineNumber}-${columnNumber}`,
       snapshotId,
       filePath,
       callerFunctionId: callerFunction.id,
@@ -363,6 +364,7 @@ export class InternalCallAnalyzer {
         : 'constructor',
       confidenceScore: 1.0, // AST analysis has high confidence
       detectedBy: 'ast',
+      createdAt: new Date().toISOString(),
     };
   }
 
