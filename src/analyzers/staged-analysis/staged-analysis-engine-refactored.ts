@@ -145,22 +145,28 @@ export class StagedAnalysisEngine {
     this.logger.debug(`Functions to analyze: ${functions.size}`);
 
     // Prepare data structures
+    const prepStartTime = performance.now();
     this.buildLookupMaps(functions);
+    console.log(`  ⏱️  Build lookup maps: ${((performance.now() - prepStartTime) / 1000).toFixed(3)}s`);
 
     // Stage 1 & 2: Combined Local and Import Analysis
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
+    const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
+    console.log(`  ⏱️  Stage 1&2 (Local/Import): ${((performance.now() - stage1StartTime) / 1000).toFixed(3)}s`);
     this.statistics.localExactCount = localImportResult.localEdges;
     this.statistics.importExactCount = localImportResult.importEdges;
 
     // Stage 3: CHA Analysis
     this.logger.debug('Stage 3: CHA analysis...');
+    const stage3StartTime = performance.now();
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
       this.state,
       snapshotId || 'unknown'
     );
+    console.log(`  ⏱️  Stage 3 (CHA): ${((performance.now() - stage3StartTime) / 1000).toFixed(3)}s`);
     this.statistics.chaResolvedCount = chaResult.resolvedEdges;
     this.state.chaCandidates = chaResult.chaCandidates;
     this.state.unresolvedMethodCallsForRTA = chaResult.unresolvedMethodCallsForRTA;
@@ -183,6 +189,7 @@ export class StagedAnalysisEngine {
 
     // Stage 4: RTA Analysis
     this.logger.debug('Stage 4: RTA analysis...');
+    const stage4StartTime = performance.now();
     // Note: Type information is now extracted and stored during CHA stage
     const classToInterfacesMap = new Map<string, string[]>(); // Placeholder for RTA compatibility
     const rtaResult = await this.rtaStage.performRTAAnalysis(
@@ -193,25 +200,32 @@ export class StagedAnalysisEngine {
       classToInterfacesMap,
       this.state
     );
+    console.log(`  ⏱️  Stage 4 (RTA): ${((performance.now() - stage4StartTime) / 1000).toFixed(3)}s`);
     this.statistics.rtaResolvedCount = rtaResult;
 
     // Stage 5: Runtime Trace Integration
     this.logger.debug('Stage 5: Runtime trace integration...');
+    const stage5StartTime = performance.now();
     const runtimeResult = await this.runtimeStage.performRuntimeTraceIntegration(
       this.state.edges,
       functions
     );
+    console.log(`  ⏱️  Stage 5 (Runtime): ${((performance.now() - stage5StartTime) / 1000).toFixed(3)}s`);
     this.state.edges = runtimeResult.integratedEdges;
     this.statistics.runtimeConfirmedCount = runtimeResult.enhancedEdgesCount;
 
     // Stage 6: External Function Call Analysis
     this.logger.debug('Stage 6: External function call analysis...');
+    const stage6StartTime = performance.now();
     const externalResult = await this.performExternalCallAnalysis(functions);
+    console.log(`  ⏱️  Stage 6 (External): ${((performance.now() - stage6StartTime) / 1000).toFixed(3)}s`);
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Stage 7: Callback Registration Analysis
     this.logger.debug('Stage 7: Callback registration analysis...');
+    const stage7StartTime = performance.now();
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
+    console.log(`  ⏱️  Stage 7 (Callbacks): ${((performance.now() - stage7StartTime) / 1000).toFixed(3)}s`);
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
     this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
     
@@ -245,7 +259,7 @@ export class StagedAnalysisEngine {
     this.importExactStage.buildFunctionLookupMap(functions);
 
     for (const sourceFile of sourceFiles) {
-      if (processedFiles % 20 === 0) {
+      if (processedFiles % 50 === 0 && processedFiles > 0) {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 

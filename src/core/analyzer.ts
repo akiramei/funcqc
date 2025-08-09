@@ -6,6 +6,7 @@ import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
 import * as path from 'path';
+import chalk from 'chalk';
 
 export class FunctionAnalyzer {
   private tsAnalyzer: TypeScriptAnalyzer;
@@ -601,11 +602,13 @@ export class FunctionAnalyzer {
     snapshotId: string,
     storage?: StorageAdapter
   ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
+    const startTime = performance.now();
     this.logger.debug('[PATH] CONTENT - Starting call graph analysis from stored content');
     this.logger.debug('Starting call graph analysis from stored content...');
     
     try {
       // Create a temporary project with virtual files from stored content
+      const projectStartTime = performance.now();
       const virtualProject = new Project({
         skipAddingFilesFromTsConfig: true,
         skipLoadingLibFiles: true,
@@ -628,9 +631,12 @@ export class FunctionAnalyzer {
         virtualProject.createSourceFile(virtualPath, content, { overwrite: true });
       }
       
+      const projectEndTime = performance.now();
+      console.log(chalk.gray(`⏱️  Virtual project creation: ${((projectEndTime - projectStartTime) / 1000).toFixed(2)}s for ${virtualProject.getSourceFiles().length} files`));
       this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
+      const analyzerStartTime = performance.now();
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
         logger: this.logger,
         ...(snapshotId && { snapshotId }),
@@ -639,20 +645,32 @@ export class FunctionAnalyzer {
       
       try {
         // Perform call graph analysis on virtual project
+        const analysisStartTime = performance.now();
         const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
+        const analysisEndTime = performance.now();
+        console.log(chalk.gray(`⏱️  Call graph analysis: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
         
         // Create mapping between virtual functions and real functions
+        const mappingStartTime = performance.now();
         const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
         
         // Convert to legacy format for compatibility with ID mapping
         const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
+        const mappingEndTime = performance.now();
+        console.log(chalk.gray(`⏱️  ID mapping and conversion: ${((mappingEndTime - mappingStartTime) / 1000).toFixed(2)}s`));
         
         // Perform internal call analysis on virtual project
+        const internalStartTime = performance.now();
         const internalCallEdges = await this.analyzeInternalCallsFromVirtualProject(
           virtualProject, 
           functions, 
           virtualPaths
         );
+        const internalEndTime = performance.now();
+        console.log(chalk.gray(`⏱️  Internal call analysis: ${((internalEndTime - internalStartTime) / 1000).toFixed(2)}s`));
+        
+        const totalTime = performance.now() - startTime;
+        console.log(chalk.yellow(`⏱️  Total call graph analysis time: ${(totalTime / 1000).toFixed(2)}s`));
         
         this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
         

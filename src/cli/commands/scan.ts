@@ -595,14 +595,18 @@ export async function performCallGraphAnalysis(
   env: CommandEnvironment,
   spinner?: SpinnerInterface
 ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] }> {
+  const totalStartTime = performance.now();
   const showSpinner = spinner !== undefined;
   if (showSpinner) {
     spinner.start('Performing call graph analysis...');
   }
   
   // Get stored files and functions
+  const fetchStartTime = performance.now();
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
   const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const fetchEndTime = performance.now();
+  console.log(chalk.gray(`⏱️  Fetching data from DB: ${((fetchEndTime - fetchStartTime) / 1000).toFixed(2)}s (${sourceFiles.length} files, ${functions.length} functions)`));
   
   // Reconstruct file map for analyzer (include all files for proper type resolution)
   const fileContentMap = new Map<string, string>();
@@ -615,18 +619,31 @@ export async function performCallGraphAnalysis(
   
   try {
     // Analyze call graph from stored content
+    const analysisStartTime = performance.now();
     const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
+    const analysisEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  analyzeCallGraphFromContent: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
     
     // Save call edges
+    const insertStartTime = performance.now();
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
+    const insertEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  insertCallEdges: ${((insertEndTime - insertStartTime) / 1000).toFixed(2)}s for ${result.callEdges.length} edges`));
     
     // Update snapshotId for internal call edges and save
     const internalCallEdgesWithSnapshotId = result.internalCallEdges.map(edge => ({
       ...edge,
       snapshotId: snapshotId
     }));
+    const internalInsertStartTime = performance.now();
     await env.storage.insertInternalCallEdges(internalCallEdgesWithSnapshotId);
+    const internalInsertEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  insertInternalCallEdges: ${((internalInsertEndTime - internalInsertStartTime) / 1000).toFixed(2)}s for ${internalCallEdgesWithSnapshotId.length} edges`));
+    
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
+    
+    const totalEndTime = performance.now();
+    console.log(chalk.cyan(`⏱️  Total performCallGraphAnalysis time: ${((totalEndTime - totalStartTime) / 1000).toFixed(2)}s`));
     
     if (showSpinner) {
       spinner!.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
