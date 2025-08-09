@@ -17,7 +17,7 @@ export abstract class BaseStorageOperations {
   /**
    * Get Kysely instance from context (ensures we get the latest instance)
    */
-  protected get kysely() {
+  get kysely() {
     return this.context.kysely;
   }
 }

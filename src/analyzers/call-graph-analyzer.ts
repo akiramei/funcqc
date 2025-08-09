@@ -129,22 +129,6 @@ export class CallGraphAnalyzer {
     return { functionNodes, functionCallsMap };
   }
 
-  /**
-   * Extract call expressions from a function node (legacy method for compatibility)
-   */
-  private extractCallExpressions(functionNode: Node): CallExpression[] {
-    const callExpressions: CallExpression[] = [];
-    functionNode.forEachDescendant((node, traversal) => {
-      if (Node.isCallExpression(node)) {
-        callExpressions.push(node);
-      }
-      // Skip traversing into nested function declarations
-      if (this.isFunctionDeclaration(node) && node !== functionNode) {
-        traversal.skip();
-      }
-    });
-    return callExpressions;
-  }
 
   /**
    * Extract candidate function names from function map for pre-filtering
@@ -468,20 +452,6 @@ export class CallGraphAnalyzer {
     return Node.isCallExpression(leftExpr) || Node.isPropertyAccessExpression(leftExpr);
   }
 
-  /**
-   * Get all function-like nodes from a source file
-   */
-  private getAllFunctionNodes(sourceFile: SourceFile): Node[] {
-    const nodes: Node[] = [];
-    
-    sourceFile.forEachDescendant(node => {
-      if (this.isFunctionDeclaration(node)) {
-        nodes.push(node);
-      }
-    });
-    
-    return nodes;
-  }
 
 
   /**

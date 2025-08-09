@@ -24,7 +24,7 @@ export function safeJsonParse<T>(value: unknown, fallbackValue: T = [] as unknow
   // 3. If it is a string, try to parse it
   try {
     return JSON.parse(value) as T;
-  } catch (error) {
+  } catch {
     // 4. Silently return fallback to avoid console spam
     // The original error was logged too frequently
     return fallbackValue;
@@ -50,7 +50,7 @@ export function safeJsonParseWithLogging<T>(
 
   try {
     return JSON.parse(value) as T;
-  } catch (error) {
+  } catch {
     console.warn(
       `⚠️  JSON parse failed${context ? ` in ${context}` : ''}: "${value}". Using fallback.`
     );

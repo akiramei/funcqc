@@ -148,7 +148,7 @@ function analyzeFunctionStyle(func: FunctionInfo, styles: ProgrammingStyleDistri
     styles.setters++;
   } else if (func.name.includes('.')) {
     styles.methods++;
-  } else if (func.type === 'ArrowFunction') {
+  } else if (func.functionType === 'arrow') {
     styles.arrowFunctions++;
   } else {
     styles.namedFunctions++;

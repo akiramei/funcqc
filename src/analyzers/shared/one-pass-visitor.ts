@@ -422,17 +422,6 @@ export class OnePassASTVisitor {
     return 'expression';
   }
   
-  private findAllPropertyAccessesInFunction(func: Node): string[] {
-    const properties: string[] = [];
-    
-    func.forEachDescendant((node: Node) => {
-      if (Node.isPropertyAccessExpression(node)) {
-        properties.push(node.getName());
-      }
-    });
-    
-    return [...new Set(properties)]; // deduplicate
-  }
   
   private getTotalPropertiesForParam(funcId: string, paramName: string, ctx: ScanContext): number {
     try {

@@ -98,10 +98,15 @@ export class CHATypeSystemIntegration {
         }
         
         // Fallback to individual saves
-        await this.storage.saveTypeDefinitions(typeInfo.typeDefinitions);
-        await this.storage.saveTypeRelationships(typeInfo.typeRelationships);
-        await this.storage.saveTypeMembers(typeInfo.typeMembers);
-        await this.storage.saveMethodOverrides(typeInfo.methodOverrides);
+        if (this.storage) {
+          const storage = this.storage as StorageAdapter;
+          await storage.saveTypeDefinitions(typeInfo.typeDefinitions);
+          await storage.saveTypeRelationships(typeInfo.typeRelationships);
+          await storage.saveTypeMembers(typeInfo.typeMembers);
+          await storage.saveMethodOverrides(typeInfo.methodOverrides);
+        } else {
+          this.logger.warn('No storage adapter set, skipping type information save');
+        }
       }
     } catch (error) {
       this.logger.error('❌ Failed to save type information to database:', error);
