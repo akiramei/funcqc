@@ -27,6 +27,8 @@ export class ImportExactAnalysisStage {
   private _positionIdCache: WeakMap<Node, string> = new WeakMap();
   /** symbol-resolver が external と判定したコール式を保持（CHA への誤送出防止） */
   private externalCallNodes = new WeakSet<Node>();
+  /** Import index cache for performance optimization */
+  private importIndexCache = new WeakMap<import('ts-morph').SourceFile, Map<string, { module: string; kind: "namespace" | "default" | "named" | "require" }>>();
 
   constructor(
     project: Project, 
@@ -54,6 +56,14 @@ export class ImportExactAnalysisStage {
     }
     
     this.logger.debug(`Built function lookup map with ${this.functionLookupMap.size} entries`);
+  }
+
+  /**
+   * Set shared function lookup map from engine (optimization #3)
+   */
+  setSharedFunctionLookupMap(sharedLookupMap: Map<string, string>): void {
+    this.functionLookupMap = sharedLookupMap;
+    this.logger.debug(`Using shared function lookup map with ${this.functionLookupMap.size} entries`);
   }
 
   /**
@@ -207,7 +217,13 @@ export class ImportExactAnalysisStage {
   ): string | undefined {
     try {
       const sourceFile = callNode.getSourceFile();
-      const importIndex = buildImportIndex(sourceFile);
+      
+      // Check cache first for performance optimization
+      let importIndex = this.importIndexCache.get(sourceFile);
+      if (!importIndex) {
+        importIndex = buildImportIndex(sourceFile);
+        this.importIndexCache.set(sourceFile, importIndex);
+      }
       
       // Create a getFunctionIdByDeclaration callback
       const getFunctionIdByDeclaration = (decl: Node): string | undefined => {
@@ -442,7 +458,7 @@ export class ImportExactAnalysisStage {
   }
 
   /**
-   * Find the caller function for a node
+   * Find the caller function for a node (O(1) optimized)
    */
   private findCallerFunction(
     node: Node,
@@ -450,7 +466,17 @@ export class ImportExactAnalysisStage {
   ): FunctionMetadata | undefined {
     const sourceFile = node.getSourceFile();
     const filePath = sourceFile.getFilePath();
+    const nodeStartLine = node.getStartLineNumber();
     
+    // O(1) lookup using function lookup map
+    const lookupKey = `${filePath}:${nodeStartLine}`;
+    const functionId = this.functionLookupMap.get(lookupKey);
+    
+    if (functionId && functions.has(functionId)) {
+      return functions.get(functionId);
+    }
+    
+    // Fallback: check containment (traverse up to find containing function)
     let current = node.getParent();
     while (current) {
       if (Node.isFunctionDeclaration(current) || 

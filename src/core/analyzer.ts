@@ -636,7 +636,6 @@ export class FunctionAnalyzer {
       this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
-      const analyzerStartTime = performance.now();
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
         logger: this.logger,
         ...(snapshotId && { snapshotId }),

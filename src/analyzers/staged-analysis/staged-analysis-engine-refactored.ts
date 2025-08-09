@@ -9,7 +9,7 @@
  * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  */
 
-import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile } from 'ts-morph';
+import { Project, TypeChecker } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
 import { RuntimeTraceIntegrator } from '../runtime-trace-integrator';
@@ -255,8 +255,8 @@ export class StagedAnalysisEngine {
     let importEdgesCount = 0;
     let processedFiles = 0;
 
-    // Build import stage lookup map
-    this.importExactStage.buildFunctionLookupMap(functions);
+    // Share the function lookup map with import stage (no duplicate construction)
+    this.importExactStage.setSharedFunctionLookupMap(this.state.functionLookupMap);
 
     for (const sourceFile of sourceFiles) {
       if (processedFiles % 50 === 0 && processedFiles > 0) {
@@ -281,15 +281,10 @@ export class StagedAnalysisEngine {
       localEdgesCount += localResult.localEdges;
       this.state.instantiationEvents.push(...localResult.instantiationEvents);
 
-      // Collect expressions for import analysis
-      const callExpressions: Node[] = [];
-      const newExpressions: Node[] = [];
-      this.collectUnresolvedExpressions(sourceFile, callExpressions, newExpressions, fileFunctions);
-
-      // Stage 2: Import Exact Analysis
+      // Stage 2: Import Exact Analysis (use unresolved nodes from Local analysis)
       const importResult = await this.importExactStage.analyzeImportCalls(
-        callExpressions,
-        newExpressions,
+        localResult.unresolvedCallNodes,
+        localResult.unresolvedNewNodes,
         functions,
         this.state
       );
@@ -307,105 +302,7 @@ export class StagedAnalysisEngine {
     return { localEdges: localEdgesCount, importEdges: importEdgesCount };
   }
 
-  /**
-   * Collect expressions that weren't resolved by local analysis
-   */
-  private collectUnresolvedExpressions(
-    sourceFile: SourceFile,
-    callExpressions: Node[],
-    newExpressions: Node[],
-    fileFunctions: FunctionMetadata[]
-  ): void {
-    const stack: Node[] = [sourceFile];
 
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-
-      if (Node.isCallExpression(current)) {
-        // Only add if not already resolved locally
-        const edgeKey = this.generateCallEdgeKey(current, fileFunctions);
-        if (edgeKey && !this.state.edgeKeys.has(edgeKey)) {
-          callExpressions.push(current);
-        }
-      } else if (Node.isNewExpression(current)) {
-        const edgeKey = this.generateNewEdgeKey(current, fileFunctions);
-        if (edgeKey && !this.state.edgeKeys.has(edgeKey)) {
-          newExpressions.push(current);
-        }
-      }
-
-      // Add children to stack
-      for (const child of current.getChildren()) {
-        stack.push(child);
-      }
-    }
-  }
-
-  /**
-   * Generate edge key for call expression
-   */
-  private generateCallEdgeKey(callExpr: CallExpression, fileFunctions: FunctionMetadata[]): string | undefined {
-    // This is a simplified version - implement full edge key generation logic
-    const caller = this.findContainingFunction(callExpr, fileFunctions);
-    if (!caller) return undefined;
-
-    const expression = callExpr.getExpression();
-    let calleeSignature = 'unknown';
-    
-    if (Node.isIdentifier(expression)) {
-      calleeSignature = expression.getText();
-    } else if (Node.isPropertyAccessExpression(expression)) {
-      calleeSignature = expression.getName();
-    }
-
-    return `${caller.id}->${calleeSignature}`;
-  }
-
-  /**
-   * Generate edge key for new expression
-   */
-  private generateNewEdgeKey(newExpr: NewExpression, fileFunctions: FunctionMetadata[]): string | undefined {
-    const caller = this.findContainingFunction(newExpr, fileFunctions);
-    if (!caller) return undefined;
-
-    const expression = newExpr.getExpression();
-    let className = 'unknown';
-    
-    if (Node.isIdentifier(expression)) {
-      className = expression.getText();
-    }
-
-    return `${caller.id}->new ${className}`;
-  }
-
-  /**
-   * Find containing function for a node
-   */
-  private findContainingFunction(node: Node, fileFunctions: FunctionMetadata[]): FunctionMetadata | undefined {
-    let current = node.getParent();
-
-    while (current) {
-      if (Node.isFunctionDeclaration(current) || 
-          Node.isMethodDeclaration(current) || 
-          Node.isArrowFunction(current) || 
-          Node.isFunctionExpression(current) || 
-          Node.isConstructorDeclaration(current)) {
-        
-        const startLine = current.getStartLineNumber();
-        const endLine = current.getEndLineNumber();
-
-        // Find matching function
-        const match = fileFunctions.find(f => 
-          f.startLine === startLine && f.endLine === endLine
-        );
-        if (match) return match;
-      }
-
-      current = current.getParent();
-    }
-
-    return undefined;
-  }
 
   /**
    * Build lookup maps for efficient analysis
