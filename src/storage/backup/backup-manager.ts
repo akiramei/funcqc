@@ -51,8 +51,7 @@ export class BackupManager {
   constructor(config: FuncqcConfig, storage: StorageAdapter) {
     this.backupConfig = config.backup || this.getDefaultBackupConfig();
     this.schemaAnalyzer = new SchemaAnalyzer();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (!('query' in storage) || typeof (storage as any)['query'] !== 'function') {
+    if (!('query' in storage) || typeof (storage as unknown as Record<string, unknown>)['query'] !== 'function') {
       throw new Error('Storage adapter must implement query method for backup operations');
     }
     this.storage = storage as BackupStorageAdapter;

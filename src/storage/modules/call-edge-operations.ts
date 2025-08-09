@@ -109,13 +109,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields
-        const stringFields = ['id', 'callee_name', 'callee_signature', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context'];
+        const stringFields = ['id', 'callee_name', 'callee_signature', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context'] as const;
         for (const field of stringFields) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const value = (sanitizedRow as any)[field];
+          const value = sanitizedRow[field as keyof typeof sanitizedRow];
           if (typeof value === 'string') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (sanitizedRow as any)[field] = value.replaceAll('\u0000', '\uFFFD');
+            (sanitizedRow as Record<string, unknown>)[field] = value.replaceAll('\u0000', '\uFFFD');
           }
         }
         
@@ -302,13 +300,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields
-        const stringFields = ['id', 'callee_name', 'call_type'];
+        const stringFields = ['id', 'callee_name', 'call_type'] as const;
         for (const field of stringFields) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const value = (sanitizedRow as any)[field];
+          const value = sanitizedRow[field as keyof typeof sanitizedRow];
           if (typeof value === 'string') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            (sanitizedRow as any)[field] = value.replaceAll('\u0000', '\uFFFD');
+            (sanitizedRow as Record<string, unknown>)[field] = value.replaceAll('\u0000', '\uFFFD');
           }
         }
         
