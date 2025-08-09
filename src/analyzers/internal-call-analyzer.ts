@@ -1,5 +1,4 @@
 import { Project, SourceFile, CallExpression, NewExpression, Node, SyntaxKind } from 'ts-morph';
-import { v4 as uuidv4 } from 'uuid';
 import { FunctionInfo, InternalCallEdge } from '../types';
 import { Logger } from '../utils/cli-utils';
 
@@ -348,7 +347,6 @@ export class InternalCallAnalyzer {
     const calleeClassName = className || this.extractClassName(calleeFunction);
 
     return {
-      id: uuidv4(),
       snapshotId,
       filePath,
       callerFunctionId: callerFunction.id,
@@ -365,7 +363,6 @@ export class InternalCallAnalyzer {
         : 'constructor',
       confidenceScore: 1.0, // AST analysis has high confidence
       detectedBy: 'ast',
-      createdAt: new Date().toISOString(),
     };
   }
 
