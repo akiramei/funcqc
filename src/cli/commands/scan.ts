@@ -24,7 +24,7 @@ import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project, SyntaxKind } from 'ts-morph';
+import { Project, SyntaxKind, TypeChecker } from 'ts-morph';
 import { createHash } from 'crypto';
 
 /**
@@ -290,6 +290,8 @@ async function storeParameterPropertyUsage(
 async function processSingleSourceFile(
   sourceFile: import('../../types').SourceFile,
   components: Awaited<ReturnType<typeof initializeComponents>>,
+  project: Project,
+  typeChecker: TypeChecker,
   sourceFileIdMap?: Map<string, string>
 ): Promise<ProcessedFileResult> {
   // Create virtual source file for TypeScript analyzer
@@ -329,8 +331,8 @@ async function processSingleSourceFile(
   
   sourceFile.functionCount = functions.length;
 
-  // Perform coupling analysis using 1-pass AST visitor
-  const couplingData = await performCouplingAnalysis(sourceFile, functions);
+  // Perform coupling analysis using 1-pass AST visitor with shared Project/TypeChecker
+  const couplingData = await performCouplingAnalysis(sourceFile, functions, project, typeChecker);
 
   return {
     functions,
@@ -339,26 +341,17 @@ async function processSingleSourceFile(
 }
 
 /**
- * Perform coupling analysis using 1-pass AST visitor
+ * Perform coupling analysis using 1-pass AST visitor with shared Project/TypeChecker
  */
 async function performCouplingAnalysis(
   sourceFile: import('../../types').SourceFile,
-  functions: FunctionInfo[]
+  functions: FunctionInfo[],
+  project: Project,
+  typeChecker: TypeChecker
 ): Promise<ParameterPropertyUsage[]> {
   try {
-    // Create ts-morph project for AST analysis
-    const project = new Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: {
-        target: 99, // Latest
-        allowJs: true,
-        skipLibCheck: true,
-      }
-    });
-
-    // Add source file to project
-    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
-    const typeChecker = project.getTypeChecker();
+    // Reuse shared project and add source file
+    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
 
     // Execute 1-pass AST visitor
     const visitor = new OnePassASTVisitor();
@@ -455,9 +448,20 @@ async function executeBatchAnalysis(
     
     console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
     
+    // Create shared Project/TypeChecker for this batch (major performance optimization)
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: {
+        target: 99, // Latest
+        allowJs: true,
+        skipLibCheck: true,
+      }
+    });
+    const typeChecker = project.getTypeChecker();
+    
     for (const sourceFile of batch) {
       try {
-        const result = await processSingleSourceFile(sourceFile, components, sourceFileIdMap);
+        const result = await processSingleSourceFile(sourceFile, components, project, typeChecker, sourceFileIdMap);
         batchFunctions.push(...result.functions);
         batchCouplingData.push(...result.couplingData);
       } catch (error) {

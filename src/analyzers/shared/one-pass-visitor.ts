@@ -21,6 +21,9 @@ export interface ScanContext {
   paramTypeMap: Map<FunctionLikeDeclaration, Map<string, Type>>;
   sourceHash: string;
   
+  // Temporary cohesion data for 1-pass collection (performance optimization)
+  cohesionTempData: Map<string, Set<string>>;
+  
   // Collection results
   usageData: UsageCollectionMap;
   couplingData: CouplingDataMap;
@@ -89,6 +92,9 @@ export type NodeVisitor = (node: Node, ctx: ScanContext) => void;
  * Core 1-pass AST scanner
  */
 export class OnePassASTVisitor {
+  // Performance optimization: Cache function IDs to avoid repeated MD5 calculations
+  private funcIdCache = new WeakMap<Node, string>();
+  
   private visitors: NodeVisitor[] = [];
   
   constructor() {
@@ -103,11 +109,15 @@ export class OnePassASTVisitor {
    * Scan a single source file with all registered visitors
    */
   scanFile(file: SourceFile, checker: TypeChecker): ScanContext {
+    // Reset function ID cache for new file (WeakMap doesn't have clear method)
+    this.funcIdCache = new WeakMap();
+    
     const ctx: ScanContext = {
       checker,
       file,
       paramTypeMap: new Map(),
       sourceHash: this.computeSourceHash(file),
+      cohesionTempData: new Map(),
       usageData: {
         propertyAccesses: new Map(),
         functionCalls: new Map()
@@ -253,6 +263,13 @@ export class OnePassASTVisitor {
     const funcId = this.getFunctionId(func);
     const propertyName = node.getName();
     
+    // 1-pass cohesion collection (performance optimization)
+    if (!ctx.cohesionTempData.has(funcId)) {
+      ctx.cohesionTempData.set(funcId, new Set());
+    }
+    
+    const currentProps = ctx.cohesionTempData.get(funcId)!;
+    
     // Track property co-access patterns for cohesion analysis
     if (!ctx.cohesionData.propertyGroups.has(funcId)) {
       ctx.cohesionData.propertyGroups.set(funcId, new Map());
@@ -263,13 +280,20 @@ export class OnePassASTVisitor {
       propertyGroups.set(propertyName, new Set());
     }
     
-    // Find other properties accessed in the same function
-    const allAccesses = this.findAllPropertyAccessesInFunction(func);
-    for (const otherProp of allAccesses) {
-      if (otherProp !== propertyName) {
-        propertyGroups.get(propertyName)!.add(otherProp);
+    // Add bidirectional co-occurrence with all previously seen properties in this function
+    for (const existingProp of currentProps) {
+      if (existingProp !== propertyName) {
+        // Add bidirectional edges
+        if (!propertyGroups.has(existingProp)) {
+          propertyGroups.set(existingProp, new Set());
+        }
+        propertyGroups.get(propertyName)!.add(existingProp);
+        propertyGroups.get(existingProp)!.add(propertyName);
       }
     }
+    
+    // Add current property to the seen set
+    currentProps.add(propertyName);
   }
   
   /**
@@ -319,10 +343,19 @@ export class OnePassASTVisitor {
   }
   
   private getFunctionId(func: Node): string {
+    // Check cache first (major performance optimization)
+    const cached = this.funcIdCache.get(func);
+    if (cached) {
+      return cached;
+    }
+    
+    // Compute and cache the result
     const filePath = func.getSourceFile().getFilePath();
     const startPos = func.getStart();
     const name = this.getFunctionName(func);
     const funcId = createHash('md5').update(`${filePath}:${startPos}:${name}`).digest('hex').substring(0, 16);
+    
+    this.funcIdCache.set(func, funcId);
     return funcId;
   }
 
