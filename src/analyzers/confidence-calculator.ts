@@ -35,8 +35,9 @@ export class ConfidenceCalculator {
       confidenceScore: this.calculateEdgeConfidence(edge)
     }));
     
-    // Sort by confidence (highest first)
-    scoredEdges.sort((a, b) => b.confidenceScore - a.confidenceScore);
+    // REMOVED: Sort by confidence (highest first) - O(E log E) optimization
+    // scoredEdges.sort((a, b) => b.confidenceScore - a.confidenceScore);
+    // Use on-demand sorting only when needed
     
     console.log(`   ✅ Calculated confidence for ${scoredEdges.length} edges`);
     return scoredEdges;

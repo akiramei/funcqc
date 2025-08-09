@@ -29,6 +29,7 @@ export interface StorageContext {
     error: (msg: string) => void;
     debug: (msg: string) => void;
   };
+  utilityOps?: import('./utility-operations').UtilityOperations;
 }
 
 /**

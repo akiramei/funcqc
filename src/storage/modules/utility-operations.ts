@@ -91,11 +91,27 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
   }
 
   /**
-   * Parse JSON safely with fallback
+   * Parse JSON safely with fallback - handles PGLite auto-parsing
    */
-  parseJsonSafely<T>(jsonString: string, fallback: T): T {
+  parseJsonSafely<T>(value: unknown, fallback: T): T {
+    // If the value is null or undefined, return fallback
+    if (value == null) {
+      return fallback;
+    }
+    
+    // If the value is not a string, it's likely already parsed by PGLite
+    if (typeof value !== 'string') {
+      return (value as T) ?? fallback;
+    }
+
+    // If it's an empty string, return the fallback
+    if (value === '') {
+      return fallback;
+    }
+
+    // If it is a string, try to parse it
     try {
-      return JSON.parse(jsonString);
+      return JSON.parse(value) as T;
     } catch {
       return fallback;
     }

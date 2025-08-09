@@ -97,13 +97,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(this.logger && { logger: this.logger }),
     };
 
-    // Initialize operation modules
+    // Initialize utility operations first and add to context
+    this.utilityOps = new UtilityOperations(this.context);
+    this.context.utilityOps = this.utilityOps;
+    
+    // Initialize other operation modules with context that includes utilityOps
     this.databaseCore = new DatabaseCore(this.context);
     this.snapshotOps = new SnapshotOperations(this.context);
     this.functionOps = new FunctionOperations(this.context);
     this.metricsOps = new MetricsOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
-    this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
     this.typeSystemOps = new TypeSystemOperations(this.context);
   }
@@ -122,14 +125,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (!this.context.kysely) {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
-      // Reinitialize modules with the updated context
-      this.sourceContentOps = new SourceContentOperations(this.context);
-      this.functionOps = new FunctionOperations(this.context);
-      this.snapshotOps = new SnapshotOperations(this.context);
-      this.metricsOps = new MetricsOperations(this.context);
-      this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
-      this.typeSystemOps = new TypeSystemOperations(this.context);
+      // Modules are already initialized in constructor with utilityOps in context
+      // No need to reinitialize them here
       
       // Register this storage connection for graceful shutdown
       this.gracefulShutdown.registerStorageConnection(this);
@@ -163,12 +160,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
       // Reinitialize modules with the updated context
+      this.utilityOps = new UtilityOperations(this.context);
+      this.context.utilityOps = this.utilityOps; // Update context with new utilityOps
+      
       this.sourceContentOps = new SourceContentOperations(this.context);
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-        this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
+      this.typeSystemOps = new TypeSystemOperations(this.context);
       
       this.isInitialized = true;
     } catch (error) {
@@ -1054,14 +1054,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // Compatibility methods that may be used internally
-  async query(sql: string, params?: unknown[]): Promise<unknown> {
+  async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     await this.ensureInitialized();
     // Use PGlite query method for parameterized queries
     if (params && params.length > 0) {
       return this.db.query(sql, params);
     } else {
       // Use exec for queries without parameters
-      return this.db.exec(sql);
+      const result = this.db.exec(sql);
+      // Convert exec result to match interface format
+      return { rows: Array.isArray(result) ? result : [] };
     }
   }
 
@@ -1309,6 +1311,41 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           this.logger.log(`Database will be created at: ${dirPath}`);
         }
       }
+    }
+  }
+
+  // Coupling analysis operations
+  async storeParameterPropertyUsage(couplingData: import('../types').ParameterPropertyUsageData[], snapshotId: string): Promise<void> {
+    await this.ensureInitialized();
+    
+    if (couplingData.length === 0) {
+      return;
+    }
+    
+    try {
+      for (const item of couplingData) {
+        await this.query(`
+          INSERT INTO parameter_property_usage (
+            snapshot_id, function_id, parameter_name, parameter_type_id,
+            accessed_property, access_type, access_line, access_context
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `, [
+          snapshotId,
+          item.functionId,
+          item.parameterName,
+          item.parameterTypeId,
+          item.accessedProperty,
+          item.accessType,
+          item.accessLine,
+          item.accessContext
+        ]);
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to store parameter property usage data: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
     }
   }
 

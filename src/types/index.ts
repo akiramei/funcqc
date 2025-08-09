@@ -573,6 +573,17 @@ export interface TrendDataSnapshot {
 // Use ora's official type definition for better compatibility
 export type SpinnerInterface = ReturnType<typeof import('ora').default>;
 
+// Coupling analysis types
+export interface ParameterPropertyUsageData {
+  functionId: string;
+  parameterName: string;
+  parameterTypeId: string | null;
+  accessedProperty: string;
+  accessType: 'read' | 'write' | 'modify' | 'pass';
+  accessLine: number;
+  accessContext: string;
+}
+
 // Storage adapter interface
 export interface StorageAdapter {
   init(): Promise<void>;
@@ -688,6 +699,14 @@ export interface StorageAdapter {
   saveTypeMembers(members: TypeMember[]): Promise<void>;
   saveMethodOverrides(overrides: MethodOverride[]): Promise<void>;
   
+  // Transactional type save operation
+  saveAllTypeInformation(typeInfo: {
+    typeDefinitions: TypeDefinition[];
+    typeRelationships: TypeRelationship[];
+    typeMembers: TypeMember[];
+    methodOverrides: MethodOverride[];
+  }): Promise<void>;
+  
   getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]>;
   getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]>;
   getTypeMembers(typeId: string): Promise<TypeMember[]>;
@@ -697,6 +716,12 @@ export interface StorageAdapter {
   findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null>;
   getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]>;
   getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]>;
+  
+  // Raw query operations  
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+  
+  // Coupling analysis operations
+  storeParameterPropertyUsage(couplingData: ParameterPropertyUsageData[], snapshotId: string): Promise<void>;
 }
 
 export interface BackupOptions {

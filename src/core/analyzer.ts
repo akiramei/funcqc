@@ -553,7 +553,10 @@ export class FunctionAnalyzer {
 
     const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
     // Enable debug logging for InternalCallAnalyzer
-    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
+    );
     const internalCallAnalyzer = new InternalCallAnalyzer(this.project, debugLogger);
     const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
 
@@ -606,7 +609,14 @@ export class FunctionAnalyzer {
       const virtualProject = new Project({
         skipAddingFilesFromTsConfig: true,
         skipLoadingLibFiles: true,
-        useInMemoryFileSystem: true // Use in-memory filesystem for virtual files
+        skipFileDependencyResolution: true,
+        useInMemoryFileSystem: true, // Use in-memory filesystem for virtual files
+        compilerOptions: {
+          isolatedModules: true,
+          noResolve: true,
+          skipLibCheck: true,
+          noLib: true
+        }
       });
       
       // Add virtual source files from stored content
@@ -678,7 +688,10 @@ export class FunctionAnalyzer {
     this.logger.debug(`Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
 
     const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
-    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
+    );
     const internalCallAnalyzer = new InternalCallAnalyzer(virtualProject, debugLogger);
     const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
 
@@ -691,6 +704,7 @@ export class FunctionAnalyzer {
         }
         functionsByFile.get(func.filePath)!.push(func);
       }
+
 
 
       // Analyze each file for internal function calls using virtual paths

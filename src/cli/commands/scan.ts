@@ -23,6 +23,30 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
+import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
+import { Project, SyntaxKind, TypeChecker } from 'ts-morph';
+import { createHash } from 'crypto';
+
+/**
+ * Parameter property usage data for coupling analysis
+ */
+interface ParameterPropertyUsage {
+  functionId: string;
+  parameterName: string;
+  parameterTypeId: string | null;
+  accessedProperty: string;
+  accessType: 'read' | 'write' | 'modify' | 'pass';
+  accessLine: number;
+  accessContext: string;
+}
+
+/**
+ * Result of processing a single source file
+ */
+interface ProcessedFileResult {
+  functions: FunctionInfo[];
+  couplingData: ParameterPropertyUsage[];
+}
 
 /**
  * Scan command as a Reader function
@@ -241,13 +265,35 @@ function prepareBatchProcessing(
 }
 
 /**
- * Process a single source file and return function info
+ * Store parameter property usage data in database
+ */
+async function storeParameterPropertyUsage(
+  storage: CliComponents['storage'],
+  couplingData: ParameterPropertyUsage[],
+  snapshotId: string
+): Promise<void> {
+  if (couplingData.length === 0) return;
+
+  try {
+    // Use the storage adapter's method for storing coupling data
+    await storage.storeParameterPropertyUsage(couplingData, snapshotId);
+
+    console.log(`📊 Stored ${couplingData.length} coupling analysis records`);
+  } catch (error) {
+    console.warn(`Warning: Failed to store coupling analysis data: ${error}`);
+  }
+}
+
+/**
+ * Process a single source file and return function info with coupling analysis data
  */
 async function processSingleSourceFile(
   sourceFile: import('../../types').SourceFile,
   components: Awaited<ReturnType<typeof initializeComponents>>,
+  project: Project,
+  typeChecker: TypeChecker,
   sourceFileIdMap?: Map<string, string>
-): Promise<FunctionInfo[]> {
+): Promise<ProcessedFileResult> {
   // Create virtual source file for TypeScript analyzer
   const virtualFile = {
     path: sourceFile.filePath,
@@ -284,7 +330,105 @@ async function processSingleSourceFile(
   }
   
   sourceFile.functionCount = functions.length;
-  return functions;
+
+  // Perform coupling analysis using 1-pass AST visitor with shared Project/TypeChecker
+  const couplingData = await performCouplingAnalysis(sourceFile, functions, project, typeChecker);
+
+  return {
+    functions,
+    couplingData
+  };
+}
+
+/**
+ * Perform coupling analysis using 1-pass AST visitor with shared Project/TypeChecker
+ */
+async function performCouplingAnalysis(
+  sourceFile: import('../../types').SourceFile,
+  functions: FunctionInfo[],
+  project: Project,
+  typeChecker: TypeChecker
+): Promise<ParameterPropertyUsage[]> {
+  try {
+    // Reuse shared project and add source file
+    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+
+    // Execute 1-pass AST visitor
+    const visitor = new OnePassASTVisitor();
+    const context = visitor.scanFile(tsSourceFile, typeChecker);
+
+    // Convert coupling data to parameter property usage format
+    const couplingData: ParameterPropertyUsage[] = [];
+    
+    // Build mapping: visitor shortId -> persisted functionId
+    const visitorIdToFunctionId = new Map<string, string>();
+    
+    // Find AST function nodes and recreate visitor IDs using the same logic as OnePassASTVisitor
+    tsSourceFile.forEachDescendant((node) => {
+      if (
+        node.getKind() === SyntaxKind.FunctionDeclaration ||
+        node.getKind() === SyntaxKind.MethodDeclaration ||
+        node.getKind() === SyntaxKind.ArrowFunction ||
+        node.getKind() === SyntaxKind.FunctionExpression ||
+        node.getKind() === SyntaxKind.Constructor ||
+        node.getKind() === SyntaxKind.GetAccessor ||
+        node.getKind() === SyntaxKind.SetAccessor
+      ) {
+        // Get name using the same logic as OnePassASTVisitor
+        let name = '<anonymous>';
+        if (node.getKind() === SyntaxKind.Constructor) {
+          name = 'constructor';
+        } else if ('getName' in node && typeof node.getName === 'function') {
+          name = node.getName() || '<anonymous>';
+        }
+        
+        const startLine = node.getStartLineNumber();
+        const startPos = node.getStart(); // Character offset, not line number
+        
+        // Recreate the same short ID as OnePassASTVisitor.getFunctionId
+        const shortId = createHash('md5')
+          .update(`${tsSourceFile.getFilePath()}:${startPos}:${name}`)
+          .digest('hex')
+          .substring(0, 16);
+        
+        // Find matching function from the persisted functions list
+        const match = functions.find(f => 
+          f.startLine === startLine && 
+          (f.name || '<anonymous>') === name
+        );
+        
+        if (match) {
+          visitorIdToFunctionId.set(shortId, match.id);
+        }
+      }
+    });
+
+    // Extract property access data from coupling analysis
+    for (const [funcId, analyses] of context.couplingData.overCoupling) {
+      for (const analysis of analyses) {
+        // Use the visitor ID directly to find the corresponding function ID
+        const actualFuncId = visitorIdToFunctionId.get(funcId);
+
+        if (actualFuncId) {
+          for (const prop of analysis.usedProperties) {
+            couplingData.push({
+              functionId: actualFuncId,
+              parameterName: analysis.parameterName,
+              parameterTypeId: null, // Will be resolved later if needed
+              accessedProperty: prop,
+              accessType: 'read', // Default to read access
+              accessLine: 0, // Line info would need to be extracted from AST
+              accessContext: 'property_access'
+            });
+          }
+        }
+      }
+    }
+    return couplingData;
+  } catch (error) {
+    console.warn(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`);
+    return [];
+  }
 }
 
 /**
@@ -299,14 +443,27 @@ async function executeBatchAnalysis(
 ): Promise<{ functionCount: number; errors: string[] }[]> {
   const batchPromises = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
+    const batchCouplingData: ParameterPropertyUsage[] = [];
     const batchErrors: string[] = [];
     
     console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
     
+    // Create shared Project/TypeChecker for this batch (major performance optimization)
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: {
+        target: 99, // Latest
+        allowJs: true,
+        skipLibCheck: true,
+      }
+    });
+    const typeChecker = project.getTypeChecker();
+    
     for (const sourceFile of batch) {
       try {
-        const functions = await processSingleSourceFile(sourceFile, components, sourceFileIdMap);
-        batchFunctions.push(...functions);
+        const result = await processSingleSourceFile(sourceFile, components, project, typeChecker, sourceFileIdMap);
+        batchFunctions.push(...result.functions);
+        batchCouplingData.push(...result.couplingData);
       } catch (error) {
         const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
         batchErrors.push(errorMessage);
@@ -317,6 +474,11 @@ async function executeBatchAnalysis(
     // Immediate storage per batch to reduce peak memory usage
     if (batchFunctions.length > 0) {
       await env.storage.storeFunctions(batchFunctions, snapshotId);
+      
+      // Store coupling analysis data
+      if (batchCouplingData.length > 0) {
+        await storeParameterPropertyUsage(env.storage, batchCouplingData, snapshotId);
+      }
       
       // Update function counts for files in this batch
       const batchFunctionCounts = new Map<string, number>();
@@ -442,7 +604,7 @@ export async function performCallGraphAnalysis(
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
   const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
   
-  // Reconstruct file map for analyzer
+  // Reconstruct file map for analyzer (include all files for proper type resolution)
   const fileContentMap = new Map<string, string>();
   sourceFiles.forEach(file => {
     fileContentMap.set(file.filePath, file.fileContent);

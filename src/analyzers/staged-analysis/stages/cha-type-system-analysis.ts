@@ -52,44 +52,8 @@ export class CHATypeSystemAnalysisStage {
     // Always extract type information regardless of unresolved method calls
     // Type information is valuable for deletion safety analysis even without method resolution
     const sourceFiles = this._project.getSourceFiles();
-    
-    if (unresolvedMethodCalls.length === 0) {
-      this.logger.debug('No unresolved method calls for CHA analysis, but extracting type information');
-      
-      try {
-        // Extract type information even without method resolution
-        const { typeInfo } = await this.chaTypeIntegration.performEnhancedCHAAnalysis(
-          _functions,
-          [],  // Empty unresolved method calls
-          _snapshotId,
-          sourceFiles
-        );
-        
-        this.logger.debug(`CHA type extraction completed: ${typeInfo.typeDefinitions.length} type definitions extracted`);
-        
-        return {
-          resolvedEdges: 0,
-          chaCandidates: new Map(),
-          unresolvedMethodCallsForRTA: [],
-          typeInfo
-        };
-      } catch (error) {
-        this.logger.error(`CHA type extraction failed: ${error}`);
-        return {
-          resolvedEdges: 0,
-          chaCandidates: new Map(),
-          unresolvedMethodCallsForRTA: [],
-          typeInfo: {
-            typeDefinitions: [],
-            typeRelationships: [],
-            typeMembers: [],
-            methodOverrides: []
-          }
-        };
-      }
-    }
 
-    if (this._debug) {
+    if (this._debug && unresolvedMethodCalls.length > 0) {
       for (const call of unresolvedMethodCalls.slice(0, 5)) { // Log first 5 calls
         this.logger.debug(`🐛 Unresolved call: ${call.methodName} on ${call.receiverType || 'unknown'} from ${call.callerFunctionId}`);
       }
@@ -99,11 +63,11 @@ export class CHATypeSystemAnalysisStage {
       // Copy unresolved method calls for RTA analysis before CHA processes them
       const unresolvedMethodCallsForRTA = [...unresolvedMethodCalls];
       
-      // Re-enable enhanced CHA analysis with enhanced error logging
+      // Perform enhanced CHA analysis once - handles both empty and non-empty method calls
       this.logger.debug('Performing enhanced CHA analysis with detailed error logging');
       const { edges: chaEdges, typeInfo } = await this.chaTypeIntegration.performEnhancedCHAAnalysis(
         _functions,
-        unresolvedMethodCalls,
+        unresolvedMethodCalls, // Pass original list (may be empty)
         _snapshotId,
         sourceFiles
       );
