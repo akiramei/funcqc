@@ -24,7 +24,8 @@ import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project } from 'ts-morph';
+import { Project, SyntaxKind } from 'ts-morph';
+import { createHash } from 'crypto';
 
 /**
  * Parameter property usage data for coupling analysis
@@ -366,26 +367,54 @@ async function performCouplingAnalysis(
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
     
-    // Create function ID mapping
-    const functionIdMap = new Map<string, string>();
-    for (const func of functions) {
-      // Generate function ID similar to OnePassASTVisitor.getFunctionId
-      const funcName = func.name || '<anonymous>';
-      const key = `${func.filePath}:${func.startLine}:${funcName}`;
-      functionIdMap.set(key, func.id);
-    }
+    // Build mapping: visitor shortId -> persisted functionId
+    const visitorIdToFunctionId = new Map<string, string>();
+    
+    // Find AST function nodes and recreate visitor IDs using the same logic as OnePassASTVisitor
+    tsSourceFile.forEachDescendant((node) => {
+      if (
+        node.getKind() === SyntaxKind.FunctionDeclaration ||
+        node.getKind() === SyntaxKind.MethodDeclaration ||
+        node.getKind() === SyntaxKind.ArrowFunction ||
+        node.getKind() === SyntaxKind.FunctionExpression ||
+        node.getKind() === SyntaxKind.Constructor ||
+        node.getKind() === SyntaxKind.GetAccessor ||
+        node.getKind() === SyntaxKind.SetAccessor
+      ) {
+        // Get name using the same logic as OnePassASTVisitor
+        let name = '<anonymous>';
+        if (node.getKind() === SyntaxKind.Constructor) {
+          name = 'constructor';
+        } else if ('getName' in node && typeof node.getName === 'function') {
+          name = node.getName() || '<anonymous>';
+        }
+        
+        const startLine = node.getStartLineNumber();
+        const startPos = node.getStart(); // Character offset, not line number
+        
+        // Recreate the same short ID as OnePassASTVisitor.getFunctionId
+        const shortId = createHash('md5')
+          .update(`${tsSourceFile.getFilePath()}:${startPos}:${name}`)
+          .digest('hex')
+          .substring(0, 16);
+        
+        // Find matching function from the persisted functions list
+        const match = functions.find(f => 
+          f.startLine === startLine && 
+          (f.name || '<anonymous>') === name
+        );
+        
+        if (match) {
+          visitorIdToFunctionId.set(shortId, match.id);
+        }
+      }
+    });
 
     // Extract property access data from coupling analysis
     for (const [funcId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // Find the corresponding function ID
-        let actualFuncId: string | undefined;
-        for (const [key, id] of functionIdMap) {
-          if (key.includes(funcId.substring(0, 8))) { // Match by short ID
-            actualFuncId = id;
-            break;
-          }
-        }
+        // Use the visitor ID directly to find the corresponding function ID
+        const actualFuncId = visitorIdToFunctionId.get(funcId);
 
         if (actualFuncId) {
           for (const prop of analysis.usedProperties) {
@@ -402,7 +431,6 @@ async function performCouplingAnalysis(
         }
       }
     }
-
     return couplingData;
   } catch (error) {
     console.warn(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`);
@@ -572,7 +600,7 @@ export async function performCallGraphAnalysis(
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
   const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
   
-  // Reconstruct file map for analyzer
+  // Reconstruct file map for analyzer (include all files for proper type resolution)
   const fileContentMap = new Map<string, string>();
   sourceFiles.forEach(file => {
     fileContentMap.set(file.filePath, file.fileContent);

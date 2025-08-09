@@ -44,8 +44,8 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     if (callEdges.length === 0) return;
 
     try {
-      // Temporarily use individual inserts to avoid bulk insert issues
-      if (false && callEdges.length >= 50) {
+      // Use optimized bulk insert for better performance
+      if (callEdges.length >= 10) {
         await this.insertCallEdgesBulk(snapshotId, callEdges);
       } else {
         await this.insertCallEdgesIndividual(snapshotId, callEdges);
@@ -104,10 +104,69 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
-      await this.kysely
-        .insertInto('call_edges')
-        .values(callEdgeRows)
-        .execute();
+      // Sanitize data to remove NUL characters that cause "invalid message format" error
+      const sanitizedRows = callEdgeRows.map(row => {
+        const sanitizedRow = { ...row };
+        
+        // Remove NUL characters from string fields
+        const stringFields = ['id', 'callee_name', 'callee_signature', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context'];
+        for (const field of stringFields) {
+          if (typeof sanitizedRow[field] === 'string') {
+            sanitizedRow[field] = sanitizedRow[field].replaceAll('\u0000', '\uFFFD');
+          }
+        }
+        
+        // Sanitize metadata JSON
+        if (sanitizedRow.metadata) {
+          const metadataStr = JSON.stringify(sanitizedRow.metadata);
+          if (metadataStr.includes('\u0000')) {
+            const cleanMetadataStr = metadataStr.replaceAll('\u0000', '\uFFFD');
+            sanitizedRow.metadata = JSON.parse(cleanMetadataStr);
+          }
+        }
+        
+        return sanitizedRow;
+      });
+
+      // Use JSON bulk insert approach for better PGLite compatibility
+      const payload = JSON.stringify(sanitizedRows);
+      
+      const sql = `
+        WITH payload AS (SELECT $1::jsonb AS data)
+        INSERT INTO call_edges (
+          id, snapshot_id, caller_function_id, callee_function_id,
+          callee_name, callee_signature, caller_class_name, callee_class_name,
+          call_type, call_context, line_number, column_number,
+          is_async, is_chained, confidence_score, metadata, created_at
+        )
+        SELECT
+          t.id, t.snapshot_id, t.caller_function_id, t.callee_function_id,
+          t.callee_name, t.callee_signature, t.caller_class_name, t.callee_class_name,
+          t.call_type, t.call_context, t.line_number::int, t.column_number::int,
+          t.is_async::boolean, t.is_chained::boolean, t.confidence_score::real, 
+          t.metadata::jsonb, t.created_at::timestamptz
+        FROM jsonb_to_recordset((SELECT data FROM payload)) AS t(
+          id text,
+          snapshot_id text,
+          caller_function_id text,
+          callee_function_id text,
+          callee_name text,
+          callee_signature text,
+          caller_class_name text,
+          callee_class_name text,
+          call_type text,
+          call_context text,
+          line_number int,
+          column_number int,
+          is_async boolean,
+          is_chained boolean,
+          confidence_score real,
+          metadata jsonb,
+          created_at timestamptz
+        )
+      `;
+      
+      await this.db.query(sql, [payload]);
     } catch (error) {
       this.logger?.error(`Failed to bulk insert call edges: ${error}`);
       this.logger?.error(`Sample row data: ${JSON.stringify(callEdgeRows[0], null, 2)}`);
@@ -203,7 +262,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     if (internalEdges.length === 0) return;
 
     try {
-      if (internalEdges.length >= 50) {
+      if (internalEdges.length >= 10) {
         await this.insertInternalCallEdgesBulk(snapshotId, internalEdges);
       } else {
         await this.insertInternalCallEdgesIndividual(snapshotId, internalEdges);
@@ -229,24 +288,56 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId!,
       callee_name: edge.calleeName,
-      line_number: edge.lineNumber,
-      column_number: edge.columnNumber,
+      line_number: edge.lineNumber || null,
+      column_number: edge.columnNumber || null,
       call_type: edge.callType || 'direct',
     }));
 
-    // Use direct SQL instead of Kysely for now to avoid type issues
-    for (const row of internalCallEdgeRows) {
-      await this.db.query(
-        `INSERT INTO internal_call_edges (
+    try {
+      // Sanitize data to remove NUL characters
+      const sanitizedRows = internalCallEdgeRows.map(row => {
+        const sanitizedRow = { ...row };
+        
+        // Remove NUL characters from string fields
+        const stringFields = ['id', 'callee_name', 'call_type'];
+        for (const field of stringFields) {
+          if (typeof sanitizedRow[field] === 'string') {
+            sanitizedRow[field] = sanitizedRow[field].replaceAll('\u0000', '\uFFFD');
+          }
+        }
+        
+        return sanitizedRow;
+      });
+
+      // Use JSON bulk insert approach
+      const payload = JSON.stringify(sanitizedRows);
+      
+      const sql = `
+        WITH payload AS (SELECT $1::jsonb AS data)
+        INSERT INTO internal_call_edges (
           id, snapshot_id, caller_function_id, callee_function_id, callee_name,
           line_number, column_number, call_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          row.id, row.snapshot_id, row.caller_function_id, row.callee_function_id,
-          row.callee_name, row.line_number, row.column_number,
-          row.call_type
-        ]
-      );
+        )
+        SELECT
+          t.id, t.snapshot_id, t.caller_function_id, t.callee_function_id, t.callee_name,
+          t.line_number::int, t.column_number::int, t.call_type
+        FROM jsonb_to_recordset((SELECT data FROM payload)) AS t(
+          id text,
+          snapshot_id text,
+          caller_function_id text,
+          callee_function_id text,
+          callee_name text,
+          line_number int,
+          column_number int,
+          call_type text
+        )
+      `;
+      
+      await this.db.query(sql, [payload]);
+    } catch (error) {
+      this.logger?.error(`Failed to bulk insert internal call edges: ${error}`);
+      this.logger?.error(`Sample row data: ${JSON.stringify(internalCallEdgeRows[0], null, 2)}`);
+      throw error;
     }
   }
 

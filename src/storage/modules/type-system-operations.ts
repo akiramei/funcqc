@@ -92,9 +92,18 @@ export class TypeSystemOperations {
                       'is_abstract', 'is_exported', 'is_default_export', 'is_generic', 'generic_parameters', 'type_text', 
                       'resolved_type', 'modifiers', 'jsdoc', 'metadata'];
       
-      await this.executeBulkInsertInTransaction(trx, 'type_definitions', columns, insertData.map(row => 
+      // Use ON CONFLICT to handle duplicates gracefully
+      const values = insertData.map(row => 
         columns.map(col => (row as Record<string, unknown>)[col])
-      ));
+      );
+      
+      await this.executeBulkInsertInTransactionWithConflict(
+        trx, 
+        'type_definitions', 
+        columns, 
+        values,
+        'snapshot_id, file_path, name, start_line' // UNIQUE constraint columns
+      );
     } catch (error) {
       
       throw new DatabaseError(
@@ -711,6 +720,31 @@ export class TypeSystemOperations {
         'Failed to get method overrides by function',
         error instanceof Error ? error : undefined
       );
+    }
+  }
+
+  /**
+   * Execute bulk insert with conflict handling (ON CONFLICT DO NOTHING)
+   */
+  private async executeBulkInsertInTransactionWithConflict(
+    trx: PGTransaction,
+    tableName: string,
+    columns: string[],
+    data: unknown[][],
+    conflictColumns: string
+  ): Promise<void> {
+    if (data.length === 0) return;
+    
+    // Calculate optimal batch size based on column count
+    const batchSize = calculateOptimalBatchSize(columns.length);
+    const batches = splitIntoBatches(data, batchSize);
+    
+    for (const batch of batches) {
+      const sql = generateBulkInsertSQL(tableName, columns, batch.length) + 
+                  ` ON CONFLICT (${conflictColumns}) DO NOTHING`;
+      
+      const params = batch.flat();
+      await trx.query(sql, params);
     }
   }
 }

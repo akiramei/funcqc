@@ -32,6 +32,7 @@ export class CallGraphAnalyzer {
   private profiler: PerformanceProfiler;
   private exportDeclarationsByFile: Map<string, ReadonlyMap<string, Node[]>> = new Map();
   private importResolutionCache: Map<string, Node | undefined> = new Map();
+  private importIndexCache: WeakMap<SourceFile, Map<string, any>> = new WeakMap();
 // Built-in functions moved to symbol-resolver.ts - no longer needed here
 
   constructor(
@@ -92,7 +93,44 @@ export class CallGraphAnalyzer {
   }
 
   /**
-   * Extract call expressions from a function node
+   * Unified AST traversal: collect function nodes and their call expressions in one pass
+   * Eliminates O(N*M) double traversal - optimization for large files
+   */
+  private collectFunctionNodesAndCalls(sourceFile: SourceFile): {
+    functionNodes: Node[];
+    functionCallsMap: Map<Node, CallExpression[]>;
+  } {
+    const functionNodes: Node[] = [];
+    const functionCallsMap = new Map<Node, CallExpression[]>();
+    
+    sourceFile.forEachDescendant((node, traversal) => {
+      if (this.isFunctionDeclaration(node)) {
+        functionNodes.push(node);
+        functionCallsMap.set(node, []);
+        
+        // Collect call expressions within this function
+        node.forEachDescendant((innerNode, innerTraversal) => {
+          if (Node.isCallExpression(innerNode)) {
+            const calls = functionCallsMap.get(node);
+            if (calls) {
+              calls.push(innerNode);
+            }
+          }
+          // Skip nested function declarations
+          if (this.isFunctionDeclaration(innerNode) && innerNode !== node) {
+            innerTraversal.skip();
+          }
+        });
+        
+        traversal.skip(); // Skip this function's content in outer traversal
+      }
+    });
+    
+    return { functionNodes, functionCallsMap };
+  }
+
+  /**
+   * Extract call expressions from a function node (legacy method for compatibility)
    */
   private extractCallExpressions(functionNode: Node): CallExpression[] {
     const callExpressions: CallExpression[] = [];
@@ -109,6 +147,42 @@ export class CallGraphAnalyzer {
   }
 
   /**
+   * Extract candidate function names from function map for pre-filtering
+   */
+  private extractCandidateNames(functionMap: Map<string, { id: string; name: string; startLine: number; endLine: number }>): Set<string> {
+    const candidateNames = new Set<string>();
+    for (const [, functionInfo] of functionMap.entries()) {
+      if (functionInfo.name && functionInfo.name !== 'anonymous') {
+        candidateNames.add(functionInfo.name);
+      }
+    }
+    return candidateNames;
+  }
+
+  /**
+   * Pre-filter call expressions using identifier name matching
+   */
+  private preFilterCallExpressions(callExpressions: CallExpression[], candidateNames: Set<string>): CallExpression[] {
+    return callExpressions.filter(callExpr => {
+      const expr = callExpr.getExpression();
+      
+      // Always keep property access calls (obj.method()) and element access (obj['method']())
+      if (Node.isPropertyAccessExpression(expr) || Node.isElementAccessExpression(expr)) {
+        return true;
+      }
+      
+      // For simple identifier calls, check if name matches candidate functions
+      if (Node.isIdentifier(expr)) {
+        const callName = expr.getText();
+        return candidateNames.has(callName);
+      }
+      
+      // Keep other complex expressions (computed calls, etc.)
+      return true;
+    });
+  }
+
+  /**
    * Process call expressions and create call edges
    */
   private async processCallEdges(
@@ -119,13 +193,23 @@ export class CallGraphAnalyzer {
     typeChecker: TypeChecker,
     importIndex: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require"; local: string; imported?: string }>,
     allowedFunctionIdSet: Set<string>,
-    getFunctionIdByDeclaration: (decl: Node) => string | undefined
+    getFunctionIdByDeclaration: (decl: Node) => string | undefined,
+    candidateNames?: Set<string>
   ): Promise<CallEdge[]> {
     const callEdges: CallEdge[] = [];
     let idMismatchCount = 0;
     let resolvedCount = 0;
 
-    for (const callExpr of callExpressions) {
+    // Apply pre-filtering to reduce resolveCallee calls
+    const filteredCallExpressions = candidateNames ? 
+      this.preFilterCallExpressions(callExpressions, candidateNames) : 
+      callExpressions;
+
+    if (process.env['FUNCQC_DEBUG_CALL_RESOLUTION']) {
+      this.logger?.debug(`Pre-filter: ${callExpressions.length} → ${filteredCallExpressions.length} call expressions`);
+    }
+
+    for (const callExpr of filteredCallExpressions) {
       try {
         const resolution = resolveCallee(callExpr, {
           sourceFile,
@@ -144,7 +228,9 @@ export class CallGraphAnalyzer {
           // Verify the resolved function ID exists in allowed functions set
           if (!allowedFunctionIdSet.has(resolution.functionId)) {
             idMismatchCount++;
-            this.logger?.debug(`ID mismatch: Resolved function ID ${resolution.functionId} not found in allowed functions set (${resolution.via})`);
+            if (process.env['FUNCQC_DEBUG_ID_MISMATCHES']) {
+              this.logger?.debug(`ID mismatch: Resolved function ID ${resolution.functionId} not found in allowed functions set (${resolution.via})`);
+            }
             continue;
           }
           const callEdge = this.createCallEdgeFromResolution(
@@ -163,7 +249,7 @@ export class CallGraphAnalyzer {
     }
 
     // Report statistics (CRITICAL for debugging ID space issues)
-    if (resolvedCount > 0 || idMismatchCount > 0) {
+    if ((resolvedCount > 0 || idMismatchCount > 0) && process.env['FUNCQC_DEBUG_CALL_RESOLUTION']) {
       this.logger?.warn(`🔍 Call resolution stats for ${sourceFunctionId.substring(0, 8)}: resolved=${resolvedCount}, id_mismatch=${idMismatchCount}, edges_created=${callEdges.length}`);
     }
 
@@ -220,22 +306,37 @@ export class CallGraphAnalyzer {
       this.profiler.endPhase();
       
       this.profiler.startPhase('import_index_building');
-      const importIndex = buildImportIndex(sourceFile);
+      // Use WeakMap cache for import index to avoid rebuilding for same SourceFile
+      let importIndex = this.importIndexCache.get(sourceFile);
+      if (!importIndex) {
+        importIndex = buildImportIndex(sourceFile);
+        this.importIndexCache.set(sourceFile, importIndex);
+        this.profiler.recordDetail('import_index_building', 'cache_misses', 1);
+      } else {
+        this.profiler.recordDetail('import_index_building', 'cache_hits', 1);
+      }
       this.profiler.recordDetail('import_index_building', 'imports_processed', importIndex.size);
       this.profiler.endPhase();
       
       // Clean up debug logging - import index construction is working correctly
 
-      // Get all function nodes in the file
-      this.profiler.startPhase('function_node_discovery');
-      const functionNodes = this.getAllFunctionNodes(sourceFile);
-      this.profiler.recordDetail('function_node_discovery', 'nodes_found', functionNodes.length);
+      // Unified AST traversal: collect function nodes and calls in one pass
+      this.profiler.startPhase('unified_ast_traversal');
+      const { functionNodes, functionCallsMap } = this.collectFunctionNodesAndCalls(sourceFile);
+      this.profiler.recordDetail('unified_ast_traversal', 'nodes_found', functionNodes.length);
+      this.profiler.recordDetail('unified_ast_traversal', 'calls_collected', Array.from(functionCallsMap.values()).reduce((sum, calls) => sum + calls.length, 0));
       this.profiler.endPhase();
       
       // Build function node index for efficient lookup (using local functions only)
       this.profiler.startPhase('function_index_building');
       const localDeclIndex = this.buildFunctionNodeIndex(functionNodes, functionMap);
       this.profiler.recordDetail('function_index_building', 'mappings_created', localDeclIndex.size);
+      this.profiler.endPhase();
+      
+      // Extract candidate function names for pre-filtering
+      this.profiler.startPhase('candidate_name_extraction');
+      const candidateNames = this.extractCandidateNames(functionMap);
+      this.profiler.recordDetail('candidate_name_extraction', 'candidate_names', candidateNames.size);
       this.profiler.endPhase();
       
       // Create fallback function for declaration lookup with proper chaining
@@ -256,12 +357,13 @@ export class CallGraphAnalyzer {
         });
 
         if (functionNode) {
-          if (functionInfo.name === 'performSingleFunctionAnalysis') {
+          if (process.env['FUNCQC_DEBUG_SPECIFIC_FUNCTIONS'] && functionInfo.name === 'performSingleFunctionAnalysis') {
             console.log(`🅱️ STEP B: Function node found for ${functionInfo.name}`);
             console.log(`   Node lines: ${functionNode.getStartLineNumber()}-${functionNode.getEndLineNumber()}`);
           }
-          // Extract call expressions from function body
-          const callExpressions = this.extractCallExpressions(functionNode);
+          
+          // Use pre-collected call expressions from unified AST traversal
+          const callExpressions = functionCallsMap.get(functionNode) || [];
           
 
           // Process call expressions and create call edges
@@ -273,7 +375,8 @@ export class CallGraphAnalyzer {
             typeChecker,
             importIndex,
             actualAllowedFunctionIdSet,
-            declarationLookup
+            declarationLookup,
+            candidateNames
           );
           
           
@@ -284,7 +387,7 @@ export class CallGraphAnalyzer {
       this.profiler.endPhase(); // End file_analysis phase
       
       // Print performance summary if debug logging is enabled
-      if (process.env['FUNCQC_DEBUG_PERFORMANCE']) {
+      if (process.env['FUNCQC_DEBUG_PERFORMANCE'] || process.env['DEBUG']) {
         this.profiler.printSummary();
       }
       
@@ -408,7 +511,7 @@ export class CallGraphAnalyzer {
     currentFilePath: string
   ): Node | undefined {
     
-    const cacheKey = `${moduleSpecifier}:${exportedName}`;
+    const cacheKey = `${currentFilePath}:${moduleSpecifier}:${exportedName}`;
     
     // Check if we have cached result for this specific import resolution
     if (this.importResolutionCache.has(cacheKey)) {
@@ -419,7 +522,7 @@ export class CallGraphAnalyzer {
     this.profiler.recordDetail('import_resolution', 'cache_misses', 1);
     
     return measureSync(() => {
-      if (exportedName === 'buildDependencyTree') {
+      if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
         console.log(`       Processing path resolution for ${moduleSpecifier}`);
       }
       
@@ -435,7 +538,7 @@ export class CallGraphAnalyzer {
         const baseDir = path.dirname(path.resolve(currentFilePath));
         resolvedPath = path.resolve(baseDir, moduleSpecifier);
         
-        if (exportedName === 'buildDependencyTree') {
+        if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
           console.log(`       Base directory: '${baseDir}'`);
           console.log(`       Module specifier: '${moduleSpecifier}'`);
           console.log(`       Virtual filesystem detected: ${isVirtual}`);
@@ -499,7 +602,7 @@ export class CallGraphAnalyzer {
         if (!targetSourceFile && fs.existsSync(tryPath)) {
           try {
             targetSourceFile = this.project.addSourceFileAtPath(tryPath);
-            if (exportedName === 'buildDependencyTree') {
+            if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
               console.log(`       📥 Added target source file: ${tryPath}`);
             }
             this.logger?.debug(`Added missing source file: ${tryPath}`);
@@ -509,12 +612,12 @@ export class CallGraphAnalyzer {
         }
 
         if (targetSourceFile) {
-          if (exportedName === 'buildDependencyTree') {
+          if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
             console.log(`       ✅ Found target source file: ${tryPath}`);
           }
           this.logger?.debug(`🔍 FOUND: ${tryPath}`);
           break;
-        } else if (exportedName === 'buildDependencyTree') {
+        } else if (process.env['FUNCQC_DEBUG_IMPORT_RESOLUTION'] && exportedName === 'buildDependencyTree') {
           console.log(`       ❌ Not found: ${tryPath}`);
         }
       }
@@ -613,5 +716,7 @@ export class CallGraphAnalyzer {
     ]);
     this.exportDeclarationsByFile.clear();
     this.importResolutionCache.clear();
+    // WeakMap doesn't need explicit clearing - it's garbage collected automatically
+    // this.importIndexCache.clear(); // WeakMap has no clear method
   }
 }

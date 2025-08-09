@@ -322,8 +322,10 @@ export class OnePassASTVisitor {
     const filePath = func.getSourceFile().getFilePath();
     const startPos = func.getStart();
     const name = this.getFunctionName(func);
-    return createHash('md5').update(`${filePath}:${startPos}:${name}`).digest('hex').substring(0, 8);
+    const funcId = createHash('md5').update(`${filePath}:${startPos}:${name}`).digest('hex').substring(0, 16);
+    return funcId;
   }
+
   
   private getFunctionName(func: Node): string {
     if (Node.isFunctionDeclaration(func) || Node.isMethodDeclaration(func)) {

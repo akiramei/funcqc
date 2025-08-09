@@ -553,7 +553,10 @@ export class FunctionAnalyzer {
 
     const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
     // Enable debug logging for InternalCallAnalyzer
-    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
+    );
     const internalCallAnalyzer = new InternalCallAnalyzer(this.project, debugLogger);
     const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
 
@@ -606,7 +609,14 @@ export class FunctionAnalyzer {
       const virtualProject = new Project({
         skipAddingFilesFromTsConfig: true,
         skipLoadingLibFiles: true,
-        useInMemoryFileSystem: true // Use in-memory filesystem for virtual files
+        skipFileDependencyResolution: true,
+        useInMemoryFileSystem: true, // Use in-memory filesystem for virtual files
+        compilerOptions: {
+          isolatedModules: true,
+          noResolve: true,
+          skipLibCheck: true,
+          noLib: true
+        }
       });
       
       // Add virtual source files from stored content
@@ -678,7 +688,10 @@ export class FunctionAnalyzer {
     this.logger.debug(`Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
 
     const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
-    const debugLogger = new (await import('../utils/cli-utils')).Logger(true, true);
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
+    );
     const internalCallAnalyzer = new InternalCallAnalyzer(virtualProject, debugLogger);
     const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
 
@@ -691,6 +704,41 @@ export class FunctionAnalyzer {
         }
         functionsByFile.get(func.filePath)!.push(func);
       }
+
+      // Create file-specific allowed sets for optimization (prevent O(n×m) explosion)
+      const createFileSpecificAllowedSet = (
+        originalPath: string,
+        virtualPath: string,
+        allFunctions: FunctionInfo[]
+      ): Set<string> => {
+        const allowedFunctionIds = new Set<string>();
+        
+        // Add all functions from current file (always reachable)
+        const fileFunctions = allFunctions.filter(f => f.filePath === originalPath);
+        for (const func of fileFunctions) {
+          allowedFunctionIds.add(func.id);
+        }
+        
+        // Add functions from imported modules (import closure)
+        // Note: This is simplified - full import analysis would be more complex
+        // For now, include functions from commonly imported files
+        const commonImportPaths = [
+          'src/utils/', 'src/types/', 'src/shared/',
+          '../utils/', '../types/', '../shared/'
+        ];
+        
+        for (const func of allFunctions) {
+          const isFromCommonImport = commonImportPaths.some(prefix => 
+            func.filePath.includes(prefix)
+          );
+          if (isFromCommonImport && func.isExported) {
+            allowedFunctionIds.add(func.id);
+          }
+        }
+        
+        this.logger.debug(`File-specific allowed set for ${originalPath}: ${allowedFunctionIds.size} functions`);
+        return allowedFunctionIds;
+      };
 
 
       // Analyze each file for internal function calls using virtual paths
