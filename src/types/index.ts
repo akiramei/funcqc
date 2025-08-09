@@ -330,6 +330,26 @@ export interface DependencyInfo {
 }
 
 
+// Analysis levels for progressive scan
+export type AnalysisLevel = 
+  | 'NONE'           // No analysis performed
+  | 'BASIC'          // Basic function information
+  | 'COUPLING'       // Coupling analysis completed
+  | 'CALL_GRAPH'     // Call graph analysis completed
+  | 'TYPE_SYSTEM'    // Type system analysis completed
+  | 'COMPLETE';      // All analyses completed
+
+export interface SnapshotMetadata {
+  basicAnalysisCompleted?: boolean;
+  couplingAnalysisCompleted?: boolean;
+  callGraphAnalysisCompleted?: boolean;
+  typeSystemAnalysisCompleted?: boolean;
+  analysisLevel?: AnalysisLevel;
+  scanDuration?: number; // Time taken for scan in milliseconds
+  scanMode?: 'quick' | 'standard' | 'full';
+  [key: string]: unknown; // Allow additional metadata
+}
+
 // Snapshot and versioning types
 export interface SnapshotInfo {
   id: string;
@@ -343,9 +363,9 @@ export interface SnapshotInfo {
   configHash: string;
   scope: string;  // スコープ識別子 ('src', 'test', 'all', etc.)
   metadata: SnapshotMetadata;
-  analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
-  basicAnalysisCompleted?: boolean;
-  callGraphAnalysisCompleted?: boolean;
+  analysisLevel?: AnalysisLevel; // Use the new AnalysisLevel type
+  basicAnalysisCompleted?: boolean; // Deprecated, use metadata
+  callGraphAnalysisCompleted?: boolean; // Deprecated, use metadata
 }
 
 export interface SnapshotMetadata {
@@ -452,6 +472,12 @@ export interface ScanCommandOptions extends CommandOptions {
   json?: boolean;
   force?: boolean;
   skipBasicAnalysis?: boolean; // Skip basic analysis for fast scan
+  // Performance-focused scan levels
+  quick?: boolean; // Quick scan (10-15s): basic + coupling only
+  withGraph?: boolean; // Standard scan (30-40s): includes call graph
+  withTypes?: boolean; // Extended scan: includes type system analysis
+  full?: boolean; // Full scan (50-60s): all analyses
+  async?: boolean; // Run heavy analyses in background
 }
 
 export interface ListCommandOptions extends CommandOptions {

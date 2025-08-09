@@ -84,14 +84,58 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 }
 
 /**
+ * Command groups with their initialization requirements
+ */
+const COMMAND_GROUPS = {
+  // Standalone: No DB access required
+  STANDALONE: {
+    commands: ['init', 'config', 'scan', 'eval'],
+    requires: []
+  },
+  
+  // Lightweight: Basic function information only
+  LIGHTWEIGHT: {
+    commands: [
+      'list', 'show', 'files', 'search', 'history', 'similar',
+      'describe', 'evaluate', 'diff', 'residue-check'
+    ],
+    requires: ['BASIC']
+  },
+  
+  // Call graph: Function dependencies required
+  CALL_GRAPH: {
+    commands: ['dep', 'safe-delete', 'detect'],
+    requires: ['CALL_GRAPH']
+  },
+  
+  // Type system: Type definitions required
+  TYPE_SYSTEM: {
+    commands: ['types'],
+    requires: ['TYPE_SYSTEM']
+  },
+  
+  // Comprehensive: All data required
+  COMPREHENSIVE: {
+    commands: ['health', 'db'],
+    requires: ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING']
+  },
+  
+  // Deferred: Runs its own analysis
+  DEFERRED: {
+    commands: ['analyze'],
+    requires: [] // Handles its own requirements
+  }
+};
+
+/**
  * List of commands that can use lightweight initialization
  */
-const LIGHTWEIGHT_COMMANDS = ['list', 'show', 'files', 'search', 'history', 'similar', 'explain'];
+const LIGHTWEIGHT_COMMANDS = COMMAND_GROUPS.LIGHTWEIGHT.commands;
 
 /**
  * List of commands that require call graph analysis
  */
-const CALL_GRAPH_COMMANDS = ['health', 'dep', 'safe-delete', 'detect'];
+const CALL_GRAPH_COMMANDS = COMMAND_GROUPS.CALL_GRAPH.commands;
 
 /**
  * Determines if the current command is lightweight

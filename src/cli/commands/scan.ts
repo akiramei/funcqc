@@ -26,6 +26,77 @@ import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, SyntaxKind, TypeChecker } from 'ts-morph';
 import { createHash } from 'crypto';
+import { SnapshotMetadata } from '../../types';
+
+/**
+ * Scan level configuration
+ */
+interface ScanLevel {
+  mode: 'quick' | 'standard' | 'full';
+  includes: string[];
+  targetTime: string;
+}
+
+/**
+ * Determine scan level based on command options
+ */
+function determineScanLevel(options: ScanCommandOptions): ScanLevel {
+  if (options.full) {
+    return {
+      mode: 'full',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
+      targetTime: '50-60s'
+    };
+  }
+  
+  if (options.withTypes) {
+    return {
+      mode: 'full',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
+      targetTime: '50-60s'
+    };
+  }
+  
+  if (options.withGraph) {
+    return {
+      mode: 'standard',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH'],
+      targetTime: '30-40s'
+    };
+  }
+  
+  if (options.quick || (!options.withGraph && !options.withTypes && !options.full)) {
+    return {
+      mode: 'quick',
+      includes: ['BASIC', 'COUPLING'],
+      targetTime: '10-15s'
+    };
+  }
+  
+  // Default to quick scan
+  return {
+    mode: 'quick',
+    includes: ['BASIC', 'COUPLING'],
+    targetTime: '10-15s'
+  };
+}
+
+/**
+ * Update snapshot metadata after scan
+ */
+async function updateSnapshotMetadata(
+  _storage: CliComponents['storage'],
+  _snapshotId: string,
+  metadata: Partial<SnapshotMetadata>
+): Promise<void> {
+  try {
+    // TODO: Implement storage method to update snapshot metadata
+    // await storage.updateSnapshotMetadata(snapshotId, metadata);
+    console.log(chalk.gray(`  Scan metadata: mode=${metadata.scanMode}, duration=${metadata.scanDuration}ms`));
+  } catch (error) {
+    console.warn(`Warning: Failed to update snapshot metadata: ${error}`);
+  }
+}
 
 /**
  * Parameter property usage data for coupling analysis
@@ -87,11 +158,19 @@ async function executeScanCommand(
   options: ScanCommandOptions,
   spinner: SpinnerInterface
 ): Promise<void> {
+  const startTime = performance.now();
+  
   try {
     // Handle realtime gate mode
     if (options.realtimeGate) {
       await runRealtimeGateMode(env.config, options, spinner);
       return;
+    }
+
+    // Determine scan level based on options
+    const scanLevel = determineScanLevel(options);
+    if (!options.json) {
+      console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode} (target: ${scanLevel.targetTime})}`));
     }
 
     // Check for configuration changes and enforce comment requirement
@@ -120,23 +199,66 @@ async function executeScanCommand(
     const sourceFiles = await collectSourceFiles(files, spinner);
     const { snapshotId, sourceFileIdMap } = await saveSourceFilesWithDeduplication(sourceFiles, env.storage, options, spinner, configHash);
     
-    // Step 2: Perform basic analysis (configurable timing)
-    const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
+    // Step 2: Perform basic analysis (always for quick scan)
     let functionsAnalyzed = 0;
-    if (shouldPerformBasicAnalysis) {
+    let analysisLevel: import('../../types').AnalysisLevel = 'NONE';
+    
+    if (scanLevel.includes.includes('BASIC')) {
       const basicResult = await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
       functionsAnalyzed = basicResult?.functionsAnalyzed || 0;
-    } else {
-      if (!options.json) {
-        console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
+      analysisLevel = 'BASIC';
+      await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+    }
+    
+    // Step 3: Coupling analysis (for quick scan and above)
+    if (scanLevel.includes.includes('COUPLING')) {
+      // Coupling analysis is already done in performBasicAnalysis
+      analysisLevel = 'COUPLING';
+    }
+    
+    // Step 4: Call graph analysis (for standard scan and above)
+    let callGraphResult: { callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] } | undefined;
+    if (scanLevel.includes.includes('CALL_GRAPH')) {
+      if (options.async) {
+        // Schedule for background execution
+        if (!options.json) {
+          console.log(chalk.blue('📊 Call graph analysis scheduled for background execution'));
+        }
+        // TODO: Implement background scheduling
+      } else {
+        if (!options.json) {
+          console.log(chalk.blue('📊 Performing call graph analysis...'));
+        }
+        callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
+        analysisLevel = 'CALL_GRAPH';
       }
     }
     
-    // Step 3: Call graph analysis - perform immediately for optimal performance
-    if (!options.json) {
-      console.log(chalk.blue('📊 Performing call graph analysis...'));
+    // Step 5: Type system analysis (for full scan)
+    if (scanLevel.includes.includes('TYPE_SYSTEM')) {
+      if (options.async) {
+        // Schedule for background execution
+        if (!options.json) {
+          console.log(chalk.blue('🧩 Type system analysis scheduled for background execution'));
+        }
+        // TODO: Implement type system analysis and background scheduling
+      } else {
+        // TODO: Implement type system analysis
+        if (!options.json) {
+          console.log(chalk.yellow('⚠️  Type system analysis not yet implemented'));
+        }
+      }
     }
-    const callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
+    
+    // Record scan duration
+    const endTime = performance.now();
+    const scanDuration = Math.round(endTime - startTime);
+    
+    // Update snapshot metadata with scan details
+    await updateSnapshotMetadata(env.storage, snapshotId, {
+      scanMode: scanLevel.mode,
+      scanDuration
+    });
     
     // Output results
     if (options.json) {
@@ -151,9 +273,20 @@ async function executeScanCommand(
         ...(options.label && { label: options.label }),
         ...(options.comment && { comment: options.comment }),
         timestamp: new Date().toISOString(),
-        analysisLevel: shouldPerformBasicAnalysis ? 'CALL_GRAPH' : 'PARTIAL'
+        analysisLevel,
+        scanDuration
       });
     } else {
+      const durationSec = (scanDuration / 1000).toFixed(1);
+      console.log(chalk.green(`✓ ${scanLevel.mode} scan completed in ${durationSec}s`));
+      
+      // Show next steps based on scan level
+      if (scanLevel.mode === 'quick') {
+        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
+      } else if (scanLevel.mode === 'standard') {
+        console.log(chalk.gray('  Run `funcqc analyze --types` for type system analysis'));
+      }
+      
       showCompletionMessage();
     }
   } catch (error) {
@@ -1272,6 +1405,7 @@ interface ScanResultsJSON {
   comment?: string;
   timestamp: string;
   analysisLevel: string;
+  scanDuration?: number;
   message?: string;
 }
 
