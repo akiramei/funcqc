@@ -147,7 +147,7 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
     
     // Add coupling analysis if requested
     let couplingData: Map<string, CouplingInfo> = new Map();
-    if (options.analyzeCoupling) {
+    if (options.analyzeCoupling && types.length > 0) {
       couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
     }
     
@@ -247,10 +247,14 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
     }
     
     const relationships = await storage.getTypeRelationships(latestSnapshot.id);
+    const depth = 
+      typeof options.depth === 'number' && Number.isFinite(options.depth) 
+        ? options.depth 
+        : 3;
     const dependencies = analyzeDependenciesFromDB(
       targetType,
       relationships,
-      options.depth !== undefined && Number.isFinite(options.depth) ? options.depth : 3
+      depth
     );
     
     if (options.circular) {
@@ -325,7 +329,7 @@ async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; lates
   
   const logger = new Logger();
   const storage = new PGLiteStorageAdapter(
-    config.storage.path || '.funcqc/funcqc.db',
+    config.storage?.path ?? '.funcqc/funcqc.db',
     logger
   );
   
@@ -418,6 +422,11 @@ async function analyzeCouplingForTypes(
   snapshotId: string
 ): Promise<Map<string, CouplingInfo>> {
   const couplingMap = new Map<string, CouplingInfo>();
+  
+  // Early return if no types provided
+  if (types.length === 0) {
+    return couplingMap;
+  }
   
   try {
     // Build dynamic placeholders: $2..$N
