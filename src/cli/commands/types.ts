@@ -249,7 +249,7 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
     
     if (!targetType) {
       const funcqcError = errorHandler.createError(
-        ErrorCode.UNKNOWN_ERROR,
+        ErrorCode.NOT_FOUND,
         `Type '${typeName}' not found`,
         { typeName }
       );
@@ -348,14 +348,26 @@ async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; lates
     logger
   );
   
-  await storage.init();
-  
-  const snapshots = await storage.getSnapshots({ limit: 1 });
-  if (snapshots.length === 0) {
-    throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+  try {
+    await storage.init();
+    
+    const snapshots = await storage.getSnapshots({ limit: 1 });
+    if (snapshots.length === 0) {
+      // Ensure we always close even when no snapshots are found
+      await storage.close();
+      throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+    }
+    
+    return { storage, latestSnapshot: snapshots[0] };
+  } catch (e) {
+    // Attempt to close even if init() or getSnapshots() failed
+    try { 
+      await storage.close(); 
+    } catch {
+      /* ignore close errors */
+    }
+    throw e;
   }
-  
-  return { storage, latestSnapshot: snapshots[0] };
 }
 
 /**
