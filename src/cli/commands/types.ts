@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import { Logger } from '../../utils/cli-utils';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
 import { TypeDefinition, TypeRelationship, StorageAdapter, SnapshotInfo } from '../../types';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 
 /**
  * Database-driven types command
@@ -163,13 +163,18 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
     }
 
   } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.UNKNOWN_ERROR,
-      `Failed to list types: ${error instanceof Error ? error.message : String(error)}`,
-      {},
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
+    // Check if it's already a FuncqcError
+    if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+      errorHandler.handleError(error as FuncqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to list types: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   } finally {
     if (storage) {
       await storage.close();
@@ -207,13 +212,18 @@ async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
       displayTypeHealthDB(healthReport, options.verbose);
     }
   } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.UNKNOWN_ERROR,
-      `Failed to analyze type health: ${error instanceof Error ? error.message : String(error)}`,
-      {},
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
+    // Check if it's already a FuncqcError
+    if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+      errorHandler.handleError(error as FuncqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to analyze type health: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   } finally {
     if (storage) {
       await storage.close();
@@ -272,13 +282,18 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
       }
     }
   } catch (error) {
-    const funcqcError = errorHandler.createError(
-      ErrorCode.UNKNOWN_ERROR,
-      `Failed to analyze type dependencies: ${error instanceof Error ? error.message : String(error)}`,
-      {},
-      error instanceof Error ? error : undefined
-    );
-    errorHandler.handleError(funcqcError);
+    // Check if it's already a FuncqcError
+    if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+      errorHandler.handleError(error as FuncqcError);
+    } else {
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Failed to analyze type dependencies: ${error instanceof Error ? error.message : String(error)}`,
+        {},
+        error instanceof Error ? error : undefined
+      );
+      errorHandler.handleError(funcqcError);
+    }
   } finally {
     if (storage) {
       await storage.close();
@@ -610,7 +625,7 @@ function analyzeDependenciesFromDB(
   const visited = new Set<string>();
   
   function traverse(typeId: string, depth: number) {
-    if (depth >= maxDepth || visited.has(typeId)) return;
+    if (depth > maxDepth || visited.has(typeId)) return;
     visited.add(typeId);
     
     const relatedRelationships = relationships.filter(r => r.sourceTypeId === typeId);
@@ -628,7 +643,7 @@ function analyzeDependenciesFromDB(
     }
   }
   
-  traverse(targetType.id, 0);
+  traverse(targetType.id, 1);
   return dependencies;
 }
 
