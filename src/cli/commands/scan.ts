@@ -809,12 +809,24 @@ async function performCouplingAnalysisForFile(
     // Now OnePassASTVisitor and TypeScriptAnalyzer generate the same deterministic UUIDs
     for (const [funcId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // Get detailed access information from usage data
-        const accessMap = context.usageData.propertyAccesses.get(funcId)?.get(analysis.parameterName) ?? [];
-        
+        // Rename for clarity and index accesses by property for O(1) lookups
+        const paramAccesses = context.usageData.propertyAccesses
+          .get(funcId)
+          ?.get(analysis.parameterName) ?? [];
+
+        const accessesByProp = new Map<string, typeof paramAccesses>();
+        for (const a of paramAccesses) {
+          const list = accessesByProp.get(a.property);
+          if (list) {
+            list.push(a);
+          } else {
+            accessesByProp.set(a.property, [a]);
+          }
+        }
+
         for (const prop of analysis.usedProperties) {
           // Find all accesses for this property
-          const accesses = accessMap.filter(a => a.property === prop);
+          const accesses = accessesByProp.get(prop) ?? [];
           
           if (accesses.length === 0) {
             // Fallback to fixed values if no detailed access data found
