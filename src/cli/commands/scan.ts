@@ -809,17 +809,38 @@ async function performCouplingAnalysisForFile(
     // Now OnePassASTVisitor and TypeScriptAnalyzer generate the same deterministic UUIDs
     for (const [funcId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // funcId is now a deterministic UUID that matches the database function.id
+        // Get detailed access information from usage data
+        const accessMap = context.usageData.propertyAccesses.get(funcId)?.get(analysis.parameterName) ?? [];
+        
         for (const prop of analysis.usedProperties) {
-          couplingData.push({
-            functionId: funcId, // Direct use - no mapping needed
-            parameterName: analysis.parameterName,
-            parameterTypeId: null, // Will be resolved later if needed
-            accessedProperty: prop,
-            accessType: 'read', // Default to read access
-            accessLine: 0, // Line info would need to be extracted from AST
-            accessContext: 'property_access'
-          });
+          // Find all accesses for this property
+          const accesses = accessMap.filter(a => a.property === prop);
+          
+          if (accesses.length === 0) {
+            // Fallback to fixed values if no detailed access data found
+            couplingData.push({
+              functionId: funcId,
+              parameterName: analysis.parameterName,
+              parameterTypeId: null, // Will be resolved later if needed
+              accessedProperty: prop,
+              accessType: 'read', // Fallback default
+              accessLine: 0, // Fallback default
+              accessContext: 'property_access' // Fallback default
+            });
+          } else {
+            // Use actual access data for each access occurrence
+            for (const access of accesses) {
+              couplingData.push({
+                functionId: funcId,
+                parameterName: analysis.parameterName,
+                parameterTypeId: null, // Will be resolved later if needed
+                accessedProperty: prop,
+                accessType: access.accessType, // Actual access type from AST analysis
+                accessLine: access.line, // Actual line number from AST analysis
+                accessContext: access.context // Actual context from AST analysis
+              });
+            }
+          }
         }
       }
     }
