@@ -250,7 +250,7 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
     const dependencies = analyzeDependenciesFromDB(
       targetType,
       relationships,
-      Number.isFinite(options.depth) ? options.depth : 3
+      options.depth !== undefined && Number.isFinite(options.depth) ? options.depth : 3
     );
     
     if (options.circular) {
