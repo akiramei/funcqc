@@ -138,17 +138,15 @@ export function analyzeProgrammingStyleDistribution(functions: FunctionInfo[]): 
  * Analyze function style based on name and patterns
  */
 function analyzeFunctionStyle(func: FunctionInfo, styles: ProgrammingStyleDistribution['functionStyles']): void {
-  const name = func.name.toLowerCase();
-  
-  if (name === 'constructor') {
+  if (func.isConstructor) {
     styles.constructors++;
-  } else if (name.startsWith('get') && name.length > 3) {
+  } else if (func.isMethod && /^get[A-Z_]/.test(func.name)) {
     styles.getters++;
-  } else if (name.startsWith('set') && name.length > 3) {
+  } else if (func.isMethod && /^set[A-Z_]/.test(func.name)) {
     styles.setters++;
-  } else if (func.name.includes('.')) {
+  } else if (func.isMethod) {
     styles.methods++;
-  } else if (func.functionType === 'arrow') {
+  } else if (func.isArrowFunction || func.functionType === 'arrow') {
     styles.arrowFunctions++;
   } else {
     styles.namedFunctions++;

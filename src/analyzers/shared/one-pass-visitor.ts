@@ -21,6 +21,9 @@ export interface ScanContext {
   paramTypeMap: Map<FunctionLikeDeclaration, Map<string, Type>>;
   sourceHash: string;
   
+  // Performance optimization: Cache funcId to Node mapping
+  funcIdToNodeCache?: Map<string, Node>;
+  
   // Temporary cohesion data for 1-pass collection (performance optimization)
   cohesionTempData: Map<string, Set<string>>;
   
@@ -117,6 +120,7 @@ export class OnePassASTVisitor {
       file,
       paramTypeMap: new Map(),
       sourceHash: this.computeSourceHash(file),
+      funcIdToNodeCache: new Map(),
       cohesionTempData: new Map(),
       usageData: {
         propertyAccesses: new Map(),
@@ -135,6 +139,17 @@ export class OnePassASTVisitor {
     
     // Single AST traversal with all visitors
     file.forEachDescendant((node) => {
+      // Build funcId to Node cache during traversal for performance
+      if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node) || 
+          Node.isArrowFunction(node) || Node.isFunctionExpression(node) ||
+          Node.isConstructorDeclaration(node) || Node.isGetAccessorDeclaration(node) ||
+          Node.isSetAccessorDeclaration(node)) {
+        const funcId = this.getFunctionId(node);
+        if (funcId) {
+          ctx.funcIdToNodeCache!.set(funcId, node);
+        }
+      }
+      
       for (const visitor of this.visitors) {
         visitor(node, ctx);
       }
@@ -425,15 +440,8 @@ export class OnePassASTVisitor {
   
   private getTotalPropertiesForParam(funcId: string, paramName: string, ctx: ScanContext): number {
     try {
-      // Find the function by funcId to get its parameter type map
-      let targetFunc: Node | undefined;
-      ctx.file.forEachDescendant((node) => {
-        if (targetFunc) return;
-        if (this.getFunctionId(node) === funcId) {
-          targetFunc = node;
-        }
-      });
-
+      // Use cached funcId to Node mapping for O(1) lookup instead of O(N) traversal
+      const targetFunc = ctx.funcIdToNodeCache?.get(funcId);
       if (!targetFunc) return 0;
 
       const paramMap = this.getOrCreateParamTypeMap(targetFunc, ctx);

@@ -43,9 +43,6 @@ export class LocalExactAnalysisStage {
     // Create local function lookup maps for this file
     const functionByName = new Map<string, FunctionMetadata[]>();
     const functionByLexicalPath = new Map<string, FunctionMetadata>();
-    
-    // Build O(1) function containment map (optimization #4)
-    const functionContainmentMap = this.buildFunctionContainmentMap(fileFunctions);
 
     for (const func of fileFunctions) {
       const existing = functionByName.get(func.name) || [];
@@ -54,10 +51,19 @@ export class LocalExactAnalysisStage {
       functionByLexicalPath.set(func.lexicalPath, func);
     }
 
-    // Collect expressions with instantiation events
+    // Collect expressions with instantiation events first
     const callExpressions: Node[] = [];
     const newExpressions: Node[] = [];
     this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions, instantiationEvents);
+    
+    // Collect needed lines from all expressions
+    const neededLines = new Set<number>();
+    for (const node of [...callExpressions, ...newExpressions]) {
+      neededLines.add(node.getStartLineNumber());
+    }
+    
+    // Build O(1) function containment map only for needed lines (optimization #4)
+    const functionContainmentMap = this.buildFunctionContainmentMap(fileFunctions, neededLines);
 
     // Process call expressions
     for (const node of callExpressions) {
@@ -239,7 +245,7 @@ export class LocalExactAnalysisStage {
   /**
    * Build O(1) function containment map (optimization #4)
    */
-  private buildFunctionContainmentMap(fileFunctions: FunctionMetadata[]): Map<number, FunctionMetadata> {
+  private buildFunctionContainmentMap(fileFunctions: FunctionMetadata[], neededLines?: Set<number>): Map<number, FunctionMetadata> {
     const containmentMap = new Map<number, FunctionMetadata>();
     
     // Sort functions by start line for proper containment resolution
@@ -247,11 +253,28 @@ export class LocalExactAnalysisStage {
     
     // Build line-to-function map for O(1) lookup
     for (const func of sortedFunctions) {
-      for (let line = func.startLine; line <= func.endLine; line++) {
-        // Prefer inner functions over outer functions (last write wins for nested functions)
-        if (!containmentMap.has(line) || 
-            (containmentMap.get(line)!.startLine < func.startLine)) {
-          containmentMap.set(line, func);
+      const startLine = func.startLine;
+      const endLine = func.endLine;
+      
+      if (neededLines) {
+        // Optimization: only map lines that are actually needed
+        for (const line of neededLines) {
+          if (line >= startLine && line <= endLine) {
+            // Prefer inner functions over outer functions (last write wins for nested functions)
+            if (!containmentMap.has(line) || 
+                (containmentMap.get(line)!.startLine < func.startLine)) {
+              containmentMap.set(line, func);
+            }
+          }
+        }
+      } else {
+        // Original behavior: map all lines
+        for (let line = startLine; line <= endLine; line++) {
+          // Prefer inner functions over outer functions (last write wins for nested functions)
+          if (!containmentMap.has(line) || 
+              (containmentMap.get(line)!.startLine < func.startLine)) {
+            containmentMap.set(line, func);
+          }
         }
       }
     }

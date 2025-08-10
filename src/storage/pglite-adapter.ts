@@ -236,7 +236,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.snapshotOps.createSnapshot(options);
   }
 
-  async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevel(snapshotId: string, level: import('../types').AnalysisLevel): Promise<void> {
     await this.ensureInitialized();
     return this.snapshotOps.updateAnalysisLevel(snapshotId, level);
   }
@@ -244,7 +244,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Update analysis level within a transaction
    */
-  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: import('../types').AnalysisLevel): Promise<void> {
     return this.snapshotOps.updateAnalysisLevelInTransaction(trx, snapshotId, level);
   }
 
@@ -1284,31 +1284,39 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // Coupling analysis operations
-  async storeParameterPropertyUsage(couplingData: import('../types').ParameterPropertyUsageData[], snapshotId: string): Promise<void> {
+  async storeParameterPropertyUsage(
+    couplingData: import('../types').ParameterPropertyUsageData[],
+    snapshotId: string
+  ): Promise<void> {
     await this.ensureInitialized();
-    
-    if (couplingData.length === 0) {
-      return;
-    }
-    
+    if (couplingData.length === 0) return;
     try {
-      for (const item of couplingData) {
-        await this.query(`
-          INSERT INTO parameter_property_usage (
-            snapshot_id, function_id, parameter_name, parameter_type_id,
-            accessed_property, access_type, access_line, access_context
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        `, [
-          snapshotId,
-          item.functionId,
-          item.parameterName,
-          item.parameterTypeId,
-          item.accessedProperty,
-          item.accessType,
-          item.accessLine,
-          item.accessContext
-        ]);
-      }
+      await this.db.transaction(async (trx: unknown) => {
+        const BATCH = 1000; // パラメータ上限対策
+        for (let i = 0; i < couplingData.length; i += BATCH) {
+          const slice = couplingData.slice(i, i + BATCH);
+          const sql = `
+            INSERT INTO parameter_property_usage (
+              snapshot_id, function_id, parameter_name, parameter_type_id,
+              accessed_property, access_type, access_line, access_context
+            )
+            SELECT * FROM unnest(
+              $1::text[], $2::text[], $3::text[], $4::text[],
+              $5::text[], $6::text[], $7::int[],  $8::text[]
+            )
+          `;
+          await (trx as { query: (sql: string, params: unknown[]) => Promise<unknown> }).query(sql, [
+            slice.map(() => snapshotId),
+            slice.map(v => v.functionId),
+            slice.map(v => v.parameterName),
+            slice.map(v => v.parameterTypeId),
+            slice.map(v => v.accessedProperty),
+            slice.map(v => v.accessType),
+            slice.map(v => v.accessLine),
+            slice.map(v => v.accessContext),
+          ]);
+        }
+      });
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,

@@ -7,10 +7,10 @@
  * Handles the case where PGLite automatically parses JSONB fields.
  * 
  * @param value The value to parse (might be string or already parsed object)
- * @param fallbackValue The value to return if parsing fails (defaults to empty array)
+ * @param fallbackValue The value to return if parsing fails
  * @returns The parsed object, original object if not a string, or fallback value
  */
-export function safeJsonParse<T>(value: unknown, fallbackValue: T = [] as unknown as T): T {
+export function safeJsonParse<T>(value: unknown, fallbackValue: T): T {
   // 1. If the value is not a string, it's likely already parsed by PGLite
   if (typeof value !== 'string') {
     return (value as T) ?? fallbackValue;

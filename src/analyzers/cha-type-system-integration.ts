@@ -79,34 +79,14 @@ export class CHATypeSystemIntegration {
     }
 
     try {
-      // Use transaction-based approach following best practices
-      const hasTransactionalSave = (storage: StorageAdapter): storage is StorageAdapter & {
-        saveAllTypeInformation: (info: TypeExtractionResult) => Promise<void>
-      } => {
-        return 'saveAllTypeInformation' in storage && typeof storage.saveAllTypeInformation === 'function';
-      };
-      
-      if (hasTransactionalSave(this.storage)) {
+      if ('saveAllTypeInformation' in this.storage
+          && typeof this.storage.saveAllTypeInformation === 'function') {
         await this.storage.saveAllTypeInformation(typeInfo);
       } else {
-        // Use transactional version if available
-        const hasTransactionalMethods = 'saveTypeDefinitionsInTransaction' in this.storage;
-        if (hasTransactionalMethods) {
-          this.logger.debug('Using transactional type save methods');
-          // TODO: Implement proper transaction wrapper here
-          // For now, fall back to individual saves
-        }
-        
-        // Fallback to individual saves
-        if (this.storage) {
-          const storage = this.storage as StorageAdapter;
-          await storage.saveTypeDefinitions(typeInfo.typeDefinitions);
-          await storage.saveTypeRelationships(typeInfo.typeRelationships);
-          await storage.saveTypeMembers(typeInfo.typeMembers);
-          await storage.saveMethodOverrides(typeInfo.methodOverrides);
-        } else {
-          this.logger.warn('No storage adapter set, skipping type information save');
-        }
+        await this.storage.saveTypeDefinitions(typeInfo.typeDefinitions);
+        await this.storage.saveTypeRelationships(typeInfo.typeRelationships);
+        await this.storage.saveTypeMembers(typeInfo.typeMembers);
+        await this.storage.saveMethodOverrides(typeInfo.methodOverrides);
       }
     } catch (error) {
       this.logger.error('❌ Failed to save type information to database:', error);

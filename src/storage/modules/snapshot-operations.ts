@@ -162,7 +162,7 @@ export class SnapshotOperations implements StorageOperationModule {
   /**
    * Update analysis level for a snapshot
    */
-  async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevel(snapshotId: string, level: import('../../types').AnalysisLevel): Promise<void> {
     try {
       // First, recalculate snapshot metadata based on actual functions
       await this.recalculateSnapshotMetadata(snapshotId);
@@ -197,7 +197,7 @@ export class SnapshotOperations implements StorageOperationModule {
   /**
    * Update analysis level within a transaction
    */
-  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: import('../../types').AnalysisLevel): Promise<void> {
     try {
       // TODO: Add transactional version of recalculateSnapshotMetadata
       // Currently, metadata recalculation is skipped in transaction context
@@ -428,12 +428,19 @@ export class SnapshotOperations implements StorageOperationModule {
             FROM function_metrics
           ),
           complexity_dist AS (
-            SELECT jsonb_object_agg(complexity::text, count) AS complexity_distribution
+            SELECT jsonb_object_agg(bucket::text, count) AS complexity_distribution
             FROM (
-              SELECT complexity, COUNT(*) as count
+              SELECT
+                CASE
+                  WHEN complexity <= 5 THEN 1
+                  WHEN complexity <= 10 THEN 2
+                  WHEN complexity <= 20 THEN 3
+                  ELSE 4
+                END AS bucket,
+                COUNT(*) AS count
               FROM function_metrics
               WHERE complexity IS NOT NULL
-              GROUP BY complexity
+              GROUP BY bucket
             ) dist
           ),
           file_ext_dist AS (
@@ -446,16 +453,18 @@ export class SnapshotOperations implements StorageOperationModule {
             ) ext
           )
           UPDATE snapshots 
-          SET metadata = jsonb_build_object(
-            'totalFunctions', ba.total_functions,
-            'totalFiles', ba.total_files,
-            'avgComplexity', ba.avg_complexity,
-            'maxComplexity', ba.max_complexity,
-            'exportedFunctions', ba.exported_functions,
-            'asyncFunctions', ba.async_functions,
-            'complexityDistribution', COALESCE(cd.complexity_distribution, '{}'::jsonb),
-            'fileExtensions', COALESCE(fed.file_extensions, '{}'::jsonb)
-          )
+          SET metadata = 
+            COALESCE(snapshots.metadata, '{}'::jsonb)
+            || jsonb_build_object(
+                 'totalFunctions', ba.total_functions,
+                 'totalFiles', ba.total_files,
+                 'avgComplexity', ba.avg_complexity,
+                 'maxComplexity', ba.max_complexity,
+                 'exportedFunctions', ba.exported_functions,
+                 'asyncFunctions', ba.async_functions,
+                 'complexityDistribution', COALESCE(cd.complexity_distribution, '{}'::jsonb),
+                 'fileExtensions', COALESCE(fed.file_extensions, '{}'::jsonb)
+               )
           FROM basic_aggregates ba, complexity_dist cd, file_ext_dist fed
           WHERE snapshots.id = $1
           RETURNING metadata;
@@ -504,16 +513,18 @@ export class SnapshotOperations implements StorageOperationModule {
           ) ext_counts
         )
         UPDATE snapshots 
-        SET metadata = jsonb_build_object(
-          'totalFunctions', 0,
-          'totalFiles', sfs.total_files,
-          'avgComplexity', 0,
-          'maxComplexity', 0,
-          'exportedFunctions', 0,
-          'asyncFunctions', 0,
-          'complexityDistribution', '{}'::jsonb,
-          'fileExtensions', COALESCE(sfs.file_extensions, '{}'::jsonb)
-        )
+        SET metadata = 
+          COALESCE(snapshots.metadata, '{}'::jsonb)
+          || jsonb_build_object(
+               'totalFunctions', 0,
+               'totalFiles', sfs.total_files,
+               'avgComplexity', 0,
+               'maxComplexity', 0,
+               'exportedFunctions', 0,
+               'asyncFunctions', 0,
+               'complexityDistribution', '{}'::jsonb,
+               'fileExtensions', COALESCE(sfs.file_extensions, '{}'::jsonb)
+             )
         FROM source_file_stats sfs
         WHERE snapshots.id = $1;
       `, [snapshotId]);
@@ -521,9 +532,9 @@ export class SnapshotOperations implements StorageOperationModule {
       this.logger?.debug(`Set quick scan metadata for snapshot ${snapshotId}`);
     } catch (error) {
       this.logger?.error(`Failed to set quick scan metadata: ${error}`);
-      // Final fallback with zero counts
+      // Final fallback with zero counts - preserve existing metadata
       await this.db.query(
-        `UPDATE snapshots SET metadata = $1 WHERE id = $2`,
+        `UPDATE snapshots SET metadata = COALESCE(metadata, '{}'::jsonb) || $1 WHERE id = $2`,
         [JSON.stringify({
           totalFunctions: 0,
           totalFiles: 0,
@@ -552,16 +563,18 @@ export class SnapshotOperations implements StorageOperationModule {
           WHERE snapshot_id = $1
         )
         UPDATE snapshots 
-        SET metadata = jsonb_build_object(
-          'totalFunctions', bs.total_functions,
-          'totalFiles', bs.total_files,
-          'avgComplexity', 0,
-          'maxComplexity', 0,
-          'exportedFunctions', 0,
-          'asyncFunctions', 0,
-          'complexityDistribution', '{}'::jsonb,
-          'fileExtensions', '{}'::jsonb
-        )
+        SET metadata = 
+          COALESCE(snapshots.metadata, '{}'::jsonb)
+          || jsonb_build_object(
+               'totalFunctions', bs.total_functions,
+               'totalFiles', bs.total_files,
+               'avgComplexity', 0,
+               'maxComplexity', 0,
+               'exportedFunctions', 0,
+               'asyncFunctions', 0,
+               'complexityDistribution', '{}'::jsonb,
+               'fileExtensions', '{}'::jsonb
+             )
         FROM basic_stats bs
         WHERE snapshots.id = $1;
       `, [snapshotId]);

@@ -24,7 +24,7 @@ import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project, SyntaxKind, TypeChecker } from 'ts-morph';
+import { Project, SyntaxKind, TypeChecker, ts } from 'ts-morph';
 import { createHash } from 'crypto';
 import { SnapshotMetadata } from '../../types';
 
@@ -730,28 +730,31 @@ export async function performDeferredCouplingAnalysis(
       spinner.text = `Performing coupling analysis on ${sourceFiles.length} files...`;
     }
     
-    const batchPromises = batches.map(async (batch, batchIndex) => {
+    // Create shared Project/TypeChecker for coupling analysis to reduce memory usage
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: {
+        target: ts.ScriptTarget.Latest,
+        allowJs: true,
+        skipLibCheck: true,
+      }
+    });
+    const typeChecker = project.getTypeChecker();
+    
+    // Process batches sequentially to avoid memory pressure from multiple Project instances
+    const batchResults: number[] = [];
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
       const batchCouplingData: ParameterPropertyUsage[] = [];
       
       console.log(chalk.blue(`📊 Coupling batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
-      
-      // Create shared Project/TypeChecker for coupling analysis
-      const project = new Project({
-        useInMemoryFileSystem: true,
-        compilerOptions: {
-          target: 99, // Latest
-          allowJs: true,
-          skipLibCheck: true,
-        }
-      });
-      const typeChecker = project.getTypeChecker();
       
       for (const sourceFile of batch) {
         try {
           // Get functions for this source file
           const fileFunctions = functions.filter(f => f.filePath === sourceFile.filePath);
           
-          // Perform coupling analysis using existing function
+          // Perform coupling analysis using shared project and typeChecker
           const couplingData = await performCouplingAnalysisForFile(sourceFile, fileFunctions, project, typeChecker);
           batchCouplingData.push(...couplingData);
         } catch (error) {
@@ -765,14 +768,12 @@ export async function performDeferredCouplingAnalysis(
         console.log(`📊 Stored ${batchCouplingData.length} coupling analysis records`);
       }
       
-      return batchCouplingData.length;
-    });
-    
-    const batchResults = await Promise.all(batchPromises);
+      batchResults.push(batchCouplingData.length);
+    }
     totalCouplingData = batchResults.reduce((sum, count) => sum + count, 0);
     
     // Update analysis level to indicate coupling analysis is complete
-    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC'); // Note: We'll need to add COUPLING level later
+    await env.storage.updateAnalysisLevel(snapshotId, 'COUPLING');
     
     if (showSpinner) {
       spinner.succeed(`Coupling analysis completed: ${totalCouplingData} coupling data points`);
@@ -835,11 +836,38 @@ async function performCouplingAnalysisForFile(
           .digest('hex')
           .substring(0, 16);
         
-        // Find matching function from the persisted functions list
-        const match = functions.find(f => 
-          f.startLine === startLine && 
-          (f.name || '<anonymous>') === name
-        );
+        // Find matching function from the persisted functions list with enhanced criteria
+        const startColumn = node.getStartLinePos();
+        const endLine = node.getEndLineNumber();
+        const filePath = tsSourceFile.getFilePath();
+        
+        const match = functions.find(f => {
+          // Basic criteria: same file, start line, and name
+          const basicMatch = f.filePath === filePath &&
+                            f.startLine === startLine &&
+                            (f.name || '<anonymous>') === name;
+          
+          if (!basicMatch) return false;
+          
+          // Enhanced criteria for disambiguation
+          // Use startColumn if available in function data
+          if (f.startColumn !== undefined) {
+            if (f.startColumn !== startColumn) return false;
+          }
+          
+          // Use endLine if available in function data
+          if (f.endLine !== undefined) {
+            if (f.endLine !== endLine) return false;
+          }
+          
+          // For anonymous functions, use additional context if available
+          if (name === '<anonymous>' && f.displayName) {
+            // Use display name as supplementary matching criterion
+            return f.displayName.includes(node.getKindName());
+          }
+          
+          return true;
+        });
         
         if (match) {
           visitorIdToFunctionId.set(shortId, match.id);
@@ -1012,7 +1040,7 @@ export async function performDeferredTypeSystemAnalysis(
     }
     
     // Update analysis level
-    await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH'); // Types are stored but level stays at CALL_GRAPH
+    await env.storage.updateAnalysisLevel(snapshotId, 'TYPE_SYSTEM');
     
     if (spinner && showProgress) {
       spinner.succeed(`Type system analysis completed (${typeDefinitions.length} types, ${typeRelationships.length} relationships)`);

@@ -13,6 +13,8 @@ import {
   PropertySignature,
   PropertyAccessExpression,
   TypeChecker,
+  TypeAliasDeclaration,
+  Symbol,
   SyntaxKind
 } from 'ts-morph';
 import { TypeDefinition } from './type-analyzer';
@@ -479,12 +481,19 @@ export class TypeFunctionLinker {
   /**
    * Determine the member kind of a function
    */
-  private determineMemberKind(functionMeta: FunctionMetadata): string {
-    // This would need proper AST analysis in a real implementation
-    if (functionMeta.name === 'constructor') return MemberKind.Constructor;
-    if (functionMeta.name.startsWith('get ')) return MemberKind.Getter;
-    if (functionMeta.name.startsWith('set ')) return MemberKind.Setter;
-    return MemberKind.Method;
+  private determineMemberKind(functionMeta: FunctionMetadata): MemberKind {
+    try {
+      const sourceFile = this.project.getSourceFile(functionMeta.filePath);
+      if (!sourceFile) return MemberKind.Method;
+      const node = this.findFunctionNodeByMetadata(sourceFile, functionMeta);
+      if (!node) return functionMeta.name === 'constructor' ? MemberKind.Constructor : MemberKind.Method;
+      if (Node.isConstructorDeclaration(node)) return MemberKind.Constructor;
+      if (Node.isGetAccessorDeclaration(node)) return MemberKind.Getter;
+      if (Node.isSetAccessorDeclaration(node)) return MemberKind.Setter;
+      return MemberKind.Method;
+    } catch {
+      return MemberKind.Method;
+    }
   }
 
   /**
@@ -523,7 +532,8 @@ export class TypeFunctionLinker {
         SyntaxKind.SetAccessor,
         SyntaxKind.FunctionDeclaration,
         SyntaxKind.FunctionExpression,
-        SyntaxKind.ArrowFunction
+        SyntaxKind.ArrowFunction,
+        SyntaxKind.PropertyDeclaration
       ]
     );
     
@@ -882,7 +892,7 @@ export class TypeFunctionLinker {
               if (this.belongsToTargetTypeOptimized(propAccess, targetTypeSymbol, checker)) {
                 allPropertyAccesses.push({
                   propertyName,
-                  accessType: this.classifyAccess(propAccess),
+                  accessType: this.classifyAccess(propAccess, 0),
                   line,
                   containingFunction,
                   node: propAccess
@@ -930,7 +940,7 @@ export class TypeFunctionLinker {
    */
   private belongsToTargetTypeOptimized(
     propAccess: PropertyAccessExpression,
-    targetTypeSymbol: unknown,
+    targetTypeSymbol: Symbol | undefined,
     checker: TypeChecker
   ): boolean {
     try {
@@ -949,9 +959,7 @@ export class TypeFunctionLinker {
         }
         
         // Check for type compatibility
-        if (targetTypeSymbol && typeof targetTypeSymbol === 'object' && 
-            'getDeclarations' in targetTypeSymbol && 
-            typeof targetTypeSymbol.getDeclarations === 'function') {
+        if (targetTypeSymbol) {
           const declarations = targetTypeSymbol.getDeclarations();
           if (declarations && declarations.length > 0) {
             const targetType = checker.getTypeAtLocation(declarations[0]);
@@ -1010,37 +1018,44 @@ export class TypeFunctionLinker {
     usageMap: Map<string, PropertyUsageInfo[]>
   ): { byUsagePattern: FunctionUsageGroup[] } {
     const functionUsageSignatures = new Map<string, string[]>();
-    
+    const SEP = "^_"; // unlikely to appear in paths
+    const functionFirstLine = new Map<string, number>();
+
     // Create usage signatures for each function
     const allFunctions = new Set<string>();
     for (const usages of usageMap.values()) {
       for (const usage of usages) {
-        const funcKey = `${usage.functionName}:${usage.filePath}`;
+        const funcKey = `${usage.functionName}${SEP}${usage.filePath}`;
         if (!functionUsageSignatures.has(funcKey)) {
           functionUsageSignatures.set(funcKey, []);
         }
         allFunctions.add(funcKey);
       }
     }
-    
+
     // Collect properties used by each function
     for (const [property, usages] of usageMap) {
       for (const usage of usages) {
-        const funcKey = `${usage.functionName}:${usage.filePath}`;
+        const funcKey = `${usage.functionName}${SEP}${usage.filePath}`;
         const signature = functionUsageSignatures.get(funcKey)!;
         if (!signature.includes(property)) {
           signature.push(property);
         }
+        const prev = functionFirstLine.get(funcKey);
+        functionFirstLine.set(
+          funcKey,
+          prev === undefined ? usage.line : Math.min(prev, usage.line)
+        );
       }
     }
-    
+
     // Group functions by similar usage patterns
     const groups = new Map<string, FunctionUsageGroup>();
-    
+
     for (const [funcKey, properties] of functionUsageSignatures) {
       const sortedProps = properties.sort();
       const signature = sortedProps.join(',');
-      
+
       if (!groups.has(signature)) {
         groups.set(signature, {
           groupName: `Group using {${sortedProps.join(', ')}}`,
@@ -1048,12 +1063,12 @@ export class TypeFunctionLinker {
           functions: []
         });
       }
-      
-      const [funcName, filePath] = funcKey.split(':');
+
+      const [funcName, filePath] = funcKey.split(SEP);
       groups.get(signature)!.functions.push({
         name: funcName,
         filePath,
-        line: 0 // Would need to get from original function metadata
+        line: functionFirstLine.get(funcKey) ?? 0
       });
     }
     
@@ -1110,87 +1125,13 @@ export class TypeFunctionLinker {
    */
   private getTypeMembers(type: TypeDefinition): { name: string; kind: MemberKind }[] {
     try {
-      // Find the source file and AST node for this type
-      const sourceFile = this.project.getSourceFile(type.filePath);
-      if (!sourceFile) {
-        return [];
+      const detailed = this.extractTypeMembersFromDefinition(type);
+      // Deduplicate by name
+      const map = new Map<string, { name: string; kind: MemberKind }>();
+      for (const m of detailed) {
+        map.set(m.name, { name: m.name, kind: m.kind });
       }
-
-      const members: { name: string; kind: MemberKind }[] = [];
-
-      // Search for the type declaration in the source file
-      sourceFile.forEachDescendant((node) => {
-        // Handle Interface declarations
-        if (node.asKind(SyntaxKind.InterfaceDeclaration)) {
-          const interfaceDecl = node.asKindOrThrow(SyntaxKind.InterfaceDeclaration);
-          if (interfaceDecl.getName() === type.name) {
-            // Extract properties
-            for (const prop of interfaceDecl.getProperties()) {
-              members.push({
-                name: prop.getName(),
-                kind: MemberKind.Property
-              });
-            }
-            // Extract methods
-            for (const method of interfaceDecl.getMethods()) {
-              members.push({
-                name: method.getName(),
-                kind: MemberKind.Method
-              });
-            }
-          }
-        }
-
-        // Handle Class declarations
-        if (node.asKind(SyntaxKind.ClassDeclaration)) {
-          const classDecl = node.asKindOrThrow(SyntaxKind.ClassDeclaration);
-          if (classDecl.getName() === type.name) {
-            // Extract instance properties
-            for (const prop of classDecl.getInstanceProperties()) {
-              members.push({
-                name: prop.getName(),
-                kind: MemberKind.Property
-              });
-            }
-            // Extract instance methods
-            for (const method of classDecl.getInstanceMethods()) {
-              members.push({
-                name: method.getName(),
-                kind: MemberKind.Method
-              });
-            }
-          }
-        }
-
-        // Handle Type alias declarations
-        if (node.asKind(SyntaxKind.TypeAliasDeclaration)) {
-          const typeAlias = node.asKindOrThrow(SyntaxKind.TypeAliasDeclaration);
-          if (typeAlias.getName() === type.name) {
-            const typeNode = typeAlias.getTypeNode();
-            if (typeNode?.asKind(SyntaxKind.TypeLiteral)) {
-              const typeLiteral = typeNode.asKindOrThrow(SyntaxKind.TypeLiteral);
-              for (const prop of typeLiteral.getProperties()) {
-                if (prop.asKind(SyntaxKind.PropertySignature)) {
-                  const propSig = prop.asKindOrThrow(SyntaxKind.PropertySignature);
-                  members.push({
-                    name: propSig.getName(),
-                    kind: MemberKind.Property
-                  });
-                }
-                if (prop.asKind(SyntaxKind.MethodSignature)) {
-                  const methodSig = prop.asKindOrThrow(SyntaxKind.MethodSignature);
-                  members.push({
-                    name: methodSig.getName(),
-                    kind: MemberKind.Method
-                  });
-                }
-              }
-            }
-          }
-        }
-      });
-
-      return members;
+      return Array.from(map.values());
     } catch (error) {
       console.warn(`Failed to extract members for type ${type.name}: ${error}`);
       return [];
@@ -1204,7 +1145,7 @@ export class TypeFunctionLinker {
   /**
    * Get type symbol for target type
    */
-  private getTypeSymbol(type: TypeDefinition, sourceFile: SourceFile, _checker: TypeChecker): unknown {
+  private getTypeSymbol(type: TypeDefinition, sourceFile: SourceFile, _checker: TypeChecker): Symbol | undefined {
     try {
       // Find type declaration in source file
       const typeNode = this.findTypeDeclaration(type, sourceFile);
@@ -1255,8 +1196,10 @@ export class TypeFunctionLinker {
 
   /**
    * Classify property access type based on AST context with comprehensive edge case handling
+   * @param propAccess The property access node to classify
+   * @param depth Current recursion depth to prevent stack overflow
    */
-  private classifyAccess(propAccess: Node): 'read' | 'write' | 'modify' | 'pass' {
+  private classifyAccess(propAccess: Node, depth = 0): 'read' | 'write' | 'modify' | 'pass' {
     const parent = propAccess.getParent();
     
     if (!parent) return 'read';
@@ -1348,8 +1291,31 @@ export class TypeFunctionLinker {
 
     // Handle element access (obj['prop'])
     if (parent.asKind(SyntaxKind.ElementAccessExpression)) {
+      // Prevent infinite recursion with depth limit
+      if (depth >= 10) {
+        return 'read'; // Fallback to safe default for deep nesting
+      }
       // Recursively classify the element access
-      return this.classifyAccess(parent);
+      return this.classifyAccess(parent, depth + 1);
+    }
+
+    // Handle nested property access where a mutator method is called on the property
+    if (parent.asKind(SyntaxKind.PropertyAccessExpression)) {
+      const outer = parent.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
+      const grand = outer.getParent();
+      if (grand?.asKind(SyntaxKind.CallExpression)) {
+        const callExpr = grand.asKindOrThrow(SyntaxKind.CallExpression);
+        if (callExpr.getExpression() === parent) {
+          const methodName = outer.getName();
+          const mutatorMethods = new Set([
+            'push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse',
+            'fill', 'copyWithin', 'set', 'add', 'delete', 'clear', 'append'
+          ]);
+          if (mutatorMethods.has(methodName)) {
+            return 'modify';
+          }
+        }
+      }
     }
 
     // Default to read access
@@ -1635,6 +1601,18 @@ export class TypeFunctionLinker {
         this.extractClassMembers(typeDeclaration, members);
       } else if (typeDeclaration instanceof InterfaceDeclaration) {
         this.extractInterfaceMembers(typeDeclaration, members);
+      } else if (Node.isTypeAliasDeclaration(typeDeclaration)) {
+        const typeNode = typeDeclaration.getTypeNode();
+        if (typeNode?.asKind(SyntaxKind.TypeLiteral)) {
+          const typeLiteral = typeNode.asKindOrThrow(SyntaxKind.TypeLiteral);
+          for (const m of typeLiteral.getMembers()) {
+            if (Node.isPropertySignature(m)) {
+              members.push({ name: m.getName(), kind: MemberKind.Property, lineNumber: m.getStartLineNumber() });
+            } else if (Node.isMethodSignature(m)) {
+              members.push({ name: m.getName(), kind: MemberKind.Method, lineNumber: m.getStartLineNumber() });
+            }
+          }
+        }
       }
 
     } catch (error) {
@@ -1648,11 +1626,14 @@ export class TypeFunctionLinker {
   /**
    * Find type declaration at a specific line position
    */
-  private findTypeDeclarationAtPosition(sourceFile: SourceFile, targetLine: number): ClassDeclaration | InterfaceDeclaration | undefined {
+  private findTypeDeclarationAtPosition(
+    sourceFile: SourceFile,
+    targetLine: number
+  ): ClassDeclaration | InterfaceDeclaration | TypeAliasDeclaration | undefined {
     const typeNodes = this.getCachedNodesOfKind(
       sourceFile, 
       'types', 
-      [SyntaxKind.ClassDeclaration, SyntaxKind.InterfaceDeclaration]
+      [SyntaxKind.ClassDeclaration, SyntaxKind.InterfaceDeclaration, SyntaxKind.TypeAliasDeclaration]
     );
     
     for (const node of typeNodes) {
@@ -1661,7 +1642,7 @@ export class TypeFunctionLinker {
       
       // Check if this type declaration contains our target line
       if (startLine <= targetLine && targetLine <= endLine) {
-        return node as ClassDeclaration | InterfaceDeclaration;
+        return node as ClassDeclaration | InterfaceDeclaration | TypeAliasDeclaration;
       }
     }
     
@@ -1858,14 +1839,7 @@ export class TypeFunctionLinker {
         return symbolMatches;
       }
 
-      // Second, try enhanced name-based matching with parent context
-      const enhancedSignature = `${type.name}.${member.name}:${type.filePath}`;
-      const enhancedMatches = functionsBySignature.get(enhancedSignature);
-      if (enhancedMatches && enhancedMatches.length > 0) {
-        return enhancedMatches.filter(func => this.isFunctionWithinTypeScope(func, type));
-      }
-
-      // Third, try simple name matching within the same file and type scope
+      // Then, try simple name matching within the same file and type scope
       const simpleMatches: FunctionMetadata[] = [];
       for (const funcs of functionsBySignature.values()) {
         for (const func of funcs) {
@@ -1936,11 +1910,46 @@ export class TypeFunctionLinker {
    * Find a specific member declaration within a type declaration
    */
   private findMemberInType(
-    typeDeclaration: ClassDeclaration | InterfaceDeclaration,
+    typeDeclaration: ClassDeclaration | InterfaceDeclaration | TypeAliasDeclaration,
     memberName: string,
     memberKind: MemberKind
   ): Node | undefined {
     try {
+      // Handle TypeAliasDeclaration separately as it doesn't have getMembers()
+      if (Node.isTypeAliasDeclaration(typeDeclaration)) {
+        const typeNode = typeDeclaration.getTypeNode();
+        if (typeNode?.asKind(SyntaxKind.TypeLiteral)) {
+          const typeLiteral = typeNode.asKindOrThrow(SyntaxKind.TypeLiteral);
+          const members = typeLiteral.getMembers();
+          
+          for (const member of members) {
+            let matchesKind = false;
+            let matchesName = false;
+
+            // Check if the member kind matches (for type aliases, only properties and method signatures)
+            switch (memberKind) {
+              case MemberKind.Method:
+                matchesKind = Node.isMethodSignature(member);
+                matchesName = matchesKind && Node.isMethodSignature(member) && member.getName() === memberName;
+                break;
+              case MemberKind.Property:
+                matchesKind = Node.isPropertySignature(member);
+                matchesName = matchesKind && Node.isPropertySignature(member) && member.getName() === memberName;
+                break;
+              default:
+                // TypeAlias doesn't support constructors, getters, setters
+                break;
+            }
+
+            if (matchesKind && matchesName) {
+              return member;
+            }
+          }
+        }
+        return undefined;
+      }
+      
+      // Handle ClassDeclaration and InterfaceDeclaration
       const members = typeDeclaration.getMembers();
       
       for (const member of members) {

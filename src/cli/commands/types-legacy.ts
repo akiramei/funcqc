@@ -23,9 +23,9 @@ import * as os from 'os';
  * Completely separate from function analysis to maintain system integrity
  */
 export function createTypesCommand(): Command {
-  const typesCmd = new Command('types')
-    .description('🧩 TypeScript type analysis (experimental)')
-    .addHelpText('before', '⚠️  This is an experimental feature for TypeScript type analysis');
+  const typesCmd = new Command('types-legacy')
+    .description('🧩 TypeScript type analysis (experimental legacy version)')
+    .addHelpText('before', '⚠️  This is an experimental legacy feature for TypeScript type analysis');
 
   // List types command
   typesCmd

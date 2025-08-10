@@ -4,8 +4,8 @@ import type { StorageContext } from '../modules/types';
  * Base class for storage operations with common initialization
  */
 export abstract class BaseStorageOperations {
-  readonly db;
-  protected readonly logger;
+  readonly db: StorageContext['db'];
+  protected readonly logger: StorageContext['logger'];
   private readonly context: StorageContext;
 
   constructor(context: StorageContext) {
@@ -17,7 +17,7 @@ export abstract class BaseStorageOperations {
   /**
    * Get Kysely instance from context (ensures we get the latest instance)
    */
-  get kysely() {
+  get kysely(): StorageContext['kysely'] {
     return this.context.kysely;
   }
 }

@@ -292,6 +292,8 @@ async function ensureTypeSystemAnalysis(commandEnv: CommandEnvironment, mergedOp
         // Import and execute type system analysis
         const { performDeferredTypeSystemAnalysis } = await import('./commands/scan');
         await performDeferredTypeSystemAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        // 型分析完了をフラグ＆レベルに反映
+        await commandEnv.storage.updateAnalysisLevel(snapshot.id, 'TYPE_SYSTEM');
         
         if (!isJsonMode) {
           console.log(`✓ Type system analysis completed`);

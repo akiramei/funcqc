@@ -71,10 +71,13 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
   const logger = new Logger();
   const errorHandler = createErrorHandler(logger);
   
+  let storage: StorageAdapter | undefined;
   try {
     logger.info('🔍 Loading types from database...');
     
-    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    const result = await getStorageAndSnapshot();
+    storage = result.storage;
+    const latestSnapshot = result.latestSnapshot;
     let types = await storage.getTypeDefinitions(latestSnapshot.id);
     
     // If no types found, trigger lazy type system analysis
@@ -159,7 +162,6 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
       displayTypesListDB(types, couplingData, options.detail);
     }
 
-    await storage.close();
   } catch (error) {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,
@@ -168,6 +170,10 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
       error instanceof Error ? error : undefined
     );
     errorHandler.handleError(funcqcError);
+  } finally {
+    if (storage) {
+      await storage.close();
+    }
   }
 }
 
@@ -178,10 +184,13 @@ async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
   const logger = new Logger();
   const errorHandler = createErrorHandler(logger);
   
+  let storage: StorageAdapter | undefined;
   try {
     logger.info('🏥 Analyzing type health from database...');
     
-    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    const result = await getStorageAndSnapshot();
+    storage = result.storage;
+    const latestSnapshot = result.latestSnapshot;
     const types = await storage.getTypeDefinitions(latestSnapshot.id);
     
     if (types.length === 0) {
@@ -197,8 +206,6 @@ async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
     } else {
       displayTypeHealthDB(healthReport, options.verbose);
     }
-    
-    await storage.close();
   } catch (error) {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,
@@ -207,6 +214,10 @@ async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
       error instanceof Error ? error : undefined
     );
     errorHandler.handleError(funcqcError);
+  } finally {
+    if (storage) {
+      await storage.close();
+    }
   }
 }
 
@@ -217,15 +228,22 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
   const logger = new Logger();
   const errorHandler = createErrorHandler(logger);
   
+  let storage: StorageAdapter | undefined;
   try {
     logger.info(`🔗 Analyzing dependencies for type: ${typeName}`);
     
-    const { storage, latestSnapshot } = await getStorageAndSnapshot();
+    const result = await getStorageAndSnapshot();
+    storage = result.storage;
+    const latestSnapshot = result.latestSnapshot;
     const targetType = await storage.findTypeByName(typeName, latestSnapshot.id);
     
     if (!targetType) {
-      logger.error(`❌ Type '${typeName}' not found`);
-      process.exit(1);
+      const funcqcError = errorHandler.createError(
+        ErrorCode.UNKNOWN_ERROR,
+        `Type '${typeName}' not found`,
+        { typeName }
+      );
+      throw funcqcError;
     }
     
     const relationships = await storage.getTypeRelationships(latestSnapshot.id);
@@ -245,8 +263,6 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
         displayDependenciesDB(typeName, dependencies);
       }
     }
-    
-    await storage.close();
   } catch (error) {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,
@@ -255,6 +271,10 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
       error instanceof Error ? error : undefined
     );
     errorHandler.handleError(funcqcError);
+  } finally {
+    if (storage) {
+      await storage.close();
+    }
   }
 }
 
@@ -396,48 +416,72 @@ async function analyzeCouplingForTypes(
   const couplingMap = new Map<string, CouplingInfo>();
   
   try {
-    // Get coupling data for each type
-    for (const type of types) {
-      const couplingQuery = await storage.query(`
-        SELECT 
-          ppu.function_id,
-          ppu.parameter_name,
-          ppu.accessed_property,
-          ppu.access_type,
-          COUNT(*) as access_count
-        FROM parameter_property_usage ppu
-        WHERE ppu.snapshot_id = $1 
-          AND ppu.parameter_type_id = $2
-        GROUP BY ppu.function_id, ppu.parameter_name, ppu.accessed_property, ppu.access_type
-        ORDER BY ppu.function_id, ppu.parameter_name
-      `, [snapshotId, type.id]);
-      
-      if (couplingQuery.rows.length > 0) {
-        const parameterUsage = processCouplingQueryResults(couplingQuery.rows as Array<Record<string, unknown>>);
-        const totalFunctions = new Set((couplingQuery.rows as Array<Record<string, unknown>>).map(row => row['function_id'])).size;
-        
-        const averageUsageRatio = parameterUsage.length > 0 
-          ? parameterUsage.reduce((sum, p) => sum + p.usageRatio, 0) / parameterUsage.length
-          : 0;
-        
-        couplingMap.set(type.id, {
-          parameterUsage,
-          totalFunctions,
-          averageUsageRatio
-        });
-      } else {
-        // Provide basic coupling info even when no data available
-        // This allows the feature to work while data collection is being fixed
-        couplingMap.set(type.id, {
-          parameterUsage: [],
-          totalFunctions: 0,
-          averageUsageRatio: 0
-        });
-      }
+    // Build dynamic placeholders: $2..$N
+    const typeIds = types.map(t => t.id);
+    const placeholders = typeIds.map((_, i) => `$${i + 2}`).join(', ');
+
+    const sql = `
+      WITH member_counts AS (
+        SELECT
+          tm.type_id            AS parameter_type_id,
+          COUNT(*)              AS total_properties
+        FROM type_members tm
+        WHERE tm.snapshot_id = $1
+          AND tm.member_kind IN ('property','field')
+        GROUP BY tm.type_id
+      )
+      SELECT
+        ppu.parameter_type_id,
+        ppu.function_id,
+        ppu.parameter_name,
+        ppu.accessed_property,
+        ppu.access_type,
+        COUNT(*)              AS access_count,
+        COALESCE(mc.total_properties, 0) AS total_properties
+      FROM parameter_property_usage ppu
+      LEFT JOIN member_counts mc
+        ON mc.parameter_type_id = ppu.parameter_type_id
+      WHERE ppu.snapshot_id = $1
+        AND ppu.parameter_type_id IN (${placeholders})
+      GROUP BY
+        ppu.parameter_type_id,
+        ppu.function_id,
+        ppu.parameter_name,
+        ppu.accessed_property,
+        ppu.access_type,
+        mc.total_properties
+      ORDER BY
+        ppu.function_id,
+        ppu.parameter_name
+    `;
+
+    const res = await storage.query(sql, [snapshotId, ...typeIds]);
+    const byType = new Map<string, Array<Record<string, unknown>>>();
+
+    for (const row of res.rows as Array<Record<string, unknown>>) {
+      const key = String(row['parameter_type_id']);
+      if (!byType.has(key)) byType.set(key, []);
+      byType.get(key)!.push(row);
     }
+
+    for (const type of types) {
+      const rows = byType.get(type.id) ?? [];
+      const parameterUsage = processCouplingQueryResults(rows);
+      const totalFunctions = new Set(rows.map(r => r['function_id'])).size;
+      const averageUsageRatio = parameterUsage.length > 0
+        ? parameterUsage.reduce((sum, p) => sum + p.usageRatio, 0) / parameterUsage.length
+        : 0;
+
+      couplingMap.set(type.id, {
+        parameterUsage,
+        totalFunctions,
+        averageUsageRatio
+      });
+    }
+
   } catch (error) {
     console.warn(`Warning: Failed to analyze coupling: ${error}`);
-    // Provide fallback coupling data for all types
+    // Fallback for all types on error
     for (const type of types) {
       couplingMap.set(type.id, {
         parameterUsage: [],
@@ -453,49 +497,47 @@ async function analyzeCouplingForTypes(
 /**
  * Process coupling query results into structured format
  */
-function processCouplingQueryResults(rows: Array<Record<string, unknown>>): CouplingInfo['parameterUsage'] {
-  const parameterMap = new Map<string, Map<string, Set<string>>>();
-  
+function processCouplingQueryResults(
+  rows: Array<Record<string, unknown>>
+): CouplingInfo['parameterUsage'] {
+  // key: `${function_id}:${parameter_name}` -> set of properties
+  const paramProps = new Map<string, Set<string>>();
+  // key: `${function_id}:${parameter_name}` -> totalProperties (from SQL row)
+  const paramTotals = new Map<string, number>();
+
   // Group by function and parameter
   for (const row of rows) {
     const key = `${row['function_id']}:${row['parameter_name']}`;
-    if (!parameterMap.has(key)) {
-      parameterMap.set(key, new Map());
+    if (!paramProps.has(key)) paramProps.set(key, new Set());
+    paramProps.get(key)!.add(String(row['accessed_property']));
+    // keep max total per (func,param) if present
+    const total = Number(row['total_properties'] ?? 0);
+    if (!Number.isNaN(total)) {
+      const prev = paramTotals.get(key) ?? 0;
+      paramTotals.set(key, Math.max(prev, total));
     }
-    
-    const funcParamMap = parameterMap.get(key)!;
-    const paramName = String(row['parameter_name']);
-    if (!funcParamMap.has(paramName)) {
-      funcParamMap.set(paramName, new Set());
-    }
-    
-    funcParamMap.get(paramName)!.add(String(row['accessed_property']));
   }
-  
-  // Convert to structured format
+
   const result: CouplingInfo['parameterUsage'] = [];
-  for (const [key, paramMap] of parameterMap) {
-    const [functionId] = key.split(':');
-    
-    for (const [paramName, properties] of paramMap) {
-      const usedProperties = Array.from(properties);
-      const totalProperties = usedProperties.length; // Simplified - would need type member count
-      const usageRatio = totalProperties > 0 ? usedProperties.length / totalProperties : 1;
+  for (const [key, properties] of paramProps) {
+    const [functionId, parameterName] = key.split(':');
+    const usedProperties = Array.from(properties);
+    const totalProperties = Math.max(1, paramTotals.get(key) ?? 1); // avoid div/0
+    const usageRatio = usedProperties.length / totalProperties;
       
       let severity: 'LOW' | 'MEDIUM' | 'HIGH';
       if (usageRatio <= 0.25) severity = 'HIGH';
       else if (usageRatio <= 0.5) severity = 'MEDIUM';
       else severity = 'LOW';
       
-      result.push({
-        functionId,
-        parameterName: paramName,
-        usedProperties,
-        totalProperties,
-        usageRatio,
-        severity
-      });
-    }
+    result.push({
+      functionId,
+      parameterName,
+      usedProperties,
+      totalProperties,
+      usageRatio,
+      severity
+    });
   }
   
   return result;

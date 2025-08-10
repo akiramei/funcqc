@@ -49,17 +49,23 @@ export class ImportExactAnalysisStage {
   buildFunctionLookupMap(functions: Map<string, FunctionMetadata>): void {
     this.functionLookupMap.clear();
     
-    for (const [id, func] of functions) {
-      // Use line-only key for consistency since FunctionMetadata doesn't have startColumn
-      const key = `${func.filePath}:${func.startLine}`;
-      this.functionLookupMap.set(key, id);
+    // Sort by startLine ascending so nested functions (with larger startLine) overwrite outer ones
+    const sorted = [...functions.entries()].sort(([,a], [,b]) => a.startLine - b.startLine);
+    
+    for (const [id, func] of sorted) {
+      // Map all lines within the function range to the function ID
+      for (let line = func.startLine; line <= func.endLine; line++) {
+        const key = `${func.filePath}:${line}`;
+        this.functionLookupMap.set(key, id); // Later functions overwrite for nested containment
+      }
     }
     
-    this.logger.debug(`Built function lookup map with ${this.functionLookupMap.size} entries`);
+    this.logger.debug(`Built per-line function lookup map with ${this.functionLookupMap.size} entries`);
   }
 
   /**
    * Set shared function lookup map from engine (optimization #3)
+   * @param sharedLookupMap Map with keys in format "filePath:startLine" to function ID
    */
   setSharedFunctionLookupMap(sharedLookupMap: Map<string, string>): void {
     this.functionLookupMap = sharedLookupMap;

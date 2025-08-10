@@ -340,6 +340,7 @@ export type AnalysisLevel =
   | 'COMPLETE';      // All analyses completed
 
 export interface SnapshotMetadata {
+  // Analysis status flags
   basicAnalysisCompleted?: boolean;
   couplingAnalysisCompleted?: boolean;
   callGraphAnalysisCompleted?: boolean;
@@ -347,6 +348,17 @@ export interface SnapshotMetadata {
   analysisLevel?: AnalysisLevel;
   scanDuration?: number; // Time taken for scan in milliseconds
   scanMode?: 'quick' | 'basic' | 'standard' | 'full';
+  
+  // Statistical metadata
+  totalFunctions?: number;
+  totalFiles?: number;
+  avgComplexity?: number;
+  maxComplexity?: number;
+  exportedFunctions?: number;
+  asyncFunctions?: number;
+  complexityDistribution?: Record<number, number>;
+  fileExtensions?: Record<string, number>;
+  
   [key: string]: unknown; // Allow additional metadata
 }
 
@@ -368,16 +380,6 @@ export interface SnapshotInfo {
   callGraphAnalysisCompleted?: boolean; // Deprecated, use metadata
 }
 
-export interface SnapshotMetadata {
-  totalFunctions: number;
-  totalFiles: number;
-  avgComplexity: number;
-  maxComplexity: number;
-  exportedFunctions: number;
-  asyncFunctions: number;
-  complexityDistribution: Record<number, number>;
-  fileExtensions: Record<string, number>;
-}
 
 // Query and filtering types
 export interface QueryFilter {
@@ -625,7 +627,7 @@ export interface StorageAdapter {
     configHash?: string
   ): Promise<string>;
   createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string>;
-  updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void>;
+  updateAnalysisLevel(snapshotId: string, level: AnalysisLevel): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;

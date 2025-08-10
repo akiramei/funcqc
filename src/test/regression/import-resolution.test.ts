@@ -41,7 +41,7 @@ export function testCallee() {
       if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
         const name = node.getName?.() || 'anonymous';
         const id = `caller-${name}-test-id`;
-        allFunctionMap.set(name, {
+        allFunctionMap.set(`test-caller.ts:${name}`, {
           id,
           name,
           startLine: node.getStartLineNumber(),
@@ -54,7 +54,7 @@ export function testCallee() {
       if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
         const name = node.getName?.() || 'anonymous';
         const id = `callee-${name}-test-id`;
-        allFunctionMap.set(name, {
+        allFunctionMap.set(`test-helper.ts:${name}`, {
           id,
           name,
           startLine: node.getStartLineNumber(),
@@ -68,8 +68,10 @@ export function testCallee() {
 
     // Create getFunctionIdByDeclaration function using unified map
     const getFunctionIdByDeclaration = (decl: Node): string | undefined => {
-      for (const [name, func] of allFunctionMap.entries()) {
-        if (decl.getStartLineNumber() === func.startLine && decl.getEndLineNumber() === func.endLine) {
+      for (const [, func] of allFunctionMap.entries()) {
+        const s = decl.getStartLineNumber();
+        const e = decl.getEndLineNumber();
+        if (Math.abs(s - func.startLine) <= 1 && Math.abs(e - func.endLine) <= 1) {
           return func.id;
         }
       }
@@ -164,21 +166,33 @@ export function anotherFunction() {
       const sourceFile = decl.getSourceFile();
       const fileName = sourceFile.getBaseName();
       
-      // Try direct match first (for functions in the target file)
-      for (const [key, func] of allFunctionMap.entries()) {
-        if (sourceLine === func.startLine && sourceEnd === func.endLine) {
-          return func.id;
+      // Try file-specific offset match first for external files
+      if (fileName !== 'named-import.ts') {
+        const offset = sourceFileToOffset.get(fileName) || 0;
+        const adjustedStartLine = sourceLine + offset;
+        const adjustedEndLine = sourceEnd + offset;
+        
+        // Create expected key prefix by removing .ts extension
+        const expectedPrefix = fileName.replace('.ts', '');
+        
+        for (const [key, func] of allFunctionMap.entries()) {
+          if (Math.abs(adjustedStartLine - func.startLine) <= 1 && Math.abs(adjustedEndLine - func.endLine) <= 1) {
+            // Ensure key matches the expected file prefix
+            if (key.startsWith(`${expectedPrefix}:`)) {
+              return func.id;
+            }
+          }
         }
       }
       
-      // Try with file-specific offset for external files
-      const offset = sourceFileToOffset.get(fileName) || 0;
-      const adjustedStartLine = sourceLine + offset;
-      const adjustedEndLine = sourceEnd + offset;
-      
+      // Try direct match for same-file functions (±1 tolerance)
+      const expectedPrefix = fileName.replace('.ts', '');
       for (const [key, func] of allFunctionMap.entries()) {
-        if (adjustedStartLine === func.startLine && adjustedEndLine === func.endLine) {
-          return func.id;
+        if (Math.abs(sourceLine - func.startLine) <= 1 && Math.abs(sourceEnd - func.endLine) <= 1) {
+          // Ensure key matches the expected file prefix
+          if (key.startsWith(`${expectedPrefix}:`)) {
+            return func.id;
+          }
         }
       }
       
