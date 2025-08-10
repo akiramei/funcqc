@@ -187,7 +187,7 @@ export class OnePassASTVisitor {
    * Cohesion data collector visitor
    */
   private cohesionCollector: NodeVisitor = (node, ctx) => {
-    if (Node.isPropertyAccessExpression(node)) {
+    if (Node.isPropertyAccessExpression(node) || Node.isElementAccessExpression(node)) {
       this.collectCohesionData(node, ctx);
     }
   };
@@ -281,12 +281,17 @@ export class OnePassASTVisitor {
     funcCoupling.get(paramName)!.add(propertyName);
   }
   
-  private collectCohesionData(node: PropertyAccessExpression, ctx: ScanContext): void {
+  private collectCohesionData(node: PropertyAccessExpression | Node, ctx: ScanContext): void {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
     const funcId = this.getFunctionId(func);
-    const propertyName = node.getName();
+    const propertyName = Node.isPropertyAccessExpression(node)
+      ? node.getName()
+      : Node.isElementAccessExpression(node)
+        ? (this.getElementAccessName(node) ?? '[computed]')
+        : 'unknown';
+    if (!propertyName || propertyName === 'unknown') return;
     
     // 1-pass cohesion collection (performance optimization)
     if (!ctx.cohesionTempData.has(funcId)) {

@@ -19,6 +19,7 @@ export interface TypeHealthOptions {
 }
 
 export interface TypeDepsOptions {
+  depth?: number;
   circular?: boolean;
   json?: boolean;
 }

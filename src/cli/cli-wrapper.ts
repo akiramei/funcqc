@@ -150,7 +150,8 @@ function isLightweightCommand(): boolean {
  */
 function requiresCallGraphAnalysis(): boolean {
   const command = process.argv[2];
-  return CALL_GRAPH_COMMANDS.includes(command);
+  return CALL_GRAPH_COMMANDS.includes(command)
+    || COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command);
 }
 
 /**

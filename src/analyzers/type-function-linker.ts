@@ -1343,6 +1343,7 @@ export class TypeFunctionLinker {
   private calculatePropertyCorrelations(
     usageMap: Map<string, PropertyUsageInfo[]>
   ): PropertyCorrelation[] {
+    const SEP = "^_";
     const properties = Array.from(usageMap.keys());
     const correlations: PropertyCorrelation[] = [];
     
@@ -1352,10 +1353,10 @@ export class TypeFunctionLinker {
         const prop2 = properties[j];
         
         const usage1Functions = new Set(
-          usageMap.get(prop1)?.map(u => `${u.functionName}:${u.filePath}`) || []
+          usageMap.get(prop1)?.map(u => `${u.functionName}${SEP}${u.filePath}`) || []
         );
         const usage2Functions = new Set(
-          usageMap.get(prop2)?.map(u => `${u.functionName}:${u.filePath}`) || []
+          usageMap.get(prop2)?.map(u => `${u.functionName}${SEP}${u.filePath}`) || []
         );
         
         const intersection = new Set(
