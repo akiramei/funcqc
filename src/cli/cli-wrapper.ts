@@ -161,6 +161,68 @@ export function getCallGraphCommands(): string[] {
 }
 
 /**
+ * Determines if the current command requires basic analysis
+ */
+function requiresBasicAnalysis(): boolean {
+  const command = process.argv[2];
+  return COMMAND_GROUPS.LIGHTWEIGHT.commands.includes(command);
+}
+
+/**
+ * Determines if the current command requires type system analysis
+ */
+function requiresTypeSystemAnalysis(): boolean {
+  const command = process.argv[2];
+  return COMMAND_GROUPS.TYPE_SYSTEM.commands.includes(command);
+}
+
+/**
+ * Ensures basic analysis is available for commands that require it
+ */
+async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
+  if (requiresBasicAnalysis()) {
+    try {
+      // Get the latest snapshot (or specified snapshot)
+      let snapshot;
+      if (mergedOptions.snapshot) {
+        snapshot = await commandEnv.storage.getSnapshot(mergedOptions.snapshot);
+      } else {
+        snapshot = await commandEnv.storage.getLatestSnapshot();
+      }
+      
+      if (!snapshot) {
+        return; // No snapshot found - let the command handle this
+      }
+      
+      // Check if basic analysis is needed
+      const metadata = snapshot.metadata as Record<string, unknown>;
+      const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      
+      if (analysisLevel === 'NONE') {
+        // Determine if we should show progress (not for JSON modes)
+        const isJsonMode = mergedOptions.json || mergedOptions.aiOptimized || process.argv.includes('--json');
+        
+        if (!isJsonMode) {
+          console.log(`🔍 Basic analysis needed for ${snapshot.id.substring(0, 8)}...`);
+        }
+        
+        // Import and execute basic analysis
+        const { performDeferredBasicAnalysis } = await import('./commands/scan');
+        await performDeferredBasicAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        
+        if (!isJsonMode) {
+          console.log(`✓ Basic analysis completed`);
+        }
+      }
+    } catch {
+      // Let the individual commands handle the error appropriately
+      // This ensures basic analysis failure doesn't break the wrapper
+      // Don't throw here - let the command handle it
+    }
+  }
+}
+
+/**
  * Ensures call graph data is available for commands that require it
  */
 async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
@@ -184,6 +246,60 @@ async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOpt
     } catch {
       // Let the individual commands handle the error appropriately
       // This ensures call graph analysis failure doesn't break the wrapper
+      // Don't throw here - let the command handle it
+    }
+  }
+}
+
+/**
+ * Ensures type system data is available for commands that require it
+ */
+async function ensureTypeSystemAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
+  if (requiresTypeSystemAnalysis()) {
+    try {
+      // Get the latest snapshot (or specified snapshot)
+      let snapshot;
+      if (mergedOptions.snapshot) {
+        snapshot = await commandEnv.storage.getSnapshot(mergedOptions.snapshot);
+      } else {
+        snapshot = await commandEnv.storage.getLatestSnapshot();
+      }
+      
+      if (!snapshot) {
+        return; // No snapshot found - let the command handle this
+      }
+      
+      // Check if type system analysis is needed
+      const types = await commandEnv.storage.getTypeDefinitions(snapshot.id);
+      
+      if (types.length === 0) {
+        // Determine if we should show progress (not for JSON modes)
+        const isJsonMode = mergedOptions.json || mergedOptions.aiOptimized || process.argv.includes('--json');
+        
+        if (!isJsonMode) {
+          console.log(`🔍 Type system analysis needed for ${snapshot.id.substring(0, 8)}...`);
+        }
+        
+        // First ensure basic analysis is done
+        const metadata = snapshot.metadata as Record<string, unknown>;
+        const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+        
+        if (analysisLevel === 'NONE') {
+          const { performDeferredBasicAnalysis } = await import('./commands/scan');
+          await performDeferredBasicAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        }
+        
+        // Import and execute type system analysis
+        const { performDeferredTypeSystemAnalysis } = await import('./commands/scan');
+        await performDeferredTypeSystemAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        
+        if (!isJsonMode) {
+          console.log(`✓ Type system analysis completed`);
+        }
+      }
+    } catch {
+      // Let the individual commands handle the error appropriately
+      // This ensures type system analysis failure doesn't break the wrapper
       // Don't throw here - let the command handle it
     }
   }
@@ -223,8 +339,14 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
       
       const commandEnv = createCmdEnv(appEnv, mergedOptions, parentOpts, isJsonOutput);
 
+      // Ensure basic analysis is available for commands that require it
+      await ensureBasicAnalysis(commandEnv, mergedOptions);
+
       // Ensure call graph analysis is available for commands that require it
       await ensureCallGraphAnalysis(commandEnv, mergedOptions);
+
+      // Ensure type system analysis is available for commands that require it
+      await ensureTypeSystemAnalysis(commandEnv, mergedOptions);
 
       const readerFn = commandReader(mergedOptions);
       await readerFn(commandEnv);

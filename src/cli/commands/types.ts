@@ -77,11 +77,56 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
     const { storage, latestSnapshot } = await getStorageAndSnapshot();
     let types = await storage.getTypeDefinitions(latestSnapshot.id);
     
+    // If no types found, trigger lazy type system analysis
+    if (types.length === 0) {
+      const isJsonMode = options.json;
+      
+      if (!isJsonMode) {
+        console.log(`🔍 Type system analysis needed for ${latestSnapshot.id.substring(0, 8)}...`);
+      }
+      
+      // Create a minimal command environment for type analysis
+      const { createAppEnvironment, createCommandEnvironment, destroyAppEnvironment } = await import('../../core/environment');
+      const appEnv = await createAppEnvironment({
+        quiet: Boolean(isJsonMode),
+        verbose: false,
+      });
+      
+      try {
+        const commandEnv = createCommandEnvironment(appEnv, {
+          quiet: Boolean(isJsonMode),
+          verbose: false,
+        });
+        
+        // Ensure basic analysis is done first
+        const metadata = latestSnapshot.metadata as Record<string, unknown>;
+        const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+        
+        if (analysisLevel === 'NONE') {
+          const { performDeferredBasicAnalysis } = await import('./scan');
+          await performDeferredBasicAnalysis(latestSnapshot.id, commandEnv, !isJsonMode);
+        }
+        
+        // Perform type system analysis
+        const { performDeferredTypeSystemAnalysis } = await import('./scan');
+        const result = await performDeferredTypeSystemAnalysis(latestSnapshot.id, commandEnv, !isJsonMode);
+        
+        if (!isJsonMode) {
+          console.log(`✓ Type system analysis completed (${result.typesAnalyzed} types)`);
+        }
+        
+        // Reload types after analysis
+        types = await storage.getTypeDefinitions(latestSnapshot.id);
+      } finally {
+        await destroyAppEnvironment(appEnv);
+      }
+    }
+    
     if (types.length === 0) {
       if (options.json) {
         console.log(JSON.stringify([], null, 2));
       } else {
-        console.log('No types found. Run scan first to analyze types.');
+        console.log('No types found in the codebase.');
       }
       return;
     }

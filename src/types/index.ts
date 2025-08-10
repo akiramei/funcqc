@@ -474,7 +474,8 @@ export interface ScanCommandOptions extends CommandOptions {
   skipBasicAnalysis?: boolean; // Skip basic analysis for fast scan
   // Performance-focused scan levels
   quick?: boolean; // Quick scan (5-10s): snapshot only
-  withBasic?: boolean; // Basic scan (40-50s): includes basic + coupling analysis
+  withBasic?: boolean; // Basic scan (15-20s): includes basic analysis only
+  withCoupling?: boolean; // Coupling scan (40-50s): includes basic + coupling analysis
   withGraph?: boolean; // Standard scan (30-40s): includes call graph
   withTypes?: boolean; // Extended scan: includes type system analysis
   full?: boolean; // Full scan (50-60s): all analyses
