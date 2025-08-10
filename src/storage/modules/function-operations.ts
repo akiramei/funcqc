@@ -749,7 +749,7 @@ export class FunctionOperations implements StorageOperationModule {
       startColumn: row.start_column,
       endColumn: row.end_column,
       astHash: row.ast_hash,
-      contextPath: row.context_path || [],
+      contextPath: this.context.utilityOps?.parseJsonSafely(row.context_path, []) ?? [],
       functionType: this.mapFunctionType(row.function_type),
       modifiers: this.mapModifiers(row.modifiers),
       nestingLevel: row.nesting_level || 0,
@@ -769,14 +769,17 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Map modifiers array
+   * Map modifiers array - handles PGLite auto-parsing
    */
-  private mapModifiers(modifiers: string[] | string | undefined): string[] {
-    if (Array.isArray(modifiers)) {
-      return modifiers;
+  private mapModifiers(modifiers: unknown): string[] {
+    // Use safe JSON parsing to handle both strings and already-parsed arrays
+    const parsed = this.context.utilityOps?.parseJsonSafely(modifiers, []) ?? [];
+    if (Array.isArray(parsed)) {
+      return parsed;
     }
-    if (modifiers && typeof modifiers === 'string') {
-      return (modifiers as string).split(',');
+    // Fallback for comma-separated string format
+    if (typeof parsed === 'string') {
+      return (parsed as string).split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0);
     }
     return [];
   }
@@ -1180,16 +1183,11 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Parse function modifiers from various input formats
+   * Parse function modifiers from various input formats - handles PGLite auto-parsing
    */
   private parseModifiers(modifiers: unknown): string[] {
-    if (Array.isArray(modifiers)) {
-      return modifiers;
-    }
-    if (modifiers && typeof modifiers === 'string') {
-      return (modifiers as string).split(',');
-    }
-    return [];
+    // Delegate to mapModifiers for consistent handling
+    return this.mapModifiers(modifiers);
   }
 
   /**

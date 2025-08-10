@@ -330,6 +330,38 @@ export interface DependencyInfo {
 }
 
 
+// Analysis levels for progressive scan
+export type AnalysisLevel = 
+  | 'NONE'           // No analysis performed
+  | 'BASIC'          // Basic function information
+  | 'COUPLING'       // Coupling analysis completed
+  | 'CALL_GRAPH'     // Call graph analysis completed
+  | 'TYPE_SYSTEM'    // Type system analysis completed
+  | 'COMPLETE';      // All analyses completed
+
+export interface SnapshotMetadata {
+  // Analysis status flags
+  basicAnalysisCompleted?: boolean;
+  couplingAnalysisCompleted?: boolean;
+  callGraphAnalysisCompleted?: boolean;
+  typeSystemAnalysisCompleted?: boolean;
+  analysisLevel?: AnalysisLevel;
+  scanDuration?: number; // Time taken for scan in milliseconds
+  scanMode?: 'quick' | 'basic' | 'standard' | 'full';
+  
+  // Statistical metadata
+  totalFunctions?: number;
+  totalFiles?: number;
+  avgComplexity?: number;
+  maxComplexity?: number;
+  exportedFunctions?: number;
+  asyncFunctions?: number;
+  complexityDistribution?: Record<number, number>;
+  fileExtensions?: Record<string, number>;
+  
+  [key: string]: unknown; // Allow additional metadata
+}
+
 // Snapshot and versioning types
 export interface SnapshotInfo {
   id: string;
@@ -343,21 +375,11 @@ export interface SnapshotInfo {
   configHash: string;
   scope: string;  // スコープ識別子 ('src', 'test', 'all', etc.)
   metadata: SnapshotMetadata;
-  analysisLevel?: 'NONE' | 'BASIC' | 'CALL_GRAPH';
-  basicAnalysisCompleted?: boolean;
-  callGraphAnalysisCompleted?: boolean;
+  analysisLevel?: AnalysisLevel; // Use the new AnalysisLevel type
+  basicAnalysisCompleted?: boolean; // Deprecated, use metadata
+  callGraphAnalysisCompleted?: boolean; // Deprecated, use metadata
 }
 
-export interface SnapshotMetadata {
-  totalFunctions: number;
-  totalFiles: number;
-  avgComplexity: number;
-  maxComplexity: number;
-  exportedFunctions: number;
-  asyncFunctions: number;
-  complexityDistribution: Record<number, number>;
-  fileExtensions: Record<string, number>;
-}
 
 // Query and filtering types
 export interface QueryFilter {
@@ -452,6 +474,14 @@ export interface ScanCommandOptions extends CommandOptions {
   json?: boolean;
   force?: boolean;
   skipBasicAnalysis?: boolean; // Skip basic analysis for fast scan
+  // Performance-focused scan levels
+  quick?: boolean; // Quick scan (5-10s): snapshot only
+  withBasic?: boolean; // Basic scan (15-20s): includes basic analysis only
+  withCoupling?: boolean; // Coupling scan (40-50s): includes basic + coupling analysis
+  withGraph?: boolean; // Standard scan (30-40s): includes call graph
+  withTypes?: boolean; // Extended scan: includes type system analysis
+  full?: boolean; // Full scan (50-60s): all analyses
+  async?: boolean; // Run heavy analyses in background
 }
 
 export interface ListCommandOptions extends CommandOptions {
@@ -573,6 +603,17 @@ export interface TrendDataSnapshot {
 // Use ora's official type definition for better compatibility
 export type SpinnerInterface = ReturnType<typeof import('ora').default>;
 
+// Coupling analysis types
+export interface ParameterPropertyUsageData {
+  functionId: string;
+  parameterName: string;
+  parameterTypeId: string | null;
+  accessedProperty: string;
+  accessType: 'read' | 'write' | 'modify' | 'pass';
+  accessLine: number;
+  accessContext: string;
+}
+
 // Storage adapter interface
 export interface StorageAdapter {
   init(): Promise<void>;
@@ -586,7 +627,7 @@ export interface StorageAdapter {
     configHash?: string
   ): Promise<string>;
   createSnapshot(options: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string }): Promise<string>;
-  updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void>;
+  updateAnalysisLevel(snapshotId: string, level: AnalysisLevel): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
@@ -688,6 +729,14 @@ export interface StorageAdapter {
   saveTypeMembers(members: TypeMember[]): Promise<void>;
   saveMethodOverrides(overrides: MethodOverride[]): Promise<void>;
   
+  // Transactional type save operation
+  saveAllTypeInformation(typeInfo: {
+    typeDefinitions: TypeDefinition[];
+    typeRelationships: TypeRelationship[];
+    typeMembers: TypeMember[];
+    methodOverrides: MethodOverride[];
+  }): Promise<void>;
+  
   getTypeDefinitions(snapshotId: string): Promise<TypeDefinition[]>;
   getTypeRelationships(snapshotId: string): Promise<TypeRelationship[]>;
   getTypeMembers(typeId: string): Promise<TypeMember[]>;
@@ -697,6 +746,12 @@ export interface StorageAdapter {
   findTypeByName(name: string, snapshotId: string): Promise<TypeDefinition | null>;
   getImplementingClasses(interfaceId: string): Promise<TypeDefinition[]>;
   getMethodOverridesByFunction(functionId: string): Promise<MethodOverride[]>;
+  
+  // Raw query operations  
+  query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
+  
+  // Coupling analysis operations
+  storeParameterPropertyUsage(couplingData: ParameterPropertyUsageData[], snapshotId: string): Promise<void>;
 }
 
 export interface BackupOptions {

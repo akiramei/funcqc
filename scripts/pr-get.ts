@@ -1,7 +1,7 @@
 // pr-get.ts
 // Usage: tsx pr-get.ts <PR_NUMBER> [--repo <owner/repo>] [--out pr/NN/comments/] [--dry-run]
 
-import { execSync } from 'child_process';
+import { spawn } from 'node:child_process';
 import fs from 'fs';
 import path from 'path';
 
@@ -14,8 +14,20 @@ interface ReviewComment {
   created_at: string;
 }
 
-function run(command: string): string {
-  return execSync(command, { encoding: 'utf-8' });
+// ---- CHANGED: execSync → spawn (streaming) to avoid ENOBUFS ----
+function run(command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('/bin/sh', ['-c', command], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (c) => { out += c.toString('utf-8'); });
+    child.stderr.on('data', (c) => { err += c.toString('utf-8'); });
+    child.on('error', (e) => reject(e));
+    child.on('close', (code) => {
+      if (code === 0) resolve(out);
+      else reject(new Error(err || `Command failed with exit code ${code}: ${command}`));
+    });
+  });
 }
 
 function parseArgs() {
@@ -90,8 +102,14 @@ function saveLastFetchedTime(outDir: string, time: string) {
 
 async function main() {
   const { prNumber, repo, out, dryRun } = parseArgs();
+
+  // 元仕様のまま: --paginate を使って全件取得
   const cmd = `gh api repos/${repo}/pulls/${prNumber}/comments --paginate`;
-  const json = run(cmd);
+
+  // ---- CHANGED: await run(cmd) によるストリーミング読み取り ----
+  const json = await run(cmd);
+
+  // ここで gh の出力が巨大でも ENOBUFS にならない
   const comments: ReviewComment[] = JSON.parse(json);
 
   const lastFetched = loadLastFetchedTime(out);

@@ -39,7 +39,7 @@ export interface ResolverContext {
   resolveImportedSymbol?: (moduleSpecifier: string, exportedName: string) => Node | undefined;
 }
 
-type ImportRecord = {
+export type ImportRecord = {
   module: string;
   kind: "namespace" | "named" | "default" | "require";
   local: string;      // ローカル名（alias名）

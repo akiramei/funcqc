@@ -9,7 +9,7 @@
  * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  */
 
-import { Project, Node, TypeChecker, CallExpression, NewExpression, SourceFile } from 'ts-morph';
+import { Project, TypeChecker } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
 import { RuntimeTraceIntegrator } from '../runtime-trace-integrator';
@@ -145,28 +145,51 @@ export class StagedAnalysisEngine {
     this.logger.debug(`Functions to analyze: ${functions.size}`);
 
     // Prepare data structures
+    const prepStartTime = performance.now();
     this.buildLookupMaps(functions);
+    console.log(`  ⏱️  Build lookup maps: ${((performance.now() - prepStartTime) / 1000).toFixed(3)}s`);
 
     // Stage 1 & 2: Combined Local and Import Analysis
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
+    const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
+    console.log(`  ⏱️  Stage 1&2 (Local/Import): ${((performance.now() - stage1StartTime) / 1000).toFixed(3)}s`);
     this.statistics.localExactCount = localImportResult.localEdges;
     this.statistics.importExactCount = localImportResult.importEdges;
 
     // Stage 3: CHA Analysis
     this.logger.debug('Stage 3: CHA analysis...');
+    const stage3StartTime = performance.now();
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
       this.state,
       snapshotId || 'unknown'
     );
+    console.log(`  ⏱️  Stage 3 (CHA): ${((performance.now() - stage3StartTime) / 1000).toFixed(3)}s`);
     this.statistics.chaResolvedCount = chaResult.resolvedEdges;
     this.state.chaCandidates = chaResult.chaCandidates;
     this.state.unresolvedMethodCallsForRTA = chaResult.unresolvedMethodCallsForRTA;
 
+    // Save type information to database using transaction-based approach (責務分離)
+    if (this.storage && chaResult.typeInfo) {
+      try {
+        this.logger.debug('Saving type information to database...');
+        // Use the CHA stage to save the type information with proper transaction handling
+        // Note: This should use transaction-based save methods to avoid duplicate key violations
+        // For now, we defer to the existing save methods in storage adapter
+        await this.storage.saveAllTypeInformation(chaResult.typeInfo);
+        this.logger.debug(`Successfully saved ${chaResult.typeInfo.typeDefinitions.length} type definitions`);
+      } catch (error) {
+        // Log error but don't fail the entire analysis
+        this.logger.error(`Failed to save type information: ${error}`);
+        this.logger.debug('Analysis will continue despite type information save failure');
+      }
+    }
+
     // Stage 4: RTA Analysis
     this.logger.debug('Stage 4: RTA analysis...');
+    const stage4StartTime = performance.now();
     // Note: Type information is now extracted and stored during CHA stage
     const classToInterfacesMap = new Map<string, string[]>(); // Placeholder for RTA compatibility
     const rtaResult = await this.rtaStage.performRTAAnalysis(
@@ -177,25 +200,32 @@ export class StagedAnalysisEngine {
       classToInterfacesMap,
       this.state
     );
+    console.log(`  ⏱️  Stage 4 (RTA): ${((performance.now() - stage4StartTime) / 1000).toFixed(3)}s`);
     this.statistics.rtaResolvedCount = rtaResult;
 
     // Stage 5: Runtime Trace Integration
     this.logger.debug('Stage 5: Runtime trace integration...');
+    const stage5StartTime = performance.now();
     const runtimeResult = await this.runtimeStage.performRuntimeTraceIntegration(
       this.state.edges,
       functions
     );
+    console.log(`  ⏱️  Stage 5 (Runtime): ${((performance.now() - stage5StartTime) / 1000).toFixed(3)}s`);
     this.state.edges = runtimeResult.integratedEdges;
     this.statistics.runtimeConfirmedCount = runtimeResult.enhancedEdgesCount;
 
     // Stage 6: External Function Call Analysis
     this.logger.debug('Stage 6: External function call analysis...');
+    const stage6StartTime = performance.now();
     const externalResult = await this.performExternalCallAnalysis(functions);
+    console.log(`  ⏱️  Stage 6 (External): ${((performance.now() - stage6StartTime) / 1000).toFixed(3)}s`);
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Stage 7: Callback Registration Analysis
     this.logger.debug('Stage 7: Callback registration analysis...');
+    const stage7StartTime = performance.now();
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
+    console.log(`  ⏱️  Stage 7 (Callbacks): ${((performance.now() - stage7StartTime) / 1000).toFixed(3)}s`);
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
     this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
     
@@ -225,11 +255,11 @@ export class StagedAnalysisEngine {
     let importEdgesCount = 0;
     let processedFiles = 0;
 
-    // Build import stage lookup map
-    this.importExactStage.buildFunctionLookupMap(functions);
+    // Share the function lookup map with import stage (no duplicate construction)
+    this.importExactStage.setSharedFunctionLookupMap(this.state.functionLookupMap);
 
     for (const sourceFile of sourceFiles) {
-      if (processedFiles % 20 === 0) {
+      if (processedFiles % 50 === 0 && processedFiles > 0) {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 
@@ -251,15 +281,10 @@ export class StagedAnalysisEngine {
       localEdgesCount += localResult.localEdges;
       this.state.instantiationEvents.push(...localResult.instantiationEvents);
 
-      // Collect expressions for import analysis
-      const callExpressions: Node[] = [];
-      const newExpressions: Node[] = [];
-      this.collectUnresolvedExpressions(sourceFile, callExpressions, newExpressions, fileFunctions);
-
-      // Stage 2: Import Exact Analysis
+      // Stage 2: Import Exact Analysis (use unresolved nodes from Local analysis)
       const importResult = await this.importExactStage.analyzeImportCalls(
-        callExpressions,
-        newExpressions,
+        localResult.unresolvedCallNodes,
+        localResult.unresolvedNewNodes,
         functions,
         this.state
       );
@@ -277,105 +302,7 @@ export class StagedAnalysisEngine {
     return { localEdges: localEdgesCount, importEdges: importEdgesCount };
   }
 
-  /**
-   * Collect expressions that weren't resolved by local analysis
-   */
-  private collectUnresolvedExpressions(
-    sourceFile: SourceFile,
-    callExpressions: Node[],
-    newExpressions: Node[],
-    fileFunctions: FunctionMetadata[]
-  ): void {
-    const stack: Node[] = [sourceFile];
 
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-
-      if (Node.isCallExpression(current)) {
-        // Only add if not already resolved locally
-        const edgeKey = this.generateCallEdgeKey(current, fileFunctions);
-        if (edgeKey && !this.state.edgeKeys.has(edgeKey)) {
-          callExpressions.push(current);
-        }
-      } else if (Node.isNewExpression(current)) {
-        const edgeKey = this.generateNewEdgeKey(current, fileFunctions);
-        if (edgeKey && !this.state.edgeKeys.has(edgeKey)) {
-          newExpressions.push(current);
-        }
-      }
-
-      // Add children to stack
-      for (const child of current.getChildren()) {
-        stack.push(child);
-      }
-    }
-  }
-
-  /**
-   * Generate edge key for call expression
-   */
-  private generateCallEdgeKey(callExpr: CallExpression, fileFunctions: FunctionMetadata[]): string | undefined {
-    // This is a simplified version - implement full edge key generation logic
-    const caller = this.findContainingFunction(callExpr, fileFunctions);
-    if (!caller) return undefined;
-
-    const expression = callExpr.getExpression();
-    let calleeSignature = 'unknown';
-    
-    if (Node.isIdentifier(expression)) {
-      calleeSignature = expression.getText();
-    } else if (Node.isPropertyAccessExpression(expression)) {
-      calleeSignature = expression.getName();
-    }
-
-    return `${caller.id}->${calleeSignature}`;
-  }
-
-  /**
-   * Generate edge key for new expression
-   */
-  private generateNewEdgeKey(newExpr: NewExpression, fileFunctions: FunctionMetadata[]): string | undefined {
-    const caller = this.findContainingFunction(newExpr, fileFunctions);
-    if (!caller) return undefined;
-
-    const expression = newExpr.getExpression();
-    let className = 'unknown';
-    
-    if (Node.isIdentifier(expression)) {
-      className = expression.getText();
-    }
-
-    return `${caller.id}->new ${className}`;
-  }
-
-  /**
-   * Find containing function for a node
-   */
-  private findContainingFunction(node: Node, fileFunctions: FunctionMetadata[]): FunctionMetadata | undefined {
-    let current = node.getParent();
-
-    while (current) {
-      if (Node.isFunctionDeclaration(current) || 
-          Node.isMethodDeclaration(current) || 
-          Node.isArrowFunction(current) || 
-          Node.isFunctionExpression(current) || 
-          Node.isConstructorDeclaration(current)) {
-        
-        const startLine = current.getStartLineNumber();
-        const endLine = current.getEndLineNumber();
-
-        // Find matching function
-        const match = fileFunctions.find(f => 
-          f.startLine === startLine && f.endLine === endLine
-        );
-        if (match) return match;
-      }
-
-      current = current.getParent();
-    }
-
-    return undefined;
-  }
 
   /**
    * Build lookup maps for efficient analysis

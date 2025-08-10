@@ -23,6 +23,9 @@ export enum ErrorCode {
   PARSING_FAILED = 'PARSING_FAILED',
   FILE_NOT_ACCESSIBLE = 'FILE_NOT_ACCESSIBLE',
   ANALYSIS_TIMEOUT = 'ANALYSIS_TIMEOUT',
+  
+  // Resource errors
+  NOT_FOUND = 'NOT_FOUND',
 
   // Generic errors
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
@@ -148,6 +151,16 @@ export class ErrorHandler {
             'Increase timeout with --timeout option',
             'Process smaller batches of files',
             'Exclude large or complex files',
+          ],
+        };
+      
+      case ErrorCode.NOT_FOUND:
+        return {
+          recoverable: true,
+          recoveryActions: [
+            'Check that the resource exists',
+            'Verify the name is correct',
+            'Run funcqc scan if data is missing',
           ],
         };
 

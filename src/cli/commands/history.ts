@@ -148,11 +148,23 @@ function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
         ? formatDuration(snapshots[0].createdAt - snapshots[snapshots.length - 1].createdAt)
         : 'single snapshot',
       averageFunctionsPerSnapshot: snapshots.length > 0 
-        ? Math.round(snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0) / snapshots.length)
+        ? Math.round(snapshots.reduce((sum, s) => sum + (s.metadata.totalFunctions ?? 0), 0) / snapshots.length)
         : 0,
       overallAvgComplexity: snapshots.length > 0
-        ? (snapshots.reduce((sum, s) => sum + s.metadata.avgComplexity * s.metadata.totalFunctions, 0) / 
-           snapshots.reduce((sum, s) => sum + s.metadata.totalFunctions, 0))
+        ? (() => {
+            const denom = snapshots.reduce(
+              (sum, s) => sum + (s.metadata.totalFunctions ?? 0),
+              0
+            );
+            if (denom === 0) return 0;
+            const numer = snapshots.reduce(
+              (sum, s) =>
+                sum +
+                (s.metadata.avgComplexity ?? 0) * (s.metadata.totalFunctions ?? 0),
+              0
+            );
+            return numer / denom;
+          })()
         : 0,
       gitBranches: Array.from(new Set(snapshots.filter(s => s.gitBranch).map(s => s.gitBranch)))
     }
@@ -201,15 +213,15 @@ function displayCompactHistory(snapshots: SnapshotInfo[]): void {
     const label = truncateWithEllipsis(snapshot.label || '', 19).padEnd(19);
 
     // Functions with diff (only compare with same scope)
-    const currentFunctions = snapshot.metadata.totalFunctions;
-    const prevFunctions = prevSnapshot?.metadata.totalFunctions || 0;
+    const currentFunctions = snapshot.metadata.totalFunctions ?? 0;
+    const prevFunctions = prevSnapshot?.metadata.totalFunctions ?? 0;
     const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
     const functionsDisplay = currentFunctions.toString().padStart(9);
     const functionsDiffDisplay = formatDiffValue(functionDiff, 8);
 
     // Files count (only compare with same scope)
-    const currentFiles = snapshot.metadata.totalFiles;
-    const prevFiles = prevSnapshot?.metadata.totalFiles || 0;
+    const currentFiles = snapshot.metadata.totalFiles ?? 0;
+    const prevFiles = prevSnapshot?.metadata.totalFiles ?? 0;
     const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
     const filesDisplay = currentFiles.toString().padStart(5);
     const filesDiffDisplay = formatDiffValue(filesDiff, 6);
@@ -320,7 +332,7 @@ export function formatFileCountWithDiff(currentCount: number, diff: number): str
 
 export function formatSizeDisplay(metadata: SnapshotMetadata): string {
   // Rough estimation: average 50 LOC per function
-  const estimatedLOC = metadata.totalFunctions * 50;
+  const estimatedLOC = (metadata.totalFunctions ?? 0) * 50;
   
   if (estimatedLOC === 0) {
     return '0'.padStart(10);

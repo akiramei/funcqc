@@ -73,8 +73,8 @@ async function listTables(env: CommandEnvironment): Promise<void> {
     console.log(chalk.cyan('📋 Available Tables:'));
     console.log();
     
-    const resultArray = result as Array<{ rows: { table_name: string }[] }>;
-    const tables = resultArray[0]?.rows?.map(row => row.table_name) || [];
+    const rows = extractRows(result) as Array<{ table_name?: string }>;
+    const tables = rows.map(r => r.table_name).filter(Boolean) as string[];
     
     if (tables.length === 0) {
       console.log(chalk.yellow('No tables found. Run `funcqc scan` to create data.'));

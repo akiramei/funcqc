@@ -44,11 +44,14 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     if (callEdges.length === 0) return;
 
     try {
-      // Temporarily use individual inserts to avoid bulk insert issues
-      if (false && callEdges.length >= 50) {
+      // Conservative approach: keep existing threshold but with improved chunking
+      if (callEdges.length >= 10) {
         await this.insertCallEdgesBulk(snapshotId, callEdges);
       } else {
-        await this.insertCallEdgesIndividual(snapshotId, callEdges);
+        // Use existing individual insert for small batches
+        await this.db.transaction(async (trx: PGTransaction) => {
+          await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+        });
       }
       
       this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId}`);
@@ -79,10 +82,31 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }
   }
 
+
+
   /**
    * Insert call edges using bulk insert for better performance
+   * Processes large datasets in optimized chunks
    */
   private async insertCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    // Conservative chunking - keep existing approach with smaller chunk size
+    const CHUNK_SIZE = 500; // Reduced from 1000 for better PGLite performance
+    
+    if (callEdges.length <= CHUNK_SIZE) {
+      await this.insertCallEdgesChunk(snapshotId, callEdges);
+    } else {
+      // Process in chunks sequentially 
+      for (let i = 0; i < callEdges.length; i += CHUNK_SIZE) {
+        const chunk = callEdges.slice(i, i + CHUNK_SIZE);
+        await this.insertCallEdgesChunk(snapshotId, chunk);
+      }
+    }
+  }
+
+  /**
+   * Insert a single chunk of call edges
+   */
+  private async insertCallEdgesChunk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
       id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
@@ -104,10 +128,70 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
-      await this.kysely
-        .insertInto('call_edges')
-        .values(callEdgeRows)
-        .execute();
+      // Sanitize data to remove NUL characters that cause "invalid message format" error
+      const sanitizedRows = callEdgeRows.map(row => {
+        const sanitizedRow = { ...row };
+        
+        // Remove NUL characters from string fields
+        const stringFields = ['id', 'callee_name', 'callee_signature', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context'] as const;
+        for (const field of stringFields) {
+          const value = sanitizedRow[field as keyof typeof sanitizedRow];
+          if (typeof value === 'string') {
+            (sanitizedRow as Record<string, unknown>)[field] = value.replaceAll('\u0000', '\uFFFD');
+          }
+        }
+        
+        // Sanitize metadata JSON
+        if (sanitizedRow.metadata) {
+          const metadataStr = JSON.stringify(sanitizedRow.metadata);
+          if (metadataStr.includes('\u0000')) {
+            const cleanMetadataStr = metadataStr.replaceAll('\u0000', '\uFFFD');
+            sanitizedRow.metadata = JSON.parse(cleanMetadataStr);
+          }
+        }
+        
+        return sanitizedRow;
+      });
+
+      // Use JSON bulk insert approach for better PGLite compatibility
+      const payload = JSON.stringify(sanitizedRows);
+      
+      const sql = `
+        WITH payload AS (SELECT $1::jsonb AS data)
+        INSERT INTO call_edges (
+          id, snapshot_id, caller_function_id, callee_function_id,
+          callee_name, callee_signature, caller_class_name, callee_class_name,
+          call_type, call_context, line_number, column_number,
+          is_async, is_chained, confidence_score, metadata, created_at
+        )
+        SELECT
+          t.id, t.snapshot_id, t.caller_function_id, t.callee_function_id,
+          t.callee_name, t.callee_signature, t.caller_class_name, t.callee_class_name,
+          t.call_type, t.call_context, t.line_number::int, t.column_number::int,
+          t.is_async::boolean, t.is_chained::boolean, t.confidence_score::real, 
+          t.metadata::jsonb, t.created_at::timestamptz
+        FROM jsonb_to_recordset((SELECT data FROM payload)) AS t(
+          id text,
+          snapshot_id text,
+          caller_function_id text,
+          callee_function_id text,
+          callee_name text,
+          callee_signature text,
+          caller_class_name text,
+          callee_class_name text,
+          call_type text,
+          call_context text,
+          line_number int,
+          column_number int,
+          is_async boolean,
+          is_chained boolean,
+          confidence_score real,
+          metadata jsonb,
+          created_at timestamptz
+        )
+      `;
+      
+      await this.db.query(sql, [payload]);
     } catch (error) {
       this.logger?.error(`Failed to bulk insert call edges: ${error}`);
       this.logger?.error(`Sample row data: ${JSON.stringify(callEdgeRows[0], null, 2)}`);
@@ -115,47 +199,6 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }
   }
 
-  /**
-   * Insert call edges individually (for smaller batches)
-   */
-  private async insertCallEdgesIndividual(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edge of callEdges) {
-      const params = [
-        edge.id || uuidv4(),
-        snapshotId,
-        edge.callerFunctionId,
-        edge.calleeFunctionId,
-        edge.calleeName,
-        edge.calleeSignature || null,
-        edge.callerClassName || null,
-        edge.calleeClassName || null,
-        edge.callType || 'direct',
-        this.mapCallContext(edge.callContext),
-        edge.lineNumber || 0,
-        edge.columnNumber || 0,
-        edge.isAsync || false,
-        edge.isChained || false,
-        edge.confidenceScore || 1.0,
-        edge.metadata ? JSON.stringify(edge.metadata) : '{}',
-      ];
-      
-      try {
-        await this.db.query(
-          `
-          INSERT INTO call_edges (
-            id, snapshot_id, caller_function_id, callee_function_id, callee_name,
-            callee_signature, caller_class_name, callee_class_name, call_type, call_context,
-            line_number, column_number, is_async, is_chained, confidence_score, metadata
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-          `,
-          params
-        );
-      } catch (error) {
-        this.logger?.error(`Failed to insert call edge: ${error}, params: ${JSON.stringify(params.slice(0, 5))}`);
-        throw error;
-      }
-    }
-  }
 
   /**
    * Insert call edges individually within a transaction
@@ -198,12 +241,15 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert internal call edges (optimized version)
    */
   async insertInternalCallEdges(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    const internalEdges = callEdges.filter(edge => edge.callType === 'direct');
+    // Include all internal call types (direct, async, conditional, dynamic)
+    // Only exclude external calls if needed
+    const internalEdges = callEdges.filter(edge => edge.callType !== 'external');
     
     if (internalEdges.length === 0) return;
 
     try {
-      if (internalEdges.length >= 50) {
+      // Conservative threshold with improved filter
+      if (internalEdges.length >= 10) {
         await this.insertInternalCallEdgesBulk(snapshotId, internalEdges);
       } else {
         await this.insertInternalCallEdgesIndividual(snapshotId, internalEdges);
@@ -226,27 +272,77 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     const internalCallEdgeRows = callEdges.map(edge => ({
       id: edge.id || uuidv4(),
       snapshot_id: snapshotId,
+      file_path: (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId!,
+      caller_name: (edge.metadata as Record<string, unknown>)?.['callerName'] || 'unknown', // Use actual caller function name
       callee_name: edge.calleeName,
-      line_number: edge.lineNumber,
-      column_number: edge.columnNumber,
+      caller_class_name: edge.callerClassName || null,
+      callee_class_name: edge.calleeClassName || null,
+      line_number: edge.lineNumber || null,
+      column_number: edge.columnNumber || null,
       call_type: edge.callType || 'direct',
+      call_context: edge.callContext || 'normal',
+      confidence_score: edge.confidenceScore || 1.0,
+      detected_by: (edge.metadata as Record<string, unknown>)?.['detectedBy'] || 'ast',
     }));
 
-    // Use direct SQL instead of Kysely for now to avoid type issues
-    for (const row of internalCallEdgeRows) {
-      await this.db.query(
-        `INSERT INTO internal_call_edges (
-          id, snapshot_id, caller_function_id, callee_function_id, callee_name,
-          line_number, column_number, call_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [
-          row.id, row.snapshot_id, row.caller_function_id, row.callee_function_id,
-          row.callee_name, row.line_number, row.column_number,
-          row.call_type
-        ]
-      );
+    try {
+      // Sanitize data to remove NUL characters
+      const sanitizedRows = internalCallEdgeRows.map(row => {
+        const sanitizedRow = { ...row };
+        
+        // Remove NUL characters from string fields
+        const stringFields = ['id', 'file_path', 'caller_name', 'callee_name', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context', 'detected_by'] as const;
+        for (const field of stringFields) {
+          const value = sanitizedRow[field as keyof typeof sanitizedRow];
+          if (typeof value === 'string') {
+            (sanitizedRow as Record<string, unknown>)[field] = value.replaceAll('\u0000', '\uFFFD');
+          }
+        }
+        
+        return sanitizedRow;
+      });
+
+      // Use JSON bulk insert approach
+      const payload = JSON.stringify(sanitizedRows);
+      
+      const sql = `
+        WITH payload AS (SELECT $1::jsonb AS data)
+        INSERT INTO internal_call_edges (
+          id, snapshot_id, file_path, caller_function_id, callee_function_id, 
+          caller_name, callee_name, caller_class_name, callee_class_name,
+          line_number, column_number, call_type, call_context, confidence_score, detected_by
+        )
+        SELECT
+          t.id, t.snapshot_id, t.file_path, t.caller_function_id, t.callee_function_id,
+          t.caller_name, t.callee_name, t.caller_class_name, t.callee_class_name,
+          t.line_number::int, t.column_number::int, t.call_type, t.call_context, 
+          t.confidence_score::real, t.detected_by
+        FROM jsonb_to_recordset((SELECT data FROM payload)) AS t(
+          id text,
+          snapshot_id text,
+          file_path text,
+          caller_function_id text,
+          callee_function_id text,
+          caller_name text,
+          callee_name text,
+          caller_class_name text,
+          callee_class_name text,
+          line_number int,
+          column_number int,
+          call_type text,
+          call_context text,
+          confidence_score real,
+          detected_by text
+        )
+      `;
+      
+      await this.db.query(sql, [payload]);
+    } catch (error) {
+      this.logger?.error(`Failed to bulk insert internal call edges: ${error}`);
+      this.logger?.error(`Sample row data: ${JSON.stringify(internalCallEdgeRows[0], null, 2)}`);
+      throw error;
     }
   }
 
@@ -258,19 +354,27 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       await this.db.query(
         `
         INSERT INTO internal_call_edges (
-          id, snapshot_id, caller_function_id, callee_function_id, callee_name,
-          line_number, column_number, call_type
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          id, snapshot_id, file_path, caller_function_id, callee_function_id,
+          caller_name, callee_name, caller_class_name, callee_class_name,
+          line_number, column_number, call_type, call_context, confidence_score, detected_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         `,
         [
           edge.id || uuidv4(),
           snapshotId,
+          (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
           edge.callerFunctionId,
           edge.calleeFunctionId,
+          (edge.metadata as Record<string, unknown>)?.['callerName'] || 'unknown', // Use actual caller function name
           edge.calleeName,
+          edge.callerClassName || null,
+          edge.calleeClassName || null,
           edge.lineNumber || null,
           edge.columnNumber || null,
           edge.callType || 'direct',
+          edge.callContext || 'normal',
+          edge.confidenceScore || 1.0,
+          (edge.metadata as Record<string, unknown>)?.['detectedBy'] || 'ast',
         ]
       );
     }

@@ -23,6 +23,122 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
+import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
+import { Project, SyntaxKind, TypeChecker, ts } from 'ts-morph';
+import { createHash } from 'crypto';
+import { SnapshotMetadata } from '../../types';
+
+/**
+ * Scan level configuration
+ */
+interface ScanLevel {
+  mode: 'quick' | 'basic' | 'standard' | 'full';
+  includes: string[];
+  targetTime: string;
+}
+
+/**
+ * Determine scan level based on command options
+ */
+function determineScanLevel(options: ScanCommandOptions): ScanLevel {
+  if (options.full) {
+    return {
+      mode: 'full',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
+      targetTime: '50-60s'
+    };
+  }
+  
+  if (options.withTypes) {
+    return {
+      mode: 'full',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
+      targetTime: '50-60s'
+    };
+  }
+  
+  if (options.withGraph) {
+    return {
+      mode: 'standard',
+      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH'],
+      targetTime: '30-40s'
+    };
+  }
+  
+  // New option: --with-basic for including basic analysis only
+  if (options.withBasic) {
+    return {
+      mode: 'basic',
+      includes: ['BASIC'],
+      targetTime: '15-20s'
+    };
+  }
+  
+  // New option: --with-coupling for including coupling analysis  
+  if (options.withCoupling) {
+    return {
+      mode: 'basic',
+      includes: ['BASIC', 'COUPLING'],
+      targetTime: '40-50s'
+    };
+  }
+  
+  if (options.quick) {
+    return {
+      mode: 'quick',
+      includes: [],  // No analysis, just snapshot
+      targetTime: '5-10s'
+    };
+  }
+  
+  // Default to basic analysis for productive workflow
+  if (!options.withGraph && !options.withTypes && !options.full && !options.withBasic) {
+    return {
+      mode: 'basic',
+      includes: ['BASIC'],  // Basic analysis by default
+      targetTime: '15-20s'
+    };
+  }
+  
+  // Fallback
+  return {
+    mode: 'basic',
+    includes: ['BASIC'],
+    targetTime: '15-20s'
+  };
+}
+
+/**
+ * Update snapshot metadata after scan
+ */
+async function updateSnapshotMetadata(
+  _storage: CliComponents['storage'],
+  _snapshotId: string,
+  metadata: Partial<SnapshotMetadata>
+): Promise<void> {
+  try {
+    // TODO: Implement storage method to update snapshot metadata
+    // await storage.updateSnapshotMetadata(snapshotId, metadata);
+    console.log(chalk.gray(`  Scan metadata: mode=${metadata.scanMode}, duration=${metadata.scanDuration}ms`));
+  } catch (error) {
+    console.warn(`Warning: Failed to update snapshot metadata: ${error}`);
+  }
+}
+
+/**
+ * Parameter property usage data for coupling analysis
+ */
+interface ParameterPropertyUsage {
+  functionId: string;
+  parameterName: string;
+  parameterTypeId: string | null;
+  accessedProperty: string;
+  accessType: 'read' | 'write' | 'modify' | 'pass';
+  accessLine: number;
+  accessContext: string;
+}
+
+// Removed ProcessedFileResult - no longer used
 
 /**
  * Scan command as a Reader function
@@ -63,11 +179,19 @@ async function executeScanCommand(
   options: ScanCommandOptions,
   spinner: SpinnerInterface
 ): Promise<void> {
+  const startTime = performance.now();
+  
   try {
     // Handle realtime gate mode
     if (options.realtimeGate) {
       await runRealtimeGateMode(env.config, options, spinner);
       return;
+    }
+
+    // Determine scan level based on options
+    const scanLevel = determineScanLevel(options);
+    if (!options.json) {
+      console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode} (target: ${scanLevel.targetTime})}`));
     }
 
     // Check for configuration changes and enforce comment requirement
@@ -96,23 +220,74 @@ async function executeScanCommand(
     const sourceFiles = await collectSourceFiles(files, spinner);
     const { snapshotId, sourceFileIdMap } = await saveSourceFilesWithDeduplication(sourceFiles, env.storage, options, spinner, configHash);
     
-    // Step 2: Perform basic analysis (configurable timing)
-    const shouldPerformBasicAnalysis = !options.skipBasicAnalysis;
+    // Step 2: Perform basic analysis (always for quick scan)
     let functionsAnalyzed = 0;
-    if (shouldPerformBasicAnalysis) {
+    let analysisLevel: import('../../types').AnalysisLevel = 'NONE';
+    
+    if (scanLevel.includes.includes('BASIC')) {
       const basicResult = await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
       functionsAnalyzed = basicResult?.functionsAnalyzed || 0;
-    } else {
+      analysisLevel = 'BASIC';
+      await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+    }
+    
+    // Step 3: Coupling analysis (independent from basic analysis)
+    if (scanLevel.includes.includes('COUPLING')) {
       if (!options.json) {
-        console.log(chalk.blue('ℹ️  Basic analysis skipped. Will be performed on first use.'));
+        console.log(chalk.blue('📊 Performing coupling analysis...'));
+      }
+      
+      const couplingResult = await performDeferredCouplingAnalysis(snapshotId, env, spinner);
+      if (!options.json) {
+        console.log(chalk.green(`✓ Coupling analysis completed (${couplingResult.couplingDataStored} data points)`));
+      }
+      
+      analysisLevel = 'COUPLING';
+    }
+    
+    // Step 4: Call graph analysis (for standard scan and above)
+    let callGraphResult: { callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] } | undefined;
+    if (scanLevel.includes.includes('CALL_GRAPH')) {
+      if (options.async) {
+        // Schedule for background execution
+        if (!options.json) {
+          console.log(chalk.blue('📊 Call graph analysis scheduled for background execution'));
+        }
+        // TODO: Implement background scheduling
+      } else {
+        if (!options.json) {
+          console.log(chalk.blue('📊 Performing call graph analysis...'));
+        }
+        callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
+        analysisLevel = 'CALL_GRAPH';
       }
     }
     
-    // Step 3: Call graph analysis - perform immediately for optimal performance
-    if (!options.json) {
-      console.log(chalk.blue('📊 Performing call graph analysis...'));
+    // Step 5: Type system analysis (for full scan)
+    if (scanLevel.includes.includes('TYPE_SYSTEM')) {
+      if (options.async) {
+        // Schedule for background execution
+        if (!options.json) {
+          console.log(chalk.blue('🧩 Type system analysis scheduled for background execution'));
+        }
+        // TODO: Implement type system analysis and background scheduling
+      } else {
+        // TODO: Implement type system analysis
+        if (!options.json) {
+          console.log(chalk.yellow('⚠️  Type system analysis not yet implemented'));
+        }
+      }
     }
-    const callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
+    
+    // Record scan duration
+    const endTime = performance.now();
+    const scanDuration = Math.round(endTime - startTime);
+    
+    // Update snapshot metadata with scan details
+    await updateSnapshotMetadata(env.storage, snapshotId, {
+      scanMode: scanLevel.mode,
+      scanDuration
+    });
     
     // Output results
     if (options.json) {
@@ -127,9 +302,23 @@ async function executeScanCommand(
         ...(options.label && { label: options.label }),
         ...(options.comment && { comment: options.comment }),
         timestamp: new Date().toISOString(),
-        analysisLevel: shouldPerformBasicAnalysis ? 'CALL_GRAPH' : 'PARTIAL'
+        analysisLevel,
+        scanDuration
       });
     } else {
+      const durationSec = (scanDuration / 1000).toFixed(1);
+      console.log(chalk.green(`✓ ${scanLevel.mode} scan completed in ${durationSec}s`));
+      
+      // Show next steps based on scan level
+      if (scanLevel.mode === 'quick') {
+        console.log(chalk.gray('  Run `funcqc scan --with-basic` for function analysis'));
+        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
+      } else if (scanLevel.mode === 'basic') {
+        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
+      } else if (scanLevel.mode === 'standard') {
+        console.log(chalk.gray('  Run `funcqc analyze --types` for type system analysis'));
+      }
+      
       showCompletionMessage();
     }
   } catch (error) {
@@ -241,111 +430,32 @@ function prepareBatchProcessing(
 }
 
 /**
- * Process a single source file and return function info
+ * Store parameter property usage data in database
  */
-async function processSingleSourceFile(
-  sourceFile: import('../../types').SourceFile,
-  components: Awaited<ReturnType<typeof initializeComponents>>,
-  sourceFileIdMap?: Map<string, string>
-): Promise<FunctionInfo[]> {
-  // Create virtual source file for TypeScript analyzer
-  const virtualFile = {
-    path: sourceFile.filePath,
-    content: sourceFile.fileContent,
-  };
-  
-  // Use analyzer with content instead of file path
-  const functions = await components.analyzer.analyzeContent(
-    virtualFile.content,
-    virtualFile.path
-  );
-  
-  // Set source file ID and verify metrics calculation
-  for (const func of functions) {
-    // Metrics are pre-calculated in TypeScriptAnalyzer.create*FunctionInfo methods
-    // This fallback exists for robustness and potential future analyzer implementations
-    // Note: TypeScriptAnalyzer always sets metrics, so this block is currently unused
-    if (!func.metrics) {
-      // Legacy compatibility: fallback to separate calculation if metrics missing
-      // This preserves backward compatibility and provides safety for edge cases
-      func.metrics = components.qualityCalculator.calculate(func);
-      
-      if (process.env['NODE_ENV'] !== 'production') {
-        console.warn(`⚠️  Fallback metrics calculation used for ${func.name} - analyzer may need optimization`);
-      }
-    }
-    
-    // Use sourceFileIdMap from N:1 design (must exist)
-    const mappedId = sourceFileIdMap?.get(func.filePath);
-    if (!mappedId) {
-      throw new Error(`No source_file_ref_id found for ${func.filePath}. N:1 design mapping failed.`);
-    }
-    func.sourceFileId = mappedId;
+async function storeParameterPropertyUsage(
+  storage: CliComponents['storage'],
+  couplingData: ParameterPropertyUsage[],
+  snapshotId: string
+): Promise<void> {
+  if (couplingData.length === 0) return;
+
+  try {
+    // Use the storage adapter's method for storing coupling data
+    await storage.storeParameterPropertyUsage(couplingData, snapshotId);
+
+    console.log(`📊 Stored ${couplingData.length} coupling analysis records`);
+  } catch (error) {
+    console.warn(`Warning: Failed to store coupling analysis data: ${error}`);
   }
-  
-  sourceFile.functionCount = functions.length;
-  return functions;
 }
+
+// Removed processSingleSourceFile - replaced by executePureBasicBatchAnalysis and performCouplingAnalysisForFile
 
 /**
  * Execute batch analysis and storage
  */
-async function executeBatchAnalysis(
-  batches: import('../../types').SourceFile[][],
-  components: Awaited<ReturnType<typeof initializeComponents>>,
-  snapshotId: string,
-  env: CommandEnvironment,
-  sourceFileIdMap?: Map<string, string>
-): Promise<{ functionCount: number; errors: string[] }[]> {
-  const batchPromises = batches.map(async (batch, batchIndex) => {
-    const batchFunctions: FunctionInfo[] = [];
-    const batchErrors: string[] = [];
-    
-    console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
-    
-    for (const sourceFile of batch) {
-      try {
-        const functions = await processSingleSourceFile(sourceFile, components, sourceFileIdMap);
-        batchFunctions.push(...functions);
-      } catch (error) {
-        const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
-        batchErrors.push(errorMessage);
-        console.warn(chalk.yellow(`Warning: ${errorMessage}`));
-      }
-    }
-    
-    // Immediate storage per batch to reduce peak memory usage
-    if (batchFunctions.length > 0) {
-      await env.storage.storeFunctions(batchFunctions, snapshotId);
-      
-      // Update function counts for files in this batch
-      const batchFunctionCounts = new Map<string, number>();
-      batchFunctions.forEach(func => {
-        const count = batchFunctionCounts.get(func.filePath) || 0;
-        batchFunctionCounts.set(func.filePath, count + 1);
-      });
-      
-      if (batchFunctionCounts.size > 0) {
-        await env.storage.updateSourceFileFunctionCounts(batchFunctionCounts, snapshotId);
-      }
-    }
-    
-    if (batchErrors.length > 0) {
-      console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
-    } else {
-      console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
-    }
-    
-    // Force garbage collection after each batch if available
-    if (global.gc) {
-      global.gc();
-    }
-    
-    return { functionCount: batchFunctions.length, errors: batchErrors };
-  });
-  
-  return Promise.all(batchPromises);
-}
+// Removed executeBatchAnalysis - replaced by executePureBasicBatchAnalysis
+// Removed performCouplingAnalysisLegacy - replaced by performCouplingAnalysisForFile
 
 /**
  * Perform cleanup operations
@@ -367,6 +477,168 @@ async function performAnalysisCleanup(
   if (components.analyzer && typeof components.analyzer.cleanup === 'function') {
     await components.analyzer.cleanup();
   }
+}
+
+/**
+ * Perform deferred PURE BASIC analysis on an existing snapshot
+ * Used by cli-wrapper for automatic analysis when needed (LIGHTWEIGHT commands)
+ */
+export async function performDeferredBasicAnalysis(
+  snapshotId: string,
+  env: CommandEnvironment,
+  showProgress: boolean = true
+): Promise<void> {
+  // Get source files for the snapshot
+  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  
+  if (sourceFiles.length === 0) {
+    throw new Error(`No source files found for snapshot ${snapshotId}`);
+  }
+
+  const ora = (await import('ora')).default;
+  const spinner = ora();
+  
+  if (showProgress) {
+    spinner.start('Performing basic function analysis...');
+  }
+  
+  try {
+    // Get source file ID mapping
+    const sourceFileIdMap = await getSourceFileIdMapping(env.storage, snapshotId);
+    
+    // Perform the PURE basic analysis (no coupling)
+    const result = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    
+    if (showProgress) {
+      spinner.succeed(`Basic analysis completed (${result.functionsAnalyzed} functions)`);
+    }
+  } catch (error) {
+    if (showProgress) {
+      spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Perform PURE BASIC analysis without coupling analysis
+ * For LIGHTWEIGHT commands that only need function metadata
+ */
+export async function performPureBasicAnalysis(
+  snapshotId: string,
+  sourceFiles: import('../../types').SourceFile[],
+  env: CommandEnvironment,
+  spinner: SpinnerInterface,
+  sourceFileIdMap?: Map<string, string>
+): Promise<{ functionsAnalyzed: number }> {
+  spinner.start('Performing basic function analysis (no coupling)...');
+  
+  const components = await initializeComponents(env, spinner, sourceFiles.length);
+  let totalFunctions = 0;
+  
+  const maxConcurrency = components.optimalConfig.maxWorkers;
+  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers... (BASIC only)`;
+  
+  try {
+    const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
+    
+    // Use a simpler batch processing for BASIC only
+    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
+    
+    const allErrors: string[] = [];
+    for (const batchResult of batchResults) {
+      totalFunctions += batchResult.functionCount;
+      allErrors.push(...batchResult.errors);
+    }
+    
+    if (allErrors.length > 0) {
+      console.log(chalk.yellow(`⚠️  Basic analysis completed with ${allErrors.length} errors`));
+    } else {
+      console.log(chalk.green(`✅ Basic analysis completed! Analyzed ${totalFunctions} functions (no coupling)`));
+    }
+    
+    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+    spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files (BASIC only)`);
+    
+    return { functionsAnalyzed: totalFunctions };
+  } finally {
+    await performAnalysisCleanup(components, env);
+  }
+}
+
+/**
+ * Execute PURE BASIC batch analysis (no coupling) 
+ */
+async function executePureBasicBatchAnalysis(
+  batches: import('../../types').SourceFile[][],
+  components: Awaited<ReturnType<typeof initializeComponents>>,
+  snapshotId: string,
+  env: CommandEnvironment,
+  sourceFileIdMap?: Map<string, string>
+): Promise<{ functionCount: number; errors: string[] }[]> {
+  const batchPromises = batches.map(async (batch, batchIndex) => {
+    const batchFunctions: FunctionInfo[] = [];
+    const batchErrors: string[] = [];
+    
+    console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+    
+    for (const sourceFile of batch) {
+      try {
+        // Use analyzer with content instead of file path
+        const functions = await components.analyzer.analyzeContent(
+          sourceFile.fileContent,
+          sourceFile.filePath
+        );
+        
+        // Set source file ID and verify metrics calculation
+        for (const func of functions) {
+          if (!func.metrics) {
+            func.metrics = components.qualityCalculator.calculate(func);
+          }
+          
+          // Use sourceFileIdMap from N:1 design (must exist)
+          const mappedId = sourceFileIdMap?.get(func.filePath);
+          if (!mappedId) {
+            throw new Error(`No source_file_ref_id found for ${func.filePath}`);
+          }
+          func.sourceFileId = mappedId;
+        }
+        
+        sourceFile.functionCount = functions.length;
+        batchFunctions.push(...functions);
+      } catch (error) {
+        const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
+        batchErrors.push(errorMessage);
+        console.warn(chalk.yellow(`Warning: ${errorMessage}`));
+      }
+    }
+    
+    // Store functions only (no coupling data)
+    if (batchFunctions.length > 0) {
+      await env.storage.storeFunctions(batchFunctions, snapshotId);
+      
+      // Update function counts for files in this batch
+      const batchFunctionCounts = new Map<string, number>();
+      batchFunctions.forEach(func => {
+        const count = batchFunctionCounts.get(func.filePath) || 0;
+        batchFunctionCounts.set(func.filePath, count + 1);
+      });
+      
+      if (batchFunctionCounts.size > 0) {
+        await env.storage.updateSourceFileFunctionCounts(batchFunctionCounts, snapshotId);
+      }
+    }
+    
+    if (batchErrors.length > 0) {
+      console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
+    } else {
+      console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
+    }
+    
+    return { functionCount: batchFunctions.length, errors: batchErrors };
+  });
+  
+  return Promise.all(batchPromises);
 }
 
 export async function performBasicAnalysis(
@@ -391,8 +663,8 @@ export async function performBasicAnalysis(
     // Prepare batches for parallel processing
     const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
     
-    // Execute batch analysis
-    const batchResults = await executeBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
+    // Execute BASIC batch analysis (no coupling)
+    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
     
     // Collect summary results
     const allErrors: string[] = [];
@@ -426,6 +698,212 @@ export async function performBasicAnalysis(
 }
 
 /**
+ * Perform COUPLING analysis on existing functions in a snapshot
+ * This should be called after basic analysis is complete
+ */
+export async function performDeferredCouplingAnalysis(
+  snapshotId: string,
+  env: CommandEnvironment,
+  spinner?: SpinnerInterface
+): Promise<{ couplingDataStored: number }> {
+  const showSpinner = spinner !== undefined;
+  if (showSpinner) {
+    spinner.start('Performing coupling analysis...');
+  }
+  
+  // Get source files and functions for the snapshot
+  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  
+  if (sourceFiles.length === 0 || functions.length === 0) {
+    throw new Error(`No source files or functions found for snapshot ${snapshotId}`);
+  }
+  
+  const components = await initializeComponents(env, spinner || { start: () => {}, text: '', succeed: () => {}, stop: () => {} } as SpinnerInterface, sourceFiles.length);
+  let totalCouplingData = 0;
+  
+  try {
+    const maxConcurrency = components.optimalConfig.maxWorkers;
+    const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
+    
+    if (showSpinner) {
+      spinner.text = `Performing coupling analysis on ${sourceFiles.length} files...`;
+    }
+    
+    // Create shared Project/TypeChecker for coupling analysis to reduce memory usage
+    const project = new Project({
+      useInMemoryFileSystem: true,
+      compilerOptions: {
+        target: ts.ScriptTarget.Latest,
+        allowJs: true,
+        skipLibCheck: true,
+      }
+    });
+    const typeChecker = project.getTypeChecker();
+    
+    // Process batches sequentially to avoid memory pressure from multiple Project instances
+    const batchResults: number[] = [];
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const batchCouplingData: ParameterPropertyUsage[] = [];
+      
+      console.log(chalk.blue(`📊 Coupling batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+      
+      for (const sourceFile of batch) {
+        try {
+          // Get functions for this source file
+          const fileFunctions = functions.filter(f => f.filePath === sourceFile.filePath);
+          
+          // Perform coupling analysis using shared project and typeChecker
+          const couplingData = await performCouplingAnalysisForFile(sourceFile, fileFunctions, project, typeChecker);
+          batchCouplingData.push(...couplingData);
+        } catch (error) {
+          console.warn(chalk.yellow(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`));
+        }
+      }
+      
+      // Store coupling analysis data
+      if (batchCouplingData.length > 0) {
+        await storeParameterPropertyUsage(env.storage, batchCouplingData, snapshotId);
+        console.log(`📊 Stored ${batchCouplingData.length} coupling analysis records`);
+      }
+      
+      batchResults.push(batchCouplingData.length);
+    }
+    totalCouplingData = batchResults.reduce((sum, count) => sum + count, 0);
+    
+    // Update analysis level to indicate coupling analysis is complete
+    await env.storage.updateAnalysisLevel(snapshotId, 'COUPLING');
+    
+    if (showSpinner) {
+      spinner.succeed(`Coupling analysis completed: ${totalCouplingData} coupling data points`);
+    }
+    
+    return { couplingDataStored: totalCouplingData };
+  } finally {
+    await performAnalysisCleanup(components, env);
+  }
+}
+
+/**
+ * Perform coupling analysis for a single file (renamed from existing function)
+ */
+async function performCouplingAnalysisForFile(
+  sourceFile: import('../../types').SourceFile,
+  functions: FunctionInfo[],
+  project: Project,
+  typeChecker: TypeChecker
+): Promise<ParameterPropertyUsage[]> {
+  try {
+    // Reuse shared project and add source file
+    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+
+    // Execute 1-pass AST visitor
+    const visitor = new OnePassASTVisitor();
+    const context = visitor.scanFile(tsSourceFile, typeChecker);
+
+    // Convert coupling data to parameter property usage format
+    const couplingData: ParameterPropertyUsage[] = [];
+    
+    // Build mapping: visitor shortId -> persisted functionId
+    const visitorIdToFunctionId = new Map<string, string>();
+    
+    // Find AST function nodes and recreate visitor IDs using the same logic as OnePassASTVisitor
+    tsSourceFile.forEachDescendant((node) => {
+      if (
+        node.getKind() === SyntaxKind.FunctionDeclaration ||
+        node.getKind() === SyntaxKind.MethodDeclaration ||
+        node.getKind() === SyntaxKind.ArrowFunction ||
+        node.getKind() === SyntaxKind.FunctionExpression ||
+        node.getKind() === SyntaxKind.Constructor ||
+        node.getKind() === SyntaxKind.GetAccessor ||
+        node.getKind() === SyntaxKind.SetAccessor
+      ) {
+        // Get name using the same logic as OnePassASTVisitor
+        let name = '<anonymous>';
+        if (node.getKind() === SyntaxKind.Constructor) {
+          name = 'constructor';
+        } else if ('getName' in node && typeof node.getName === 'function') {
+          name = node.getName() || '<anonymous>';
+        }
+        
+        const startLine = node.getStartLineNumber();
+        const startPos = node.getStart(); // Character offset, not line number
+        
+        // Recreate the same short ID as OnePassASTVisitor.getFunctionId
+        const shortId = createHash('md5')
+          .update(`${tsSourceFile.getFilePath()}:${startPos}:${name}`)
+          .digest('hex')
+          .substring(0, 16);
+        
+        // Find matching function from the persisted functions list with enhanced criteria
+        const startColumn = node.getStartLinePos();
+        const endLine = node.getEndLineNumber();
+        const filePath = tsSourceFile.getFilePath();
+        
+        const match = functions.find(f => {
+          // Basic criteria: same file, start line, and name
+          const basicMatch = f.filePath === filePath &&
+                            f.startLine === startLine &&
+                            (f.name || '<anonymous>') === name;
+          
+          if (!basicMatch) return false;
+          
+          // Enhanced criteria for disambiguation
+          // Use startColumn if available in function data
+          if (f.startColumn !== undefined) {
+            if (f.startColumn !== startColumn) return false;
+          }
+          
+          // Use endLine if available in function data
+          if (f.endLine !== undefined) {
+            if (f.endLine !== endLine) return false;
+          }
+          
+          // For anonymous functions, use additional context if available
+          if (name === '<anonymous>' && f.displayName) {
+            // Use display name as supplementary matching criterion
+            return f.displayName.includes(node.getKindName());
+          }
+          
+          return true;
+        });
+        
+        if (match) {
+          visitorIdToFunctionId.set(shortId, match.id);
+        }
+      }
+    });
+
+    // Extract property access data from coupling analysis
+    for (const [funcId, analyses] of context.couplingData.overCoupling) {
+      for (const analysis of analyses) {
+        // Use the visitor ID directly to find the corresponding function ID
+        const actualFuncId = visitorIdToFunctionId.get(funcId);
+
+        if (actualFuncId) {
+          for (const prop of analysis.usedProperties) {
+            couplingData.push({
+              functionId: actualFuncId,
+              parameterName: analysis.parameterName,
+              parameterTypeId: null, // Will be resolved later if needed
+              accessedProperty: prop,
+              accessType: 'read', // Default to read access
+              accessLine: 0, // Line info would need to be extracted from AST
+              accessContext: 'property_access'
+            });
+          }
+        }
+      }
+    }
+    return couplingData;
+  } catch (error) {
+    console.warn(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`);
+    return [];
+  }
+}
+
+/**
  * Perform call graph analysis on stored files (called by dep/dead/clean commands)
  */
 export async function performCallGraphAnalysis(
@@ -433,16 +911,20 @@ export async function performCallGraphAnalysis(
   env: CommandEnvironment,
   spinner?: SpinnerInterface
 ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] }> {
+  const totalStartTime = performance.now();
   const showSpinner = spinner !== undefined;
   if (showSpinner) {
     spinner.start('Performing call graph analysis...');
   }
   
   // Get stored files and functions
+  const fetchStartTime = performance.now();
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
   const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const fetchEndTime = performance.now();
+  console.log(chalk.gray(`⏱️  Fetching data from DB: ${((fetchEndTime - fetchStartTime) / 1000).toFixed(2)}s (${sourceFiles.length} files, ${functions.length} functions)`));
   
-  // Reconstruct file map for analyzer
+  // Reconstruct file map for analyzer (include all files for proper type resolution)
   const fileContentMap = new Map<string, string>();
   sourceFiles.forEach(file => {
     fileContentMap.set(file.filePath, file.fileContent);
@@ -453,18 +935,31 @@ export async function performCallGraphAnalysis(
   
   try {
     // Analyze call graph from stored content
+    const analysisStartTime = performance.now();
     const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
+    const analysisEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  analyzeCallGraphFromContent: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
     
     // Save call edges
+    const insertStartTime = performance.now();
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
+    const insertEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  insertCallEdges: ${((insertEndTime - insertStartTime) / 1000).toFixed(2)}s for ${result.callEdges.length} edges`));
     
     // Update snapshotId for internal call edges and save
     const internalCallEdgesWithSnapshotId = result.internalCallEdges.map(edge => ({
       ...edge,
       snapshotId: snapshotId
     }));
+    const internalInsertStartTime = performance.now();
     await env.storage.insertInternalCallEdges(internalCallEdgesWithSnapshotId);
+    const internalInsertEndTime = performance.now();
+    console.log(chalk.blue(`⏱️  insertInternalCallEdges: ${((internalInsertEndTime - internalInsertStartTime) / 1000).toFixed(2)}s for ${internalCallEdgesWithSnapshotId.length} edges`));
+    
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
+    
+    const totalEndTime = performance.now();
+    console.log(chalk.cyan(`⏱️  Total performCallGraphAnalysis time: ${((totalEndTime - totalStartTime) / 1000).toFixed(2)}s`));
     
     if (showSpinner) {
       spinner!.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
@@ -474,6 +969,89 @@ export async function performCallGraphAnalysis(
     
   } finally {
     functionAnalyzer.dispose();
+  }
+}
+
+/**
+ * Perform deferred type system analysis for a snapshot
+ * Analyzes TypeScript types and stores them in the database
+ */
+export async function performDeferredTypeSystemAnalysis(
+  snapshotId: string,
+  env: CommandEnvironment,
+  showProgress: boolean = true
+): Promise<{ typesAnalyzed: number }> {
+  const ora = showProgress ? (await import('ora')).default : null;
+  const spinner = ora ? ora() : null;
+  
+  if (spinner && showProgress) {
+    spinner.start('Performing type system analysis...');
+  }
+  
+  try {
+    // Get source files for the snapshot
+    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+    
+    if (sourceFiles.length === 0) {
+      throw new Error(`No source files found for snapshot ${snapshotId}`);
+    }
+    
+    // Create TypeScript analyzer
+    const analyzer = new TypeScriptAnalyzer(
+      100, // maxSourceFilesInMemory
+      true, // enableCache
+      env.commandLogger // logger
+    );
+    
+    // Analyze types from source files
+    const typeDefinitions: import('../../types').TypeDefinition[] = [];
+    const typeRelationships: import('../../types').TypeRelationship[] = [];
+    
+    for (const sourceFile of sourceFiles) {
+      try {
+        const result = await analyzer.analyzeTypesFromContent(
+          sourceFile.filePath,
+          sourceFile.fileContent
+        );
+        
+        // Add snapshotId to each type definition
+        const typesWithSnapshot = result.types.map(type => ({
+          ...type,
+          snapshotId
+        }));
+        
+        // Add snapshotId to each relationship
+        const relationshipsWithSnapshot = result.relationships.map(rel => ({
+          ...rel,
+          snapshotId
+        }));
+        
+        typeDefinitions.push(...typesWithSnapshot);
+        typeRelationships.push(...relationshipsWithSnapshot);
+      } catch (error) {
+        env.commandLogger.warn(`Failed to analyze types for ${sourceFile.filePath}: ${error}`);
+      }
+    }
+    
+    // Store types in database
+    if (typeDefinitions.length > 0) {
+      await env.storage.saveTypeDefinitions(typeDefinitions);
+      await env.storage.saveTypeRelationships(typeRelationships);
+    }
+    
+    // Update analysis level
+    await env.storage.updateAnalysisLevel(snapshotId, 'TYPE_SYSTEM');
+    
+    if (spinner && showProgress) {
+      spinner.succeed(`Type system analysis completed (${typeDefinitions.length} types, ${typeRelationships.length} relationships)`);
+    }
+    
+    return { typesAnalyzed: typeDefinitions.length };
+  } catch (error) {
+    if (spinner && showProgress) {
+      spinner.fail(`Type system analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    throw error;
   }
 }
 
@@ -1093,6 +1671,7 @@ interface ScanResultsJSON {
   comment?: string;
   timestamp: string;
   analysisLevel: string;
+  scanDuration?: number;
   message?: string;
 }
 

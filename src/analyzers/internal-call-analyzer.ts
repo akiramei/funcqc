@@ -1,5 +1,4 @@
 import { Project, SourceFile, CallExpression, NewExpression, Node, SyntaxKind } from 'ts-morph';
-import { v4 as uuidv4 } from 'uuid';
 import { FunctionInfo, InternalCallEdge } from '../types';
 import { Logger } from '../utils/cli-utils';
 
@@ -53,6 +52,17 @@ export class InternalCallAnalyzer {
         });
       }
 
+      // Precompute function-like nodes and an index (one pass per file)
+      const fnDecls = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
+      const methodDecls = sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration);
+      const arrowFns = sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction);
+      const fnExprs = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression);
+      const functionNodes = [...fnDecls, ...methodDecls, ...arrowFns, ...fnExprs];
+      const functionIndex = new Map<string, Node>();
+      for (const n of functionNodes) {
+        functionIndex.set(`${n.getStartLineNumber()}:${n.getEndLineNumber()}`, n);
+      }
+
       // Analyze each function for calls to other functions in the same file
       for (const callerFunction of functions) {
         const callEdges = await this.findInternalCallsInFunction(
@@ -60,7 +70,9 @@ export class InternalCallAnalyzer {
           callerFunction,
           functionsByQualifiedName,
           snapshotId,
-          filePath
+          filePath,
+          functionNodes,
+          functionIndex
         );
         internalCallEdges.push(...callEdges);
       }
@@ -78,35 +90,45 @@ export class InternalCallAnalyzer {
    * Find all calls from a specific function to other functions in the same file
    */
   private async findInternalCallsInFunction(
-    sourceFile: SourceFile,
+    _sourceFile: SourceFile,
     callerFunction: FunctionInfo,
     functionsByQualifiedName: Map<string, FunctionInfo[]>,
     snapshotId: string,
-    filePath: string
+    filePath: string,
+    functionNodes: Node[],
+    functionIndex: Map<string, Node>
   ): Promise<InternalCallEdge[]> {
     const callEdges: InternalCallEdge[] = [];
 
     try {
-      // Get the function node within the specified line range
-      const functionDeclarations = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration);
-      const methodDeclarations = sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration);
-      const arrowFunctions = sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction);
-      const functionExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression);
-      
-      // Combine all function-like nodes
-      const functionNodes = [
-        ...functionDeclarations,
-        ...methodDeclarations,
-        ...arrowFunctions,
-        ...functionExpressions
-      ];
+      // Find the specific function node using precomputed index (tolerant to minor line drift)
+      let functionNode = functionIndex.get(`${callerFunction.startLine}:${callerFunction.endLine}`);
 
-      // Find the specific function node by exact line number matching
-      const functionNode = functionNodes.find(node => {
-        const start = node.getStartLineNumber();
-        const end = node.getEndLineNumber();
-        return start === callerFunction.startLine && end === callerFunction.endLine;
-      });
+      if (!functionNode) {
+        // Fallback: choose the smallest node fully covering the caller's line range
+        const candidates = functionNodes.filter(n => {
+          const st = n.getStartLineNumber();
+          const ed = n.getEndLineNumber();
+          return st >= callerFunction.startLine && ed <= callerFunction.endLine;
+        });
+        if (candidates.length > 0) {
+          candidates.sort((a,b) => (a.getEndLineNumber()-a.getStartLineNumber()) - (b.getEndLineNumber()-b.getStartLineNumber()));
+          functionNode = candidates[0];
+        }
+      }
+
+      if (!functionNode) {
+        // As a last resort, pick the closest by start/end distance
+        let best: Node | undefined;
+        let bestScore = Number.POSITIVE_INFINITY;
+        for (const n of functionNodes) {
+          const st = n.getStartLineNumber();
+          const ed = n.getEndLineNumber();
+          const score = Math.abs(st - callerFunction.startLine) + Math.abs(ed - callerFunction.endLine);
+          if (score < bestScore) { best = n; bestScore = score; }
+        }
+        functionNode = best as Node | undefined;
+      }
 
       if (!functionNode) {
         // Function node not found - possibly due to line number mismatch
@@ -325,7 +347,7 @@ export class InternalCallAnalyzer {
     const calleeClassName = className || this.extractClassName(calleeFunction);
 
     return {
-      id: uuidv4(),
+      id: `${callerFunction.id}-${calleeFunction.id}-${lineNumber}-${columnNumber}`,
       snapshotId,
       filePath,
       callerFunctionId: callerFunction.id,

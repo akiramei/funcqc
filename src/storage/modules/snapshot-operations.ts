@@ -24,8 +24,10 @@ export class SnapshotOperations implements StorageOperationModule {
   readonly kysely;
   private git;
   private logger;
+  private context: StorageContext;
 
   constructor(context: StorageContext) {
+    this.context = context;
     this.db = context.db;
     this.kysely = context.kysely;
     this.git = context.git;
@@ -160,7 +162,7 @@ export class SnapshotOperations implements StorageOperationModule {
   /**
    * Update analysis level for a snapshot
    */
-  async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevel(snapshotId: string, level: import('../../types').AnalysisLevel): Promise<void> {
     try {
       // First, recalculate snapshot metadata based on actual functions
       await this.recalculateSnapshotMetadata(snapshotId);
@@ -195,7 +197,7 @@ export class SnapshotOperations implements StorageOperationModule {
   /**
    * Update analysis level within a transaction
    */
-  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: import('../../types').AnalysisLevel): Promise<void> {
     try {
       // TODO: Add transactional version of recalculateSnapshotMetadata
       // Currently, metadata recalculation is skipped in transaction context
@@ -389,77 +391,161 @@ export class SnapshotOperations implements StorageOperationModule {
 
   private async recalculateSnapshotMetadata(snapshotId: string): Promise<void> {
     try {
-      // Use SQL aggregation functions to calculate all metadata in a single query
-      // This is dramatically faster than JavaScript-side processing
-      await this.db.query(`
-        WITH function_metrics AS (
-          SELECT 
-            f.file_path,
-            f.is_exported,
-            f.is_async,
-            COALESCE(qm.cyclomatic_complexity, 1) AS complexity,
-            -- Extract file extension for distribution analysis
-            CASE 
-              WHEN f.file_path LIKE '%.ts' THEN 'ts'
-              WHEN f.file_path LIKE '%.js' THEN 'js'
-              WHEN f.file_path LIKE '%.tsx' THEN 'tsx'
-              WHEN f.file_path LIKE '%.jsx' THEN 'jsx'
-              ELSE 'other'
-            END AS file_extension
-          FROM functions f
-          LEFT JOIN quality_metrics qm ON f.id = qm.function_id
-          WHERE f.snapshot_id = $1
-        ),
-        basic_aggregates AS (
-          SELECT
-            COUNT(*) AS total_functions,
-            COUNT(DISTINCT file_path) AS total_files,
-            ROUND(AVG(complexity)::numeric, 2) AS avg_complexity,
-            MAX(complexity) AS max_complexity,
-            SUM(CASE WHEN is_exported THEN 1 ELSE 0 END) AS exported_functions,
-            SUM(CASE WHEN is_async THEN 1 ELSE 0 END) AS async_functions
-          FROM function_metrics
-        ),
-        complexity_dist AS (
-          SELECT jsonb_object_agg(complexity::text, count) AS complexity_distribution
-          FROM (
-            SELECT complexity, COUNT(*) as count
-            FROM function_metrics
-            WHERE complexity IS NOT NULL
-            GROUP BY complexity
-          ) dist
-        ),
-        file_ext_dist AS (
-          SELECT jsonb_object_agg(file_extension, count) AS file_extensions
-          FROM (
-            SELECT file_extension, COUNT(*) as count
-            FROM function_metrics
-            WHERE file_extension IS NOT NULL
-            GROUP BY file_extension
-          ) ext
-        )
-        UPDATE snapshots 
-        SET metadata = jsonb_build_object(
-          'totalFunctions', ba.total_functions,
-          'totalFiles', ba.total_files,
-          'avgComplexity', ba.avg_complexity,
-          'maxComplexity', ba.max_complexity,
-          'exportedFunctions', ba.exported_functions,
-          'asyncFunctions', ba.async_functions,
-          'complexityDistribution', COALESCE(cd.complexity_distribution, '{}'::jsonb),
-          'fileExtensions', COALESCE(fed.file_extensions, '{}'::jsonb)
-        )
-        FROM basic_aggregates ba, complexity_dist cd, file_ext_dist fed
-        WHERE snapshots.id = $1
-        RETURNING metadata;
-      `, [snapshotId]);
+      // First check if we have functions for this snapshot
+      const functionsCountResult = await this.db.query('SELECT COUNT(*) as count FROM functions WHERE snapshot_id = $1', [snapshotId]);
+      const functionsCount = parseInt((functionsCountResult.rows[0] as { count: string }).count);
       
-      this.logger?.debug(`Updated snapshot metadata with SQL aggregation for snapshot ${snapshotId}`);
+      if (functionsCount > 0) {
+        // Use SQL aggregation functions to calculate all metadata in a single query
+        // This is dramatically faster than JavaScript-side processing
+        await this.db.query(`
+          WITH function_metrics AS (
+            SELECT 
+              f.file_path,
+              f.is_exported,
+              f.is_async,
+              COALESCE(qm.cyclomatic_complexity, 1) AS complexity,
+              -- Extract file extension for distribution analysis
+              CASE 
+                WHEN f.file_path LIKE '%.ts' THEN 'ts'
+                WHEN f.file_path LIKE '%.js' THEN 'js'
+                WHEN f.file_path LIKE '%.tsx' THEN 'tsx'
+                WHEN f.file_path LIKE '%.jsx' THEN 'jsx'
+                ELSE 'other'
+              END AS file_extension
+            FROM functions f
+            LEFT JOIN quality_metrics qm ON f.id = qm.function_id
+            WHERE f.snapshot_id = $1
+          ),
+          basic_aggregates AS (
+            SELECT
+              COUNT(*) AS total_functions,
+              COUNT(DISTINCT file_path) AS total_files,
+              ROUND(AVG(complexity)::numeric, 2) AS avg_complexity,
+              MAX(complexity) AS max_complexity,
+              SUM(CASE WHEN is_exported THEN 1 ELSE 0 END) AS exported_functions,
+              SUM(CASE WHEN is_async THEN 1 ELSE 0 END) AS async_functions
+            FROM function_metrics
+          ),
+          complexity_dist AS (
+            SELECT jsonb_object_agg(bucket::text, count) AS complexity_distribution
+            FROM (
+              SELECT
+                CASE
+                  WHEN complexity <= 5 THEN 1
+                  WHEN complexity <= 10 THEN 2
+                  WHEN complexity <= 20 THEN 3
+                  ELSE 4
+                END AS bucket,
+                COUNT(*) AS count
+              FROM function_metrics
+              WHERE complexity IS NOT NULL
+              GROUP BY bucket
+            ) dist
+          ),
+          file_ext_dist AS (
+            SELECT jsonb_object_agg(file_extension, count) AS file_extensions
+            FROM (
+              SELECT file_extension, COUNT(*) as count
+              FROM function_metrics
+              WHERE file_extension IS NOT NULL
+              GROUP BY file_extension
+            ) ext
+          )
+          UPDATE snapshots 
+          SET metadata = 
+            COALESCE(snapshots.metadata, '{}'::jsonb)
+            || jsonb_build_object(
+                 'totalFunctions', ba.total_functions,
+                 'totalFiles', ba.total_files,
+                 'avgComplexity', ba.avg_complexity,
+                 'maxComplexity', ba.max_complexity,
+                 'exportedFunctions', ba.exported_functions,
+                 'asyncFunctions', ba.async_functions,
+                 'complexityDistribution', COALESCE(cd.complexity_distribution, '{}'::jsonb),
+                 'fileExtensions', COALESCE(fed.file_extensions, '{}'::jsonb)
+               )
+          FROM basic_aggregates ba, complexity_dist cd, file_ext_dist fed
+          WHERE snapshots.id = $1
+          RETURNING metadata;
+        `, [snapshotId]);
+        
+        this.logger?.debug(`Updated snapshot metadata with SQL aggregation for snapshot ${snapshotId}`);
+      } else {
+        // No functions found - this is a quick scan, count source files instead
+        await this.setQuickScanMetadata(snapshotId);
+      }
       
     } catch (error) {
       this.logger?.warn(`Failed to recalculate snapshot metadata: ${error instanceof Error ? error.message : String(error)}`);
       // Fallback to basic metadata if complex aggregation fails
       await this.setBasicMetadata(snapshotId);
+    }
+  }
+
+  /**
+   * Set metadata for quick scans that only have source files (no functions)
+   */
+  private async setQuickScanMetadata(snapshotId: string): Promise<void> {
+    try {
+      await this.db.query(`
+        WITH source_file_stats AS (
+          SELECT
+            COUNT(*) AS total_files,
+            -- Extract file extension for distribution analysis
+            jsonb_object_agg(
+              file_extension, 
+              file_count
+            ) AS file_extensions
+          FROM (
+            SELECT
+              CASE 
+                WHEN file_path LIKE '%.ts' THEN 'ts'
+                WHEN file_path LIKE '%.js' THEN 'js'
+                WHEN file_path LIKE '%.tsx' THEN 'tsx'
+                WHEN file_path LIKE '%.jsx' THEN 'jsx'
+                ELSE 'other'
+              END AS file_extension,
+              COUNT(*) AS file_count
+            FROM source_files
+            WHERE snapshot_id = $1
+            GROUP BY 1
+          ) ext_counts
+        )
+        UPDATE snapshots 
+        SET metadata = 
+          COALESCE(snapshots.metadata, '{}'::jsonb)
+          || jsonb_build_object(
+               'totalFunctions', 0,
+               'totalFiles', sfs.total_files,
+               'avgComplexity', 0,
+               'maxComplexity', 0,
+               'exportedFunctions', 0,
+               'asyncFunctions', 0,
+               'complexityDistribution', '{}'::jsonb,
+               'fileExtensions', COALESCE(sfs.file_extensions, '{}'::jsonb)
+             )
+        FROM source_file_stats sfs
+        WHERE snapshots.id = $1;
+      `, [snapshotId]);
+      
+      this.logger?.debug(`Set quick scan metadata for snapshot ${snapshotId}`);
+    } catch (error) {
+      this.logger?.error(`Failed to set quick scan metadata: ${error}`);
+      // Final fallback with zero counts - preserve existing metadata
+      await this.db.query(
+        `UPDATE snapshots SET metadata = COALESCE(metadata, '{}'::jsonb) || $1 WHERE id = $2`,
+        [JSON.stringify({
+          totalFunctions: 0,
+          totalFiles: 0,
+          avgComplexity: 0,
+          maxComplexity: 0,
+          exportedFunctions: 0,
+          asyncFunctions: 0,
+          complexityDistribution: {},
+          fileExtensions: {}
+        }), snapshotId]
+      );
     }
   }
 
@@ -477,16 +563,18 @@ export class SnapshotOperations implements StorageOperationModule {
           WHERE snapshot_id = $1
         )
         UPDATE snapshots 
-        SET metadata = jsonb_build_object(
-          'totalFunctions', bs.total_functions,
-          'totalFiles', bs.total_files,
-          'avgComplexity', 0,
-          'maxComplexity', 0,
-          'exportedFunctions', 0,
-          'asyncFunctions', 0,
-          'complexityDistribution', '{}'::jsonb,
-          'fileExtensions', '{}'::jsonb
-        )
+        SET metadata = 
+          COALESCE(snapshots.metadata, '{}'::jsonb)
+          || jsonb_build_object(
+               'totalFunctions', bs.total_functions,
+               'totalFiles', bs.total_files,
+               'avgComplexity', 0,
+               'maxComplexity', 0,
+               'exportedFunctions', 0,
+               'asyncFunctions', 0,
+               'complexityDistribution', '{}'::jsonb,
+               'fileExtensions', '{}'::jsonb
+             )
         FROM basic_stats bs
         WHERE snapshots.id = $1;
       `, [snapshotId]);
@@ -554,19 +642,29 @@ export class SnapshotOperations implements StorageOperationModule {
   }
 
   private parseMetadata(metadata: unknown): Record<string, unknown> {
-    if (typeof metadata === 'string') {
-      try {
-        return JSON.parse(metadata);
-      } catch {
-        return {};
-      }
+    // Use utilityOps if available, otherwise fallback to manual parsing
+    if (this.context.utilityOps) {
+      return this.context.utilityOps.parseJsonSafely(metadata, {});
     }
     
-    if (typeof metadata === 'object' && metadata !== null) {
-      return metadata as Record<string, unknown>;
+    // Fallback manual parsing for cases where utilityOps is not yet available
+    if (metadata == null) {
+      return {};
     }
     
-    return {};
+    if (typeof metadata !== 'string') {
+      return (metadata as Record<string, unknown>) ?? {};
+    }
+
+    if (metadata === '') {
+      return {};
+    }
+
+    try {
+      return JSON.parse(metadata) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
   }
 
   private mapRowToSnapshotInfo(row: SnapshotRow): SnapshotInfo {

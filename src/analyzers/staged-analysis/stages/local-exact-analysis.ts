@@ -29,13 +29,15 @@ export class LocalExactAnalysisStage {
     fileFunctions: FunctionMetadata[],
     functions: Map<string, FunctionMetadata>,
     state: AnalysisState
-  ): Promise<{ localEdges: number, instantiationEvents: InstantiationEvent[] }> {
+  ): Promise<{ localEdges: number, instantiationEvents: InstantiationEvent[], unresolvedCallNodes: Node[], unresolvedNewNodes: Node[] }> {
     const filePath = sourceFile.getFilePath();
     let localEdgesCount = 0;
     const instantiationEvents: InstantiationEvent[] = [];
+    const unresolvedCallNodes: Node[] = [];
+    const unresolvedNewNodes: Node[] = [];
 
     if (fileFunctions.length === 0) {
-      return { localEdges: 0, instantiationEvents: [] };
+      return { localEdges: 0, instantiationEvents: [], unresolvedCallNodes: [], unresolvedNewNodes: [] };
     }
 
     // Create local function lookup maps for this file
@@ -49,14 +51,23 @@ export class LocalExactAnalysisStage {
       functionByLexicalPath.set(func.lexicalPath, func);
     }
 
-    // Collect expressions with instantiation events
+    // Collect expressions with instantiation events first
     const callExpressions: Node[] = [];
     const newExpressions: Node[] = [];
     this.collectExpressionsDirectly(sourceFile, callExpressions, newExpressions, instantiationEvents);
+    
+    // Collect needed lines from all expressions
+    const neededLines = new Set<number>();
+    for (const node of [...callExpressions, ...newExpressions]) {
+      neededLines.add(node.getStartLineNumber());
+    }
+    
+    // Build O(1) function containment map only for needed lines (optimization #4)
+    const functionContainmentMap = this.buildFunctionContainmentMap(fileFunctions, neededLines);
 
     // Process call expressions
     for (const node of callExpressions) {
-      const callerFunction = this.findContainingFunction(node, fileFunctions);
+      const callerFunction = this.findContainingFunctionOptimized(node, functionContainmentMap);
       if (!callerFunction) {
         if (this.debug) {
           this.logger.debug(`[SkipNoCaller] line=${node.getStartLineNumber()}-${node.getEndLineNumber()} file=${filePath}`);
@@ -111,12 +122,14 @@ export class LocalExactAnalysisStage {
         if (unresolvedCall) {
           state.unresolvedMethodCalls.push(unresolvedCall);
         }
+        // Also collect for direct Import analysis
+        unresolvedCallNodes.push(node);
       }
     }
 
     // Process new expressions
     for (const node of newExpressions) {
-      const callerFunction = this.findContainingFunction(node, fileFunctions);
+      const callerFunction = this.findContainingFunctionOptimized(node, functionContainmentMap);
       if (!callerFunction) continue;
 
       const calleeId = this.resolveNewExpression(node as NewExpression, functions);
@@ -152,10 +165,13 @@ export class LocalExactAnalysisStage {
 
         addEdge(edge, state);
         localEdgesCount++;
+      } else {
+        // Constructor couldn't be resolved locally - add to unresolved for Import analysis
+        unresolvedNewNodes.push(node);
       }
     }
 
-    return { localEdges: localEdgesCount, instantiationEvents };
+    return { localEdges: localEdgesCount, instantiationEvents, unresolvedCallNodes, unresolvedNewNodes };
   }
 
   /**
@@ -227,42 +243,56 @@ export class LocalExactAnalysisStage {
   }
 
   /**
-   * Find the containing function for a node
+   * Build O(1) function containment map (optimization #4)
    */
-  private findContainingFunction(
-    node: Node,
-    fileFunctions: FunctionMetadata[]
-  ): FunctionMetadata | undefined {
-    let current = node.getParent();
-
-    while (current) {
-      if (Node.isFunctionDeclaration(current) || 
-          Node.isMethodDeclaration(current) || 
-          Node.isArrowFunction(current) || 
-          Node.isFunctionExpression(current) || 
-          Node.isConstructorDeclaration(current)) {
-        
-        const startLine = current.getStartLineNumber();
-        const endLine = current.getEndLineNumber();
-
-        // Strategy 1: Exact line match
-        let match = fileFunctions.find(f => 
-          f.startLine === startLine && f.endLine === endLine
-        );
-        if (match) return match;
-
-        // Strategy 2: Containment-based matching
-        match = fileFunctions.find(f => 
-          f.startLine <= startLine && f.endLine >= endLine
-        );
-        if (match) return match;
+  private buildFunctionContainmentMap(fileFunctions: FunctionMetadata[], neededLines?: Set<number>): Map<number, FunctionMetadata> {
+    const containmentMap = new Map<number, FunctionMetadata>();
+    
+    // Sort functions by start line for proper containment resolution
+    const sortedFunctions = [...fileFunctions].sort((a, b) => a.startLine - b.startLine);
+    
+    // Build line-to-function map for O(1) lookup
+    for (const func of sortedFunctions) {
+      const startLine = func.startLine;
+      const endLine = func.endLine;
+      
+      if (neededLines) {
+        // Optimization: only map lines that are actually needed
+        for (const line of neededLines) {
+          if (line >= startLine && line <= endLine) {
+            // Prefer inner functions over outer functions (last write wins for nested functions)
+            if (!containmentMap.has(line) || 
+                (containmentMap.get(line)!.startLine < func.startLine)) {
+              containmentMap.set(line, func);
+            }
+          }
+        }
+      } else {
+        // Original behavior: map all lines
+        for (let line = startLine; line <= endLine; line++) {
+          // Prefer inner functions over outer functions (last write wins for nested functions)
+          if (!containmentMap.has(line) || 
+              (containmentMap.get(line)!.startLine < func.startLine)) {
+            containmentMap.set(line, func);
+          }
+        }
       }
-
-      current = current.getParent();
     }
-
-    return undefined;
+    
+    return containmentMap;
   }
+
+  /**
+   * Find containing function using O(1) containment map (optimization #4)
+   */
+  private findContainingFunctionOptimized(
+    node: Node,
+    functionContainmentMap: Map<number, FunctionMetadata>
+  ): FunctionMetadata | undefined {
+    const nodeStartLine = node.getStartLineNumber();
+    return functionContainmentMap.get(nodeStartLine) || undefined;
+  }
+
 
   /**
    * Resolve local function calls within the same file

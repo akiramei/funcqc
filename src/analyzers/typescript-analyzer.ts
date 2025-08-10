@@ -16,7 +16,7 @@ import * as path from 'path';
 import { determineFunctionType } from './shared/function-type-utils';
 import * as crypto from 'crypto';
 import * as fs from 'fs/promises';
-import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge } from '../types';
+import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge, TypeDefinition, TypeRelationship } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { FunctionCacheProvider } from '../utils/cache-interfaces';
@@ -1479,6 +1479,31 @@ _fileContent: string
     }).filter((sf): sf is NonNullable<typeof sf> => sf !== null);
 
     return this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
+  }
+
+  /**
+   * Analyze types from a single file content
+   * Used for lazy type system analysis
+   */
+  async analyzeTypesFromContent(
+    filePath: string,
+    fileContent: string
+  ): Promise<{ types: TypeDefinition[]; relationships: TypeRelationship[] }> {
+    try {
+      const sourceFile = this.project.createSourceFile(filePath, fileContent, { overwrite: true });
+      
+      // Use a temporary snapshot ID for type extraction
+      const tempSnapshotId = 'temp-type-analysis';
+      const result = await this.typeSystemAnalyzer.extractTypeInformation(tempSnapshotId, [sourceFile]);
+      
+      return {
+        types: result.typeDefinitions,
+        relationships: result.typeRelationships
+      };
+    } catch (error) {
+      this.logger.warn(`Failed to analyze types for ${filePath}`, error);
+      return { types: [], relationships: [] };
+    }
   }
 
   /**

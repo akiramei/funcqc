@@ -102,10 +102,30 @@ program
   .option('--scope <name>', 'scan specific scope (src, test, all, or custom scope)')
   .option('--realtime-gate', 'enable real-time quality gate with adaptive thresholds')
   .option('-j, --json', 'output as JSON for script processing')
+  // Performance-focused scan levels  
+  .option('--with-basic', 'basic scan (15-20s): includes function analysis only')
+  .option('--with-coupling', 'coupling scan (40-50s): includes basic + coupling analysis')
+  .option('--with-graph', 'standard scan (30-40s): includes call graph')
+  .option('--with-types', 'extended scan: includes type system analysis')
+  .option('--full', 'full scan (50-60s): all analyses')
+  .option('--async', 'run heavy analyses in background')
   .action(async (options: OptionValues, command) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { scanCommand } = await import('./cli/commands/scan');
     return withEnvironment(scanCommand)(options, command);
+  });
+
+program
+  .command('analyze')
+  .description('🔄 Perform deferred analyses on existing snapshots')
+  .option('--call-graph', 'analyze function dependencies')
+  .option('--types', 'analyze TypeScript type system')
+  .option('--all', 'run all analyses')
+  .option('-j, --json', 'output as JSON')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { analyzeCommand } = await import('./cli/commands/analyze');
+    return withEnvironment(analyzeCommand)(options, command);
   });
 
 program
@@ -958,9 +978,7 @@ Exit codes:
 import { createTypesCommand } from './cli/commands/types';
 program.addCommand(createTypesCommand());
 
-// Add overview command (integrated type-function analysis)
-import { createOverviewCommand } from './cli/commands/overview';
-program.addCommand(createOverviewCommand());
+// Overview command functionality has been integrated into the types command
 
 // Handle unknown commands
 program.on('command:*', () => {

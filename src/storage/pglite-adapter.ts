@@ -97,13 +97,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       ...(this.logger && { logger: this.logger }),
     };
 
-    // Initialize operation modules
+    // Initialize utility operations first and add to context
+    this.utilityOps = new UtilityOperations(this.context);
+    this.context.utilityOps = this.utilityOps;
+    
+    // Initialize other operation modules with context that includes utilityOps
     this.databaseCore = new DatabaseCore(this.context);
     this.snapshotOps = new SnapshotOperations(this.context);
     this.functionOps = new FunctionOperations(this.context);
     this.metricsOps = new MetricsOperations(this.context);
     this.callEdgeOps = new CallEdgeOperations(this.context);
-    this.utilityOps = new UtilityOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
     this.typeSystemOps = new TypeSystemOperations(this.context);
   }
@@ -122,14 +125,8 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       if (!this.context.kysely) {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
-      // Reinitialize modules with the updated context
-      this.sourceContentOps = new SourceContentOperations(this.context);
-      this.functionOps = new FunctionOperations(this.context);
-      this.snapshotOps = new SnapshotOperations(this.context);
-      this.metricsOps = new MetricsOperations(this.context);
-      this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
-      this.typeSystemOps = new TypeSystemOperations(this.context);
+      // Modules are already initialized in constructor with utilityOps in context
+      // No need to reinitialize them here
       
       // Register this storage connection for graceful shutdown
       this.gracefulShutdown.registerStorageConnection(this);
@@ -163,12 +160,15 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         throw new Error('Kysely was not initialized properly by DatabaseCore');
       }
       // Reinitialize modules with the updated context
+      this.utilityOps = new UtilityOperations(this.context);
+      this.context.utilityOps = this.utilityOps; // Update context with new utilityOps
+      
       this.sourceContentOps = new SourceContentOperations(this.context);
       this.functionOps = new FunctionOperations(this.context);
       this.snapshotOps = new SnapshotOperations(this.context);
       this.metricsOps = new MetricsOperations(this.context);
-        this.callEdgeOps = new CallEdgeOperations(this.context);
-      this.utilityOps = new UtilityOperations(this.context);
+      this.callEdgeOps = new CallEdgeOperations(this.context);
+      this.typeSystemOps = new TypeSystemOperations(this.context);
       
       this.isInitialized = true;
     } catch (error) {
@@ -236,7 +236,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.snapshotOps.createSnapshot(options);
   }
 
-  async updateAnalysisLevel(snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevel(snapshotId: string, level: import('../types').AnalysisLevel): Promise<void> {
     await this.ensureInitialized();
     return this.snapshotOps.updateAnalysisLevel(snapshotId, level);
   }
@@ -244,7 +244,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   /**
    * Update analysis level within a transaction
    */
-  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: 'NONE' | 'BASIC' | 'CALL_GRAPH'): Promise<void> {
+  async updateAnalysisLevelInTransaction(trx: PGTransaction, snapshotId: string, level: import('../types').AnalysisLevel): Promise<void> {
     return this.snapshotOps.updateAnalysisLevelInTransaction(trx, snapshotId, level);
   }
 
@@ -726,69 +726,38 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async insertInternalCallEdges(edges: InternalCallEdge[]): Promise<void> {
     await this.ensureInitialized();
     if (edges.length === 0) return;
-    
-    // Generate transaction ID for tracking
-    const transactionId = randomUUID();
-    const operation = `insertInternalCallEdges(${edges.length} edges)`;
-    
-    // Use transaction for atomic insertion
-    const transactionPromise = this.db.transaction(async (trx) => {
-      // Prepare batch insert values
-      const values = edges.map(edge => [
-        edge.id,
-        edge.snapshotId,
-        edge.filePath,
-        edge.callerFunctionId,
-        edge.calleeFunctionId,
-        edge.callerName,
-        edge.calleeName,
-        edge.callerClassName || null,
-        edge.calleeClassName || null,
-        edge.lineNumber,
-        edge.columnNumber,
-        edge.callType,
-        edge.callContext || null,
-        edge.confidenceScore,
-        edge.detectedBy,
-        edge.createdAt || new Date().toISOString()
-      ]);
-      
-      // Batch insert using unnest for better performance
-      const query = `
-        INSERT INTO internal_call_edges (
-          id, snapshot_id, file_path, caller_function_id, callee_function_id,
-          caller_name, callee_name, caller_class_name, callee_class_name,
-          line_number, column_number, call_type, call_context, 
-          confidence_score, detected_by, created_at
-        ) 
-        SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[],
-                            $6::text[], $7::text[], $8::text[], $9::text[],
-                            $10::int[], $11::int[], $12::text[], $13::text[],
-                            $14::float[], $15::text[], $16::timestamptz[])
-      `;
-      
-      await trx.query(query, [
-        values.map(v => v[0]),  // ids
-        values.map(v => v[1]),  // snapshot_ids
-        values.map(v => v[2]),  // file_paths
-        values.map(v => v[3]),  // caller_function_ids
-        values.map(v => v[4]),  // callee_function_ids
-        values.map(v => v[5]),  // caller_names
-        values.map(v => v[6]),  // callee_names
-        values.map(v => v[7]),  // caller_class_names
-        values.map(v => v[8]),  // callee_class_names
-        values.map(v => v[9]),  // line_numbers
-        values.map(v => v[10]), // column_numbers
-        values.map(v => v[11]), // call_types
-        values.map(v => v[12]), // call_contexts
-        values.map(v => v[13]), // confidence_scores
-        values.map(v => v[14]), // detected_by
-        values.map(v => v[15])  // created_at
-      ]);
-    });
-    
-    // Track transaction for graceful shutdown protection
-    return this.gracefulShutdown.trackTransaction(transactionId, operation, transactionPromise);
+
+    // Derive snapshotId from edges and delegate to operations module (JSON bulk insert)
+    const snapshotId = edges[0]?.snapshotId;
+    if (!snapshotId) {
+      throw new DatabaseError(ErrorCode.STORAGE_WRITE_ERROR, 'insertInternalCallEdges: snapshotId missing in edges');
+    }
+
+    // Convert InternalCallEdge to CallEdge format for compatibility with call-edge-operations
+    const callEdges: CallEdge[] = edges.map(edge => ({
+      id: edge.id,
+      callerFunctionId: edge.callerFunctionId,
+      calleeFunctionId: edge.calleeFunctionId,
+      calleeName: edge.calleeName,
+      calleeSignature: edge.calleeName, // Use name as signature for internal calls
+      callType: edge.callType,
+      callContext: edge.callContext || 'normal',
+      lineNumber: edge.lineNumber,
+      columnNumber: edge.columnNumber,
+      isAsync: false, // Internal calls are not async by default
+      isChained: false, // Internal calls are not chained by default
+      confidenceScore: edge.confidenceScore,
+      metadata: { 
+        detectedBy: edge.detectedBy,
+        filePath: edge.filePath,
+        callerName: edge.callerName,
+        calleeName: edge.calleeName
+      },
+      createdAt: edge.createdAt || new Date().toISOString()
+    }));
+
+    // Use CallEdgeOperations which performs JSONB bulk insert via jsonb_to_recordset for PGlite compatibility
+    await this.callEdgeOps.insertInternalCallEdges(snapshotId, callEdges);
   }
 
   async getInternalCallEdges(filePath: string, snapshotId: string): Promise<InternalCallEdge[]> {
@@ -1054,14 +1023,16 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   }
 
   // Compatibility methods that may be used internally
-  async query(sql: string, params?: unknown[]): Promise<unknown> {
+  async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     await this.ensureInitialized();
     // Use PGlite query method for parameterized queries
     if (params && params.length > 0) {
       return this.db.query(sql, params);
     } else {
       // Use exec for queries without parameters
-      return this.db.exec(sql);
+      const result = this.db.exec(sql);
+      // Convert exec result to match interface format
+      return { rows: Array.isArray(result) ? result : [] };
     }
   }
 
@@ -1309,6 +1280,49 @@ export class PGLiteStorageAdapter implements StorageAdapter {
           this.logger.log(`Database will be created at: ${dirPath}`);
         }
       }
+    }
+  }
+
+  // Coupling analysis operations
+  async storeParameterPropertyUsage(
+    couplingData: import('../types').ParameterPropertyUsageData[],
+    snapshotId: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+    if (couplingData.length === 0) return;
+    try {
+      await this.db.transaction(async (trx: unknown) => {
+        const BATCH = 1000; // パラメータ上限対策
+        for (let i = 0; i < couplingData.length; i += BATCH) {
+          const slice = couplingData.slice(i, i + BATCH);
+          const sql = `
+            INSERT INTO parameter_property_usage (
+              snapshot_id, function_id, parameter_name, parameter_type_id,
+              accessed_property, access_type, access_line, access_context
+            )
+            SELECT * FROM unnest(
+              $1::text[], $2::text[], $3::text[], $4::text[],
+              $5::text[], $6::text[], $7::int[],  $8::text[]
+            )
+          `;
+          await (trx as { query: (sql: string, params: unknown[]) => Promise<unknown> }).query(sql, [
+            slice.map(() => snapshotId),
+            slice.map(v => v.functionId),
+            slice.map(v => v.parameterName),
+            slice.map(v => v.parameterTypeId),
+            slice.map(v => v.accessedProperty),
+            slice.map(v => v.accessType),
+            slice.map(v => v.accessLine),
+            slice.map(v => v.accessContext),
+          ]);
+        }
+      });
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to store parameter property usage data: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
     }
   }
 
