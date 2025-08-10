@@ -26,8 +26,7 @@ export function createTypesCommand(): Command {
     .option('--desc', 'Sort in descending order')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
-    .option('--analyze-coupling', 'Include coupling analysis for types')
-    .action(async (options: TypeListOptions & { analyzeCoupling?: boolean }, command) => {
+    .action(async (options: TypeListOptions, command) => {
       // Merge global options
       const globalOpts = command.parent?.opts() || {};
       const mergedOptions = { ...globalOpts, ...options };
@@ -67,7 +66,7 @@ export function createTypesCommand(): Command {
 /**
  * Execute types list command using database
  */
-async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?: boolean }): Promise<void> {
+async function executeTypesListDB(options: TypeListOptions): Promise<void> {
   const logger = new Logger();
   const errorHandler = createErrorHandler(logger);
   
@@ -145,9 +144,9 @@ async function executeTypesListDB(options: TypeListOptions & { analyzeCoupling?:
       types = types.slice(0, options.limit);
     }
     
-    // Add coupling analysis if requested
+    // Add coupling analysis (always enabled for comprehensive analysis)
     let couplingData: Map<string, CouplingInfo> = new Map();
-    if (options.analyzeCoupling && types.length > 0) {
+    if (types.length > 0) {
       couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
     }
     
