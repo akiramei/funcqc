@@ -19,10 +19,7 @@ export class FunctionRegistry {
   private project: Project;
   private functionMap = new Map<string, FunctionMetadata>();
   private declToIdMap = new WeakMap<Node, string>(); // 宣言ノード → functionId 逆引き
-  private currentSnapshotId: string | undefined;
-
-  constructor(project: Project, snapshotId?: string) {
-    this.currentSnapshotId = snapshotId;
+  constructor(project: Project, _snapshotId?: string) {
     this.project = project;
   }
 
@@ -92,11 +89,10 @@ export class FunctionRegistry {
     const className = this.getClassName(node);
     
     // Generate deterministic UUID for physical function identity
-    const effectiveSnapshotId = this.currentSnapshotId || 'default';
+    // Note: Using relative path normalization and excluding snapshotId for cross-snapshot consistency
     const startColumn = node.getStart() - node.getStartLinePos();
     const uniqueId = FunctionIdGenerator.generateDeterministicUUID(
-      effectiveSnapshotId,
-      filePath,
+      filePath, // Will be normalized internally
       name,
       className || null,
       node.getStartLineNumber(),

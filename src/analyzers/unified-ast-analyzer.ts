@@ -29,7 +29,7 @@ export class UnifiedASTAnalyzer {
   private project: Project;
   private qualityCalculator: QualityCalculator;
   private cache: LRUCache<TsMorphSourceFile>;
-  private currentSnapshotId: string | undefined;
+  // Note: currentSnapshotId removed as physical IDs are now snapshot-independent
   // private maxSourceFilesInMemory: number; // Stored in cache options
 
   constructor(maxSourceFilesInMemory: number = 50) {
@@ -63,8 +63,8 @@ export class UnifiedASTAnalyzer {
    * Analyze a single file and extract all functions with quality metrics
    * in one AST traversal pass
    */
-  async analyzeFile(filePath: string, content: string, snapshotId?: string): Promise<UnifiedAnalysisResult[]> {
-    this.currentSnapshotId = snapshotId;
+  async analyzeFile(filePath: string, content: string, _snapshotId?: string): Promise<UnifiedAnalysisResult[]> {
+    // Note: snapshotId no longer stored as instance state for thread safety
     // Get or create source file
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const results: UnifiedAnalysisResult[] = [];
@@ -393,11 +393,10 @@ export class UnifiedASTAnalyzer {
     startLine: number,
     startColumn: number
   ): string {
-    const effectiveSnapshotId = this.currentSnapshotId || 'default';
-    
+    // Generate cross-snapshot consistent physical ID
+    // Note: snapshotId removed to maintain same ID for same function across snapshots
     return FunctionIdGenerator.generateDeterministicUUID(
-      effectiveSnapshotId,
-      filePath,
+      filePath, // Will be normalized internally
       functionName,
       className,
       startLine,

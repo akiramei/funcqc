@@ -71,7 +71,7 @@ export class TypeScriptAnalyzer extends CacheAware {
   private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
-  private currentSnapshotId: string | undefined;
+  // Note: currentSnapshotId removed as physical IDs are now snapshot-independent
   
   // Static cache for QualityCalculator module to avoid repeated dynamic imports
   private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
@@ -147,9 +147,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Analyze a TypeScript file and extract function information
    * Now uses UnifiedASTAnalyzer for improved performance  
    */
-  async analyzeFile(filePath: string, snapshotId?: string): Promise<FunctionInfo[]> {
-    // Store snapshot ID for use in ID generation
-    this.currentSnapshotId = snapshotId;
+  async analyzeFile(filePath: string, _snapshotId?: string): Promise<FunctionInfo[]> {
+    // Note: snapshotId no longer stored as instance state for thread safety
     // Read file content asynchronously
     let fileContent: string;
     try {
@@ -197,7 +196,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       }
 
       // Use UnifiedASTAnalyzer for combined analysis
-      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent, this.currentSnapshotId);
+      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent);
       
       // Convert to FunctionInfo format and add missing fields
       const functions: FunctionInfo[] = unifiedResults.map(result => {
@@ -440,8 +439,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: func.getStartLineNumber(),
       endLine: func.getEndLineNumber(),
-      startColumn: func.getSourceFile().getLineAndColumnAtPos(func.getStart()).column,
-      endColumn: func.getSourceFile().getLineAndColumnAtPos(func.getEnd()).column,
+      startColumn: func.getStart() - func.getStartLinePos(),
+      endColumn: func.getEnd() - func.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, func.getStart(), func.getEnd()),
       astHash,
 
@@ -549,8 +548,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
-      startColumn: method.getSourceFile().getLineAndColumnAtPos(method.getStart()).column,
-      endColumn: method.getSourceFile().getLineAndColumnAtPos(method.getEnd()).column,
+      startColumn: method.getStart() - method.getStartLinePos(),
+      endColumn: method.getEnd() - method.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, method.getStart(), method.getEnd()),
       astHash,
 
@@ -646,8 +645,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: ctor.getStartLineNumber(),
       endLine: ctor.getEndLineNumber(),
-      startColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getStart()).column,
-      endColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getEnd()).column,
+      startColumn: ctor.getStart() - ctor.getStartLinePos(),
+      endColumn: ctor.getEnd() - ctor.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, ctor.getStart(), ctor.getEnd()),
       astHash,
 
@@ -776,8 +775,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: functionNode.getStartLineNumber(),
       endLine: functionNode.getEndLineNumber(),
-      startColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getStart()).column,
-      endColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getEnd()).column,
+      startColumn: functionNode.getStart() - functionNode.getStartLinePos(),
+      endColumn: functionNode.getEnd() - functionNode.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, functionNode.getStart(), functionNode.getEnd()),
       astHash: metadata.astHash,
       contextPath: metadata.contextPath,
@@ -1025,12 +1024,10 @@ _fileContent: string
       className = classNameOrContext;
     }
     
-    // Use snapshot ID if available, otherwise use a stable default
-    const effectiveSnapshotId = this.currentSnapshotId || 'default';
-    
+    // Generate cross-snapshot consistent physical ID
+    // Note: snapshotId removed to maintain same ID for same function across snapshots
     return FunctionIdGenerator.generateDeterministicUUID(
-      effectiveSnapshotId,
-      filePath,
+      filePath, // Will be normalized internally
       functionName,
       className,
       startLine,

@@ -373,7 +373,7 @@ export class OnePassASTVisitor {
     });
   }
   
-  private getFunctionId(func: Node, ctx: ScanContext): string {
+  private getFunctionId(func: Node, _ctx: ScanContext): string {
     // Check cache first (major performance optimization)
     const cached = this.funcIdCache.get(func);
     if (cached) {
@@ -404,12 +404,11 @@ export class OnePassASTVisitor {
     
     const startLine = func.getStartLineNumber();
     const startColumn = func.getStart() - func.getStartLinePos();
-    const effectiveSnapshotId = ctx.snapshotId || 'default';
     
-    // Generate deterministic UUID using new method
+    // Generate cross-snapshot consistent physical ID
+    // Note: snapshotId removed to maintain same ID for same function across snapshots
     const funcId = FunctionIdGenerator.generateDeterministicUUID(
-      effectiveSnapshotId,
-      filePath,
+      filePath, // Will be normalized internally
       functionName,
       className,
       startLine,
