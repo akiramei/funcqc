@@ -93,6 +93,12 @@ const COMMAND_GROUPS = {
     requires: []
   },
   
+  // Basic: Basic function information only
+  BASIC: {
+    commands: [], // This level is used as a requirement, not for direct command classification
+    requires: ['BASIC']
+  },
+  
   // Lightweight: Basic function information only
   LIGHTWEIGHT: {
     commands: [
@@ -108,15 +114,9 @@ const COMMAND_GROUPS = {
     requires: ['CALL_GRAPH']
   },
   
-  // Type system: Type definitions required
-  TYPE_SYSTEM: {
-    commands: ['types'],
-    requires: ['TYPE_SYSTEM']
-  },
-  
   // Comprehensive: All data required
   COMPREHENSIVE: {
-    commands: ['health', 'db'],
+    commands: ['health', 'db', 'types'],
     requires: ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING']
   },
   
@@ -174,7 +174,8 @@ function requiresBasicAnalysis(): boolean {
  */
 function requiresTypeSystemAnalysis(): boolean {
   const command = process.argv[2];
-  return COMMAND_GROUPS.TYPE_SYSTEM.commands.includes(command);
+  // Types command is now in COMPREHENSIVE group, so check for it specifically
+  return command === 'types' || COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command);
 }
 
 /**
