@@ -10,7 +10,6 @@ import {
 } from 'ts-morph';
 import { createHash } from 'crypto';
 import { FunctionIdGenerator } from '../../utils/function-id-generator';
-import { getRelativePath } from '../../utils/path-utils';
 
 /**
  * Shared context for all visitors during 1-pass AST traversal
@@ -18,6 +17,7 @@ import { getRelativePath } from '../../utils/path-utils';
 export interface ScanContext {
   checker: TypeChecker;
   file: SourceFile;
+  snapshotId?: string | undefined; // Added for deterministic ID generation
   
   // Shared caches (computed lazily)
   paramTypeMap: Map<FunctionLikeDeclaration, Map<string, Type>>;
@@ -113,13 +113,14 @@ export class OnePassASTVisitor {
   /**
    * Scan a single source file with all registered visitors
    */
-  scanFile(file: SourceFile, checker: TypeChecker): ScanContext {
+  scanFile(file: SourceFile, checker: TypeChecker, snapshotId?: string): ScanContext {
     // Reset function ID cache for new file (WeakMap doesn't have clear method)
     this.funcIdCache = new WeakMap();
     
     const ctx: ScanContext = {
       checker,
       file,
+      snapshotId,
       paramTypeMap: new Map(),
       sourceHash: this.computeSourceHash(file),
       funcIdToNodeCache: new Map(),
@@ -146,7 +147,7 @@ export class OnePassASTVisitor {
           Node.isArrowFunction(node) || Node.isFunctionExpression(node) ||
           Node.isConstructorDeclaration(node) || Node.isGetAccessorDeclaration(node) ||
           Node.isSetAccessorDeclaration(node)) {
-        const funcId = this.getFunctionId(node);
+        const funcId = this.getFunctionId(node, ctx);
         if (funcId) {
           ctx.funcIdToNodeCache!.set(funcId, node);
         }
@@ -196,7 +197,7 @@ export class OnePassASTVisitor {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
-    const funcId = this.getFunctionId(func);
+    const funcId = this.getFunctionId(func, ctx);
     const expression = Node.isPropertyAccessExpression(node) ? node.getExpression() : 
                        Node.isElementAccessExpression(node) ? node.getExpression() : null;
     const propertyName = Node.isPropertyAccessExpression(node) ? node.getName() : 
@@ -236,7 +237,7 @@ export class OnePassASTVisitor {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
-    const funcId = this.getFunctionId(func);
+    const funcId = this.getFunctionId(func, ctx);
     const calleeText = node.getExpression().getText();
     const args = node.getArguments().map(arg => arg.getText());
     
@@ -255,7 +256,7 @@ export class OnePassASTVisitor {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
-    const funcId = this.getFunctionId(func);
+    const funcId = this.getFunctionId(func, ctx);
     const expression = Node.isPropertyAccessExpression(node) ? node.getExpression() : 
                        Node.isElementAccessExpression(node) ? node.getExpression() : null;
     const propertyName = Node.isPropertyAccessExpression(node) ? node.getName() : 
@@ -285,7 +286,7 @@ export class OnePassASTVisitor {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
-    const funcId = this.getFunctionId(func);
+    const funcId = this.getFunctionId(func, ctx);
     const propertyName = Node.isPropertyAccessExpression(node)
       ? node.getName()
       : Node.isElementAccessExpression(node)
@@ -372,18 +373,46 @@ export class OnePassASTVisitor {
     });
   }
   
-  private getFunctionId(func: Node): string {
+  private getFunctionId(func: Node, _ctx: ScanContext): string {
     // Check cache first (major performance optimization)
     const cached = this.funcIdCache.get(func);
     if (cached) {
       return cached;
     }
     
-    // Compute and cache the result using centralized function ID generator
+    // Extract function information for deterministic ID generation
     const filePath = func.getSourceFile().getFilePath();
-    const funcId = FunctionIdGenerator.generateFromNode(
-      func,
-      getRelativePath(filePath)
+    
+    // Extract function name
+    let functionName = '<anonymous>';
+    if ('getName' in func && typeof func.getName === 'function') {
+      functionName = func.getName() || '<anonymous>';
+    } else if (func.getKindName() === 'Constructor') {
+      functionName = 'constructor';
+    }
+    
+    // Extract class name from parent context
+    let className: string | null = null;
+    let parent = func.getParent();
+    while (parent) {
+      if (Node.isClassDeclaration(parent) && parent.getName()) {
+        className = parent.getName() || null;
+        break;
+      }
+      parent = parent.getParent();
+    }
+    
+    const startLine = func.getStartLineNumber();
+    const startColumn = func.getStart() - func.getStartLinePos();
+    
+    // Generate cross-snapshot consistent physical ID
+    // Note: snapshotId removed to maintain same ID for same function across snapshots
+    const funcId = FunctionIdGenerator.generateDeterministicUUID(
+      filePath, // Will be normalized internally
+      functionName,
+      className,
+      startLine,
+      startColumn
     );
     
     this.funcIdCache.set(func, funcId);

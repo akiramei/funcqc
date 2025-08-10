@@ -24,6 +24,7 @@ export class FunctionIdGenerator {
 
   /**
    * Generate ID from ts-morph node with content-based stability
+   * @deprecated Use generateDeterministicUUID instead for new code
    */
   static generateFromNode(
     node: Node,
@@ -44,6 +45,85 @@ export class FunctionIdGenerator {
     
     // Return a shortened hash for readability
     return stableHash.substring(0, 16);
+  }
+
+  /**
+   * Generate deterministic UUID with same precision as UUID v4
+   * Creates a stable, reproducible ID based on function location and context
+   * Returns UUID format string (36 chars with hyphens)
+   * 
+   * IMPORTANT: This generates a "physical ID" that is consistent across snapshots
+   * for the same function. SnapshotId is NOT included to maintain cross-snapshot identity.
+   */
+  static generateDeterministicUUID(
+    filePath: string,
+    functionName: string,
+    className: string | null,
+    startLine: number,
+    startColumn: number
+  ): string {
+    // Normalize file path to ensure cross-environment stability
+    const normalizedPath = getRelativePath(filePath);
+    
+    // Combine all identifying information (excluding snapshotId for cross-snapshot consistency)
+    const input = [
+      normalizedPath,
+      className || '',
+      functionName,
+      startLine.toString(),
+      startColumn.toString()
+    ].join(':');
+    
+    // Generate SHA-256 hash (256 bits), take first 128 bits for UUID
+    const hashHex = crypto.createHash('sha256').update(input).digest('hex');
+    const bytes = Buffer.from(hashHex.slice(0, 32), 'hex'); // 16 bytes = 128 bits
+    
+    // Set RFC 4122 version 5 (name-based) and variant bits for proper UUID format
+    bytes[6] = (bytes[6] & 0x0f) | 0x50; // Version 5 (0101xxxx)
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant RFC 4122 (10xxxxxx)
+    
+    const hex = bytes.toString('hex');
+    return [
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20, 32)
+    ].join('-');
+  }
+
+  /**
+   * Generate deterministic UUID from ts-morph Node
+   * Convenience method that extracts required information from Node
+   * Includes proper getter/setter/constructor naming normalization
+   */
+  static generateDeterministicUUIDFromNode(
+    node: Node,
+    filePath: string,
+    className: string | null = null
+  ): string {
+    // Extract function name with proper normalization for consistency across analyzers
+    let functionName = '<anonymous>';
+    if (Node.isGetAccessorDeclaration(node)) {
+      functionName = `get_${node.getName()}`;
+    } else if (Node.isSetAccessorDeclaration(node)) {
+      functionName = `set_${node.getName()}`;
+    } else if (Node.isConstructorDeclaration(node) || node.getKindName() === 'Constructor') {
+      functionName = 'constructor';
+    } else if ('getName' in node && typeof node.getName === 'function') {
+      functionName = node.getName() || '<anonymous>';
+    }
+    
+    const startLine = node.getStartLineNumber();
+    const startColumn = node.getStart() - node.getStartLinePos();
+    
+    return this.generateDeterministicUUID(
+      filePath,
+      functionName,
+      className,
+      startLine,
+      startColumn
+    );
   }
 
   /**

@@ -27,6 +27,7 @@ import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
 import { TypeSystemAnalyzer } from './type-system-analyzer';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
 
 interface FunctionMetadata {
@@ -39,6 +40,8 @@ interface FunctionMetadata {
   modifiers: string[];
   functionType: 'function' | 'method' | 'arrow' | 'local';
   nestingLevel: number;
+  startLine: number;
+  startColumn: number;
 }
 
 /**
@@ -68,6 +71,7 @@ export class TypeScriptAnalyzer extends CacheAware {
   private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
+  // Note: currentSnapshotId removed as physical IDs are now snapshot-independent
   
   // Static cache for QualityCalculator module to avoid repeated dynamic imports
   private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
@@ -143,7 +147,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Analyze a TypeScript file and extract function information
    * Now uses UnifiedASTAnalyzer for improved performance  
    */
-  async analyzeFile(filePath: string): Promise<FunctionInfo[]> {
+  async analyzeFile(filePath: string, _snapshotId?: string): Promise<FunctionInfo[]> {
+    // Note: snapshotId no longer stored as instance state for thread safety
     // Read file content asynchronously
     let fileContent: string;
     try {
@@ -176,7 +181,7 @@ export class TypeScriptAnalyzer extends CacheAware {
             // Generate new physical IDs for cached functions to ensure uniqueness
             return cachedResult.map(func => ({
               ...func,
-              id: this.generatePhysicalId(),
+              id: this.generatePhysicalId(filePath, func.name, func.contextPath || null, func.startLine, func.startColumn),
             }));
           } else {
             // File has changed, cache is invalid - proceed with fresh analysis
@@ -200,7 +205,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         
         return {
           ...functionInfo,
-          id: this.generatePhysicalId(), // Generate unique physical ID
+          id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn), // Generate deterministic ID
           metrics: qualityMetrics,
           complexity: qualityMetrics.cyclomaticComplexity || 1
         };
@@ -390,6 +395,8 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const signature = this.getFunctionSignature(func);
     const sourceCodeText = func.getFullText().trim();
+    const startLine = func.getStartLineNumber();
+    const startColumn = func.getStart() - func.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -409,7 +416,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(func);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
+    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -431,8 +439,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: func.getStartLineNumber(),
       endLine: func.getEndLineNumber(),
-      startColumn: func.getSourceFile().getLineAndColumnAtPos(func.getStart()).column,
-      endColumn: func.getSourceFile().getLineAndColumnAtPos(func.getEnd()).column,
+      startColumn: func.getStart() - func.getStartLinePos(),
+      endColumn: func.getEnd() - func.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, func.getStart(), func.getEnd()),
       astHash,
 
@@ -490,6 +498,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
     const signature = this.getMethodSignature(method, className);
     const sourceCodeText = method.getFullText().trim();
+    const startLine = method.getStartLineNumber();
+    const startColumn = method.getStart() - method.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -516,7 +526,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -538,8 +548,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: method.getStartLineNumber(),
       endLine: method.getEndLineNumber(),
-      startColumn: method.getSourceFile().getLineAndColumnAtPos(method.getStart()).column,
-      endColumn: method.getSourceFile().getLineAndColumnAtPos(method.getEnd()).column,
+      startColumn: method.getStart() - method.getStartLinePos(),
+      endColumn: method.getEnd() - method.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, method.getStart(), method.getEnd()),
       astHash,
 
@@ -585,6 +595,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const fullName = `${className}.constructor`;
     const signature = this.getConstructorSignature(ctor, className);
     const sourceCodeText = ctor.getFullText().trim();
+    const startLine = ctor.getStartLineNumber();
+    const startColumn = ctor.getStart() - ctor.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -611,7 +623,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -633,8 +645,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: ctor.getStartLineNumber(),
       endLine: ctor.getEndLineNumber(),
-      startColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getStart()).column,
-      endColumn: ctor.getSourceFile().getLineAndColumnAtPos(ctor.getEnd()).column,
+      startColumn: ctor.getStart() - ctor.getStartLinePos(),
+      endColumn: ctor.getEnd() - ctor.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, ctor.getStart(), ctor.getEnd()),
       astHash,
 
@@ -711,6 +723,9 @@ export class TypeScriptAnalyzer extends CacheAware {
     const functionType = determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
     const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
 
+    const startLine = functionNode.getStartLineNumber();
+    const startColumn = functionNode.getStart() - functionNode.getStartLinePos();
+    
     return {
       signature,
       sourceCodeText,
@@ -721,6 +736,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       modifiers,
       functionType,
       nestingLevel,
+      startLine,
+      startColumn,
     };
   }
 
@@ -735,7 +752,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     fileHash: string,
     stmt: VariableStatement
   ): Promise<FunctionInfo> {
-    const physicalId = this.generatePhysicalId();
+    const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
+    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -757,8 +775,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       fileHash,
       startLine: functionNode.getStartLineNumber(),
       endLine: functionNode.getEndLineNumber(),
-      startColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getStart()).column,
-      endColumn: functionNode.getSourceFile().getLineAndColumnAtPos(functionNode.getEnd()).column,
+      startColumn: functionNode.getStart() - functionNode.getStartLinePos(),
+      endColumn: functionNode.getEnd() - functionNode.getStartLinePos(),
       positionId: this.generatePositionId(relativePath, functionNode.getStart(), functionNode.getEnd()),
       astHash: metadata.astHash,
       contextPath: metadata.contextPath,
@@ -989,10 +1007,32 @@ _fileContent: string
   // }
 
   /**
-   * Generate a UUID for the physical function instance
+   * Generate a deterministic UUID for the physical function instance
    */
-  private generatePhysicalId(): string {
-    return crypto.randomUUID();
+  private generatePhysicalId(
+    filePath: string,
+    functionName: string,
+    classNameOrContext: string | string[] | null,
+    startLine: number,
+    startColumn: number
+  ): string {
+    // Extract class name from context if it's an array
+    let className: string | null = null;
+    if (Array.isArray(classNameOrContext)) {
+      className = classNameOrContext.length > 0 ? classNameOrContext[classNameOrContext.length - 1] : null;
+    } else {
+      className = classNameOrContext;
+    }
+    
+    // Generate cross-snapshot consistent physical ID
+    // Note: snapshotId removed to maintain same ID for same function across snapshots
+    return FunctionIdGenerator.generateDeterministicUUID(
+      filePath, // Will be normalized internally
+      functionName,
+      className,
+      startLine,
+      startColumn
+    );
   }
 
   /**
