@@ -36,13 +36,32 @@ function parseArgs() {
   const outIndex = process.argv.indexOf('--out');
   const dryRun = process.argv.includes('--dry-run');
 
-  if (!prNumber) {
-    console.error('Usage: tsx pr-get.ts <PR_NUMBER> [--repo <owner/repo>] [--out pr/NN/comments/] [--dry-run]');
+  // Validate PR number and usage
+  const usage = 'Usage: tsx pr-get.ts <PR_NUMBER> --repo <owner/repo> [--out pr/NN/comments/] [--dry-run]';
+  if (!prNumber || repoIndex === -1) {
+    console.error(usage);
+    process.exit(1);
+  }
+  if (!/^\d+$/.test(prNumber)) {
+    console.error('Error: <PR_NUMBER> must be an integer.');
     process.exit(1);
   }
 
-  const repo = repoIndex > -1 ? process.argv[repoIndex + 1] : '';
-  const out = outIndex > -1 ? process.argv[outIndex + 1] : `pr/${prNumber}/comments`;
+  // Validate repo format
+  const repo = process.argv[repoIndex + 1];
+  if (!repo || !/^[^/]+\/[^/]+$/.test(repo)) {
+    console.error('Error: --repo must be in the form <owner>/<repo>.');
+    process.exit(1);
+  }
+
+  // Validate --out value when provided
+  if (outIndex > -1 && (!process.argv[outIndex + 1] || process.argv[outIndex + 1].startsWith('--'))) {
+    console.error('Error: --out requires a value.');
+    process.exit(1);
+  }
+  const out = outIndex > -1
+    ? process.argv[outIndex + 1]
+    : `pr/${prNumber}/comments`;
 
   return { prNumber, repo, out, dryRun };
 }
@@ -52,7 +71,8 @@ function sanitizeFilename(text: string): string {
 }
 
 function writeMarkdown(comment: ReviewComment, index: number, outDir: string, dryRun: boolean) {
-  const filename = `comment-${String(index + 1).padStart(3, '0')}-${sanitizeFilename(comment.path)}.md`;
+  // comment.id は GitHub 側で一意なので、再実行時も衝突しない
+  const filename = `comment-${String(comment.id).padStart(8, '0')}-${sanitizeFilename(comment.path)}.md`;
   const filepath = path.join(outDir, filename);
 
   const content = `---
@@ -110,7 +130,17 @@ async function main() {
   const json = await run(cmd);
 
   // ここで gh の出力が巨大でも ENOBUFS にならない
-  const comments: ReviewComment[] = JSON.parse(json);
+  let comments: ReviewComment[];
+  try {
+    comments = JSON.parse(json);
+  } catch (e) {
+    throw new Error(`Failed to parse JSON: ${(e as Error).message}`);
+  }
+
+  if (!Array.isArray(comments)) {
+    // 例: {"message":"Not Found"} / {"message":"Requires authentication"} 等
+    throw new Error(`Unexpected GitHub API response: ${json.slice(0, 200)}`);
+  }
 
   const lastFetched = loadLastFetchedTime(out);
 
