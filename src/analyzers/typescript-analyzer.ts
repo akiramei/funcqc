@@ -27,6 +27,7 @@ import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
 import { TypeSystemAnalyzer } from './type-system-analyzer';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
 
 interface FunctionMetadata {
@@ -39,6 +40,8 @@ interface FunctionMetadata {
   modifiers: string[];
   functionType: 'function' | 'method' | 'arrow' | 'local';
   nestingLevel: number;
+  startLine: number;
+  startColumn: number;
 }
 
 /**
@@ -68,6 +71,7 @@ export class TypeScriptAnalyzer extends CacheAware {
   private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
+  private currentSnapshotId: string | undefined;
   
   // Static cache for QualityCalculator module to avoid repeated dynamic imports
   private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
@@ -143,7 +147,9 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Analyze a TypeScript file and extract function information
    * Now uses UnifiedASTAnalyzer for improved performance  
    */
-  async analyzeFile(filePath: string): Promise<FunctionInfo[]> {
+  async analyzeFile(filePath: string, snapshotId?: string): Promise<FunctionInfo[]> {
+    // Store snapshot ID for use in ID generation
+    this.currentSnapshotId = snapshotId;
     // Read file content asynchronously
     let fileContent: string;
     try {
@@ -176,7 +182,7 @@ export class TypeScriptAnalyzer extends CacheAware {
             // Generate new physical IDs for cached functions to ensure uniqueness
             return cachedResult.map(func => ({
               ...func,
-              id: this.generatePhysicalId(),
+              id: this.generatePhysicalId(filePath, func.name, func.contextPath || null, func.startLine, func.startColumn),
             }));
           } else {
             // File has changed, cache is invalid - proceed with fresh analysis
@@ -191,7 +197,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       }
 
       // Use UnifiedASTAnalyzer for combined analysis
-      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent);
+      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent, this.currentSnapshotId);
       
       // Convert to FunctionInfo format and add missing fields
       const functions: FunctionInfo[] = unifiedResults.map(result => {
@@ -200,7 +206,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         
         return {
           ...functionInfo,
-          id: this.generatePhysicalId(), // Generate unique physical ID
+          id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn), // Generate deterministic ID
           metrics: qualityMetrics,
           complexity: qualityMetrics.cyclomaticComplexity || 1
         };
@@ -390,6 +396,8 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const signature = this.getFunctionSignature(func);
     const sourceCodeText = func.getFullText().trim();
+    const startLine = func.getStartLineNumber();
+    const startColumn = func.getStart() - func.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -409,7 +417,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(func);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
+    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -490,6 +499,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
     const signature = this.getMethodSignature(method, className);
     const sourceCodeText = method.getFullText().trim();
+    const startLine = method.getStartLineNumber();
+    const startColumn = method.getStart() - method.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -516,7 +527,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -585,6 +596,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     const fullName = `${className}.constructor`;
     const signature = this.getConstructorSignature(ctor, className);
     const sourceCodeText = ctor.getFullText().trim();
+    const startLine = ctor.getStartLineNumber();
+    const startColumn = ctor.getStart() - ctor.getStartLinePos();
     
     // Use optimized hash cache for all hash calculations
     const hashes = globalHashCache.getOrCalculateHashes(
@@ -611,7 +624,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId();
+    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -711,6 +724,9 @@ export class TypeScriptAnalyzer extends CacheAware {
     const functionType = determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
     const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
 
+    const startLine = functionNode.getStartLineNumber();
+    const startColumn = functionNode.getStart() - functionNode.getStartLinePos();
+    
     return {
       signature,
       sourceCodeText,
@@ -721,6 +737,8 @@ export class TypeScriptAnalyzer extends CacheAware {
       modifiers,
       functionType,
       nestingLevel,
+      startLine,
+      startColumn,
     };
   }
 
@@ -735,7 +753,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     fileHash: string,
     stmt: VariableStatement
   ): Promise<FunctionInfo> {
-    const physicalId = this.generatePhysicalId();
+    const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
+    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -989,10 +1008,34 @@ _fileContent: string
   // }
 
   /**
-   * Generate a UUID for the physical function instance
+   * Generate a deterministic UUID for the physical function instance
    */
-  private generatePhysicalId(): string {
-    return crypto.randomUUID();
+  private generatePhysicalId(
+    filePath: string,
+    functionName: string,
+    classNameOrContext: string | string[] | null,
+    startLine: number,
+    startColumn: number
+  ): string {
+    // Extract class name from context if it's an array
+    let className: string | null = null;
+    if (Array.isArray(classNameOrContext)) {
+      className = classNameOrContext.length > 0 ? classNameOrContext[classNameOrContext.length - 1] : null;
+    } else {
+      className = classNameOrContext;
+    }
+    
+    // Use snapshot ID if available, otherwise use a stable default
+    const effectiveSnapshotId = this.currentSnapshotId || 'default';
+    
+    return FunctionIdGenerator.generateDeterministicUUID(
+      effectiveSnapshotId,
+      filePath,
+      functionName,
+      className,
+      startLine,
+      startColumn
+    );
   }
 
   /**

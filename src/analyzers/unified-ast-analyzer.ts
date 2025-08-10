@@ -13,6 +13,7 @@ import { FunctionInfo, QualityMetrics, ParameterInfo, ReturnTypeInfo } from '../
 import { QualityCalculator } from '../metrics/quality-calculator';
 // Option 1: Use custom LRU cache (better performance for our use case)
 import { LRUCache } from '../utils/lru-cache';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { determineFunctionType } from './shared/function-type-utils';
 import { globalHashCache } from '../utils/hash-cache';
 
@@ -28,6 +29,7 @@ export class UnifiedASTAnalyzer {
   private project: Project;
   private qualityCalculator: QualityCalculator;
   private cache: LRUCache<TsMorphSourceFile>;
+  private currentSnapshotId: string | undefined;
   // private maxSourceFilesInMemory: number; // Stored in cache options
 
   constructor(maxSourceFilesInMemory: number = 50) {
@@ -61,7 +63,8 @@ export class UnifiedASTAnalyzer {
    * Analyze a single file and extract all functions with quality metrics
    * in one AST traversal pass
    */
-  async analyzeFile(filePath: string, content: string): Promise<UnifiedAnalysisResult[]> {
+  async analyzeFile(filePath: string, content: string, snapshotId?: string): Promise<UnifiedAnalysisResult[]> {
+    this.currentSnapshotId = snapshotId;
     // Get or create source file
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const results: UnifiedAnalysisResult[] = [];
@@ -185,6 +188,7 @@ export class UnifiedASTAnalyzer {
   ): FunctionInfo {
     const name = this.getFunctionName(node);
     const startLine = node.getStartLineNumber();
+    const startColumn = node.getStart() - node.getStartLinePos();
     const endLine = node.getEndLineNumber();
     const sourceCode = node.getFullText();
     const parameters = this.extractParameters(node);
@@ -200,8 +204,9 @@ export class UnifiedASTAnalyzer {
     const nestingLevel = this.calculateNestingLevel(node);
     
 
-    // Generate unique physical ID for this function instance
-    const physicalId = this.generatePhysicalId();
+    // Generate deterministic physical ID for this function instance
+    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
+    const physicalId = this.generatePhysicalId(filePath, name, className, startLine, startColumn);
     
     // Generate content-based ID using source code
     const contentId = this.generateContentId(sourceCode, filePath, startLine, endLine);
@@ -379,10 +384,25 @@ export class UnifiedASTAnalyzer {
   }
 
   /**
-   * Generate a UUID for the physical function instance
+   * Generate a deterministic UUID for the physical function instance
    */
-  private generatePhysicalId(): string {
-    return crypto.randomUUID();
+  private generatePhysicalId(
+    filePath: string,
+    functionName: string,
+    className: string | null,
+    startLine: number,
+    startColumn: number
+  ): string {
+    const effectiveSnapshotId = this.currentSnapshotId || 'default';
+    
+    return FunctionIdGenerator.generateDeterministicUUID(
+      effectiveSnapshotId,
+      filePath,
+      functionName,
+      className,
+      startLine,
+      startColumn
+    );
   }
 
   /**

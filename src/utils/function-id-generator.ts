@@ -24,6 +24,7 @@ export class FunctionIdGenerator {
 
   /**
    * Generate ID from ts-morph node with content-based stability
+   * @deprecated Use generateDeterministicUUID instead for new code
    */
   static generateFromNode(
     node: Node,
@@ -44,6 +45,76 @@ export class FunctionIdGenerator {
     
     // Return a shortened hash for readability
     return stableHash.substring(0, 16);
+  }
+
+  /**
+   * Generate deterministic UUID with same precision as UUID v4
+   * Creates a stable, reproducible ID based on function location and context
+   * Returns UUID format string (36 chars with hyphens)
+   */
+  static generateDeterministicUUID(
+    snapshotId: string,
+    filePath: string,
+    functionName: string,
+    className: string | null,
+    startLine: number,
+    startColumn: number
+  ): string {
+    // Combine all identifying information
+    const input = [
+      snapshotId,
+      filePath,
+      className || '',
+      functionName,
+      startLine.toString(),
+      startColumn.toString()
+    ].join(':');
+    
+    // Generate SHA-256 hash for maximum entropy (256 bits)
+    const hash = crypto.createHash('sha256')
+      .update(input)
+      .digest('hex');
+    
+    // Format as UUID v4-like string (8-4-4-4-12 = 36 chars)
+    // Uses first 32 hex chars (128 bits) from SHA-256
+    return [
+      hash.substring(0, 8),
+      hash.substring(8, 12),
+      hash.substring(12, 16),
+      hash.substring(16, 20),
+      hash.substring(20, 32)
+    ].join('-');
+  }
+
+  /**
+   * Generate deterministic UUID from ts-morph Node
+   * Convenience method that extracts required information from Node
+   */
+  static generateDeterministicUUIDFromNode(
+    node: Node,
+    snapshotId: string,
+    filePath: string,
+    className: string | null = null
+  ): string {
+    // Extract function name from node
+    let functionName = '<anonymous>';
+    if ('getName' in node && typeof node.getName === 'function') {
+      functionName = node.getName() || '<anonymous>';
+    } else if (node.getKindName() === 'Constructor') {
+      functionName = 'constructor';
+    }
+    
+    const startLine = node.getStartLineNumber();
+    const startColumn = node.getStart() - node.getStartLinePos();
+    
+    return this.generateDeterministicUUID(
+      snapshotId,
+      filePath,
+      functionName,
+      className,
+      startLine,
+      startColumn
+    );
   }
 
   /**

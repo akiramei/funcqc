@@ -24,8 +24,7 @@ import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project, SyntaxKind, TypeChecker, ts } from 'ts-morph';
-import { createHash } from 'crypto';
+import { Project, TypeChecker, ts } from 'ts-morph';
 import { SnapshotMetadata } from '../../types';
 
 /**
@@ -755,7 +754,7 @@ export async function performDeferredCouplingAnalysis(
           const fileFunctions = functions.filter(f => f.filePath === sourceFile.filePath);
           
           // Perform coupling analysis using shared project and typeChecker
-          const couplingData = await performCouplingAnalysisForFile(sourceFile, fileFunctions, project, typeChecker);
+          const couplingData = await performCouplingAnalysisForFile(sourceFile, fileFunctions, project, typeChecker, snapshotId);
           batchCouplingData.push(...couplingData);
         } catch (error) {
           console.warn(chalk.yellow(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`));
@@ -790,9 +789,10 @@ export async function performDeferredCouplingAnalysis(
  */
 async function performCouplingAnalysisForFile(
   sourceFile: import('../../types').SourceFile,
-  functions: FunctionInfo[],
+  _functions: FunctionInfo[],
   project: Project,
-  typeChecker: TypeChecker
+  typeChecker: TypeChecker,
+  snapshotId: string
 ): Promise<ParameterPropertyUsage[]> {
   try {
     // Reuse shared project and add source file
@@ -800,99 +800,26 @@ async function performCouplingAnalysisForFile(
 
     // Execute 1-pass AST visitor
     const visitor = new OnePassASTVisitor();
-    const context = visitor.scanFile(tsSourceFile, typeChecker);
+    const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
-    
-    // Build mapping: visitor shortId -> persisted functionId
-    const visitorIdToFunctionId = new Map<string, string>();
-    
-    // Find AST function nodes and recreate visitor IDs using the same logic as OnePassASTVisitor
-    tsSourceFile.forEachDescendant((node) => {
-      if (
-        node.getKind() === SyntaxKind.FunctionDeclaration ||
-        node.getKind() === SyntaxKind.MethodDeclaration ||
-        node.getKind() === SyntaxKind.ArrowFunction ||
-        node.getKind() === SyntaxKind.FunctionExpression ||
-        node.getKind() === SyntaxKind.Constructor ||
-        node.getKind() === SyntaxKind.GetAccessor ||
-        node.getKind() === SyntaxKind.SetAccessor
-      ) {
-        // Get name using the same logic as OnePassASTVisitor
-        let name = '<anonymous>';
-        if (node.getKind() === SyntaxKind.Constructor) {
-          name = 'constructor';
-        } else if ('getName' in node && typeof node.getName === 'function') {
-          name = node.getName() || '<anonymous>';
-        }
-        
-        const startLine = node.getStartLineNumber();
-        const startPos = node.getStart(); // Character offset, not line number
-        
-        // Recreate the same short ID as OnePassASTVisitor.getFunctionId
-        const shortId = createHash('md5')
-          .update(`${tsSourceFile.getFilePath()}:${startPos}:${name}`)
-          .digest('hex')
-          .substring(0, 16);
-        
-        // Find matching function from the persisted functions list with enhanced criteria
-        const startColumn = node.getStartLinePos();
-        const endLine = node.getEndLineNumber();
-        const filePath = tsSourceFile.getFilePath();
-        
-        const match = functions.find(f => {
-          // Basic criteria: same file, start line, and name
-          const basicMatch = f.filePath === filePath &&
-                            f.startLine === startLine &&
-                            (f.name || '<anonymous>') === name;
-          
-          if (!basicMatch) return false;
-          
-          // Enhanced criteria for disambiguation
-          // Use startColumn if available in function data
-          if (f.startColumn !== undefined) {
-            if (f.startColumn !== startColumn) return false;
-          }
-          
-          // Use endLine if available in function data
-          if (f.endLine !== undefined) {
-            if (f.endLine !== endLine) return false;
-          }
-          
-          // For anonymous functions, use additional context if available
-          if (name === '<anonymous>' && f.displayName) {
-            // Use display name as supplementary matching criterion
-            return f.displayName.includes(node.getKindName());
-          }
-          
-          return true;
-        });
-        
-        if (match) {
-          visitorIdToFunctionId.set(shortId, match.id);
-        }
-      }
-    });
 
     // Extract property access data from coupling analysis
+    // Now OnePassASTVisitor and TypeScriptAnalyzer generate the same deterministic UUIDs
     for (const [funcId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // Use the visitor ID directly to find the corresponding function ID
-        const actualFuncId = visitorIdToFunctionId.get(funcId);
-
-        if (actualFuncId) {
-          for (const prop of analysis.usedProperties) {
-            couplingData.push({
-              functionId: actualFuncId,
-              parameterName: analysis.parameterName,
-              parameterTypeId: null, // Will be resolved later if needed
-              accessedProperty: prop,
-              accessType: 'read', // Default to read access
-              accessLine: 0, // Line info would need to be extracted from AST
-              accessContext: 'property_access'
-            });
-          }
+        // funcId is now a deterministic UUID that matches the database function.id
+        for (const prop of analysis.usedProperties) {
+          couplingData.push({
+            functionId: funcId, // Direct use - no mapping needed
+            parameterName: analysis.parameterName,
+            parameterTypeId: null, // Will be resolved later if needed
+            accessedProperty: prop,
+            accessType: 'read', // Default to read access
+            accessLine: 0, // Line info would need to be extracted from AST
+            accessContext: 'property_access'
+          });
         }
       }
     }
@@ -1436,10 +1363,11 @@ async function analyzeFileWithFallback(
   filePath: string,
   analyzer: TypeScriptAnalyzer,
   qualityCalculator: QualityCalculator,
-  allFunctions: FunctionInfo[]
+  allFunctions: FunctionInfo[],
+  snapshotId?: string
 ): Promise<void> {
   try {
-    const functions = await analyzer.analyzeFile(filePath);
+    const functions = await analyzer.analyzeFile(filePath, snapshotId);
     await calculateMetricsForFunctions(functions, qualityCalculator);
     allFunctions.push(...functions);
   } catch (fileError) {

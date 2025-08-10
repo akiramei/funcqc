@@ -2,6 +2,7 @@ import { Project, Node, SourceFile } from 'ts-morph';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as crypto from 'crypto';
 import { getRelativePath } from '../utils/path-utils';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 
 /**
  * Function Registry - Comprehensive Function Collection System
@@ -18,8 +19,10 @@ export class FunctionRegistry {
   private project: Project;
   private functionMap = new Map<string, FunctionMetadata>();
   private declToIdMap = new WeakMap<Node, string>(); // 宣言ノード → functionId 逆引き
+  private currentSnapshotId: string | undefined;
 
-  constructor(project: Project) {
+  constructor(project: Project, snapshotId?: string) {
+    this.currentSnapshotId = snapshotId;
     this.project = project;
   }
 
@@ -88,8 +91,17 @@ export class FunctionRegistry {
     
     const className = this.getClassName(node);
     
-    // Generate UUID for physical function identity
-    const uniqueId = crypto.randomUUID();
+    // Generate deterministic UUID for physical function identity
+    const effectiveSnapshotId = this.currentSnapshotId || 'default';
+    const startColumn = node.getStart() - node.getStartLinePos();
+    const uniqueId = FunctionIdGenerator.generateDeterministicUUID(
+      effectiveSnapshotId,
+      filePath,
+      name,
+      className || null,
+      node.getStartLineNumber(),
+      startColumn
+    );
     
     return {
       id: uniqueId,
