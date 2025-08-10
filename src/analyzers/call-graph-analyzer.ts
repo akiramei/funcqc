@@ -183,15 +183,11 @@ export class CallGraphAnalyzer {
     const callEdges: CallEdge[] = [];
     let idMismatchCount = 0;
     let resolvedCount = 0;
-
+    
     // Apply pre-filtering to reduce resolveCallee calls
     const filteredCallExpressions = candidateNames ? 
       this.preFilterCallExpressions(callExpressions, candidateNames) : 
       callExpressions;
-
-    if (process.env['FUNCQC_DEBUG_CALL_RESOLUTION']) {
-      this.logger?.debug(`Pre-filter: ${callExpressions.length} → ${filteredCallExpressions.length} call expressions`);
-    }
 
     for (const callExpr of filteredCallExpressions) {
       try {
@@ -329,7 +325,6 @@ export class CallGraphAnalyzer {
 
       // Process each function and extract call edges (using local functions only)
       for (const [, functionInfo] of functionMap.entries()) {
-        
         // Find matching function node with line tolerance
         const functionNode = functionNodes.find(node => {
           const nodeStart = node.getStartLineNumber();
@@ -348,7 +343,6 @@ export class CallGraphAnalyzer {
           
           // Use pre-collected call expressions from unified AST traversal
           const callExpressions = functionCallsMap.get(functionNode) || [];
-          
 
           // Process call expressions and create call edges
           const functionCallEdges = await this.processCallEdges(

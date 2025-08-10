@@ -34,13 +34,14 @@ export function testCallee() {
 }
 `);
 
-    // Create function maps
-    const callerFunctionMap = new Map();
+    // Create unified function map that includes all functions from all files
+    const allFunctionMap = new Map();
+    
     callerFile.forEachDescendant(node => {
       if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
         const name = node.getName?.() || 'anonymous';
         const id = `caller-${name}-test-id`;
-        callerFunctionMap.set(name, {
+        allFunctionMap.set(name, {
           id,
           name,
           startLine: node.getStartLineNumber(),
@@ -49,12 +50,11 @@ export function testCallee() {
       }
     });
 
-    const calleeFunctionMap = new Map();
     calleeFile.forEachDescendant(node => {
       if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
         const name = node.getName?.() || 'anonymous';
         const id = `callee-${name}-test-id`;
-        calleeFunctionMap.set(name, {
+        allFunctionMap.set(name, {
           id,
           name,
           startLine: node.getStartLineNumber(),
@@ -64,37 +64,24 @@ export function testCallee() {
     });
 
     // Create global allowed function set
-    const allFunctions = new Set([
-      ...Array.from(callerFunctionMap.values()).map(f => f.id),
-      ...Array.from(calleeFunctionMap.values()).map(f => f.id)
-    ]);
+    const allFunctions = new Set(Array.from(allFunctionMap.values()).map(f => f.id));
 
-    // Create getFunctionIdByDeclaration function
+    // Create getFunctionIdByDeclaration function using unified map
     const getFunctionIdByDeclaration = (decl: Node): string | undefined => {
-      // Check caller functions
-      for (const [name, func] of callerFunctionMap.entries()) {
+      for (const [name, func] of allFunctionMap.entries()) {
         if (decl.getStartLineNumber() === func.startLine && decl.getEndLineNumber() === func.endLine) {
           return func.id;
         }
       }
-      
-      // Check callee functions
-      for (const [name, func] of calleeFunctionMap.entries()) {
-        if (decl.getStartLineNumber() === func.startLine && decl.getEndLineNumber() === func.endLine) {
-          return func.id;
-        }
-      }
-      
       return undefined;
     };
 
-    // Create analyzer
     const analyzer = new CallGraphAnalyzer(project, true);
 
-    // Analyze caller file
+    // Analyze caller file with unified function map
     const edges = await analyzer.analyzeFile(
       'test-caller.ts',
-      callerFunctionMap,
+      allFunctionMap,
       getFunctionIdByDeclaration,
       allFunctions
     );
@@ -133,31 +120,76 @@ export function anotherFunction() {
 }
 `);
 
-    // Create simple function maps
-    const functionMap = new Map([
-      ['caller', { id: 'caller-id', name: 'caller', startLine: 3, endLine: 5 }]
+    // Create unified function map with file-specific line number mapping to avoid conflicts
+    const allFunctionMap = new Map();
+    const sourceFileToOffset = new Map([
+      ['named-import.ts', 0],
+      ['utils.ts', 1000]  // Use large offset to avoid line number conflicts
     ]);
     
-    const utilsMap = new Map([
-      ['namedFunction', { id: 'named-id', name: 'namedFunction', startLine: 2, endLine: 4 }],
-      ['anotherFunction', { id: 'another-id', name: 'anotherFunction', startLine: 6, endLine: 8 }]
-    ]);
+    // Add functions from named-import.ts with original line numbers
+    namedImportFile.forEachDescendant(node => {
+      if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
+        const name = node.getName?.() || 'anonymous';
+        const id = `caller-${name}-test-id`;
+        allFunctionMap.set(`named-import:${name}`, {
+          id,
+          name,
+          startLine: node.getStartLineNumber(),
+          endLine: node.getEndLineNumber()
+        });
+      }
+    });
 
-    const allFunctions = new Set(['caller-id', 'named-id', 'another-id']);
+    // Add functions from utils.ts with offset line numbers to avoid conflicts
+    utilsFile.forEachDescendant(node => {
+      if (Node.isFunctionDeclaration(node) || Node.isMethodDeclaration(node)) {
+        const name = node.getName?.() || 'anonymous';
+        const id = `utils-${name}-test-id`;
+        const offset = sourceFileToOffset.get('utils.ts') || 0;
+        allFunctionMap.set(`utils:${name}`, {
+          id,
+          name,
+          startLine: node.getStartLineNumber() + offset,
+          endLine: node.getEndLineNumber() + offset
+        });
+      }
+    });
+
+    const allFunctions = new Set(Array.from(allFunctionMap.values()).map(f => f.id));
 
     const getFunctionId = (decl: Node): string | undefined => {
-      const line = decl.getStartLineNumber();
-      if (line === 3) return 'caller-id';
-      if (line === 2) return 'named-id';
-      if (line === 6) return 'another-id';
+      const sourceLine = decl.getStartLineNumber();
+      const sourceEnd = decl.getEndLineNumber();
+      const sourceFile = decl.getSourceFile();
+      const fileName = sourceFile.getBaseName();
+      
+      // Try direct match first (for functions in the target file)
+      for (const [key, func] of allFunctionMap.entries()) {
+        if (sourceLine === func.startLine && sourceEnd === func.endLine) {
+          return func.id;
+        }
+      }
+      
+      // Try with file-specific offset for external files
+      const offset = sourceFileToOffset.get(fileName) || 0;
+      const adjustedStartLine = sourceLine + offset;
+      const adjustedEndLine = sourceEnd + offset;
+      
+      for (const [key, func] of allFunctionMap.entries()) {
+        if (adjustedStartLine === func.startLine && adjustedEndLine === func.endLine) {
+          return func.id;
+        }
+      }
+      
       return undefined;
     };
 
     const analyzer = new CallGraphAnalyzer(project, true);
-    const edges = await analyzer.analyzeFile('named-import.ts', functionMap, getFunctionId, allFunctions);
+    const edges = await analyzer.analyzeFile('named-import.ts', allFunctionMap, getFunctionId, allFunctions);
 
     expect(edges.length).toBe(1);
     expect(edges[0].calleeName).toBe('namedFunction');
-    expect(edges[0].calleeFunctionId).toBe('named-id');
+    expect(edges[0].calleeFunctionId).toBe('utils-namedFunction-test-id');
   });
 });
