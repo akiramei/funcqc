@@ -67,7 +67,6 @@ export function createTypesCommand(): Command {
   typesCmd
     .command('deps <typeName>')
     .description('🔗 Analyze type dependencies and usage')
-    .option('--depth <number>', 'Maximum dependency depth to analyze', parseInt, 3)
     .option('--circular', 'Show only circular dependencies')
     .option('--json', 'Output in JSON format')
     .action(async (typeName: string, options: TypeDepsOptions, command) => {

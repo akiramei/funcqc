@@ -9,6 +9,8 @@ import {
   FunctionLikeDeclaration
 } from 'ts-morph';
 import { createHash } from 'crypto';
+import { FunctionIdGenerator } from '../../utils/function-id-generator';
+import { getRelativePath } from '../../utils/path-utils';
 
 /**
  * Shared context for all visitors during 1-pass AST traversal
@@ -165,7 +167,7 @@ export class OnePassASTVisitor {
    * Usage pattern collector visitor
    */
   private usageCollector: NodeVisitor = (node, ctx) => {
-    if (Node.isPropertyAccessExpression(node)) {
+    if (Node.isPropertyAccessExpression(node) || Node.isElementAccessExpression(node)) {
       this.collectPropertyAccess(node, ctx);
     } else if (Node.isCallExpression(node)) {
       this.collectFunctionCall(node, ctx);
@@ -176,7 +178,7 @@ export class OnePassASTVisitor {
    * Coupling data collector visitor  
    */
   private couplingCollector: NodeVisitor = (node, ctx) => {
-    if (Node.isPropertyAccessExpression(node)) {
+    if (Node.isPropertyAccessExpression(node) || Node.isElementAccessExpression(node)) {
       this.collectCouplingData(node, ctx);
     }
   };
@@ -190,13 +192,17 @@ export class OnePassASTVisitor {
     }
   };
   
-  private collectPropertyAccess(node: PropertyAccessExpression, ctx: ScanContext): void {
+  private collectPropertyAccess(node: PropertyAccessExpression | Node, ctx: ScanContext): void {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
     const funcId = this.getFunctionId(func);
-    const expression = node.getExpression();
-    const propertyName = node.getName();
+    const expression = Node.isPropertyAccessExpression(node) ? node.getExpression() : 
+                       Node.isElementAccessExpression(node) ? node.getExpression() : null;
+    const propertyName = Node.isPropertyAccessExpression(node) ? node.getName() : 
+                        Node.isElementAccessExpression(node) ? this.getElementAccessName(node) : 'unknown';
+    
+    if (!expression || !propertyName || propertyName === 'unknown') return;
     
     // Get parameter type map (lazy computation)
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
@@ -245,13 +251,17 @@ export class OnePassASTVisitor {
     });
   }
   
-  private collectCouplingData(node: PropertyAccessExpression, ctx: ScanContext): void {
+  private collectCouplingData(node: PropertyAccessExpression | Node, ctx: ScanContext): void {
     const func = this.findContainingFunction(node);
     if (!func) return;
     
     const funcId = this.getFunctionId(func);
-    const expression = node.getExpression();
-    const propertyName = node.getName();
+    const expression = Node.isPropertyAccessExpression(node) ? node.getExpression() : 
+                       Node.isElementAccessExpression(node) ? node.getExpression() : null;
+    const propertyName = Node.isPropertyAccessExpression(node) ? node.getName() : 
+                        Node.isElementAccessExpression(node) ? this.getElementAccessName(node) : 'unknown';
+    
+    if (!expression || !propertyName || propertyName === 'unknown') return;
     
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
     const paramName = expression.getText();
@@ -364,29 +374,17 @@ export class OnePassASTVisitor {
       return cached;
     }
     
-    // Compute and cache the result
+    // Compute and cache the result using centralized function ID generator
     const filePath = func.getSourceFile().getFilePath();
-    const startPos = func.getStart();
-    const name = this.getFunctionName(func);
-    const funcId = createHash('md5').update(`${filePath}:${startPos}:${name}`).digest('hex').substring(0, 16);
+    const funcId = FunctionIdGenerator.generateFromNode(
+      func,
+      getRelativePath(filePath)
+    );
     
     this.funcIdCache.set(func, funcId);
     return funcId;
   }
 
-  
-  private getFunctionName(func: Node): string {
-    if (Node.isFunctionDeclaration(func) || Node.isMethodDeclaration(func)) {
-      return func.getName() || '<anonymous>';
-    } else if (Node.isConstructorDeclaration(func)) {
-      return 'constructor';
-    } else if (Node.isGetAccessorDeclaration(func)) {
-      return `get ${func.getName()}`;
-    } else if (Node.isSetAccessorDeclaration(func)) {
-      return `set ${func.getName()}`;
-    }
-    return '<anonymous>';
-  }
   
   private getOrCreateParamTypeMap(func: Node, ctx: ScanContext): Map<string, Type> {
     // Type assertion for function-like nodes
@@ -406,7 +404,7 @@ export class OnePassASTVisitor {
     return paramMap;
   }
   
-  private classifyPropertyAccess(node: PropertyAccessExpression): 'read' | 'write' | 'modify' | 'pass' {
+  private classifyPropertyAccess(node: PropertyAccessExpression | Node): 'read' | 'write' | 'modify' | 'pass' {
     const parent = node.getParent();
     if (!parent) return 'read';
     
@@ -426,7 +424,19 @@ export class OnePassASTVisitor {
     return 'read';
   }
   
-  private getAccessContext(node: PropertyAccessExpression): string {
+  private getElementAccessName(node: Node): string | null {
+    if (Node.isElementAccessExpression(node)) {
+      const argumentExpression = node.getArgumentExpression();
+      if (argumentExpression && Node.isStringLiteral(argumentExpression)) {
+        return argumentExpression.getLiteralValue();
+      }
+      // For non-string literals, return a generic identifier
+      return '[computed]';
+    }
+    return null;
+  }
+  
+  private getAccessContext(node: PropertyAccessExpression | Node): string {
     const parent = node.getParent();
     if (!parent) return 'unknown';
     
@@ -461,10 +471,6 @@ export class OnePassASTVisitor {
    */
   private countTypeProperties(type: Type, checker: TypeChecker): number {
     try {
-      const symbol = type.getSymbol();
-      if (!symbol) return 0;
-
-      // Get all accessible properties/methods
       const properties = checker.getPropertiesOfType(type);
       return properties.length;
     } catch {

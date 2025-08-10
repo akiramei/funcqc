@@ -177,6 +177,14 @@ function requiresTypeSystemAnalysis(): boolean {
 }
 
 /**
+ * Check if current command requires coupling analysis
+ */
+function requiresCouplingAnalysis(): boolean {
+  const command = process.argv[2];
+  return COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command);
+}
+
+/**
  * Ensures basic analysis is available for commands that require it
  */
 async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
@@ -197,8 +205,9 @@ async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions
       // Check if basic analysis is needed
       const metadata = snapshot.metadata as Record<string, unknown>;
       const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      const totalFunctions = Number(metadata?.['totalFunctions'] ?? 0);
       
-      if (analysisLevel === 'NONE') {
+      if (analysisLevel === 'NONE' || totalFunctions === 0) {
         // Determine if we should show progress (not for JSON modes)
         const isJsonMode = mergedOptions.json || mergedOptions.aiOptimized || process.argv.includes('--json');
         
@@ -308,6 +317,68 @@ async function ensureTypeSystemAnalysis(commandEnv: CommandEnvironment, mergedOp
 }
 
 /**
+ * Ensure coupling analysis is available for commands that require it
+ */
+async function ensureCouplingAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
+  if (requiresCouplingAnalysis()) {
+    try {
+      // Get the latest snapshot (or specified snapshot)
+      let snapshot;
+      if (mergedOptions.snapshot) {
+        snapshot = await commandEnv.storage.getSnapshot(mergedOptions.snapshot);
+      } else {
+        snapshot = await commandEnv.storage.getLatestSnapshot();
+      }
+      
+      if (!snapshot) {
+        return; // No snapshot found - let the command handle this
+      }
+      
+      // Check if coupling analysis is needed
+      const metadata = snapshot.metadata as Record<string, unknown>;
+      const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      
+      if (analysisLevel !== 'COUPLING') {
+        // Determine if we should show progress (not for JSON modes)
+        const isJsonMode = mergedOptions.json || mergedOptions.aiOptimized || process.argv.includes('--json');
+        
+        if (!isJsonMode) {
+          console.log(`🔗 Coupling analysis needed for ${snapshot.id.substring(0, 8)}...`);
+        }
+        
+        // Ensure type system analysis is done first
+        if (analysisLevel === 'NONE') {
+          const { performDeferredBasicAnalysis } = await import('./commands/scan');
+          await performDeferredBasicAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        }
+        
+        // Call graph analysis prerequisite is handled by type system analysis
+        
+        if (analysisLevel === 'NONE' || analysisLevel === 'BASIC' || analysisLevel === 'CALL_GRAPH') {
+          const { performDeferredTypeSystemAnalysis } = await import('./commands/scan');
+          await performDeferredTypeSystemAnalysis(snapshot.id, commandEnv, !isJsonMode);
+        }
+        
+        // Import and execute coupling analysis
+        const { performDeferredCouplingAnalysis } = await import('./commands/scan');
+        await performDeferredCouplingAnalysis(snapshot.id, commandEnv, undefined);
+        
+        // 結合度分析完了をフラグ＆レベルに反映
+        await commandEnv.storage.updateAnalysisLevel(snapshot.id, 'COUPLING');
+        
+        if (!isJsonMode) {
+          console.log(`✓ Coupling analysis completed`);
+        }
+      }
+    } catch {
+      // Let the individual commands handle the error appropriately
+      // This ensures coupling analysis failure doesn't break the wrapper
+      // Don't throw here - let the command handle it
+    }
+  }
+}
+
+/**
  * Higher-order function that wraps Reader-based commands with environment injection
  */
 export function withEnvironment<TOptions extends BaseCommandOptions>(
@@ -349,6 +420,9 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
 
       // Ensure type system analysis is available for commands that require it
       await ensureTypeSystemAnalysis(commandEnv, mergedOptions);
+
+      // Ensure coupling analysis is available for commands that require it
+      await ensureCouplingAnalysis(commandEnv, mergedOptions);
 
       const readerFn = commandReader(mergedOptions);
       await readerFn(commandEnv);

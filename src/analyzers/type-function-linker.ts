@@ -14,7 +14,7 @@ import {
   PropertyAccessExpression,
   TypeChecker,
   TypeAliasDeclaration,
-  Symbol,
+  Symbol as TSSymbol,
   SyntaxKind
 } from 'ts-morph';
 import { TypeDefinition } from './type-analyzer';
@@ -940,7 +940,7 @@ export class TypeFunctionLinker {
    */
   private belongsToTargetTypeOptimized(
     propAccess: PropertyAccessExpression,
-    targetTypeSymbol: Symbol | undefined,
+    targetTypeSymbol: TSSymbol | undefined,
     checker: TypeChecker
   ): boolean {
     try {
@@ -1145,7 +1145,7 @@ export class TypeFunctionLinker {
   /**
    * Get type symbol for target type
    */
-  private getTypeSymbol(type: TypeDefinition, sourceFile: SourceFile, _checker: TypeChecker): Symbol | undefined {
+  private getTypeSymbol(type: TypeDefinition, sourceFile: SourceFile, _checker: TypeChecker): TSSymbol | undefined {
     try {
       // Find type declaration in source file
       const typeNode = this.findTypeDeclaration(type, sourceFile);
@@ -2008,6 +2008,8 @@ export class TypeFunctionLinker {
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(sourceFile, checker);
     
+    // Note: OnePassASTVisitor now uses FunctionIdGenerator for consistent ID generation,
+    // ensuring ID compatibility with FunctionMetadata.id from the database
     return context.couplingData;
   }
 }

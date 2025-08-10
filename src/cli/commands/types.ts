@@ -247,7 +247,7 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
     }
     
     const relationships = await storage.getTypeRelationships(latestSnapshot.id);
-    const dependencies = analyzeDependenciesFromDB(targetType, relationships, options.depth || 3);
+    const dependencies = analyzeDependenciesFromDB(targetType, relationships, 3);
     
     if (options.circular) {
       const circularDeps = findCircularDependencies(dependencies);
