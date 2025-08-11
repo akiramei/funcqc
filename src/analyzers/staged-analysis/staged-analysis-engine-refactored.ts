@@ -143,7 +143,7 @@ export class StagedAnalysisEngine {
     this.resetState();
     this.state.snapshotId = snapshotId; // Set snapshot ID for unique edge generation
 
-    this.logger.debug('Starting 5-stage call graph analysis...');
+    this.logger.debug('Starting 7-stage call graph analysis...');
     this.logger.debug(`Functions to analyze: ${functions.size}`);
 
     // Prepare data structures
@@ -316,9 +316,11 @@ export class StagedAnalysisEngine {
       existing.push(func);
       this.state.fileToFunctionsMap.set(func.filePath, existing);
 
-      // Build function lookup map (line-only for consistency)
-      const key = `${func.filePath}:${func.startLine}`;
-      this.state.functionLookupMap.set(key, id);
+      // Build function lookup map (per-line for O(1) lookup compatibility)
+      for (let line = func.startLine; line <= func.endLine; line++) {
+        const key = `${func.filePath}:${line}`;
+        this.state.functionLookupMap.set(key, id);
+      }
     }
 
     this.logger.debug(`Built lookup maps: ${this.state.fileToFunctionsMap.size} files, ${functions.size} functions`);

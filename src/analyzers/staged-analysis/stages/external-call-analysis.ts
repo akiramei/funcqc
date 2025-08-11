@@ -95,7 +95,7 @@ export class ExternalCallAnalysisStage {
   ): ExternalCallInfo | null {
     const expression = callExpression.getExpression();
     const lineNumber = callExpression.getStartLineNumber();
-    const columnNumber = callExpression.getStart();
+    const columnNumber = callExpression.getStart() - callExpression.getStartLinePos();
 
     // Get the call text for analysis (available for future use)
     // const callText = expression.getText();

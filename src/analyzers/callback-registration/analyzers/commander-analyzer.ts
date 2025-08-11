@@ -124,7 +124,7 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
 
     const callbackArg = args[args.length - 1]; // Usually the last argument
     const lineNumber = callExpression.getStartLineNumber();
-    const columnNumber = callExpression.getStart();
+    const columnNumber = callExpression.getStart() - callExpression.getStartLinePos();
 
     // Find the containing function that does the registration
     let containingFunction = this.findContainingFunction(lineNumber, context.fileFunctions);
@@ -199,7 +199,7 @@ export class CommanderCallbackAnalyzer extends FrameworkCallbackAnalyzer {
     }
 
     const lineNumber = callExpression.getStartLineNumber();
-    const columnNumber = callExpression.getStart();
+    const columnNumber = callExpression.getStart() - callExpression.getStartLinePos();
 
     // Find the containing function that calls the trigger
     const containingFunction = this.findContainingFunction(lineNumber, context.fileFunctions);
