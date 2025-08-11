@@ -133,7 +133,8 @@ function buildMetricsRow(func: FunctionInfo): unknown[] {
 export function generateBulkInsertSQL(
   tableName: string,
   columns: string[],
-  rowCount: number
+  rowCount: number,
+  options?: { idempotent?: boolean }
 ): string {
   if (rowCount === 0) return '';
 
@@ -145,10 +146,17 @@ export function generateBulkInsertSQL(
     placeholders.push(`(${rowPlaceholders.join(', ')})`);
   }
 
-  return `
+  let sql = `
     INSERT INTO ${tableName} (${columns.join(', ')})
     VALUES ${placeholders.join(', ')}
   `;
+
+  // Add idempotent clause if requested
+  if (options?.idempotent) {
+    sql += ` ON CONFLICT (id) DO NOTHING`;
+  }
+
+  return sql;
 }
 
 /**

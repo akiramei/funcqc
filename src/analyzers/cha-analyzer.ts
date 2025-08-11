@@ -46,7 +46,8 @@ export class CHAAnalyzer {
    */
   async performCHAAnalysis(
     functions: Map<string, FunctionMetadata>,
-    unresolvedEdges: UnresolvedMethodCall[]
+    unresolvedEdges: UnresolvedMethodCall[],
+    snapshotId?: string
   ): Promise<IdealCallEdge[]> {
     this.buildInheritanceGraph();
     
@@ -54,7 +55,7 @@ export class CHAAnalyzer {
     
     this.buildMethodIndex();
     
-    const resolvedEdges = this.resolveMethodCalls(functions, unresolvedEdges);
+    const resolvedEdges = this.resolveMethodCalls(functions, unresolvedEdges, snapshotId);
     
     return resolvedEdges;
   }
@@ -389,7 +390,7 @@ export class CHAAnalyzer {
   /**
    * Resolve method calls using CHA (optimized sync with FunctionIndex)
    */
-  private resolveMethodCalls(functions: Map<string, FunctionMetadata>, unresolvedEdges: UnresolvedMethodCall[]): IdealCallEdge[] {
+  private resolveMethodCalls(functions: Map<string, FunctionMetadata>, unresolvedEdges: UnresolvedMethodCall[], snapshotId?: string): IdealCallEdge[] {
     const resolvedEdges: IdealCallEdge[] = [];
     
     // Ensure FunctionIndex is built for O(1) lookups
@@ -416,7 +417,7 @@ export class CHAAnalyzer {
           const inheritanceDepth = this.calculateInheritanceDepth(candidate, unresolved.receiverType);
           
           const edge: IdealCallEdge = {
-            id: generateStableEdgeId(unresolved.callerFunctionId, functionId!),
+            id: generateStableEdgeId(unresolved.callerFunctionId, functionId!, snapshotId),
             callerFunctionId: unresolved.callerFunctionId,
             calleeFunctionId: functionId!,
             calleeName: candidate.signature,

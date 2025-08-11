@@ -101,7 +101,8 @@ export class TypeSystemOperations {
         trx, 
         'type_definitions', 
         columns, 
-        values
+        values,
+        { idempotent: true }
       );
     } catch (error) {
       
@@ -170,7 +171,7 @@ export class TypeSystemOperations {
       
       await this.executeBulkInsertInTransaction(trx, 'type_relationships', columns, insertData.map(row => 
         columns.map(col => (row as Record<string, unknown>)[col])
-      ));
+      ), { idempotent: true });
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
@@ -244,7 +245,7 @@ export class TypeSystemOperations {
       
       await this.executeBulkInsertInTransaction(trx, 'type_members', columns, insertData.map(row => 
         columns.map(col => (row as Record<string, unknown>)[col])
-      ));
+      ), { idempotent: true });
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
@@ -311,7 +312,7 @@ export class TypeSystemOperations {
       
       await this.executeBulkInsertInTransaction(trx, 'method_overrides', columns, insertData.map(row => 
         columns.map(col => (row as Record<string, unknown>)[col])
-      ));
+      ), { idempotent: true });
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
@@ -352,7 +353,8 @@ export class TypeSystemOperations {
     trx: PGTransaction,
     tableName: string,
     columns: string[],
-    data: unknown[][]
+    data: unknown[][],
+    options?: { idempotent?: boolean }
   ): Promise<void> {
     if (data.length === 0) return;
     
@@ -361,7 +363,7 @@ export class TypeSystemOperations {
     const batches = splitIntoBatches(data, batchSize);
     
     for (const batch of batches) {
-      const sql = generateBulkInsertSQL(tableName, columns, batch.length);
+      const sql = generateBulkInsertSQL(tableName, columns, batch.length, options);
       const flatParams = batch.flat();
       
       await trx.query(sql, flatParams);

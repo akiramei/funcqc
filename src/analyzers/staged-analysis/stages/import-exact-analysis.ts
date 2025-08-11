@@ -94,7 +94,7 @@ export class ImportExactAnalysisStage {
         const calleeFunction = functions.get(calleeId);
         
         const edge: IdealCallEdge = {
-          id: generateStableEdgeId(callerFunction.id, calleeId),
+          id: generateStableEdgeId(callerFunction.id, calleeId, state.snapshotId),
           callerFunctionId: callerFunction.id,
           calleeFunctionId: calleeId,
           calleeName: calleeFunction?.name || 'unknown',
@@ -145,7 +145,7 @@ export class ImportExactAnalysisStage {
           const calleeFunction = functions.get(calleeId);
           
           const edge: IdealCallEdge = {
-            id: generateStableEdgeId(callerFunction.id, calleeId),
+            id: generateStableEdgeId(callerFunction.id, calleeId, state.snapshotId),
             callerFunctionId: callerFunction.id,
             calleeFunctionId: calleeId,
             calleeName: calleeFunction?.name || 'unknown',

@@ -26,7 +26,8 @@ export class CHAAnalysisStage {
   async performCHAAnalysis(
     functions: Map<string, FunctionMetadata>,
     unresolvedMethodCalls: UnresolvedMethodCall[],
-    state: AnalysisState
+    state: AnalysisState,
+    snapshotId?: string
   ): Promise<{
     resolvedEdges: number;
     chaCandidates: Map<string, MethodInfo[]>;
@@ -54,7 +55,7 @@ export class CHAAnalysisStage {
       const unresolvedMethodCallsForRTA = [...unresolvedMethodCalls];
       
       // Perform CHA analysis
-      const chaEdges = await this.chaAnalyzer.performCHAAnalysis(functions, unresolvedMethodCalls);
+      const chaEdges = await this.chaAnalyzer.performCHAAnalysis(functions, unresolvedMethodCalls, snapshotId);
       
       // Add CHA edges to our collection
       for (const edge of chaEdges) {

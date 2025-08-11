@@ -4,24 +4,16 @@ import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { DatabaseError } from '../../storage/pglite-adapter';
-import { ensureCallGraphData } from '../../utils/lazy-analysis';
 
 /**
  * Database CLI command for inspecting PGLite database contents
  * Provides read-only access to database tables for debugging and testing
- * This is a heavy command that ensures complete analysis is available
  */
 export const dbCommand: VoidCommand<DbCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // Ensure call graph data is available for comprehensive database queries
-      await ensureCallGraphData(env, { showProgress: true });
-      
-      // Show completion message for AI collaboration workflow
-      console.log(chalk.blue('💡 Database is ready with complete analysis data (including call graph).'));
-      console.log();
       if (options.list) {
         await listTables(env);
         return;

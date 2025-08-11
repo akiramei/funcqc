@@ -189,6 +189,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           metadata jsonb,
           created_at timestamptz
         )
+        ON CONFLICT (id) DO NOTHING
       `;
       
       await this.db.query(sql, [payload]);
@@ -231,6 +232,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           callee_signature, caller_class_name, callee_class_name, call_type, call_context,
           line_number, column_number, is_async, is_chained, confidence_score, metadata
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ON CONFLICT (id) DO NOTHING
         `,
         params
       );

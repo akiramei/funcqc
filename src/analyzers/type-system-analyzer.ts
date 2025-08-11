@@ -2,6 +2,7 @@ import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasD
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
 import { Logger } from '../utils/cli-utils';
 import { PathNormalizer } from '../utils/path-normalizer';
+import { generateDeterministicTypeId } from '../utils/type-id-generator.js';
 import { randomUUID } from 'crypto';
 
 /**
@@ -143,7 +144,14 @@ export class TypeSystemAnalyzer {
     const name = classDecl.getName();
     if (!name) return undefined;
 
-    const id = randomUUID();
+    const id = generateDeterministicTypeId(
+      filePath,
+      name,
+      'class',
+      classDecl.getStartLineNumber(),
+      this.getColumnPosition(classDecl),
+      snapshotId
+    );
 
     return {
       id,
@@ -179,7 +187,14 @@ export class TypeSystemAnalyzer {
     const name = interfaceDecl.getName();
     if (!name) return undefined;
 
-    const id = randomUUID();
+    const id = generateDeterministicTypeId(
+      filePath,
+      name,
+      'interface',
+      interfaceDecl.getStartLineNumber(),
+      this.getColumnPosition(interfaceDecl),
+      snapshotId
+    );
 
     return {
       id,
@@ -215,7 +230,14 @@ export class TypeSystemAnalyzer {
     const name = typeAlias.getName();
     if (!name) return undefined;
 
-    const id = randomUUID();
+    const id = generateDeterministicTypeId(
+      filePath,
+      name,
+      'type_alias',
+      typeAlias.getStartLineNumber(),
+      this.getColumnPosition(typeAlias),
+      snapshotId
+    );
 
     return {
       id,
@@ -251,7 +273,14 @@ export class TypeSystemAnalyzer {
     const name = enumDecl.getName();
     if (!name) return undefined;
 
-    const id = randomUUID();
+    const id = generateDeterministicTypeId(
+      filePath,
+      name,
+      'enum',
+      enumDecl.getStartLineNumber(),
+      this.getColumnPosition(enumDecl),
+      snapshotId
+    );
 
     return {
       id,
@@ -288,7 +317,14 @@ export class TypeSystemAnalyzer {
     const name = moduleDecl.getName();
     if (!name) return undefined;
 
-    const id = randomUUID();
+    const id = generateDeterministicTypeId(
+      filePath,
+      name,
+      'namespace',
+      moduleDecl.getStartLineNumber(),
+      this.getColumnPosition(moduleDecl),
+      snapshotId
+    );
 
     return {
       id,

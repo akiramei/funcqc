@@ -34,6 +34,7 @@ export class RTAAnalyzer {
   // Performance optimization: O(1) function lookup index
   private functionIndex: FunctionIndex | undefined;
   private candidateIdCache = new Map<string, string | undefined>();
+  private snapshotId: string | undefined; // Current snapshot ID for edge generation
 
   constructor(project: Project, typeChecker: TypeChecker) {
     this.project = project;
@@ -47,8 +48,12 @@ export class RTAAnalyzer {
     functions: Map<string, FunctionMetadata>,
     chaCandidates: Map<string, MethodInfo[]>,
     unresolvedMethodCalls: UnresolvedMethodCall[],
-    prebuiltClassToInterfacesMap?: Map<string, string[]>
+    prebuiltClassToInterfacesMap?: Map<string, string[]>,
+    snapshotId?: string
   ): Promise<IdealCallEdge[]> {
+    // Store snapshot ID for edge generation
+    this.snapshotId = snapshotId;
+    
     // Use prebuilt class-to-interfaces mapping if available
     if (prebuiltClassToInterfacesMap) {
       this.classInterfacesMap = new Map(prebuiltClassToInterfacesMap);
@@ -70,8 +75,11 @@ export class RTAAnalyzer {
     chaCandidates: Map<string, MethodInfo[]>,
     unresolvedMethodCalls: UnresolvedMethodCall[],
     prebuiltInstantiationEvents: InstantiationEvent[],
-    prebuiltClassToInterfacesMap?: Map<string, string[]>
+    prebuiltClassToInterfacesMap?: Map<string, string[]>,
+    snapshotId?: string
   ): Promise<IdealCallEdge[]> {
+    // Store snapshot ID for edge generation
+    this.snapshotId = snapshotId;
     
     // Use prebuilt class-to-interfaces mapping if available
     if (prebuiltClassToInterfacesMap) {
@@ -456,7 +464,7 @@ export class RTAAnalyzer {
       // Create edges for each candidate from this caller
       for (const resolved of resolvedCandidates) {
         const edge: IdealCallEdge = {
-          id: generateStableEdgeId(callerFunctionId, resolved.functionId),
+          id: generateStableEdgeId(callerFunctionId, resolved.functionId, this.snapshotId),
           callerFunctionId,
           calleeFunctionId: resolved.functionId,
           calleeName: resolved.candidate.signature,
@@ -512,7 +520,7 @@ export class RTAAnalyzer {
     for (const unresolvedCall of methodCalls) {
       for (const resolved of resolvedCandidates) {
         const edge: IdealCallEdge = {
-          id: generateStableEdgeId(unresolvedCall.callerFunctionId, resolved.functionId),
+          id: generateStableEdgeId(unresolvedCall.callerFunctionId, resolved.functionId, this.snapshotId),
           callerFunctionId: unresolvedCall.callerFunctionId,
           calleeFunctionId: resolved.functionId,
           calleeName: resolved.candidate.signature,
