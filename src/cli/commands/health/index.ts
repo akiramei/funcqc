@@ -105,7 +105,7 @@ function displaySnapshotInfo(targetSnapshot: SnapshotInfo, functions: FunctionIn
  * TODO: Re-enable once aggregator syntax issues are resolved
  */
 async function performArgumentUsageAnalysis(
-  functions: FunctionInfo[],
+  _functions: FunctionInfo[],
   targetSnapshot: SnapshotInfo,
   env: CommandEnvironment
 ): Promise<ArgumentUsageMetrics[]> {
@@ -453,7 +453,7 @@ async function performHealthAnalysis(env: CommandEnvironment, options: HealthCom
   }
   
   // Perform structural analysis
-  const { structuralData, qualityData, argumentUsageData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
+  const { structuralData, qualityData, argumentUsageData: _argumentUsageData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
   
   // Execute risk evaluation
   let riskEvaluation = await executeRiskEvaluation(functions);
