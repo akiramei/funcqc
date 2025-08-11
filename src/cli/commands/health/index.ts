@@ -113,9 +113,9 @@ async function performArgumentUsageAnalysis(
     const analyzer = new ArgumentUsageAnalyzer();
     const allSourceFiles = await env.storage.getSourceFilesBySnapshot(targetSnapshot.id);
     
-    // Performance: Limit to first 10 files for initial testing
-    const sampleFiles = allSourceFiles.slice(0, 10);
-    env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (sampled from ${allSourceFiles.length})`);
+    // Performance: Balanced approach - 25 files for practical usage
+    const sampleFiles = allSourceFiles.slice(0, 25);
+    env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (optimized from ${allSourceFiles.length})`);
     
     // Get ts-morph project from source files
     const { Project } = await import('ts-morph');
