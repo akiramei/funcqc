@@ -405,14 +405,14 @@ export class OnePassASTVisitor {
     const startLine = func.getStartLineNumber();
     const startColumn = func.getStart() - func.getStartLinePos();
     
-    // Generate cross-snapshot consistent physical ID
-    // Note: snapshotId removed to maintain same ID for same function across snapshots
+    // Generate snapshot-specific physical ID to avoid duplicate key violations
     const funcId = FunctionIdGenerator.generateDeterministicUUID(
       filePath, // Will be normalized internally
       functionName,
       className,
       startLine,
-      startColumn
+      startColumn,
+      _ctx.snapshotId || 'unknown'
     );
     
     this.funcIdCache.set(func, funcId);

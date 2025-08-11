@@ -91,6 +91,7 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
 function buildParameterRows(func: FunctionInfo): unknown[][] {
   return func.parameters.map(param => [
     func.id,
+    func.snapshotId,
     param.name,
     param.type,
     param.typeSimple,
@@ -105,6 +106,7 @@ function buildParameterRows(func: FunctionInfo): unknown[][] {
 function buildMetricsRow(func: FunctionInfo): unknown[] {
   return [
     func.id,
+    func.snapshotId,
     func.metrics!.linesOfCode,
     func.metrics!.totalLines,
     func.metrics!.cyclomaticComplexity,
@@ -131,7 +133,8 @@ function buildMetricsRow(func: FunctionInfo): unknown[] {
 export function generateBulkInsertSQL(
   tableName: string,
   columns: string[],
-  rowCount: number
+  rowCount: number,
+  options?: { idempotent?: boolean }
 ): string {
   if (rowCount === 0) return '';
 
@@ -143,10 +146,17 @@ export function generateBulkInsertSQL(
     placeholders.push(`(${rowPlaceholders.join(', ')})`);
   }
 
-  return `
+  let sql = `
     INSERT INTO ${tableName} (${columns.join(', ')})
     VALUES ${placeholders.join(', ')}
   `;
+
+  // Add idempotent clause if requested
+  if (options?.idempotent) {
+    sql += ` ON CONFLICT (id) DO NOTHING`;
+  }
+
+  return sql;
 }
 
 /**

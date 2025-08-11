@@ -108,7 +108,8 @@ export class StagedAnalysisEngine {
       chaCandidates: new Map(),
       fileToFunctionsMap: new Map(),
       functionContainmentMaps: new Map(),
-      positionIdCache: new WeakMap()
+      positionIdCache: new WeakMap(),
+      snapshotId: undefined
     };
 
     this.statistics = {
@@ -140,6 +141,7 @@ export class StagedAnalysisEngine {
   async performStagedAnalysis(functions: Map<string, FunctionMetadata>, snapshotId?: string): Promise<IdealCallEdge[]> {
     const startTime = performance.now();
     this.resetState();
+    this.state.snapshotId = snapshotId; // Set snapshot ID for unique edge generation
 
     this.logger.debug('Starting 5-stage call graph analysis...');
     this.logger.debug(`Functions to analyze: ${functions.size}`);

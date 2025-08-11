@@ -586,7 +586,8 @@ async function executePureBasicBatchAnalysis(
         // Use analyzer with content instead of file path
         const functions = await components.analyzer.analyzeContent(
           sourceFile.fileContent,
-          sourceFile.filePath
+          sourceFile.filePath,
+          snapshotId
         );
         
         // Set source file ID and verify metrics calculation
@@ -789,7 +790,7 @@ export async function performDeferredCouplingAnalysis(
  */
 async function performCouplingAnalysisForFile(
   sourceFile: import('../../types').SourceFile,
-  _functions: FunctionInfo[],
+  _fileFunctions: FunctionInfo[],
   project: Project,
   typeChecker: TypeChecker,
   snapshotId: string
@@ -798,7 +799,7 @@ async function performCouplingAnalysisForFile(
     // Reuse shared project and add source file
     const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
 
-    // Execute 1-pass AST visitor
+    // Execute 1-pass AST visitor with the actual snapshot ID
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
@@ -963,33 +964,62 @@ export async function performDeferredTypeSystemAnalysis(
       env.commandLogger // logger
     );
     
-    // Analyze types from source files
+    // Analyze types from all source files in batch for better performance
     const typeDefinitions: import('../../types').TypeDefinition[] = [];
     const typeRelationships: import('../../types').TypeRelationship[] = [];
     
-    for (const sourceFile of sourceFiles) {
-      try {
-        const result = await analyzer.analyzeTypesFromContent(
-          sourceFile.filePath,
-          sourceFile.fileContent
-        );
-        
-        // Add snapshotId to each type definition
-        const typesWithSnapshot = result.types.map(type => ({
-          ...type,
-          snapshotId
-        }));
-        
-        // Add snapshotId to each relationship
-        const relationshipsWithSnapshot = result.relationships.map(rel => ({
-          ...rel,
-          snapshotId
-        }));
-        
-        typeDefinitions.push(...typesWithSnapshot);
-        typeRelationships.push(...relationshipsWithSnapshot);
-      } catch (error) {
-        env.commandLogger.warn(`Failed to analyze types for ${sourceFile.filePath}: ${error}`);
+    try {
+      // Create file path to content mapping for batch processing
+      const fileContentsMap = new Map<string, string>();
+      sourceFiles.forEach(sourceFile => {
+        fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
+      });
+      
+      // Batch analyze all files at once instead of one by one
+      const result = await analyzer.extractTypeInformationFromContents(
+        fileContentsMap,
+        snapshotId
+      );
+      
+      // Add snapshotId to each type definition (should already be included but ensure consistency)
+      const typesWithSnapshot = result.typeDefinitions.map(type => ({
+        ...type,
+        snapshotId
+      }));
+      
+      // Add snapshotId to each relationship (should already be included but ensure consistency) 
+      const relationshipsWithSnapshot = result.typeRelationships.map(rel => ({
+        ...rel,
+        snapshotId
+      }));
+      
+      typeDefinitions.push(...typesWithSnapshot);
+      typeRelationships.push(...relationshipsWithSnapshot);
+    } catch (error) {
+      env.commandLogger.warn(`Failed to analyze types in batch: ${error}`);
+      // Fallback to individual file processing if batch fails
+      for (const sourceFile of sourceFiles) {
+        try {
+          const result = await analyzer.analyzeTypesFromContent(
+            sourceFile.filePath,
+            sourceFile.fileContent
+          );
+          
+          const typesWithSnapshot = result.types.map(type => ({
+            ...type,
+            snapshotId
+          }));
+          
+          const relationshipsWithSnapshot = result.relationships.map(rel => ({
+            ...rel,
+            snapshotId
+          }));
+          
+          typeDefinitions.push(...typesWithSnapshot);
+          typeRelationships.push(...relationshipsWithSnapshot);
+        } catch (error) {
+          env.commandLogger.warn(`Failed to analyze types for ${sourceFile.filePath}: ${error}`);
+        }
       }
     }
     

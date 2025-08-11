@@ -89,7 +89,8 @@ export class RuntimeTraceIntegrationStage {
    */
   validateTraces(
     staticEdges: IdealCallEdge[],
-    runtimeTraces: RuntimeTrace[]
+    runtimeTraces: RuntimeTrace[],
+    snapshotId?: string
   ): {
     confirmedEdges: IdealCallEdge[];
     contradictedEdges: IdealCallEdge[];
@@ -121,7 +122,7 @@ export class RuntimeTraceIntegrationStage {
       } else {
         // Runtime discovered new edge not found by static analysis
         newRuntimeEdges.push({
-          id: generateStableEdgeId(trace.callerFunctionId, trace.calleeFunctionId),
+          id: generateStableEdgeId(trace.callerFunctionId, trace.calleeFunctionId, snapshotId),
           callerFunctionId: trace.callerFunctionId,
           calleeFunctionId: trace.calleeFunctionId,
           calleeName: trace.calleeName || 'unknown',

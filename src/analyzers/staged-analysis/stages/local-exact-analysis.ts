@@ -87,7 +87,7 @@ export class LocalExactAnalysisStage {
       if (localCalleeId) {
         const calleeFunction = functions.get(localCalleeId);
         const edge: IdealCallEdge = {
-          id: generateStableEdgeId(callerFunction.id, localCalleeId),
+          id: generateStableEdgeId(callerFunction.id, localCalleeId, state.snapshotId),
           callerFunctionId: callerFunction.id,
           calleeFunctionId: localCalleeId,
           calleeName: calleeFunction?.name || 'unknown',
@@ -136,7 +136,7 @@ export class LocalExactAnalysisStage {
       if (calleeId) {
         const calleeFunction = functions.get(calleeId);
         const edge: IdealCallEdge = {
-          id: generateStableEdgeId(callerFunction.id, calleeId),
+          id: generateStableEdgeId(callerFunction.id, calleeId, state.snapshotId),
           callerFunctionId: callerFunction.id,
           calleeFunctionId: calleeId,
           calleeName: calleeFunction?.name || 'unknown',

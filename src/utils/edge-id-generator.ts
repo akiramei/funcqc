@@ -12,10 +12,14 @@ import * as crypto from 'crypto';
  * 
  * @param callerFunctionId - ID of the calling function
  * @param calleeFunctionId - ID of the called function
+ * @param snapshotId - ID of the snapshot (optional for backward compatibility)
  * @returns Deterministic edge ID (20 hex characters)
  */
-export function generateStableEdgeId(callerFunctionId: string, calleeFunctionId: string): string {
-  const edgeKey = `${callerFunctionId}->${calleeFunctionId}`;
+export function generateStableEdgeId(callerFunctionId: string, calleeFunctionId: string, snapshotId?: string): string {
+  // Include snapshotId in the key to ensure uniqueness across snapshots
+  const edgeKey = snapshotId 
+    ? `${snapshotId}:${callerFunctionId}->${calleeFunctionId}`
+    : `${callerFunctionId}->${calleeFunctionId}`;
   const hash = crypto.createHash('sha256').update(edgeKey).digest('hex');
   return `edge_${hash.substring(0, 20)}`;
 }
@@ -27,15 +31,20 @@ export function generateStableEdgeId(callerFunctionId: string, calleeFunctionId:
  * @param calleeFunctionId - ID of the called function
  * @param lineNumber - Line number of the call site
  * @param columnNumber - Column number of the call site
+ * @param snapshotId - ID of the snapshot (optional for backward compatibility)
  * @returns Deterministic edge ID including call site information
  */
 export function generateCallSiteEdgeId(
   callerFunctionId: string, 
   calleeFunctionId: string, 
   lineNumber: number, 
-  columnNumber: number
+  columnNumber: number,
+  snapshotId?: string
 ): string {
-  const edgeKey = `${callerFunctionId}:${lineNumber}:${columnNumber}->${calleeFunctionId}`;
+  // Include snapshotId in the key to ensure uniqueness across snapshots
+  const edgeKey = snapshotId
+    ? `${snapshotId}:${callerFunctionId}:${lineNumber}:${columnNumber}->${calleeFunctionId}`
+    : `${callerFunctionId}:${lineNumber}:${columnNumber}->${calleeFunctionId}`;
   const hash = crypto.createHash('sha256').update(edgeKey).digest('hex');
   return `edge_${hash.substring(0, 20)}`;
 }

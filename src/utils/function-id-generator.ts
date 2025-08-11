@@ -9,6 +9,11 @@ import { Node } from 'ts-morph';
 import * as crypto from 'crypto';
 import { getRelativePath } from './path-utils';
 
+/**
+ * Cache for memoizing function ID generation results
+ */
+const functionIdCache = new Map<string, string>();
+
 export class FunctionIdGenerator {
   /**
    * Generate unique function ID using position-enhanced lexical path
@@ -52,30 +57,38 @@ export class FunctionIdGenerator {
    * Creates a stable, reproducible ID based on function location and context
    * Returns UUID format string (36 chars with hyphens)
    * 
-   * IMPORTANT: This generates a "physical ID" that is consistent across snapshots
-   * for the same function. SnapshotId is NOT included to maintain cross-snapshot identity.
+   * IMPORTANT: This generates a "physical ID" that is unique per snapshot
+   * by including snapshotId to avoid duplicate key violations.
    */
   static generateDeterministicUUID(
     filePath: string,
     functionName: string,
     className: string | null,
     startLine: number,
-    startColumn: number
+    startColumn: number,
+    snapshotId: string
   ): string {
     // Normalize file path to ensure cross-environment stability
     const normalizedPath = getRelativePath(filePath);
     
-    // Combine all identifying information (excluding snapshotId for cross-snapshot consistency)
-    const input = [
+    // Combine all identifying information (including snapshotId for uniqueness)
+    const cacheKey = [
       normalizedPath,
       className || '',
       functionName,
       startLine.toString(),
-      startColumn.toString()
+      startColumn.toString(),
+      snapshotId
     ].join(':');
     
+    // Check cache first
+    const cachedResult = functionIdCache.get(cacheKey);
+    if (cachedResult) {
+      return cachedResult;
+    }
+    
     // Generate SHA-256 hash (256 bits), take first 128 bits for UUID
-    const hashHex = crypto.createHash('sha256').update(input).digest('hex');
+    const hashHex = crypto.createHash('sha256').update(cacheKey).digest('hex');
     const bytes = Buffer.from(hashHex.slice(0, 32), 'hex'); // 16 bytes = 128 bits
     
     // Set RFC 4122 version 5 (name-based) and variant bits for proper UUID format
@@ -83,13 +96,18 @@ export class FunctionIdGenerator {
     bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant RFC 4122 (10xxxxxx)
     
     const hex = bytes.toString('hex');
-    return [
+    const uuid = [
       hex.slice(0, 8),
       hex.slice(8, 12),
       hex.slice(12, 16),
       hex.slice(16, 20),
       hex.slice(20, 32)
     ].join('-');
+    
+    // Store in cache
+    functionIdCache.set(cacheKey, uuid);
+    
+    return uuid;
   }
 
   /**
@@ -100,6 +118,7 @@ export class FunctionIdGenerator {
   static generateDeterministicUUIDFromNode(
     node: Node,
     filePath: string,
+    snapshotId: string,
     className: string | null = null
   ): string {
     // Extract function name with proper normalization for consistency across analyzers
@@ -122,7 +141,8 @@ export class FunctionIdGenerator {
       functionName,
       className,
       startLine,
-      startColumn
+      startColumn,
+      snapshotId
     );
   }
 

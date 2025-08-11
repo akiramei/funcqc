@@ -73,7 +73,7 @@ export class UnifiedASTAnalyzer {
     const functionNodes = this.getAllFunctionNodes(sourceFile);
 
     for (const node of functionNodes) {
-      const result = this.analyzeFunction(node, filePath, content);
+      const result = this.analyzeFunction(node, filePath, content, _snapshotId);
       if (result) {
         results.push(result);
       }
@@ -163,11 +163,12 @@ export class UnifiedASTAnalyzer {
   private analyzeFunction(
     node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration,
     filePath: string,
-    _fileContent: string
+    _fileContent: string,
+    snapshotId?: string
   ): UnifiedAnalysisResult | null {
     try {
       // Extract function info
-      const functionInfo = this.extractFunctionInfo(node, filePath);
+      const functionInfo = this.extractFunctionInfo(node, filePath, snapshotId);
       
       // Calculate quality metrics using the same AST node
       const qualityMetrics = this.calculateQualityMetrics(node, functionInfo);
@@ -184,7 +185,8 @@ export class UnifiedASTAnalyzer {
 
   private extractFunctionInfo(
     node: FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration,
-    filePath: string
+    filePath: string,
+    snapshotId?: string
   ): FunctionInfo {
     const name = this.getFunctionName(node);
     const startLine = node.getStartLineNumber();
@@ -206,7 +208,7 @@ export class UnifiedASTAnalyzer {
 
     // Generate deterministic physical ID for this function instance
     const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(filePath, name, className, startLine, startColumn);
+    const physicalId = this.generatePhysicalId(filePath, name, className, startLine, startColumn, snapshotId || 'unknown');
     
     // Generate content-based ID using source code
     const contentId = this.generateContentId(sourceCode, filePath, startLine, endLine);
@@ -223,6 +225,7 @@ export class UnifiedASTAnalyzer {
     const description = this.extractJsDocDescription(node);
     const functionInfo: FunctionInfo = {
       id: physicalId,
+      snapshotId: snapshotId || 'unknown',
       name,
       filePath,
       startLine,
@@ -391,7 +394,8 @@ export class UnifiedASTAnalyzer {
     functionName: string,
     className: string | null,
     startLine: number,
-    startColumn: number
+    startColumn: number,
+    snapshotId: string
   ): string {
     // Generate cross-snapshot consistent physical ID
     // Note: snapshotId removed to maintain same ID for same function across snapshots
@@ -400,7 +404,8 @@ export class UnifiedASTAnalyzer {
       functionName,
       className,
       startLine,
-      startColumn
+      startColumn,
+      snapshotId || 'unknown'
     );
   }
 

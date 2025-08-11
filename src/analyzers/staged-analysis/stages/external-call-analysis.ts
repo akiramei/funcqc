@@ -66,7 +66,7 @@ export class ExternalCallAnalysisStage {
 
       const externalCallInfo = this.detectExternalCall(callExpression, callerFunction, functions);
       if (externalCallInfo) {
-        const edge = this.createExternalCallEdge(externalCallInfo);
+        const edge = this.createExternalCallEdge(externalCallInfo, _state);
         if (edge) {
           externalEdges.push(edge);
           externalCallsCount++;
@@ -254,13 +254,14 @@ export class ExternalCallAnalysisStage {
   /**
    * Create an IdealCallEdge for an external function call
    */
-  private createExternalCallEdge(externalCallInfo: ExternalCallInfo): IdealCallEdge {
+  private createExternalCallEdge(externalCallInfo: ExternalCallInfo, state: AnalysisState): IdealCallEdge {
     return {
       id: generateCallSiteEdgeId(
         externalCallInfo.callerFunctionId, 
         `external:${externalCallInfo.calleeName}`,
         externalCallInfo.lineNumber,
-        externalCallInfo.columnNumber
+        externalCallInfo.columnNumber,
+        state.snapshotId
       ),
       callerFunctionId: externalCallInfo.callerFunctionId,
       calleeFunctionId: undefined, // External functions have no internal ID

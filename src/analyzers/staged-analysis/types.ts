@@ -42,6 +42,7 @@ export interface AnalysisState {
   fileToFunctionsMap: Map<string, FunctionMetadata[]>;
   functionContainmentMaps: Map<string, Array<{start: number, end: number, id: string}>>;
   positionIdCache: WeakMap<Node, string>;
+  snapshotId: string | undefined; // Added to support unique edge ID generation across snapshots
 }
 
 /**
