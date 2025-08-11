@@ -63,8 +63,8 @@ export function getGradeFromScore(score: number): string {
 /**
  * Calculate structural penalty based on SCC analysis results
  */
-export function calculateStructuralPenalty(structuralData?: StructuralMetrics): number {
-  const breakdown = calculateStructuralPenaltyBreakdown(structuralData);
+export function calculateStructuralPenalty(structuralData?: StructuralMetrics, argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]): number {
+  const breakdown = calculateStructuralPenaltyBreakdown(structuralData, argumentUsageData);
   return breakdown.totalPenalty;
 }
 
@@ -116,7 +116,7 @@ function calculateCrossLayerPenalty(structuralData: StructuralMetrics): number {
 /**
  * Calculate detailed structural penalty breakdown
  */
-export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralMetrics): StructuralPenaltyBreakdown {
+export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralMetrics, argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]): StructuralPenaltyBreakdown {
   if (!structuralData) {
     return {
       largestComponent: 0,
@@ -124,6 +124,9 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
       hubFunctions: 0,
       maxFanIn: 0,
       crossLayer: 0,
+      overFetch: 0,
+      passThrough: 0,
+      demeter: 0,
       totalPenalty: 0,
       riskMultiplier: 1.0
     };
@@ -152,6 +155,11 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
   // Apply penalty when cross-layer dependencies exceed 50%
   const crossLayerPenalty = calculateCrossLayerPenalty(structuralData);
   
+  // NEW: Argument usage penalties
+  const overFetchPenalty = calculateOverFetchPenalty(argumentUsageData);
+  const passThroughPenalty = calculatePassThroughPenalty(argumentUsageData);
+  const demeterPenalty = calculateDemeterPenalty(argumentUsageData);
+  
   // Calculate hub∩cycle overlap adjustment
   const { hubCyclicOverlap, duplicateAdjustment } = calculateOverlapAdjustment(
     structuralData.hubFunctionIds,
@@ -160,7 +168,7 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
     cyclicFunctionsPenalty
   );
   
-  const rawPenalty = largestComponentPenalty + cyclicFunctionsPenalty + hubFunctionsPenalty + maxFanInPenalty + crossLayerPenalty;
+  const rawPenalty = largestComponentPenalty + cyclicFunctionsPenalty + hubFunctionsPenalty + maxFanInPenalty + crossLayerPenalty + overFetchPenalty + passThroughPenalty + demeterPenalty;
   const adjustedPenalty = rawPenalty - duplicateAdjustment;
   
   const totalPenalty = Math.min(adjustedPenalty, 50); // Cap at 50 points
@@ -173,6 +181,9 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
     hubFunctions: Math.round(hubFunctionsPenalty * 10) / 10,
     maxFanIn: Math.round(maxFanInPenalty * 10) / 10,
     crossLayer: Math.round(crossLayerPenalty * 10) / 10,
+    overFetch: Math.round(overFetchPenalty * 10) / 10,
+    passThrough: Math.round(passThroughPenalty * 10) / 10,
+    demeter: Math.round(demeterPenalty * 10) / 10,
     totalPenalty: Math.round(totalPenalty * 10) / 10,
     riskMultiplier,
     duplicateAdjustment: Math.round(duplicateAdjustment * 10) / 10,
@@ -185,7 +196,8 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
  */
 export async function calculateQualityMetrics(
   functions: FunctionInfo[], 
-  structuralData?: StructuralMetrics
+  structuralData?: StructuralMetrics,
+  argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]
 ): Promise<HealthData> {
   const functionsWithMetrics = functions.filter(f => f.metrics);
   const allMetrics = functionsWithMetrics.map(f => f.metrics!);
@@ -252,7 +264,7 @@ export async function calculateQualityMetrics(
   );
 
   // NEW: Calculate Health Index with structural integration
-  const structuralPenalty = calculateStructuralPenalty(structuralData);
+  const structuralPenalty = calculateStructuralPenalty(structuralData, argumentUsageData);
   const structuralDangerScore = structuralPenalty;
   
   // Health Index = Traditional score - Structural penalty
@@ -335,6 +347,60 @@ function calculateDocumentationScore(codeToCommentRatio: number): number {
   
   // Cap at 10 points maximum
   return Math.min(logScore, 10);
+}
+
+/**
+ * Calculate over-fetch penalty based on argument usage metrics
+ */
+function calculateOverFetchPenalty(argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]): number {
+  if (!argumentUsageData || argumentUsageData.length === 0) {
+    return 0;
+  }
+  
+  let totalPenalty = 0;
+  
+  for (const funcMetrics of argumentUsageData) {
+    totalPenalty += funcMetrics.overallMetrics.overFetchScore * 0.1; // Scale down to reasonable range
+  }
+  
+  // Average across all functions
+  return Math.min(10, totalPenalty / argumentUsageData.length); // Cap at 10 points
+}
+
+/**
+ * Calculate pass-through penalty based on argument usage metrics
+ */
+function calculatePassThroughPenalty(argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]): number {
+  if (!argumentUsageData || argumentUsageData.length === 0) {
+    return 0;
+  }
+  
+  let totalPenalty = 0;
+  
+  for (const funcMetrics of argumentUsageData) {
+    totalPenalty += funcMetrics.overallMetrics.passThroughScore * 0.08; // Scale down
+  }
+  
+  // Average across all functions, with layer-based weighting
+  return Math.min(8, totalPenalty / argumentUsageData.length); // Cap at 8 points
+}
+
+/**
+ * Calculate Law of Demeter penalty based on argument usage metrics
+ */
+function calculateDemeterPenalty(argumentUsageData?: import('../../../analyzers/argument-usage-aggregator').ArgumentUsageMetrics[]): number {
+  if (!argumentUsageData || argumentUsageData.length === 0) {
+    return 0;
+  }
+  
+  let totalPenalty = 0;
+  
+  for (const funcMetrics of argumentUsageData) {
+    totalPenalty += funcMetrics.overallMetrics.demeterScore * 0.12; // Scale down
+  }
+  
+  // Average across all functions
+  return Math.min(12, totalPenalty / argumentUsageData.length); // Cap at 12 points
 }
 
 /**

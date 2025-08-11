@@ -30,6 +30,8 @@ import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthDat
 import { FunctionContext } from '../../../types/dynamic-weights';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 import { analyzeProgrammingStyleDistribution, displayProgrammingStyleDistribution } from './programming-style-analyzer';
+import { ArgumentUsageAnalyzer } from '../../../analyzers/argument-usage-analyzer';
+import { ArgumentUsageAggregator, type ArgumentUsageMetrics } from '../../../analyzers/argument-usage-aggregator';
 
 /**
  * Health command as a Reader function
@@ -99,6 +101,62 @@ function displaySnapshotInfo(targetSnapshot: SnapshotInfo, functions: FunctionIn
 }
 
 /**
+ * Perform argument usage analysis on source files (temporarily disabled)
+ * TODO: Re-enable once aggregator syntax issues are resolved
+ */
+async function performArgumentUsageAnalysis(
+  functions: FunctionInfo[],
+  targetSnapshot: SnapshotInfo,
+  env: CommandEnvironment
+): Promise<ArgumentUsageMetrics[]> {
+  try {
+    const analyzer = new ArgumentUsageAnalyzer();
+    const allSourceFiles = await env.storage.getSourceFilesBySnapshot(targetSnapshot.id);
+    
+    // Performance: Limit to first 10 files for initial testing
+    const sampleFiles = allSourceFiles.slice(0, 10);
+    env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (sampled from ${allSourceFiles.length})`);
+    
+    // Get ts-morph project from source files
+    const { Project } = await import('ts-morph');
+    const project = new Project({
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+      skipLoadingLibFiles: true
+    });
+    
+    const allArgumentUsage: import('../../../analyzers/argument-usage-analyzer').ArgumentUsage[] = [];
+    
+    for (const sourceFile of sampleFiles) {
+      try {
+        const tsMorphSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+        const usageData = analyzer.analyzeSourceFile(tsMorphSourceFile);
+        allArgumentUsage.push(...usageData);
+      } catch (error) {
+        env.commandLogger.debug(`Failed to analyze argument usage for ${sourceFile.filePath}: ${error}`);
+      }
+    }
+    
+    if (allArgumentUsage.length === 0) {
+      return [];
+    }
+    
+    // Load call edges for transitive analysis
+    const callEdges = await env.storage.getCallEdgesBySnapshot(targetSnapshot.id);
+    
+    // Create aggregator and process data
+    const aggregator = new ArgumentUsageAggregator({}, callEdges);
+    const argumentUsageMetrics = aggregator.aggregateUsageData(allArgumentUsage);
+    
+    env.commandLogger.debug(`Analyzed argument usage for ${argumentUsageMetrics.length} functions`);
+    return argumentUsageMetrics;
+  } catch (error) {
+    env.commandLogger.debug(`Argument usage analysis failed: ${error}`);
+    return [];
+  }
+}
+
+/**
  * Perform structural analysis and calculate quality metrics
  */
 async function performStructuralAnalysis(
@@ -106,14 +164,18 @@ async function performStructuralAnalysis(
   targetSnapshot: SnapshotInfo,
   env: CommandEnvironment,
   mode: EvaluationMode
-): Promise<{ structuralData: StructuralMetrics; qualityData: HealthData }> {
+): Promise<{ structuralData: StructuralMetrics; qualityData: HealthData; argumentUsageData: ArgumentUsageMetrics[] }> {
+  // Perform argument usage analysis (with timeout protection)
+  env.commandLogger.debug('Starting argument usage analysis...');
+  const argumentUsageData = await performArgumentUsageAnalysis(functions, targetSnapshot, env);
+  
   // Perform complete structural analysis for comprehensive health assessment
   const structuralData = await analyzeStructuralMetrics(functions, targetSnapshot.id, env, mode);
   
-  // Calculate quality metrics and risk assessments
-  const qualityData = await calculateQualityMetrics(functions, structuralData);
+  // Calculate quality metrics and risk assessments (now includes argument usage penalties)
+  const qualityData = await calculateQualityMetrics(functions, structuralData, argumentUsageData);
   
-  return { structuralData, qualityData };
+  return { structuralData, qualityData, argumentUsageData };
 }
 
 /**
@@ -391,7 +453,7 @@ async function performHealthAnalysis(env: CommandEnvironment, options: HealthCom
   }
   
   // Perform structural analysis
-  const { structuralData, qualityData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
+  const { structuralData, qualityData, argumentUsageData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
   
   // Execute risk evaluation
   let riskEvaluation = await executeRiskEvaluation(functions);

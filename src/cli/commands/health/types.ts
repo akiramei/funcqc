@@ -100,6 +100,9 @@ export interface StructuralPenaltyBreakdown {
   hubFunctions: number;        // Penalty from excessive hub functions
   maxFanIn: number;           // Penalty from high fan-in coupling
   crossLayer: number;         // Penalty from excessive cross-layer dependencies
+  overFetch: number;          // Penalty from over-fetching arguments
+  passThrough: number;        // Penalty from excessive pass-through behavior
+  demeter: number;            // Penalty from Law of Demeter violations
   totalPenalty: number;       // Sum of all penalties
   riskMultiplier: number;     // Risk-based adjustment multiplier
   duplicateAdjustment?: number; // Reduction for hub∩cycle overlap
@@ -261,4 +264,27 @@ export interface TrendAnalysis {
   overallTrend: 'improving' | 'stable' | 'degrading';
   keyInsights: string[];
   recommendations: string[];
+}
+
+// Argument Usage Analysis Types
+export interface ArgumentUsageHealthMetrics {
+  totalFunctionsAnalyzed: number;
+  averageLocalCoverage: number;
+  averageTransitiveCoverage: number;
+  overFetchViolations: number;
+  passThroughViolations: number;
+  demeterViolations: number;
+  worstOffenders: Array<{
+    functionId: string;
+    functionName: string;
+    filePath: string;
+    issue: 'over-fetch' | 'pass-through' | 'demeter';
+    severity: number;
+  }>;
+  suggestedRefactorings: Array<{
+    clusterId: string;
+    suggestedTypeName: string;
+    affectedFunctions: string[];
+    properties: string[];
+  }>;
 }
