@@ -201,6 +201,13 @@ async function performArgumentUsageAnalysis(
       env.commandLogger.debug(`Argument usage summary - overFetch: ${totalOverFetch.toFixed(1)}, passThrough: ${totalPassThrough.toFixed(1)}, demeter: ${totalDemeter.toFixed(1)}`);
     }
     
+    // Cleanup: Clear type cache and project to free memory
+    sharedTypeAnalyzer.clearCache();
+    
+    // Clear all AST nodes from memory to prevent memory leaks in large projects
+    // Forget all source files to release AST nodes
+    project.getSourceFiles().forEach(sf => sf.forget());
+    
     return argumentUsageMetrics;
   } catch (error) {
     console.error(`[CRITICAL] Argument usage analysis failed: ${error}`);
