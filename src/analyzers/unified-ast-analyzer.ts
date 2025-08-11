@@ -29,7 +29,7 @@ export class UnifiedASTAnalyzer {
   private project: Project;
   private qualityCalculator: QualityCalculator;
   private cache: LRUCache<TsMorphSourceFile>;
-  // Note: currentSnapshotId removed as physical IDs are now snapshot-independent
+  // Note: Physical IDs are snapshot-specific to ensure uniqueness across snapshots
   // private maxSourceFilesInMemory: number; // Stored in cache options
 
   constructor(maxSourceFilesInMemory: number = 50) {
@@ -397,8 +397,8 @@ export class UnifiedASTAnalyzer {
     startColumn: number,
     snapshotId: string
   ): string {
-    // Generate cross-snapshot consistent physical ID
-    // Note: snapshotId removed to maintain same ID for same function across snapshots
+    // Generate snapshot-specific physical ID to ensure uniqueness across snapshots
+    // Note: snapshotId included to prevent duplicate key violations in database
     return FunctionIdGenerator.generateDeterministicUUID(
       filePath, // Will be normalized internally
       functionName,

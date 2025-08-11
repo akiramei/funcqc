@@ -40,10 +40,10 @@ export function prepareBulkInsertData(
 
   for (const func of functions) {
     functionsData.push(buildFunctionRow(func, snapshotId));
-    parametersData.push(...buildParameterRows(func));
+    parametersData.push(...buildParameterRows(func, snapshotId));
     
     if (func.metrics) {
-      metricsData.push(buildMetricsRow(func));
+      metricsData.push(buildMetricsRow(func, snapshotId));
     }
   }
 
@@ -88,10 +88,10 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
   ];
 }
 
-function buildParameterRows(func: FunctionInfo): unknown[][] {
+function buildParameterRows(func: FunctionInfo, snapshotId: string): unknown[][] {
   return func.parameters.map(param => [
     func.id,
-    func.snapshotId,
+    snapshotId,
     param.name,
     param.type,
     param.typeSimple,
@@ -103,10 +103,10 @@ function buildParameterRows(func: FunctionInfo): unknown[][] {
   ]);
 }
 
-function buildMetricsRow(func: FunctionInfo): unknown[] {
+function buildMetricsRow(func: FunctionInfo, snapshotId: string): unknown[] {
   return [
     func.id,
-    func.snapshotId,
+    snapshotId,
     func.metrics!.linesOfCode,
     func.metrics!.totalLines,
     func.metrics!.cyclomaticComplexity,

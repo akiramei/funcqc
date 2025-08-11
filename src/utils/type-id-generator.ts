@@ -51,16 +51,21 @@ export function generateDeterministicTypeId(
     return cachedResult;
   }
   
-  // Generate hash and convert to UUID format
-  const hash = crypto.createHash('sha256').update(cacheKey).digest('hex');
+  // Generate SHA-256 hash (256 bits), take first 128 bits for UUID
+  const hashHex = crypto.createHash('sha256').update(cacheKey).digest('hex');
+  const bytes = Buffer.from(hashHex.slice(0, 32), 'hex'); // 16 bytes = 128 bits
   
-  // Convert to UUID format for consistency
+  // Set RFC 4122 version 5 (name-based) and variant bits for proper UUID format
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // Version 5 (0101xxxx)
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // Variant RFC 4122 (10xxxxxx)
+  
+  const hex = bytes.toString('hex');
   const uuid = [
-    hash.substring(0, 8),
-    hash.substring(8, 12),
-    '5' + hash.substring(13, 16), // Version 5 (name-based SHA-1)
-    ((parseInt(hash.substring(16, 17), 16) & 0x3) | 0x8).toString(16) + hash.substring(17, 20), // Variant bits
-    hash.substring(20, 32)
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32)
   ].join('-');
   
   // Store in cache

@@ -17,7 +17,7 @@ import type { StorageContext } from './types';
 interface PGTransaction {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
-import { v4 as uuidv4 } from 'uuid';
+import { generateStableEdgeId } from '../../utils/edge-id-generator';
 
 export interface CallEdgeStats {
   totalCallEdges: number;
@@ -108,7 +108,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertCallEdgesChunk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      id: edge.id || uuidv4(),
+      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
@@ -207,7 +207,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   private async insertCallEdgesIndividualInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     for (const edge of callEdges) {
       const params = [
-        edge.id || uuidv4(),
+        edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
         snapshotId,
         edge.callerFunctionId,
         edge.calleeFunctionId,
@@ -272,7 +272,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertInternalCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const internalCallEdgeRows = callEdges.map(edge => ({
-      id: edge.id || uuidv4(),
+      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId!, snapshotId),
       snapshot_id: snapshotId,
       file_path: (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
       caller_function_id: edge.callerFunctionId,
@@ -362,7 +362,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
         `,
         [
-          edge.id || uuidv4(),
+          edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId!, snapshotId),
           snapshotId,
           (edge.metadata as Record<string, unknown>)?.['filePath'] || null,
           edge.callerFunctionId,

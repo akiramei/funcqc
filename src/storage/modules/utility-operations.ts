@@ -473,7 +473,7 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
     const result = await this.db.query(`
       SELECT DISTINCT sf.* 
       FROM source_files sf
-      INNER JOIN functions f ON sf.id = f.source_file_id
+      INNER JOIN functions f ON sf.id = f.source_file_ref_id
       WHERE f.snapshot_id = $1
       ORDER BY sf.file_path
     `, [snapshotId]);
@@ -587,7 +587,7 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
         UPDATE source_files 
         SET function_count = $1 
         WHERE id = (
-          SELECT DISTINCT f.source_file_id 
+          SELECT DISTINCT f.source_file_ref_id 
           FROM functions f 
           WHERE f.file_path = $2 AND f.snapshot_id = $3 
           LIMIT 1
@@ -635,7 +635,7 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
           f.end_column,
           sf.file_content
         FROM functions f
-        JOIN source_files sf ON f.source_file_id = sf.id
+        JOIN source_files sf ON f.source_file_ref_id = sf.id
         WHERE f.id = $1
       `, [functionId]);
       

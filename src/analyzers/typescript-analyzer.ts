@@ -71,7 +71,7 @@ export class TypeScriptAnalyzer extends CacheAware {
   private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
-  // Note: currentSnapshotId removed as physical IDs are now snapshot-independent
+  // Note: Physical IDs are snapshot-specific to ensure uniqueness across snapshots
   
   // Static cache for QualityCalculator module to avoid repeated dynamic imports
   private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
