@@ -18,7 +18,6 @@ import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/par
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
-import { createFunctionLookupMap } from '../../utils/function-mapping-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
@@ -803,8 +802,23 @@ async function performCouplingAnalysisForFile(
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
-    // Create FunctionInfo lookup map using shared utility for consistency
-    const functionLookupMap = createFunctionLookupMap(fileFunctions);
+    // Create FunctionInfo lookup map using composite keys for better matching
+    const functionLookupMap = new Map<string, string>();
+    
+    // Build lookup map with multiple key strategies for robust matching
+    for (const func of fileFunctions) {
+      // Strategy 1: Composite key (most reliable)
+      const compositeKey = `${func.filePath}:${func.startLine}:${func.name}`;
+      functionLookupMap.set(compositeKey, func.id);
+      
+      // Strategy 2: Direct ID mapping (if IDs match)
+      functionLookupMap.set(func.id, func.id);
+      
+      // Strategy 3: Alternative composite without full path (for path mismatches)
+      const fileName = func.filePath.split('/').pop() || func.filePath;
+      const altCompositeKey = `${fileName}:${func.startLine}:${func.name}`;
+      functionLookupMap.set(altCompositeKey, func.id);
+    }
 
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
@@ -812,8 +826,16 @@ async function performCouplingAnalysisForFile(
     // Extract property access data from coupling analysis
     for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // Map OnePassASTVisitor function ID to DB function ID using consistent key generation
-        const correctFunctionId = functionLookupMap.get(funcHashId) || funcHashId;
+        // Try multiple strategies to find the correct function ID
+        const correctFunctionId = functionLookupMap.get(funcHashId);
+        
+        // If direct lookup fails, skip this coupling data to avoid FK violations
+        if (!correctFunctionId) {
+          // Skip this function's coupling data to prevent FK constraint violations
+          // This is a temporary measure until ID generation is fully synchronized
+          console.warn(`Warning: Function ID ${funcHashId} not found in DB, skipping coupling data to avoid FK violation`);
+          continue; // Skip to next function
+        }
         
         // Rename for clarity and index accesses by property for O(1) lookups
         const paramAccesses = context.usageData.propertyAccesses
