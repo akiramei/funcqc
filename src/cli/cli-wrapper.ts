@@ -38,7 +38,7 @@ class AnalysisExecutionGuard {
     
     // If already executing, wait for completion
     if (snapshotMap.has(analysisType)) {
-      const existingPromise = snapshotMap.get(analysisType);
+      const existingPromise = snapshotMap.get(analysisType) as Promise<T>;
       return await existingPromise;
     }
     
