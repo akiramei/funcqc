@@ -383,15 +383,7 @@ export class OnePassASTVisitor {
     // Extract function information for deterministic ID generation
     const filePath = func.getSourceFile().getFilePath();
     
-    // Extract function name
-    let functionName = '<anonymous>';
-    if ('getName' in func && typeof func.getName === 'function') {
-      functionName = func.getName() || '<anonymous>';
-    } else if (func.getKindName() === 'Constructor') {
-      functionName = 'constructor';
-    }
-    
-    // Extract class name from parent context
+    // Extract class name from parent context (needed for generateDeterministicUUIDFromNode)
     let className: string | null = null;
     let parent = func.getParent();
     while (parent) {
@@ -402,17 +394,13 @@ export class OnePassASTVisitor {
       parent = parent.getParent();
     }
     
-    const startLine = func.getStartLineNumber();
-    const startColumn = func.getStart() - func.getStartLinePos();
-    
-    // Generate snapshot-specific physical ID to avoid duplicate key violations
-    const funcId = FunctionIdGenerator.generateDeterministicUUID(
-      filePath, // Will be normalized internally
-      functionName,
-      className,
-      startLine,
-      startColumn,
-      _ctx.snapshotId || 'unknown'
+    // Use FunctionIdGenerator.generateDeterministicUUIDFromNode for consistent ID generation
+    // This ensures proper normalization of getter/setter/constructor names
+    const funcId = FunctionIdGenerator.generateDeterministicUUIDFromNode(
+      func,
+      filePath,
+      _ctx.snapshotId || 'unknown',
+      className
     );
     
     this.funcIdCache.set(func, funcId);
