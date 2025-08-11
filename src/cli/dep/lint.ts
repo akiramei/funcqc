@@ -187,8 +187,18 @@ export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
         outputArchLintTable(analysisResult, filteredViolations, options);
       }
 
-      // Exit with error code if there are violations
-      if (filteredViolations.some(v => v.severity === 'error')) {
+      // Exit with error code based on failOn option
+      const failOn = options.failOn ?? 'error';
+      const shouldFail = filteredViolations.some(v => {
+        switch (failOn) {
+          case 'any': return true;
+          case 'warning': return v.severity === 'warning' || v.severity === 'error';
+          case 'error': return v.severity === 'error';
+          default: return v.severity === 'error';
+        }
+      });
+      
+      if (shouldFail) {
         process.exit(1);
       }
 
@@ -336,10 +346,15 @@ function displayViolationsByFile(violations: ArchitectureViolation[], severityCo
     return groups;
   }, {} as Record<string, ArchitectureViolation[]>);
 
-  for (const [filePath, fileViolations] of Object.entries(violationsByFile)) {
+  // Sort files alphabetically for deterministic output
+  for (const [filePath, fileViolations] of Object.entries(violationsByFile)
+    .sort(([a], [b]) => a.localeCompare(b))) {
     console.log(chalk.underline(filePath));
     
-    fileViolations.forEach(violation => {
+    // Sort violations within each file by line number for deterministic output
+    fileViolations
+      .sort((a, b) => (a.context?.lineNumber ?? 0) - (b.context?.lineNumber ?? 0))
+      .forEach(violation => {
       const { source, target, message, context } = violation;
       
       console.log(`  ${severityColor('●')} ${chalk.cyan(source.functionName)} → ${chalk.green(target.functionName)}`);

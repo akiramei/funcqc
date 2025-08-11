@@ -63,7 +63,8 @@ export interface DepLintOptions extends BaseCommandOptions {
   severity?: 'error' | 'warning' | 'info';
   maxViolations?: string;
   includeMetrics?: boolean;
-  fix?: boolean;
+  // TODO: fix?: boolean; // Reserved for future auto-fix functionality
+  failOn?: 'error' | 'warning' | 'any';
   snapshot?: string;
   showLayers?: boolean;
   showRules?: boolean;

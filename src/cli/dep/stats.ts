@@ -47,7 +47,7 @@ async function executeDepStatsAnalysis(
   spinner: Ora
 ): Promise<void> {
   // Load call graph data
-  const { callEdges: allEdges, functions } = await loadCallGraphData(env, options, spinner);
+  const { callEdges: allEdges, functions, snapshotId } = await loadCallGraphData(env, options, spinner);
   
   // Analyze dependencies
   const { entryPointIds, cyclicFunctions } = await analyzeDependencyStructure(functions, allEdges, spinner);
@@ -65,7 +65,7 @@ async function executeDepStatsAnalysis(
   spinner.succeed('Dependency metrics calculated');
   
   // Output results
-  outputDepStatsResults(functions, allEdges, metrics, stats, options);
+  outputDepStatsResults(functions, allEdges, metrics, stats, options, snapshotId);
 }
 
 /**
@@ -75,7 +75,7 @@ async function loadCallGraphData(
   env: CommandEnvironment, 
   options: DepStatsOptions, 
   spinner: Ora
-): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[] }> {
+): Promise<{ callEdges: CallEdge[]; functions: FunctionInfo[]; snapshotId: string }> {
   // Get the target snapshot ID
   const targetSnapshotId = options.snapshot || 'latest';
   const resolvedSnapshotId = await resolveSnapshotId(env, targetSnapshotId);
@@ -100,7 +100,7 @@ async function loadCallGraphData(
   // Note: Not validating call graph requirements here to match health behavior
   // This prevents lazy analysis from being triggered
   
-  return { callEdges, functions };
+  return { callEdges, functions, snapshotId: resolvedSnapshotId };
 }
 
 /**
@@ -215,12 +215,13 @@ function outputDepStatsResults(
   callEdges: CallEdge[],
   metrics: DependencyMetrics[],
   stats: DependencyStats,
-  options: DepStatsOptions
+  options: DepStatsOptions,
+  snapshotId: string
 ): void {
   if (options.format === 'dot') {
     outputDepStatsDot(functions, callEdges, metrics, options);
   } else if (options.json || options.format === 'json') {
-    outputDepStatsJSON(metrics, stats, options);
+    outputDepStatsJSON(metrics, stats, options, snapshotId);
   } else {
     outputDepStatsTable(metrics, stats, functions, options);
   }
@@ -243,7 +244,12 @@ function outputDepStatsDot(
 /**
  * Output dependency stats as JSON
  */
-function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats, options: DepStatsOptions): void {
+function outputDepStatsJSON(
+  metrics: DependencyMetrics[], 
+  stats: DependencyStats, 
+  options: DepStatsOptions, 
+  snapshotId: string
+): void {
   let limit = 20;
   if (options.limit) {
     const parsed = parseInt(options.limit, 10);
@@ -251,25 +257,16 @@ function outputDepStatsJSON(metrics: DependencyMetrics[], stats: DependencyStats
       limit = parsed;
     }
   }
-  const sortField = options.sort || 'fanin';
+  const sortField = validateSortField(options.sort);
   
-  // Sort metrics
-  const sortedMetrics = [...metrics].sort((a, b) => {
-    switch (sortField) {
-      case 'fanin':
-        return b.fanIn - a.fanIn;
-      case 'fanout':
-        return b.fanOut - a.fanOut;
-      case 'depth':
-        return b.depthFromEntry - a.depthFromEntry;
-      case 'name':
-        return a.functionName.localeCompare(b.functionName);
-      default:
-        return 0;
-    }
-  });
+  // Use the new sort function for consistency
+  const sortedMetrics = sortMetricsByCriteria(metrics, sortField);
 
   const result = {
+    snapshot: { 
+      id: snapshotId,
+      createdAt: new Date().toISOString()
+    },
     summary: stats,
     metrics: sortedMetrics.slice(0, limit),
     filters: {
@@ -370,6 +367,24 @@ function parseDisplayLimit(options: DepStatsOptions): number {
 }
 
 /**
+ * Validate and normalize sort field
+ */
+function validateSortField(sortField?: string): string {
+  const allowedSorts = new Set(['fanin', 'fanout', 'depth', 'name']);
+  const normalizedSort = sortField?.toLowerCase();
+  
+  if (normalizedSort && allowedSorts.has(normalizedSort)) {
+    return normalizedSort;
+  }
+  
+  if (sortField && sortField !== 'fanin') {
+    console.warn(chalk.yellow(`Warning: Unknown --sort=${sortField}, using 'fanin'`));
+  }
+  
+  return 'fanin';
+}
+
+/**
  * Sort metrics by specified criteria
  */
 function sortMetricsByCriteria(metrics: DependencyMetrics[], sortField: string): DependencyMetrics[] {
@@ -384,7 +399,8 @@ function sortMetricsByCriteria(metrics: DependencyMetrics[], sortField: string):
       case 'name':
         return a.functionName.localeCompare(b.functionName);
       default:
-        return 0;
+        // This should never happen after validation
+        return b.fanIn - a.fanIn;
     }
   });
 }
@@ -398,7 +414,7 @@ function displayTopFunctionsTable(
   options: DepStatsOptions
 ): void {
   const limit = parseDisplayLimit(options);
-  const sortField = options.sort || 'fanin';
+  const sortField = validateSortField(options.sort);
   const sortedMetrics = sortMetricsByCriteria(metrics, sortField);
 
   // Create function lookup map
