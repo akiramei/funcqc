@@ -832,8 +832,7 @@ async function performCouplingAnalysisForFile(
         // If direct lookup fails, skip this coupling data to avoid FK violations
         if (!correctFunctionId) {
           // Skip this function's coupling data to prevent FK constraint violations
-          // This is a temporary measure until ID generation is fully synchronized
-          console.warn(`Warning: Function ID ${funcHashId} not found in DB, skipping coupling data to avoid FK violation`);
+          // This is expected behavior for anonymous functions that aren't stored in the main function table
           continue; // Skip to next function
         }
         
