@@ -146,8 +146,10 @@ export class ArgumentUsageAggregator {
   }
   
   private calculateParameterMetrics(paramUsage: ParameterUsage): ParameterMetrics {
-    // Estimate total properties from parameter type (simplified approach)
-    const totalProperties = this.estimateTypeProperties(paramUsage.parameterType);
+    // Use accurate property count if available, otherwise fall back to estimation
+    const totalProperties = paramUsage.actualPropertyCount !== undefined
+      ? paramUsage.actualPropertyCount
+      : this.estimateTypeProperties(paramUsage.parameterType);
     const usedProperties = paramUsage.localUsage.accessedProperties.size;
     
     // Calculate local coverage

@@ -17,6 +17,7 @@ import {
   SourceFile
 } from 'ts-morph';
 import * as ts from 'typescript';
+import { TypePropertyAnalyzer } from './type-property-analyzer';
 
 export interface ArgumentUsage {
   functionId: string;
@@ -30,6 +31,8 @@ export interface ParameterUsage {
   parameterName: string;
   parameterIndex: number;
   parameterType?: string | undefined;
+  actualPropertyCount?: number | undefined; // Accurate count from TypeChecker
+  typeAnalysisConfidence?: 'high' | 'medium' | 'low' | undefined; // Confidence level
   localUsage: PropertyAccessInfo;
   passThrough: PassThroughInfo[];
   demeterViolations: DemeterViolation[];
@@ -86,10 +89,12 @@ class FastAnalysisState {
   
   private parameterNames: string[];
   private parameterMap: Map<string, ParameterDeclaration>;
+  private typeAnalyzer?: TypePropertyAnalyzer | undefined;
   
-  constructor(parameters: ParameterDeclaration[]) {
+  constructor(parameters: ParameterDeclaration[], typeAnalyzer?: TypePropertyAnalyzer) {
     this.parameterNames = parameters.map(p => p.getName());
     this.parameterMap = new Map(parameters.map(p => [p.getName(), p]));
+    this.typeAnalyzer = typeAnalyzer;
     
     // Initialize maps
     for (const paramName of this.parameterNames) {
@@ -181,10 +186,33 @@ class FastAnalysisState {
         });
       }
       
+      // Perform accurate type analysis if TypeAnalyzer is available
+      let actualPropertyCount: number | undefined;
+      let typeAnalysisConfidence: 'high' | 'medium' | 'low' | undefined;
+      
+      if (this.typeAnalyzer) {
+        try {
+          const paramType = param.getType();
+          const typeInfo = this.typeAnalyzer.analyzeType(paramType);
+          actualPropertyCount = typeInfo.propertyCount;
+          typeAnalysisConfidence = typeInfo.confidence;
+        } catch (error) {
+          // Fallback to string-based analysis
+          const typeText = param.getTypeNode()?.getText();
+          if (typeText) {
+            const typeInfo = this.typeAnalyzer.analyzeTypeString(typeText);
+            actualPropertyCount = typeInfo.propertyCount;
+            typeAnalysisConfidence = typeInfo.confidence;
+          }
+        }
+      }
+      
       results.push({
         parameterName: paramName,
         parameterIndex: this.parameterNames.indexOf(paramName),
         parameterType: param.getTypeNode()?.getText() || undefined,
+        actualPropertyCount,
+        typeAnalysisConfidence,
         localUsage: {
           accessedProperties,
           accessTypes,
@@ -207,11 +235,21 @@ export class ArgumentUsageAnalyzer {
   analyzeSourceFile(sourceFile: SourceFile): ArgumentUsage[] {
     const results: ArgumentUsage[] = [];
     
+    // Initialize TypePropertyAnalyzer for accurate type analysis
+    let typeAnalyzer: TypePropertyAnalyzer | undefined;
+    try {
+      const project = sourceFile.getProject();
+      const typeChecker = project.getTypeChecker();
+      typeAnalyzer = new TypePropertyAnalyzer(typeChecker);
+    } catch (error) {
+      // Continue without TypeChecker - will use fallback analysis
+    }
+    
     // Get all function-like nodes
     const functionNodes = this.getAllFunctionNodes(sourceFile);
     
     for (const node of functionNodes) {
-      const usage = this.analyzeFunctionArgumentUsageOptimized(node);
+      const usage = this.analyzeFunctionArgumentUsageOptimized(node, typeAnalyzer);
       if (usage) {
         results.push(usage);
       }
@@ -242,7 +280,7 @@ export class ArgumentUsageAnalyzer {
   /**
    * Optimized single-pass analysis using compiler node traversal
    */
-  private analyzeFunctionArgumentUsageOptimized(node: FunctionNode): ArgumentUsage | null {
+  private analyzeFunctionArgumentUsageOptimized(node: FunctionNode, typeAnalyzer?: TypePropertyAnalyzer): ArgumentUsage | null {
     const parameters = node.getParameters();
     if (parameters.length === 0) return null;
 
@@ -251,8 +289,8 @@ export class ArgumentUsageAnalyzer {
     const startLine = node.getStartLineNumber();
     const functionId = `${filePath}:${startLine}:${functionName}`;
 
-    // Fast single-pass analysis using compiler node
-    const analysisState = new FastAnalysisState(parameters);
+    // Fast single-pass analysis using compiler node with TypePropertyAnalyzer
+    const analysisState = new FastAnalysisState(parameters, typeAnalyzer);
     const compilerNode = node.compilerNode;
     
     // Single traversal of function body only
