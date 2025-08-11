@@ -102,8 +102,7 @@ function displaySnapshotInfo(targetSnapshot: SnapshotInfo, functions: FunctionIn
 }
 
 /**
- * Perform argument usage analysis on source files (temporarily disabled)
- * TODO: Re-enable once aggregator syntax issues are resolved
+ * Perform argument usage analysis on source files
  */
 async function performArgumentUsageAnalysis(
   functions: FunctionInfo[],

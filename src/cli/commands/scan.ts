@@ -26,6 +26,7 @@ import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, TypeChecker, ts } from 'ts-morph';
 import { SnapshotMetadata } from '../../types';
+import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
 
 /**
  * Scan level configuration
@@ -808,15 +809,15 @@ async function performCouplingAnalysisForFile(
     // Build lookup map with multiple key strategies for robust matching
     for (const func of fileFunctions) {
       // Strategy 1: Composite key (most reliable)
-      const compositeKey = `${func.filePath}:${func.startLine}:${func.name}`;
+      const compositeKey = generateFunctionCompositeKey(func.filePath, func.startLine, func.name);
       functionLookupMap.set(compositeKey, func.id);
       
       // Strategy 2: Direct ID mapping (if IDs match)
       functionLookupMap.set(func.id, func.id);
       
       // Strategy 3: Alternative composite without full path (for path mismatches)
-      const fileName = func.filePath.split('/').pop() || func.filePath;
-      const altCompositeKey = `${fileName}:${func.startLine}:${func.name}`;
+      const fileName = path.basename(func.filePath);
+      const altCompositeKey = generateFunctionCompositeKey(fileName, func.startLine, func.name);
       functionLookupMap.set(altCompositeKey, func.id);
     }
 
