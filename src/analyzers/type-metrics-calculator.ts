@@ -464,7 +464,7 @@ export class TypeMetricsCalculator {
    */
   private calculateCKScore(ckMetrics?: CKMetrics, issues?: TypeQualityIssue[]): number {
     if (!ckMetrics) {
-      return 70; // Neutral score if CK metrics not available
+      return 50; // Conservative neutral score if CK metrics not available
     }
 
     let score = 100;

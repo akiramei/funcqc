@@ -46,8 +46,26 @@ function performSCCAnalysis(
   const sccResult = sccAnalyzer.findStronglyConnectedComponents(callEdges);
   
   const depCalculator = new DependencyMetricsCalculator();
-  const entryPoints = new Set<string>();
-  const cyclicFunctions = new Set(sccResult.recursiveFunctions);
+  
+  // Fix: Include all functions in cycles (both self-recursion and mutual recursion)
+  const cyclicFunctions = new Set(
+    sccResult.components
+      .filter(c => c.size > 1 || c.isRecursive)
+      .flatMap(c => c.functionIds)
+  );
+  
+  // First pass: Calculate metrics with empty entry points to get fan-in values
+  const initialEntryPoints = new Set<string>();
+  const initialMetrics = depCalculator.calculateMetrics(functions, callEdges, initialEntryPoints, cyclicFunctions);
+  
+  // Fix: Automatically detect entry points as functions with zero in-degree
+  const entryPoints = new Set(
+    initialMetrics
+      .filter(m => m.fanIn === 0)
+      .map(m => m.functionId)
+  );
+  
+  // Second pass: Recalculate with proper entry points for accurate depthFromEntry
   const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
   
   // Calculate fan-in/fan-out statistics
@@ -301,8 +319,20 @@ async function performSimplifiedStructuralAnalysis(
   
   // Basic metrics without expensive PageRank or SCC
   const depCalculator = new DependencyMetricsCalculator();
-  const entryPoints = new Set<string>();
   const cyclicFunctions = new Set<string>(); // Skip SCC for now
+  
+  // First pass: Calculate metrics with empty entry points to get fan-in values
+  const initialEntryPoints = new Set<string>();
+  const initialMetrics = depCalculator.calculateMetrics(functions, callEdges, initialEntryPoints, cyclicFunctions);
+  
+  // Fix: Automatically detect entry points as functions with zero in-degree
+  const entryPoints = new Set(
+    initialMetrics
+      .filter(m => m.fanIn === 0)
+      .map(m => m.functionId)
+  );
+  
+  // Second pass: Recalculate with proper entry points for accurate depthFromEntry
   const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
   
   // Calculate basic fan-in/fan-out statistics
