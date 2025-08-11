@@ -81,8 +81,16 @@ class FastAnalysisState {
   // propUse: Map<paramId, Map<propKey, UsageKind>>
   private propUse = new Map<string, Map<string, Set<PropertyAccessType>>>();
   
-  // passThroughEdges: Map<paramId, Array<{calleeId, argIndex, via?>
-  private passThroughEdges = new Map<string, Array<{calleeId: string, argIndex: number, via?: string}>>();
+  // OPTIMIZED: Separate immediate and delayed pass-through for efficiency
+  // Immediate: Direct parameter passing (light weight)
+  private immediatePassThrough = new Map<string, Array<{calleeId: string, argIndex: number}>>();
+  
+  // Delayed: Property-based passing (heavier analysis)
+  private delayedPassThrough = new Map<string, Array<{calleeId: string, argIndex: number, property: string, depth: number}>>();
+  
+  // Pass-through chain tracking (limited depth for performance)
+  private passThroughChains = new Map<string, number>(); // paramName -> max chain depth
+  readonly MAX_CHAIN_DEPTH = 3; // Performance guard (public for access in analyzer)
   
   // maxChainDepth: Map<paramId, number> (LoD)
   private maxChainDepth = new Map<string, number>();
@@ -100,7 +108,9 @@ class FastAnalysisState {
     for (const paramName of this.parameterNames) {
       this.paramAliases.set(paramName, new Set([paramName]));
       this.propUse.set(paramName, new Map());
-      this.passThroughEdges.set(paramName, []);
+      this.immediatePassThrough.set(paramName, []);
+      this.delayedPassThrough.set(paramName, []);
+      this.passThroughChains.set(paramName, 0);
       this.maxChainDepth.set(paramName, 0);
     }
   }
@@ -115,10 +125,36 @@ class FastAnalysisState {
     }
   }
   
-  addPassThrough(paramName: string, calleeId: string, argIndex: number, via?: string): void {
-    const edges = this.passThroughEdges.get(paramName);
-    if (edges) {
-      edges.push({ calleeId, argIndex, ...(via && { via }) });
+  // Optimized: Light-weight tracking for direct pass-through
+  addImmediatePassThrough(paramName: string, calleeId: string, argIndex: number): void {
+    const immediates = this.immediatePassThrough.get(paramName);
+    if (immediates) {
+      // Simple tracking - just count and target
+      immediates.push({ calleeId, argIndex });
+      
+      // Update chain depth (immediate = depth 1)
+      const currentChain = this.passThroughChains.get(paramName) || 0;
+      if (currentChain < this.MAX_CHAIN_DEPTH) {
+        this.passThroughChains.set(paramName, Math.max(currentChain, 1));
+      }
+    }
+  }
+  
+  // Optimized: Detailed tracking for property-based pass-through
+  addDelayedPassThrough(paramName: string, calleeId: string, argIndex: number, property: string, depth: number = 1): void {
+    const delayed = this.delayedPassThrough.get(paramName);
+    if (delayed) {
+      // Early termination if chain is too deep
+      if (depth > this.MAX_CHAIN_DEPTH) {
+        return;
+      }
+      
+      // Detailed tracking with property and depth
+      delayed.push({ calleeId, argIndex, property, depth });
+      
+      // Update chain depth
+      const currentChain = this.passThroughChains.get(paramName) || 0;
+      this.passThroughChains.set(paramName, Math.max(currentChain, depth));
     }
   }
   
@@ -161,16 +197,30 @@ class FastAnalysisState {
         accessTypes.set(prop, Array.from(typeSet));
       }
       
-      // Build pass-through info
+      // Build pass-through info from separated collections
       const passThrough: PassThroughInfo[] = [];
-      const edges = this.passThroughEdges.get(paramName) || [];
-      for (const edge of edges) {
+      
+      // Add immediate pass-throughs (lightweight)
+      const immediates = this.immediatePassThrough.get(paramName) || [];
+      for (const imm of immediates) {
         passThrough.push({
-          targetFunctionName: edge.calleeId,
-          targetParameterIndex: edge.argIndex,
-          passedProperties: edge.via ? [edge.via] : [],
+          targetFunctionName: imm.calleeId,
+          targetParameterIndex: imm.argIndex,
+          passedProperties: [],
           callSite: { line: 0, column: 0 }, // Simplified
-          isDirectPassThrough: !edge.via
+          isDirectPassThrough: true
+        });
+      }
+      
+      // Add delayed pass-throughs (with property info)
+      const delayed = this.delayedPassThrough.get(paramName) || [];
+      for (const del of delayed) {
+        passThrough.push({
+          targetFunctionName: del.calleeId,
+          targetParameterIndex: del.argIndex,
+          passedProperties: [del.property],
+          callSite: { line: 0, column: 0 }, // Simplified
+          isDirectPassThrough: false
         });
       }
       
@@ -398,31 +448,34 @@ export class ArgumentUsageAnalyzer {
   }
   
   private handleCallExpression(node: ts.CallExpression, state: FastAnalysisState): void {
-    // Check if any arguments are parameters (pass-through detection)
+    // Optimized pass-through detection with immediate/delayed separation
+    const calleeName = this.getCalleeIdentifier(node);
+    if (!calleeName) return; // Early exit if no callee
+    
     node.arguments.forEach((arg, index) => {
       if (ts.isIdentifier(arg)) {
         const paramName = state.isParamOrAlias(arg.text);
         if (paramName) {
-          // Direct parameter pass-through
-          const calleeName = this.getCalleeIdentifier(node);
-          if (calleeName) {
-            state.addPassThrough(paramName, calleeName, index);
-          }
+          // IMMEDIATE: Direct parameter pass-through (lightweight)
+          state.addImmediatePassThrough(paramName, calleeName, index);
         }
       } else if (ts.isPropertyAccessExpression(arg)) {
-        // Property pass-through (e.g., f(param.x))
+        // DELAYED: Property pass-through with depth tracking
         const baseExpr = this.getBaseExpression(arg);
         if (baseExpr && ts.isIdentifier(baseExpr)) {
           const paramName = state.isParamOrAlias(baseExpr.text);
           if (paramName) {
             const propName = arg.name.text;
-            const calleeName = this.getCalleeIdentifier(node);
-            if (calleeName) {
-              state.addPassThrough(paramName, calleeName, index, propName);
+            const depth = this.calculatePropertyChainDepth(arg);
+            
+            // Only track if within depth limit (performance guard)
+            if (depth <= state.MAX_CHAIN_DEPTH) {
+              state.addDelayedPassThrough(paramName, calleeName, index, propName, depth);
             }
           }
         }
       }
+      // Skip complex expressions for performance (spread, destructuring, etc.)
     });
   }
   
