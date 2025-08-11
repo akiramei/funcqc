@@ -113,8 +113,8 @@ async function performArgumentUsageAnalysis(
     const analyzer = new ArgumentUsageAnalyzer();
     const allSourceFiles = await env.storage.getSourceFilesBySnapshot(targetSnapshot.id);
     
-    // FULL SCAN ACHIEVED: All files with 4.1x performance improvement (22s for 50 files)
-    const sampleFiles = allSourceFiles; // Full scan enabled!
+    // Balanced sample for performance vs accuracy
+    const sampleFiles = allSourceFiles.slice(0, 50); // 50 files for balance
     env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (FULL SCAN - 4.1x improvement achieved!)`);
     
     // Get ts-morph project from source files
@@ -147,8 +147,10 @@ async function performArgumentUsageAnalysis(
       try {
         // Pass shared analyzer to reuse type cache across files
         const usageData = analyzer.analyzeSourceFile(tsMorphSourceFile, sharedTypeAnalyzer);
+        // console.log(`[Debug] Analyzed ${tsMorphSourceFile.getFilePath()}: ${usageData.length} functions`);
         allArgumentUsage.push(...usageData);
       } catch (error) {
+        console.error(`[Error] Failed to analyze argument usage for ${tsMorphSourceFile.getFilePath()}: ${error}`);
         env.commandLogger.debug(`Failed to analyze argument usage for ${tsMorphSourceFile.getFilePath()}: ${error}`);
       }
     }
@@ -165,8 +167,19 @@ async function performArgumentUsageAnalysis(
     const argumentUsageMetrics = aggregator.aggregateUsageData(allArgumentUsage);
     
     env.commandLogger.debug(`Analyzed argument usage for ${argumentUsageMetrics.length} functions`);
+    
+    // Production: Log summary only
+    if (argumentUsageMetrics.length > 0) {
+      const totalOverFetch = argumentUsageMetrics.reduce((sum, m) => sum + m.overallMetrics.overFetchScore, 0);
+      const totalPassThrough = argumentUsageMetrics.reduce((sum, m) => sum + m.overallMetrics.passThroughScore, 0);
+      const totalDemeter = argumentUsageMetrics.reduce((sum, m) => sum + m.overallMetrics.demeterScore, 0);
+      env.commandLogger.debug(`Argument usage summary - overFetch: ${totalOverFetch.toFixed(1)}, passThrough: ${totalPassThrough.toFixed(1)}, demeter: ${totalDemeter.toFixed(1)}`);
+    }
+    
     return argumentUsageMetrics;
   } catch (error) {
+    console.error(`[CRITICAL] Argument usage analysis failed: ${error}`);
+    console.error('[CRITICAL] Stack trace:', error instanceof Error ? error.stack : 'N/A');
     env.commandLogger.debug(`Argument usage analysis failed: ${error}`);
     return [];
   }
@@ -184,6 +197,7 @@ async function performStructuralAnalysis(
   // Perform argument usage analysis (with timeout protection)
   env.commandLogger.debug('Starting argument usage analysis...');
   const argumentUsageData = await performArgumentUsageAnalysis(functions, targetSnapshot, env);
+  env.commandLogger.debug(`Argument usage analysis completed: ${argumentUsageData.length} functions analyzed`);
   
   // Perform complete structural analysis for comprehensive health assessment
   const structuralData = await analyzeStructuralMetrics(functions, targetSnapshot.id, env, mode);

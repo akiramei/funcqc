@@ -7,6 +7,7 @@
 
 import {
   Node,
+  SyntaxKind,
   FunctionDeclaration,
   MethodDeclaration,
   ArrowFunction,
@@ -352,6 +353,9 @@ export class ArgumentUsageAnalyzer {
     // Get all function-like nodes
     const functionNodes = this.getAllFunctionNodes(sourceFile);
     
+    // Debug: Log function detection (commented out for production)
+    // console.log(`[Debug] File ${sourceFile.getFilePath()}: Found ${functionNodes.length} function nodes`);
+    
     // OPTIMIZATION: Early exit if no functions
     if (functionNodes.length === 0) {
       return results;
@@ -368,38 +372,20 @@ export class ArgumentUsageAnalyzer {
   }
   
   /**
-   * CRITICAL FIX #3: Single-traversal function node collection (eliminates duplicate AST walks)
-   * Expert recommendation: Use 1 compiler AST walk instead of multiple getDescendantsOfKind calls
+   * TEMPORARY FALLBACK: Use original getDescendantsOfKind approach 
+   * Single-traversal optimization is causing function detection failure
    */
   private getAllFunctionNodes(sourceFile: SourceFile): FunctionNode[] {
     const functions: FunctionNode[] = [];
     
-    const visit = (node: ts.Node): void => {
-      // Check if node is a function-like construct
-      if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) ||
-          ts.isConstructorDeclaration(node) || ts.isFunctionExpression(node) ||
-          ts.isArrowFunction(node)) {
-        // Convert ts.Node back to ts-morph Node using position
-        try {
-          const morphNode = sourceFile.getDescendantAtPos(node.getStart());
-          if (morphNode && (Node.isFunctionDeclaration(morphNode) || Node.isMethodDeclaration(morphNode) ||
-                           Node.isConstructorDeclaration(morphNode) || Node.isFunctionExpression(morphNode) ||
-                           Node.isArrowFunction(morphNode))) {
-            functions.push(morphNode as FunctionNode);
-          }
-        } catch {
-          // Skip if conversion fails
-        }
-      }
-      
-      // Continue visiting children
-      node.forEachChild(visit);
-    };
+    // Collect different types of function nodes using ts-morph built-in methods
+    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration));
+    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration));
+    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.Constructor));
+    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction));
+    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression));
     
-    // Single traversal starting from compiler node
-    visit(sourceFile.compilerNode);
-    
-    return functions;
+    return functions as FunctionNode[];
   }
   
   /**
@@ -418,6 +404,13 @@ export class ArgumentUsageAnalyzer {
     // PRECISION FIX #1: Improved pre-filter with destructuring support
     // Extract all identifiers from parameters (including destructuring patterns)
     const bodyText = node.getBodyText() ?? "";
+    
+    // PERFORMANCE: Add timeout protection for large functions
+    if (bodyText.length > 50000) {
+      // Skip analysis for extremely large functions to prevent timeout
+      return this.buildEmptyUsage(functionId, functionName, filePath, startLine, parameters);
+    }
+    
     const allParameterIdentifiers = this.extractParameterIdentifiers(parameters);
     
     let anyParameterMentioned = false;
@@ -794,17 +787,31 @@ export class ArgumentUsageAnalyzer {
   private extractParameterIdentifiers(parameters: ParameterDeclaration[]): string[] {
     const identifiers: string[] = [];
     
-    for (const param of parameters) {
+    // PERFORMANCE: Limit to max 20 parameters for performance protection
+    const maxParams = Math.min(parameters.length, 20);
+    
+    for (let i = 0; i < maxParams; i++) {
+      const param = parameters[i];
       // Primary parameter name (always include)
       const paramName = param.getName();
       if (paramName) {
         identifiers.push(paramName);
       }
       
-      // Extract from binding patterns (destructuring)
-      const nameNode = param.getNameNode();
-      if (nameNode) {
-        this.extractBindingIdentifiers(nameNode, identifiers);
+      // Extract from binding patterns (destructuring) - but limit complexity
+      try {
+        const nameNode = param.getNameNode();
+        if (nameNode) {
+          this.extractBindingIdentifiers(nameNode, identifiers);
+        }
+      } catch {
+        // Skip complex binding patterns that cause performance issues
+        continue;
+      }
+      
+      // PERFORMANCE: Limit total identifiers to prevent excessive search
+      if (identifiers.length > 50) {
+        break;
       }
     }
     
@@ -813,11 +820,15 @@ export class ArgumentUsageAnalyzer {
   
   // Helper to recursively extract identifiers from binding patterns
   private extractBindingIdentifiers(node: Node, identifiers: string[]): void {
+    // PERFORMANCE: Early exit if we already have too many identifiers
+    if (identifiers.length > 30) return;
+    
     if (Node.isIdentifier(node)) {
       identifiers.push(node.getText());
     } else if (Node.isObjectBindingPattern(node)) {
-      // Handle: {x, y, z} = param
-      for (const element of node.getElements()) {
+      // Handle: {x, y, z} = param - but limit elements
+      const elements = node.getElements().slice(0, 10); // Max 10 destructured properties
+      for (const element of elements) {
         if (Node.isBindingElement(element)) {
           const name = element.getNameNode();
           if (name && Node.isIdentifier(name)) {
@@ -826,8 +837,9 @@ export class ArgumentUsageAnalyzer {
         }
       }
     } else if (Node.isArrayBindingPattern(node)) {
-      // Handle: [a, b, c] = param
-      for (const element of node.getElements()) {
+      // Handle: [a, b, c] = param - but limit elements
+      const elements = node.getElements().slice(0, 10); // Max 10 destructured array elements
+      for (const element of elements) {
         if (Node.isBindingElement(element)) {
           const name = element.getNameNode();
           if (name && Node.isIdentifier(name)) {

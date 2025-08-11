@@ -159,6 +159,7 @@ export function displayPenaltyBreakdown(breakdown: StructuralPenaltyBreakdown): 
   }
   
   // NEW: Argument usage penalties
+  
   if (breakdown.overFetch > 0) {
     const capped = Math.round((breakdown.overFetch * cappingRatio) * 10) / 10;
     const display = showRawValues 

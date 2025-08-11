@@ -160,6 +160,8 @@ export function calculateStructuralPenaltyBreakdown(structuralData?: StructuralM
   const passThroughPenalty = calculatePassThroughPenalty(argumentUsageData);
   const demeterPenalty = calculateDemeterPenalty(argumentUsageData);
   
+  // Production: Penalties calculated and integrated
+  
   // Calculate hub∩cycle overlap adjustment
   const { hubCyclicOverlap, duplicateAdjustment } = calculateOverlapAdjustment(
     structuralData.hubFunctionIds,
@@ -266,6 +268,11 @@ export async function calculateQualityMetrics(
   // NEW: Calculate Health Index with structural integration
   const structuralPenalty = calculateStructuralPenalty(structuralData, argumentUsageData);
   const structuralDangerScore = structuralPenalty;
+  
+  // Update structural data with argument usage penalties
+  if (structuralData) {
+    structuralData.penaltyBreakdown = calculateStructuralPenaltyBreakdown(structuralData, argumentUsageData);
+  }
   
   // Health Index = Traditional score - Structural penalty
   const rawHealthIndex = Math.max(0, overallScore - structuralPenalty);
