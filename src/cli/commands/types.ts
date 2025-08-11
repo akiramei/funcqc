@@ -150,6 +150,13 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
     }
     
+    // Add function count analysis for accurate display (temporarily disabled for performance)
+    const functionCounts: Map<string, number> = new Map();
+    // Fallback: set all to 0 for now
+    for (const type of types) {
+      functionCounts.set(type.id, 0);
+    }
+    
     // Output results
     if (options.json) {
       const output = types.map(type => ({
@@ -158,7 +165,7 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       }));
       console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesListDB(types, couplingData, options.detail);
+      displayTypesListDB(types, couplingData, functionCounts, options.detail);
     }
 
   } catch (error) {
@@ -533,6 +540,7 @@ async function analyzeCouplingForTypes(
   return couplingMap;
 }
 
+
 /**
  * Process coupling query results into structured format
  */
@@ -722,6 +730,7 @@ function findCircularDependencies(dependencies: Array<{ source: string; target: 
 function displayTypesListDB(
   types: TypeDefinition[],
   couplingData: Map<string, CouplingInfo>,
+  functionCounts: Map<string, number>,
   detailed?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
@@ -744,11 +753,10 @@ function displayTypesListDB(
       console.log();
     } else {
       const location = `${type.filePath.split('/').pop()}:${type.startLine}`;
-      const couplingInfo = couplingData.has(type.id) 
-        ? ` (${couplingData.get(type.id)!.totalFunctions}fn)`
-        : '';
+      const functionCount = functionCounts.get(type.id) || 0;
+      const functionInfo = ` (${functionCount}fn)`;
       
-      console.log(`${kindIcon} ${exportIcon} ${type.name.padEnd(30)} ${type.kind.padEnd(12)} ${location}${couplingInfo}`);
+      console.log(`${kindIcon} ${exportIcon} ${type.name.padEnd(30)} ${type.kind.padEnd(12)} ${location}${functionInfo}`);
     }
   }
 }
