@@ -401,6 +401,7 @@ export class FunctionAnalyzer {
         
         const legacyFunc: FunctionInfo = {
           id: func.id,
+          snapshotId: 'unknown',  // Legacy adapter - TODO: pass actual snapshot ID
           name: func.name,
           filePath: func.filePath,
           startLine: func.startLine,

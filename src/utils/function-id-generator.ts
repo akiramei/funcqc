@@ -52,26 +52,28 @@ export class FunctionIdGenerator {
    * Creates a stable, reproducible ID based on function location and context
    * Returns UUID format string (36 chars with hyphens)
    * 
-   * IMPORTANT: This generates a "physical ID" that is consistent across snapshots
-   * for the same function. SnapshotId is NOT included to maintain cross-snapshot identity.
+   * IMPORTANT: This generates a "physical ID" that is unique per snapshot
+   * by including snapshotId to avoid duplicate key violations.
    */
   static generateDeterministicUUID(
     filePath: string,
     functionName: string,
     className: string | null,
     startLine: number,
-    startColumn: number
+    startColumn: number,
+    snapshotId: string
   ): string {
     // Normalize file path to ensure cross-environment stability
     const normalizedPath = getRelativePath(filePath);
     
-    // Combine all identifying information (excluding snapshotId for cross-snapshot consistency)
+    // Combine all identifying information (including snapshotId for uniqueness)
     const input = [
       normalizedPath,
       className || '',
       functionName,
       startLine.toString(),
-      startColumn.toString()
+      startColumn.toString(),
+      snapshotId
     ].join(':');
     
     // Generate SHA-256 hash (256 bits), take first 128 bits for UUID
@@ -100,6 +102,7 @@ export class FunctionIdGenerator {
   static generateDeterministicUUIDFromNode(
     node: Node,
     filePath: string,
+    snapshotId: string,
     className: string | null = null
   ): string {
     // Extract function name with proper normalization for consistency across analyzers
@@ -122,7 +125,8 @@ export class FunctionIdGenerator {
       functionName,
       className,
       startLine,
-      startColumn
+      startColumn,
+      snapshotId
     );
   }
 

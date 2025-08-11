@@ -1149,6 +1149,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private buildFunctionInfoFromRow(row: Record<string, unknown>): FunctionInfo {
     return {
       id: row['function_id'] as string,
+      snapshotId: row['snapshot_id'] as string || 'unknown',
       semanticId: '',
       contentId: '',
       name: row['name'] as string,

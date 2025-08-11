@@ -277,7 +277,7 @@ export class FunctionOperations implements StorageOperationModule {
           trx,
           'function_parameters',
           [
-            'function_id', 'name', 'type', 'type_simple', 'position',
+            'function_id', 'snapshot_id', 'name', 'type', 'type_simple', 'position',
             'is_optional', 'is_rest', 'default_value', 'description'
           ],
           bulkData.parameters
@@ -290,7 +290,7 @@ export class FunctionOperations implements StorageOperationModule {
           trx,
           'quality_metrics',
           [
-            'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+            'function_id', 'snapshot_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
             'cognitive_complexity', 'max_nesting_level', 'parameter_count',
             'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
             'async_await_count', 'callback_count', 'comment_lines',
@@ -393,7 +393,7 @@ export class FunctionOperations implements StorageOperationModule {
           trx,
           'function_parameters',
           [
-            'function_id', 'name', 'type', 'type_simple', 'position',
+            'function_id', 'snapshot_id', 'name', 'type', 'type_simple', 'position',
             'is_optional', 'is_rest', 'default_value', 'description'
           ],
           bulkData.parameters
@@ -406,7 +406,7 @@ export class FunctionOperations implements StorageOperationModule {
           trx,
           'quality_metrics',
           [
-            'function_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+            'function_id', 'snapshot_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
             'cognitive_complexity', 'max_nesting_level', 'parameter_count',
             'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
             'async_await_count', 'callback_count', 'comment_lines',
@@ -493,10 +493,10 @@ export class FunctionOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO function_parameters (
-          function_id, name, type, type_simple, position, is_optional, default_value
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+          function_id, snapshot_id, name, type, type_simple, position, is_optional, default_value
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         `,
-        [func.id, param.name, param.type, param.typeSimple, i, param.isOptional, param.defaultValue]
+        [func.id, func.snapshotId, param.name, param.type, param.typeSimple, i, param.isOptional, param.defaultValue]
       );
     }
   }
@@ -512,16 +512,17 @@ export class FunctionOperations implements StorageOperationModule {
     await this.db.query(
       `
       INSERT INTO quality_metrics (
-        function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+        function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
         max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
         try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
         halstead_volume, halstead_difficulty, maintainability_index
       ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
       )
       `,
       [
         func.id,
+        func.snapshotId,
         func.metrics.linesOfCode,
         func.metrics.totalLines,
         func.metrics.cyclomaticComplexity,
@@ -736,6 +737,7 @@ export class FunctionOperations implements StorageOperationModule {
   ): FunctionInfo {
     return {
       id: row.id,
+      snapshotId: row.snapshot_id,
       semanticId: row.semantic_id,
       contentId: row.content_id,
       name: row.name,
@@ -1158,6 +1160,7 @@ export class FunctionOperations implements StorageOperationModule {
   private buildBasicFunctionInfo(row: FunctionRow & Partial<MetricsRow>): Omit<FunctionInfo, 'parameters' | 'jsDoc' | 'sourceCode' | 'metrics'> {
     return {
       id: row.id,
+      snapshotId: row.snapshot_id,
       semanticId: row.semantic_id,
       contentId: row.content_id,
       name: row.name,

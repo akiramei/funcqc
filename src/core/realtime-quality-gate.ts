@@ -264,6 +264,7 @@ export class RealTimeQualityGate {
           },
           functionInfo: {
             id: 'error',
+            snapshotId: 'error',
             name: 'unknown',
             startLine: 0,
             endLine: 0,
@@ -709,6 +710,7 @@ export class RealTimeQualityGate {
           },
           functionInfo: {
             id: 'empty',
+            snapshotId: 'empty',
             name: 'none',
             startLine: 0,
             endLine: 0,

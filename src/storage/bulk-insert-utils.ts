@@ -91,6 +91,7 @@ function buildFunctionRow(func: FunctionInfo, snapshotId: string): unknown[] {
 function buildParameterRows(func: FunctionInfo): unknown[][] {
   return func.parameters.map(param => [
     func.id,
+    func.snapshotId,
     param.name,
     param.type,
     param.typeSimple,
@@ -105,6 +106,7 @@ function buildParameterRows(func: FunctionInfo): unknown[][] {
 function buildMetricsRow(func: FunctionInfo): unknown[] {
   return [
     func.id,
+    func.snapshotId,
     func.metrics!.linesOfCode,
     func.metrics!.totalLines,
     func.metrics!.cyclomaticComplexity,

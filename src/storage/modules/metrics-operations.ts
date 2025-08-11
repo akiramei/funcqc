@@ -83,19 +83,19 @@ export class MetricsOperations implements StorageOperationModule {
   /**
    * Save metrics for a single function
    */
-  async saveMetrics(functionId: string, metrics: QualityMetrics): Promise<void> {
+  async saveMetrics(functionId: string, snapshotId: string, metrics: QualityMetrics): Promise<void> {
     try {
       await this.db.query(
         `
         INSERT INTO quality_metrics (
-          function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+          function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
           max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
           try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
           halstead_volume, halstead_difficulty, maintainability_index
         ) VALUES (
-          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
         )
-        ON CONFLICT (function_id) DO UPDATE SET
+        ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
           lines_of_code = EXCLUDED.lines_of_code,
           total_lines = EXCLUDED.total_lines,
           cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
@@ -117,6 +117,7 @@ export class MetricsOperations implements StorageOperationModule {
         `,
         [
           functionId,
+          snapshotId,
           metrics.linesOfCode,
           metrics.totalLines,
           metrics.cyclomaticComplexity,
@@ -166,7 +167,7 @@ export class MetricsOperations implements StorageOperationModule {
           // For small batches, use individual inserts
           for (const func of batch) {
             if (func.metrics) {
-              await this.saveMetrics(func.id, func.metrics);
+              await this.saveMetrics(func.id, func.snapshotId, func.metrics);
             }
           }
         }
@@ -386,6 +387,7 @@ export class MetricsOperations implements StorageOperationModule {
       .filter(func => func.metrics)
       .map(func => ({
         function_id: func.id,
+        snapshot_id: func.snapshotId,
         lines_of_code: func.metrics!.linesOfCode,
         total_lines: func.metrics!.totalLines,
         cyclomatic_complexity: func.metrics!.cyclomaticComplexity,
@@ -409,14 +411,14 @@ export class MetricsOperations implements StorageOperationModule {
       for (const row of metricsRows) {
         await this.db.query(`
           INSERT INTO quality_metrics (
-            function_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
+            function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
             max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
             try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
             halstead_volume, halstead_difficulty, maintainability_index
           ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
           )
-          ON CONFLICT (function_id) DO UPDATE SET
+          ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
             lines_of_code = EXCLUDED.lines_of_code,
             total_lines = EXCLUDED.total_lines,
             cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
@@ -436,7 +438,7 @@ export class MetricsOperations implements StorageOperationModule {
             maintainability_index = EXCLUDED.maintainability_index,
             updated_at = CURRENT_TIMESTAMP
         `, [
-          row.function_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
+          row.function_id, row.snapshot_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
           row.cognitive_complexity, row.max_nesting_level, row.parameter_count,
           row.return_statement_count, row.branch_count, row.loop_count, row.try_catch_count,
           row.async_await_count, row.callback_count, row.comment_lines, row.code_to_comment_ratio,

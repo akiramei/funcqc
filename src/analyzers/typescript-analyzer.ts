@@ -160,14 +160,14 @@ export class TypeScriptAnalyzer extends CacheAware {
       throw error;
     }
 
-    return this.analyzeFileContent(filePath, fileContent);
+    return this.analyzeFileContent(filePath, fileContent, _snapshotId || 'unknown');
   }
 
   /**
    * Analyze file content (used internally to avoid duplicate I/O)
    * Separated from analyzeFile to support BatchFileReader optimization
    */
-  private async analyzeFileContent(filePath: string, fileContent: string): Promise<FunctionInfo[]> {
+  private async analyzeFileContent(filePath: string, fileContent: string, snapshotId: string): Promise<FunctionInfo[]> {
     try {
       // Check cache first using injected cache provider
       // But validate that the cached content is still fresh
@@ -181,7 +181,7 @@ export class TypeScriptAnalyzer extends CacheAware {
             // Generate new physical IDs for cached functions to ensure uniqueness
             return cachedResult.map(func => ({
               ...func,
-              id: this.generatePhysicalId(filePath, func.name, func.contextPath || null, func.startLine, func.startColumn),
+              id: this.generatePhysicalId(filePath, func.name, func.contextPath || null, func.startLine, func.startColumn, snapshotId),
             }));
           } else {
             // File has changed, cache is invalid - proceed with fresh analysis
@@ -205,7 +205,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         
         return {
           ...functionInfo,
-          id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn), // Generate deterministic ID
+          id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn, snapshotId), // Generate deterministic ID
           metrics: qualityMetrics,
           complexity: qualityMetrics.cyclomaticComplexity || 1
         };
@@ -239,7 +239,7 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Analyze TypeScript content from string instead of file
    * Used for analyzing stored file content
    */
-  async analyzeContent(content: string, virtualPath: string): Promise<FunctionInfo[]> {
+  async analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
     
     try {
@@ -253,12 +253,12 @@ export class TypeScriptAnalyzer extends CacheAware {
       
       // Extract all function types
       for (const func of sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
-        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile);
+        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, snapshotId || 'unknown');
         if (info) functions.push(info);
       }
       
       for (const method of sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
-        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile);
+        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile, snapshotId || 'unknown');
         if (info) functions.push(info);
       }
       
@@ -268,14 +268,15 @@ export class TypeScriptAnalyzer extends CacheAware {
             constructor,
             relativePath,
             fileHash,
-            sourceFile
+            sourceFile,
+            snapshotId || 'unknown'
           );
           if (info) functions.push(info);
         }
       }
       
       // Arrow functions and function expressions
-      const variableFunctions = await this.extractVariableFunctions(sourceFile, relativePath, fileHash, content);
+      const variableFunctions = await this.extractVariableFunctions(sourceFile, relativePath, fileHash, content, snapshotId || 'unknown');
       for (const info of variableFunctions) {
         functions.push(info);
       }
@@ -298,7 +299,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    */
   async analyzeFilesBatch(
     filePaths: string[],
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    snapshotId?: string
   ): Promise<FunctionInfo[]> {
     const batchSize = Math.min(this.maxSourceFilesInMemory, 20); // Conservative batch size
     const allFunctions: FunctionInfo[] = [];
@@ -327,7 +329,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       validFiles,
       async (fileData: { filePath: string; content: string }) => {
         try {
-          return await this.analyzeFileContent(fileData.filePath, fileData.content);
+          return await this.analyzeFileContent(fileData.filePath, fileData.content, snapshotId || 'unknown');
         } catch (error) {
           // Log the error with file path for debugging
           this.logger.warn(
@@ -388,7 +390,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     func: FunctionDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile
+    _sourceFile: SourceFile,
+    snapshotId: string = 'unknown'
   ): Promise<FunctionInfo | null> {
     const name = func.getName();
     if (!name) return null;
@@ -417,7 +420,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     // Generate 3D identification system
     const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn);
+    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -429,6 +432,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
+      snapshotId,
       semanticId,
       contentId,
       name,
@@ -477,7 +481,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     method: MethodDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile
+    _sourceFile: SourceFile,
+    snapshotId: string = 'unknown'
   ): Promise<FunctionInfo | null> {
     const name = method.getName();
     if (!name) return null;
@@ -526,7 +531,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
+    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -538,6 +543,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
+      snapshotId,
       semanticId,
       contentId,
       name: name,
@@ -589,7 +595,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     ctor: ConstructorDeclaration,
     relativePath: string,
     fileHash: string,
-    _sourceFile: SourceFile
+    _sourceFile: SourceFile,
+    snapshotId: string = 'unknown'
   ): Promise<FunctionInfo | null> {
     const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
     const fullName = `${className}.constructor`;
@@ -623,7 +630,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn);
+    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -635,6 +642,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
+      snapshotId,
       semanticId,
       contentId,
       name: 'constructor',
@@ -750,10 +758,11 @@ export class TypeScriptAnalyzer extends CacheAware {
     metadata: FunctionMetadata,
     relativePath: string,
     fileHash: string,
-    stmt: VariableStatement
+    stmt: VariableStatement,
+    snapshotId: string = 'unknown'
   ): Promise<FunctionInfo> {
     const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn);
+    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -765,6 +774,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     const functionInfo: FunctionInfo = {
       id: physicalId,
+      snapshotId,
       semanticId,
       contentId,
       name,
@@ -813,7 +823,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     sourceFile: SourceFile,
     relativePath: string,
     fileHash: string,
-_fileContent: string
+    _fileContent: string,
+    snapshotId: string = 'unknown'
   ): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
 
@@ -827,7 +838,7 @@ _fileContent: string
 
         if (functionNode) {
           const metadata = this.extractFunctionMetadata(functionNode, name, stmt);
-          const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt);
+          const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt, snapshotId);
           functions.push(functionInfo);
         }
       }
@@ -1014,7 +1025,8 @@ _fileContent: string
     functionName: string,
     classNameOrContext: string | string[] | null,
     startLine: number,
-    startColumn: number
+    startColumn: number,
+    snapshotId: string
   ): string {
     // Extract class name from context if it's an array
     let className: string | null = null;
@@ -1024,14 +1036,14 @@ _fileContent: string
       className = classNameOrContext;
     }
     
-    // Generate cross-snapshot consistent physical ID
-    // Note: snapshotId removed to maintain same ID for same function across snapshots
+    // Generate snapshot-specific physical ID to avoid duplicate key violations
     return FunctionIdGenerator.generateDeterministicUUID(
       filePath, // Will be normalized internally
       functionName,
       className,
       startLine,
-      startColumn
+      startColumn,
+      snapshotId
     );
   }
 
@@ -1363,11 +1375,12 @@ _fileContent: string
    */
   private async analyzeFileContentWithCallGraph(
     filePath: string,
-_fileContent: string
+    _fileContent: string,
+    snapshotId: string = 'unknown'
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     try {
       // First, analyze functions normally
-      const functions = await this.analyzeFileContent(filePath, _fileContent);
+      const functions = await this.analyzeFileContent(filePath, _fileContent, snapshotId);
       
       // Create function map for call graph analysis
       const functionMap = new Map<string, { id: string; name: string; startLine: number; endLine: number }>();

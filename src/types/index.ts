@@ -132,6 +132,7 @@ export interface ConsensusStrategy {
 export interface FunctionInfo {
   // 物理識別次元
   id: string; // Physical UUID（物理的実体の一意識別）
+  snapshotId: string; // Snapshot reference for composite primary key
   startLine: number; // ファイル内開始行
   endLine: number; // ファイル内終了行
   startColumn: number; // ファイル内開始列
@@ -570,7 +571,7 @@ export interface CliComponents {
   analyzer: { 
     analyzeFile(file: string): Promise<FunctionInfo[]>;
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
-    analyzeContent(content: string, virtualPath: string): Promise<FunctionInfo[]>;
+    analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]>;
     cleanup?(): Promise<void>;
   };
   storage: StorageAdapter;

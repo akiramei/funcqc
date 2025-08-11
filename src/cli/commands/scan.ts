@@ -586,7 +586,8 @@ async function executePureBasicBatchAnalysis(
         // Use analyzer with content instead of file path
         const functions = await components.analyzer.analyzeContent(
           sourceFile.fileContent,
-          sourceFile.filePath
+          sourceFile.filePath,
+          snapshotId
         );
         
         // Set source file ID and verify metrics calculation
