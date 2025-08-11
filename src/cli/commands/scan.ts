@@ -18,6 +18,7 @@ import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/par
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
+import { createFunctionLookupMap } from '../../utils/function-mapping-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
@@ -802,14 +803,8 @@ async function performCouplingAnalysisForFile(
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
-    // Create FunctionInfo lookup map for correct ID mapping
-    // OnePassASTVisitor uses FunctionIdGenerator.generateDeterministicUUID, same as DB functions table
-    const functionLookupMap = new Map<string, string>(); // actual UUID -> DB UUID
-    for (const func of fileFunctions) {
-      // The func.id IS the correct UUID from FunctionIdGenerator.generateDeterministicUUID
-      // OnePassASTVisitor should generate the same UUID, so direct mapping should work
-      functionLookupMap.set(func.id, func.id);
-    }
+    // Create FunctionInfo lookup map using shared utility for consistency
+    const functionLookupMap = createFunctionLookupMap(fileFunctions);
 
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
@@ -817,8 +812,7 @@ async function performCouplingAnalysisForFile(
     // Extract property access data from coupling analysis
     for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
-        // Map OnePassASTVisitor function ID to DB function ID
-        // Both should use FunctionIdGenerator.generateDeterministicUUID, so they should match
+        // Map OnePassASTVisitor function ID to DB function ID using consistent key generation
         const correctFunctionId = functionLookupMap.get(funcHashId) || funcHashId;
         
         // Rename for clarity and index accesses by property for O(1) lookups

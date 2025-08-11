@@ -97,7 +97,17 @@ export class TypePropertyAnalyzer {
     };
   }
   
-  private performTypeAnalysis(type: Type, typeText: string): TypePropertyInfo {
+  private performTypeAnalysis(type: Type, typeText: string, depth: number = 0): TypePropertyInfo {
+    const MAX_DEPTH = 10;
+    if (depth > MAX_DEPTH) {
+      return {
+        propertyCount: 5,
+        propertyNames: [],
+        typeKind: 'unknown',
+        isComplex: true,
+        confidence: 'low'
+      };
+    }
     // Handle primitive types
     if (this.isPrimitiveType(type)) {
       return {
@@ -122,12 +132,12 @@ export class TypePropertyAnalyzer {
     
     // Handle union types
     if (type.isUnion()) {
-      return this.analyzeUnionType(type);
+      return this.analyzeUnionType(type, depth);
     }
     
     // Handle intersection types
     if (type.isIntersection()) {
-      return this.analyzeIntersectionType(type);
+      return this.analyzeIntersectionType(type, depth);
     }
     
     // Handle object/interface/class types
@@ -181,7 +191,7 @@ export class TypePropertyAnalyzer {
     }
   }
   
-  private analyzeUnionType(type: Type): TypePropertyInfo {
+  private analyzeUnionType(type: Type, depth: number = 0): TypePropertyInfo {
     const unionTypes = type.getUnionTypes();
     
     if (unionTypes.length === 0) {
@@ -196,7 +206,7 @@ export class TypePropertyAnalyzer {
     
     // For union types, take the minimum property count to avoid over-estimation
     // (since only common properties are guaranteed to exist)
-    const analyses = unionTypes.map(unionType => this.performTypeAnalysis(unionType, unionType.getText()));
+    const analyses = unionTypes.map(unionType => this.performTypeAnalysis(unionType, unionType.getText(), depth + 1));
     const minPropertyCount = Math.min(...analyses.map(a => a.propertyCount));
     const commonProperties = this.findCommonProperties(analyses);
     
@@ -209,7 +219,7 @@ export class TypePropertyAnalyzer {
     };
   }
   
-  private analyzeIntersectionType(type: Type): TypePropertyInfo {
+  private analyzeIntersectionType(type: Type, depth: number = 0): TypePropertyInfo {
     const intersectionTypes = type.getIntersectionTypes();
     
     if (intersectionTypes.length === 0) {
@@ -224,7 +234,7 @@ export class TypePropertyAnalyzer {
     
     // For intersection types, sum up all properties (they all exist)
     const analyses = intersectionTypes.map(intersectionType => 
-      this.performTypeAnalysis(intersectionType, intersectionType.getText())
+      this.performTypeAnalysis(intersectionType, intersectionType.getText(), depth + 1)
     );
     
     const totalPropertyCount = analyses.reduce((sum, a) => sum + a.propertyCount, 0);
@@ -334,14 +344,17 @@ export class TypePropertyAnalyzer {
   
   /**
    * Get optimized cache key for type - avoids expensive getText() calls
-   * OPTIMIZATION: Prioritize fast internal ID over string generation
+   * Uses public TypeScript API to ensure stability across TS version upgrades
    */
   private getTypeCacheKey(type: Type): string {
     try {
-      // Priority 1: Try internal type ID (fastest - no string generation)
-      const anyType = type as unknown as { compilerType?: { id?: number } };
-      if (anyType.compilerType?.id != null) {
-        return `id:${anyType.compilerType.id}`;
+      // Priority 1: Try to get symbol-based identifier using public API (more stable)
+      const symbol = type.getSymbol();
+      if (symbol) {
+        const symbolName = this._typeChecker.getFullyQualifiedName(symbol);
+        if (symbolName && symbolName !== 'unknown') {
+          return `symbol:${symbolName}:${type.getFlags()}:${type.getObjectFlags()}`;
+        }
       }
     } catch {
       // Ignore - try next option

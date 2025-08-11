@@ -27,6 +27,7 @@ import {
 import { generateRiskAnalysis } from './recommendations';
 import { displayTrendAnalysis } from './trend-analyzer';
 import { HealthDataForJSON, FunctionRiskAssessment, StructuralMetrics, HealthData, PageRankMetrics } from './types';
+import { generateFunctionCompositeKey } from '../../../utils/function-mapping-utils';
 import { FunctionContext } from '../../../types/dynamic-weights';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 import { analyzeProgrammingStyleDistribution, displayProgrammingStyleDistribution } from './programming-style-analyzer';
@@ -140,11 +141,11 @@ async function performArgumentUsageAnalysis(
     const { TypePropertyAnalyzer } = await import('../../../analyzers/type-property-analyzer');
     const sharedTypeAnalyzer = new TypePropertyAnalyzer(project.getTypeChecker());
     
-    // Create FunctionInfo lookup map for correct ID mapping
-    const functionLookupMap = new Map<string, FunctionInfo>();
+    // Create reverse lookup map (composite key -> FunctionInfo) for argument usage mapping
+    const functionInfoLookupMap = new Map<string, FunctionInfo>();
     for (const func of functions) {
-      const lookupKey = `${func.filePath}:${func.startLine}:${func.name}`;
-      functionLookupMap.set(lookupKey, func);
+      const lookupKey = generateFunctionCompositeKey(func.filePath, func.startLine, func.name);
+      functionInfoLookupMap.set(lookupKey, func);
     }
     
     const allArgumentUsage: import('../../../analyzers/argument-usage-analyzer').ArgumentUsage[] = [];
@@ -155,10 +156,10 @@ async function performArgumentUsageAnalysis(
         // Pass shared analyzer to reuse type cache across files
         const usageData = analyzer.analyzeSourceFile(tsMorphSourceFile, sharedTypeAnalyzer);
         
-        // Map to correct FunctionInfo IDs
+        // Map to correct FunctionInfo IDs using shared utility
         const correctedUsageData = usageData.map(usage => {
-          const lookupKey = `${usage.filePath}:${usage.startLine}:${usage.functionName}`;
-          const functionInfo = functionLookupMap.get(lookupKey);
+          const lookupKey = generateFunctionCompositeKey(usage.filePath, usage.startLine, usage.functionName);
+          const functionInfo = functionInfoLookupMap.get(lookupKey);
           
           if (functionInfo) {
             // Use the correct DB ID from FunctionInfo
@@ -507,7 +508,7 @@ async function performHealthAnalysis(env: CommandEnvironment, options: HealthCom
   }
   
   // Perform structural analysis
-  const { structuralData, qualityData, argumentUsageData: _argumentUsageData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
+  const { structuralData, qualityData } = await performStructuralAnalysis(functions, targetSnapshot, env, mode);
   
   // Execute risk evaluation
   let riskEvaluation = await executeRiskEvaluation(functions);
