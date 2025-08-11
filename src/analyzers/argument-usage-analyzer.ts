@@ -92,8 +92,13 @@ class FastAnalysisState {
   private passThroughChains = new Map<string, number>(); // paramName -> max chain depth
   readonly MAX_CHAIN_DEPTH = 3; // Performance guard (public for access in analyzer)
   
+  // Law of Demeter optimization constants
+  readonly LOD_VIOLATION_THRESHOLD = 3; // Depth >= 3 is a violation
+  readonly LOD_MAX_TRACK_DEPTH = 5; // Stop tracking beyond this depth for performance
+  
   // maxChainDepth: Map<paramId, number> (LoD)
   private maxChainDepth = new Map<string, number>();
+  private lodViolationCount = 0; // Track violations for early termination
   
   private parameterNames: string[];
   private parameterMap: Map<string, ParameterDeclaration>;
@@ -159,10 +164,28 @@ class FastAnalysisState {
   }
   
   updateMaxChainDepth(paramName: string, depth: number): void {
+    // Early termination if already beyond tracking limit
+    if (depth > this.LOD_MAX_TRACK_DEPTH) {
+      this.maxChainDepth.set(paramName, this.LOD_MAX_TRACK_DEPTH);
+      this.lodViolationCount++;
+      return;
+    }
+    
     const currentMax = this.maxChainDepth.get(paramName) || 0;
     if (depth > currentMax) {
       this.maxChainDepth.set(paramName, depth);
+      
+      // Track violations for performance monitoring
+      if (depth >= this.LOD_VIOLATION_THRESHOLD) {
+        this.lodViolationCount++;
+      }
     }
+  }
+  
+  // Helper to check if we should stop tracking (performance optimization)
+  shouldStopLoDTracking(): boolean {
+    // Stop if we've found too many violations (likely a problematic codebase)
+    return this.lodViolationCount > 10;
   }
   
   addAlias(paramName: string, alias: string): void {
@@ -224,13 +247,15 @@ class FastAnalysisState {
         });
       }
       
-      // Build demeter violations
+      // Build demeter violations using optimized thresholds
       const maxDepth = this.maxChainDepth.get(paramName) || 0;
       const demeterViolations: DemeterViolation[] = [];
-      if (maxDepth >= 3) {
+      
+      // Only track violations that exceed the threshold
+      if (maxDepth >= this.LOD_VIOLATION_THRESHOLD) {
         demeterViolations.push({
           propertyChain: [`${paramName}`, 'property', '...'],
-          depth: maxDepth,
+          depth: Math.min(maxDepth, this.LOD_MAX_TRACK_DEPTH), // Cap at max track depth
           location: { line: 0, column: 0 },
           expression: `${paramName}.property...` // Simplified
         });
@@ -413,14 +438,19 @@ export class ArgumentUsageAnalyzer {
   }
   
   private handlePropertyAccess(node: ts.PropertyAccessExpression, state: FastAnalysisState, _depth: number): void {
-    // Calculate chain depth for Law of Demeter
-    const chainDepth = this.calculatePropertyChainDepth(node);
+    // Optimization: Skip if we've hit too many LoD violations
+    if (state.shouldStopLoDTracking()) {
+      return;
+    }
     
     // Find the base expression and check if it's a parameter
     const baseExpr = this.getBaseExpression(node);
     if (baseExpr && ts.isIdentifier(baseExpr)) {
       const paramName = state.isParamOrAlias(baseExpr.text);
       if (paramName) {
+        // Optimized: Calculate chain depth with early termination
+        const chainDepth = this.calculatePropertyChainDepth(node, state.LOD_MAX_TRACK_DEPTH);
+        
         const propName = node.name.text;
         state.addPropertyUsage(paramName, propName, 'read');
         state.updateMaxChainDepth(paramName, chainDepth);
@@ -429,13 +459,18 @@ export class ArgumentUsageAnalyzer {
   }
   
   private handleElementAccess(node: ts.ElementAccessExpression, state: FastAnalysisState, _depth: number): void {
-    // Similar to property access but for element access (param[key])
-    const chainDepth = this.calculatePropertyChainDepth(node);
+    // Optimization: Skip if we've hit too many LoD violations
+    if (state.shouldStopLoDTracking()) {
+      return;
+    }
     
     const baseExpr = this.getBaseExpression(node);
     if (baseExpr && ts.isIdentifier(baseExpr)) {
       const paramName = state.isParamOrAlias(baseExpr.text);
       if (paramName) {
+        // Optimized: Calculate chain depth with early termination
+        const chainDepth = this.calculatePropertyChainDepth(node, state.LOD_MAX_TRACK_DEPTH);
+        
         // Use argument expression as property key if it's a string literal
         let propKey = 'element_access';
         if (node.argumentExpression && ts.isStringLiteral(node.argumentExpression)) {
@@ -511,17 +546,23 @@ export class ArgumentUsageAnalyzer {
     }
   }
   
-  // Helper methods for chain depth calculation and expression analysis
-  private calculatePropertyChainDepth(node: ts.PropertyAccessExpression | ts.ElementAccessExpression): number {
+  // Optimized: Helper methods for chain depth calculation with early termination
+  private calculatePropertyChainDepth(node: ts.PropertyAccessExpression | ts.ElementAccessExpression, maxDepth: number = 5): number {
     let depth = 1;
     let current = node.expression;
     
+    // Early exit if max depth is 1 (no need to traverse)
+    if (maxDepth === 1) return 1;
+    
     while (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current)) {
       depth++;
-      current = current.expression;
       
-      // Prevent infinite loops and excessive depth
-      if (depth > 10) break;
+      // Early termination at specified max depth
+      if (depth >= maxDepth) {
+        return maxDepth; // Return immediately, no need to continue
+      }
+      
+      current = current.expression;
     }
     
     return depth;
