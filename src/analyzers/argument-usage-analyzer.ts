@@ -18,6 +18,7 @@ import {
 } from 'ts-morph';
 import * as ts from 'typescript';
 import { TypePropertyAnalyzer } from './type-property-analyzer';
+import { simpleHash } from '../utils/hash-utils';
 
 export interface ArgumentUsage {
   functionId: string;
@@ -399,7 +400,14 @@ export class ArgumentUsageAnalyzer {
     const functionName = this.getFunctionName(node);
     const filePath = node.getSourceFile().getFilePath();
     const startLine = node.getStartLineNumber();
-    const functionId = `${filePath}:${startLine}:${functionName}`;
+    
+    // Use consistent function ID generation (matching DB functions table)
+    const functionId = this.generateFunctionId({
+      filePath,
+      name: functionName,
+      startLine,
+      signature: node.getText().slice(0, 100) // Use first 100 chars as signature fallback
+    });
 
     // PRECISION FIX #1: Improved pre-filter with destructuring support
     // Extract all identifiers from parameters (including destructuring patterns)
@@ -848,6 +856,20 @@ export class ArgumentUsageAnalyzer {
         }
       }
     }
+  }
+
+  /**
+   * Generate consistent function ID using the same algorithm as core analyzer
+   */
+  private generateFunctionId(func: { filePath?: string; name?: string; startLine?: number; signature?: string }): string {
+    const components = [
+      func.filePath,
+      func.name,
+      func.startLine,
+      func.signature
+    ].filter(Boolean);
+    const combined = components.join('|');
+    return simpleHash(combined);
   }
 
   private getFunctionName(node: FunctionNode): string {

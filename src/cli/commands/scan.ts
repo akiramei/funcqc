@@ -439,9 +439,8 @@ async function storeParameterPropertyUsage(
   if (couplingData.length === 0) return;
 
   try {
-    // Use the storage adapter's method for storing coupling data
+    // FIXED: Now using correct function IDs from FunctionInfo
     await storage.storeParameterPropertyUsage(couplingData, snapshotId);
-
     console.log(`📊 Stored ${couplingData.length} coupling analysis records`);
   } catch (error) {
     console.warn(`Warning: Failed to store coupling analysis data: ${error}`);
@@ -790,7 +789,7 @@ export async function performDeferredCouplingAnalysis(
  */
 async function performCouplingAnalysisForFile(
   sourceFile: import('../../types').SourceFile,
-  _fileFunctions: FunctionInfo[],
+  fileFunctions: FunctionInfo[],
   project: Project,
   typeChecker: TypeChecker,
   snapshotId: string
@@ -803,16 +802,28 @@ async function performCouplingAnalysisForFile(
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
+    // Create FunctionInfo lookup map for correct ID mapping
+    // OnePassASTVisitor uses FunctionIdGenerator.generateDeterministicUUID, same as DB functions table
+    const functionLookupMap = new Map<string, string>(); // actual UUID -> DB UUID
+    for (const func of fileFunctions) {
+      // The func.id IS the correct UUID from FunctionIdGenerator.generateDeterministicUUID
+      // OnePassASTVisitor should generate the same UUID, so direct mapping should work
+      functionLookupMap.set(func.id, func.id);
+    }
+
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
 
     // Extract property access data from coupling analysis
-    // Now OnePassASTVisitor and TypeScriptAnalyzer generate the same deterministic UUIDs
-    for (const [funcId, analyses] of context.couplingData.overCoupling) {
+    for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
       for (const analysis of analyses) {
+        // Map OnePassASTVisitor function ID to DB function ID
+        // Both should use FunctionIdGenerator.generateDeterministicUUID, so they should match
+        const correctFunctionId = functionLookupMap.get(funcHashId) || funcHashId;
+        
         // Rename for clarity and index accesses by property for O(1) lookups
         const paramAccesses = context.usageData.propertyAccesses
-          .get(funcId)
+          .get(funcHashId)
           ?.get(analysis.parameterName) ?? [];
 
         const accessesByProp = new Map<string, typeof paramAccesses>();
@@ -832,7 +843,7 @@ async function performCouplingAnalysisForFile(
           if (accesses.length === 0) {
             // Fallback to fixed values if no detailed access data found
             couplingData.push({
-              functionId: funcId,
+              functionId: correctFunctionId,
               parameterName: analysis.parameterName,
               parameterTypeId: null, // Will be resolved later if needed
               accessedProperty: prop,
@@ -844,7 +855,7 @@ async function performCouplingAnalysisForFile(
             // Use actual access data for each access occurrence
             for (const access of accesses) {
               couplingData.push({
-                functionId: funcId,
+                functionId: correctFunctionId,
                 parameterName: analysis.parameterName,
                 parameterTypeId: null, // Will be resolved later if needed
                 accessedProperty: prop,

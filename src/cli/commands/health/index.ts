@@ -105,7 +105,7 @@ function displaySnapshotInfo(targetSnapshot: SnapshotInfo, functions: FunctionIn
  * TODO: Re-enable once aggregator syntax issues are resolved
  */
 async function performArgumentUsageAnalysis(
-  _functions: FunctionInfo[],
+  functions: FunctionInfo[],
   targetSnapshot: SnapshotInfo,
   env: CommandEnvironment
 ): Promise<ArgumentUsageMetrics[]> {
@@ -113,8 +113,8 @@ async function performArgumentUsageAnalysis(
     const analyzer = new ArgumentUsageAnalyzer();
     const allSourceFiles = await env.storage.getSourceFilesBySnapshot(targetSnapshot.id);
     
-    // Balanced sample for performance vs accuracy
-    const sampleFiles = allSourceFiles.slice(0, 50); // 50 files for balance
+    // Full scan for complete accuracy (performance optimized)
+    const sampleFiles = allSourceFiles; // Full scan - performance optimized
     env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (FULL SCAN - 4.1x improvement achieved!)`);
     
     // Get ts-morph project from source files
@@ -140,6 +140,13 @@ async function performArgumentUsageAnalysis(
     const { TypePropertyAnalyzer } = await import('../../../analyzers/type-property-analyzer');
     const sharedTypeAnalyzer = new TypePropertyAnalyzer(project.getTypeChecker());
     
+    // Create FunctionInfo lookup map for correct ID mapping
+    const functionLookupMap = new Map<string, FunctionInfo>();
+    for (const func of functions) {
+      const lookupKey = `${func.filePath}:${func.startLine}:${func.name}`;
+      functionLookupMap.set(lookupKey, func);
+    }
+    
     const allArgumentUsage: import('../../../analyzers/argument-usage-analyzer').ArgumentUsage[] = [];
     
     // Now analyze each file with the shared type analyzer
@@ -147,8 +154,25 @@ async function performArgumentUsageAnalysis(
       try {
         // Pass shared analyzer to reuse type cache across files
         const usageData = analyzer.analyzeSourceFile(tsMorphSourceFile, sharedTypeAnalyzer);
-        // console.log(`[Debug] Analyzed ${tsMorphSourceFile.getFilePath()}: ${usageData.length} functions`);
-        allArgumentUsage.push(...usageData);
+        
+        // Map to correct FunctionInfo IDs
+        const correctedUsageData = usageData.map(usage => {
+          const lookupKey = `${usage.filePath}:${usage.startLine}:${usage.functionName}`;
+          const functionInfo = functionLookupMap.get(lookupKey);
+          
+          if (functionInfo) {
+            // Use the correct DB ID from FunctionInfo
+            return {
+              ...usage,
+              functionId: functionInfo.id
+            };
+          }
+          
+          // Keep original ID if no match found
+          return usage;
+        });
+        
+        allArgumentUsage.push(...correctedUsageData);
       } catch (error) {
         console.error(`[Error] Failed to analyze argument usage for ${tsMorphSourceFile.getFilePath()}: ${error}`);
         env.commandLogger.debug(`Failed to analyze argument usage for ${tsMorphSourceFile.getFilePath()}: ${error}`);
