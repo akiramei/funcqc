@@ -7,7 +7,6 @@
 
 import {
   Node,
-  SyntaxKind,
   FunctionDeclaration,
   MethodDeclaration,
   ArrowFunction,
@@ -68,6 +67,33 @@ export interface DemeterViolation {
 
 export type PropertyAccessType = 'read' | 'write' | 'method_call' | 'passed_through';
 
+// EXPERT #8: Bit flags for memory efficiency
+export const PropertyAccessFlags = {
+  READ: 1,           // 0001
+  WRITE: 2,          // 0010  
+  METHOD_CALL: 4,    // 0100
+  PASSED_THROUGH: 8  // 1000
+} as const;
+
+// Helper functions for bitflags operations
+function propertyAccessTypeToFlag(accessType: PropertyAccessType): number {
+  switch (accessType) {
+    case 'read': return PropertyAccessFlags.READ;
+    case 'write': return PropertyAccessFlags.WRITE;
+    case 'method_call': return PropertyAccessFlags.METHOD_CALL;
+    case 'passed_through': return PropertyAccessFlags.PASSED_THROUGH;
+  }
+}
+
+function bitflagsToPropertyAccessTypes(flags: number): PropertyAccessType[] {
+  const types: PropertyAccessType[] = [];
+  if (flags & PropertyAccessFlags.READ) types.push('read');
+  if (flags & PropertyAccessFlags.WRITE) types.push('write');
+  if (flags & PropertyAccessFlags.METHOD_CALL) types.push('method_call');
+  if (flags & PropertyAccessFlags.PASSED_THROUGH) types.push('passed_through');
+  return types;
+}
+
 type FunctionNode = FunctionDeclaration | MethodDeclaration | ArrowFunction | FunctionExpression | ConstructorDeclaration;
 
 /**
@@ -78,8 +104,8 @@ class FastAnalysisState {
   // paramAliases: Map<paramId, Set<identifier>>
   private paramAliases = new Map<string, Set<string>>();
   
-  // propUse: Map<paramId, Map<propKey, UsageKind>>
-  private propUse = new Map<string, Map<string, Set<PropertyAccessType>>>();
+  // EXPERT #8: BitFlags optimization - propUse: Map<paramId, Map<propKey, bitflags>>
+  private propUse = new Map<string, Map<string, number>>();
   
   // OPTIMIZED: Separate immediate and delayed pass-through for efficiency
   // Immediate: Direct parameter passing (light weight)
@@ -112,7 +138,7 @@ class FastAnalysisState {
     // Initialize maps
     for (const paramName of this.parameterNames) {
       this.paramAliases.set(paramName, new Set([paramName]));
-      this.propUse.set(paramName, new Map());
+      this.propUse.set(paramName, new Map<string, number>()); // EXPERT #8: BitFlags
       this.immediatePassThrough.set(paramName, []);
       this.delayedPassThrough.set(paramName, []);
       this.passThroughChains.set(paramName, 0);
@@ -121,12 +147,12 @@ class FastAnalysisState {
   }
   
   addPropertyUsage(paramName: string, propName: string, accessType: PropertyAccessType): void {
+    // EXPERT #8: BitFlags implementation for memory efficiency
     const propMap = this.propUse.get(paramName);
     if (propMap) {
-      if (!propMap.has(propName)) {
-        propMap.set(propName, new Set());
-      }
-      propMap.get(propName)!.add(accessType);
+      const currentFlags = propMap.get(propName) || 0;
+      const newFlag = propertyAccessTypeToFlag(accessType);
+      propMap.set(propName, currentFlags | newFlag); // OR operation to combine flags
     }
   }
   
@@ -214,10 +240,10 @@ class FastAnalysisState {
       const propMap = this.propUse.get(paramName) || new Map();
       const accessedProperties = new Set(propMap.keys());
       
-      // Build access types map
+      // EXPERT #8: Build access types map from bitflags
       const accessTypes = new Map<string, PropertyAccessType[]>();
-      for (const [prop, typeSet] of propMap) {
-        accessTypes.set(prop, Array.from(typeSet));
+      for (const [prop, flags] of propMap) {
+        accessTypes.set(prop, bitflagsToPropertyAccessTypes(flags));
       }
       
       // Build pass-through info from separated collections
@@ -261,17 +287,18 @@ class FastAnalysisState {
         });
       }
       
-      // Perform accurate type analysis if TypeAnalyzer is available
+      // CRITICAL FIX #2: Only analyze types for USED parameters (major performance gain)
       let actualPropertyCount: number | undefined;
       let typeAnalysisConfidence: 'high' | 'medium' | 'low' | undefined;
       
-      if (this.typeAnalyzer) {
+      const isParameterUsed = accessedProperties.size > 0 || passThrough.length > 0;
+      if (isParameterUsed && this.typeAnalyzer) {
         try {
           const paramType = param.getType();
           const typeInfo = this.typeAnalyzer.analyzeType(paramType);
           actualPropertyCount = typeInfo.propertyCount;
           typeAnalysisConfidence = typeInfo.confidence;
-        } catch (error) {
+        } catch {
           // Fallback to string-based analysis
           const typeText = param.getTypeNode()?.getText();
           if (typeText) {
@@ -281,6 +308,7 @@ class FastAnalysisState {
           }
         }
       }
+      // For unused parameters: actualPropertyCount remains undefined, Aggregator uses heuristic fallback
       
       results.push({
         parameterName: paramName,
@@ -291,7 +319,14 @@ class FastAnalysisState {
         localUsage: {
           accessedProperties,
           accessTypes,
-          totalAccesses: Array.from(propMap.values()).reduce((sum, typeSet) => sum + typeSet.size, 0),
+          totalAccesses: Array.from(propMap.values()).reduce((sum, flags) => {
+            // EXPERT #8: Count set bits in flags (population count)
+            let count = 0;
+            for (let f = flags; f > 0; f >>= 1) {
+              count += f & 1;
+            }
+            return sum + count;
+          }, 0),
           maxDepth
         },
         passThrough,
@@ -306,22 +341,21 @@ class FastAnalysisState {
 export class ArgumentUsageAnalyzer {
   /**
    * Analyze argument usage for all functions in a source file (optimized 1-pass version)
+   * CRITICAL FIX #1: Accept shared TypePropertyAnalyzer for cache reuse across files
    */
-  analyzeSourceFile(sourceFile: SourceFile): ArgumentUsage[] {
+  analyzeSourceFile(sourceFile: SourceFile, sharedTypeAnalyzer?: TypePropertyAnalyzer): ArgumentUsage[] {
     const results: ArgumentUsage[] = [];
     
-    // Initialize TypePropertyAnalyzer for accurate type analysis
-    let typeAnalyzer: TypePropertyAnalyzer | undefined;
-    try {
-      const project = sourceFile.getProject();
-      const typeChecker = project.getTypeChecker();
-      typeAnalyzer = new TypePropertyAnalyzer(typeChecker);
-    } catch (error) {
-      // Continue without TypeChecker - will use fallback analysis
-    }
+    // CRITICAL FIX #1: Use shared TypePropertyAnalyzer (cache reuse across files)
+    const typeAnalyzer = sharedTypeAnalyzer;
     
     // Get all function-like nodes
     const functionNodes = this.getAllFunctionNodes(sourceFile);
+    
+    // OPTIMIZATION: Early exit if no functions
+    if (functionNodes.length === 0) {
+      return results;
+    }
     
     for (const node of functionNodes) {
       const usage = this.analyzeFunctionArgumentUsageOptimized(node, typeAnalyzer);
@@ -333,21 +367,37 @@ export class ArgumentUsageAnalyzer {
     return results;
   }
   
+  /**
+   * CRITICAL FIX #3: Single-traversal function node collection (eliminates duplicate AST walks)
+   * Expert recommendation: Use 1 compiler AST walk instead of multiple getDescendantsOfKind calls
+   */
   private getAllFunctionNodes(sourceFile: SourceFile): FunctionNode[] {
     const functions: FunctionNode[] = [];
     
-    // Function declarations
-    functions.push(...sourceFile.getFunctions());
+    const visit = (node: ts.Node): void => {
+      // Check if node is a function-like construct
+      if (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node) ||
+          ts.isConstructorDeclaration(node) || ts.isFunctionExpression(node) ||
+          ts.isArrowFunction(node)) {
+        // Convert ts.Node back to ts-morph Node using position
+        try {
+          const morphNode = sourceFile.getDescendantAtPos(node.getStart());
+          if (morphNode && (Node.isFunctionDeclaration(morphNode) || Node.isMethodDeclaration(morphNode) ||
+                           Node.isConstructorDeclaration(morphNode) || Node.isFunctionExpression(morphNode) ||
+                           Node.isArrowFunction(morphNode))) {
+            functions.push(morphNode as FunctionNode);
+          }
+        } catch {
+          // Skip if conversion fails
+        }
+      }
+      
+      // Continue visiting children
+      node.forEachChild(visit);
+    };
     
-    // Class methods and constructors
-    for (const classDecl of sourceFile.getClasses()) {
-      functions.push(...classDecl.getMethods());
-      functions.push(...classDecl.getConstructors());
-    }
-    
-    // Arrow functions and function expressions
-    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.ArrowFunction));
-    functions.push(...sourceFile.getDescendantsOfKind(SyntaxKind.FunctionExpression));
+    // Single traversal starting from compiler node
+    visit(sourceFile.compilerNode);
     
     return functions;
   }
@@ -365,13 +415,14 @@ export class ArgumentUsageAnalyzer {
     const startLine = node.getStartLineNumber();
     const functionId = `${filePath}:${startLine}:${functionName}`;
 
-    // OPTIMIZATION: Pre-filter with lightweight text search
-    // If no parameter names appear in function body, skip AST traversal entirely
+    // PRECISION FIX #1: Improved pre-filter with destructuring support
+    // Extract all identifiers from parameters (including destructuring patterns)
     const bodyText = node.getBodyText() ?? "";
+    const allParameterIdentifiers = this.extractParameterIdentifiers(parameters);
+    
     let anyParameterMentioned = false;
-    for (const param of parameters) {
-      const paramName = param.getName();
-      if (bodyText.indexOf(paramName) !== -1) {
+    for (const identifier of allParameterIdentifiers) {
+      if (bodyText.indexOf(identifier) !== -1) {
         anyParameterMentioned = true;
         break;
       }
@@ -416,7 +467,7 @@ export class ArgumentUsageAnalyzer {
       let descend = true; // Flag to control child node traversal
       
       switch (node.kind) {
-        case ts.SyntaxKind.Identifier:
+        case ts.SyntaxKind.Identifier: {
           // Check if this identifier is a parameter or alias
           const identifier = (node as ts.Identifier).text;
           const paramName = state.isParamOrAlias(identifier);
@@ -425,6 +476,7 @@ export class ArgumentUsageAnalyzer {
             state.updateMaxChainDepth(paramName, 0);
           }
           break;
+        }
           
         case ts.SyntaxKind.PropertyAccessExpression: {
           const pae = node as ts.PropertyAccessExpression;
@@ -473,6 +525,14 @@ export class ArgumentUsageAnalyzer {
         case ts.SyntaxKind.SpreadAssignment:
           this.handleSpreadAssignment(node as ts.SpreadAssignment, state);
           break;
+          
+        case ts.SyntaxKind.VariableDeclaration:
+          this.handleVariableDeclaration(node as ts.VariableDeclaration, state);
+          break;
+          
+        case ts.SyntaxKind.BinaryExpression:
+          this.handleBinaryExpression(node as ts.BinaryExpression, state);
+          break;
       }
       
       // Continue traversal for child nodes only if not skipped by optimization
@@ -485,9 +545,9 @@ export class ArgumentUsageAnalyzer {
   }
   
   private handlePropertyAccess(node: ts.PropertyAccessExpression, state: FastAnalysisState, _depth: number): void {
-    // Optimization: Skip if we've hit too many LoD violations
+    // EXPERT #7: Immediate exit if LoD tracking should stop (early termination)
     if (state.shouldStopLoDTracking()) {
-      return;
+      return; // Exit immediately - no further processing
     }
     
     // Find the base expression and check if it's a parameter
@@ -495,9 +555,8 @@ export class ArgumentUsageAnalyzer {
     if (baseExpr && ts.isIdentifier(baseExpr)) {
       const paramName = state.isParamOrAlias(baseExpr.text);
       if (paramName) {
-        // Optimized: Calculate chain depth with early termination
+        // Calculate chain depth with early termination
         const chainDepth = this.calculatePropertyChainDepth(node, state.LOD_MAX_TRACK_DEPTH);
-        
         const propName = node.name.text;
         state.addPropertyUsage(paramName, propName, 'read');
         state.updateMaxChainDepth(paramName, chainDepth);
@@ -506,9 +565,9 @@ export class ArgumentUsageAnalyzer {
   }
   
   private handleElementAccess(node: ts.ElementAccessExpression, state: FastAnalysisState, _depth: number): void {
-    // Optimization: Skip if we've hit too many LoD violations
+    // EXPERT #7: Immediate exit if LoD tracking should stop (early termination)
     if (state.shouldStopLoDTracking()) {
-      return;
+      return; // Exit immediately - no further processing
     }
     
     const baseExpr = this.getBaseExpression(node);
@@ -593,7 +652,67 @@ export class ArgumentUsageAnalyzer {
     }
   }
   
-  // Optimized: Helper methods for chain depth calculation with early termination
+  // PRECISION FIX #2: Ultra-lightweight alias detection with destructuring support
+  private handleVariableDeclaration(node: ts.VariableDeclaration, state: FastAnalysisState): void {
+    if (!node.initializer) return;
+    
+    // Handle: const alias = param (simple alias assignment)
+    if (ts.isIdentifier(node.name) && ts.isIdentifier(node.initializer)) {
+      const paramName = state.isParamOrAlias(node.initializer.text);
+      if (paramName) {
+        const aliasName = node.name.text;
+        state.addAlias(paramName, aliasName);
+      }
+    }
+    
+    // PRECISION FIX #3: Minimal destructuring support
+    // Handle: const {x, y} = param
+    else if (ts.isObjectBindingPattern(node.name) && ts.isIdentifier(node.initializer)) {
+      const paramName = state.isParamOrAlias(node.initializer.text);
+      if (paramName) {
+        // Register destructured properties as aliases (x -> param.x)
+        for (const element of node.name.elements) {
+          if (element.name && ts.isIdentifier(element.name)) {
+            const propName = element.name.text;
+            state.addAlias(paramName, propName);
+            // Also track as property access
+            state.addPropertyUsage(paramName, propName, 'read');
+          }
+        }
+      }
+    }
+    
+    // Handle: const [a, b] = param
+    else if (ts.isArrayBindingPattern(node.name) && ts.isIdentifier(node.initializer)) {
+      const paramName = state.isParamOrAlias(node.initializer.text);
+      if (paramName) {
+        // Register array destructured elements as aliases
+        node.name.elements.forEach((element, index) => {
+          if (element && ts.isBindingElement(element) && element.name && ts.isIdentifier(element.name)) {
+            const aliasName = element.name.text;
+            state.addAlias(paramName, aliasName);
+            // Track as array access
+            state.addPropertyUsage(paramName, `[${index}]`, 'read');
+          }
+        });
+      }
+    }
+  }
+  
+  private handleBinaryExpression(node: ts.BinaryExpression, state: FastAnalysisState): void {
+    // Handle: alias = param (simple assignment)
+    if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      if (ts.isIdentifier(node.left) && ts.isIdentifier(node.right)) {
+        const paramName = state.isParamOrAlias(node.right.text);
+        if (paramName) {
+          const aliasName = node.left.text;
+          state.addAlias(paramName, aliasName);
+        }
+      }
+    }
+  }
+  
+  // EXPERT APPROACH: Helper methods for chain depth calculation with early termination
   private calculatePropertyChainDepth(node: ts.PropertyAccessExpression | ts.ElementAccessExpression, maxDepth: number = 5): number {
     let depth = 1;
     let current = node.expression;
@@ -671,8 +790,54 @@ export class ArgumentUsageAnalyzer {
     };
   }
 
-  // Legacy methods removed for optimization - using only the fast 1-pass analyzer
+  // PRECISION FIX #1: Helper method to extract all identifiers from parameters
+  private extractParameterIdentifiers(parameters: ParameterDeclaration[]): string[] {
+    const identifiers: string[] = [];
+    
+    for (const param of parameters) {
+      // Primary parameter name (always include)
+      const paramName = param.getName();
+      if (paramName) {
+        identifiers.push(paramName);
+      }
+      
+      // Extract from binding patterns (destructuring)
+      const nameNode = param.getNameNode();
+      if (nameNode) {
+        this.extractBindingIdentifiers(nameNode, identifiers);
+      }
+    }
+    
+    return identifiers;
+  }
   
+  // Helper to recursively extract identifiers from binding patterns
+  private extractBindingIdentifiers(node: Node, identifiers: string[]): void {
+    if (Node.isIdentifier(node)) {
+      identifiers.push(node.getText());
+    } else if (Node.isObjectBindingPattern(node)) {
+      // Handle: {x, y, z} = param
+      for (const element of node.getElements()) {
+        if (Node.isBindingElement(element)) {
+          const name = element.getNameNode();
+          if (name && Node.isIdentifier(name)) {
+            identifiers.push(name.getText());
+          }
+        }
+      }
+    } else if (Node.isArrayBindingPattern(node)) {
+      // Handle: [a, b, c] = param
+      for (const element of node.getElements()) {
+        if (Node.isBindingElement(element)) {
+          const name = element.getNameNode();
+          if (name && Node.isIdentifier(name)) {
+            identifiers.push(name.getText());
+          }
+        }
+      }
+    }
+  }
+
   private getFunctionName(node: FunctionNode): string {
     if (Node.isConstructorDeclaration(node)) {
       return 'constructor';

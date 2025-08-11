@@ -22,7 +22,6 @@ export type TypeKind = 'primitive' | 'object' | 'interface' | 'class' | 'union' 
  */
 export class TypePropertyAnalyzer {
   private typeCache = new Map<string, TypePropertyInfo>();
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   private _typeChecker: TypeChecker;
   
   constructor(typeChecker: TypeChecker) {
@@ -145,15 +144,15 @@ export class TypePropertyAnalyzer {
       const symbol = type.getSymbol();
       
       if (symbol) {
-        const properties = this.getTypeProperties(symbol);
+        const properties = this.getTypeProperties(symbol, type);
         const typeKind = this.determineObjectTypeKind(type, symbol);
         
         return {
-          propertyCount: properties.length,
+          propertyCount: properties.length > 0 ? properties.length : 3, // Fallback estimation
           propertyNames: properties,
           typeKind,
           isComplex: properties.length > 5,
-          confidence: 'high'
+          confidence: properties.length > 0 ? 'high' : 'medium'
         };
       }
       
@@ -171,7 +170,7 @@ export class TypePropertyAnalyzer {
         isComplex: false,
         confidence: 'medium'
       };
-    } catch (error) {
+    } catch {
       return {
         propertyCount: 3,
         propertyNames: [],
@@ -241,43 +240,38 @@ export class TypePropertyAnalyzer {
     };
   }
   
-  private getTypeProperties(symbol: TsSymbol): string[] {
+  /**
+   * OPTIMIZED: Use direct type API for property enumeration
+   * Avoids expensive declaration tree traversal
+   */
+  private getTypeProperties(symbol: TsSymbol, type?: Type): string[] {
     try {
-      const properties: string[] = [];
+      // Priority 1: Use Type.getProperties() - fastest and most accurate
+      if (type) {
+        try {
+          const props = type.getProperties();
+          if (props.length > 0) {
+            return props.map(p => p.getName()).filter(name => name && name !== '__type');
+          }
+        } catch {
+          // Continue to fallback
+        }
+      }
       
-      // Try to get properties from symbol directly
+      // Priority 2: Symbol exports (fast)
       try {
-        const valueDeclaration = symbol.getValueDeclaration();
-        if (valueDeclaration) {
-          const children = valueDeclaration.getChildren();
-          // This is a simplified approach - count child nodes as properties
-          properties.push(...children.filter(child => 
-            child.getKindName().includes('Property') || 
-            child.getKindName().includes('Method')
-          ).map((_, index) => `property${index}`));
+        const members = symbol.getExports();
+        if (members.length > 0) {
+          return members.map(m => m.getName()).filter(name => name && name.length > 0);
         }
       } catch {
-        // Ignore errors
+        // Continue to fallback
       }
       
-      // Fallback: Get members from symbol
-      if (properties.length === 0) {
-        try {
-          const members = symbol.getExports();
-          properties.push(...members.map(m => m.getName()));
-        } catch {
-          // Final fallback: estimate based on symbol name
-          const name = symbol.getName();
-          if (name && name.length > 0) {
-            // Very basic estimation - return a reasonable count
-            return ['prop1', 'prop2', 'prop3'];
-          }
-        }
-      }
-      
-      return [...new Set(properties)]; // Remove duplicates
-    } catch (error) {
-      return ['property1', 'property2']; // Safe fallback
+      // Priority 3: Minimal fallback
+      return []; // Empty array - count will be determined by heuristics
+    } catch {
+      return []; // Safe empty fallback
     }
   }
   
