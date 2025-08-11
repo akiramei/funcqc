@@ -354,6 +354,7 @@ export class ArgumentUsageAnalyzer {
   
   /**
    * Optimized single-pass analysis using compiler node traversal
+   * OPTIMIZED: Pre-filter functions without parameter references in body text
    */
   private analyzeFunctionArgumentUsageOptimized(node: FunctionNode, typeAnalyzer?: TypePropertyAnalyzer): ArgumentUsage | null {
     const parameters = node.getParameters();
@@ -363,6 +364,23 @@ export class ArgumentUsageAnalyzer {
     const filePath = node.getSourceFile().getFilePath();
     const startLine = node.getStartLineNumber();
     const functionId = `${filePath}:${startLine}:${functionName}`;
+
+    // OPTIMIZATION: Pre-filter with lightweight text search
+    // If no parameter names appear in function body, skip AST traversal entirely
+    const bodyText = node.getBodyText() ?? "";
+    let anyParameterMentioned = false;
+    for (const param of parameters) {
+      const paramName = param.getName();
+      if (bodyText.indexOf(paramName) !== -1) {
+        anyParameterMentioned = true;
+        break;
+      }
+    }
+    
+    if (!anyParameterMentioned) {
+      // Return zero-cost empty result - no parameters are used
+      return this.buildEmptyUsage(functionId, functionName, filePath, startLine, parameters);
+    }
 
     // Fast single-pass analysis using compiler node with TypePropertyAnalyzer
     const analysisState = new FastAnalysisState(parameters, typeAnalyzer);
@@ -388,11 +406,14 @@ export class ArgumentUsageAnalyzer {
   /**
    * Fast single-pass traversal of function body using TypeScript compiler API
    * Only visits minimum required SyntaxKind nodes for performance
+   * OPTIMIZED: Skip child traversal for parameter property/element access chains
    */
   private traverseFunctionBody(body: ts.Node, state: FastAnalysisState): void {
     const visit = (node: ts.Node, currentDepth: number = 0): void => {
       // Early termination for deep nesting (performance guard)
       if (currentDepth > 20) return;
+      
+      let descend = true; // Flag to control child node traversal
       
       switch (node.kind) {
         case ts.SyntaxKind.Identifier:
@@ -405,13 +426,37 @@ export class ArgumentUsageAnalyzer {
           }
           break;
           
-        case ts.SyntaxKind.PropertyAccessExpression:
-          this.handlePropertyAccess(node as ts.PropertyAccessExpression, state, currentDepth);
-          break;
+        case ts.SyntaxKind.PropertyAccessExpression: {
+          const pae = node as ts.PropertyAccessExpression;
+          this.handlePropertyAccess(pae, state, currentDepth);
           
-        case ts.SyntaxKind.ElementAccessExpression:
-          this.handleElementAccess(node as ts.ElementAccessExpression, state, currentDepth);
+          // OPTIMIZATION: If this property chain is based on a parameter,
+          // don't descend into children (already processed the entire chain)
+          const baseExpr = this.getBaseExpression(pae);
+          if (baseExpr && ts.isIdentifier(baseExpr)) {
+            const paramName = state.isParamOrAlias(baseExpr.text);
+            if (paramName) {
+              descend = false; // Skip child traversal - chain already processed
+            }
+          }
           break;
+        }
+          
+        case ts.SyntaxKind.ElementAccessExpression: {
+          const eae = node as ts.ElementAccessExpression;
+          this.handleElementAccess(eae, state, currentDepth);
+          
+          // OPTIMIZATION: If this element access chain is based on a parameter,
+          // don't descend into children (already processed the entire chain)
+          const baseExpr = this.getBaseExpression(eae);
+          if (baseExpr && ts.isIdentifier(baseExpr)) {
+            const paramName = state.isParamOrAlias(baseExpr.text);
+            if (paramName) {
+              descend = false; // Skip child traversal - chain already processed
+            }
+          }
+          break;
+        }
           
         case ts.SyntaxKind.CallExpression:
           this.handleCallExpression(node as ts.CallExpression, state);
@@ -430,8 +475,10 @@ export class ArgumentUsageAnalyzer {
           break;
       }
       
-      // Continue traversal for child nodes
-      ts.forEachChild(node, (child) => visit(child, currentDepth + 1));
+      // Continue traversal for child nodes only if not skipped by optimization
+      if (descend) {
+        ts.forEachChild(node, (child) => visit(child, currentDepth + 1));
+      }
     };
     
     visit(body);
@@ -586,6 +633,42 @@ export class ArgumentUsageAnalyzer {
       return node.expression.name.text;
     }
     return null;
+  }
+
+  /**
+   * Build empty usage result for functions with no parameter references
+   * OPTIMIZATION: Avoid expensive AST analysis when parameters are unused
+   */
+  private buildEmptyUsage(
+    functionId: string,
+    functionName: string, 
+    filePath: string,
+    startLine: number,
+    parameters: ParameterDeclaration[]
+  ): ArgumentUsage {
+    const parameterUsages: ParameterUsage[] = parameters.map((param, index) => ({
+      parameterName: param.getName(),
+      parameterIndex: index,
+      parameterType: param.getTypeNode()?.getText() ?? undefined,
+      actualPropertyCount: undefined, // No type analysis needed for unused params
+      typeAnalysisConfidence: undefined,
+      localUsage: {
+        accessedProperties: new Set<string>(), // Empty - no properties accessed
+        accessTypes: new Map<string, PropertyAccessType[]>(), // Empty
+        totalAccesses: 0, // No accesses
+        maxDepth: 0 // No property access depth
+      },
+      passThrough: [], // Empty - no pass-through behavior
+      demeterViolations: [] // Empty - no violations
+    }));
+
+    return {
+      functionId,
+      functionName,
+      filePath,
+      startLine,
+      parameterUsages
+    };
   }
 
   // Legacy methods removed for optimization - using only the fast 1-pass analyzer
