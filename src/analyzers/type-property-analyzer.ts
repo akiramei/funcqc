@@ -33,21 +33,22 @@ export class TypePropertyAnalyzer {
   
   /**
    * Analyze a type and return accurate property information
+   * OPTIMIZED: Use fast cache keys instead of expensive getText() calls
    */
   analyzeType(type: Type): TypePropertyInfo {
-    const typeText = this.getCanonicalTypeText(type);
+    const cacheKey = this.getTypeCacheKey(type);
     
     // Check cache first
-    const cached = this.typeCache.get(typeText);
+    const cached = this.typeCache.get(cacheKey);
     if (cached) {
       return cached;
     }
     
     // Perform analysis
-    const result = this.performTypeAnalysis(type, typeText);
+    const result = this.performTypeAnalysis(type, cacheKey);
     
     // Cache result
-    this.typeCache.set(typeText, result);
+    this.typeCache.set(cacheKey, result);
     
     return result;
   }
@@ -337,10 +338,37 @@ export class TypePropertyAnalyzer {
            type.isUndefined();
   }
   
-  private getCanonicalTypeText(type: Type): string {
+  /**
+   * Get optimized cache key for type - avoids expensive getText() calls
+   * OPTIMIZATION: Prioritize fast internal ID over string generation
+   */
+  private getTypeCacheKey(type: Type): string {
     try {
-      // Use a consistent representation for caching
-      return type.getText();
+      // Priority 1: Try internal type ID (fastest - no string generation)
+      const anyType = type as unknown as { compilerType?: { id?: number } };
+      if (anyType.compilerType?.id != null) {
+        return `id:${anyType.compilerType.id}`;
+      }
+    } catch {
+      // Ignore - try next option
+    }
+    
+    try {
+      // Priority 2: Use Symbol FullyQualifiedName (fast and unique)
+      const symbol = type.getSymbol();
+      if (symbol) {
+        const fqn = symbol.getFullyQualifiedName();
+        if (fqn && fqn !== 'unknown') {
+          return `sym:${fqn}`;
+        }
+      }
+    } catch {
+      // Ignore - try next option
+    }
+    
+    try {
+      // Priority 3: Fallback to getText (slowest but most reliable)
+      return `txt:${type.getText()}`;
     } catch {
       return 'unknown';
     }
