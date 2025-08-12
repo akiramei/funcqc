@@ -69,6 +69,7 @@ export interface TypeApiOptions {
   typeName?: string;
   json?: boolean;
   detail?: boolean;
+  optimize?: boolean;
 }
 
 export interface TypeMembersOptions {
@@ -77,6 +78,35 @@ export interface TypeMembersOptions {
   detail?: boolean;
   kind?: 'property' | 'method' | 'getter' | 'setter' | 'constructor' | 'index_signature' | 'call_signature';
   accessModifier?: 'public' | 'protected' | 'private';
+}
+
+export interface TypeCoverageOptions {
+  typeName?: string;
+  json?: boolean;
+  hotThreshold?: number;
+  writeHubThreshold?: number;
+  includePrivate?: boolean;
+}
+
+export interface TypeClusterOptions {
+  typeName?: string;
+  json?: boolean;
+  similarityThreshold?: number;
+  minClusterSize?: number;
+}
+
+export interface TypeRiskOptions {
+  typeName?: string;
+  json?: boolean;
+}
+
+export interface TypeInsightsOptions {
+  typeName?: string;
+  json?: boolean;
+  includeCoverage?: boolean;
+  includeApi?: boolean;
+  includeCluster?: boolean;
+  includeRisk?: boolean;
 }
 
 // Helper functions
