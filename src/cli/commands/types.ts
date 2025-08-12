@@ -1045,11 +1045,11 @@ function displayTypesListDB(
   if (!detailed && types.length > 0) {
     // Table header for non-detailed output - emoji-free layout
     if (showLocation) {
-      console.log(`KIND EXP NAME                         FUNCS PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
-      console.log(`---- --- ----------------------------- ----- ----- ----- ----- --- ---- ----- ----------------------- ----`);
+      console.log(`KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
+      console.log(`---- --- ----------------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
     } else {
-      console.log(`KIND EXP NAME                         FUNCS PROPS METHS CTORS IDX CALL TOTAL`);
-      console.log(`---- --- ----------------------------- ----- ----- ----- ----- --- ---- -----`);
+      console.log(`KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL`);
+      console.log(`---- --- ----------------------------- ----- ----- ----- --- ---- -----`);
     }
   }
   
@@ -1098,11 +1098,7 @@ function displayTypesListDB(
       const exportText = type.isExported ? 'EXP' : '   ';
       const nameDisplay = type.name.length > 29 ? type.name.substring(0, 26) + '...' : type.name;
       
-      // Calculate function count (methods + constructors) for backward compatibility
-      const functionCount = memberCount.methods + memberCount.constructors;
-      
       // Display counts, using '-' for zero values
-      const funcsDisplay = functionCount > 0 ? functionCount.toString() : '-';
       const propsDisplay = memberCount.properties > 0 ? memberCount.properties.toString() : '-';
       const methsDisplay = memberCount.methods > 0 ? memberCount.methods.toString() : '-';
       const ctorsDisplay = memberCount.constructors > 0 ? memberCount.constructors.toString() : '-';
@@ -1119,7 +1115,6 @@ function displayTypesListDB(
           `${kindText.padEnd(4)} ` +
           `${exportText} ` +
           `${nameDisplay.padEnd(29)} ` +
-          `${funcsDisplay.padStart(5)} ` +
           `${propsDisplay.padStart(5)} ` +
           `${methsDisplay.padStart(5)} ` +
           `${ctorsDisplay.padStart(5)} ` +
@@ -1134,7 +1129,6 @@ function displayTypesListDB(
           `${kindText.padEnd(4)} ` +
           `${exportText} ` +
           `${nameDisplay.padEnd(29)} ` +
-          `${funcsDisplay.padStart(5)} ` +
           `${propsDisplay.padStart(5)} ` +
           `${methsDisplay.padStart(5)} ` +
           `${ctorsDisplay.padStart(5)} ` +
