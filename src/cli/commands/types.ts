@@ -428,6 +428,13 @@ async function getMemberCountsForTypes(
       GROUP BY tm.type_id
     `, [snapshotId]);
     
+    if (result.rows.length === 0) {
+      // No type member data available - show informative message once
+      console.log(`\n⚠️  Type member details are not available in this snapshot.`);
+      console.log(`   The current analysis extracts type definitions but not their detailed members.`);
+      console.log(`   All member counts will show as '-' (zero).\n`);
+    }
+    
     result.rows.forEach((row: unknown) => {
       const typedRow = row as { 
         type_id: string; 
