@@ -46,6 +46,7 @@ export interface TypeListOptions {
   json?: boolean;
   detail?: boolean;
   showLocation?: boolean; // Show FILE and LINE columns
+  showId?: boolean; // Show ID column for unique identification
   
   // Legacy fields (maintain compatibility)
   risk?: 'low' | 'medium' | 'high' | 'critical';
@@ -62,4 +63,33 @@ export interface TypeDepsOptions {
   depth?: number;
   circular?: boolean;
   json?: boolean;
+}
+
+export interface TypeApiOptions {
+  typeName?: string;
+  json?: boolean;
+  detail?: boolean;
+}
+
+export interface TypeMembersOptions {
+  typeName?: string;
+  json?: boolean;
+  detail?: boolean;
+  kind?: 'property' | 'method' | 'getter' | 'setter' | 'constructor' | 'index_signature' | 'call_signature';
+  accessModifier?: 'public' | 'protected' | 'private';
+}
+
+// Helper functions
+export function isUuidOrPrefix(value: string): boolean {
+  return Boolean(
+    value.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i) ||
+    value.match(/^[0-9a-f]{8,}$/i)
+  );
+}
+
+export function escapeLike(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
 }
