@@ -46,6 +46,7 @@ export interface TypeListOptions {
   json?: boolean;
   detail?: boolean;
   showLocation?: boolean; // Show FILE and LINE columns
+  showId?: boolean; // Show ID column for unique identification
   
   // Legacy fields (maintain compatibility)
   risk?: 'low' | 'medium' | 'high' | 'critical';

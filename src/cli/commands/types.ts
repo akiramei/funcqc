@@ -57,6 +57,7 @@ export function createTypesCommand(): Command {
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
     .option('--show-location', 'Show FILE and LINE columns')
+    .option('--show-id', 'Show ID column for unique identification')
     .action(async (options: TypeListOptions, command) => {
       const { withEnvironment } = await import('../cli-wrapper');
       return withEnvironment(executeTypesListDB)(options, command);
@@ -250,7 +251,7 @@ const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       });
       console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesListDB(types, couplingData, memberCounts, options.detail, options.showLocation);
+      displayTypesListDB(types, couplingData, memberCounts, options.detail, options.showLocation, options.showId);
     }
 
   } catch (error) {
@@ -393,22 +394,31 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
     
     try {
-      const typeName = (options as { typeName?: string }).typeName || '';
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
       
-      env.commandLogger.info(`📊 Analyzing API design for type: ${typeName}`);
+      env.commandLogger.info(`📊 Analyzing API design for type: ${typeNameOrId}`);
       
       const snapshots = await env.storage.getSnapshots({ limit: 1 });
       if (snapshots.length === 0) {
         throw new Error('No snapshots found. Run scan first to analyze the codebase.');
       }
       const latestSnapshot = snapshots[0];
-      const targetType = await env.storage.findTypeByName(typeName, latestSnapshot.id);
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (typeNameOrId.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
     
       if (!targetType) {
         const funcqcError = errorHandler.createError(
           ErrorCode.NOT_FOUND,
-          `Type '${typeName}' not found`,
-          { typeName }
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
         );
         throw funcqcError;
       }
@@ -418,7 +428,7 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
       const memberCount = memberCounts.get(targetType.id);
       
       if (!memberCount) {
-        console.log(`⚠️  No member information available for type ${typeName}`);
+        console.log(`⚠️  No member information available for type ${targetType.name}`);
         return;
       }
       
@@ -428,7 +438,7 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
       if (options.json) {
         console.log(JSON.stringify(apiAnalysis, null, 2));
       } else {
-        displayTypeApiAnalysis(typeName, apiAnalysis, options.detail);
+        displayTypeApiAnalysis(targetType.name, apiAnalysis, options.detail);
       }
       
     } catch (error) {
@@ -454,22 +464,31 @@ const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
     
     try {
-      const typeName = (options as { typeName?: string }).typeName || '';
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
       
-      env.commandLogger.info(`👥 Analyzing members for type: ${typeName}`);
+      env.commandLogger.info(`👥 Analyzing members for type: ${typeNameOrId}`);
       
       const snapshots = await env.storage.getSnapshots({ limit: 1 });
       if (snapshots.length === 0) {
         throw new Error('No snapshots found. Run scan first to analyze the codebase.');
       }
       const latestSnapshot = snapshots[0];
-      const targetType = await env.storage.findTypeByName(typeName, latestSnapshot.id);
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (typeNameOrId.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
     
       if (!targetType) {
         const funcqcError = errorHandler.createError(
           ErrorCode.NOT_FOUND,
-          `Type '${typeName}' not found`,
-          { typeName }
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
         );
         throw funcqcError;
       }
@@ -478,14 +497,14 @@ const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) =>
       const members = await getTypeMembersDetailed(env.storage, targetType.id, latestSnapshot.id, options);
       
       if (members.length === 0) {
-        console.log(`⚠️  No members found for type ${typeName}`);
+        console.log(`⚠️  No members found for type ${targetType.name}`);
         return;
       }
       
       if (options.json) {
         console.log(JSON.stringify(members, null, 2));
       } else {
-        displayTypeMembersAnalysis(typeName, members, options.detail);
+        displayTypeMembersAnalysis(targetType.name, members, options.detail);
       }
       
     } catch (error) {
@@ -504,6 +523,71 @@ const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) =>
   };
 
 // Helper types and functions
+
+/**
+ * Find type by ID or ID prefix
+ */
+async function findTypeById(
+  storage: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  idOrPrefix: string,
+  snapshotId: string
+): Promise<TypeDefinition | null> {
+  // Support partial ID matching (e.g., first 8 characters)
+  const result = await storage.query(
+    `SELECT * FROM type_definitions 
+     WHERE snapshot_id = $1 AND id LIKE $2 || '%'
+     LIMIT 1`,
+    [snapshotId, idOrPrefix]
+  );
+  
+  if (result.rows.length === 0) {
+    return null;
+  }
+  
+  const row = result.rows[0] as {
+    id: string;
+    snapshot_id: string;
+    name: string;
+    kind: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    start_column: number;
+    end_column: number;
+    is_abstract: boolean;
+    is_exported: boolean;
+    is_default_export: boolean;
+    is_generic: boolean;
+    generic_parameters: unknown;
+    type_text: string | null;
+    resolved_type: string | null;
+    modifiers: string[];
+    jsdoc: string | null;
+    metadata: unknown;
+  };
+  
+  return {
+    id: row.id,
+    snapshotId: row.snapshot_id,
+    name: row.name,
+    kind: row.kind as 'class' | 'interface' | 'type_alias' | 'enum' | 'namespace',
+    filePath: row.file_path,
+    startLine: row.start_line,
+    endLine: row.end_line,
+    startColumn: row.start_column,
+    endColumn: row.end_column,
+    isAbstract: row.is_abstract,
+    isExported: row.is_exported,
+    isDefaultExport: row.is_default_export,
+    isGeneric: row.is_generic,
+    genericParameters: row.generic_parameters as Array<{ name: string; constraint: string | null; default: string | null }>,
+    typeText: row.type_text,
+    resolvedType: row.resolved_type as Record<string, unknown> | null,
+    modifiers: row.modifiers,
+    jsdoc: row.jsdoc,
+    metadata: row.metadata as Record<string, unknown>
+  };
+}
 
 interface CouplingInfo {
   parameterUsage: {
@@ -1182,13 +1266,20 @@ function displayTypesListDB(
   couplingData: Map<string, CouplingInfo>,
   memberCounts: Map<string, MemberCounts>,
   detailed?: boolean,
-  showLocation?: boolean
+  showLocation?: boolean,
+  showId?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   if (!detailed && types.length > 0) {
     // Table header for non-detailed output - emoji-free layout
-    if (showLocation) {
+    if (showId && showLocation) {
+      console.log(`ID       KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
+      console.log(`-------- ---- --- ----------------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
+    } else if (showId) {
+      console.log(`ID       KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL`);
+      console.log(`-------- ---- --- ----------------------------- ----- ----- ----- --- ---- -----`);
+    } else if (showLocation) {
       console.log(`KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
       console.log(`---- --- ----------------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
     } else {
@@ -1241,6 +1332,7 @@ function displayTypesListDB(
       const kindText = getTypeKindText(type.kind);
       const exportText = type.isExported ? 'EXP' : '   ';
       const nameDisplay = type.name.length > 29 ? type.name.substring(0, 26) + '...' : type.name;
+      const idDisplay = type.id.substring(0, 8); // Show first 8 chars of ID
       
       // Display counts, using '-' for zero values
       const propsDisplay = memberCount.properties > 0 ? memberCount.properties.toString() : '-';
@@ -1250,7 +1342,39 @@ function displayTypesListDB(
       const callDisplay = memberCount.callSignatures > 0 ? memberCount.callSignatures.toString() : '-';
       const totalDisplay = memberCount.total > 0 ? memberCount.total.toString() : '-';
       
-      if (showLocation) {
+      if (showId && showLocation) {
+        const fileName = type.filePath.split('/').pop() || type.filePath;
+        const fileDisplay = fileName.length > 23 ? fileName.substring(0, 20) + '...' : fileName;
+        const lineDisplay = type.startLine.toString();
+        
+        console.log(
+          `${idDisplay} ` +
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(29)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)} ` +
+          `${fileDisplay.padEnd(23)} ` +
+          `${lineDisplay.padStart(4)}`
+        );
+      } else if (showId) {
+        console.log(
+          `${idDisplay} ` +
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(29)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)}`
+        );
+      } else if (showLocation) {
         const fileName = type.filePath.split('/').pop() || type.filePath;
         const fileDisplay = fileName.length > 23 ? fileName.substring(0, 20) + '...' : fileName;
         const lineDisplay = type.startLine.toString();
