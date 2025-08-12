@@ -170,6 +170,7 @@ CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_
 -- 条件付きインデックス
 CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
 CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
+CREATE INDEX idx_functions_snapshot_file_method ON functions(snapshot_id, file_path) WHERE is_method = TRUE;
 
 -- File relationship indexes (N:1 design)
 CREATE INDEX idx_functions_source_file_ref_id ON functions(source_file_ref_id);
