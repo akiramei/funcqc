@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
+import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, isUuidOrPrefix, escapeLike } from './types.types';
 import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
@@ -57,6 +57,7 @@ export function createTypesCommand(): Command {
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
     .option('--show-location', 'Show FILE and LINE columns')
+    .option('--show-id', 'Show ID column for unique identification')
     .action(async (options: TypeListOptions, command) => {
       const { withEnvironment } = await import('../cli-wrapper');
       return withEnvironment(executeTypesListDB)(options, command);
@@ -85,6 +86,32 @@ export function createTypesCommand(): Command {
       // Pass typeName via options for VoidCommand compatibility
       const optionsWithTypeName = { ...options, typeName };
       return withEnvironment(executeTypesDepsDB)(optionsWithTypeName, command);
+    });
+
+  // Type API analysis command
+  typesCmd
+    .command('api <typeName>')
+    .description('📊 Analyze type API design and surface area')
+    .option('--json', 'Output in JSON format')
+    .option('--detail', 'Show detailed analysis')
+    .action(async (typeName: string, options: TypeApiOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesApiDB)(optionsWithTypeName, command);
+    });
+
+  // Type members command
+  typesCmd
+    .command('members <typeName>')
+    .description('👥 Show detailed type member information')
+    .option('--json', 'Output in JSON format')
+    .option('--detail', 'Show detailed member information')
+    .option('--kind <kind>', 'Filter by member kind (property|method|getter|setter|constructor|index_signature|call_signature)')
+    .option('--access-modifier <modifier>', 'Filter by access modifier (public|protected|private)')
+    .action(async (typeName: string, options: TypeMembersOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesMembersDB)(optionsWithTypeName, command);
     });
 
   return typesCmd;
@@ -224,7 +251,7 @@ const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       });
       console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesListDB(types, couplingData, memberCounts, options.detail, options.showLocation);
+      displayTypesListDB(types, couplingData, memberCounts, options.detail, options.showLocation, options.showId);
     }
 
   } catch (error) {
@@ -359,7 +386,211 @@ const executeTypesDepsDB: VoidCommand<TypeDepsOptions> = (options) =>
   }
 };
 
+/**
+ * Execute types api command using database
+ */
+const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`📊 Analyzing API design for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Get type member counts for analysis
+      const memberCounts = await getMemberCountsForTypes(env.storage, [targetType], latestSnapshot.id);
+      const memberCount = memberCounts.get(targetType.id);
+      
+      if (!memberCount) {
+        console.log(`⚠️  No member information available for type ${targetType.name}`);
+        return;
+      }
+      
+      // Analyze API surface area
+      const apiAnalysis = analyzeTypeApiSurface(targetType, memberCount);
+      
+      if (options.json) {
+        console.log(JSON.stringify(apiAnalysis, null, 2));
+      } else {
+        displayTypeApiAnalysis(targetType.name, apiAnalysis, options.detail);
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze type API: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Execute types members command using database
+ */
+const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`👥 Analyzing members for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Get detailed member information
+      const members = await getTypeMembersDetailed(env.storage, targetType.id, latestSnapshot.id, options);
+      
+      if (members.length === 0) {
+        console.log(`⚠️  No members found for type ${targetType.name}`);
+        return;
+      }
+      
+      if (options.json) {
+        console.log(JSON.stringify(members, null, 2));
+      } else {
+        displayTypeMembersAnalysis(targetType.name, members, options.detail);
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze type members: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
 // Helper types and functions
+
+/**
+ * Find type by ID or ID prefix
+ */
+async function findTypeById(
+  storage: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  idOrPrefix: string,
+  snapshotId: string
+): Promise<TypeDefinition | null> {
+  // Support partial ID matching (e.g., first 8 characters)
+  // Escape wildcards to prevent unintended pattern matching
+  const escapedPrefix = escapeLike(idOrPrefix);
+  const result = await storage.query(
+    `SELECT * FROM type_definitions 
+     WHERE snapshot_id = $1 AND id LIKE $2 || '%' ESCAPE '\\'
+     ORDER BY id ASC
+     LIMIT 1`,
+    [snapshotId, escapedPrefix]
+  );
+  
+  if (result.rows.length === 0) {
+    return null;
+  }
+  
+  const row = result.rows[0] as {
+    id: string;
+    snapshot_id: string;
+    name: string;
+    kind: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    start_column: number;
+    end_column: number;
+    is_abstract: boolean;
+    is_exported: boolean;
+    is_default_export: boolean;
+    is_generic: boolean;
+    generic_parameters: unknown;
+    type_text: string | null;
+    resolved_type: string | null;
+    modifiers: string[];
+    jsdoc: string | null;
+    metadata: unknown;
+  };
+  
+  return {
+    id: row.id,
+    snapshotId: row.snapshot_id,
+    name: row.name,
+    kind: row.kind as 'class' | 'interface' | 'type_alias' | 'enum' | 'namespace',
+    filePath: row.file_path,
+    startLine: row.start_line,
+    endLine: row.end_line,
+    startColumn: row.start_column,
+    endColumn: row.end_column,
+    isAbstract: row.is_abstract,
+    isExported: row.is_exported,
+    isDefaultExport: row.is_default_export,
+    isGeneric: row.is_generic,
+    genericParameters: row.generic_parameters as Array<{ name: string; constraint: string | null; default: string | null }>,
+    typeText: row.type_text,
+    resolvedType: row.resolved_type as Record<string, unknown> | null,
+    modifiers: row.modifiers,
+    jsdoc: row.jsdoc,
+    metadata: row.metadata as Record<string, unknown>
+  };
+}
 
 interface CouplingInfo {
   parameterUsage: {
@@ -1038,13 +1269,20 @@ function displayTypesListDB(
   couplingData: Map<string, CouplingInfo>,
   memberCounts: Map<string, MemberCounts>,
   detailed?: boolean,
-  showLocation?: boolean
+  showLocation?: boolean,
+  showId?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   if (!detailed && types.length > 0) {
     // Table header for non-detailed output - emoji-free layout
-    if (showLocation) {
+    if (showId && showLocation) {
+      console.log(`ID       KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
+      console.log(`-------- ---- --- ----------------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
+    } else if (showId) {
+      console.log(`ID       KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL`);
+      console.log(`-------- ---- --- ----------------------------- ----- ----- ----- --- ---- -----`);
+    } else if (showLocation) {
       console.log(`KIND EXP NAME                         PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
       console.log(`---- --- ----------------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
     } else {
@@ -1097,6 +1335,7 @@ function displayTypesListDB(
       const kindText = getTypeKindText(type.kind);
       const exportText = type.isExported ? 'EXP' : '   ';
       const nameDisplay = type.name.length > 29 ? type.name.substring(0, 26) + '...' : type.name;
+      const idDisplay = type.id.substring(0, 8); // Show first 8 chars of ID
       
       // Display counts, using '-' for zero values
       const propsDisplay = memberCount.properties > 0 ? memberCount.properties.toString() : '-';
@@ -1106,7 +1345,39 @@ function displayTypesListDB(
       const callDisplay = memberCount.callSignatures > 0 ? memberCount.callSignatures.toString() : '-';
       const totalDisplay = memberCount.total > 0 ? memberCount.total.toString() : '-';
       
-      if (showLocation) {
+      if (showId && showLocation) {
+        const fileName = type.filePath.split('/').pop() || type.filePath;
+        const fileDisplay = fileName.length > 23 ? fileName.substring(0, 20) + '...' : fileName;
+        const lineDisplay = type.startLine.toString();
+        
+        console.log(
+          `${idDisplay} ` +
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(29)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)} ` +
+          `${fileDisplay.padEnd(23)} ` +
+          `${lineDisplay.padStart(4)}`
+        );
+      } else if (showId) {
+        console.log(
+          `${idDisplay} ` +
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(29)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)}`
+        );
+      } else if (showLocation) {
         const fileName = type.filePath.split('/').pop() || type.filePath;
         const fileDisplay = fileName.length > 23 ? fileName.substring(0, 20) + '...' : fileName;
         const lineDisplay = type.startLine.toString();
@@ -1223,5 +1494,276 @@ function getHealthIcon(health: string): string {
     case 'FAIR': return '⚠️';
     case 'POOR': return '❌';
     default: return '❓';
+  }
+}
+
+// New analysis functions for enhanced type commands
+
+interface TypeApiAnalysis {
+  surfaceArea: {
+    methods: number;
+    properties: number;
+    constructors: number;
+    indexSignatures: number;
+    callSignatures: number;
+    total: number;
+  };
+  complexity: {
+    overloadDensity: number;
+    apiComplexity: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH';
+  };
+  recommendations: string[];
+}
+
+interface TypeMemberDetail {
+  id: string;
+  name: string;
+  memberKind: string;
+  typeText: string | null;
+  isOptional: boolean;
+  isReadonly: boolean;
+  isStatic: boolean;
+  isAbstract: boolean;
+  accessModifier: string | null;
+  startLine: number;
+  endLine: number;
+  functionId: string | null;
+  jsdoc: string | null;
+}
+
+/**
+ * Analyze type API surface area and complexity
+ */
+function analyzeTypeApiSurface(_type: TypeDefinition, memberCount: MemberCounts): TypeApiAnalysis {
+  const surfaceArea = {
+    methods: memberCount.methods,
+    properties: memberCount.properties,
+    constructors: memberCount.constructors,
+    indexSignatures: memberCount.indexSignatures,
+    callSignatures: memberCount.callSignatures,
+    total: memberCount.total
+  };
+  
+  // 将来の実装用にプレースホルダーを残す
+  const overloadDensity = 0.0; // TODO: 実際のオーバーロード分析を実装
+  
+  // Determine API complexity based on surface area
+  let apiComplexity: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' = 'LOW';
+  // 業界標準のインターフェース分離原則に基づく閾値
+  if (memberCount.total > 40) {  // 非常に大規模なインターフェース
+    apiComplexity = 'VERY_HIGH';
+  } else if (memberCount.total > 20) {  // 大規模なインターフェース
+    apiComplexity = 'HIGH';
+  } else if (memberCount.total > 10) {  // 中規模なインターフェース
+    apiComplexity = 'MEDIUM';
+  }
+  
+  // Generate recommendations based on analysis
+  const recommendations: string[] = [];
+  
+  if (memberCount.total > 30) {
+    recommendations.push('Consider splitting large interface into smaller, focused interfaces');
+  }
+  
+  if (memberCount.methods > 20) {
+    recommendations.push('High method count - consider grouping related methods');
+  }
+  
+  if (memberCount.properties > 15) {
+    recommendations.push('Many properties - consider using composition or value objects');
+  }
+  
+  if (memberCount.constructors > 3) {
+    recommendations.push('Multiple constructors - consider factory methods or builder pattern');
+  }
+  
+  if (memberCount.indexSignatures > 0 && memberCount.callSignatures > 0) {
+    recommendations.push('Mixed signatures - consider separate interfaces for different uses');
+  }
+  
+  return {
+    surfaceArea,
+    complexity: {
+      overloadDensity,
+      apiComplexity
+    },
+    recommendations
+  };
+}
+
+/**
+ * Get detailed type member information with filtering
+ */
+async function getTypeMembersDetailed(
+  storage: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  typeId: string,
+  snapshotId: string,
+  options: TypeMembersOptions
+): Promise<TypeMemberDetail[]> {
+  let whereClause = 'WHERE tm.type_id = $1 AND tm.snapshot_id = $2';
+  const params: unknown[] = [typeId, snapshotId];
+  
+  if (options.kind) {
+    whereClause += ` AND tm.member_kind = $${params.length + 1}`;
+    params.push(options.kind);
+  }
+  
+  if (options.accessModifier) {
+    whereClause += ` AND tm.access_modifier = $${params.length + 1}`;
+    params.push(options.accessModifier);
+  }
+  
+  const result = await storage.query(`
+    SELECT 
+      tm.id,
+      tm.name,
+      tm.member_kind,
+      tm.type_text,
+      tm.is_optional,
+      tm.is_readonly,
+      tm.is_static,
+      tm.is_abstract,
+      tm.access_modifier,
+      tm.start_line,
+      tm.end_line,
+      tm.function_id,
+      tm.jsdoc
+    FROM type_members tm
+    ${whereClause}
+    ORDER BY tm.member_kind, tm.name
+  `, params);
+  
+  return result.rows.map((row: unknown) => {
+    const typedRow = row as {
+      id: string;
+      name: string;
+      member_kind: string;
+      type_text: string | null;
+      is_optional: boolean;
+      is_readonly: boolean;
+      is_static: boolean;
+      is_abstract: boolean;
+      access_modifier: string | null;
+      start_line: number;
+      end_line: number;
+      function_id: string | null;
+      jsdoc: string | null;
+    };
+    
+    return {
+      id: typedRow.id,
+      name: typedRow.name,
+      memberKind: typedRow.member_kind,
+      typeText: typedRow.type_text,
+      isOptional: typedRow.is_optional,
+      isReadonly: typedRow.is_readonly,
+      isStatic: typedRow.is_static,
+      isAbstract: typedRow.is_abstract,
+      accessModifier: typedRow.access_modifier,
+      startLine: typedRow.start_line,
+      endLine: typedRow.end_line,
+      functionId: typedRow.function_id,
+      jsdoc: typedRow.jsdoc
+    };
+  });
+}
+
+/**
+ * Display type API analysis results
+ */
+function displayTypeApiAnalysis(typeName: string, analysis: TypeApiAnalysis, detailed?: boolean): void {
+  console.log(`\n📊 API Analysis for type '${typeName}'\n`);
+  
+  // Surface area summary
+  console.log('🎯 API Surface Area:');
+  console.log(`  Methods:      ${analysis.surfaceArea.methods}`);
+  console.log(`  Properties:   ${analysis.surfaceArea.properties}`);
+  console.log(`  Constructors: ${analysis.surfaceArea.constructors}`);
+  console.log(`  Index Sigs:   ${analysis.surfaceArea.indexSignatures}`);
+  console.log(`  Call Sigs:    ${analysis.surfaceArea.callSignatures}`);
+  console.log(`  Total:        ${analysis.surfaceArea.total}`);
+  
+  // Complexity assessment
+  console.log(`\n📈 Complexity: ${analysis.complexity.apiComplexity}`);
+  if (detailed) {
+    console.log(`  Overload Density: ${analysis.complexity.overloadDensity.toFixed(2)}`);
+  }
+  
+  // Recommendations
+  if (analysis.recommendations.length > 0) {
+    console.log('\n💡 Recommendations:');
+    analysis.recommendations.forEach((rec, index) => {
+      console.log(`  ${index + 1}. ${rec}`);
+    });
+  }
+}
+
+/**
+ * Display type members analysis results
+ */
+function displayTypeMembersAnalysis(typeName: string, members: TypeMemberDetail[], detailed?: boolean): void {
+  console.log(`\n👥 Members for type '${typeName}' (${members.length} members)\n`);
+  
+  // Group by member kind for better organization
+  const membersByKind = members.reduce((acc, member) => {
+    if (!acc[member.memberKind]) acc[member.memberKind] = [];
+    acc[member.memberKind].push(member);
+    return acc;
+  }, {} as Record<string, TypeMemberDetail[]>);
+  
+  // Display by kind
+  const kindOrder = ['constructor', 'property', 'getter', 'setter', 'method', 'index_signature', 'call_signature'];
+  
+  for (const kind of kindOrder) {
+    const kindMembers = membersByKind[kind];
+    if (!kindMembers || kindMembers.length === 0) continue;
+    
+    const kindIcon = getMemberKindIcon(kind);
+    console.log(`${kindIcon} ${kind.toUpperCase()}S (${kindMembers.length}):`);
+    
+    // Ensure kindMembers is an array
+    const membersArray = Array.isArray(kindMembers) ? kindMembers : [kindMembers];
+    
+    for (const member of membersArray) {
+      const accessIcon = getAccessModifierIcon(member.accessModifier);
+      const flags = [];
+      if (member.isStatic) flags.push('static');
+      if (member.isReadonly) flags.push('readonly');
+      if (member.isOptional) flags.push('optional');
+      if (member.isAbstract) flags.push('abstract');
+      
+      const flagsStr = flags.length > 0 ? ` [${flags.join(', ')}]` : '';
+      const typeStr = member.typeText ? `: ${member.typeText}` : '';
+      
+      console.log(`  ${accessIcon} ${member.name}${typeStr}${flagsStr}`);
+      
+      if (detailed && member.jsdoc) {
+        const jsdocLines = member.jsdoc.split('\n').map(line => `    ${line.trim()}`).join('\n');
+        console.log(`    📝 ${jsdocLines}`);
+      }
+    }
+    console.log();
+  }
+}
+
+function getMemberKindIcon(kind: string): string {
+  switch (kind) {
+    case 'property': return '🏷️';
+    case 'method': return '⚡';
+    case 'constructor': return '🏗️';
+    case 'getter': return '📤';
+    case 'setter': return '📥';
+    case 'index_signature': return '🔍';
+    case 'call_signature': return '📞';
+    default: return '❓';
+  }
+}
+
+function getAccessModifierIcon(modifier: string | null): string {
+  switch (modifier) {
+    case 'public': return '🌐';
+    case 'protected': return '🛡️';
+    case 'private': return '🔒';
+    default: return '📋';
   }
 }
