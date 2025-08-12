@@ -41,7 +41,7 @@ export interface TypeListOptions {
   
   // Output control
   limit?: number;
-  sort?: 'name' | 'kind' | 'file' | 'props' | 'methods' | 'ctors' | 'total' | 'functions' | 'members';
+  sort?: 'name' | 'kind' | 'file' | 'functions' | 'props' | 'methods' | 'ctors' | 'total' | 'members';
   desc?: boolean;
   json?: boolean;
   detail?: boolean;
