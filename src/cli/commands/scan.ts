@@ -977,6 +977,24 @@ export async function performDeferredTypeSystemAnalysis(
   }
   
   try {
+    // Check if type system analysis has already been performed for this snapshot
+    console.log(`🔍 Checking existing types for snapshot ${snapshotId}`);
+    const existingTypes = await env.storage.query(
+      'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
+      [snapshotId]
+    );
+    const typeCount = (existingTypes.rows[0] as { count?: number })?.count || 0;
+    
+    if (typeCount > 0) {
+      console.log(`⏭️  Type system analysis already completed for snapshot ${snapshotId} (${typeCount} types found) - skipping duplicate analysis`);
+      if (spinner) {
+        spinner.succeed(`Type system analysis already completed (${typeCount} types found)`);
+      }
+      return { typesAnalyzed: typeCount };
+    }
+    
+    console.log(`🚀 No existing types found - proceeding with type system analysis`);
+    
     // Get source files for the snapshot
     const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
     
@@ -990,6 +1008,9 @@ export async function performDeferredTypeSystemAnalysis(
       true, // enableCache
       env.commandLogger // logger
     );
+    
+    // Set storage for function ID lookup in type members
+    analyzer.setStorage(env.storage);
     
     // Analyze types from all source files in batch for better performance
     const typeDefinitions: import('../../types').TypeDefinition[] = [];
@@ -1052,12 +1073,40 @@ export async function performDeferredTypeSystemAnalysis(
     
     // Store types in database
     if (typeDefinitions.length > 0) {
-      await env.storage.saveTypeDefinitions(typeDefinitions);
-      await env.storage.saveTypeRelationships(typeRelationships);
+      console.log(`🔧 Saving ${typeDefinitions.length} type definitions and ${typeRelationships.length} relationships...`);
+      try {
+        await env.storage.saveTypeDefinitions(typeDefinitions);
+        console.log(`✅ Type definitions saved successfully`);
+        
+        await env.storage.saveTypeRelationships(typeRelationships);
+        console.log(`✅ Type relationships saved successfully`);
+        
+        console.log(`✅ All type data saved successfully`);
+      } catch (error) {
+        console.error(`❌ CRITICAL: Failed to save type data:`, error);
+        console.error(`❌ CRITICAL Error details:`, {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack?.split('\n').slice(0, 10) : undefined
+        });
+        throw error;
+      }
     }
     
     // Update analysis level
-    await env.storage.updateAnalysisLevel(snapshotId, 'TYPE_SYSTEM');
+    try {
+      console.log(`🔧 Updating analysis level to TYPE_SYSTEM for snapshot ${snapshotId}`);
+      await env.storage.updateAnalysisLevel(snapshotId, 'TYPE_SYSTEM');
+      console.log(`✅ Analysis level updated successfully`);
+      
+      // Force database sync
+      console.log(`🔧 Forcing database sync...`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      console.log(`✅ Database sync completed`);
+    } catch (error) {
+      console.error(`❌ Failed to update analysis level: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
     
     if (spinner && showProgress) {
       spinner.succeed(`Type system analysis completed (${typeDefinitions.length} types, ${typeRelationships.length} relationships)`);

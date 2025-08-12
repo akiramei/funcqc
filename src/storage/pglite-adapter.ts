@@ -9,6 +9,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { Kysely } from 'kysely';
 import { createDefaultGitProvider, GitProvider } from '../utils/git/index.js';
 import * as path from 'path';
+import * as fs from 'fs';
 import { Database } from './types/kysely-types';
 import {
   FunctionInfo,
@@ -84,6 +85,13 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.logger = logger;
     // Store original path if needed later
     this.dbPath = path.resolve(dbPath);
+    
+    // Ensure parent directory exists for PGLite
+    const parentDir = path.dirname(this.dbPath);
+    if (!fs.existsSync(parentDir)) {
+      fs.mkdirSync(parentDir, { recursive: true });
+    }
+    
     this.db = new PGlite(dbPath);
     this.git = createDefaultGitProvider();
     this.gracefulShutdown = GracefulShutdown.getInstance();

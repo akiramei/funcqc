@@ -144,6 +144,13 @@ export class TypeScriptAnalyzer extends CacheAware {
   }
 
   /**
+   * Set storage adapter for function ID lookup in type system analysis
+   */
+  setStorage(storage: unknown): void {
+    this.typeSystemAnalyzer.setStorage(storage);
+  }
+
+  /**
    * Analyze a TypeScript file and extract function information
    * Now uses UnifiedASTAnalyzer for improved performance  
    */
