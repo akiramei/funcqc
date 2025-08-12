@@ -520,9 +520,10 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
       }
       
       if (options.json) {
-        const result = optimizationAnalysis ? 
-          { apiAnalysis, optimizationAnalysis } : 
-          apiAnalysis;
+        const result = {
+          apiAnalysis,
+          optimizationAnalysis: optimizationAnalysis ?? null
+        };
         console.log(JSON.stringify(result, null, 2));
       } else {
         displayTypeApiAnalysis(targetType.name, apiAnalysis, options.detail);
@@ -660,9 +661,9 @@ const executeTypesCoverageDB: VoidCommand<TypeCoverageOptions> = (options) =>
         targetType.id,
         latestSnapshot.id,
         {
-          hotThreshold: options.hotThreshold || 5,
-          writeHubThreshold: options.writeHubThreshold || 3,
-          includePrivateProperties: options.includePrivate || false
+          hotThreshold: options.hotThreshold ?? 5,
+          writeHubThreshold: options.writeHubThreshold ?? 3,
+          includePrivateProperties: options.includePrivate ?? false
         }
       );
       
