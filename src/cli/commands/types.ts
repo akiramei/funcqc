@@ -118,31 +118,39 @@ const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
         }
         
         // Reload types after analysis (wait for transaction commit)
-        console.log(`🔧 Waiting for transaction commit...`);
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug('Waiting for transaction commit...');
+        }
         await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms for commit
         
         // Debug: Check if tables exist at all
-        console.log(`🔧 Debugging database state...`);
-        try {
-          const tableCheck = await env.storage.query("SELECT table_name FROM information_schema.tables WHERE table_name = 'type_definitions'");
-          console.log(`📋 type_definitions table exists:`, tableCheck.rows.length > 0);
-          
-          if (tableCheck.rows.length > 0) {
-            const countCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions");
-            console.log(`📊 Total rows in type_definitions:`, countCheck.rows[0]);
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug('Debugging database state...');
+          try {
+            const tableCheck = await env.storage.query("SELECT table_name FROM information_schema.tables WHERE table_name = 'type_definitions'");
+            env.commandLogger.debug(`type_definitions table exists: ${tableCheck.rows.length > 0}`);
             
-            const snapshotCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1", [latestSnapshot.id]);
-            console.log(`📊 Rows for snapshot ${latestSnapshot.id}:`, snapshotCheck.rows[0]);
-          } else {
-            console.log(`❌ type_definitions table does not exist in database!`);
+            if (tableCheck.rows.length > 0) {
+              const countCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions");
+              env.commandLogger.debug(`Total rows in type_definitions: ${JSON.stringify(countCheck.rows[0])}`);
+              
+              const snapshotCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1", [latestSnapshot.id]);
+              env.commandLogger.debug(`Rows for snapshot ${latestSnapshot.id}: ${JSON.stringify(snapshotCheck.rows[0])}`);
+            } else {
+              env.commandLogger.debug('type_definitions table does not exist in database!');
+            }
+          } catch (error) {
+            env.commandLogger.debug(`Debug query failed: ${error}`);
           }
-        } catch (error) {
-          console.error(`❌ Debug query failed:`, error);
         }
         
-        console.log(`🔧 Reloading types from snapshot ${latestSnapshot.id}`);
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug(`Reloading types from snapshot ${latestSnapshot.id}`);
+        }
         types = await env.storage.getTypeDefinitions(latestSnapshot.id);
-        console.log(`📊 Found ${types.length} types after analysis`);
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug(`Found ${types.length} types after analysis`);
+        }
       } finally {
         await destroyAppEnvironment(appEnv);
       }
@@ -431,6 +439,9 @@ async function applyTypeFilters(
   // Function count filters
   if (options.fnEq !== undefined) {
     const target = Number(options.fnEq);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-eq: ${options.fnEq}. Must be a non-negative integer.`);
+    }
     filteredTypes = filteredTypes.filter(t => {
       const count = functionCounts.get(t.id) || 0;
       return count === target;
@@ -439,6 +450,9 @@ async function applyTypeFilters(
   
   if (options.fnGe !== undefined) {
     const target = Number(options.fnGe);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-ge: ${options.fnGe}. Must be a non-negative integer.`);
+    }
     filteredTypes = filteredTypes.filter(t => {
       const count = functionCounts.get(t.id) || 0;
       return count >= target;
@@ -447,6 +461,9 @@ async function applyTypeFilters(
   
   if (options.fnLe !== undefined) {
     const target = Number(options.fnLe);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-le: ${options.fnLe}. Must be a non-negative integer.`);
+    }
     filteredTypes = filteredTypes.filter(t => {
       const count = functionCounts.get(t.id) || 0;
       return count <= target;
@@ -455,6 +472,9 @@ async function applyTypeFilters(
   
   if (options.fnGt !== undefined) {
     const target = Number(options.fnGt);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-gt: ${options.fnGt}. Must be a non-negative integer.`);
+    }
     filteredTypes = filteredTypes.filter(t => {
       const count = functionCounts.get(t.id) || 0;
       return count > target;
@@ -463,6 +483,9 @@ async function applyTypeFilters(
   
   if (options.fnLt !== undefined) {
     const target = Number(options.fnLt);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-lt: ${options.fnLt}. Must be a non-negative integer.`);
+    }
     filteredTypes = filteredTypes.filter(t => {
       const count = functionCounts.get(t.id) || 0;
       return count < target;

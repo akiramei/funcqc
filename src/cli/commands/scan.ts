@@ -1083,12 +1083,13 @@ export async function performDeferredTypeSystemAnalysis(
         
         console.log(`✅ All type data saved successfully`);
       } catch (error) {
-        console.error(`❌ CRITICAL: Failed to save type data:`, error);
-        console.error(`❌ CRITICAL Error details:`, {
-          name: error instanceof Error ? error.name : 'Unknown',
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack?.split('\n').slice(0, 10) : undefined
-        });
+        env.commandLogger.error(`Failed to save type data: ${error instanceof Error ? error.message : String(error)}`);
+        if (env.commandLogger.isVerbose || process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug('Error details:', {
+            name: error instanceof Error ? error.name : 'Unknown',
+            stack: error instanceof Error ? error.stack?.split('\n').slice(0, 5) : undefined
+          });
+        }
         throw error;
       }
     }

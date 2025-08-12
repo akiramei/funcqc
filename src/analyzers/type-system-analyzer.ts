@@ -1,5 +1,6 @@
 import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasDeclaration, EnumDeclaration, ModuleDeclaration } from 'ts-morph';
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
+import { StorageAdapter } from '../types';
 import { Logger } from '../utils/cli-utils';
 import { PathNormalizer } from '../utils/path-normalizer';
 import { generateDeterministicTypeId } from '../utils/type-id-generator.js';
@@ -16,7 +17,9 @@ import { randomUUID } from 'crypto';
  */
 export class TypeSystemAnalyzer {
   private logger: Logger;
-  private storage: unknown = null;
+  private storage: StorageAdapter | null = null;
+  private static readonly VIRTUAL_PATH_PREFIX = '/virtualsrc/';
+  private static readonly PHYSICAL_PATH_PREFIX = 'src/';
 
   constructor(_project: Project, logger: Logger = new Logger(false, false)) {
     this.logger = logger;
@@ -25,7 +28,7 @@ export class TypeSystemAnalyzer {
   /**
    * Set storage adapter for function ID lookup
    */
-  setStorage(storage: unknown): void {
+  setStorage(storage: StorageAdapter): void {
     this.storage = storage;
   }
 
@@ -906,10 +909,12 @@ export class TypeSystemAnalyzer {
     try {
       // Handle virtual path to physical path conversion
       // Type analysis uses virtual paths (/virtualsrc/...) but functions are stored with physical paths (src/...)
-      const physicalPath = filePath.startsWith('/virtualsrc/') ? filePath.replace('/virtualsrc/', 'src/') : filePath;
+      const physicalPath = filePath.startsWith(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX) 
+        ? filePath.replace(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX, TypeSystemAnalyzer.PHYSICAL_PATH_PREFIX) 
+        : filePath;
       
       // Query database for functions in this file
-      const result = await (this.storage as { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> }).query(
+      const result = await this.storage.query(
         'SELECT id, name, start_line, end_line FROM functions WHERE snapshot_id = $1 AND file_path = $2 AND is_method = true',
         [snapshotId, physicalPath]
       );
