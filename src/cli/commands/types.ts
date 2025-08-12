@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions } from './types.types';
+import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, isUuidOrPrefix, escapeLike } from './types.types';
 import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
@@ -406,7 +406,7 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
       
       // Try to find by ID first (if looks like UUID), then by name
       let targetType: TypeDefinition | null = null;
-      if (typeNameOrId.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i)) {
+      if (isUuidOrPrefix(typeNameOrId)) {
         // Looks like a UUID or UUID prefix
         targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
       }
@@ -476,7 +476,7 @@ const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) =>
       
       // Try to find by ID first (if looks like UUID), then by name
       let targetType: TypeDefinition | null = null;
-      if (typeNameOrId.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i)) {
+      if (isUuidOrPrefix(typeNameOrId)) {
         // Looks like a UUID or UUID prefix
         targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
       }
@@ -533,11 +533,13 @@ async function findTypeById(
   snapshotId: string
 ): Promise<TypeDefinition | null> {
   // Support partial ID matching (e.g., first 8 characters)
+  // Escape wildcards to prevent unintended pattern matching
+  const escapedPrefix = escapeLike(idOrPrefix);
   const result = await storage.query(
     `SELECT * FROM type_definitions 
      WHERE snapshot_id = $1 AND id LIKE $2 || '%'
      LIMIT 1`,
-    [snapshotId, idOrPrefix]
+    [snapshotId, escapedPrefix]
   );
   
   if (result.rows.length === 0) {
@@ -1541,16 +1543,17 @@ function analyzeTypeApiSurface(_type: TypeDefinition, memberCount: MemberCounts)
     total: memberCount.total
   };
   
-  // Calculate overload density (simplified - would need actual overload analysis)
-  const overloadDensity = memberCount.methods > 0 ? 1.0 : 0.0; // Placeholder
+  // 将来の実装用にプレースホルダーを残す
+  const overloadDensity = 0.0; // TODO: 実際のオーバーロード分析を実装
   
   // Determine API complexity based on surface area
   let apiComplexity: 'LOW' | 'MEDIUM' | 'HIGH' | 'VERY_HIGH' = 'LOW';
-  if (memberCount.total > 50) {
+  // 業界標準のインターフェース分離原則に基づく閾値
+  if (memberCount.total > 40) {  // 非常に大規模なインターフェース
     apiComplexity = 'VERY_HIGH';
-  } else if (memberCount.total > 25) {
+  } else if (memberCount.total > 20) {  // 大規模なインターフェース
     apiComplexity = 'HIGH';
-  } else if (memberCount.total > 10) {
+  } else if (memberCount.total > 10) {  // 中規模なインターフェース
     apiComplexity = 'MEDIUM';
   }
   

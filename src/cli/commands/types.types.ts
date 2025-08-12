@@ -78,3 +78,18 @@ export interface TypeMembersOptions {
   kind?: 'property' | 'method' | 'getter' | 'setter' | 'constructor' | 'index_signature' | 'call_signature';
   accessModifier?: 'public' | 'protected' | 'private';
 }
+
+// Helper functions
+export function isUuidOrPrefix(value: string): boolean {
+  return Boolean(
+    value.match(/^[0-9a-f]{8}(-[0-9a-f]{4}){0,3}(-[0-9a-f]{12})?$/i) ||
+    value.match(/^[0-9a-f]{8,}$/i)
+  );
+}
+
+export function escapeLike(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/%/g, '\\%')
+    .replace(/_/g, '\\_');
+}
