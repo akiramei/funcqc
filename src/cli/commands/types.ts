@@ -150,12 +150,8 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
     }
     
-    // Add function count analysis for accurate display (temporarily disabled for performance)
-    const functionCounts: Map<string, number> = new Map();
-    // Fallback: set all to 0 for now
-    for (const type of types) {
-      functionCounts.set(type.id, 0);
-    }
+    // Function count analysis (disabled for performance optimization)
+    const functionCounts: Map<string, number> | null = null;
     
     // Output results
     if (options.json) {
@@ -730,7 +726,7 @@ function findCircularDependencies(dependencies: Array<{ source: string; target: 
 function displayTypesListDB(
   types: TypeDefinition[],
   couplingData: Map<string, CouplingInfo>,
-  functionCounts: Map<string, number>,
+  functionCounts: Map<string, number> | null,
   detailed?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
@@ -753,8 +749,9 @@ function displayTypesListDB(
       console.log();
     } else {
       const location = `${type.filePath.split('/').pop()}:${type.startLine}`;
-      const functionCount = functionCounts.get(type.id) || 0;
-      const functionInfo = ` (${functionCount}fn)`;
+      const functionInfo = functionCounts 
+        ? ` (${functionCounts.get(type.id) || 0}fn)`
+        : '';
       
       console.log(`${kindIcon} ${exportIcon} ${type.name.padEnd(30)} ${type.kind.padEnd(12)} ${location}${functionInfo}`);
     }
