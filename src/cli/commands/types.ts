@@ -107,7 +107,7 @@ export function createTypesCommand(): Command {
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed member information')
     .option('--kind <kind>', 'Filter by member kind (property|method|getter|setter|constructor|index_signature|call_signature)')
-    .option('--access <modifier>', 'Filter by access modifier (public|protected|private)')
+    .option('--access-modifier <modifier>', 'Filter by access modifier (public|protected|private)')
     .action(async (typeName: string, options: TypeMembersOptions, command) => {
       const { withEnvironment } = await import('../cli-wrapper');
       const optionsWithTypeName = { ...options, typeName };
@@ -537,7 +537,8 @@ async function findTypeById(
   const escapedPrefix = escapeLike(idOrPrefix);
   const result = await storage.query(
     `SELECT * FROM type_definitions 
-     WHERE snapshot_id = $1 AND id LIKE $2 || '%'
+     WHERE snapshot_id = $1 AND id LIKE $2 || '%' ESCAPE '\\'
+     ORDER BY id ASC
      LIMIT 1`,
     [snapshotId, escapedPrefix]
   );
