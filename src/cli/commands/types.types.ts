@@ -6,19 +6,46 @@ export interface TypeListOptions {
   file?: string;
   name?: string;
   
-  // Function count filtering (similar to cc-ge in list command)
+  // Member count filtering
+  // Properties
+  propEq?: string;    // Properties equal to N
+  propGe?: string;    // Properties >= N
+  propLe?: string;    // Properties <= N
+  propGt?: string;    // Properties > N
+  propLt?: string;    // Properties < N
+  
+  // Methods (replacing fn with meth for clarity)
+  methEq?: string;    // Methods equal to N
+  methGe?: string;    // Methods >= N
+  methLe?: string;    // Methods <= N
+  methGt?: string;    // Methods > N
+  methLt?: string;    // Methods < N
+  
+  // Functions (legacy - mapped to methods)
   fnEq?: string;      // Functions equal to N
-  fnGe?: string;      // Functions greater than or equal to N
-  fnLe?: string;      // Functions less than or equal to N
-  fnGt?: string;      // Functions greater than N
-  fnLt?: string;      // Functions less than N
+  fnGe?: string;      // Functions >= N
+  fnLe?: string;      // Functions <= N
+  fnGt?: string;      // Functions > N
+  fnLt?: string;      // Functions < N
+  
+  // Total members
+  totalEq?: string;   // Total members equal to N
+  totalGe?: string;   // Total members >= N
+  totalLe?: string;   // Total members <= N
+  totalGt?: string;   // Total members > N
+  totalLt?: string;   // Total members < N
+  
+  // Special filters
+  hasIndex?: boolean; // Has index signature
+  hasCall?: boolean;  // Has call signature
   
   // Output control
   limit?: number;
-  sort?: 'name' | 'kind' | 'file' | 'functions' | 'members';
+  sort?: 'name' | 'kind' | 'file' | 'props' | 'methods' | 'ctors' | 'total' | 'functions' | 'members';
   desc?: boolean;
   json?: boolean;
   detail?: boolean;
+  showLocation?: boolean; // Show FILE and LINE columns
   
   // Legacy fields (maintain compatibility)
   risk?: 'low' | 'medium' | 'high' | 'critical';

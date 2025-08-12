@@ -23,16 +23,40 @@ export function createTypesCommand(): Command {
     .option('--generic', 'Show only generic types')
     .option('--file <path>', 'Filter by file path')
     .option('--name <pattern>', 'Filter by type name (contains)')
-    .option('--fn-eq <n>', 'Filter types with exactly N functions', parseInt)
-    .option('--fn-ge <n>', 'Filter types with >= N functions', parseInt)
-    .option('--fn-le <n>', 'Filter types with <= N functions', parseInt)
-    .option('--fn-gt <n>', 'Filter types with > N functions', parseInt)
-    .option('--fn-lt <n>', 'Filter types with < N functions', parseInt)
+    // Property filters
+    .option('--prop-eq <n>', 'Filter types with exactly N properties', parseInt)
+    .option('--prop-ge <n>', 'Filter types with >= N properties', parseInt)
+    .option('--prop-le <n>', 'Filter types with <= N properties', parseInt)
+    .option('--prop-gt <n>', 'Filter types with > N properties', parseInt)
+    .option('--prop-lt <n>', 'Filter types with < N properties', parseInt)
+    // Method filters
+    .option('--meth-eq <n>', 'Filter types with exactly N methods', parseInt)
+    .option('--meth-ge <n>', 'Filter types with >= N methods', parseInt)
+    .option('--meth-le <n>', 'Filter types with <= N methods', parseInt)
+    .option('--meth-gt <n>', 'Filter types with > N methods', parseInt)
+    .option('--meth-lt <n>', 'Filter types with < N methods', parseInt)
+    // Legacy function filters (mapped to methods)
+    .option('--fn-eq <n>', 'Filter types with exactly N functions (legacy)', parseInt)
+    .option('--fn-ge <n>', 'Filter types with >= N functions (legacy)', parseInt)
+    .option('--fn-le <n>', 'Filter types with <= N functions (legacy)', parseInt)
+    .option('--fn-gt <n>', 'Filter types with > N functions (legacy)', parseInt)
+    .option('--fn-lt <n>', 'Filter types with < N functions (legacy)', parseInt)
+    // Total member filters
+    .option('--total-eq <n>', 'Filter types with exactly N total members', parseInt)
+    .option('--total-ge <n>', 'Filter types with >= N total members', parseInt)
+    .option('--total-le <n>', 'Filter types with <= N total members', parseInt)
+    .option('--total-gt <n>', 'Filter types with > N total members', parseInt)
+    .option('--total-lt <n>', 'Filter types with < N total members', parseInt)
+    // Special filters
+    .option('--has-index', 'Show only types with index signatures')
+    .option('--has-call', 'Show only types with call signatures')
+    // Output options
     .option('--limit <number>', 'Limit number of results', parseInt)
-    .option('--sort <field>', 'Sort by field (name|kind|file|functions|members)', 'name')
+    .option('--sort <field>', 'Sort by field (name|kind|file|props|methods|ctors|total)', 'name')
     .option('--desc', 'Sort in descending order')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
+    .option('--show-location', 'Show FILE and LINE columns')
     .action(async (options: TypeListOptions, command) => {
       const { withEnvironment } = await import('../cli-wrapper');
       return withEnvironment(executeTypesListDB)(options, command);
@@ -165,14 +189,14 @@ const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       return;
     }
     
-    // Get function counts for types using type_members table
-    const functionCounts = await getFunctionCountsForTypes(env.storage, types, latestSnapshot.id);
+    // Get comprehensive member counts for types
+    const memberCounts = await getMemberCountsForTypes(env.storage, types, latestSnapshot.id);
     
-    // Apply filters (pass function counts for filtering)
-    types = await applyTypeFilters(types, options, functionCounts);
+    // Apply filters (pass member counts for filtering)
+    types = await applyTypeFilters(types, options, memberCounts);
     
-    // Sort types (pass function counts for sorting)
-    types = sortTypesDB(types, options.sort || 'name', options.desc, functionCounts);
+    // Sort types (pass member counts for sorting)
+    types = sortTypesDB(types, options.sort || 'name', options.desc, memberCounts);
     
     // Apply limit
     if (options.limit && options.limit > 0) {
@@ -190,11 +214,12 @@ const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
     if (options.json) {
       const output = types.map(type => ({
         ...type,
+        memberCounts: memberCounts.get(type.id),
         ...(couplingData.has(type.id) && { coupling: couplingData.get(type.id) })
       }));
       console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesListDB(types, couplingData, functionCounts, options.detail);
+      displayTypesListDB(types, couplingData, memberCounts, options.detail, options.showLocation);
     }
 
   } catch (error) {
@@ -361,42 +386,78 @@ interface TypeHealthReport {
 
 
 /**
- * Get function counts for types using type_members table
+ * Member count data for each type
  */
-async function getFunctionCountsForTypes(
+interface MemberCounts {
+  properties: number;
+  methods: number;
+  constructors: number;
+  indexSignatures: number;
+  callSignatures: number;
+  total: number;
+}
+
+/**
+ * Get comprehensive member counts for types using type_members table
+ */
+async function getMemberCountsForTypes(
   storage: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
   _types: TypeDefinition[],
   snapshotId: string
-): Promise<Map<string, number>> {
-  const functionCounts = new Map<string, number>();
+): Promise<Map<string, MemberCounts>> {
+  const memberCounts = new Map<string, MemberCounts>();
   
   try {
-    // Query type_members table to count methods/functions per type
+    // Query type_members table to count all member types
+    // Note: getter/setter are aggregated with properties (same name = 1 property)
     const result = await storage.query(`
       SELECT 
         tm.type_id,
-        COUNT(*) as function_count
+        -- Properties: count distinct names to aggregate getter/setter
+        COUNT(DISTINCT tm.name) FILTER (WHERE tm.member_kind IN ('property', 'getter', 'setter')) as props,
+        -- Methods: count actual methods
+        COUNT(*) FILTER (WHERE tm.member_kind = 'method') as methods,
+        -- Constructors
+        COUNT(*) FILTER (WHERE tm.member_kind = 'constructor') as ctors,
+        -- Index signatures
+        COUNT(*) FILTER (WHERE tm.member_kind = 'index_signature') as index_sigs,
+        -- Call signatures  
+        COUNT(*) FILTER (WHERE tm.member_kind = 'call_signature') as call_sigs
       FROM type_members tm
       WHERE tm.snapshot_id = $1
-        AND tm.member_kind IN ('method', 'constructor')
-        AND tm.function_id IS NOT NULL
       GROUP BY tm.type_id
     `, [snapshotId]);
     
     result.rows.forEach((row: unknown) => {
-      const typedRow = row as { type_id: string; function_count: string };
-      functionCounts.set(typedRow.type_id, parseInt(typedRow.function_count, 10));
+      const typedRow = row as { 
+        type_id: string; 
+        props: string;
+        methods: string;
+        ctors: string;
+        index_sigs: string;
+        call_sigs: string;
+      };
+      
+      const props = parseInt(typedRow.props, 10) || 0;
+      const methods = parseInt(typedRow.methods, 10) || 0;
+      const ctors = parseInt(typedRow.ctors, 10) || 0;
+      const indexSigs = parseInt(typedRow.index_sigs, 10) || 0;
+      const callSigs = parseInt(typedRow.call_sigs, 10) || 0;
+      
+      memberCounts.set(typedRow.type_id, {
+        properties: props,
+        methods,
+        constructors: ctors,
+        indexSignatures: indexSigs,
+        callSignatures: callSigs,
+        total: props + methods + ctors + indexSigs + callSigs
+      });
     });
-    
-    // Only show function count summary when many types lack counts (indicating potential issues)
-    if (functionCounts.size < _types.length / 3) {
-      console.log(`📊 Found function counts for ${functionCounts.size} types (${_types.length - functionCounts.size} types have no functions)`);
-    }
   } catch (error) {
-    console.warn(`Warning: Failed to get function counts: ${error}`);
+    console.warn(`Warning: Failed to get member counts: ${error}`);
   }
   
-  return functionCounts;
+  return memberCounts;
 }
 
 /**
@@ -405,7 +466,7 @@ async function getFunctionCountsForTypes(
 async function applyTypeFilters(
   types: TypeDefinition[],
   options: TypeListOptions,
-  functionCounts: Map<string, number>
+  memberCounts: Map<string, MemberCounts>
 ): Promise<TypeDefinition[]> {
   let filteredTypes = types;
   
@@ -436,60 +497,110 @@ async function applyTypeFilters(
     filteredTypes = filteredTypes.filter(t => t.name.toLowerCase().includes(pattern));
   }
   
-  // Function count filters
-  if (options.fnEq !== undefined) {
-    const target = Number(options.fnEq);
+  // Helper function to parse and validate count value
+  const parseCountValue = (value: string | undefined, fieldName: string): number => {
+    if (value === undefined) return NaN;
+    const target = Number(value);
     if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid function count value for --fn-eq: ${options.fnEq}. Must be a non-negative integer.`);
+      throw new Error(`Invalid count value for ${fieldName}: ${value}. Must be a non-negative integer.`);
     }
-    filteredTypes = filteredTypes.filter(t => {
-      const count = functionCounts.get(t.id) || 0;
-      return count === target;
-    });
+    return target;
+  };
+
+  // Properties filters
+  const propEq = parseCountValue(options.propEq, '--prop-eq');
+  if (!isNaN(propEq)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) === propEq);
   }
-  
-  if (options.fnGe !== undefined) {
-    const target = Number(options.fnGe);
-    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid function count value for --fn-ge: ${options.fnGe}. Must be a non-negative integer.`);
-    }
-    filteredTypes = filteredTypes.filter(t => {
-      const count = functionCounts.get(t.id) || 0;
-      return count >= target;
-    });
+  const propGe = parseCountValue(options.propGe, '--prop-ge');
+  if (!isNaN(propGe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) >= propGe);
   }
-  
-  if (options.fnLe !== undefined) {
-    const target = Number(options.fnLe);
-    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid function count value for --fn-le: ${options.fnLe}. Must be a non-negative integer.`);
-    }
-    filteredTypes = filteredTypes.filter(t => {
-      const count = functionCounts.get(t.id) || 0;
-      return count <= target;
-    });
+  const propLe = parseCountValue(options.propLe, '--prop-le');
+  if (!isNaN(propLe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) <= propLe);
   }
-  
-  if (options.fnGt !== undefined) {
-    const target = Number(options.fnGt);
-    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid function count value for --fn-gt: ${options.fnGt}. Must be a non-negative integer.`);
-    }
-    filteredTypes = filteredTypes.filter(t => {
-      const count = functionCounts.get(t.id) || 0;
-      return count > target;
-    });
+  const propGt = parseCountValue(options.propGt, '--prop-gt');
+  if (!isNaN(propGt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) > propGt);
   }
-  
-  if (options.fnLt !== undefined) {
-    const target = Number(options.fnLt);
-    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid function count value for --fn-lt: ${options.fnLt}. Must be a non-negative integer.`);
-    }
-    filteredTypes = filteredTypes.filter(t => {
-      const count = functionCounts.get(t.id) || 0;
-      return count < target;
-    });
+  const propLt = parseCountValue(options.propLt, '--prop-lt');
+  if (!isNaN(propLt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) < propLt);
+  }
+
+  // Methods filters
+  const methEq = parseCountValue(options.methEq, '--meth-eq');
+  if (!isNaN(methEq)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) === methEq);
+  }
+  const methGe = parseCountValue(options.methGe, '--meth-ge');
+  if (!isNaN(methGe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) >= methGe);
+  }
+  const methLe = parseCountValue(options.methLe, '--meth-le');
+  if (!isNaN(methLe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) <= methLe);
+  }
+  const methGt = parseCountValue(options.methGt, '--meth-gt');
+  if (!isNaN(methGt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) > methGt);
+  }
+  const methLt = parseCountValue(options.methLt, '--meth-lt');
+  if (!isNaN(methLt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) < methLt);
+  }
+
+  // Total member filters
+  const totalEq = parseCountValue(options.totalEq, '--total-eq');
+  if (!isNaN(totalEq)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) === totalEq);
+  }
+  const totalGe = parseCountValue(options.totalGe, '--total-ge');
+  if (!isNaN(totalGe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) >= totalGe);
+  }
+  const totalLe = parseCountValue(options.totalLe, '--total-le');
+  if (!isNaN(totalLe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) <= totalLe);
+  }
+  const totalGt = parseCountValue(options.totalGt, '--total-gt');
+  if (!isNaN(totalGt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) > totalGt);
+  }
+  const totalLt = parseCountValue(options.totalLt, '--total-lt');
+  if (!isNaN(totalLt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) < totalLt);
+  }
+
+  // Legacy function count filters (mapped to methods)
+  const fnEq = parseCountValue(options.fnEq, '--fn-eq');
+  if (!isNaN(fnEq)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) === fnEq);
+  }
+  const fnGe = parseCountValue(options.fnGe, '--fn-ge');
+  if (!isNaN(fnGe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) >= fnGe);
+  }
+  const fnLe = parseCountValue(options.fnLe, '--fn-le');
+  if (!isNaN(fnLe)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) <= fnLe);
+  }
+  const fnGt = parseCountValue(options.fnGt, '--fn-gt');
+  if (!isNaN(fnGt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) > fnGt);
+  }
+  const fnLt = parseCountValue(options.fnLt, '--fn-lt');
+  if (!isNaN(fnLt)) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) < fnLt);
+  }
+
+  // Special filters
+  if (options.hasIndex) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.indexSignatures || 0) > 0);
+  }
+  if (options.hasCall) {
+    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.callSignatures || 0) > 0);
   }
   
   return filteredTypes;
@@ -502,9 +613,9 @@ function sortTypesDB(
   types: TypeDefinition[], 
   sortField: string, 
   desc?: boolean, 
-  functionCounts?: Map<string, number>
+  memberCounts?: Map<string, MemberCounts>
 ): TypeDefinition[] {
-  const validSortOptions = ['name', 'kind', 'file', 'functions', 'members'] as const;
+  const validSortOptions = ['name', 'kind', 'file', 'props', 'methods', 'ctors', 'total', 'functions', 'members'] as const;
   if (!validSortOptions.includes(sortField as typeof validSortOptions[number])) {
     throw new Error(`Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
   }
@@ -534,20 +645,62 @@ function sortTypesDB(
         }
         break;
       }
-      case 'functions': {
-        const aFnCount = functionCounts?.get(a.id) || 0;
-        const bFnCount = functionCounts?.get(b.id) || 0;
-        result = aFnCount - bFnCount;
+      case 'props': {
+        const aCount = memberCounts?.get(a.id)?.properties || 0;
+        const bCount = memberCounts?.get(b.id)?.properties || 0;
+        result = aCount - bCount;
         if (result === 0) {
           result = a.name.localeCompare(b.name); // Secondary sort by name
         }
         break;
       }
-      case 'members':
-        // TODO: Implement member count sorting when needed
-        // For now, fallback to name sorting
-        result = a.name.localeCompare(b.name);
+      case 'methods': {
+        const aCount = memberCounts?.get(a.id)?.methods || 0;
+        const bCount = memberCounts?.get(b.id)?.methods || 0;
+        result = aCount - bCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
         break;
+      }
+      case 'ctors': {
+        const aCount = memberCounts?.get(a.id)?.constructors || 0;
+        const bCount = memberCounts?.get(b.id)?.constructors || 0;
+        result = aCount - bCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        break;
+      }
+      case 'total': {
+        const aCount = memberCounts?.get(a.id)?.total || 0;
+        const bCount = memberCounts?.get(b.id)?.total || 0;
+        result = aCount - bCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        break;
+      }
+      case 'functions': {
+        // Legacy: map to methods
+        const aCount = memberCounts?.get(a.id)?.methods || 0;
+        const bCount = memberCounts?.get(b.id)?.methods || 0;
+        result = aCount - bCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        break;
+      }
+      case 'members': {
+        // Alias for total
+        const aCount = memberCounts?.get(a.id)?.total || 0;
+        const bCount = memberCounts?.get(b.id)?.total || 0;
+        result = aCount - bCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        break;
+      }
       default:
         result = a.name.localeCompare(b.name);
     }
@@ -847,15 +1000,21 @@ function findCircularDependencies(dependencies: Array<{ source: string; target: 
 function displayTypesListDB(
   types: TypeDefinition[],
   couplingData: Map<string, CouplingInfo>,
-  functionCounts: Map<string, number>,
-  detailed?: boolean
+  memberCounts: Map<string, MemberCounts>,
+  detailed?: boolean,
+  showLocation?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
   if (!detailed && types.length > 0) {
     // Table header for non-detailed output - emoji-free layout
-    console.log(`KIND EXP NAME                         FUNCS FILE                         LINE`);
-    console.log(`---- --- ----------------------------- ----- --------------------------- ----`);
+    if (showLocation) {
+      console.log(`KIND EXP NAME                   PROPS METHS CTORS IDX CALL TOTAL FILE                     LINE`);
+      console.log(`---- --- ----------------------- ----- ----- ----- --- ---- ----- ----------------------- ----`);
+    } else {
+      console.log(`KIND EXP NAME                   PROPS METHS CTORS IDX CALL TOTAL`);
+      console.log(`---- --- ----------------------- ----- ----- ----- --- ---- -----`);
+    }
   }
   
   for (const type of types) {
@@ -869,8 +1028,15 @@ function displayTypesListDB(
       console.log(`   📁 ${type.filePath}:${type.startLine}`);
       console.log(`   🏷️  ${type.kind}`);
       
-      const functionCount = functionCounts.get(type.id) || 0;
-      console.log(`   🔢 Functions: ${functionCount}`);
+      const memberCount = memberCounts.get(type.id) || {
+        properties: 0,
+        methods: 0,
+        constructors: 0,
+        indexSignatures: 0,
+        callSignatures: 0,
+        total: 0
+      };
+      console.log(`   🔢 Members: ${memberCount.properties} props, ${memberCount.methods} methods, ${memberCount.constructors} ctors, ${memberCount.total} total`);
       
       if (couplingData.has(type.id)) {
         const coupling = couplingData.get(type.id)!;
@@ -880,25 +1046,59 @@ function displayTypesListDB(
       console.log();
     } else {
       // Tabular view without emojis - consistent character width
-      const functionCount = functionCounts.get(type.id) || 0;
+      const memberCount = memberCounts.get(type.id) || {
+        properties: 0,
+        methods: 0,
+        constructors: 0,
+        indexSignatures: 0,
+        callSignatures: 0,
+        total: 0
+      };
       
       // Use text abbreviations instead of emojis for consistent alignment
       const kindText = getTypeKindText(type.kind);
       const exportText = type.isExported ? 'EXP' : '   ';
-      const nameDisplay = type.name.length > 30 ? type.name.substring(0, 27) + '...' : type.name;
-      const functionsDisplay = functionCount.toString();
-      const fileName = type.filePath.split('/').pop() || type.filePath;
-      const fileDisplay = fileName.length > 27 ? fileName.substring(0, 24) + '...' : fileName;
-      const lineDisplay = type.startLine.toString();
+      const nameDisplay = type.name.length > 23 ? type.name.substring(0, 20) + '...' : type.name;
       
-      console.log(
-        `${kindText.padEnd(4)} ` +
-        `${exportText} ` +
-        `${nameDisplay.padEnd(30)} ` +
-        `${functionsDisplay.padStart(5)} ` +
-        `${fileDisplay.padEnd(27)} ` +
-        `${lineDisplay.padStart(4)}`
-      );
+      // Display counts, using '-' for zero values
+      const propsDisplay = memberCount.properties > 0 ? memberCount.properties.toString() : '-';
+      const methsDisplay = memberCount.methods > 0 ? memberCount.methods.toString() : '-';
+      const ctorsDisplay = memberCount.constructors > 0 ? memberCount.constructors.toString() : '-';
+      const idxDisplay = memberCount.indexSignatures > 0 ? memberCount.indexSignatures.toString() : '-';
+      const callDisplay = memberCount.callSignatures > 0 ? memberCount.callSignatures.toString() : '-';
+      const totalDisplay = memberCount.total > 0 ? memberCount.total.toString() : '-';
+      
+      if (showLocation) {
+        const fileName = type.filePath.split('/').pop() || type.filePath;
+        const fileDisplay = fileName.length > 23 ? fileName.substring(0, 20) + '...' : fileName;
+        const lineDisplay = type.startLine.toString();
+        
+        console.log(
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(23)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)} ` +
+          `${fileDisplay.padEnd(23)} ` +
+          `${lineDisplay.padStart(4)}`
+        );
+      } else {
+        console.log(
+          `${kindText.padEnd(4)} ` +
+          `${exportText} ` +
+          `${nameDisplay.padEnd(23)} ` +
+          `${propsDisplay.padStart(5)} ` +
+          `${methsDisplay.padStart(5)} ` +
+          `${ctorsDisplay.padStart(5)} ` +
+          `${idxDisplay.padStart(3)} ` +
+          `${callDisplay.padStart(4)} ` +
+          `${totalDisplay.padStart(5)}`
+        );
+      }
     }
   }
   
