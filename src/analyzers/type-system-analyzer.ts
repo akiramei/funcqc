@@ -1,5 +1,6 @@
 import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasDeclaration, EnumDeclaration, ModuleDeclaration } from 'ts-morph';
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
+import { StorageAdapter } from '../types';
 import { Logger } from '../utils/cli-utils';
 import { PathNormalizer } from '../utils/path-normalizer';
 import { generateDeterministicTypeId } from '../utils/type-id-generator.js';
@@ -16,9 +17,19 @@ import { randomUUID } from 'crypto';
  */
 export class TypeSystemAnalyzer {
   private logger: Logger;
+  private storage: StorageAdapter | null = null;
+  private static readonly VIRTUAL_PATH_PREFIX = '/virtualsrc/';
+  private static readonly PHYSICAL_PATH_PREFIX = 'src/';
 
   constructor(_project: Project, logger: Logger = new Logger(false, false)) {
     this.logger = logger;
+  }
+
+  /**
+   * Set storage adapter for function ID lookup
+   */
+  setStorage(storage: StorageAdapter): void {
+    this.storage = storage;
   }
 
   /**
@@ -455,6 +466,9 @@ export class TypeSystemAnalyzer {
       this.logger.warn(`Source file not found for type ${typeDef.name} at ${typeDef.filePath}`);
       return members;
     }
+
+    // Build a cache of functions for this file to enable function ID lookup
+    const functionCache = await this.buildFunctionCache(typeDef.filePath, snapshotId);
     
     if (typeDef.kind === 'class') {
       const classDecl = sourceFile.getClasses().find(c => 
@@ -463,7 +477,7 @@ export class TypeSystemAnalyzer {
       );
       
       if (classDecl) {
-        members.push(...this.extractClassMembers(classDecl, typeDef.id, snapshotId));
+        members.push(...this.extractClassMembers(classDecl, typeDef.id, snapshotId, functionCache, typeDef.filePath));
       }
     } else if (typeDef.kind === 'interface') {
       const interfaceDecl = sourceFile.getInterfaces().find(i => 
@@ -472,7 +486,7 @@ export class TypeSystemAnalyzer {
       );
       
       if (interfaceDecl) {
-        members.push(...this.extractInterfaceMembers(interfaceDecl, typeDef.id, snapshotId));
+        members.push(...this.extractInterfaceMembers(interfaceDecl, typeDef.id, snapshotId, functionCache, typeDef.filePath));
       }
     }
     
@@ -482,7 +496,13 @@ export class TypeSystemAnalyzer {
   /**
    * Extract members from a class declaration
    */
-  private extractClassMembers(classDecl: ClassDeclaration, typeId: string, snapshotId: string): TypeMember[] {
+  private extractClassMembers(
+    classDecl: ClassDeclaration, 
+    typeId: string, 
+    snapshotId: string,
+    functionCache: Map<string, string>,
+    _filePath: string
+  ): TypeMember[] {
     const members: TypeMember[] = [];
     
     // Extract properties
@@ -513,14 +533,18 @@ export class TypeSystemAnalyzer {
     // Extract methods
     for (const method of classDecl.getMethods()) {
       const id = randomUUID();
-      // TODO: Link to actual function ID from database - for now set to null
-      const functionId = null;
+      const methodName = method.getName();
+      const startLine = method.getStartLineNumber();
+      const endLine = method.getEndLineNumber();
+      
+      // Look up function ID from cache
+      const functionId = this.lookupFunctionId(functionCache, methodName, startLine, endLine);
       
       members.push({
         id,
         snapshotId,
         typeId,
-        name: method.getName(),
+        name: methodName,
         memberKind: 'method',
         typeText: this.safeGetTypeText(method.getReturnType()),
         isOptional: false,
@@ -528,8 +552,8 @@ export class TypeSystemAnalyzer {
         isStatic: method.isStatic(),
         isAbstract: method.isAbstract(),
         accessModifier: this.getAccessModifier(method),
-        startLine: method.getStartLineNumber(),
-        endLine: method.getEndLineNumber(),
+        startLine,
+        endLine,
         startColumn: this.getColumnPosition(method),
         endColumn: this.getColumnPosition(method, true),
         functionId,
@@ -633,7 +657,13 @@ export class TypeSystemAnalyzer {
   /**
    * Extract members from an interface declaration
    */
-  private extractInterfaceMembers(interfaceDecl: InterfaceDeclaration, typeId: string, snapshotId: string): TypeMember[] {
+  private extractInterfaceMembers(
+    interfaceDecl: InterfaceDeclaration, 
+    typeId: string, 
+    snapshotId: string,
+    functionCache: Map<string, string>,
+    _filePath: string
+  ): TypeMember[] {
     const members: TypeMember[] = [];
     
     // Extract properties
@@ -664,11 +694,18 @@ export class TypeSystemAnalyzer {
     // Extract methods
     for (const method of interfaceDecl.getMethods()) {
       const id = randomUUID();
+      const methodName = method.getName();
+      const startLine = method.getStartLineNumber();
+      const endLine = method.getEndLineNumber();
+      
+      // Look up function ID from cache (though interfaces typically don't have implementations)
+      const functionId = this.lookupFunctionId(functionCache, methodName, startLine, endLine);
+      
       members.push({
         id,
         snapshotId,
         typeId,
-        name: method.getName(),
+        name: methodName,
         memberKind: 'method',
         typeText: this.safeGetTypeText(method.getReturnType()),
         isOptional: method.hasQuestionToken(),
@@ -676,11 +713,11 @@ export class TypeSystemAnalyzer {
         isStatic: false,
         isAbstract: true, // Interface methods are always abstract
         accessModifier: null,
-        startLine: method.getStartLineNumber(),
-        endLine: method.getEndLineNumber(),
+        startLine,
+        endLine,
         startColumn: this.getColumnPosition(method),
         endColumn: this.getColumnPosition(method, true),
-        functionId: null,
+        functionId,
         jsdoc: method.getJsDocs().map(jsdoc => this.safeGetText(jsdoc)).join('\n') || null,
         metadata: {
           parameters: method.getParameters().map(p => ({
@@ -856,6 +893,58 @@ export class TypeSystemAnalyzer {
       this.logger.warn('Failed to get node text:', error);
       return '';
     }
+  }
+
+  /**
+   * Build a cache of functions for a given file to enable efficient function ID lookup
+   */
+  private async buildFunctionCache(filePath: string, snapshotId: string): Promise<Map<string, string>> {
+    const cache = new Map<string, string>();
+    
+    if (!this.storage) {
+      this.logger.warn('Storage not available for function ID lookup');
+      return cache;
+    }
+    
+    try {
+      // Handle virtual path to physical path conversion
+      // Type analysis uses virtual paths (/virtualsrc/...) but functions are stored with physical paths (src/...)
+      const physicalPath = filePath.startsWith(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX) 
+        ? filePath.replace(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX, TypeSystemAnalyzer.PHYSICAL_PATH_PREFIX) 
+        : filePath;
+      
+      // Query database for functions in this file
+      const result = await this.storage.query(
+        'SELECT id, name, start_line, end_line FROM functions WHERE snapshot_id = $1 AND file_path = $2 AND is_method = true',
+        [snapshotId, physicalPath]
+      );
+      
+      // Build cache with key: `${methodName}-${startLine}-${endLine}`, value: function ID
+      for (const row of result.rows) {
+        const typedRow = row as { id: string; name: string; start_line: number; end_line: number };
+        const key = `${typedRow.name}-${typedRow.start_line}-${typedRow.end_line}`;
+        cache.set(key, typedRow.id);
+      }
+      
+      this.logger.debug(`Built function cache for ${filePath} (physical: ${physicalPath}): ${cache.size} methods found`);
+    } catch (error) {
+      this.logger.warn(`Failed to build function cache for ${filePath}:`, error);
+    }
+    
+    return cache;
+  }
+
+  /**
+   * Lookup function ID for a method by name and position
+   */
+  private lookupFunctionId(
+    functionCache: Map<string, string>, 
+    methodName: string, 
+    startLine: number, 
+    endLine: number
+  ): string | null {
+    const key = `${methodName}-${startLine}-${endLine}`;
+    return functionCache.get(key) || null;
   }
 
   /**

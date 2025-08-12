@@ -62,10 +62,10 @@ export interface CallInfo {
 export interface CouplingDataMap {
   parameterUsage: Map<string, Map<string, Set<string>>>; // funcId -> paramName -> usedProperties
   bucketBrigade: Map<string, Map<string, Set<string>>>; // funcId -> paramName -> calleeIds
-  overCoupling: Map<string, CouplingAnalysis[]>; // funcId -> coupling issues
+  overCoupling: Map<string, SimpleCouplingAnalysis[]>; // funcId -> coupling issues
 }
 
-export interface CouplingAnalysis {
+export interface SimpleCouplingAnalysis {
   parameterName: string;
   usedProperties: string[];
   totalProperties: number;
@@ -332,7 +332,7 @@ export class OnePassASTVisitor {
    */
   private analyzeCoupling(ctx: ScanContext): void {
     for (const [funcId, paramUsage] of ctx.couplingData.parameterUsage) {
-      const analyses: CouplingAnalysis[] = [];
+      const analyses: SimpleCouplingAnalysis[] = [];
       
       for (const [paramName, usedProps] of paramUsage) {
         // Get total properties for this parameter type

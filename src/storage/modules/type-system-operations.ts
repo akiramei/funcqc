@@ -65,27 +65,35 @@ export class TypeSystemOperations {
     }
 
     try {
-      const insertData = types.map(type => ({
-        id: type.id,
-        snapshot_id: type.snapshotId,
-        name: type.name,
-        kind: type.kind,
-        file_path: type.filePath,
-        start_line: type.startLine,
-        end_line: type.endLine,
-        start_column: type.startColumn,
-        end_column: type.endColumn,
-        is_abstract: type.isAbstract,
-        is_exported: type.isExported,
-        is_default_export: type.isDefaultExport,
-        is_generic: type.isGeneric,
-        generic_parameters: this.safeJsonStringify(type.genericParameters || [], '[]'),
-        type_text: type.typeText || null,
-        resolved_type: type.resolvedType ? this.safeJsonStringify(type.resolvedType, null) : null,
-        modifiers: this.safeJsonStringify(type.modifiers || [], '[]'),
-        jsdoc: type.jsdoc || null,
-        metadata: this.safeJsonStringify(type.metadata || {}, '{}')
-      }));
+      const insertData = types.map(type => {
+        const data = {
+          id: type.id,
+          snapshot_id: type.snapshotId,
+          name: type.name,
+          kind: type.kind,
+          file_path: type.filePath,
+          start_line: type.startLine,
+          end_line: type.endLine,
+          start_column: type.startColumn,
+          end_column: type.endColumn,
+          is_abstract: type.isAbstract,
+          is_exported: type.isExported,
+          is_default_export: type.isDefaultExport,
+          is_generic: type.isGeneric,
+          generic_parameters: this.safeJsonStringify(type.genericParameters || [], '[]'),
+          type_text: type.typeText || null,
+          resolved_type: type.resolvedType ? this.safeJsonStringify(type.resolvedType, null) : null,
+          modifiers: this.safeJsonStringify(type.modifiers || [], '[]'),
+          jsdoc: type.jsdoc || null,
+          metadata: this.safeJsonStringify(type.metadata || {}, '{}')
+        };
+        
+        // Skip detailed validation for performance
+        
+        return data;
+      });
+
+      // Database will handle constraint enforcement with ON CONFLICT
 
       // Use the same bulk insert pattern as FunctionOperations
       const columns = ['id', 'snapshot_id', 'name', 'kind', 'file_path', 'start_line', 'end_line', 'start_column', 'end_column',
@@ -105,7 +113,7 @@ export class TypeSystemOperations {
         { idempotent: true }
       );
     } catch (error) {
-      
+      console.error(`❌ Failed to save type definitions:`, error instanceof Error ? error.message : String(error));
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
         `Failed to save type definitions in transaction: ${error instanceof Error ? error.message : String(error)}`,
@@ -130,6 +138,12 @@ export class TypeSystemOperations {
         await this.saveTypeDefinitionsInTransaction(trx, types);
       });
     } catch (error) {
+      console.error(`❌ Failed to save type definitions:`, error);
+      console.error(`❌ Error details:`, {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
         `Failed to save type definitions: ${error instanceof Error ? error.message : String(error)}`,
@@ -173,6 +187,7 @@ export class TypeSystemOperations {
         columns.map(col => (row as Record<string, unknown>)[col])
       ), { idempotent: true });
     } catch (error) {
+      console.error(`❌ Database error during type relationships save:`, error);
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
         'Failed to save type relationships in transaction',
@@ -197,6 +212,12 @@ export class TypeSystemOperations {
         await this.saveTypeRelationshipsInTransaction(trx, relationships);
       });
     } catch (error) {
+      console.error(`❌ Failed to save type relationships:`, error);
+      console.error(`❌ Error details:`, {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        relationshipsCount: relationships.length
+      });
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
         'Failed to save type relationships',
@@ -430,6 +451,7 @@ export class TypeSystemOperations {
     snapshotId: string
   ): Promise<TypeDefinition[]> {
     try {
+      // Removed debug console logs to reduce noise during normal usage
       const rows = await this.kysely
         .selectFrom('type_definitions')
         .selectAll()

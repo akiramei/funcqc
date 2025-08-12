@@ -13,6 +13,7 @@ import {
   VariableStatement,
 } from 'ts-morph';
 import * as path from 'path';
+import { StorageAdapter } from '../types';
 import { determineFunctionType } from './shared/function-type-utils';
 import * as crypto from 'crypto';
 import * as fs from 'fs/promises';
@@ -141,6 +142,13 @@ export class TypeScriptAnalyzer extends CacheAware {
     
     // Initialize type system analyzer
     this.typeSystemAnalyzer = new TypeSystemAnalyzer(this.project, this.logger);
+  }
+
+  /**
+   * Set storage adapter for function ID lookup in type system analysis
+   */
+  setStorage(storage: unknown): void {
+    this.typeSystemAnalyzer.setStorage(storage as StorageAdapter);
   }
 
   /**

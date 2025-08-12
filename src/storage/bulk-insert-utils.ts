@@ -153,7 +153,12 @@ export function generateBulkInsertSQL(
 
   // Add idempotent clause if requested
   if (options?.idempotent) {
-    sql += ` ON CONFLICT (id) DO NOTHING`;
+    // For type_definitions table, use existing UNIQUE constraint to prevent true duplicates
+    if (tableName === 'type_definitions') {
+      sql += ` ON CONFLICT (snapshot_id, file_path, name, start_line) DO NOTHING`;
+    } else if (columns.includes('id')) {
+      sql += ` ON CONFLICT (id) DO NOTHING`;
+    } // else: id column doesn't exist, skip ON CONFLICT clause
   }
 
   return sql;

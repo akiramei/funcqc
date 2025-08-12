@@ -184,8 +184,14 @@ const COMMAND_GROUPS = {
   
   // Comprehensive: All data required
   COMPREHENSIVE: {
-    commands: ['health', 'types'],
+    commands: ['health'],
     requires: ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING']
+  },
+  
+  // Type System: Type information only
+  TYPE_SYSTEM_ONLY: {
+    commands: ['types'],
+    requires: ['BASIC', 'TYPE_SYSTEM']
   },
   
   // Deferred: Runs its own analysis

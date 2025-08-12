@@ -1,8 +1,9 @@
 import { Command } from 'commander';
-import { Logger } from '../../utils/cli-utils';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions } from './types.types';
-import { TypeDefinition, TypeRelationship, StorageAdapter, SnapshotInfo } from '../../types';
+import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
 
 /**
  * Database-driven types command
@@ -21,16 +22,20 @@ export function createTypesCommand(): Command {
     .option('--exported', 'Show only exported types')
     .option('--generic', 'Show only generic types')
     .option('--file <path>', 'Filter by file path')
+    .option('--name <pattern>', 'Filter by type name (contains)')
+    .option('--fn-eq <n>', 'Filter types with exactly N functions', parseInt)
+    .option('--fn-ge <n>', 'Filter types with >= N functions', parseInt)
+    .option('--fn-le <n>', 'Filter types with <= N functions', parseInt)
+    .option('--fn-gt <n>', 'Filter types with > N functions', parseInt)
+    .option('--fn-lt <n>', 'Filter types with < N functions', parseInt)
     .option('--limit <number>', 'Limit number of results', parseInt)
-    .option('--sort <field>', 'Sort by field (name|kind|file)', 'name')
+    .option('--sort <field>', 'Sort by field (name|kind|file|functions|members)', 'name')
     .option('--desc', 'Sort in descending order')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed information in multi-line format')
     .action(async (options: TypeListOptions, command) => {
-      // Merge global options
-      const globalOpts = command.parent?.opts() || {};
-      const mergedOptions = { ...globalOpts, ...options };
-      return executeTypesListDB(mergedOptions);
+      const { withEnvironment } = await import('../cli-wrapper');
+      return withEnvironment(executeTypesListDB)(options, command);
     });
 
   // Type health command
@@ -40,10 +45,8 @@ export function createTypesCommand(): Command {
     .option('--verbose', 'Show detailed health information')
     .option('--json', 'Output in JSON format')
     .action(async (options: TypeHealthOptions, command) => {
-      // Merge global options
-      const globalOpts = command.parent?.opts() || {};
-      const mergedOptions = { ...globalOpts, ...options };
-      return executeTypesHealthDB(mergedOptions);
+      const { withEnvironment } = await import('../cli-wrapper');
+      return withEnvironment(executeTypesHealthDB)(options, command);
     });
 
   // Type dependencies command
@@ -54,10 +57,10 @@ export function createTypesCommand(): Command {
     .option('--circular', 'Show only circular dependencies')
     .option('--json', 'Output in JSON format')
     .action(async (typeName: string, options: TypeDepsOptions, command) => {
-      // Merge global options
-      const globalOpts = command.parent?.opts() || {};
-      const mergedOptions = { ...globalOpts, ...options };
-      return executeTypesDepsDB(typeName, mergedOptions);
+      const { withEnvironment } = await import('../cli-wrapper');
+      // Pass typeName via options for VoidCommand compatibility
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesDepsDB)(optionsWithTypeName, command);
     });
 
   return typesCmd;
@@ -66,18 +69,18 @@ export function createTypesCommand(): Command {
 /**
  * Execute types list command using database
  */
-async function executeTypesListDB(options: TypeListOptions): Promise<void> {
-  const logger = new Logger();
-  const errorHandler = createErrorHandler(logger);
-  
-  let storage: StorageAdapter | undefined;
-  try {
-    logger.info('🔍 Loading types from database...');
+const executeTypesListDB: VoidCommand<TypeListOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
     
-    const result = await getStorageAndSnapshot();
-    storage = result.storage;
-    const latestSnapshot = result.latestSnapshot;
-    let types = await storage.getTypeDefinitions(latestSnapshot.id);
+    try {
+      // Silently load types first - only show messages if initialization needed
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      let types = await env.storage.getTypeDefinitions(latestSnapshot.id);
     
     // If no types found, trigger lazy type system analysis
     if (types.length === 0) {
@@ -88,17 +91,14 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       }
       
       // Create a minimal command environment for type analysis
-      const { createAppEnvironment, createCommandEnvironment, destroyAppEnvironment } = await import('../../core/environment');
+      const { createAppEnvironment, destroyAppEnvironment } = await import('../../core/environment');
       const appEnv = await createAppEnvironment({
         quiet: Boolean(isJsonMode),
         verbose: false,
       });
       
       try {
-        const commandEnv = createCommandEnvironment(appEnv, {
-          quiet: Boolean(isJsonMode),
-          verbose: false,
-        });
+        const commandEnv = env;
         
         // Ensure basic analysis is done first
         const metadata = latestSnapshot.metadata as Record<string, unknown>;
@@ -117,8 +117,40 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
           console.log(`✓ Type system analysis completed (${result.typesAnalyzed} types)`);
         }
         
-        // Reload types after analysis
-        types = await storage.getTypeDefinitions(latestSnapshot.id);
+        // Reload types after analysis (wait for transaction commit)
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug('Waiting for transaction commit...');
+        }
+        await new Promise(resolve => setTimeout(resolve, 100)); // Wait 100ms for commit
+        
+        // Debug: Check if tables exist at all
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug('Debugging database state...');
+          try {
+            const tableCheck = await env.storage.query("SELECT table_name FROM information_schema.tables WHERE table_name = 'type_definitions'");
+            env.commandLogger.debug(`type_definitions table exists: ${tableCheck.rows.length > 0}`);
+            
+            if (tableCheck.rows.length > 0) {
+              const countCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions");
+              env.commandLogger.debug(`Total rows in type_definitions: ${JSON.stringify(countCheck.rows[0])}`);
+              
+              const snapshotCheck = await env.storage.query("SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1", [latestSnapshot.id]);
+              env.commandLogger.debug(`Rows for snapshot ${latestSnapshot.id}: ${JSON.stringify(snapshotCheck.rows[0])}`);
+            } else {
+              env.commandLogger.debug('type_definitions table does not exist in database!');
+            }
+          } catch (error) {
+            env.commandLogger.debug(`Debug query failed: ${error}`);
+          }
+        }
+        
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug(`Reloading types from snapshot ${latestSnapshot.id}`);
+        }
+        types = await env.storage.getTypeDefinitions(latestSnapshot.id);
+        if (process.env['DEBUG'] === 'true') {
+          env.commandLogger.debug(`Found ${types.length} types after analysis`);
+        }
       } finally {
         await destroyAppEnvironment(appEnv);
       }
@@ -133,22 +165,26 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       return;
     }
     
-    // Apply filters
-    types = await applyTypeFilters(types, options);
+    // Get function counts for types using type_members table
+    const functionCounts = await getFunctionCountsForTypes(env.storage, types, latestSnapshot.id);
     
-    // Sort types
-    types = sortTypesDB(types, options.sort || 'name', options.desc);
+    // Apply filters (pass function counts for filtering)
+    types = await applyTypeFilters(types, options, functionCounts);
+    
+    // Sort types (pass function counts for sorting)
+    types = sortTypesDB(types, options.sort || 'name', options.desc, functionCounts);
     
     // Apply limit
     if (options.limit && options.limit > 0) {
       types = types.slice(0, options.limit);
     }
     
-    // Add coupling analysis (always enabled for comprehensive analysis)
-    let couplingData: Map<string, CouplingInfo> = new Map();
-    if (types.length > 0) {
-      couplingData = await analyzeCouplingForTypes(storage, types, latestSnapshot.id);
-    }
+    // Coupling analysis (temporarily disabled due to performance issues)
+    const couplingData: Map<string, CouplingInfo> = new Map();
+    // TODO: Optimize analyzeCouplingForTypes query performance
+    // if (types.length > 0) {
+    //   couplingData = await analyzeCouplingForTypes(env.storage, types, latestSnapshot.id);
+    // }
     
     // Output results
     if (options.json) {
@@ -158,7 +194,7 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       }));
       console.log(JSON.stringify(output, null, 2));
     } else {
-      displayTypesListDB(types, couplingData, options.detail);
+      displayTypesListDB(types, couplingData, functionCounts, options.detail);
     }
 
   } catch (error) {
@@ -174,28 +210,25 @@ async function executeTypesListDB(options: TypeListOptions): Promise<void> {
       );
       errorHandler.handleError(funcqcError);
     }
-  } finally {
-    if (storage) {
-      await storage.close();
-    }
   }
-}
+};
 
 /**
  * Execute types health command using database
  */
-async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
-  const logger = new Logger();
-  const errorHandler = createErrorHandler(logger);
-  
-  let storage: StorageAdapter | undefined;
-  try {
-    logger.info('🏥 Analyzing type health from database...');
+const executeTypesHealthDB: VoidCommand<TypeHealthOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
     
-    const result = await getStorageAndSnapshot();
-    storage = result.storage;
-    const latestSnapshot = result.latestSnapshot;
-    const types = await storage.getTypeDefinitions(latestSnapshot.id);
+    try {
+      env.commandLogger.info('🏥 Analyzing type health from database...');
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      const types = await env.storage.getTypeDefinitions(latestSnapshot.id);
     
     if (types.length === 0) {
       console.log('No types found. Run scan first to analyze types.');
@@ -223,28 +256,28 @@ async function executeTypesHealthDB(options: TypeHealthOptions): Promise<void> {
       );
       errorHandler.handleError(funcqcError);
     }
-  } finally {
-    if (storage) {
-      await storage.close();
-    }
   }
-}
+};
 
 /**
  * Execute types deps command using database
  */
-async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): Promise<void> {
-  const logger = new Logger();
-  const errorHandler = createErrorHandler(logger);
-  
-  let storage: StorageAdapter | undefined;
-  try {
-    logger.info(`🔗 Analyzing dependencies for type: ${typeName}`);
+const executeTypesDepsDB: VoidCommand<TypeDepsOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
     
-    const result = await getStorageAndSnapshot();
-    storage = result.storage;
-    const latestSnapshot = result.latestSnapshot;
-    const targetType = await storage.findTypeByName(typeName, latestSnapshot.id);
+    try {
+      // Get typeName from options (passed from action)
+      const typeName = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`🔗 Analyzing dependencies for type: ${typeName}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      const targetType = await env.storage.findTypeByName(typeName, latestSnapshot.id);
     
     if (!targetType) {
       const funcqcError = errorHandler.createError(
@@ -255,7 +288,7 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
       throw funcqcError;
     }
     
-    const relationships = await storage.getTypeRelationships(latestSnapshot.id);
+    const relationships = await env.storage.getTypeRelationships(latestSnapshot.id);
     const depth = 
       typeof options.depth === 'number' && Number.isFinite(options.depth) 
         ? options.depth 
@@ -293,12 +326,8 @@ async function executeTypesDepsDB(typeName: string, options: TypeDepsOptions): P
       );
       errorHandler.handleError(funcqcError);
     }
-  } finally {
-    if (storage) {
-      await storage.close();
-    }
   }
-}
+};
 
 // Helper types and functions
 
@@ -330,43 +359,44 @@ interface TypeHealthReport {
   overallHealth: 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR';
 }
 
+
 /**
- * Get storage adapter and latest snapshot
+ * Get function counts for types using type_members table
  */
-async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; latestSnapshot: SnapshotInfo }> {
-  // Get storage from environment or create new instance
-  const { PGLiteStorageAdapter } = await import('../../storage/pglite-adapter');
-  const { ConfigManager } = await import('../../core/config');
-  
-  const configManager = new ConfigManager();
-  const config = await configManager.load();
-  
-  const logger = new Logger();
-  const storage = new PGLiteStorageAdapter(
-    config.storage?.path ?? '.funcqc/funcqc.db',
-    logger
-  );
+async function getFunctionCountsForTypes(
+  storage: { query: (sql: string, params: unknown[]) => Promise<{ rows: unknown[] }> },
+  _types: TypeDefinition[],
+  snapshotId: string
+): Promise<Map<string, number>> {
+  const functionCounts = new Map<string, number>();
   
   try {
-    await storage.init();
+    // Query type_members table to count methods/functions per type
+    const result = await storage.query(`
+      SELECT 
+        tm.type_id,
+        COUNT(*) as function_count
+      FROM type_members tm
+      WHERE tm.snapshot_id = $1
+        AND tm.member_kind IN ('method', 'constructor')
+        AND tm.function_id IS NOT NULL
+      GROUP BY tm.type_id
+    `, [snapshotId]);
     
-    const snapshots = await storage.getSnapshots({ limit: 1 });
-    if (snapshots.length === 0) {
-      // Ensure we always close even when no snapshots are found
-      await storage.close();
-      throw new Error('No snapshots found. Run scan first to analyze the codebase.');
-    }
+    result.rows.forEach((row: unknown) => {
+      const typedRow = row as { type_id: string; function_count: string };
+      functionCounts.set(typedRow.type_id, parseInt(typedRow.function_count, 10));
+    });
     
-    return { storage, latestSnapshot: snapshots[0] };
-  } catch (e) {
-    // Attempt to close even if init() or getSnapshots() failed
-    try { 
-      await storage.close(); 
-    } catch {
-      /* ignore close errors */
+    // Only show function count summary when many types lack counts (indicating potential issues)
+    if (functionCounts.size < _types.length / 3) {
+      console.log(`📊 Found function counts for ${functionCounts.size} types (${_types.length - functionCounts.size} types have no functions)`);
     }
-    throw e;
+  } catch (error) {
+    console.warn(`Warning: Failed to get function counts: ${error}`);
   }
+  
+  return functionCounts;
 }
 
 /**
@@ -374,10 +404,12 @@ async function getStorageAndSnapshot(): Promise<{ storage: StorageAdapter; lates
  */
 async function applyTypeFilters(
   types: TypeDefinition[],
-  options: TypeListOptions
+  options: TypeListOptions,
+  functionCounts: Map<string, number>
 ): Promise<TypeDefinition[]> {
   let filteredTypes = types;
   
+  // Basic filters
   if (options.kind) {
     const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
     if (!validKinds.includes(options.kind as typeof validKinds[number])) {
@@ -399,51 +431,140 @@ async function applyTypeFilters(
     filteredTypes = filteredTypes.filter(t => t.filePath.includes(filePath));
   }
   
+  if (options.name) {
+    const pattern = options.name.toLowerCase();
+    filteredTypes = filteredTypes.filter(t => t.name.toLowerCase().includes(pattern));
+  }
+  
+  // Function count filters
+  if (options.fnEq !== undefined) {
+    const target = Number(options.fnEq);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-eq: ${options.fnEq}. Must be a non-negative integer.`);
+    }
+    filteredTypes = filteredTypes.filter(t => {
+      const count = functionCounts.get(t.id) || 0;
+      return count === target;
+    });
+  }
+  
+  if (options.fnGe !== undefined) {
+    const target = Number(options.fnGe);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-ge: ${options.fnGe}. Must be a non-negative integer.`);
+    }
+    filteredTypes = filteredTypes.filter(t => {
+      const count = functionCounts.get(t.id) || 0;
+      return count >= target;
+    });
+  }
+  
+  if (options.fnLe !== undefined) {
+    const target = Number(options.fnLe);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-le: ${options.fnLe}. Must be a non-negative integer.`);
+    }
+    filteredTypes = filteredTypes.filter(t => {
+      const count = functionCounts.get(t.id) || 0;
+      return count <= target;
+    });
+  }
+  
+  if (options.fnGt !== undefined) {
+    const target = Number(options.fnGt);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-gt: ${options.fnGt}. Must be a non-negative integer.`);
+    }
+    filteredTypes = filteredTypes.filter(t => {
+      const count = functionCounts.get(t.id) || 0;
+      return count > target;
+    });
+  }
+  
+  if (options.fnLt !== undefined) {
+    const target = Number(options.fnLt);
+    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
+      throw new Error(`Invalid function count value for --fn-lt: ${options.fnLt}. Must be a non-negative integer.`);
+    }
+    filteredTypes = filteredTypes.filter(t => {
+      const count = functionCounts.get(t.id) || 0;
+      return count < target;
+    });
+  }
+  
   return filteredTypes;
 }
 
 /**
  * Sort types by field
  */
-function sortTypesDB(types: TypeDefinition[], sortField: string, desc?: boolean): TypeDefinition[] {
-  const validSortOptions = ['name', 'kind', 'file'] as const;
+function sortTypesDB(
+  types: TypeDefinition[], 
+  sortField: string, 
+  desc?: boolean, 
+  functionCounts?: Map<string, number>
+): TypeDefinition[] {
+  const validSortOptions = ['name', 'kind', 'file', 'functions', 'members'] as const;
   if (!validSortOptions.includes(sortField as typeof validSortOptions[number])) {
     throw new Error(`Invalid sort option: ${sortField}. Valid options are: ${validSortOptions.join(', ')}`);
   }
   
   const sorted = [...types].sort((a, b) => {
-    let aVal: string;
-    let bVal: string;
+    let result: number;
     
     switch (sortField) {
       case 'name':
-        aVal = a.name;
-        bVal = b.name;
+        result = a.name.localeCompare(b.name);
         break;
-      case 'kind':
-        aVal = a.kind;
-        bVal = b.kind;
+      case 'kind': {
+        // Sort by kind priority: class > interface > type_alias > enum > namespace
+        const kindPriority = { class: 5, interface: 4, type_alias: 3, enum: 2, namespace: 1 };
+        const aPriority = kindPriority[a.kind as keyof typeof kindPriority] || 0;
+        const bPriority = kindPriority[b.kind as keyof typeof kindPriority] || 0;
+        result = aPriority - bPriority;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
         break;
-      case 'file':
-        aVal = a.filePath;
-        bVal = b.filePath;
+      }
+      case 'file': {
+        result = a.filePath.localeCompare(b.filePath);
+        if (result === 0) {
+          result = a.startLine - b.startLine; // Secondary sort by line
+        }
+        break;
+      }
+      case 'functions': {
+        const aFnCount = functionCounts?.get(a.id) || 0;
+        const bFnCount = functionCounts?.get(b.id) || 0;
+        result = aFnCount - bFnCount;
+        if (result === 0) {
+          result = a.name.localeCompare(b.name); // Secondary sort by name
+        }
+        break;
+      }
+      case 'members':
+        // TODO: Implement member count sorting when needed
+        // For now, fallback to name sorting
+        result = a.name.localeCompare(b.name);
         break;
       default:
-        aVal = a.name;
-        bVal = b.name;
+        result = a.name.localeCompare(b.name);
     }
     
-    return desc ? bVal.localeCompare(aVal) : aVal.localeCompare(bVal);
+    return desc ? -result : result;
   });
   
   return sorted;
 }
 
-/**
+/*
  * Analyze coupling for types using parameter property usage data
+ * (Temporarily disabled due to performance issues)
  */
+/*
 async function analyzeCouplingForTypes(
-  storage: StorageAdapter,
+  storage: any,
   types: TypeDefinition[],
   snapshotId: string
 ): Promise<Map<string, CouplingInfo>> {
@@ -532,10 +653,13 @@ async function analyzeCouplingForTypes(
   
   return couplingMap;
 }
+*/
 
-/**
+
+/*
  * Process coupling query results into structured format
  */
+/*
 function processCouplingQueryResults(
   rows: Array<Record<string, unknown>>
 ): CouplingInfo['parameterUsage'] {
@@ -581,6 +705,7 @@ function processCouplingQueryResults(
   
   return result;
 }
+*/
 
 /**
  * Calculate type health from database
@@ -722,19 +847,30 @@ function findCircularDependencies(dependencies: Array<{ source: string; target: 
 function displayTypesListDB(
   types: TypeDefinition[],
   couplingData: Map<string, CouplingInfo>,
+  functionCounts: Map<string, number>,
   detailed?: boolean
 ): void {
   console.log(`\n📋 Found ${types.length} types:\n`);
   
+  if (!detailed && types.length > 0) {
+    // Table header for non-detailed output - emoji-free layout
+    console.log(`KIND EXP NAME                         FUNCS FILE                         LINE`);
+    console.log(`---- --- ----------------------------- ----- --------------------------- ----`);
+  }
+  
   for (const type of types) {
-    const kindIcon = getTypeKindIcon(type.kind);
-    const exportIcon = type.isExported ? '📤' : '  ';
-    const genericIcon = type.isGeneric ? '<T>' : '   ';
-    
     if (detailed) {
+      // Detailed view with emojis (single-type display)
+      const kindIcon = getTypeKindIcon(type.kind);
+      const exportIcon = type.isExported ? 'EXP' : '   ';
+      const genericIcon = type.isGeneric ? '<T>' : '   ';
+      
       console.log(`${kindIcon} ${exportIcon} ${type.name} ${genericIcon}`);
       console.log(`   📁 ${type.filePath}:${type.startLine}`);
       console.log(`   🏷️  ${type.kind}`);
+      
+      const functionCount = functionCounts.get(type.id) || 0;
+      console.log(`   🔢 Functions: ${functionCount}`);
       
       if (couplingData.has(type.id)) {
         const coupling = couplingData.get(type.id)!;
@@ -743,13 +879,31 @@ function displayTypesListDB(
       
       console.log();
     } else {
-      const location = `${type.filePath.split('/').pop()}:${type.startLine}`;
-      const couplingInfo = couplingData.has(type.id) 
-        ? ` (${couplingData.get(type.id)!.totalFunctions}fn)`
-        : '';
+      // Tabular view without emojis - consistent character width
+      const functionCount = functionCounts.get(type.id) || 0;
       
-      console.log(`${kindIcon} ${exportIcon} ${type.name.padEnd(30)} ${type.kind.padEnd(12)} ${location}${couplingInfo}`);
+      // Use text abbreviations instead of emojis for consistent alignment
+      const kindText = getTypeKindText(type.kind);
+      const exportText = type.isExported ? 'EXP' : '   ';
+      const nameDisplay = type.name.length > 30 ? type.name.substring(0, 27) + '...' : type.name;
+      const functionsDisplay = functionCount.toString();
+      const fileName = type.filePath.split('/').pop() || type.filePath;
+      const fileDisplay = fileName.length > 27 ? fileName.substring(0, 24) + '...' : fileName;
+      const lineDisplay = type.startLine.toString();
+      
+      console.log(
+        `${kindText.padEnd(4)} ` +
+        `${exportText} ` +
+        `${nameDisplay.padEnd(30)} ` +
+        `${functionsDisplay.padStart(5)} ` +
+        `${fileDisplay.padEnd(27)} ` +
+        `${lineDisplay.padStart(4)}`
+      );
     }
+  }
+  
+  if (!detailed && types.length === 0) {
+    console.log('No types found matching the criteria.');
   }
 }
 
@@ -810,6 +964,17 @@ function getTypeKindIcon(kind: string): string {
     case 'enum': return '🔢';
     case 'namespace': return '📦';
     default: return '❓';
+  }
+}
+
+function getTypeKindText(kind: string): string {
+  switch (kind) {
+    case 'interface': return 'INTF';
+    case 'class': return 'CLSS';
+    case 'type_alias': return 'TYPE';
+    case 'enum': return 'ENUM';
+    case 'namespace': return 'NSPC';
+    default: return 'UNKN';
   }
 }
 

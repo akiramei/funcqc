@@ -170,6 +170,7 @@ CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_
 -- 条件付きインデックス
 CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
 CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
+CREATE INDEX idx_functions_snapshot_file_method ON functions(snapshot_id, file_path) WHERE is_method = TRUE;
 
 -- File relationship indexes (N:1 design)
 CREATE INDEX idx_functions_source_file_ref_id ON functions(source_file_ref_id);
@@ -220,6 +221,7 @@ CREATE INDEX idx_function_descriptions_needs_review ON function_descriptions(nee
 CREATE TABLE function_parameters (
   id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   function_id TEXT NOT NULL,             -- 物理ID参照
+  snapshot_id TEXT NOT NULL,             -- スナップショット参照
   name TEXT NOT NULL,
   type TEXT NOT NULL,                    -- TypeScript型表現
   type_simple TEXT NOT NULL,             -- 簡略型（string, number等）
@@ -228,7 +230,8 @@ CREATE TABLE function_parameters (
   is_rest BOOLEAN DEFAULT FALSE,         -- ...rest パラメータ
   default_value TEXT,                    -- デフォルト値（あれば）
   description TEXT,                      -- JSDocからの説明
-  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);
@@ -252,6 +255,7 @@ CREATE INDEX idx_function_documentation_created_at ON function_documentation(cre
 -- -----------------------------------------------------------------------------
 CREATE TABLE quality_metrics (
   function_id TEXT PRIMARY KEY,          -- 物理ID参照
+  snapshot_id TEXT NOT NULL,             -- スナップショット参照
   lines_of_code INTEGER NOT NULL,       -- 実行可能行数
   total_lines INTEGER NOT NULL,         -- コメント込み総行数
   cyclomatic_complexity INTEGER NOT NULL,
@@ -269,7 +273,8 @@ CREATE TABLE quality_metrics (
   halstead_volume REAL,                 -- Halstead Volume（オプション）
   halstead_difficulty REAL,            -- Halstead Difficulty（オプション）
   maintainability_index REAL,          -- 保守性指標（オプション）
-  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE
+  FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
 );
 
 -- パフォーマンス最適化インデックス

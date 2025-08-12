@@ -33,6 +33,7 @@ export class CHATypeSystemIntegration {
    */
   setStorage(storage: StorageAdapter): void {
     this.storage = storage;
+    this.typeSystemAnalyzer.setStorage(storage);
   }
 
   /**
@@ -53,9 +54,11 @@ export class CHATypeSystemIntegration {
     const edges = await this.chaAnalyzer.performCHAAnalysis(functions, unresolvedEdges);
     this.logger.debug(`CHA analysis produced ${edges.length} edges`);
 
-    // Phase 2: Extract comprehensive type information
+    // Phase 2: Extract comprehensive type information (CHA-specific extraction for method resolution)
+    // Note: Main type extraction is handled by performDeferredTypeSystemAnalysis to avoid duplication
+    this.logger.debug('Performing CHA-specific type extraction for method resolution');
     const typeInfo = await this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
-    this.logger.debug(`Type extraction found ${typeInfo.typeDefinitions.length} types, ${typeInfo.typeRelationships.length} relationships`);
+    this.logger.debug(`CHA type extraction found ${typeInfo.typeDefinitions.length} types, ${typeInfo.typeRelationships.length} relationships`);
 
     // Phase 3: Enhance type information with CHA data
     const enhancedTypeInfo = await this.enhanceTypeInfoWithCHA(typeInfo, snapshotId);
