@@ -1,5 +1,20 @@
 import { Command } from 'commander';
-import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, isUuidOrPrefix, escapeLike } from './types.types';
+import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, isUuidOrPrefix, escapeLike } from './types.types';
+
+// Types for insights command
+interface AnalysisResults {
+  coverage?: unknown;
+  api?: unknown;
+  clustering?: unknown;
+  risk?: unknown;
+}
+
+interface InsightsReport {
+  typeName: string;
+  typeId: string;
+  timestamp: string;
+  analyses: AnalysisResults;
+}
 import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
@@ -94,6 +109,7 @@ export function createTypesCommand(): Command {
     .description('📊 Analyze type API design and surface area')
     .option('--json', 'Output in JSON format')
     .option('--detail', 'Show detailed analysis')
+    .option('--optimize', 'Include optimization recommendations')
     .action(async (typeName: string, options: TypeApiOptions, command) => {
       const { withEnvironment } = await import('../cli-wrapper');
       const optionsWithTypeName = { ...options, typeName };
@@ -112,6 +128,66 @@ export function createTypesCommand(): Command {
       const { withEnvironment } = await import('../cli-wrapper');
       const optionsWithTypeName = { ...options, typeName };
       return withEnvironment(executeTypesMembersDB)(optionsWithTypeName, command);
+    });
+
+  // Type coverage analysis command
+  typesCmd
+    .command('coverage <typeName>')
+    .description('📊 Analyze property usage coverage and patterns')
+    .option('--json', 'Output in JSON format')
+    .option('--hot-threshold <number>', 'Minimum calls for hot properties', parseInt, 5)
+    .option('--write-hub-threshold <number>', 'Minimum writers for write hubs', parseInt, 3)
+    .option('--include-private', 'Include private properties in analysis')
+    .action(async (typeName: string, options: TypeCoverageOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesCoverageDB)(optionsWithTypeName, command);
+    });
+
+  // Type clustering analysis command
+  typesCmd
+    .command('cluster <typeName>')
+    .description('🎪 Analyze property clustering and co-occurrence patterns')
+    .option('--json', 'Output in JSON format')
+    .option('--similarity-threshold <number>', 'Minimum similarity for clustering', parseFloat, 0.7)
+    .option('--min-cluster-size <number>', 'Minimum properties per cluster', parseInt, 2)
+    .action(async (typeName: string, options: TypeClusterOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesClusterDB)(optionsWithTypeName, command);
+    });
+
+  // Type dependency risk analysis command
+  typesCmd
+    .command('risk <typeName>')
+    .description('⚠️ Analyze dependency risk and change impact')
+    .option('--json', 'Output in JSON format')
+    .action(async (typeName: string, options: TypeRiskOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { ...options, typeName };
+      return withEnvironment(executeTypesRiskDB)(optionsWithTypeName, command);
+    });
+
+  // Comprehensive type insights command
+  typesCmd
+    .command('insights <typeName>')
+    .description('🔍 Comprehensive type analysis combining all insights')
+    .option('--json', 'Output in JSON format')
+    .option('--no-coverage', 'Skip coverage analysis')
+    .option('--no-api', 'Skip API optimization analysis')
+    .option('--no-cluster', 'Skip property clustering analysis')
+    .option('--no-risk', 'Skip dependency risk analysis')
+    .action(async (typeName: string, options: TypeInsightsOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      const optionsWithTypeName = { 
+        ...options, 
+        typeName,
+        includeCoverage: true,
+        includeApi: true,
+        includeCluster: true,
+        includeRisk: true
+      };
+      return withEnvironment(executeTypesInsightsDB)(optionsWithTypeName, command);
     });
 
   return typesCmd;
@@ -435,10 +511,28 @@ const executeTypesApiDB: VoidCommand<TypeApiOptions> = (options) =>
       // Analyze API surface area
       const apiAnalysis = analyzeTypeApiSurface(targetType, memberCount);
       
+      // Optional optimization analysis
+      let optimizationAnalysis = null;
+      if (options.optimize) {
+        const { ApiOptimizer } = await import('../../analyzers/type-insights/api-optimizer');
+        const optimizer = new ApiOptimizer(env.storage);
+        optimizationAnalysis = await optimizer.analyzeApiOptimization(targetType.id, latestSnapshot.id);
+      }
+      
       if (options.json) {
-        console.log(JSON.stringify(apiAnalysis, null, 2));
+        const result = {
+          apiAnalysis,
+          optimizationAnalysis: optimizationAnalysis ?? null
+        };
+        console.log(JSON.stringify(result, null, 2));
       } else {
         displayTypeApiAnalysis(targetType.name, apiAnalysis, options.detail);
+        
+        if (optimizationAnalysis) {
+          const { ApiOptimizer } = await import('../../analyzers/type-insights/api-optimizer');
+          const optimizer = new ApiOptimizer(env.storage);
+          console.log(optimizer.formatOptimizationAnalysis(optimizationAnalysis));
+        }
       }
       
     } catch (error) {
@@ -514,6 +608,378 @@ const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) =>
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,
           `Failed to analyze type members: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Execute types coverage command using database
+ */
+const executeTypesCoverageDB: VoidCommand<TypeCoverageOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`📊 Analyzing property coverage for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Import and use the coverage analyzer
+      const { CoverageAnalyzer } = await import('../../analyzers/type-insights/coverage-analyzer');
+      const analyzer = new CoverageAnalyzer(env.storage);
+      
+      const analysis = await analyzer.analyzeTypeCoverage(
+        targetType.id,
+        latestSnapshot.id,
+        {
+          hotThreshold: options.hotThreshold ?? 5,
+          writeHubThreshold: options.writeHubThreshold ?? 3,
+          includePrivateProperties: options.includePrivate ?? false
+        }
+      );
+      
+      if (!analysis) {
+        console.log(`⚠️  No coverage analysis available for type ${targetType.name}`);
+        return;
+      }
+      
+      if (options.json) {
+        console.log(JSON.stringify(analysis, null, 2));
+      } else {
+        console.log(analyzer.formatCoverageAnalysis(analysis));
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze type coverage: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Execute types cluster command using database
+ */
+const executeTypesClusterDB: VoidCommand<TypeClusterOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`🎪 Analyzing property clustering for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Import and use the clustering analyzer
+      const { PropertyClusteringAnalyzer } = await import('../../analyzers/type-insights/property-clustering');
+      const analyzer = new PropertyClusteringAnalyzer(env.storage);
+      
+      // Set options if provided
+      if (options.similarityThreshold !== undefined) {
+        analyzer.setSimilarityThreshold(options.similarityThreshold);
+      }
+      if (options.minClusterSize !== undefined) {
+        analyzer.setMinClusterSize(options.minClusterSize);
+      }
+      
+      const analysis = await analyzer.analyzePropertyClustering(
+        targetType.id,
+        latestSnapshot.id
+      );
+      
+      if (!analysis) {
+        console.log(`⚠️  No clustering analysis available for type ${targetType.name}`);
+        return;
+      }
+      
+      if (options.json) {
+        console.log(JSON.stringify(analysis, (_key, value) => {
+          // Convert Set objects to arrays for JSON serialization
+          if (value instanceof Set) {
+            return Array.from(value);
+          }
+          return value;
+        }, 2));
+      } else {
+        console.log(analyzer.formatClusteringAnalysis(analysis));
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze property clustering: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Execute types risk command using database
+ */
+const executeTypesRiskDB: VoidCommand<TypeRiskOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`⚠️ Analyzing dependency risk for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Import and use the risk analyzer
+      const { DependencyRiskAnalyzer } = await import('../../analyzers/type-insights/dependency-risk');
+      const analyzer = new DependencyRiskAnalyzer(env.storage);
+      
+      const analysis = await analyzer.analyzeDependencyRisk(
+        targetType.id,
+        latestSnapshot.id
+      );
+      
+      if (!analysis) {
+        console.log(`⚠️  No risk analysis available for type ${targetType.name}`);
+        return;
+      }
+      
+      if (options.json) {
+        console.log(JSON.stringify(analysis, null, 2));
+      } else {
+        console.log(analyzer.formatDependencyRiskAnalysis(analysis));
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze dependency risk: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Execute types insights command - comprehensive analysis combining all insights
+ */
+const executeTypesInsightsDB: VoidCommand<TypeInsightsOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+    
+    try {
+      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      
+      env.commandLogger.info(`🔍 Running comprehensive analysis for type: ${typeNameOrId}`);
+      
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        throw new Error('No snapshots found. Run scan first to analyze the codebase.');
+      }
+      const latestSnapshot = snapshots[0];
+      
+      // Try to find by ID first (if looks like UUID), then by name
+      let targetType: TypeDefinition | null = null;
+      if (isUuidOrPrefix(typeNameOrId)) {
+        // Looks like a UUID or UUID prefix
+        targetType = await findTypeById(env.storage, typeNameOrId, latestSnapshot.id);
+      }
+      if (!targetType) {
+        targetType = await env.storage.findTypeByName(typeNameOrId, latestSnapshot.id);
+      }
+    
+      if (!targetType) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          `Type '${typeNameOrId}' not found (searched by ID and name)`,
+          { typeNameOrId }
+        );
+        throw funcqcError;
+      }
+      
+      // Prepare results container
+      const insights: InsightsReport = {
+        typeName: targetType.name,
+        typeId: targetType.id,
+        timestamp: new Date().toISOString(),
+        analyses: {}
+      };
+      
+      // Run coverage analysis
+      if (options.includeCoverage !== false) {
+        try {
+          const { CoverageAnalyzer } = await import('../../analyzers/type-insights/coverage-analyzer');
+          const coverageAnalyzer = new CoverageAnalyzer(env.storage);
+          const coverageAnalysis = await coverageAnalyzer.analyzeTypeCoverage(
+            targetType.id,
+            latestSnapshot.id
+          );
+          insights.analyses.coverage = coverageAnalysis;
+        } catch (error) {
+          env.commandLogger.warn(`Coverage analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+          insights.analyses.coverage = { error: 'Analysis failed' };
+        }
+      }
+      
+      // Run API optimization analysis
+      if (options.includeApi !== false) {
+        try {
+          const { ApiOptimizer } = await import('../../analyzers/type-insights/api-optimizer');
+          const apiOptimizer = new ApiOptimizer(env.storage);
+          const apiAnalysis = await apiOptimizer.analyzeApiOptimization(
+            targetType.id,
+            latestSnapshot.id
+          );
+          insights.analyses.api = apiAnalysis;
+        } catch (error) {
+          env.commandLogger.warn(`API analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+          insights.analyses.api = { error: 'Analysis failed' };
+        }
+      }
+      
+      // Run clustering analysis
+      if (options.includeCluster !== false) {
+        try {
+          const { PropertyClusteringAnalyzer } = await import('../../analyzers/type-insights/property-clustering');
+          const clusterAnalyzer = new PropertyClusteringAnalyzer(env.storage);
+          const clusterAnalysis = await clusterAnalyzer.analyzePropertyClustering(
+            targetType.id,
+            latestSnapshot.id
+          );
+          insights.analyses.clustering = clusterAnalysis;
+        } catch (error) {
+          env.commandLogger.warn(`Clustering analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+          insights.analyses.clustering = { error: 'Analysis failed' };
+        }
+      }
+      
+      // Run dependency risk analysis
+      if (options.includeRisk !== false) {
+        try {
+          const { DependencyRiskAnalyzer } = await import('../../analyzers/type-insights/dependency-risk');
+          const riskAnalyzer = new DependencyRiskAnalyzer(env.storage);
+          const riskAnalysis = await riskAnalyzer.analyzeDependencyRisk(
+            targetType.id,
+            latestSnapshot.id
+          );
+          insights.analyses.risk = riskAnalysis;
+        } catch (error) {
+          env.commandLogger.warn(`Risk analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+          insights.analyses.risk = { error: 'Analysis failed' };
+        }
+      }
+      
+      if (options.json) {
+        // Custom JSON serialization to handle Set objects
+        console.log(JSON.stringify(insights, (_key, value) => {
+          if (value instanceof Set) {
+            return Array.from(value);
+          }
+          return value;
+        }, 2));
+      } else {
+        // Format comprehensive report
+        console.log(formatIntegratedInsightsReport(insights));
+      }
+      
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to run comprehensive analysis: ${error instanceof Error ? error.message : String(error)}`,
           {},
           error instanceof Error ? error : undefined
         );
@@ -1765,5 +2231,154 @@ function getAccessModifierIcon(modifier: string | null): string {
     case 'protected': return '🛡️';
     case 'private': return '🔒';
     default: return '📋';
+  }
+}
+
+/**
+ * Format integrated insights report combining all analyses
+ */
+function formatIntegratedInsightsReport(insights: InsightsReport): string {
+  const lines: string[] = [];
+  const { typeName, analyses } = insights;
+  
+  lines.push(`\n🔍 Comprehensive Type Analysis for '${typeName}'\n`);
+  lines.push('=' .repeat(60));
+  lines.push('');
+  
+  // Coverage Summary
+  if (analyses['coverage'] && !(analyses['coverage'] as { error?: unknown }).error) {
+    const coverage = analyses['coverage'] as { 
+      hotProperties?: Array<{ property: string; totalCalls: number }>; 
+      coldProperties?: Array<{ property: string; totalCalls?: number }>; 
+      writeHubs?: Array<{ property: string; writerCount: number }>;
+    };
+    lines.push('📊 Usage Coverage:');
+    if (coverage.hotProperties?.length) {
+      const hot = coverage.hotProperties.slice(0, 3).map(p => `${p.property}(${p.totalCalls}c)`).join(', ');
+      lines.push(`  Hot: ${hot}`);
+    }
+    if (coverage.coldProperties?.length) {
+      const cold = coverage.coldProperties.slice(0, 3).map(p => `${p.property}(${p.totalCalls || 0})`).join(', ');
+      lines.push(`  Cold: ${cold}`);
+    }
+    if (coverage.writeHubs?.length) {
+      const hubs = coverage.writeHubs.slice(0, 2).map(h => `${h.property}(${h.writerCount}w)`).join(', ');
+      lines.push(`  Write Hubs: ${hubs}`);
+    }
+    lines.push('');
+  }
+  
+  // Clustering Summary
+  const clustering = analyses['clustering'] as { 
+    error?: unknown; 
+    clusters?: Array<{ suggestedName: string; properties: string[]; similarity: number }>;
+  };
+  if (clustering && !clustering.error && clustering.clusters?.length) {
+    lines.push('🎪 Property Clusters:');
+    for (const cluster of clustering.clusters.slice(0, 3)) {
+      const similarity = Math.round(cluster.similarity * 100);
+      lines.push(`  ${cluster.suggestedName}: (${cluster.properties.join(',')}) ${similarity}% similarity`);
+    }
+    lines.push('');
+  }
+  
+  // API Optimization Summary
+  const api = analyses['api'] as {
+    error?: unknown;
+    unusedOverloads?: Array<{ methodName: string }>;
+    readonlyCandidates?: Array<{ propertyName: string }>;
+    unusedSetters?: Array<{ propertyName: string }>;
+  };
+  if (api && !api.error) {
+    lines.push('🎯 API Optimization:');
+    if (api.unusedOverloads?.length) {
+      const unused = api.unusedOverloads.slice(0, 2).map(o => `${o.methodName}()`).join(', ');
+      lines.push(`  Unused overloads: ${unused}`);
+    }
+    if (api.readonlyCandidates?.length) {
+      const readonly = api.readonlyCandidates.slice(0, 2).map(r => r.propertyName).join(', ');
+      lines.push(`  Readonly candidates: ${readonly}`);
+    }
+    if (api.unusedSetters?.length) {
+      const setters = api.unusedSetters.slice(0, 2).map(s => s.propertyName).join(', ');
+      lines.push(`  Unused setters: ${setters}`);
+    }
+    lines.push('');
+  }
+  
+  // Risk Summary
+  const risk = analyses['risk'] as {
+    error?: unknown;
+    riskFactors?: { overallRisk?: string };
+    dependencyInfo?: { fanIn: number; fanOut: number };
+    churn?: { changeVelocity: string; changes30d: number };
+    impactRadius?: number;
+  };
+  if (risk && !risk.error) {
+    const riskIcon = getRiskIcon(risk.riskFactors?.overallRisk || 'UNKNOWN');
+    lines.push(`⚠️  Dependency Risk: ${riskIcon} ${risk.riskFactors?.overallRisk || 'UNKNOWN'}`);
+    if (risk.dependencyInfo) {
+      lines.push(`  Fan-in: ${risk.dependencyInfo.fanIn}, Fan-out: ${risk.dependencyInfo.fanOut}`);
+    }
+    if (risk.churn) {
+      lines.push(`  Change velocity: ${risk.churn.changeVelocity}, ${risk.churn.changes30d}/30d`);
+    }
+    if (risk.impactRadius) {
+      lines.push(`  Impact radius: ~${risk.impactRadius} components`);
+    }
+    lines.push('');
+  }
+  
+  // Combined Recommendations
+  const allRecommendations: string[] = [];
+  
+  const clusteringRecs = (clustering as { recommendations?: string[] })?.recommendations;
+  if (clusteringRecs) {
+    allRecommendations.push(...clusteringRecs);
+  }
+  
+  const apiRecs = (api as { recommendations?: string[] })?.recommendations;
+  if (apiRecs) {
+    allRecommendations.push(...apiRecs);
+  }
+  
+  const coverageRecs = (analyses['coverage'] as { recommendations?: string[] })?.recommendations;
+  if (coverageRecs) {
+    allRecommendations.push(...coverageRecs);
+  }
+  
+  const riskRecs = (risk as { recommendations?: string[] })?.recommendations;
+  if (riskRecs) {
+    allRecommendations.push(...riskRecs);
+  }
+  
+  if (allRecommendations.length > 0) {
+    lines.push('💡 Combined Action Items:');
+    // Deduplicate and prioritize recommendations
+    const uniqueRecs = Array.from(new Set(allRecommendations));
+    uniqueRecs.slice(0, 5).forEach((rec, index) => {
+      lines.push(`  ${index + 1}. ${rec}`);
+    });
+    lines.push('');
+  }
+  
+  // Analysis completeness
+  const completed = Object.values(analyses).filter(a => a && !(a as { error?: unknown }).error).length;
+  const total = Object.keys(analyses).length;
+  if (completed < total) {
+    lines.push(`⚠️  Note: ${total - completed} analyses failed - results may be incomplete`);
+    lines.push('');
+  }
+  
+  return lines.join('\n');
+}
+
+function getRiskIcon(risk: string): string {
+  switch (risk) {
+    case 'CRITICAL': return '🚨';
+    case 'HIGH': return '⚠️';
+    case 'MEDIUM': return '⚡';
+    case 'LOW': return '✅';
+    default: return '❓';
   }
 }
