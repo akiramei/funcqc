@@ -458,17 +458,7 @@ export class TypeSystemOperations {
         metadata: this.safeJsonParse(row.metadata, {})
       }));
 
-      // Remove duplicates based on name, kind, filePath, and startLine
-      const uniqueTypes = typeDefinitions.filter((type, index, array) => 
-        index === array.findIndex(t => 
-          t.name === type.name && 
-          t.kind === type.kind && 
-          t.filePath === type.filePath && 
-          t.startLine === type.startLine
-        )
-      );
-
-      return uniqueTypes;
+      return typeDefinitions;
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.UNKNOWN_ERROR,
