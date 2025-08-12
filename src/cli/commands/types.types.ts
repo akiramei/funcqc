@@ -63,3 +63,17 @@ export interface TypeDepsOptions {
   circular?: boolean;
   json?: boolean;
 }
+
+export interface TypeApiOptions {
+  typeName?: string;
+  json?: boolean;
+  detail?: boolean;
+}
+
+export interface TypeMembersOptions {
+  typeName?: string;
+  json?: boolean;
+  detail?: boolean;
+  kind?: 'property' | 'method' | 'getter' | 'setter' | 'constructor' | 'index_signature' | 'call_signature';
+  accessModifier?: 'public' | 'protected' | 'private';
+}
