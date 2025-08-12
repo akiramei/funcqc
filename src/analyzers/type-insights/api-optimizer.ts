@@ -187,7 +187,12 @@ export class ApiOptimizer {
           WHERE callee_function_id = $1 AND snapshot_id = $2
         `, [overload.function_id, snapshotId]);
 
-        const callCount = parseInt((callResult.rows[0] as CallEdgeRow)?.call_count?.toString() || '0');
+        const callCountStr = (callResult.rows[0] as CallEdgeRow)?.call_count?.toString() || '0';
+        const callCount = parseInt(callCountStr, 10);
+        if (isNaN(callCount)) {
+          console.warn(`Invalid call_count value: ${callCountStr}`);
+          continue;
+        }
         
         if (callCount === 0) {
           unusedOverloads.push({

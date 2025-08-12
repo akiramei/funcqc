@@ -55,14 +55,18 @@ export class PropertyClusteringAnalyzer {
    * Set similarity threshold for clustering
    */
   setSimilarityThreshold(threshold: number): void {
-    this.similarityThreshold = threshold;
+    // 0〜1にクランプ
+    if (!Number.isFinite(threshold)) threshold = 0.7;
+    this.similarityThreshold = Math.max(0, Math.min(1, threshold));
   }
 
   /**
    * Set minimum cluster size
    */
   setMinClusterSize(size: number): void {
-    this.minClusterSize = size;
+    // 1以上を保証
+    if (!Number.isFinite(size)) size = 2;
+    this.minClusterSize = Math.max(1, Math.floor(size));
   }
 
   /**
@@ -330,7 +334,7 @@ export class PropertyClusteringAnalyzer {
   private generateClusterName(properties: string[]): string {
     // Simple heuristic for generating meaningful cluster names
     const commonPrefixes = this.findCommonPrefix(properties);
-    if (commonPrefixes.length > 1) {
+    if (commonPrefixes.length >= 1) {
       return commonPrefixes[0].charAt(0).toUpperCase() + commonPrefixes[0].slice(1) + 'Slice';
     }
 

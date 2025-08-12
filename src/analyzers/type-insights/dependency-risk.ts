@@ -75,7 +75,7 @@ export class DependencyRiskAnalyzer {
     const type = typeResult.rows[0] as TypeDefinitionRow;
 
     // Analyze dependencies
-    const dependencyInfo = await this.analyzeDependencies(typeId, snapshotId);
+    const dependencyInfo = await this.analyzeDependencies(typeId, snapshotId, type.name);
 
     // Analyze churn (change frequency)
     const churn = await this.analyzeChurn(type.name, typeId, snapshotId);
@@ -105,7 +105,7 @@ export class DependencyRiskAnalyzer {
     };
   }
 
-  private async analyzeDependencies(typeId: string, snapshotId: string): Promise<TypeDependencyInfo> {
+  private async analyzeDependencies(typeId: string, snapshotId: string, typeName: string): Promise<TypeDependencyInfo> {
     // Get outgoing dependencies (types this type depends on)
     const outgoingResult = await this.storage.query(`
       SELECT DISTINCT tr.target_name, tr.target_type_id
@@ -158,15 +158,12 @@ export class DependencyRiskAnalyzer {
 
     const allDependents = [...new Set([...dependents, ...Array.from(usageDependents)])];
 
-    const typeNameResult = await this.storage.query(
-      `SELECT name FROM type_definitions WHERE id = $1`,
-      [typeId]
-    );
-    const typeName = (typeNameResult.rows[0] as NameRow | undefined)?.name || 'unknown';
+    // 取得済みの名前を使用
+    const name = typeName || 'unknown';
 
     return {
       typeId,
-      typeName,
+      typeName: name,
       fanIn: allDependents.length,
       fanOut: dependencies.length,
       dependents: allDependents,

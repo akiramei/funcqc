@@ -109,6 +109,11 @@ export class CoverageAnalyzer {
 
     for (const row of usageResult.rows) {
       const { accessed_property, access_type, function_id, usage_count } = row as PropertyUsageRow;
+      if (!accessed_property) continue;
+      const count = typeof usage_count === 'number'
+        ? usage_count
+        : Number(usage_count);
+
       usedProperties.add(accessed_property);
 
       if (!propertyUsageMap.has(accessed_property)) {
@@ -126,23 +131,23 @@ export class CoverageAnalyzer {
       }
 
       const stats = propertyUsageMap.get(accessed_property)!;
-      stats.totalCalls += usage_count;
+      stats.totalCalls += count;
       stats.callerFunctions.add(function_id);
 
       switch (access_type) {
         case 'read':
-          stats.readerCount += usage_count;
+          stats.readerCount += count;
           break;
         case 'write':
-          stats.writerCount += usage_count;
+          stats.writerCount += count;
           stats.writerFunctions.add(function_id);
           break;
         case 'modify':
-          stats.modifierCount += usage_count;
+          stats.modifierCount += count;
           stats.writerFunctions.add(function_id);
           break;
         case 'pass':
-          stats.passCount += usage_count;
+          stats.passCount += count;
           break;
       }
     }
@@ -235,14 +240,17 @@ export class CoverageAnalyzer {
     // Usage summary
     lines.push(`📊 Usage Summary:`);
     lines.push(`  Total Properties: ${analysis.totalProperties}`);
-    lines.push(`  Used Properties:  ${analysis.usedProperties} (${Math.round(analysis.usedProperties/analysis.totalProperties*100)}%)`);
+    const usedPct = analysis.totalProperties > 0
+      ? Math.round((analysis.usedProperties / analysis.totalProperties) * 100)
+      : 0;
+    lines.push(`  Used Properties:  ${analysis.usedProperties} (${usedPct}%)`);
     lines.push('');
 
     // Hot properties
     if (analysis.hotProperties.length > 0) {
       lines.push('🔥 Hot Properties:');
       for (const prop of analysis.hotProperties.slice(0, 5)) {
-        const readers = prop.totalCalls - prop.writerCount - prop.modifierCount;
+        const readers = prop.readerCount;
         const writers = prop.writerFunctions.size;
         lines.push(`  ${prop.property}: ${prop.totalCalls} calls (${readers}r, ${writers}w)`);
       }

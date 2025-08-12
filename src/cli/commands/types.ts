@@ -1,5 +1,20 @@
 import { Command } from 'commander';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, isUuidOrPrefix, escapeLike } from './types.types';
+
+// Types for insights command
+interface AnalysisResults {
+  coverage?: unknown;
+  api?: unknown;
+  clustering?: unknown;
+  risk?: unknown;
+}
+
+interface InsightsReport {
+  typeName: string;
+  typeId: string;
+  timestamp: string;
+  analyses: AnalysisResults;
+}
 import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
@@ -873,19 +888,7 @@ const executeTypesInsightsDB: VoidCommand<TypeInsightsOptions> = (options) =>
       }
       
       // Prepare results container
-      interface AnalysisResults {
-        coverage?: unknown;
-        api?: unknown;
-        clustering?: unknown;
-        risk?: unknown;
-      }
-
-      const insights: {
-        typeName: string;
-        typeId: string;
-        timestamp: string;
-        analyses: AnalysisResults;
-      } = {
+      const insights: InsightsReport = {
         typeName: targetType.name,
         typeId: targetType.id,
         timestamp: new Date().toISOString(),
@@ -966,7 +969,7 @@ const executeTypesInsightsDB: VoidCommand<TypeInsightsOptions> = (options) =>
         }, 2));
       } else {
         // Format comprehensive report
-        console.log(formatIntegratedInsightsReport(insights as unknown));
+        console.log(formatIntegratedInsightsReport(insights));
       }
       
     } catch (error) {
@@ -2233,10 +2236,9 @@ function getAccessModifierIcon(modifier: string | null): string {
 /**
  * Format integrated insights report combining all analyses
  */
-function formatIntegratedInsightsReport(insights: unknown): string {
+function formatIntegratedInsightsReport(insights: InsightsReport): string {
   const lines: string[] = [];
-  const data = insights as { typeName: string; analyses: Record<string, unknown> };
-  const { typeName, analyses } = data;
+  const { typeName, analyses } = insights;
   
   lines.push(`\n🔍 Comprehensive Type Analysis for '${typeName}'\n`);
   lines.push('=' .repeat(60));
