@@ -429,10 +429,8 @@ async function getMemberCountsForTypes(
     `, [snapshotId]);
     
     if (result.rows.length === 0) {
-      // No type member data available - show informative message once
-      console.log(`\n⚠️  Type member details are not available in this snapshot.`);
-      console.log(`   The current analysis extracts type definitions but not their detailed members.`);
-      console.log(`   All member counts will show as '-' (zero).\n`);
+      // No type member data available - this is normal for snapshots without type system analysis
+      // The enhanced display will show '-' for zero values which is the expected behavior
     }
     
     result.rows.forEach((row: unknown) => {

@@ -1015,6 +1015,8 @@ export async function performDeferredTypeSystemAnalysis(
     // Analyze types from all source files in batch for better performance
     const typeDefinitions: import('../../types').TypeDefinition[] = [];
     const typeRelationships: import('../../types').TypeRelationship[] = [];
+    const typeMembers: import('../../types').TypeMember[] = [];
+    const methodOverrides: import('../../types').MethodOverride[] = [];
     
     try {
       // Create file path to content mapping for batch processing
@@ -1040,9 +1042,23 @@ export async function performDeferredTypeSystemAnalysis(
         ...rel,
         snapshotId
       }));
+
+      // Add snapshotId to each type member (should already be included but ensure consistency)
+      const membersWithSnapshot = result.typeMembers.map(member => ({
+        ...member,
+        snapshotId
+      }));
+
+      // Add snapshotId to each method override (should already be included but ensure consistency)
+      const overridesWithSnapshot = result.methodOverrides.map(override => ({
+        ...override,
+        snapshotId
+      }));
       
       typeDefinitions.push(...typesWithSnapshot);
       typeRelationships.push(...relationshipsWithSnapshot);
+      typeMembers.push(...membersWithSnapshot);
+      methodOverrides.push(...overridesWithSnapshot);
     } catch (error) {
       env.commandLogger.warn(`Failed to analyze types in batch: ${error}`);
       // Fallback to individual file processing if batch fails
@@ -1080,6 +1096,16 @@ export async function performDeferredTypeSystemAnalysis(
         
         await env.storage.saveTypeRelationships(typeRelationships);
         console.log(`✅ Type relationships saved successfully`);
+        
+        if (typeMembers.length > 0) {
+          await env.storage.saveTypeMembers(typeMembers);
+          console.log(`✅ Type members saved successfully (${typeMembers.length} members)`);
+        }
+        
+        if (methodOverrides.length > 0) {
+          await env.storage.saveMethodOverrides(methodOverrides);
+          console.log(`✅ Method overrides saved successfully (${methodOverrides.length} overrides)`);
+        }
         
         console.log(`✅ All type data saved successfully`);
       } catch (error) {
