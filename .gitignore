@@ -84,7 +84,7 @@ D:\\*
 
 # Claude
 .claude/
-ai-state/
+.mcp.json
 
 # FuncQC database files
 data/
