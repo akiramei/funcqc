@@ -133,6 +133,19 @@ export interface TypeSubsumeOptions {
   desc?: boolean;             // Sort in descending order
 }
 
+export interface TypeFingerprintOptions {
+  json?: boolean;
+  includeCallsOut?: boolean;       // Include outgoing calls (default: true)
+  includeCallsIn?: boolean;        // Include incoming calls (default: true)
+  minCallFrequency?: number;       // Minimum call frequency (default: 2)
+  similarityThreshold?: number;    // Clustering similarity threshold (0-1, default: 0.7)
+  maxFingerprintSize?: number;     // Max behavioral vector size (default: 50)
+  includeInternalCalls?: boolean;  // Include internal method calls (default: false)
+  limit?: number;                  // Limit number of clusters
+  sort?: 'similarity' | 'impact' | 'size'; // Sort criteria (default: impact)
+  desc?: boolean;                  // Sort in descending order
+}
+
 // Helper functions
 export function isUuidOrPrefix(value: string): boolean {
   return Boolean(
