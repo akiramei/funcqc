@@ -3062,7 +3062,18 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
       console.log(report);
 
     } catch (error) {
-      errorHandler.handleError(error as FuncqcError);
+      // Check if it's already a FuncqcError
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze behavioral fingerprints: ${error instanceof Error ? error.message : String(error)}`,
+          { command: 'types fingerprint' },
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
     }
   };
 
