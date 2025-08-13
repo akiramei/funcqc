@@ -68,8 +68,7 @@ export class BehavioralFingerprintAnalyzer extends CrossTypeAnalyzer {
       minCallFrequency: options.minCallFrequency ?? 2,
       clusterSimilarityThreshold: options.clusterSimilarityThreshold ?? 0.7,
       maxFingerprintSize: options.maxFingerprintSize ?? 50,
-      includeInternalCalls: options.includeInternalCalls ?? false,
-      ...options
+      includeInternalCalls: options.includeInternalCalls ?? false
     };
   }
 

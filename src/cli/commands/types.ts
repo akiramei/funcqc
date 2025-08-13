@@ -3016,7 +3016,7 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
       const clusters = await analyzer.getDetailedResults(latestSnapshot.id);
 
       if (options.json) {
-        env.commandLogger.info(JSON.stringify(clusters, null, 2));
+        console.log(JSON.stringify(clusters, null, 2));
         return;
       }
 
@@ -3059,7 +3059,7 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
         includeInternalCalls: analyzerOptions.includeInternalCalls
       });
 
-      env.commandLogger.info(report);
+      console.log(report);
 
     } catch (error) {
       errorHandler.handleError(error as FuncqcError);
