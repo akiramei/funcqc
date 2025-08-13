@@ -2425,15 +2425,24 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
       const allowedBenefits = new Set(['high', 'medium', 'low'] as const);
       const allowedSorts = new Set(['support', 'size', 'impact', 'benefit'] as const);
       const minSupport =
-        typeof options.minSupport === 'number' && Number.isFinite(options.minSupport) && options.minSupport > 0
+        typeof options.minSupport === 'number' &&
+        Number.isFinite(options.minSupport) &&
+        Number.isInteger(options.minSupport) &&
+        options.minSupport > 0
           ? options.minSupport
           : 3;
       let minSliceSize =
-        typeof options.minSliceSize === 'number' && Number.isFinite(options.minSliceSize) && options.minSliceSize > 0
+        typeof options.minSliceSize === 'number' &&
+        Number.isFinite(options.minSliceSize) &&
+        Number.isInteger(options.minSliceSize) &&
+        options.minSliceSize > 0
           ? options.minSliceSize
           : 2;
       let maxSliceSize =
-        typeof options.maxSliceSize === 'number' && Number.isFinite(options.maxSliceSize) && options.maxSliceSize > 0
+        typeof options.maxSliceSize === 'number' &&
+        Number.isFinite(options.maxSliceSize) &&
+        Number.isInteger(options.maxSliceSize) &&
+        options.maxSliceSize > 0
           ? options.maxSliceSize
           : 5;
       if (minSliceSize > maxSliceSize) {
@@ -2509,7 +2518,7 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
       }
 
       if (options.json) {
-        // JSON output
+        // JSON output（例外発生時にもJSON形式で返却）
         const jsonReport = {
           summary: {
             totalSlices: report.totalSlices,
@@ -2529,7 +2538,14 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
           })),
           recommendations: report.recommendations
         };
-        console.log(JSON.stringify(jsonReport, null, 2));
+        try {
+          console.log(JSON.stringify(jsonReport, null, 2));
+        } catch (error) {
+          const err = error instanceof Error ? error.message : String(error);
+          // 出力中にエラーが発生した場合も有効なJSONを返却
+          console.error(JSON.stringify({ error: err }));
+          process.exit(1);
+        }
       } else {
         // Formatted output
         console.log(formatSlicesReport(report, slices, { minSupport, minSliceSize }));
