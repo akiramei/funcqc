@@ -89,13 +89,26 @@ export class StructuralSubsumptionAnalyzer extends CrossTypeAnalyzer {
   private async findSubsumptionRelationships(types: TypePropertyInfo[]): Promise<SubsumptionRelationship[]> {
     const relationships: SubsumptionRelationship[] = [];
     
+    // Pre-compute member sets for all types to avoid O(n^2) recalculation
+    const memberSets = new Map<string, Set<string>>();
+    for (const type of types) {
+      memberSets.set(type.typeId, this.getMemberSet(type));
+    }
+    
     // Compare each pair of types
     for (let i = 0; i < types.length; i++) {
       for (let j = i + 1; j < types.length; j++) {
         const sourceType = types[i];
         const targetType = types[j];
+        const sourceMembers = memberSets.get(sourceType.typeId)!;
+        const targetMembers = memberSets.get(targetType.typeId)!;
         
-        const relationship = this.analyzeTypePair(sourceType, targetType);
+        const relationship = this.analyzeTypePairWithSets(
+          sourceType, 
+          targetType, 
+          sourceMembers, 
+          targetMembers
+        );
         if (relationship && this.meetsFilterCriteria(relationship)) {
           relationships.push(relationship);
         }
@@ -105,22 +118,22 @@ export class StructuralSubsumptionAnalyzer extends CrossTypeAnalyzer {
     return relationships.sort((a, b) => b.impactScore - a.impactScore);
   }
 
+
   /**
-   * Analyze a pair of types for subsumption relationships
+   * Analyze a pair of types for subsumption relationships with pre-computed member sets
+   * Performance optimized version that avoids redundant Set creation
    */
-  private analyzeTypePair(
+  private analyzeTypePairWithSets(
     sourceType: TypePropertyInfo, 
-    targetType: TypePropertyInfo
+    targetType: TypePropertyInfo,
+    sourceMembers: Set<string>,
+    targetMembers: Set<string>
   ): SubsumptionRelationship | null {
     
     // Skip self-comparison
     if (sourceType.typeId === targetType.typeId) {
       return null;
     }
-
-    // Get member sets based on configuration
-    const sourceMembers = this.getMemberSet(sourceType);
-    const targetMembers = this.getMemberSet(targetType);
 
     // Skip empty types
     if (sourceMembers.size === 0 || targetMembers.size === 0) {

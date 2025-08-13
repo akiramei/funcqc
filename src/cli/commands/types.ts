@@ -2677,7 +2677,7 @@ const executeTypesSubsumeDB: VoidCommand<TypeSubsumeOptions> = (options) =>
       const snapshots = await env.storage.getSnapshots({ limit: 1 });
       if (snapshots.length === 0) {
         const funcqcError = errorHandler.createError(
-          'NO_SNAPSHOTS_ERROR' as ErrorCode,
+          ErrorCode.NOT_FOUND,
           'No analysis snapshots available. Use `funcqc scan` to analyze your codebase first',
           { command: 'types subsume' } as Record<string, unknown>
         );
@@ -2758,7 +2758,7 @@ const executeTypesSubsumeDB: VoidCommand<TypeSubsumeOptions> = (options) =>
       }
       
       const funcqcError = errorHandler.createError(
-        'SUBSUMPTION_ANALYSIS_ERROR' as ErrorCode,
+        ErrorCode.UNKNOWN_ERROR,
         `Failed to analyze structural subsumption: ${error instanceof Error ? error.message : String(error)}`,
         { command: 'types subsume' } as Record<string, unknown>
       );
