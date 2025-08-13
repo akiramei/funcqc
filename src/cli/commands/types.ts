@@ -2413,12 +2413,13 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
     try {
       env.commandLogger.info('🍰 Analyzing property slice patterns across types...');
 
-      // Get latest snapshot
-      const latestSnapshot = await env.storage.getLatestSnapshot();
-      if (!latestSnapshot) {
+      // Get latest snapshot (他コマンドと同様の取得方法に統一)
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
         env.commandLogger.error('No snapshots found. Run `funcqc scan` first.');
         return;
       }
+      const latestSnapshot = snapshots[0];
 
       // Import and create property slice miner
       const { PropertySliceMiner } = await import('../../analyzers/type-insights/property-slice-miner');

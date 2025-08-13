@@ -48,6 +48,12 @@ describe('types slices CLI command', () => {
       }, null, 2)
     );
 
+    // Copy database schema into the temp project (schema is required by storage initialization)
+    const repoSchemaPath = path.resolve(__dirname, '../../src/schemas/database.sql');
+    const dstSchemaDir = path.join(projectPath, 'src', 'schemas');
+    fs.mkdirSync(dstSchemaDir, { recursive: true });
+    fs.copyFileSync(repoSchemaPath, path.join(dstSchemaDir, 'database.sql'));
+
     // Create test TypeScript files with property patterns
     createTestFiles();
   });

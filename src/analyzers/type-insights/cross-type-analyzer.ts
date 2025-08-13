@@ -8,7 +8,7 @@
 
 import type { 
   StorageQueryInterface
-} from './types.js';
+} from './types';
 
 export interface CrossTypeAnalysisOptions {
   minSupport: number;      // Minimum number of types to contain a pattern
@@ -66,8 +66,8 @@ export abstract class CrossTypeAnalyzer {
         : `SELECT id, name, file_path FROM type_definitions`;
       
       const membersQuery = snapshotId
-        ? `SELECT type_id, name, member_kind FROM type_members WHERE snapshot_id = $1`
-        : `SELECT type_id, name, member_kind FROM type_members`;
+        ? `SELECT type_id, name, member_kind FROM type_members WHERE snapshot_id = $1 AND member_kind IN ('property','method','getter','setter','field')`
+        : `SELECT type_id, name, member_kind FROM type_members WHERE member_kind IN ('property','method','getter','setter','field')`;
 
       const [typesResult, membersResult] = await Promise.all([
         this.storage.query(typesQuery, snapshotId ? [snapshotId] : []),
@@ -95,7 +95,12 @@ export abstract class CrossTypeAnalyzer {
         const r = row as Record<string, unknown>;
         const typeInfo = typeInfoMap.get(r['type_id'] as string);
         if (typeInfo) {
-          if (r['member_kind'] === 'property') {
+          if (
+            r['member_kind'] === 'property' ||
+            r['member_kind'] === 'getter'   ||
+            r['member_kind'] === 'setter'   ||
+            r['member_kind'] === 'field'
+          ) {
             typeInfo.properties.push(r['name'] as string);
           } else if (r['member_kind'] === 'method') {
             typeInfo.methods.push(r['name'] as string);
