@@ -2541,10 +2541,14 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
         try {
           console.log(JSON.stringify(jsonReport, null, 2));
         } catch (error) {
-          const err = error instanceof Error ? error.message : String(error);
-          // 出力中にエラーが発生した場合も有効なJSONを返却
-          console.error(JSON.stringify({ error: err }));
-          process.exit(1);
+          const errMsg = error instanceof Error ? error.message : String(error);
+          const funcqcError = errorHandler.createError(
+            ErrorCode.UNKNOWN_ERROR,
+            `Failed to serialize JSON output: ${errMsg}`,
+            { command: 'types slices' },
+            error instanceof Error ? error : undefined
+          );
+          throw funcqcError;
         }
       } else {
         // Formatted output
