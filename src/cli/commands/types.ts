@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, isUuidOrPrefix, escapeLike } from './types.types';
+import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, TypeSlicesOptions, isUuidOrPrefix, escapeLike } from './types.types';
 
 // Types for insights command
 interface AnalysisResults {
@@ -19,6 +19,7 @@ import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
+import type { PropertySliceReport, PropertySlice } from '../../analyzers/type-insights/property-slice-miner';
 
 /**
  * Database-driven types command
@@ -188,6 +189,25 @@ export function createTypesCommand(): Command {
         includeRisk: true
       };
       return withEnvironment(executeTypesInsightsDB)(optionsWithTypeName, command);
+    });
+
+  // Property slices analysis command
+  typesCmd
+    .command('slices')
+    .description('🍰 Discover reusable property patterns across types')
+    .option('--json', 'Output in JSON format')
+    .option('--min-support <number>', 'Minimum types containing slice', parseInt, 3)
+    .option('--min-slice-size <number>', 'Minimum properties per slice', parseInt, 2)
+    .option('--max-slice-size <number>', 'Maximum properties per slice', parseInt, 5)
+    .option('--consider-methods', 'Include methods in pattern analysis')
+    .option('--exclude-common', 'Exclude common properties (id, name, etc.)', true)
+    .option('--benefit <level>', 'Filter by extraction benefit (high|medium|low)')
+    .option('--limit <number>', 'Limit number of results', parseInt)
+    .option('--sort <field>', 'Sort by field (support|size|impact|benefit)', 'impact')
+    .option('--desc', 'Sort in descending order')
+    .action(async (options: TypeSlicesOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      return withEnvironment(executeTypesSlicesDB)(options, command);
     });
 
   return typesCmd;
@@ -2381,4 +2401,188 @@ function getRiskIcon(risk: string): string {
     case 'LOW': return '✅';
     default: return '❓';
   }
+}
+
+/**
+ * Execute types slices command using database
+ */
+const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+
+    try {
+      env.commandLogger.info('🍰 Analyzing property slice patterns across types...');
+
+      // Get latest snapshot
+      const latestSnapshot = await env.storage.getLatestSnapshot();
+      if (!latestSnapshot) {
+        env.commandLogger.error('No snapshots found. Run `funcqc scan` first.');
+        return;
+      }
+
+      // Import and create property slice miner
+      const { PropertySliceMiner } = await import('../../analyzers/type-insights/property-slice-miner');
+      const sliceMiner = new PropertySliceMiner(env.storage, {
+        minSupport: options.minSupport ?? 3,
+        minSliceSize: options.minSliceSize ?? 2,
+        maxSliceSize: options.maxSliceSize ?? 5,
+        considerMethods: options.considerMethods ?? false,
+        excludeCommonProperties: options.excludeCommon ?? true
+      });
+
+      // Generate analysis report
+      const report = await sliceMiner.generateReport(latestSnapshot.id);
+
+      // Filter by benefit level if specified
+      let slices = [...report.highValueSlices, ...report.mediumValueSlices, ...report.lowValueSlices];
+      if (options.benefit) {
+        slices = slices.filter(slice => slice.extractionBenefit === options.benefit);
+      }
+
+      // Sort results
+      const sortField = options.sort || 'impact';
+      slices.sort((a, b) => {
+        let comparison = 0;
+        switch (sortField) {
+          case 'support': {
+            comparison = a.support - b.support;
+            break;
+          }
+          case 'size': {
+            comparison = a.properties.length - b.properties.length;
+            break;
+          }
+          case 'impact': {
+            comparison = a.impactScore - b.impactScore;
+            break;
+          }
+          case 'benefit': {
+            const benefitOrder = { high: 3, medium: 2, low: 1 };
+            comparison = benefitOrder[a.extractionBenefit] - benefitOrder[b.extractionBenefit];
+            break;
+          }
+          default: {
+            comparison = a.impactScore - b.impactScore;
+          }
+        }
+        return options.desc ? -comparison : comparison;
+      });
+
+      // Apply limit
+      if (options.limit && options.limit > 0) {
+        slices = slices.slice(0, options.limit);
+      }
+
+      if (options.json) {
+        // JSON output
+        const jsonReport = {
+          summary: {
+            totalSlices: report.totalSlices,
+            estimatedCodeReduction: report.estimatedCodeReduction,
+            slicesShown: slices.length
+          },
+          slices: slices.map(slice => ({
+            id: slice.id,
+            properties: slice.properties,
+            suggestedVOName: slice.suggestedVOName,
+            support: slice.support,
+            extractionBenefit: slice.extractionBenefit,
+            impactScore: slice.impactScore,
+            duplicateCode: slice.duplicateCode,
+            relatedMethods: slice.relatedMethods,
+            types: slice.types
+          })),
+          recommendations: report.recommendations
+        };
+        console.log(JSON.stringify(jsonReport, null, 2));
+      } else {
+        // Formatted output
+        console.log(formatSlicesReport(report, slices));
+      }
+
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze property slices: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Format property slices analysis report
+ */
+function formatSlicesReport(report: PropertySliceReport, slices: PropertySlice[]): string {
+  const lines: string[] = [];
+  
+  lines.push('🍰 Property Slice Analysis');
+  lines.push('━'.repeat(50));
+  lines.push('');
+  
+  // Summary
+  lines.push(`📊 Summary:`);
+  lines.push(`   Total Slices Found: ${report.totalSlices}`);
+  lines.push(`   High Value: ${report.highValueSlices.length}`);
+  lines.push(`   Medium Value: ${report.mediumValueSlices.length}`);
+  lines.push(`   Low Value: ${report.lowValueSlices.length}`);
+  lines.push(`   Estimated Code Reduction: ~${report.estimatedCodeReduction} lines`);
+  lines.push('');
+
+  if (slices.length === 0) {
+    lines.push('❌ No property slices found matching the criteria');
+    lines.push('');
+    lines.push('💡 Try adjusting parameters:');
+    lines.push('   • Lower --min-support (currently requires 3+ types)');
+    lines.push('   • Lower --min-slice-size (currently requires 2+ properties)');
+    lines.push('   • Include --consider-methods for broader patterns');
+    return lines.join('\n');
+  }
+
+  // Individual slices
+  lines.push(`🎯 Property Slices (showing ${slices.length}):`);
+  lines.push('━'.repeat(50));
+  
+  slices.forEach((slice, index) => {
+    const benefit = slice.extractionBenefit;
+    const benefitIcon = benefit === 'high' ? '🟢' : benefit === 'medium' ? '🟡' : '🔴';
+    
+    lines.push(`${index + 1}. ${benefitIcon} ${slice.suggestedVOName}`);
+    lines.push(`   Properties: {${slice.properties.join(', ')}}`);
+    lines.push(`   Found in: ${slice.support} types`);
+    lines.push(`   Benefit: ${benefit.toUpperCase()}`);
+    lines.push(`   Impact Score: ${slice.impactScore}`);
+    lines.push(`   Est. Duplicate Code: ${slice.duplicateCode} lines`);
+    
+    if (slice.relatedMethods.length > 0) {
+      lines.push(`   Related Methods: {${slice.relatedMethods.join(', ')}}`);
+    }
+    
+    lines.push('');
+  });
+
+  // Recommendations
+  if (report.recommendations.length > 0) {
+    lines.push('📋 Recommendations:');
+    lines.push('━'.repeat(30));
+    report.recommendations.forEach((rec: string) => {
+      lines.push(`   ${rec}`);
+    });
+    lines.push('');
+  }
+
+  // Next steps
+  lines.push('🚀 Next Steps:');
+  lines.push('━'.repeat(20));
+  lines.push('   1. Review high-value slices for immediate extraction');
+  lines.push('   2. Create Value Object interfaces for common patterns');
+  lines.push('   3. Refactor types to use extracted Value Objects');
+  lines.push('   4. Update type definitions to reduce duplication');
+
+  return lines.join('\n');
 }

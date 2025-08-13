@@ -109,6 +109,19 @@ export interface TypeInsightsOptions {
   includeRisk?: boolean;
 }
 
+export interface TypeSlicesOptions {
+  json?: boolean;
+  minSupport?: number;       // Minimum types containing slice (default: 3)
+  minSliceSize?: number;     // Minimum properties per slice (default: 2)
+  maxSliceSize?: number;     // Maximum properties per slice (default: 5)
+  considerMethods?: boolean; // Include methods in analysis (default: false)
+  excludeCommon?: boolean;   // Exclude common properties like 'id', 'name' (default: true)
+  benefit?: 'high' | 'medium' | 'low'; // Filter by extraction benefit level
+  limit?: number;           // Limit number of results
+  sort?: 'support' | 'size' | 'impact' | 'benefit'; // Sort criteria (default: impact)
+  desc?: boolean;           // Sort in descending order
+}
+
 // Helper functions
 export function isUuidOrPrefix(value: string): boolean {
   return Boolean(
