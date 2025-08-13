@@ -3001,12 +3001,48 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
       // Import and configure the analyzer
       const { BehavioralFingerprintAnalyzer } = await import('../../analyzers/type-insights/behavioral-fingerprint-analyzer');
       
+      // Normalize and validate options
+      const normalizeInt = (v: unknown) =>
+        typeof v === 'number' && Number.isFinite(v) ? Math.trunc(v) : NaN;
+      const normalizeNum = (v: unknown) =>
+        typeof v === 'number' && Number.isFinite(v) ? v : NaN;
+
+      let minCallFrequency = normalizeInt(options.minCallFrequency);
+      if (!(minCallFrequency >= 1)) {
+        if (options.minCallFrequency !== undefined) {
+          env.commandLogger.warn(
+            `Invalid --min-call-frequency '${options.minCallFrequency}', falling back to 2.`
+          );
+        }
+        minCallFrequency = 2;
+      }
+
+      let similarityThreshold = normalizeNum(options.similarityThreshold);
+      if (!(similarityThreshold >= 0 && similarityThreshold <= 1)) {
+        if (options.similarityThreshold !== undefined) {
+          env.commandLogger.warn(
+            `Invalid --similarity-threshold '${options.similarityThreshold}', falling back to 0.7.`
+          );
+        }
+        similarityThreshold = 0.7;
+      }
+
+      let maxFingerprintSize = normalizeInt(options.maxFingerprintSize);
+      if (!(maxFingerprintSize > 0)) {
+        if (options.maxFingerprintSize !== undefined) {
+          env.commandLogger.warn(
+            `Invalid --max-fingerprint-size '${options.maxFingerprintSize}', falling back to 50.`
+          );
+        }
+        maxFingerprintSize = 50;
+      }
+
       const analyzerOptions = {
         includeCallsOut: options.includeCallsOut ?? true,
         includeCallsIn: options.includeCallsIn ?? true,
-        minCallFrequency: options.minCallFrequency ?? 2,
-        clusterSimilarityThreshold: options.similarityThreshold ?? 0.7,
-        maxFingerprintSize: options.maxFingerprintSize ?? 50,
+        minCallFrequency,
+        clusterSimilarityThreshold: similarityThreshold,
+        maxFingerprintSize,
         includeInternalCalls: options.includeInternalCalls ?? false
       };
 
@@ -3015,15 +3051,17 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
       // Perform analysis
       const clusters = await analyzer.getDetailedResults(latestSnapshot.id);
 
-      if (options.json) {
-        console.log(JSON.stringify(clusters, null, 2));
-        return;
-      }
-
       // Apply sorting
       let sortedResults = [...clusters];
-      const sortField = options.sort ?? 'impact';
-      const descending = options.desc ?? false;
+      const allowedSorts = new Set(['similarity', 'impact', 'size'] as const);
+      type AllowedSort = 'similarity' | 'impact' | 'size';
+      const sortField = allowedSorts.has((options.sort ?? 'impact') as AllowedSort)
+        ? (options.sort ?? 'impact')
+        : 'impact';
+      if (options.sort && !allowedSorts.has(options.sort as AllowedSort)) {
+        env.commandLogger.warn(`Invalid --sort '${options.sort}'. Falling back to 'impact'.`);
+      }
+      const descending = options.desc === true;
 
       sortedResults.sort((a, b) => {
         let comparison = 0;
@@ -3050,13 +3088,29 @@ const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (options)
         sortedResults = sortedResults.slice(0, options.limit);
       }
 
+      if (options.json) {
+        const jsonOutput = {
+          metadata: {
+            timestamp: new Date().toISOString(),
+            snapshotId: latestSnapshot.id,
+            totalClusters: clusters.length,
+            displayedClusters: sortedResults.length,
+            options: analyzerOptions
+          },
+          clusters: sortedResults
+        };
+        console.log(JSON.stringify(jsonOutput, null, 2));
+        return;
+      }
+
       // Generate report
       const report = formatFingerprintReport(sortedResults, {
         includeCallsOut: analyzerOptions.includeCallsOut,
         includeCallsIn: analyzerOptions.includeCallsIn,
         minCallFrequency: analyzerOptions.minCallFrequency,
         similarityThreshold: analyzerOptions.clusterSimilarityThreshold,
-        includeInternalCalls: analyzerOptions.includeInternalCalls
+        includeInternalCalls: analyzerOptions.includeInternalCalls,
+        maxFingerprintSize: analyzerOptions.maxFingerprintSize
       });
 
       console.log(report);
@@ -3099,6 +3153,7 @@ function formatFingerprintReport(
     minCallFrequency: number;
     similarityThreshold: number;
     includeInternalCalls: boolean;
+    maxFingerprintSize: number;
   }
 ): string {
   const lines: string[] = [];
