@@ -52,8 +52,7 @@ export class PropertySliceMiner extends CrossTypeAnalyzer {
       maxSliceSize: options.maxSliceSize ?? 5,
       minSupport: options.minSupport ?? 3,
       considerMethods: options.considerMethods ?? false,
-      excludeCommonProperties: options.excludeCommonProperties ?? true,
-      ...options
+      excludeCommonProperties: options.excludeCommonProperties ?? true
     };
   }
 
@@ -123,8 +122,9 @@ export class PropertySliceMiner extends CrossTypeAnalyzer {
 
     for (const [pairStr, count] of cooccurrenceCount.entries()) {
       if (count >= this.sliceOptions.minSupport) {
-        const properties = pairStr.split(',').filter(item => !item.startsWith('method:'));
-        const methods = pairStr.split(',')
+        const items = pairStr.split(',');
+        const properties = items.filter(item => !item.startsWith('method:'));
+        const methods = items
           .filter(item => item.startsWith('method:'))
           .map(item => item.replace('method:', ''));
 
@@ -132,13 +132,13 @@ export class PropertySliceMiner extends CrossTypeAnalyzer {
           const containingTypes = types
             .filter(type => {
               const typeItems = new Set([...type.properties, ...type.methods.map(m => `method:${m}`)]);
-              return pairStr.split(',').every(item => typeItems.has(item));
+              return items.every(item => typeItems.has(item));
             })
             .map(type => type.typeId);
 
           const slice: PropertySlice = {
             id: `slice_${sliceIndex++}`,
-            pattern: pairStr.split(','),
+            pattern: items,
             properties,
             relatedMethods: methods,
             support: count,
@@ -311,21 +311,21 @@ export class PropertySliceMiner extends CrossTypeAnalyzer {
    */
   private canJoin(itemset1: string[], itemset2: string[]): boolean {
     if (itemset1.length !== itemset2.length) return false;
+    if (itemset1.length < 1) return false;
     
     // Sort both itemsets for comparison
     const sorted1 = [...itemset1].sort();
     const sorted2 = [...itemset2].sort();
     
-    // Check if they differ by exactly one item
-    let diffCount = 0;
-    for (let i = 0; i < sorted1.length; i++) {
+    // Check if first k-1 items are the same
+    for (let i = 0; i < sorted1.length - 1; i++) {
       if (sorted1[i] !== sorted2[i]) {
-        diffCount++;
-        if (diffCount > 1) return false;
+        return false;
       }
     }
     
-    return diffCount === 1;
+    // Last items must be different
+    return sorted1[sorted1.length - 1] !== sorted2[sorted2.length - 1];
   }
 
   /**
@@ -340,9 +340,9 @@ export class PropertySliceMiner extends CrossTypeAnalyzer {
    * Check for duplicate candidates
    */
   private isDuplicate(candidate: string[], existingCandidates: string[][]): boolean {
-    const candidateStr = candidate.sort().join(',');
+    const candidateStr = [...candidate].sort().join(',');
     return existingCandidates.some(existing => 
-      existing.sort().join(',') === candidateStr
+      [...existing].sort().join(',') === candidateStr
     );
   }
 

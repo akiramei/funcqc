@@ -29,6 +29,25 @@ describe('types slices CLI command', () => {
       }, null, 2)
     );
 
+    // Create minimal tsconfig.json to satisfy system checks
+    fs.writeFileSync(
+      path.join(projectPath, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: "ES2020",
+          module: "ESNext",
+          moduleResolution: "Node",
+          strict: true,
+          esModuleInterop: true,
+          resolveJsonModule: true,
+          skipLibCheck: true,
+          allowJs: true,
+          noEmit: true
+        },
+        include: ["src"]
+      }, null, 2)
+    );
+
     // Create test TypeScript files with property patterns
     createTestFiles();
   });

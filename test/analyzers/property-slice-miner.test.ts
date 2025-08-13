@@ -17,10 +17,40 @@ class MockStorage implements StorageQueryInterface {
     this.mockData = data;
   }
 
-  async query(sql: string, params?: any[]): Promise<{ rows: any[] }> {
-    // Return mock data based on query type
-    if (sql.includes('type_definitions') && sql.includes('type_members')) {
-      return { rows: this.mockData };
+  async query(sql: string, _params?: any[]): Promise<{ rows: any[] }> {
+    const s = sql.toLowerCase();
+    // Simulate SELECT from type_definitions
+    if (s.includes('from type_definitions')) {
+      // Deduplicate by type_id
+      const byId = new Map<string, any>();
+      for (const row of this.mockData) {
+        byId.set(row.type_id, row);
+      }
+      const rows = Array.from(byId.values()).map(r => ({
+        id: r.type_id,
+        name: r.type_name,
+        file_path: r.file_path
+      }));
+      return { rows };
+    }
+    // Simulate SELECT from type_members
+    if (s.includes('from type_members')) {
+      const rows: any[] = [];
+      for (const r of this.mockData) {
+        try {
+          const props: string[] = JSON.parse(r.properties ?? '[]');
+          const methods: string[] = JSON.parse(r.methods ?? '[]');
+          for (const p of props) {
+            rows.push({ type_id: r.type_id, name: p, member_kind: 'property' });
+          }
+          for (const m of methods) {
+            rows.push({ type_id: r.type_id, name: m, member_kind: 'method' });
+          }
+        } catch {
+          // ignore malformed mock rows
+        }
+      }
+      return { rows };
     }
     return { rows: [] };
   }

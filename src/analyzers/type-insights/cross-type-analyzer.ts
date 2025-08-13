@@ -48,7 +48,7 @@ export abstract class CrossTypeAnalyzer {
     this.storage = storage;
     this.options = {
       minSupport: options.minSupport ?? 3,
-      minConfidence: options.minConfidence ?? 0.7,
+      minConfidence: options.minConfidence ?? 0.8,
       maxPatternSize: options.maxPatternSize ?? 5,
       includeRarePatterns: options.includeRarePatterns ?? false,
       ...options
@@ -180,7 +180,6 @@ export abstract class CrossTypeAnalyzer {
     return patterns.filter(pattern => {
       if (pattern.support < this.options.minSupport) return false;
       if (pattern.confidence < this.options.minConfidence) return false;
-      if (!this.options.includeRarePatterns && pattern.support < 5) return false;
       
       return true;
     });

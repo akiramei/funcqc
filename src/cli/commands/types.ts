@@ -200,7 +200,7 @@ export function createTypesCommand(): Command {
     .option('--min-slice-size <number>', 'Minimum properties per slice', parseInt, 2)
     .option('--max-slice-size <number>', 'Maximum properties per slice', parseInt, 5)
     .option('--consider-methods', 'Include methods in pattern analysis')
-    .option('--exclude-common', 'Exclude common properties (id, name, etc.)', true)
+    .option('--no-exclude-common', 'Include common properties (id, name, etc.)')
     .option('--benefit <level>', 'Filter by extraction benefit (high|medium|low)')
     .option('--limit <number>', 'Limit number of results', parseInt)
     .option('--sort <field>', 'Sort by field (support|size|impact|benefit)', 'impact')
