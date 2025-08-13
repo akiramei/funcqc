@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, isUuidOrPrefix, escapeLike } from './types.types';
+import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, TypeSlicesOptions, isUuidOrPrefix, escapeLike } from './types.types';
 
 // Types for insights command
 interface AnalysisResults {
@@ -19,6 +19,7 @@ import { TypeDefinition, TypeRelationship } from '../../types';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
+import type { PropertySliceReport, PropertySlice } from '../../analyzers/type-insights/property-slice-miner';
 
 /**
  * Database-driven types command
@@ -188,6 +189,25 @@ export function createTypesCommand(): Command {
         includeRisk: true
       };
       return withEnvironment(executeTypesInsightsDB)(optionsWithTypeName, command);
+    });
+
+  // Property slices analysis command
+  typesCmd
+    .command('slices')
+    .description('🍰 Discover reusable property patterns across types')
+    .option('--json', 'Output in JSON format')
+    .option('--min-support <number>', 'Minimum types containing slice', parseInt, 3)
+    .option('--min-slice-size <number>', 'Minimum properties per slice', parseInt, 2)
+    .option('--max-slice-size <number>', 'Maximum properties per slice', parseInt, 5)
+    .option('--consider-methods', 'Include methods in pattern analysis')
+    .option('--no-exclude-common', 'Include common properties (id, name, etc.)')
+    .option('--benefit <level>', 'Filter by extraction benefit (high|medium|low)')
+    .option('--limit <number>', 'Limit number of results', parseInt)
+    .option('--sort <field>', 'Sort by field (support|size|impact|benefit)', 'impact')
+    .option('--desc', 'Sort in descending order')
+    .action(async (options: TypeSlicesOptions, command) => {
+      const { withEnvironment } = await import('../cli-wrapper');
+      return withEnvironment(executeTypesSlicesDB)(options, command);
     });
 
   return typesCmd;
@@ -2381,4 +2401,247 @@ function getRiskIcon(risk: string): string {
     case 'LOW': return '✅';
     default: return '❓';
   }
+}
+
+/**
+ * Execute types slices command using database
+ */
+const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) => 
+  async (env: CommandEnvironment): Promise<void> => {
+    const errorHandler = createErrorHandler(env.commandLogger);
+
+    try {
+      env.commandLogger.info('🍰 Analyzing property slice patterns across types...');
+
+      // Get latest snapshot (他コマンドと同様の取得方法に統一)
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          'No snapshots found. Run `funcqc scan` first.',
+          { command: 'types slices' }
+        );
+        throw funcqcError;
+      }
+      const latestSnapshot = snapshots[0];
+
+      // Normalize and validate options
+      const allowedBenefits = new Set(['high', 'medium', 'low'] as const);
+      const allowedSorts = new Set(['support', 'size', 'impact', 'benefit'] as const);
+      const minSupport =
+        typeof options.minSupport === 'number' &&
+        Number.isFinite(options.minSupport) &&
+        Number.isInteger(options.minSupport) &&
+        options.minSupport > 0
+          ? options.minSupport
+          : 3;
+      let minSliceSize =
+        typeof options.minSliceSize === 'number' &&
+        Number.isFinite(options.minSliceSize) &&
+        Number.isInteger(options.minSliceSize) &&
+        options.minSliceSize > 0
+          ? options.minSliceSize
+          : 2;
+      let maxSliceSize =
+        typeof options.maxSliceSize === 'number' &&
+        Number.isFinite(options.maxSliceSize) &&
+        Number.isInteger(options.maxSliceSize) &&
+        options.maxSliceSize > 0
+          ? options.maxSliceSize
+          : 5;
+      if (minSliceSize > maxSliceSize) {
+        env.commandLogger.warn(
+          `--min-slice-size (${minSliceSize}) > --max-slice-size (${maxSliceSize}). Swapping values.`
+        );
+        [minSliceSize, maxSliceSize] = [maxSliceSize, minSliceSize];
+      }
+      const sortField = allowedSorts.has(options.sort ?? 'impact')
+        ? (options.sort ?? 'impact')
+        : 'impact';
+      if (options.sort && sortField !== options.sort) {
+        env.commandLogger.warn(`Invalid --sort '${options.sort}'. Falling back to 'impact'.`);
+      }
+      if (options.benefit && !allowedBenefits.has(options.benefit)) {
+        env.commandLogger.warn(`Invalid --benefit '${options.benefit}'. Ignoring filter.`);
+      }
+      const excludeCommon = options.excludeCommon ?? true;
+
+      // Import and create property slice miner
+      const { PropertySliceMiner } = await import(
+        '../../analyzers/type-insights/property-slice-miner'
+      );
+      const sliceMiner = new PropertySliceMiner(env.storage, {
+        minSupport,
+        minSliceSize,
+        maxSliceSize,
+        considerMethods: options.considerMethods ?? false,
+        excludeCommonProperties: excludeCommon
+      });
+
+      // Generate analysis report
+      const report = await sliceMiner.generateReport(latestSnapshot.id);
+
+      // Filter by benefit level if specified
+      let slices = [
+        ...report.highValueSlices,
+        ...report.mediumValueSlices,
+        ...report.lowValueSlices
+      ];
+      if (options.benefit && allowedBenefits.has(options.benefit)) {
+        slices = slices.filter(slice => slice.extractionBenefit === options.benefit);
+      }
+
+      // Sort results
+      slices.sort((a, b) => {
+        let comparison = 0;
+        switch (sortField) {
+          case 'support':
+            comparison = a.support - b.support;
+            break;
+          case 'size':
+            comparison = a.properties.length - b.properties.length;
+            break;
+          case 'impact':
+            comparison = a.impactScore - b.impactScore;
+            break;
+          case 'benefit': {
+            const benefitOrder = { high: 3, medium: 2, low: 1 };
+            comparison =
+              benefitOrder[a.extractionBenefit] - benefitOrder[b.extractionBenefit];
+            break;
+          }
+          default:
+            comparison = a.impactScore - b.impactScore;
+        }
+        return options.desc ? -comparison : comparison;
+      });
+
+      // Apply limit
+      if (options.limit && options.limit > 0) {
+        slices = slices.slice(0, options.limit);
+      }
+
+      if (options.json) {
+        // JSON output（例外発生時にもJSON形式で返却）
+        const jsonReport = {
+          summary: {
+            totalSlices: report.totalSlices,
+            estimatedCodeReduction: report.estimatedCodeReduction,
+            slicesShown: slices.length
+          },
+          slices: slices.map(slice => ({
+            id: slice.id,
+            properties: slice.properties,
+            suggestedVOName: slice.suggestedVOName,
+            support: slice.support,
+            extractionBenefit: slice.extractionBenefit,
+            impactScore: slice.impactScore,
+            duplicateCode: slice.duplicateCode,
+            relatedMethods: slice.relatedMethods,
+            types: slice.types
+          })),
+          recommendations: report.recommendations
+        };
+        try {
+          console.log(JSON.stringify(jsonReport, null, 2));
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+          const funcqcError = errorHandler.createError(
+            ErrorCode.UNKNOWN_ERROR,
+            `Failed to serialize JSON output: ${errMsg}`,
+            { command: 'types slices' },
+            error instanceof Error ? error : undefined
+          );
+          throw funcqcError;
+        }
+      } else {
+        // Formatted output
+        console.log(formatSlicesReport(report, slices, { minSupport, minSliceSize }));
+      }
+
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as FuncqcError);
+      } else {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          `Failed to analyze property slices: ${error instanceof Error ? error.message : String(error)}`,
+          {},
+          error instanceof Error ? error : undefined
+        );
+        errorHandler.handleError(funcqcError);
+      }
+    }
+  };
+
+/**
+ * Format property slices analysis report
+ */
+function formatSlicesReport(report: PropertySliceReport, slices: PropertySlice[], options?: { minSupport?: number; minSliceSize?: number }): string {
+  const lines: string[] = [];
+  
+  lines.push('🍰 Property Slice Analysis');
+  lines.push('━'.repeat(50));
+  lines.push('');
+  
+  // Summary
+  lines.push(`📊 Summary:`);
+  lines.push(`   Total Slices Found: ${report.totalSlices}`);
+  lines.push(`   High Value: ${report.highValueSlices.length}`);
+  lines.push(`   Medium Value: ${report.mediumValueSlices.length}`);
+  lines.push(`   Low Value: ${report.lowValueSlices.length}`);
+  lines.push(`   Estimated Code Reduction: ~${report.estimatedCodeReduction} lines`);
+  lines.push('');
+
+  if (slices.length === 0) {
+    lines.push('❌ No property slices found matching the criteria');
+    lines.push('');
+    lines.push('💡 Try adjusting parameters:');
+    lines.push(`   • Lower --min-support${options ? ` (currently requires ${options.minSupport}+ types)` : ''}`);
+    lines.push(`   • Lower --min-slice-size${options ? ` (currently requires ${options.minSliceSize}+ properties)` : ''}`);
+    lines.push('   • Include --consider-methods for broader patterns');
+    return lines.join('\n');
+  }
+
+  // Individual slices
+  lines.push(`🎯 Property Slices (showing ${slices.length}):`);
+  lines.push('━'.repeat(50));
+  
+  slices.forEach((slice, index) => {
+    const benefit = slice.extractionBenefit;
+    const benefitIcon = benefit === 'high' ? '🟢' : benefit === 'medium' ? '🟡' : '🔴';
+    
+    lines.push(`${index + 1}. ${benefitIcon} ${slice.suggestedVOName}`);
+    lines.push(`   Properties: {${slice.properties.join(', ')}}`);
+    lines.push(`   Found in: ${slice.support} types`);
+    lines.push(`   Benefit: ${benefit.toUpperCase()}`);
+    lines.push(`   Impact Score: ${slice.impactScore}`);
+    lines.push(`   Est. Duplicate Code: ${slice.duplicateCode} lines`);
+    
+    if (slice.relatedMethods.length > 0) {
+      lines.push(`   Related Methods: {${slice.relatedMethods.join(', ')}}`);
+    }
+    
+    lines.push('');
+  });
+
+  // Recommendations
+  if (report.recommendations.length > 0) {
+    lines.push('📋 Recommendations:');
+    lines.push('━'.repeat(30));
+    report.recommendations.forEach((rec: string) => {
+      lines.push(`   ${rec}`);
+    });
+    lines.push('');
+  }
+
+  // Next steps
+  lines.push('🚀 Next Steps:');
+  lines.push('━'.repeat(20));
+  lines.push('   1. Review high-value slices for immediate extraction');
+  lines.push('   2. Create Value Object interfaces for common patterns');
+  lines.push('   3. Refactor types to use extracted Value Objects');
+  lines.push('   4. Update type definitions to reduce duplication');
+
+  return lines.join('\n');
 }
