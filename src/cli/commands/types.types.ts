@@ -122,6 +122,17 @@ export interface TypeSlicesOptions {
   desc?: boolean;           // Sort in descending order
 }
 
+export interface TypeSubsumeOptions {
+  json?: boolean;
+  minOverlap?: number;        // Minimum overlap ratio (0-1, default: 0.7)
+  includePartial?: boolean;   // Include partial matches (default: true)
+  showRedundant?: boolean;    // Show only redundant types (default: false)
+  considerMethods?: boolean;  // Consider method names (default: false)
+  limit?: number;             // Limit number of results
+  sort?: 'overlap' | 'impact' | 'types'; // Sort criteria (default: impact)
+  desc?: boolean;             // Sort in descending order
+}
+
 // Helper functions
 export function isUuidOrPrefix(value: string): boolean {
   return Boolean(
