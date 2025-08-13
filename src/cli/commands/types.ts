@@ -2416,8 +2416,12 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
       // Get latest snapshot (他コマンドと同様の取得方法に統一)
       const snapshots = await env.storage.getSnapshots({ limit: 1 });
       if (snapshots.length === 0) {
-        env.commandLogger.error('No snapshots found. Run `funcqc scan` first.');
-        return;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          'No snapshots found. Run `funcqc scan` first.',
+          { command: 'types slices' }
+        );
+        throw funcqcError;
       }
       const latestSnapshot = snapshots[0];
 
