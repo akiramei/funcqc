@@ -2421,50 +2421,84 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
       }
       const latestSnapshot = snapshots[0];
 
+      // Normalize and validate options
+      const allowedBenefits = new Set(['high', 'medium', 'low'] as const);
+      const allowedSorts = new Set(['support', 'size', 'impact', 'benefit'] as const);
+      const minSupport =
+        typeof options.minSupport === 'number' && Number.isFinite(options.minSupport) && options.minSupport > 0
+          ? options.minSupport
+          : 3;
+      let minSliceSize =
+        typeof options.minSliceSize === 'number' && Number.isFinite(options.minSliceSize) && options.minSliceSize > 0
+          ? options.minSliceSize
+          : 2;
+      let maxSliceSize =
+        typeof options.maxSliceSize === 'number' && Number.isFinite(options.maxSliceSize) && options.maxSliceSize > 0
+          ? options.maxSliceSize
+          : 5;
+      if (minSliceSize > maxSliceSize) {
+        env.commandLogger.warn(
+          `--min-slice-size (${minSliceSize}) > --max-slice-size (${maxSliceSize}). Swapping values.`
+        );
+        [minSliceSize, maxSliceSize] = [maxSliceSize, minSliceSize];
+      }
+      const sortField = allowedSorts.has(options.sort ?? 'impact')
+        ? (options.sort ?? 'impact')
+        : 'impact';
+      if (options.sort && sortField !== options.sort) {
+        env.commandLogger.warn(`Invalid --sort '${options.sort}'. Falling back to 'impact'.`);
+      }
+      if (options.benefit && !allowedBenefits.has(options.benefit)) {
+        env.commandLogger.warn(`Invalid --benefit '${options.benefit}'. Ignoring filter.`);
+      }
+      const excludeCommon = options.excludeCommon ?? true;
+
       // Import and create property slice miner
-      const { PropertySliceMiner } = await import('../../analyzers/type-insights/property-slice-miner');
+      const { PropertySliceMiner } = await import(
+        '../../analyzers/type-insights/property-slice-miner'
+      );
       const sliceMiner = new PropertySliceMiner(env.storage, {
-        minSupport: options.minSupport ?? 3,
-        minSliceSize: options.minSliceSize ?? 2,
-        maxSliceSize: options.maxSliceSize ?? 5,
+        minSupport,
+        minSliceSize,
+        maxSliceSize,
         considerMethods: options.considerMethods ?? false,
-        excludeCommonProperties: options.excludeCommon ?? true
+        excludeCommonProperties: excludeCommon
       });
 
       // Generate analysis report
       const report = await sliceMiner.generateReport(latestSnapshot.id);
 
       // Filter by benefit level if specified
-      let slices = [...report.highValueSlices, ...report.mediumValueSlices, ...report.lowValueSlices];
-      if (options.benefit) {
+      let slices = [
+        ...report.highValueSlices,
+        ...report.mediumValueSlices,
+        ...report.lowValueSlices
+      ];
+      if (options.benefit && allowedBenefits.has(options.benefit)) {
         slices = slices.filter(slice => slice.extractionBenefit === options.benefit);
       }
 
       // Sort results
-      const sortField = options.sort || 'impact';
       slices.sort((a, b) => {
         let comparison = 0;
         switch (sortField) {
-          case 'support': {
+          case 'support':
             comparison = a.support - b.support;
             break;
-          }
-          case 'size': {
+          case 'size':
             comparison = a.properties.length - b.properties.length;
             break;
-          }
-          case 'impact': {
+          case 'impact':
             comparison = a.impactScore - b.impactScore;
             break;
-          }
           case 'benefit': {
             const benefitOrder = { high: 3, medium: 2, low: 1 };
-            comparison = benefitOrder[a.extractionBenefit] - benefitOrder[b.extractionBenefit];
+            comparison =
+              benefitOrder[a.extractionBenefit] - benefitOrder[b.extractionBenefit];
             break;
           }
-          default: {
+          default:
             comparison = a.impactScore - b.impactScore;
-          }
         }
         return options.desc ? -comparison : comparison;
       });
@@ -2498,7 +2532,7 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
         console.log(JSON.stringify(jsonReport, null, 2));
       } else {
         // Formatted output
-        console.log(formatSlicesReport(report, slices));
+        console.log(formatSlicesReport(report, slices, { minSupport, minSliceSize }));
       }
 
     } catch (error) {
@@ -2519,7 +2553,7 @@ const executeTypesSlicesDB: VoidCommand<TypeSlicesOptions> = (options) =>
 /**
  * Format property slices analysis report
  */
-function formatSlicesReport(report: PropertySliceReport, slices: PropertySlice[]): string {
+function formatSlicesReport(report: PropertySliceReport, slices: PropertySlice[], options?: { minSupport?: number; minSliceSize?: number }): string {
   const lines: string[] = [];
   
   lines.push('🍰 Property Slice Analysis');
@@ -2539,8 +2573,8 @@ function formatSlicesReport(report: PropertySliceReport, slices: PropertySlice[]
     lines.push('❌ No property slices found matching the criteria');
     lines.push('');
     lines.push('💡 Try adjusting parameters:');
-    lines.push('   • Lower --min-support (currently requires 3+ types)');
-    lines.push('   • Lower --min-slice-size (currently requires 2+ properties)');
+    lines.push(`   • Lower --min-support${options ? ` (currently requires ${options.minSupport}+ types)` : ''}`);
+    lines.push(`   • Lower --min-slice-size${options ? ` (currently requires ${options.minSliceSize}+ properties)` : ''}`);
     lines.push('   • Include --consider-methods for broader patterns');
     return lines.join('\n');
   }
