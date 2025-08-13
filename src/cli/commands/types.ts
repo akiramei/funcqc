@@ -2714,7 +2714,7 @@ const executeTypesSubsumeDB: VoidCommand<TypeSubsumeOptions> = (options) =>
       const relationships = await analyzer.getDetailedResults(latestSnapshot.id);
 
       // Apply sorting and limiting
-      let sortedResults = applySortingAndLimiting(relationships, options);
+      const sortedResults = applySortingAndLimiting(relationships, options);
 
       // Output results
       if (options.json) {
