@@ -16,6 +16,9 @@ export * from './debug-residue';
 // Re-export type system types
 export * from './type-system';
 
+// Re-export type analysis types
+export * from './type-analysis';
+
 import { NamingEvaluation } from './quality-enhancements';
 import { QualityAssessment, MultipleQualityAssessment } from '../core/realtime-quality-gate.js';
 import { TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from './type-system';

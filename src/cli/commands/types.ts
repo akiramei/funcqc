@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, TypeSlicesOptions, TypeSubsumeOptions, TypeFingerprintOptions, TypeConvertersOptions, TypeCochangeOptions, isUuidOrPrefix, escapeLike } from './types.types';
-import type { CochangeAnalysisReport } from '../../analyzers/type-insights/cochange-analyzer';
+import type { CochangeAnalysisReport } from '../../types';
 
 // Types for insights command
 interface AnalysisResults {
@@ -3690,14 +3690,30 @@ const executeTypesCochangeDB: VoidCommand<TypeCochangeOptions> = (options) =>
         excludePaths = [];
       }
 
-      // Create analyzer
+      // Create analyzer (normalize/validate numeric options)
+      const normalizeInt = (v: unknown, min: number, fallback: number) =>
+        typeof v === 'number' && Number.isFinite(v) && Math.trunc(v) >= min
+          ? Math.trunc(v)
+          : fallback;
+      const normalizeFloatRange = (v: unknown, min: number, max: number, fallback: number) =>
+        typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max
+          ? v
+          : fallback;
+
+      const monthsBack = normalizeInt(options.monthsBack, 1, 6);
+      const minChanges = normalizeInt(options.minChanges, 1, 2);
+      const cochangeThreshold = normalizeFloatRange(options.cochangeThreshold, 0, 1, 0.3);
+      const maxCommits = normalizeInt(options.maxCommits, 1, 1000);
+      const showMatrix = options.showMatrix === true;
+      const suggestModules = options.suggestModules !== false;
+
       const analyzer = new CochangeAnalyzer(env.storage, gitProvider, {
-        monthsBack: options.monthsBack || 6,
-        minChanges: options.minChanges || 2,
-        cochangeThreshold: options.cochangeThreshold || 0.3,
-        showMatrix: options.showMatrix || false,
-        suggestModules: options.suggestModules !== false,
-        maxCommits: options.maxCommits || 1000,
+        monthsBack,
+        minChanges,
+        cochangeThreshold,
+        showMatrix,
+        suggestModules,
+        maxCommits,
         excludePaths
       });
 
