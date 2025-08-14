@@ -143,8 +143,7 @@ export class ConverterNetworkAnalyzer extends CrossTypeAnalyzer {
    * Load converter functions from the database
    */
   private async loadConverterFunctions(snapshotId?: string): Promise<ConverterFunction[]> {
-    const query = snapshotId
-      ? `SELECT 
+    const baseQuery = `SELECT 
            f.id as function_id, 
            f.name, 
            f.return_type,
@@ -154,36 +153,18 @@ export class ConverterNetworkAnalyzer extends CrossTypeAnalyzer {
          FROM functions f
          LEFT JOIN (
            SELECT target_function_id, COUNT(*) as usage_count
-           FROM call_edges 
-           WHERE snapshot_id = $1
+           FROM call_edges ${snapshotId ? 'WHERE snapshot_id = $1' : ''}
            GROUP BY target_function_id
          ) ce ON f.id = ce.target_function_id
-         WHERE f.snapshot_id = $1 
-           AND (
+         WHERE ${snapshotId ? 'f.snapshot_id = $1 AND ' : ''}
+           (
              f.name LIKE 'to%' OR 
              f.name LIKE 'from%' OR 
              f.name LIKE 'parse%' OR 
              f.name LIKE 'convert%' OR 
              f.name LIKE 'transform%'
-           )`
-      : `SELECT 
-           f.id as function_id, 
-           f.name, 
-           f.return_type,
-           f.file_path,
-           f.line_number,
-           COALESCE(ce.usage_count, 0) as usage_count
-         FROM functions f
-         LEFT JOIN (
-           SELECT target_function_id, COUNT(*) as usage_count
-           FROM call_edges 
-           GROUP BY target_function_id
-         ) ce ON f.id = ce.target_function_id
-         WHERE f.name LIKE 'to%' OR 
-               f.name LIKE 'from%' OR 
-               f.name LIKE 'parse%' OR 
-               f.name LIKE 'convert%' OR 
-               f.name LIKE 'transform%'`;
+           );`;
+    const query = baseQuery;
 
     const result = await this.storage.query(query, snapshotId ? [snapshotId] : []);
     const converters: ConverterFunction[] = [];
