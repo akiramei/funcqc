@@ -146,6 +146,19 @@ export interface TypeFingerprintOptions {
   desc?: boolean;                  // Sort in descending order
 }
 
+export interface TypeConvertersOptions {
+  json?: boolean;
+  minConverters?: number;          // Minimum converters to form a network (default: 2)
+  includeInternalCalls?: boolean;  // Include internal function calls (default: true)
+  includeParsers?: boolean;        // Include parse functions as converters (default: true)
+  showChains?: boolean;            // Show conversion chains (default: false)
+  canonicalOnly?: boolean;         // Show only canonical types (default: false)
+  maxChainLength?: number;         // Maximum conversion chain length (default: 4)
+  limit?: number;                  // Limit number of results
+  sort?: 'centrality' | 'converters' | 'usage'; // Sort criteria (default: centrality)
+  desc?: boolean;                  // Sort in descending order
+}
+
 // Helper functions
 export function isUuidOrPrefix(value: string): boolean {
   return Boolean(
