@@ -340,4 +340,79 @@ describe('CochangeAnalyzer', () => {
       expect(config.excludePaths).toEqual([]);
     });
   });
+
+  describe('multiple types and path mapping', () => {
+    it('should handle multiple types per file correctly', async () => {
+      const storage = createMockStorage();
+      const gitProvider = new MockGitProvider();
+      
+      // Mock type definitions with multiple types in same file
+      storage.query = vi.fn().mockResolvedValue({
+        rows: [
+          { id: 'type1', name: 'TypeA', file_path: 'src/types.ts' },
+          { id: 'type2', name: 'TypeB', file_path: 'src/types.ts' },
+          { id: 'type3', name: 'TypeC', file_path: 'src/other.ts' }
+        ]
+      });
+
+      // Mock Git commits that change the file with multiple types
+      gitProvider.setCommits([
+        {
+          hash: 'hash1',
+          date: new Date('2024-01-01'),
+          message: 'Update types',
+          changedFiles: ['src/types.ts', 'src/other.ts']
+        }
+      ]);
+
+      const testAnalyzer = new CochangeAnalyzer(
+        storage,
+        gitProvider,
+        { monthsBack: 6, maxCommits: 100, excludePaths: [], suggestModules: true }
+      );
+
+      const reports = await testAnalyzer.analyze();
+      const report = reports[0];
+      
+      // Should detect changes for both types in the same file
+      expect(report).toBeDefined();
+      expect(report.support).toBeGreaterThanOrEqual(2); // At least TypeA and TypeB should be detected
+    });
+
+    it('should normalize /virtualsrc/ paths correctly', async () => {
+      const storage = createMockStorage();
+      const gitProvider = new MockGitProvider();
+      
+      // Mock type definitions with /virtualsrc/ prefix
+      storage.query = vi.fn().mockResolvedValue({
+        rows: [
+          { id: 'type1', name: 'TypeA', file_path: '/virtualsrc/types.ts' },
+          { id: 'type2', name: 'TypeB', file_path: '/virtualsrc/components.ts' }
+        ]
+      });
+
+      // Mock Git commits with normal src/ paths
+      gitProvider.setCommits([
+        {
+          hash: 'hash1',
+          date: new Date('2024-01-01'),
+          message: 'Update types',
+          changedFiles: ['src/types.ts']  // Note: no /virtualsrc/ prefix
+        }
+      ]);
+
+      const testAnalyzer = new CochangeAnalyzer(
+        storage,
+        gitProvider,
+        { monthsBack: 6, maxCommits: 100, excludePaths: [], suggestModules: true }
+      );
+
+      const reports = await testAnalyzer.analyze();
+      const report = reports[0];
+      
+      // Should successfully match the path and detect the type change
+      expect(report).toBeDefined();
+      expect(report.support).toBeGreaterThanOrEqual(1); // TypeA should be detected
+    });
+  });
 });

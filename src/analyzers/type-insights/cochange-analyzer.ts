@@ -196,13 +196,13 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
   /**
    * Load mapping of types to file paths
    */
-  private async loadTypeFileMapping(snapshotId?: string): Promise<Map<string, { typeId: string; typeName: string }>> {
+  private async loadTypeFileMapping(snapshotId?: string): Promise<Map<string, { typeId: string; typeName: string }[]>> {
     const query = snapshotId
       ? `SELECT id, name, file_path FROM type_definitions WHERE snapshot_id = $1`
       : `SELECT id, name, file_path FROM type_definitions`;
 
     const result = await this.storage.query(query, snapshotId ? [snapshotId] : []);
-    const typeFileMap = new Map<string, { typeId: string; typeName: string }>();
+    const typeFileMap = new Map<string, { typeId: string; typeName: string }[]>();
 
     for (const row of result.rows) {
       const r = row as Record<string, unknown>;
@@ -211,8 +211,16 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
       const typeName = r['name'] as string;
       
       // Normalize file path for comparison with Git data
-      const normalizedPath = filePath.replace(/\\/g, '/');
-      typeFileMap.set(normalizedPath, { typeId, typeName });
+      let normalizedPath = filePath.replace(/\\/g, '/');
+      
+      // Remove /virtualsrc/ prefix that may be present in database
+      normalizedPath = normalizedPath.replace(/^\/virtualsrc\//, 'src/');
+      
+      // Support multiple type definitions per file
+      if (!typeFileMap.has(normalizedPath)) {
+        typeFileMap.set(normalizedPath, []);
+      }
+      typeFileMap.get(normalizedPath)?.push({ typeId, typeName });
     }
 
     return typeFileMap;
@@ -223,7 +231,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    */
   private analyzeTypeChanges(
     commits: GitCommitInfo[], 
-    typeFileMap: Map<string, { typeId: string; typeName: string }>
+    typeFileMap: Map<string, { typeId: string; typeName: string }[]>
   ): TypeChangeInfo[] {
     const typeChanges = new Map<string, {
       changeCount: number;
@@ -235,21 +243,24 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     for (const commit of commits) {
       for (const filePath of commit.changedFiles) {
         const normalizedPath = filePath.replace(/\\/g, '/');
-        const typeInfo = typeFileMap.get(normalizedPath);
+        const typeInfos = typeFileMap.get(normalizedPath);
         
-        if (typeInfo) {
-          if (!typeChanges.has(typeInfo.typeId)) {
-            typeChanges.set(typeInfo.typeId, {
-              changeCount: 0,
-              changeDates: [],
-              filePath: normalizedPath
-            });
-          }
-          
-          const changeInfo = typeChanges.get(typeInfo.typeId);
-          if (changeInfo) {
-            changeInfo.changeCount++;
-            changeInfo.changeDates.push(commit.date);
+        if (typeInfos) {
+          // Handle multiple type definitions per file
+          for (const typeInfo of typeInfos) {
+            if (!typeChanges.has(typeInfo.typeId)) {
+              typeChanges.set(typeInfo.typeId, {
+                changeCount: 0,
+                changeDates: [],
+                filePath: normalizedPath
+              });
+            }
+            
+            const changeInfo = typeChanges.get(typeInfo.typeId);
+            if (changeInfo) {
+              changeInfo.changeCount++;
+              changeInfo.changeDates.push(commit.date);
+            }
           }
         }
       }
@@ -263,7 +274,12 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     const monthsInPeriod = this.cochangeOptions.monthsBack;
 
     for (const [typeId, changeData] of typeChanges) {
-      const typeInfo = Array.from(typeFileMap.values()).find(t => t.typeId === typeId);
+      // Find type info from the nested arrays
+      let typeInfo: { typeId: string; typeName: string } | undefined;
+      for (const typeInfos of typeFileMap.values()) {
+        typeInfo = typeInfos.find(t => t.typeId === typeId);
+        if (typeInfo) break;
+      }
       if (!typeInfo) continue;
 
       const sortedDates = changeData.changeDates.sort((a, b) => a.getTime() - b.getTime());
@@ -288,7 +304,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    */
   private calculateCochangeMatrix(
     commits: GitCommitInfo[],
-    typeFileMap: Map<string, { typeId: string; typeName: string }>,
+    typeFileMap: Map<string, { typeId: string; typeName: string }[]>,
     typeChanges: TypeChangeInfo[]
   ): CochangeRelation[] {
     const cochangeMap = new Map<string, number>();
@@ -305,9 +321,12 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
       
       for (const filePath of commit.changedFiles) {
         const normalizedPath = filePath.replace(/\\/g, '/');
-        const typeInfo = typeFileMap.get(normalizedPath);
-        if (typeInfo) {
-          changedTypes.push(typeInfo.typeId);
+        const typeInfos = typeFileMap.get(normalizedPath);
+        if (typeInfos) {
+          // Handle multiple type definitions per file
+          for (const typeInfo of typeInfos) {
+            changedTypes.push(typeInfo.typeId);
+          }
         }
       }
 
