@@ -159,6 +159,20 @@ export interface TypeConvertersOptions {
   desc?: boolean;                  // Sort in descending order
 }
 
+export interface TypeCochangeOptions {
+  json?: boolean;
+  monthsBack?: number;             // How far back to analyze (default: 6 months)
+  minChanges?: number;             // Minimum changes to consider a type (default: 2)
+  cochangeThreshold?: number;      // Threshold for co-change significance (0-1, default: 0.3)
+  showMatrix?: boolean;            // Show co-change matrix (default: false)
+  suggestModules?: boolean;        // Suggest module reorganization (default: true)
+  maxCommits?: number;             // Maximum commits to analyze (default: 1000)
+  excludePaths?: string | string[]; // Paths to exclude from analysis (default: [])
+  limit?: number;                  // Limit number of results
+  sort?: 'coupling' | 'changes' | 'volatility'; // Sort criteria (default: coupling)
+  desc?: boolean;                  // Sort in descending order
+}
+
 // Helper functions
 export function isUuidOrPrefix(value: string): boolean {
   return Boolean(
