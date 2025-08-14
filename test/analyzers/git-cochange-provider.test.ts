@@ -7,14 +7,14 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { GitCochangeProvider } from '../../src/analyzers/type-insights/git-cochange-provider';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 // Mock child_process
 vi.mock('child_process', () => ({
-  execSync: vi.fn()
+  execFileSync: vi.fn()
 }));
 
-const mockExecSync = vi.mocked(execSync);
+const mockExecFileSync = vi.mocked(execFileSync);
 
 describe('GitCochangeProvider', () => {
   let provider: GitCochangeProvider;
@@ -22,6 +22,8 @@ describe('GitCochangeProvider', () => {
   beforeEach(() => {
     provider = new GitCochangeProvider('/test/repo', 30000);
     vi.clearAllMocks();
+    // Set default mock implementation to handle any execFileSync call
+    mockExecFileSync.mockImplementation(() => '');
   });
 
   afterEach(() => {
@@ -41,7 +43,7 @@ src/types/user.ts
 hash3|2024-01-03 12:00:00 +0000|Third commit
 src/config/types.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -80,7 +82,7 @@ src/types/config.d.ts
 test/user.test.ts
 src/types/api.spec.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -105,7 +107,7 @@ src/types/user.ts
 node_modules/package/index.ts
 test/fixtures/types.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -125,7 +127,7 @@ test/fixtures/types.ts`;
 ./src/types/user.ts
 src\\\\config\\\\types.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -150,7 +152,7 @@ hash2|2024-01-02 11:00:00 +0000|Commit with files
 
 src/types/user.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -178,7 +180,7 @@ hash2|invalid-date|Another commit
 
 src/types/config.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -188,7 +190,7 @@ src/types/config.ts`;
 
       const commits = await provider.getCommitHistory(options);
 
-      // Should only return valid commits
+      // Should only return valid commits (hash1 is valid, hash2 has invalid date)
       expect(commits).toHaveLength(1);
       expect(commits[0]?.hash).toBe('hash1');
       expect(commits[0]?.changedFiles).toEqual(['src/types/user.ts']);
@@ -196,7 +198,7 @@ src/types/config.ts`;
 
     it('should construct correct git command with options', async () => {
       const mockGitOutput = '';
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 3,
@@ -206,8 +208,19 @@ src/types/config.ts`;
 
       await provider.getCommitHistory(options);
 
-      expect(mockExecSync).toHaveBeenCalledWith(
-        expect.stringContaining('git log'),
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'git',
+        expect.arrayContaining([
+          'log',
+          expect.stringMatching(/--since=/),
+          '--pretty=format:%H|%ci|%s',
+          '--name-only',
+          '--max-count=500',
+          '--',
+          '.',
+          ':(exclude)test/',
+          ':(exclude)node_modules/'
+        ]),
         expect.objectContaining({
           cwd: '/test/repo',
           encoding: 'utf8',
@@ -216,14 +229,15 @@ src/types/config.ts`;
         })
       );
 
-      const gitCommand = mockExecSync.mock.calls[0]?.[0] as string;
-      expect(gitCommand).toContain('--max-count=500');
-      expect(gitCommand).toContain('--since=');
-      expect(gitCommand).toContain("-- . ':!test/' ':!node_modules/'");
+      const gitArgs = mockExecFileSync.mock.calls[0]?.[1] as string[];
+      expect(gitArgs).toContain('--max-count=500');
+      expect(gitArgs.some(arg => arg.startsWith('--since='))).toBe(true);
+      expect(gitArgs).toContain(':(exclude)test/');
+      expect(gitArgs).toContain(':(exclude)node_modules/');
     });
 
     it('should throw error on git command failure', async () => {
-      mockExecSync.mockImplementationOnce(() => {
+      mockExecFileSync.mockImplementationOnce(() => {
         throw new Error('Git command failed');
       });
 
@@ -234,7 +248,7 @@ src/types/config.ts`;
       };
 
       await expect(provider.getCommitHistory(options))
-        .rejects.toThrow('Failed to get Git commit history: Git command failed');
+        .rejects.toThrow('Failed to get Git commit history: git log --since=');
     });
   });
 
@@ -245,28 +259,30 @@ src/types/user.ts
 src/types/profile.ts
 package.json`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const files = await provider.getCommitFiles('hash123');
 
       expect(files).toEqual(['src/types/user.ts', 'src/types/profile.ts']);
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'git show --name-only --pretty=format: hash123',
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'git',
+        ['show', '--no-patch', '--name-only', '--pretty=format:', 'hash123'],
         expect.objectContaining({
           cwd: '/test/repo',
           encoding: 'utf8',
-          timeout: 30000
+          timeout: 30000,
+          maxBuffer: 10 * 1024 * 1024
         })
       );
     });
 
     it('should throw error on commit files failure', async () => {
-      mockExecSync.mockImplementationOnce(() => {
+      mockExecFileSync.mockImplementationOnce(() => {
         throw new Error('Invalid commit hash');
       });
 
       await expect(provider.getCommitFiles('invalid-hash'))
-        .rejects.toThrow('Failed to get commit files for invalid-hash: Invalid commit hash');
+        .rejects.toThrow('Failed to get commit files for invalid-hash: git show --no-patch --name-only --pretty=format: invalid-hash failed: Invalid commit hash');
     });
   });
 
@@ -287,7 +303,7 @@ hash3|2024-01-03 12:00:00 +0000|Third commit
 src/types/user.ts
 src/types/profile.ts`;
 
-      mockExecSync.mockReturnValueOnce(mockGitOutput);
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
 
       const options = {
         monthsBack: 6,
@@ -308,22 +324,25 @@ src/types/profile.ts`;
 
   describe('utility methods', () => {
     it('should check Git availability', async () => {
-      mockExecSync.mockReturnValueOnce('git version 2.39.0');
+      mockExecFileSync.mockReturnValueOnce('git version 2.39.0');
       
       const isAvailable = await provider.isGitAvailable();
       expect(isAvailable).toBe(true);
 
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'git --version',
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'git',
+        ['--version'],
         expect.objectContaining({
           cwd: '/test/repo',
-          timeout: 5000
+          encoding: 'utf8',
+          timeout: 5000,
+          maxBuffer: 10 * 1024 * 1024
         })
       );
     });
 
     it('should handle Git not available', async () => {
-      mockExecSync.mockImplementationOnce(() => {
+      mockExecFileSync.mockImplementationOnce(() => {
         throw new Error('Git not found');
       });
       
@@ -332,22 +351,25 @@ src/types/profile.ts`;
     });
 
     it('should check if directory is Git repository', async () => {
-      mockExecSync.mockReturnValueOnce('.git');
+      mockExecFileSync.mockReturnValueOnce('.git');
       
       const isRepo = await provider.isGitRepository();
       expect(isRepo).toBe(true);
 
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'git rev-parse --git-dir',
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--git-dir'],
         expect.objectContaining({
           cwd: '/test/repo',
-          timeout: 5000
+          encoding: 'utf8',
+          timeout: 5000,
+          maxBuffer: 10 * 1024 * 1024
         })
       );
     });
 
     it('should handle non-Git directory', async () => {
-      mockExecSync.mockImplementationOnce(() => {
+      mockExecFileSync.mockImplementationOnce(() => {
         throw new Error('Not a git repository');
       });
       
@@ -356,17 +378,19 @@ src/types/profile.ts`;
     });
 
     it('should get repository root', async () => {
-      mockExecSync.mockReturnValueOnce('/path/to/repo\n');
+      mockExecFileSync.mockReturnValueOnce('/path/to/repo\n');
       
       const root = await provider.getRepositoryRoot();
       expect(root).toBe('/path/to/repo');
 
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'git rev-parse --show-toplevel',
+      expect(mockExecFileSync).toHaveBeenCalledWith(
+        'git',
+        ['rev-parse', '--show-toplevel'],
         expect.objectContaining({
           cwd: '/test/repo',
           encoding: 'utf8',
-          timeout: 5000
+          timeout: 5000,
+          maxBuffer: 10 * 1024 * 1024
         })
       );
     });
@@ -389,7 +413,7 @@ src/types/profile.ts`;
       ]);
 
       // Mock total commit count
-      mockExecSync.mockReturnValueOnce('150\n');
+      mockExecFileSync.mockReturnValueOnce('150\n');
 
       const options = {
         monthsBack: 6,

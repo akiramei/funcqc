@@ -5,7 +5,7 @@
  * commit history and file change patterns needed for temporal coupling analysis.
  */
 
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import path from 'path';
 import { GitProvider, GitCommitInfo } from './cochange-analyzer';
 
@@ -34,20 +34,24 @@ export class GitCochangeProvider implements GitProvider {
       dateThreshold.setMonth(dateThreshold.getMonth() - options.monthsBack);
       const sinceDate = dateThreshold.toISOString().split('T')[0]; // YYYY-MM-DD format
 
-      // Build git log command
-      let gitCommand = `git log --since="${sinceDate}" --pretty=format:"%H|%ci|%s" --name-only --max-count=${options.maxCommits}`;
-      
-      // Add path exclusions
+      // Build git log args (avoid shell parsing issues)
+      const args: string[] = [
+        'log',
+        `--since=${sinceDate}`,
+        `--pretty=format:%H|%ci|%s`,
+        '--name-only',
+        `--max-count=${options.maxCommits}`
+      ];
       if (options.excludePaths.length > 0) {
-        const excludePatterns = options.excludePaths
-          .map(p => `':!${p}'`)
-          .join(' ');
-        gitCommand += ` -- . ${excludePatterns}`;
+        args.push('--', '.');
+        for (const p of options.excludePaths) {
+          // Use pathspec exclude; keep as a single arg to avoid shell expansion
+          args.push(`:(exclude)${p}`);
+        }
       }
 
-      const output = execSync(gitCommand, {
+      const output = this.runGit(args, {
         cwd: this.repositoryRoot,
-        encoding: 'utf8',
         timeout: this.timeout,
         maxBuffer: 10 * 1024 * 1024 // 10MB buffer
       });
@@ -88,12 +92,13 @@ export class GitCochangeProvider implements GitProvider {
         
         // Start new commit
         currentCommit = { header: trimmedLine, files: [] };
-      } else if (trimmedLine.includes('|') && trimmedLine.split('|').length >= 3) {
-        // This looks like a malformed commit header, reset current commit
+      } else if (this.looksLikeMalformedHeader(trimmedLine)) {
+        // This looks like a malformed commit header, ignore it
+        // and stop collecting files for current commit
         if (currentCommit) {
           this.processCommit(currentCommit, commits, excludePaths);
+          currentCommit = null;
         }
-        currentCommit = null;
       } else if (currentCommit) {
         // This is a file line for the current commit
         currentCommit.files.push(trimmedLine);
@@ -155,16 +160,24 @@ export class GitCochangeProvider implements GitProvider {
    * Check if a file path should be excluded based on exclude patterns
    */
   private isExcludedPath(filePath: string, excludePaths: string[]): boolean {
-    return excludePaths.some(pattern => {
-      // Handle both exact path matches and prefix matches
-      if (pattern.endsWith('/')) {
-        // Directory pattern - check if file path starts with this directory
-        return filePath.startsWith(pattern) || filePath.startsWith(pattern.slice(0, -1) + '/');
-      } else {
-        // Exact path or partial match
-        return filePath.includes(pattern);
+    const fp = this.normalizeFilePath(filePath);
+    return excludePaths.some(raw => {
+      const p = this.normalizeFilePath(raw);
+      if (p.endsWith('/')) {
+        const dir = p.slice(0, -1);
+        return fp === dir || fp.startsWith(`${dir}/`);
       }
+      return fp === p || fp.startsWith(`${p}/`);
     });
+  }
+
+  /**
+   * Check if a line looks like a malformed commit header (contains | but invalid)
+   */
+  private looksLikeMalformedHeader(line: string): boolean {
+    // If it contains pipe characters and has multiple parts, it might be a malformed header
+    const parts = line.split('|');
+    return parts.length >= 2;
   }
 
   /**
@@ -209,9 +222,8 @@ export class GitCochangeProvider implements GitProvider {
    */
   async getCommitFiles(commitHash: string): Promise<string[]> {
     try {
-      const output = execSync(`git show --name-only --pretty=format: ${commitHash}`, {
+      const output = this.runGit(['show', '--no-patch', '--name-only', '--pretty=format:', commitHash], {
         cwd: this.repositoryRoot,
-        encoding: 'utf8',
         timeout: this.timeout
       });
 
@@ -241,9 +253,12 @@ export class GitCochangeProvider implements GitProvider {
       let cochangeCount = 0;
 
       for (const commit of commits) {
-        const hasFileA = commit.changedFiles.some(f => f.includes(fileA) || fileA.includes(f));
-        const hasFileB = commit.changedFiles.some(f => f.includes(fileB) || fileB.includes(f));
-        
+        const a = this.normalizeFilePath(fileA);
+        const b = this.normalizeFilePath(fileB);
+        const files = new Set(commit.changedFiles.map(f => this.normalizeFilePath(f)));
+        const hasFileA = files.has(a);
+        const hasFileB = files.has(b);
+
         if (hasFileA && hasFileB) {
           cochangeCount++;
         }
@@ -263,10 +278,7 @@ export class GitCochangeProvider implements GitProvider {
    */
   async isGitAvailable(): Promise<boolean> {
     try {
-      execSync('git --version', {
-        cwd: this.repositoryRoot,
-        timeout: 5000
-      });
+      this.runGit(['--version'], { cwd: this.repositoryRoot, timeout: 5000 });
       return true;
     } catch {
       return false;
@@ -278,10 +290,7 @@ export class GitCochangeProvider implements GitProvider {
    */
   async isGitRepository(): Promise<boolean> {
     try {
-      execSync('git rev-parse --git-dir', {
-        cwd: this.repositoryRoot,
-        timeout: 5000
-      });
+      this.runGit(['rev-parse', '--git-dir'], { cwd: this.repositoryRoot, timeout: 5000 });
       return true;
     } catch {
       return false;
@@ -293,11 +302,7 @@ export class GitCochangeProvider implements GitProvider {
    */
   async getRepositoryRoot(): Promise<string> {
     try {
-      const output = execSync('git rev-parse --show-toplevel', {
-        cwd: this.repositoryRoot,
-        encoding: 'utf8',
-        timeout: 5000
-      });
+      const output = this.runGit(['rev-parse', '--show-toplevel'], { cwd: this.repositoryRoot, timeout: 5000 });
       return output.trim();
     } catch (error) {
       if (error instanceof Error) {
@@ -330,9 +335,8 @@ export class GitCochangeProvider implements GitProvider {
       }
 
       // Get total commit count
-      const totalCommitsOutput = execSync('git rev-list --count HEAD', {
+      const totalCommitsOutput = this.runGit(['rev-list', '--count', 'HEAD'], {
         cwd: this.repositoryRoot,
-        encoding: 'utf8',
         timeout: this.timeout
       });
       
@@ -363,5 +367,25 @@ export class GitCochangeProvider implements GitProvider {
    */
   setTimeout(timeoutMs: number): void {
     this.timeout = timeoutMs;
+  }
+
+  /**
+   * Run a git command safely without shell interpolation.
+   */
+  private runGit(args: string[], opts: { cwd?: string; timeout?: number; maxBuffer?: number } = {}): string {
+    try {
+      const out = execFileSync('git', args, {
+        cwd: opts.cwd ?? this.repositoryRoot,
+        encoding: 'utf8',
+        timeout: opts.timeout ?? this.timeout,
+        maxBuffer: opts.maxBuffer ?? 10 * 1024 * 1024
+      });
+      return out;
+    } catch (error) {
+      if (error instanceof Error) {
+        throw new Error(`git ${args.join(' ')} failed: ${error.message}`);
+      }
+      throw new Error(`git ${args.join(' ')} failed: ${String(error)}`);
+    }
   }
 }
