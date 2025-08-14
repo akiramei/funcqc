@@ -3773,6 +3773,14 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
   lines.push('');
   lines.push('📈 Co-change Analysis Report');
   lines.push('='.repeat(50));
+
+  // オプション正規化（limit は正の整数のみ許可）
+  const limit =
+    typeof options.limit === 'number' &&
+    Number.isFinite(options.limit) &&
+    Math.trunc(options.limit) > 0
+      ? Math.trunc(options.limit)
+      : undefined;
   
   // Statistics
   lines.push('');
@@ -3797,8 +3805,8 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
     sortedTypeChanges.reverse();
   }
   
-  if (options.limit) {
-    sortedTypeChanges = sortedTypeChanges.slice(0, options.limit);
+  if (limit) {
+    sortedTypeChanges = sortedTypeChanges.slice(0, limit);
   }
 
   if (sortedTypeChanges.length > 0) {
@@ -3811,8 +3819,8 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
     lines.push('-'.repeat(maxNameLength + 60));
     
     for (const typeChange of sortedTypeChanges) {
-      const volatilityBar = '█'.repeat(Math.floor(typeChange.volatility * 10)) + 
-                           '░'.repeat(10 - Math.floor(typeChange.volatility * 10));
+      const vBars = Math.max(0, Math.min(10, Math.floor(typeChange.volatility * 10)));
+      const volatilityBar = '█'.repeat(vBars) + '░'.repeat(10 - vBars);
       lines.push(
         `${typeChange.typeName.padEnd(maxNameLength)} | ` +
         `${typeChange.changeCount.toString().padStart(7)} | ` +
@@ -3834,8 +3842,8 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
     sortedRelations.reverse();
   }
   
-  if (options.limit) {
-    sortedRelations = sortedRelations.slice(0, options.limit);
+  if (limit) {
+    sortedRelations = sortedRelations.slice(0, limit);
   }
 
   if (sortedRelations.length > 0) {
@@ -3852,8 +3860,8 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
     lines.push('-'.repeat(maxTypeLength * 2 + 40));
     
     for (const relation of sortedRelations) {
-      const couplingBar = '█'.repeat(Math.floor(relation.temporalCoupling * 10)) + 
-                         '░'.repeat(10 - Math.floor(relation.temporalCoupling * 10));
+      const cBars = Math.max(0, Math.min(10, Math.floor(relation.temporalCoupling * 10)));
+      const couplingBar = '█'.repeat(cBars) + '░'.repeat(10 - cBars);
       lines.push(
         `${relation.typeA.padEnd(maxTypeLength)} | ` +
         `${relation.typeB.padEnd(maxTypeLength)} | ` +
