@@ -431,6 +431,118 @@ src/types/profile.ts`;
     });
   });
 
+  describe('input validation', () => {
+    it('should handle negative monthsBack gracefully', async () => {
+      const mockGitOutput = `hash1|2024-01-01 10:00:00 +0000|Test commit\n\nsrc/types/user.ts`;
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
+
+      const options = {
+        monthsBack: -5, // Invalid negative value
+        maxCommits: 100,
+        excludePaths: []
+      };
+
+      const commits = await provider.getCommitHistory(options);
+      
+      // Should still work but with normalized monthsBack (0)
+      expect(commits).toHaveLength(1);
+      
+      // Check that git command was called with --since using current date (monthsBack=0)
+      const gitArgs = mockExecFileSync.mock.calls[0]?.[1] as string[];
+      const sinceArg = gitArgs.find(arg => arg.startsWith('--since='));
+      expect(sinceArg).toBeDefined();
+      // Should be today's date since monthsBack was normalized to 0
+    });
+
+    it('should handle invalid maxCommits gracefully', async () => {
+      const mockGitOutput = `hash1|2024-01-01 10:00:00 +0000|Test commit\n\nsrc/types/user.ts`;
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
+
+      const options = {
+        monthsBack: 6,
+        maxCommits: -10, // Invalid negative value
+        excludePaths: []
+      };
+
+      const commits = await provider.getCommitHistory(options);
+      
+      // Should still work but with normalized maxCommits (clamped to 1)
+      expect(commits).toHaveLength(1);
+      
+      // Check that git command was called with normalized max-count (negative clamped to 1)
+      const gitArgs = mockExecFileSync.mock.calls[0]?.[1] as string[];
+      expect(gitArgs).toContain('--max-count=1');
+    });
+
+    it('should handle NaN values gracefully', async () => {
+      const mockGitOutput = `hash1|2024-01-01 10:00:00 +0000|Test commit\n\nsrc/types/user.ts`;
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
+
+      const options = {
+        monthsBack: NaN,
+        maxCommits: NaN,
+        excludePaths: []
+      };
+
+      const commits = await provider.getCommitHistory(options);
+      
+      // Should use default values (monthsBack=0, maxCommits=1000)
+      expect(commits).toHaveLength(1);
+      
+      const gitArgs = mockExecFileSync.mock.calls[0]?.[1] as string[];
+      expect(gitArgs).toContain('--max-count=1000');
+    });
+
+    it('should filter empty exclude paths', async () => {
+      const mockGitOutput = `hash1|2024-01-01 10:00:00 +0000|Test commit\n\nsrc/types/user.ts`;
+      mockExecFileSync.mockReturnValueOnce(mockGitOutput);
+
+      const options = {
+        monthsBack: 6,
+        maxCommits: 100,
+        excludePaths: ['  ', '', 'node_modules/', '   test/   ', '']
+      };
+
+      await provider.getCommitHistory(options);
+      
+      // Should only include non-empty, trimmed paths
+      const gitArgs = mockExecFileSync.mock.calls[0]?.[1] as string[];
+      expect(gitArgs).toContain(':(exclude)node_modules/');
+      expect(gitArgs).toContain(':(exclude)test/');
+      // Should not contain empty or whitespace-only excludes
+      expect(gitArgs.filter(arg => arg === ':(exclude)')).toHaveLength(0);
+      expect(gitArgs.filter(arg => arg === ':(exclude)  ')).toHaveLength(0);
+    });
+
+    it('should normalize repository stats with invalid monthsBack', async () => {
+      // Mock getCommitHistory call
+      provider.getCommitHistory = vi.fn().mockResolvedValueOnce([
+        {
+          hash: 'hash1',
+          date: new Date('2024-01-01'),
+          message: 'Test',
+          changedFiles: ['file1.ts']
+        }
+      ]);
+
+      // Mock total commit count
+      mockExecFileSync.mockReturnValueOnce('42\n');
+
+      const options = {
+        monthsBack: -3, // Invalid negative value
+        maxCommits: 100,
+        excludePaths: []
+      };
+
+      const stats = await provider.getRepositoryStats(options);
+
+      // Should normalize monthsBack to 0 for display
+      expect(stats.timeSpan).toBe('0 months');
+      expect(stats.analyzedCommits).toBe(1);
+      expect(stats.totalCommits).toBe(42);
+    });
+  });
+
   describe('configuration methods', () => {
     it('should set repository root', () => {
       provider.setRepositoryRoot('/new/path');

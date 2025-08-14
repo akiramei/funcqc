@@ -29,9 +29,20 @@ export class GitCochangeProvider implements GitProvider {
    */
   async getCommitHistory(options: GitCochangeOptions): Promise<GitCommitInfo[]> {
     try {
+      // Normalize and validate options
+      const monthsBack = Number.isFinite(options.monthsBack)
+        ? Math.max(0, Math.floor(options.monthsBack))
+        : 0;
+      const maxCount = Number.isFinite(options.maxCommits)
+        ? Math.max(1, Math.floor(options.maxCommits))
+        : 1000;
+      const excludes = (options.excludePaths ?? [])
+        .map(p => p.trim())
+        .filter(p => p !== '');
+
       // Calculate date threshold
       const dateThreshold = new Date();
-      dateThreshold.setMonth(dateThreshold.getMonth() - options.monthsBack);
+      dateThreshold.setMonth(dateThreshold.getMonth() - monthsBack);
       const sinceDate = dateThreshold.toISOString().split('T')[0]; // YYYY-MM-DD format
 
       // Build git log args (avoid shell parsing issues)
@@ -40,11 +51,11 @@ export class GitCochangeProvider implements GitProvider {
         `--since=${sinceDate}`,
         `--pretty=format:%H|%ci|%s`,
         '--name-only',
-        `--max-count=${options.maxCommits}`
+        `--max-count=${maxCount}`
       ];
-      if (options.excludePaths.length > 0) {
+      if (excludes.length > 0) {
         args.push('--', '.');
-        for (const p of options.excludePaths) {
+        for (const p of excludes) {
           // Use pathspec exclude; keep as a single arg to avoid shell expansion
           args.push(`:(exclude)${p}`);
         }
@@ -56,7 +67,7 @@ export class GitCochangeProvider implements GitProvider {
         maxBuffer: 10 * 1024 * 1024 // 10MB buffer
       });
 
-      return this.parseGitLogOutput(output, options.excludePaths);
+      return this.parseGitLogOutput(output, excludes);
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Failed to get Git commit history: ${error.message}`);
@@ -323,6 +334,11 @@ export class GitCochangeProvider implements GitProvider {
     newestCommit: Date | null;
   }> {
     try {
+      // Normalize monthsBack for display purposes
+      const monthsBack = Number.isFinite(options.monthsBack)
+        ? Math.max(0, Math.floor(options.monthsBack))
+        : 0;
+        
       const commits = await this.getCommitHistory(options);
       
       let oldestCommit: Date | null = null;
@@ -343,7 +359,7 @@ export class GitCochangeProvider implements GitProvider {
       return {
         totalCommits: parseInt(totalCommitsOutput.trim(), 10) || 0,
         analyzedCommits: commits.length,
-        timeSpan: `${options.monthsBack} months`,
+        timeSpan: `${monthsBack} months`,
         oldestCommit,
         newestCommit
       };
