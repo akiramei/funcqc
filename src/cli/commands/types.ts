@@ -3685,10 +3685,14 @@ const executeTypesCochangeDB: VoidCommand<TypeCochangeOptions> = (options) =>
           .map(p => p.trim())
           .filter(p => p.length > 0);
       } else if (Array.isArray(options.excludePaths)) {
-        excludePaths = options.excludePaths;
+        excludePaths = options.excludePaths
+          .map(p => (typeof p === 'string' ? p.trim() : ''))
+          .filter(p => p.length > 0);
       } else {
         excludePaths = [];
       }
+      // Remove duplicates
+      excludePaths = Array.from(new Set(excludePaths));
 
       // Create analyzer (normalize/validate numeric options)
       const normalizeInt = (v: unknown, min: number, fallback: number) =>
@@ -3717,8 +3721,21 @@ const executeTypesCochangeDB: VoidCommand<TypeCochangeOptions> = (options) =>
         excludePaths
       });
 
-      // Run analysis
-      const reports = await analyzer.analyze();
+      // Resolve latest snapshot for stable type↔file mapping
+      const snapshots = await env.storage.getSnapshots({ limit: 1 });
+      if (snapshots.length === 0) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.NOT_FOUND,
+          'No snapshots found. Run `funcqc scan` first.',
+          { command: 'types cochange' }
+        );
+        errorHandler.handleError(funcqcError);
+        return;
+      }
+      const latestSnapshot = snapshots[0];
+
+      // Run analysis with explicit snapshot
+      const reports = await analyzer.analyze(latestSnapshot.id);
       
       if (reports.length === 0) {
         env.commandLogger.info('No co-change patterns found.');
@@ -3755,7 +3772,7 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
   
   lines.push('');
   lines.push('📈 Co-change Analysis Report');
-  lines.push('=' .repeat(50));
+  lines.push('='.repeat(50));
   
   // Statistics
   lines.push('');
@@ -3770,12 +3787,13 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
   // Type changes (sorted by criteria)
   let sortedTypeChanges = [...report.typeChanges];
   if (options.sort === 'changes') {
-    sortedTypeChanges.sort((a, b) => b.changeCount - a.changeCount);
+    // default: ascending
+    sortedTypeChanges.sort((a, b) => a.changeCount - b.changeCount);
   } else if (options.sort === 'volatility') {
-    sortedTypeChanges.sort((a, b) => b.volatility - a.volatility);
+    sortedTypeChanges.sort((a, b) => a.volatility - b.volatility);
   }
-  
-  if (options.desc === false) {
+  // apply --desc
+  if (options.desc === true) {
     sortedTypeChanges.reverse();
   }
   
@@ -3808,10 +3826,11 @@ function formatCochangeReport(report: CochangeAnalysisReport, options: TypeCocha
   // Co-change relationships  
   let sortedRelations = [...report.cochangeMatrix];
   if (options.sort === 'coupling') {
-    sortedRelations.sort((a, b) => b.temporalCoupling - a.temporalCoupling);
+    // default: ascending
+    sortedRelations.sort((a, b) => a.temporalCoupling - b.temporalCoupling);
   }
-  
-  if (options.desc === false) {
+  // apply --desc
+  if (options.desc === true) {
     sortedRelations.reverse();
   }
   
