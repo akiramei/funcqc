@@ -340,4 +340,126 @@ describe('CochangeAnalyzer', () => {
       expect(config.excludePaths).toEqual([]);
     });
   });
+
+  describe('multiple types and path mapping', () => {
+    it('should handle multiple types per file correctly', async () => {
+      const storage = createMockStorage();
+      const gitProvider = new MockGitProvider();
+      
+      // Mock type definitions with multiple types in same file
+      storage.query = vi.fn().mockResolvedValue({
+        rows: [
+          { id: 'type1', name: 'TypeA', file_path: 'src/types.ts' },
+          { id: 'type2', name: 'TypeB', file_path: 'src/types.ts' },
+          { id: 'type3', name: 'TypeC', file_path: 'src/other.ts' }
+        ]
+      });
+
+      // Mock Git commits that change the file with multiple types
+      gitProvider.setCommits([
+        {
+          hash: 'hash1',
+          date: new Date('2024-01-01'),
+          message: 'Update types',
+          changedFiles: ['src/types.ts', 'src/other.ts']
+        }
+      ]);
+
+      const testAnalyzer = new CochangeAnalyzer(
+        storage,
+        gitProvider,
+        { monthsBack: 6, maxCommits: 100, excludePaths: [], suggestModules: true, minChanges: 1 }
+      );
+
+      const reports = await testAnalyzer.analyze();
+      const report = reports[0];
+      expect(report).toBeDefined();
+      const names = report?.typeChanges.map(tc => tc.typeName) ?? [];
+      expect(names).toEqual(expect.arrayContaining(['TypeA', 'TypeB']));
+    });
+
+    it('should normalize /virtualsrc/ paths correctly', async () => {
+      const storage = createMockStorage();
+      const gitProvider = new MockGitProvider();
+      
+      // Mock type definitions with /virtualsrc/ prefix
+      storage.query = vi.fn().mockResolvedValue({
+        rows: [
+          { id: 'type1', name: 'TypeA', file_path: '/virtualsrc/types.ts' },
+          { id: 'type2', name: 'TypeB', file_path: '/virtualsrc/components.ts' }
+        ]
+      });
+
+      // Mock Git commits with normal src/ paths
+      gitProvider.setCommits([
+        {
+          hash: 'hash1',
+          date: new Date('2024-01-01'),
+          message: 'Update types',
+          changedFiles: ['src/types.ts']  // Note: no /virtualsrc/ prefix
+        }
+      ]);
+
+      const testAnalyzer = new CochangeAnalyzer(
+        storage,
+        gitProvider,
+        { monthsBack: 6, maxCommits: 100, excludePaths: [], suggestModules: true, minChanges: 1 }
+      );
+
+      const reports = await testAnalyzer.analyze();
+      const report = reports[0];
+      expect(report).toBeDefined();
+      const names = report?.typeChanges.map(tc => tc.typeName) ?? [];
+      expect(names).toContain('TypeA');
+    });
+  });
+
+  describe('path normalization', () => {
+    it('should normalize various path formats consistently', async () => {
+      const storage = createMockStorage();
+      const gitProvider = new MockGitProvider();
+      
+      // Test different path formats that should all normalize to 'src/types.ts'
+      const pathVariations = [
+        '/virtualsrc/types.ts',
+        '/virtualsrc/src/types.ts', 
+        'virtualsrc/types.ts',
+        'virtualsrc/src/types.ts',
+        './src/types.ts',
+        '/src/types.ts',
+        'src/types.ts'
+      ];
+      
+      for (const pathVariant of pathVariations) {
+        // Mock type definitions with the path variant
+        storage.query = vi.fn().mockResolvedValue({
+          rows: [
+            { id: 'type1', name: 'TestType', file_path: pathVariant }
+          ]
+        });
+
+        // Mock Git commits with normalized src/ path
+        gitProvider.setCommits([
+          {
+            hash: 'hash1',
+            date: new Date('2024-01-01'),
+            message: 'Update types',
+            changedFiles: ['src/types.ts']
+          }
+        ]);
+
+        const testAnalyzer = new CochangeAnalyzer(
+          storage,
+          gitProvider,
+          { monthsBack: 6, maxCommits: 100, excludePaths: [], suggestModules: true, minChanges: 1 }
+        );
+
+        const reports = await testAnalyzer.analyze();
+        const report = reports[0];
+        expect(report).toBeDefined();
+        const names = report?.typeChanges.map(tc => tc.typeName) ?? [];
+        expect(names).toContain('TestType');
+      }
+    });
+  });
 });
