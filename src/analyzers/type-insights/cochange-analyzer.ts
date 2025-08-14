@@ -102,8 +102,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
       showMatrix: options.showMatrix ?? false,
       suggestModules: options.suggestModules ?? true,
       maxCommits: options.maxCommits ?? 1000,
-      excludePaths: options.excludePaths ?? [],
-      ...options
+      excludePaths: options.excludePaths ?? []
     };
   }
 
@@ -277,7 +276,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
         firstChange: sortedDates[0] ?? analysisStartDate,
         lastChange: sortedDates[sortedDates.length - 1] ?? analysisEndDate,
         changeFrequency: changeData.changeCount / monthsInPeriod,
-        volatility: Math.min(changeData.changeCount / 10, 1.0) // Normalize to 0-1
+        volatility: Math.min(changeData.changeCount / (monthsInPeriod * 2), 1.0) // Normalize based on period
       });
     }
 
@@ -343,10 +342,10 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
 
       if (totalChangesA === 0 || totalChangesB === 0) continue;
 
-      const temporalCoupling = Math.min(
-        cochangeCount / totalChangesA,
-        cochangeCount / totalChangesB
-      );
+      // Use harmonic mean for better representation of temporal coupling
+      const couplingA = cochangeCount / totalChangesA;
+      const couplingB = cochangeCount / totalChangesB;
+      const temporalCoupling = 2 * (couplingA * couplingB) / (couplingA + couplingB);
 
       const symmetry = 1 - Math.abs(
         (cochangeCount / totalChangesA) - (cochangeCount / totalChangesB)

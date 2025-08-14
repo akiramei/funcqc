@@ -3678,9 +3678,17 @@ const executeTypesCochangeDB: VoidCommand<TypeCochangeOptions> = (options) =>
       }
 
       // Process exclude-paths option
-      const excludePaths = typeof options.excludePaths === 'string' 
-        ? options.excludePaths.split(',').map(p => p.trim()).filter(p => p.length > 0)
-        : (options.excludePaths || []);
+      let excludePaths: string[];
+      if (typeof options.excludePaths === 'string') {
+        excludePaths = options.excludePaths
+          .split(',')
+          .map(p => p.trim())
+          .filter(p => p.length > 0);
+      } else if (Array.isArray(options.excludePaths)) {
+        excludePaths = options.excludePaths;
+      } else {
+        excludePaths = [];
+      }
 
       // Create analyzer
       const analyzer = new CochangeAnalyzer(env.storage, gitProvider, {

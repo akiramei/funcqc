@@ -39,10 +39,10 @@ export class GitCochangeProvider implements GitProvider {
       
       // Add path exclusions
       if (options.excludePaths.length > 0) {
-        const excludeArgs = options.excludePaths
-          .map(p => `-- . ':!${p}'`)
+        const excludePatterns = options.excludePaths
+          .map(p => `':!${p}'`)
           .join(' ');
-        gitCommand += ` ${excludeArgs}`;
+        gitCommand += ` -- . ${excludePatterns}`;
       }
 
       const output = execSync(gitCommand, {
@@ -80,6 +80,9 @@ export class GitCochangeProvider implements GitProvider {
 
       const message = messageParts.join('|').trim();
       const date = new Date(dateStr);
+      
+      // Skip commits with invalid dates
+      if (isNaN(date.getTime())) continue;
       
       // Extract changed files (excluding the header line)
       const changedFiles = lines.slice(1)
