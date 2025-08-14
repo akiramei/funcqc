@@ -194,6 +194,21 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
   }
 
   /**
+   * Normalize file paths to handle various path formats consistently
+   */
+  private normalizePath(p: string): string {
+    // 1) バックスラッシュ → スラッシュ
+    // 2) 先頭の ./ を除去
+    // 3) 先頭の /virtualsrc/ または virtualsrc/、/virtualsrc/src/ → src/
+    // 4) 先頭のスラッシュを除去（/src/... → src/...）
+    let np = (p ?? '').replace(/\\/g, '/');
+    np = np.replace(/^\.\//, '');
+    np = np.replace(/^\/?virtualsrc\/(?:src\/)?/, 'src/');
+    np = np.replace(/^\/+/, '');
+    return np;
+  }
+
+  /**
    * Load mapping of types to file paths
    */
   private async loadTypeFileMapping(snapshotId?: string): Promise<Map<string, { typeId: string; typeName: string }[]>> {
@@ -211,10 +226,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
       const typeName = r['name'] as string;
       
       // Normalize file path for comparison with Git data
-      let normalizedPath = filePath.replace(/\\/g, '/');
-      
-      // Remove /virtualsrc/ prefix that may be present in database
-      normalizedPath = normalizedPath.replace(/^\/virtualsrc\//, 'src/');
+      const normalizedPath = this.normalizePath(filePath);
       
       // Support multiple type definitions per file
       if (!typeFileMap.has(normalizedPath)) {
@@ -241,8 +253,10 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
 
     // Count changes for each type
     for (const commit of commits) {
-      for (const filePath of commit.changedFiles) {
-        const normalizedPath = filePath.replace(/\\/g, '/');
+      const normalizedChangedFiles = Array.from(
+        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+      );
+      for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);
         
         if (typeInfos) {
@@ -318,9 +332,10 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     // Count co-changes
     for (const commit of commits) {
       const changedTypes: string[] = [];
-      
-      for (const filePath of commit.changedFiles) {
-        const normalizedPath = filePath.replace(/\\/g, '/');
+      const normalizedChangedFiles = Array.from(
+        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+      );
+      for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);
         if (typeInfos) {
           // Handle multiple type definitions per file
