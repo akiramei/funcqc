@@ -52,7 +52,7 @@ export class GitCochangeProvider implements GitProvider {
         maxBuffer: 10 * 1024 * 1024 // 10MB buffer
       });
 
-      return this.parseGitLogOutput(output);
+      return this.parseGitLogOutput(output, options.excludePaths);
     } catch (error) {
       if (error instanceof Error) {
         throw new Error(`Failed to get Git commit history: ${error.message}`);
@@ -64,54 +64,130 @@ export class GitCochangeProvider implements GitProvider {
   /**
    * Parse git log output into structured commit information
    */
-  private parseGitLogOutput(output: string): GitCommitInfo[] {
+  private parseGitLogOutput(output: string, excludePaths: string[] = []): GitCommitInfo[] {
     const commits: GitCommitInfo[] = [];
-    const commitBlocks = output.split('\n\n').filter(block => block.trim());
-
-    for (const block of commitBlocks) {
-      const lines = block.split('\n').filter(line => line.trim());
-      if (lines.length === 0) continue;
-
-      const headerLine = lines[0];
-      if (!headerLine) continue;
-
-      const [hash, dateStr, ...messageParts] = headerLine.split('|');
-      if (!hash || !dateStr) continue;
-
-      const message = messageParts.join('|').trim();
-      const date = new Date(dateStr);
+    
+    // Split output into lines and group by commits
+    const lines = output.split('\n');
+    let currentCommit: { header: string; files: string[] } | null = null;
+    
+    for (const line of lines) {
+      const trimmedLine = line.trim();
       
-      // Skip commits with invalid dates
-      if (isNaN(date.getTime())) continue;
-      
-      // Extract changed files (excluding the header line)
-      const changedFiles = lines.slice(1)
-        .filter(line => line.trim() && !line.includes('|'))
-        .map(file => this.normalizeFilePath(file.trim()))
-        .filter(file => this.isTypeScriptFile(file));
-
-      if (changedFiles.length > 0) {
-        commits.push({
-          hash: hash.trim(),
-          date,
-          message,
-          changedFiles
-        });
+      // Skip empty lines
+      if (!trimmedLine) {
+        continue;
       }
+      
+      // Check if this is a commit header
+      if (this.isValidCommitHeader(trimmedLine)) {
+        // Process previous commit if exists
+        if (currentCommit) {
+          this.processCommit(currentCommit, commits, excludePaths);
+        }
+        
+        // Start new commit
+        currentCommit = { header: trimmedLine, files: [] };
+      } else if (trimmedLine.includes('|') && trimmedLine.split('|').length >= 3) {
+        // This looks like a malformed commit header, reset current commit
+        if (currentCommit) {
+          this.processCommit(currentCommit, commits, excludePaths);
+        }
+        currentCommit = null;
+      } else if (currentCommit) {
+        // This is a file line for the current commit
+        currentCommit.files.push(trimmedLine);
+      }
+      // Ignore lines that don't belong to any commit
+    }
+    
+    // Process the last commit
+    if (currentCommit) {
+      this.processCommit(currentCommit, commits, excludePaths);
     }
 
     return commits.sort((a, b) => b.date.getTime() - a.date.getTime());
   }
 
   /**
+   * Process a single commit and add it to the commits array if it has TypeScript files
+   */
+  private processCommit(commit: { header: string; files: string[] }, commits: GitCommitInfo[], excludePaths: string[]): void {
+    const [hash, dateStr, ...messageParts] = commit.header.split('|');
+    if (!hash || !dateStr) return;
+
+    const message = messageParts.join('|').trim();
+    const date = new Date(dateStr);
+    
+    // Skip commits with invalid dates
+    if (isNaN(date.getTime())) return;
+    
+    // Process files
+    const normalizedFiles = commit.files.map(file => this.normalizeFilePath(file));
+    const tsFiles = normalizedFiles
+      .filter(file => this.isTypeScriptFile(file))
+      .filter(file => !this.isExcludedPath(file, excludePaths));
+    
+    
+    // Only add commits that have TypeScript files
+    if (tsFiles.length > 0) {
+      commits.push({
+        hash: hash.trim(),
+        date,
+        message,
+        changedFiles: tsFiles
+      });
+    }
+  }
+
+  /**
    * Normalize file path for consistent comparison
    */
   private normalizeFilePath(filePath: string): string {
-    // Convert backslashes to forward slashes
-    const normalized = filePath.replace(/\\/g, '/');
+    // Convert backslashes to forward slashes and remove redundant separators
+    const normalized = filePath.replace(/\\/g, '/').replace(/\/+/g, '/');
     
     // Remove leading ./ if present
     return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+  }
+
+  /**
+   * Check if a file path should be excluded based on exclude patterns
+   */
+  private isExcludedPath(filePath: string, excludePaths: string[]): boolean {
+    return excludePaths.some(pattern => {
+      // Handle both exact path matches and prefix matches
+      if (pattern.endsWith('/')) {
+        // Directory pattern - check if file path starts with this directory
+        return filePath.startsWith(pattern) || filePath.startsWith(pattern.slice(0, -1) + '/');
+      } else {
+        // Exact path or partial match
+        return filePath.includes(pattern);
+      }
+    });
+  }
+
+  /**
+   * Check if a line is a valid commit header (hash|date|message format)
+   */
+  private isValidCommitHeader(line: string): boolean {
+    const parts = line.split('|');
+    if (parts.length < 3) return false;
+    
+    const [hash, dateStr, ...messageParts] = parts;
+    
+    // Basic validation: hash should not be empty and should look like a hash
+    if (!hash || !hash.trim()) return false;
+    
+    // Date string should be parseable
+    if (!dateStr || !dateStr.trim()) return false;
+    const date = new Date(dateStr.trim());
+    if (isNaN(date.getTime())) return false;
+    
+    // Message part should exist (can be empty but at least one part)
+    if (messageParts.length === 0) return false;
+    
+    return true;
   }
 
   /**
