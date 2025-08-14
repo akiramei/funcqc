@@ -36,7 +36,7 @@ interface TypeReplaceOptions extends BaseCommandOptions {
 export const typeReplaceCommand: VoidCommand<TypeReplaceOptions> = (options: TypeReplaceOptions) => 
   async (env: CommandEnvironment): Promise<void> => {
   const { storage } = env;
-  const logger = new Logger();
+  const logger = env.commandLogger ?? new Logger(options.verbose, options.quiet);
   const handleError = createErrorHandler(logger);
 
   try {

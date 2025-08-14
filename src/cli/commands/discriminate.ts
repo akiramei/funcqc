@@ -160,15 +160,15 @@ async function executeDiscriminate(options: CommandOptions): Promise<void> {
         estimatedEffort: candidate.transformationPlan.estimatedEffort
       })),
       recommendations: {
-        strategy: analysisResult.recommendedApproach.overallStrategy,
-        implementationOrder: analysisResult.recommendedApproach.implementationOrder,
-        nextSteps: generateNextSteps(analysisResult.recommendedApproach, options)
+        strategy: (analysisResult.recommendedApproach as any).overallStrategy,
+        implementationOrder: (analysisResult.recommendedApproach as any).implementationOrder,
+        nextSteps: generateNextSteps(analysisResult.recommendedApproach as any, options)
       }
     };
 
     // Apply transformations if requested
     if (options.transform && filteredCandidates.length > 0) {
-      await applyTransformations(filteredCandidates, options, result);
+      await applyTransformations(filteredCandidates as any[], options, result);
     }
 
     // Output results
@@ -189,7 +189,7 @@ async function executeDiscriminate(options: CommandOptions): Promise<void> {
 }
 
 async function applyTransformations(
-  candidates: Array<Record<string, unknown>>,
+  candidates: any[],
   options: CommandOptions,
   result: DiscriminateResult
 ): Promise<void> {
@@ -222,12 +222,12 @@ async function applyTransformations(
       if (transformResult.success) {
         successful++;
         if (options.verbose) {
-          console.log(`✅ Transformed ${candidate.typeName}`);
+          console.log(`✅ Transformed ${candidate['typeName']}`);
         }
       } else {
         failed++;
         if (options.verbose) {
-          console.warn(`⚠️  Failed to transform ${candidate.typeName}: ${transformResult.errors[0]?.message}`);
+          console.warn(`⚠️  Failed to transform ${candidate['typeName']}: ${transformResult.errors[0]?.message}`);
         }
       }
       
@@ -242,7 +242,7 @@ async function applyTransformations(
     } catch (error) {
       failed++;
       if (options.verbose) {
-        console.error(`❌ Transformation error for ${candidate.typeName}: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`❌ Transformation error for ${candidate['typeName']}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
@@ -260,7 +260,7 @@ async function applyTransformations(
 }
 
 function generateNextSteps(
-  recommendedApproach: Record<string, unknown>,
+  recommendedApproach: any,
   options: CommandOptions
 ): string[] {
   const steps: string[] = [];

@@ -184,10 +184,12 @@ describe('PropertyCooccurrenceAnalyzer', () => {
         excludeCommonProperties: ['id', 'name'] // Exclude more properties
       });
 
-      const result = await restrictiveAnalyzer.analyze();
-
-      // Should have fewer results with more restrictive settings
-      expect(result.patterns.length).toBeLessThanOrEqual(result.patterns.length);
+      const base = await analyzer.analyze();
+      const strict = await restrictiveAnalyzer.analyze();
+      
+      // 制約を厳しくした場合は結果が減少（または同等以下）する
+      expect(strict.patterns.length).toBeLessThanOrEqual(base.patterns.length);
+      expect(strict.valueObjectCandidates.length).toBeLessThanOrEqual(base.valueObjectCandidates.length);
     });
 
     it('should handle empty results gracefully', async () => {

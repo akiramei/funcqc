@@ -1189,9 +1189,9 @@ program
   .description('🏷️  Analyze and transform types into discriminated unions')
   .option('--snapshot-id <id>', 'use specific snapshot for analysis')
   .option('--target-types <types>', 'comma-separated list of specific types to analyze')
-  .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', '0.8')
-  .option('--min-confidence <number>', 'minimum confidence threshold (0-1)', '0.6')
-  .option('--max-cases <number>', 'maximum union cases per type', '8')
+  .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', parseFloat, 0.8)
+  .option('--min-confidence <number>', 'minimum confidence threshold (0-1)', parseFloat, 0.6)
+  .option('--max-cases <number>', 'maximum union cases per type', parseInt, 8)
   .option('--include-booleans', 'include boolean discriminants', true)
   .option('--include-enums', 'include enum discriminants', true)
   .option('--allow-breaking', 'allow breaking changes during transformation', false)
@@ -1200,9 +1200,12 @@ program
   .option('--output <format>', 'output format: table|json|detailed', 'table')
   .option('-v, --verbose', 'enable verbose logging', false)
   .option('-j, --json', 'output results as JSON', false)
-  .action(async (options) => {
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
     const { executeDiscriminate } = await import('./cli/commands/discriminate');
-    await executeDiscriminate(options);
+    return withEnvironment((opts) => async (_env) => {
+      await executeDiscriminate(opts);
+    })(options, command);
   })
   .addHelpText('after', `
 

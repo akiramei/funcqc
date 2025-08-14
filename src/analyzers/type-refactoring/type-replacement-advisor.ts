@@ -7,8 +7,10 @@
 
 import type { StorageQueryInterface } from '../type-insights/types';
 import { RefactoringGuardRail, type RefactoringGuardRailOptions, type RefactoringGuardRailReport } from './refactoring-guardrail';
-import { TypeCompatibilityChecker, type TypeCompatibilityResult, type CompatibilityCheckOptions } from './type-compatibility-checker';
+import { TypeCompatibilityChecker, type TypeCompatibilityResult, type CompatibilityCheckOptions, type CompatibilityIssue } from './type-compatibility-checker';
 // import { StructuralSubsumptionAnalyzer } from '../type-insights/structural-subsumption-analyzer';
+
+// Use the CompatibilityIssue from type-compatibility-checker module
 
 export interface TypeReplacementOptions extends RefactoringGuardRailOptions, CompatibilityCheckOptions {
   generateCodemod?: boolean;        // Generate automatic code modification
@@ -331,7 +333,7 @@ export class TypeReplacementAdvisor extends RefactoringGuardRail {
    * Create codemod action from compatibility issue
    */
   private createActionFromIssue(
-    issue: any,
+    issue: CompatibilityIssue,
     _sourceTypeName: string,
     targetTypeName: string
   ): CodemodAction | null {
@@ -350,19 +352,55 @@ export class TypeReplacementAdvisor extends RefactoringGuardRail {
         };
 
       case 'structure':
-        if (issue.description.includes('missing')) {
+        if (issue.description && issue.description.includes('missing')) {
           return {
             type: 'add_property',
             filePath: '',
             location: { start: 0, end: 0, line: 0, column: 0 },
             originalCode: '',
             replacementCode: '// TODO: Add missing property',
-            description: `Add missing property: ${issue.sourcePath}`,
+            description: `Add missing property: ${issue.sourcePath || 'unknown'}`,
             riskLevel: 'breaking',
             dependencies: []
           };
         }
         break;
+
+      case 'functions':
+        return {
+          type: 'replace_type',
+          filePath: '',
+          location: { start: 0, end: 0, line: 0, column: 0 },
+          originalCode: '',
+          replacementCode: '// TODO: Update function signature',
+          description: `Update function signature: ${issue.description}`,
+          riskLevel: 'breaking',
+          dependencies: []
+        };
+
+      case 'literals':
+        return {
+          type: 'replace_type',
+          filePath: '',
+          location: { start: 0, end: 0, line: 0, column: 0 },
+          originalCode: '',
+          replacementCode: '// TODO: Update literal type',
+          description: `Update literal type: ${issue.description}`,
+          riskLevel: 'warning',
+          dependencies: []
+        };
+
+      case 'generics':
+        return {
+          type: 'add_cast',
+          filePath: '',
+          location: { start: 0, end: 0, line: 0, column: 0 },
+          originalCode: '',
+          replacementCode: '// TODO: Update generic parameters',
+          description: `Update generic parameters: ${issue.description}`,
+          riskLevel: 'warning',
+          dependencies: []
+        };
     }
 
     return null;

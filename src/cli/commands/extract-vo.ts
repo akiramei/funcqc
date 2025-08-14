@@ -36,7 +36,7 @@ interface ExtractVOOptions extends BaseCommandOptions {
 export const extractVOCommand: VoidCommand<ExtractVOOptions> = (options: ExtractVOOptions) => 
   async (env: CommandEnvironment): Promise<void> => {
   const { storage } = env;
-  const logger = new Logger();
+  const logger = env.commandLogger ?? new Logger(options.verbose, options.quiet);
   const handleError = createErrorHandler(logger);
 
   try {

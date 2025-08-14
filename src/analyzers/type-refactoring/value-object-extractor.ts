@@ -32,10 +32,10 @@ export interface VOProperty {
   type: string;
   isReadonly: boolean;
   description: string;
-  validation?: ValidationRule;
+  validation?: VOValidationRule;
 }
 
-export interface ValidationRule {
+export interface VOValidationRule {
   type: 'range' | 'format' | 'custom' | 'required' | 'length';
   rule: string;                    // Expression or regex
   errorMessage: string;
@@ -239,7 +239,7 @@ export class ValueObjectExtractor {
       ...options
     } as Required<ValueObjectExtractionOptions>;
 
-    this.cooccurrenceAnalyzer = new PropertyCooccurrenceAnalyzer(storage, options);
+    this.cooccurrenceAnalyzer = new PropertyCooccurrenceAnalyzer(storage, this.options);
   }
 
   private getDefaultOptions(): Required<ValueObjectExtractionOptions> {
@@ -501,7 +501,7 @@ export class ValueObjectExtractor {
   /**
    * Infer validation rule for property
    */
-  private inferValidationRule(propertyName: string, type: string): ValidationRule | undefined {
+  private inferValidationRule(propertyName: string, type: string): VOValidationRule | undefined {
     // Common validation patterns
     if (propertyName.includes('email')) {
       return {
@@ -1131,7 +1131,7 @@ export class ${vo.name} {
    */
   private generateValidationFunction(invariant: Invariant): string {
     return `export function validate${invariant.name}(vo: any): boolean {
-  return ${invariant.expression};
+  return ${invariant.expression.replace(/this\./g, 'vo.')};
 }`;
   }
 

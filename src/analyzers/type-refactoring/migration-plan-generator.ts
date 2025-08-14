@@ -9,6 +9,13 @@ import type { StorageQueryInterface } from '../type-insights/types';
 import type { TypeReplacementPlan, TypeUsageInfo } from './type-replacement-advisor';
 import type { TypeCompatibilityResult } from './type-compatibility-checker';
 
+interface DependencyRow {
+  source_type: string;
+  source_file: string;
+  dependent_type: string;
+  dependent_file: string;
+}
+
 export interface MigrationPhase {
   id: string;
   name: string;
@@ -159,7 +166,7 @@ export class MigrationPlanGenerator {
 
       // Process dependency relationships
       for (const row of result.rows) {
-        const data = row as any;
+        const data = row as DependencyRow;
         const sourceType = data.source_type;
         const dependentType = data.dependent_type;
 
@@ -710,7 +717,9 @@ export class MigrationPlanGenerator {
       id: 'batch-test',
       description: 'Run affected tests',
       type: 'automated',
-      command: `npm test -- ${group.files.map(f => `--testPathPattern=${f}`).join(' ')}`,
+      command: `npm test -- ${group.files
+        .map(f => `--testPathPattern="${f.replace(/"/g, '\\"')}"`)
+        .join(' ')}`,
       timeEstimate: '5-15 minutes',
       criticalPath: true
     });

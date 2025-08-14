@@ -11,7 +11,7 @@ import type { StorageQueryInterface } from '../../src/analyzers/type-insights/ty
 
 // Mock storage interface
 const createMockStorage = (): StorageQueryInterface => ({
-  query: vi.fn()
+  query: vi.fn<[string, unknown[]?], Promise<{ rows: unknown[] }>>()
 });
 
 describe('RefactoringGuardRail', () => {

@@ -29,7 +29,7 @@ interface RefactorGuardOptions extends BaseCommandOptions {
 export const refactorGuardCommand: VoidCommand<RefactorGuardOptions> = (options: RefactorGuardOptions) => 
   async (env: CommandEnvironment): Promise<void> => {
   const { storage } = env;
-  const logger = new Logger();
+  const logger = env.commandLogger ?? new Logger(!!options.verbose, !!options.quiet);
   const handleError = createErrorHandler(logger);
 
   try {
@@ -48,7 +48,7 @@ export const refactorGuardCommand: VoidCommand<RefactorGuardOptions> = (options:
       includeTestTemplates: options['include-tests'] ?? true,
       includeTypeChecks: true,
       includeBehavioralChecks: options['include-behavioral'] ?? true,
-      includeImpactAnalysis: options['include-cochange'] ?? true,
+      includeImpactAnalysis: true, // 影響分析は常に有効（別フラグを導入する場合はそれに連動）
       generatePRSummary: options['pr-template'] ?? true,
       riskThreshold: options['risk-threshold'] || 'medium'
     });

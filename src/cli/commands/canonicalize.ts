@@ -7,7 +7,7 @@
 
 import chalk from 'chalk';
 import { table } from 'table';
-import { DTOCanonicalizer } from '../../analyzers/type-refactoring/dto-canonicalizer';
+import { DTOCanonicalizer, type CanonicalizationResult } from '../../analyzers/type-refactoring/dto-canonicalizer';
 import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand, BaseCommandOptions } from '../../types/command';
@@ -32,8 +32,8 @@ interface CanonicalizationOptions extends BaseCommandOptions {
 export const canonicalizeCommand: VoidCommand<CanonicalizationOptions> = (options: CanonicalizationOptions) => 
   async (env: CommandEnvironment): Promise<void> => {
   const { storage } = env;
-  const logger = new Logger();
-  const handleError = createErrorHandler(logger);
+  const logger = env.commandLogger ?? new Logger(!!options.verbose, !!options.quiet);
+  const errorHandler = createErrorHandler(logger);
 
   try {
     const format = options.format || 'table';
@@ -92,8 +92,8 @@ export const canonicalizeCommand: VoidCommand<CanonicalizationOptions> = (option
     displaySummary(result, isDryRun);
 
   } catch (error) {
-    handleError.handleError(
-      handleError.createError(ErrorCode.ANALYSIS_FAILED, `DTO canonicalization analysis failed: ${
+    errorHandler.handleError(
+      errorHandler.createError(ErrorCode.ANALYSIS_FAILED, `DTO canonicalization analysis failed: ${
         error instanceof Error ? error.message : String(error)
       }`)
     );
@@ -104,7 +104,7 @@ export const canonicalizeCommand: VoidCommand<CanonicalizationOptions> = (option
  * Display results in table format
  */
 function displayTableResults(
-  result: any,
+  result: CanonicalizationResult,
   options: {
     maxCandidates: number;
     showOpportunities: boolean;
@@ -215,7 +215,7 @@ function displayTableResults(
   console.log(`\n${chalk.bold('📈 Quality Metrics')}`);
   console.log(`Duplicate Reduction: ${chalk.green((qualityMetrics.duplicateReduction * 100).toFixed(1))}%`);
   console.log(`Cohesion Improvement: ${chalk.green((qualityMetrics.cohesionImprovement * 100).toFixed(1))}%`);
-  console.log(`Maintainability Score: ${chalk.blue((qualityMetrics.maintenabilityScore * 100).toFixed(1))}%`);
+  console.log(`Maintainability Score: ${chalk.blue((qualityMetrics.maintainabilityScore * 100).toFixed(1))}%`);
 
   // Dry run notice
   if (options.isDryRun) {
@@ -226,7 +226,7 @@ function displayTableResults(
 /**
  * Output results in JSON format
  */
-async function outputJSON(result: any, outputPath?: string): Promise<void> {
+async function outputJSON(result: CanonicalizationResult, outputPath?: string): Promise<void> {
   const json = JSON.stringify(result, null, 2);
   
   if (outputPath) {
@@ -241,7 +241,7 @@ async function outputJSON(result: any, outputPath?: string): Promise<void> {
 /**
  * Output results in Markdown format
  */
-async function outputMarkdown(result: any, outputPath?: string): Promise<void> {
+async function outputMarkdown(result: CanonicalizationResult, outputPath?: string): Promise<void> {
   let markdown = `# DTO Canonicalization Analysis Report
 
 ## Summary
@@ -254,7 +254,7 @@ async function outputMarkdown(result: any, outputPath?: string): Promise<void> {
 
 - **Duplicate Reduction**: ${(result.qualityMetrics.duplicateReduction * 100).toFixed(1)}%
 - **Cohesion Improvement**: ${(result.qualityMetrics.cohesionImprovement * 100).toFixed(1)}%
-- **Maintainability Score**: ${(result.qualityMetrics.maintenabilityScore * 100).toFixed(1)}%
+- **Maintainability Score**: ${(result.qualityMetrics.maintainabilityScore * 100).toFixed(1)}%
 
 ## Canonicalization Recommendations
 
@@ -312,7 +312,7 @@ async function outputMarkdown(result: any, outputPath?: string): Promise<void> {
 /**
  * Execute canonicalization actions
  */
-async function executeCanonicalizations(result: any, logger: Logger): Promise<void> {
+async function executeCanonicalizations(result: CanonicalizationResult, logger: Logger): Promise<void> {
   const { recommendations } = result;
   
   logger.info(`Executing canonicalization for ${recommendations.length} recommendations...`);
@@ -321,7 +321,7 @@ async function executeCanonicalizations(result: any, logger: Logger): Promise<vo
     logger.info(`Processing ${rec.canonicalType.typeName}...`);
     
     // Execute consolidation actions
-    for (const action of rec.consolidationActions) {
+    for (const action of (rec.consolidationActions ?? [])) {
       logger.debug(`  ${action.actionType}: ${action.description}`);
       
       if (action.automaticMigration) {
@@ -340,14 +340,14 @@ async function executeCanonicalizations(result: any, logger: Logger): Promise<vo
 /**
  * Display final summary
  */
-function displaySummary(result: any, isDryRun: boolean): void {
+function displaySummary(result: CanonicalizationResult, isDryRun: boolean): void {
   console.log(`\n${chalk.bold('📋 Summary:')}`);
   
   const { recommendations, consolidationOpportunities, qualityMetrics } = result;
   
   console.log(`Canonicalization Candidates: ${chalk.cyan(recommendations.length)}`);
   console.log(`Consolidation Opportunities: ${chalk.cyan(consolidationOpportunities.length)}`);
-  console.log(`Quality Improvement: ${chalk.green((qualityMetrics.maintenabilityScore * 100).toFixed(1))}% maintainability`);
+  console.log(`Quality Improvement: ${chalk.green((qualityMetrics.maintainabilityScore * 100).toFixed(1))}% maintainability`);
   
   if (recommendations.length > 0) {
     const totalTypesEliminated = recommendations.reduce((sum: number, rec: any) => 

@@ -9,7 +9,19 @@
 import type { StorageQueryInterface } from '../type-insights/types';
 import { StructuralSubsumptionAnalyzer } from '../type-insights/structural-subsumption-analyzer';
 import { BehavioralFingerprintAnalyzer } from '../type-insights/behavioral-fingerprint-analyzer';
-import { CochangeAnalyzer } from '../type-insights/cochange-analyzer';
+import { CochangeAnalyzer, type GitProvider } from '../type-insights/cochange-analyzer';
+
+interface TypeInfo extends Record<string, unknown> {
+  id: string;
+  name: string;
+  file_path: string;
+  // 他の必要なプロパティを追加
+}
+
+interface FunctionUsageRow {
+  name: string;
+  file_path: string;
+}
 
 export interface RefactoringGuardRailOptions {
   includeTestTemplates: boolean;    // Generate test templates
@@ -90,7 +102,7 @@ export class RefactoringGuardRail {
   /**
    * Set Git provider for co-change analysis
    */
-  setGitProvider(gitProvider: any): void {
+  setGitProvider(gitProvider: GitProvider): void {
     this.cochangeAnalyzer = new CochangeAnalyzer(this.storage, gitProvider);
   }
 
@@ -110,7 +122,7 @@ export class RefactoringGuardRail {
       }
 
       // Perform impact analysis
-      const impactAnalysis = await this.analyzeTypeImpact(typeInfo, snapshotId);
+      const impactAnalysis = await this.analyzeTypeImpact(typeInfo as TypeInfo, snapshotId);
       
       // Generate checklist
       const checklist = await this.generateRefactoringChecklist(typeInfo, operationType, impactAnalysis);
@@ -168,7 +180,7 @@ export class RefactoringGuardRail {
   /**
    * Analyze the impact of changing a specific type
    */
-  private async analyzeTypeImpact(typeInfo: any, snapshotId?: string): Promise<TypeChangeImpact[]> {
+  private async analyzeTypeImpact(typeInfo: TypeInfo, snapshotId?: string): Promise<TypeChangeImpact[]> {
     const impacts: TypeChangeImpact[] = [];
 
     // Analyze direct dependencies
@@ -212,7 +224,10 @@ export class RefactoringGuardRail {
     const params = snapshotId ? [typeInfo['id'], snapshotId] : [typeInfo['id']];
     const result = await this.storage.query(query, params);
 
-    const affectedFunctions = result.rows.map((row: any) => row.name);
+    const affectedFunctions = result.rows.map((row) => {
+      const typedRow = row as FunctionUsageRow;
+      return typedRow.name;
+    });
     
     return {
       typeId: String(typeInfo['id'] ?? ''),

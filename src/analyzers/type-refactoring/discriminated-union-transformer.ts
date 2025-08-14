@@ -203,7 +203,9 @@ export class DiscriminatedUnionTransformer {
     // Add usage site files if we can identify them
     for (const phase of candidate.transformationPlan.phases) {
       for (const action of phase.actions) {
-        filesToBackup.push(...action.targetFiles);
+        if (Array.isArray((action as any).targetFiles)) {
+          filesToBackup.push(...(action as any).targetFiles);
+        }
       }
     }
 
@@ -348,8 +350,8 @@ ${typeGuardPattern}
       }
 
       // Add constructors
-      for (const constructor of helpers.constructors) {
-        this.appendCode(sourceFile, constructor);
+      for (const constructorCode of helpers.constructors) {
+        this.appendCode(sourceFile, constructorCode);
       }
 
       // Add switch helpers
@@ -456,8 +458,12 @@ ${typeGuardPattern}
         .map(prop => `  ${prop.name}?: ${prop.type};`)
         .join('\n');
 
+      const valueLiteral = this.formatDiscriminantValue(
+        candidate.discriminantProperty.type,
+        unionCase.discriminantValue
+      );
       return `export interface ${unionCase.caseName} {
-  ${discriminantName}: '${unionCase.discriminantValue}';
+  ${discriminantName}: ${valueLiteral};
 ${requiredProps}
 ${optionalProps}
 }`;
@@ -636,6 +642,25 @@ ${cases}
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Format discriminant value based on its type
+   */
+  private formatDiscriminantValue(
+    discriminantType: string,
+    value: string | number | boolean
+  ): string {
+    switch (discriminantType) {
+      case 'boolean':
+        return String(value); // true / false
+      case 'numeric_literal':
+        return String(value); // 1 / 2 など
+      // 既定: 文字列リテラル
+      case 'string_literal':
+      default:
+        return `'${String(value)}'`;
     }
   }
 }

@@ -13,7 +13,7 @@ export interface CanonicalizationPlan {
   canonicalType: CandidateCanonicalType;
   consolidationActions: ConsolidationAction[];
   generatedViewTypes: ViewTypeDefinition[];
-  migrationStrategy: MigrationStrategy;
+  migrationStrategy: DTOMigrationStrategy;
   estimatedImpact: CanonizationImpact;
 }
 
@@ -39,15 +39,15 @@ export interface ViewTypeDefinition {
   };
 }
 
-export interface MigrationStrategy {
+export interface DTOMigrationStrategy {
   approach: 'big_bang' | 'gradual' | 'adapter_layer' | 'feature_flag';
-  phases: MigrationPhase[];
+  phases: DTOMigrationPhase[];
   rollbackPlan: string[];
   estimatedDuration: string;
   prerequisites: string[];
 }
 
-export interface MigrationPhase {
+export interface DTOMigrationPhase {
   phaseNumber: number;
   name: string;
   description: string;
@@ -143,7 +143,7 @@ export class DTOCanonicalizer {
       ...options
     } as Required<DTOCanonicalizationOptions>;
 
-    this.cooccurrenceAnalyzer = new PropertyCooccurrenceAnalyzer(storage, options);
+    this.cooccurrenceAnalyzer = new PropertyCooccurrenceAnalyzer(storage, this.options);
     // this._subsumptionAnalyzer = new StructuralSubsumptionAnalyzer(storage);
   }
 
@@ -319,10 +319,16 @@ export class DTOCanonicalizer {
          FROM type_definitions td 
          LEFT JOIN type_members tm ON td.id = tm.type_id 
          WHERE td.name = $1 AND td.snapshot_id = $2`
-      : `SELECT td.*, tm.member_name, tm.member_type, tm.is_optional 
-         FROM type_definitions td 
-         LEFT JOIN type_members tm ON td.id = tm.type_id 
-         WHERE td.name = $1 ORDER BY td.created_at DESC LIMIT 1`;
+      : `SELECT td.*, tm.member_name, tm.member_type, tm.is_optional
+         FROM (
+           SELECT id
+           FROM type_definitions
+           WHERE name = $1
+           ORDER BY created_at DESC
+           LIMIT 1
+         ) latest
+         JOIN type_definitions td ON td.id = latest.id
+         LEFT JOIN type_members tm ON td.id = tm.type_id`;
 
     const params = snapshotId ? [typeName, snapshotId] : [typeName];
     console.debug(`Getting type definition for: ${typeName}`);
@@ -565,9 +571,11 @@ export class DTOCanonicalizer {
     const typeReductionBenefit = (types.length - 1) / types.length;
 
     // Bonus for high structural similarity
-    const avgSimilarity = relationships
-      .filter(r => types.includes(r.sourceType) && types.includes(r.targetType))
-      .reduce((sum, r) => sum + r.structuralSimilarity, 0) / relationships.length;
+    const relevant = relationships
+      .filter(r => types.includes(r.sourceType) && types.includes(r.targetType));
+    const avgSimilarity = relevant.length
+      ? relevant.reduce((sum, r) => sum + r.structuralSimilarity, 0) / relevant.length
+      : 0;
 
     return Math.min(1, typeReductionBenefit + avgSimilarity * 0.3);
   }
@@ -580,9 +588,11 @@ export class DTOCanonicalizer {
     relationships: TypeRelationship[]
   ): ConsolidationOpportunity['implementationComplexity'] {
     const typeCount = types.length;
-    const avgCompatibility = relationships
-      .filter(r => types.includes(r.sourceType) && types.includes(r.targetType))
-      .reduce((sum, r) => sum + r.compatibilityScore, 0) / relationships.length;
+    const relevant = relationships
+      .filter(r => types.includes(r.sourceType) && types.includes(r.targetType));
+    const avgCompatibility = relevant.length
+      ? relevant.reduce((sum, r) => sum + r.compatibilityScore, 0) / relevant.length
+      : 0;
 
     if (typeCount <= 2 && avgCompatibility >= 0.8) return 'low';
     if (typeCount <= 4 && avgCompatibility >= 0.6) return 'medium';
@@ -741,7 +751,9 @@ export class DTOCanonicalizer {
           description: `Merge ${subsetType} into canonical type ${candidate.typeName}`,
           riskLevel: 'low',
           automaticMigration: true,
-          codemodActions: this.generateCodemodActions(subsetType, candidate.typeName)
+          codemodActions: this.options.generateCodemodActions
+            ? this.generateCodemodActions(subsetType, candidate.typeName)
+            : []
         });
 
         actions.push({
@@ -811,9 +823,17 @@ export class DTOCanonicalizer {
   /**
    * Generate picked properties string for Pick utility type
    */
-  private generatePickedProperties(_candidate: CandidateCanonicalType, _subsetType: string): string {
-    // Simplified - would need actual property analysis
-    return `'id' | 'name'`; // Placeholder
+  private generatePickedProperties(candidate: CandidateCanonicalType, subsetType: string): string {
+    // Get actual properties from subset analysis
+    const subsetProperties = this.getSubsetProperties(candidate, subsetType);
+    
+    if (subsetProperties.length === 0) {
+      // Fallback for empty properties
+      return `keyof ${candidate.typeName}`;
+    }
+    
+    // Generate union of actual property names
+    return subsetProperties.map(prop => `'${prop}'`).join(' | ');
   }
 
   /**
@@ -857,8 +877,8 @@ export function from${canonicalType}To${targetType}(canonical: ${canonicalType})
   private createMigrationStrategy(
     _candidate: CandidateCanonicalType,
     actions: ConsolidationAction[]
-  ): MigrationStrategy {
-    const phases: MigrationPhase[] = [
+  ): DTOMigrationStrategy {
+    const phases: DTOMigrationPhase[] = [
       {
         phaseNumber: 1,
         name: 'Preparation',

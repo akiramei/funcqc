@@ -239,9 +239,10 @@ describe('ValueObjectExtractor', () => {
         expect(timeRangeCandidate.valueObject.properties.length).toBeGreaterThan(0);
         
         // Should have temporal order invariant
-        const temporalInvariant = timeRangeCandidate.valueObject.invariants.find(inv =>
-          inv.expression.includes('start <= this.end')
-        );
+        const temporalInvariant = timeRangeCandidate.valueObject.invariants.find(inv => {
+          const expr = inv.expression.replace(/\s+/g, ' ');
+          return expr.includes('start <= end') || expr.includes('start <= this.end');
+        });
         if (temporalInvariant) {
           expect(temporalInvariant.category).toBe('business_rule');
         }
@@ -279,7 +280,10 @@ describe('ValueObjectExtractor', () => {
       const result = await extractor.extract();
 
       // Check for coordinate-specific methods
-      const coordinateCandidate = result.candidates.find(c => c.valueObject.name === 'Coordinate');
+      const coordinateCandidate = result.candidates.find(c =>
+        c.valueObject.properties.some(p => p.name === 'lat') &&
+        c.valueObject.properties.some(p => p.name === 'lng')
+      );
       if (coordinateCandidate) {
         const distanceMethod = coordinateCandidate.valueObject.methods.find(m => m.name === 'distanceTo');
         expect(distanceMethod).toBeDefined();
@@ -497,12 +501,10 @@ describe('ValueObjectExtractor', () => {
         minCohesionScore: 0.9 // Very high threshold
       });
 
-      const result = await highCohesionExtractor.extract();
-      
-      // Should have fewer candidates with high cohesion requirement
-      result.candidates.forEach(candidate => {
-        expect(candidate.valueObject.usageFrequency).toBeGreaterThanOrEqual(0);
-      });
+      const base = await extractor.extract();
+      const strict = await highCohesionExtractor.extract();
+      // 高い閾値では候補が減る（もしくは同等）ことを期待
+      expect(strict.candidates.length).toBeLessThanOrEqual(base.candidates.length);
     });
 
     it('should handle computed methods toggle', async () => {

@@ -7,7 +7,7 @@
  */
 
 import type { StorageQueryInterface } from '../type-insights/types';
-import { PropertyCooccurrenceAnalyzer, type PropertyCooccurrenceOptions } from './property-cooccurrence';
+import { PropertyCooccurrenceAnalyzer, type PropertyCooccurrenceOptions, type CooccurrenceAnalysisResult } from './property-cooccurrence';
 
 export interface DiscriminatedUnionCandidate {
   typeName: string;
@@ -242,7 +242,7 @@ export class DiscriminatedUnionAnalyzer {
     const propertyGroups = new Map<string, Array<Record<string, unknown>>>();
     for (const row of result.rows) {
       const rowData = row as Record<string, unknown>;
-      const propName = rowData.member_name;
+      const propName = rowData['member_name'] as string;
       if (!propertyGroups.has(propName)) {
         propertyGroups.set(propName, []);
       }
@@ -254,7 +254,7 @@ export class DiscriminatedUnionAnalyzer {
       const discriminant = await this.analyzeDiscriminantCandidate(propName, rows);
       if (discriminant && this.isViableDiscriminant(discriminant)) {
         for (const row of rows) {
-          const typeName = row.type_name;
+          const typeName = row['type_name'] as string;
           if (!candidateMap.has(typeName)) {
             candidateMap.set(typeName, []);
           }
@@ -274,7 +274,7 @@ export class DiscriminatedUnionAnalyzer {
     usageRows: Array<Record<string, unknown>>
   ): Promise<DiscriminantProperty | null> {
     // Determine discriminant type
-    const types = usageRows.map(row => row.member_type);
+    const types = usageRows.map(row => row['member_type'] as string);
     const uniqueTypes = [...new Set(types)];
     
     let discriminantType: DiscriminantProperty['type'];
@@ -293,7 +293,7 @@ export class DiscriminatedUnionAnalyzer {
       ? ['true', 'false']
       : [`${propertyName}_value_1`, `${propertyName}_value_2`]; // Would need AST analysis for actual values
 
-    const totalUsage = usageRows.reduce((sum, row) => sum + parseInt(row.usage_count), 0);
+    const totalUsage = usageRows.reduce((sum, row) => sum + parseInt(row['usage_count'] as string), 0);
     const frequency = totalUsage / usageRows.length;
 
     return {
@@ -326,7 +326,7 @@ export class DiscriminatedUnionAnalyzer {
   private async analyzeSingleType(
     typeName: string,
     discriminantCandidates: Map<string, DiscriminantProperty[]>,
-    _cooccurrenceResult: Record<string, unknown>,
+    _cooccurrenceResult: CooccurrenceAnalysisResult,
     snapshotId?: string
   ): Promise<DiscriminatedUnionCandidate | null> {
     const discriminants = discriminantCandidates.get(typeName) || [];
@@ -700,7 +700,7 @@ export function migrate${typeName}To Union(legacy: any): ${typeName}Union {
     const params = snapshotId ? [typeName, snapshotId] : [typeName];
     const result = await this.storage.query(query, params);
     
-    return result.rows.length > 0 ? (result.rows[0] as Record<string, unknown>).file_path as string : `src/types/${typeName.toLowerCase()}.ts`;
+    return result.rows.length > 0 ? (result.rows[0] as Record<string, unknown>)['file_path'] as string : `src/types/${typeName.toLowerCase()}.ts`;
   }
 
   /**
