@@ -170,14 +170,54 @@ export class DUPlanGenerator {
    */
   private generateVariantName(_typeName: string, tag: string | number | boolean, index: number): string {
     if (typeof tag === 'string') {
-      // Convert to PascalCase: success -> Success, error -> Error
-      return tag.charAt(0).toUpperCase() + tag.slice(1).toLowerCase();
+      return this.sanitizeIdentifier(tag);
     }
     if (typeof tag === 'boolean') {
       return tag ? 'True' : 'False';
     }
     // Numeric or other - use index
     return `Variant${index + 1}`;
+  }
+
+  /**
+   * Sanitize identifier for TypeScript compatibility
+   */
+  private sanitizeIdentifier(value: string): string {
+    // Handle reserved words
+    const reservedWords = new Set([
+      'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default',
+      'delete', 'do', 'else', 'enum', 'export', 'extends', 'false', 'finally',
+      'for', 'function', 'if', 'import', 'in', 'instanceof', 'new', 'null',
+      'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof',
+      'var', 'void', 'while', 'with', 'abstract', 'any', 'as', 'async', 'await',
+      'boolean', 'constructor', 'declare', 'get', 'implements', 'interface',
+      'is', 'keyof', 'let', 'module', 'namespace', 'never', 'number', 'object',
+      'of', 'readonly', 'require', 'set', 'string', 'symbol', 'type', 'undefined',
+      'unique', 'unknown', 'from', 'global', 'bigint', 'of'
+    ]);
+
+    // Start with the original value
+    let identifier = value;
+
+    // Replace non-alphanumeric characters with appropriate substitutions
+    identifier = identifier
+      .replace(/[-_]/g, ' ')  // Replace hyphens and underscores with spaces
+      .replace(/[^a-zA-Z0-9\s]/g, '') // Remove other special characters
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join('');
+
+    // Handle empty or starts with number
+    if (!identifier || /^\d/.test(identifier)) {
+      identifier = `Variant${identifier}`;
+    }
+
+    // Handle reserved words
+    if (reservedWords.has(identifier.toLowerCase())) {
+      identifier = `${identifier}Value`;
+    }
+
+    return identifier;
   }
 
   /**
