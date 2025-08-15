@@ -1247,8 +1247,8 @@ duCommand.command('detect')
   .option('--snapshot-id <id>', 'use specific snapshot for analysis')
   .option('--target-types <types>', 'comma-separated list of specific types to analyze')
   .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', '0.8')
-  .option('--min-mutual-exclusivity <number>', 'minimum mutual exclusivity score (0-1)', '0.7')
-  .option('--min-usage-frequency <number>', 'minimum discriminant usage frequency (0-1)', '0.3')
+  .option('--min-mutual-exclusivity <number>', 'minimum mutual exclusivity score (0-1)', '0.1')
+  .option('--min-usage-frequency <number>', 'minimum discriminant usage frequency (0-1)', '0.005')
   .option('--max-variants <number>', 'maximum union variants per type', '8')
   .option('--min-variants <number>', 'minimum union variants per type', '2')
   .option('--exclude-props <props>', 'comma-separated properties to exclude', 'id,createdAt,updatedAt')
@@ -1257,12 +1257,9 @@ duCommand.command('detect')
   .option('--save-json [path]', 'save detailed results as JSON file', false)
   .option('--save-html [path]', 'save analysis report as HTML file', false)
   .option('--verbose', 'enable verbose logging', false)
-  .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
+  .action(async (options: OptionValues) => {
     const { executeDetect } = await import('./cli/commands/du/detect');
-    return withEnvironment((opts) => async (_env) => {
-      await executeDetect(opts);
-    })(options, command);
+    await executeDetect(options);
   })
   .addHelpText('after', `
 Examples:

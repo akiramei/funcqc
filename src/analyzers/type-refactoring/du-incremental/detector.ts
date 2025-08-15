@@ -26,8 +26,8 @@ import type {
  */
 const DEFAULT_OPTIONS: DetectionOptions = {
   minCoverageRate: 0.8,
-  minMutualExclusivity: 0.7,
-  minUsageFrequency: 0.3,
+  minMutualExclusivity: 0.1,     // Further lowered to 0.1 for practical detection
+  minUsageFrequency: 0.005,      // Lowered to 0.5% for real-world detection
   maxVariants: 8,
   minVariants: 2,
   includeRiskAssessment: true,
@@ -50,15 +50,31 @@ export class DUIncrementalDetector {
   /**
    * Main detection entry point - Step A: Complete Detection Analysis
    */
-  async detect(snapshotId?: string): Promise<DetectionResult> {
+  async detect(snapshotId?: string, debug = false): Promise<DetectionResult> {
     try {
+      if (debug) {
+        console.log('🔍 Starting detection with snapshotId:', snapshotId);
+      }
+      
       // A1: Flag and correlation collection
-      const typeProperties = await this.extractTypeProperties(snapshotId);
+      const typeProperties = await this.extractTypeProperties(snapshotId, debug);
       const flagCorrelations = await this.analyzeFlagCorrelations(typeProperties);
-      const discriminantCandidates = await this.identifyDiscriminantCandidates(typeProperties, flagCorrelations);
+      const discriminantCandidates = await this.identifyDiscriminantCandidates(typeProperties, flagCorrelations, debug);
+
+      if (debug) {
+        console.log(`🔍 Analysis progress: 
+          - Type properties: ${typeProperties.length} types
+          - Flag correlations: ${flagCorrelations.length} patterns
+          - Discriminant candidates: ${discriminantCandidates.length} candidates`);
+      }
 
       // A2: Risk classification and constraint conditions
       const duPlans = await this.generateDUPlans(typeProperties, discriminantCandidates, snapshotId);
+      
+      if (debug) {
+        console.log(`🔍 Generated ${duPlans.length} DU plans`);
+      }
+      
       const riskedPlans = await this.assessRisks(duPlans);
 
       // A3: Impact estimation (reference counting)
@@ -84,36 +100,45 @@ export class DUIncrementalDetector {
   /**
    * A1.1: Extract type properties from database
    */
-  private async extractTypeProperties(snapshotId?: string): Promise<TypePropertyInfo[]> {
-    const query = snapshotId
-      ? `SELECT DISTINCT 
-           td.id as type_id,
-           td.name as type_name, 
-           td.file_path,
-           tm.name as member_name,
-           tm.type_text as member_type,
-           tm.is_optional
-         FROM type_definitions td
-         JOIN type_members tm ON td.id = tm.type_id
-         WHERE td.snapshot_id = $1 
-           AND tm.member_kind = 'property'
-           AND td.kind IN ('interface', 'type_alias')
-         ORDER BY td.name, tm.name`
-      : `SELECT DISTINCT 
-           td.id as type_id,
-           td.name as type_name, 
-           td.file_path,
-           tm.name as member_name,
-           tm.type_text as member_type,
-           tm.is_optional
-         FROM type_definitions td
-         JOIN type_members tm ON td.id = tm.type_id
-         WHERE tm.member_kind = 'property'
-           AND td.kind IN ('interface', 'type_alias')
-         ORDER BY td.name, tm.name`;
+  private async extractTypeProperties(snapshotId?: string, debug = false): Promise<TypePropertyInfo[]> {
+    // If no snapshot ID provided, get the latest snapshot
+    let targetSnapshotId = snapshotId;
+    if (!targetSnapshotId) {
+      const snapshotQuery = `SELECT id FROM snapshots ORDER BY created_at DESC LIMIT 1`;
+      const snapshotResult = await this.storage.query(snapshotQuery);
+      if (snapshotResult.rows.length === 0) {
+        throw new Error('No snapshots available. Please run `funcqc scan` first.');
+      }
+      targetSnapshotId = (snapshotResult.rows[0] as Record<string, unknown>)['id'] as string;
+    }
 
-    const params = snapshotId ? [snapshotId] : [];
+    const query = `SELECT DISTINCT 
+         td.id as type_id,
+         td.name as type_name, 
+         td.file_path,
+         tm.name as member_name,
+         tm.type_text as member_type,
+         tm.is_optional
+       FROM type_definitions td
+       JOIN type_members tm ON td.id = tm.type_id
+       WHERE td.snapshot_id = $1 
+         AND tm.snapshot_id = $1
+         AND tm.member_kind = 'property'
+         AND td.kind IN ('interface', 'type_alias')
+       ORDER BY td.name, tm.name`;
+
+    const params = [targetSnapshotId];
+    
+    if (debug) {
+      console.log(`🔍 Query parameters: snapshotId=${targetSnapshotId}`);
+      console.log(`🔍 Query: ${query}`);
+    }
+    
     const result = await this.storage.query(query, params);
+    
+    if (debug) {
+      console.log(`🔍 Query returned ${result.rows.length} rows`);
+    }
 
     // Group by type
     const typeMap = new Map<string, TypePropertyInfo>();
@@ -193,7 +218,8 @@ export class DUIncrementalDetector {
    */
   private async identifyDiscriminantCandidates(
     typeProperties: TypePropertyInfo[],
-    correlations: FlagCorrelation[]
+    correlations: FlagCorrelation[],
+    debug = false
   ): Promise<DiscriminantCandidate[]> {
     const candidates: DiscriminantCandidate[] = [];
     const propertyStats = new Map<string, { types: Set<string>, totalCount: number, correlations: FlagCorrelation[] }>();
@@ -227,10 +253,36 @@ export class DUIncrementalDetector {
     }
 
     // Generate discriminant candidates
+    if (debug) {
+      console.log(`🔍 Property statistics: ${propertyStats.size} properties analyzed`);
+      
+      // Show top properties by frequency
+      const sortedProperties = Array.from(propertyStats.entries())
+        .sort((a, b) => (b[1].types.size / typeProperties.length) - (a[1].types.size / typeProperties.length))
+        .slice(0, 10);
+      
+      console.log('🔍 Top 10 properties by usage frequency:');
+      sortedProperties.forEach(([propName, stats]) => {
+        const frequency = stats.types.size / typeProperties.length;
+        console.log(`   ${propName}: ${stats.types.size}/${typeProperties.length} = ${frequency.toFixed(3)} (${(frequency * 100).toFixed(1)}%)`);
+      });
+      
+      console.log(`🔍 Min usage threshold: ${this.options.minUsageFrequency} (${(this.options.minUsageFrequency * 100).toFixed(1)}%)`);
+    }
+    let candidateCount = 0;
+    let filteredByUsage = 0;
+    let filteredByValues = 0;
+    let filteredByExclusivity = 0;
+
     for (const [propName, stats] of propertyStats) {
       const usageFrequency = stats.types.size / typeProperties.length;
       
+      if (debug && propertyStats.size <= 20) {
+        console.log(`🔍 Property "${propName}": ${stats.types.size}/${typeProperties.length} types = ${usageFrequency.toFixed(3)} frequency`);
+      }
+      
       if (usageFrequency < this.options.minUsageFrequency) {
+        filteredByUsage++;
         continue;
       }
 
@@ -245,24 +297,50 @@ export class DUIncrementalDetector {
       const mutualExclusivity = this.calculateMutualExclusivity(stats.correlations, propName);
       const possibleValues = representativeProp.literalValues || this.inferPossibleValues(representativeProp);
 
-      if (possibleValues.length >= this.options.minVariants && 
-          possibleValues.length <= this.options.maxVariants &&
-          mutualExclusivity >= this.options.minMutualExclusivity) {
-
-        const candidate: DiscriminantCandidate = {
-          propertyName: propName,
-          propertyType: this.classifyDiscriminantType(representativeProp),
-          possibleValues,
-          usageFrequency,
-          mutualExclusivity,
-          correlatedProperties: stats.correlations.map(c => 
-            c.propertyA === propName ? c.propertyB : c.propertyA
-          ),
-          typeOccurrences: new Map(Array.from(stats.types).map(typeName => [typeName, 1]))
-        };
-
-        candidates.push(candidate);
+      if (possibleValues.length < this.options.minVariants || 
+          possibleValues.length > this.options.maxVariants) {
+        filteredByValues++;
+        if (debug) {
+          console.log(`🔍 Filtered ${propName}: ${possibleValues.length} variants (need ${this.options.minVariants}-${this.options.maxVariants})`);
+        }
+        continue;
       }
+
+      if (mutualExclusivity < this.options.minMutualExclusivity) {
+        filteredByExclusivity++;
+        if (debug) {
+          console.log(`🔍 Filtered ${propName}: exclusivity ${mutualExclusivity.toFixed(2)} < ${this.options.minMutualExclusivity}`);
+        }
+        continue;
+      }
+
+      candidateCount++;
+      if (debug) {
+        console.log(`🔍 ✅ Candidate: ${propName} (usage: ${usageFrequency.toFixed(2)}, exclusivity: ${mutualExclusivity.toFixed(2)}, values: ${possibleValues.length})`);
+      }
+
+      const candidate: DiscriminantCandidate = {
+        propertyName: propName,
+        propertyType: this.classifyDiscriminantType(representativeProp),
+        possibleValues,
+        usageFrequency,
+        mutualExclusivity,
+        correlatedProperties: stats.correlations.map(c => 
+          c.propertyA === propName ? c.propertyB : c.propertyA
+        ),
+        typeOccurrences: new Map(Array.from(stats.types).map(typeName => [typeName, 1]))
+      };
+
+      candidates.push(candidate);
+    }
+
+    if (debug) {
+      console.log(`🔍 Filtering results:
+        - Total properties: ${propertyStats.size}
+        - Filtered by usage frequency: ${filteredByUsage}
+        - Filtered by variant count: ${filteredByValues}
+        - Filtered by mutual exclusivity: ${filteredByExclusivity}
+        - Final candidates: ${candidateCount}`);
     }
 
     return candidates;

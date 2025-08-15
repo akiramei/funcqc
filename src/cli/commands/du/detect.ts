@@ -13,19 +13,19 @@ import { performance } from 'perf_hooks';
 import fs from 'fs/promises';
 
 interface CommandOptions {
-  'snapshot-id'?: string;
-  'target-types'?: string;
-  'min-coverage'?: string;
-  'min-mutual-exclusivity'?: string;
-  'min-usage-frequency'?: string;
-  'max-variants'?: string;
-  'min-variants'?: string;
-  'exclude-props'?: string;
-  'output'?: string;
-  'format'?: string;
-  'save-json'?: boolean;
-  'save-html'?: boolean;
-  'verbose'?: boolean;
+  snapshotId?: string;
+  targetTypes?: string;
+  minCoverage?: string;
+  minMutualExclusivity?: string;
+  minUsageFrequency?: string;
+  maxVariants?: string;
+  minVariants?: string;
+  excludeProps?: string;
+  output?: string;
+  format?: string;
+  saveJson?: boolean;
+  saveHtml?: boolean;
+  verbose?: boolean;
 }
 
 interface DetectCliResult {
@@ -63,8 +63,8 @@ export function createDetectCommand(): Command {
     .option('--snapshot-id <id>', 'Use specific snapshot for analysis')
     .option('--target-types <types>', 'Comma-separated list of specific types to analyze')
     .option('--min-coverage <number>', 'Minimum coverage threshold (0-1)', '0.8')
-    .option('--min-mutual-exclusivity <number>', 'Minimum mutual exclusivity score (0-1)', '0.7')
-    .option('--min-usage-frequency <number>', 'Minimum discriminant usage frequency (0-1)', '0.3')
+    .option('--min-mutual-exclusivity <number>', 'Minimum mutual exclusivity score (0-1)', '0.1')
+    .option('--min-usage-frequency <number>', 'Minimum discriminant usage frequency (0-1)', '0.005')
     .option('--max-variants <number>', 'Maximum union variants per type', '8')
     .option('--min-variants <number>', 'Minimum union variants per type', '2')
     .option('--exclude-props <props>', 'Comma-separated properties to exclude', 'id,createdAt,updatedAt')
@@ -93,19 +93,19 @@ export async function executeDetect(options: CommandOptions): Promise<void> {
 
     // Configure detection options
     const detectionOptions: Partial<DetectionOptions> = {
-      minCoverageRate: parseFloat(options['min-coverage'] || '0.8'),
-      minMutualExclusivity: parseFloat(options['min-mutual-exclusivity'] || '0.7'),
-      minUsageFrequency: parseFloat(options['min-usage-frequency'] || '0.3'),
-      maxVariants: parseInt(options['max-variants'] || '8'),
-      minVariants: parseInt(options['min-variants'] || '2'),
+      minCoverageRate: parseFloat(options.minCoverage || '0.8'),
+      minMutualExclusivity: parseFloat(options.minMutualExclusivity || '0.1'),
+      minUsageFrequency: parseFloat(options.minUsageFrequency || '0.005'),
+      maxVariants: parseInt(options.maxVariants || '8'),
+      minVariants: parseInt(options.minVariants || '2'),
       includeRiskAssessment: true,
       includeReferenceAnalysis: true,
-      excludeCommonProperties: options['exclude-props']?.split(',').map(s => s.trim()) || ['id', 'createdAt', 'updatedAt']
+      excludeCommonProperties: options.excludeProps?.split(',').map(s => s.trim()) || ['id', 'createdAt', 'updatedAt']
     };
 
     // Run detection analysis
     const detector = new DUIncrementalDetector(storage, detectionOptions);
-    const analysisResult = await detector.detect(options['snapshot-id']);
+    const analysisResult = await detector.detect(options.snapshotId, options.verbose);
 
     if (options.verbose) {
       console.log(`📊 Analysis complete: ${analysisResult.candidates.length} candidates found`);
@@ -113,8 +113,8 @@ export async function executeDetect(options: CommandOptions): Promise<void> {
 
     // Filter by target types if specified
     let filteredCandidates = analysisResult.candidates;
-    if (options['target-types']) {
-      const targetTypes = options['target-types'].split(',').map(t => t.trim());
+    if (options.targetTypes) {
+      const targetTypes = options.targetTypes.split(',').map(t => t.trim());
       filteredCandidates = analysisResult.candidates.filter(c =>
         targetTypes.includes(c.typeName)
       );
@@ -128,12 +128,12 @@ export async function executeDetect(options: CommandOptions): Promise<void> {
     const cliResult = await prepareCliResult(analysisResult, filteredCandidates);
 
     // Save files if requested
-    if (options['save-json']) {
-      await saveJsonReport(analysisResult, options['save-json']);
+    if (options.saveJson) {
+      await saveJsonReport(analysisResult, options.saveJson);
     }
 
-    if (options['save-html']) {
-      await saveHtmlReport(analysisResult, options['save-html']);
+    if (options.saveHtml) {
+      await saveHtmlReport(analysisResult, options.saveHtml);
     }
 
     // Output results
@@ -330,16 +330,16 @@ async function outputResults(cliResult: DetectCliResult, fullResult: DetectionRe
   switch (format) {
     case 'json':
       console.log(JSON.stringify(cliResult, null, 2));
-      break;
+      return;
 
     case 'detailed':
       outputDetailed(cliResult, fullResult);
-      break;
+      return;
 
     case 'table':
     default:
       outputTable(cliResult);
-      break;
+      return;
   }
 }
 
