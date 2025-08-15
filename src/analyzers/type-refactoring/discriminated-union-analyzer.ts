@@ -666,7 +666,7 @@ export type ${typeName}Union = ${unionCases.map(c => c.caseName).join(' | ')};`;
 ): T {
   switch (obj.${discriminant.name}) {
     ${unionCases.map(c => `case '${c.discriminantValue}': return handlers.${c.discriminantValue}(obj);`).join('\n    ')}
-    default: throw new Error(\`Unhandled ${discriminant.name}: \${(obj as any).${discriminant.name}}\`);
+    default: throw new Error(\`Unhandled ${discriminant.name}: \${(obj as Record<string, unknown>)['${discriminant.name}']}\`);
   }
 }`
     ];

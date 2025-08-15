@@ -147,15 +147,15 @@ export class PropertyCooccurrenceAnalyzer {
     const typePropertiesMap = new Map<string, TypePropertyMap>();
     
     for (const row of result.rows) {
-      const rowData = row as any;
-      const typeId = rowData.id;
+      const rowData = row as Record<string, unknown>;
+      const typeId = rowData['id'] as string;
       
       if (!typePropertiesMap.has(typeId)) {
         typePropertiesMap.set(typeId, {
           typeId,
-          typeName: rowData.name,
-          filePath: rowData.file_path,
-          definition: rowData.definition,
+          typeName: rowData['name'] as string,
+          filePath: rowData['file_path'] as string,
+          definition: rowData['definition'] as string,
           properties: []
         });
       }
@@ -163,18 +163,18 @@ export class PropertyCooccurrenceAnalyzer {
       const typeProperties = typePropertiesMap.get(typeId)!;
       
       // Add property if it exists and is not in exclude list
-      if (rowData.member_name && 
-          !this.options.excludeCommonProperties.includes(rowData.member_name)) {
+      if (rowData['member_name'] && 
+          !this.options.excludeCommonProperties.includes(rowData['member_name'] as string)) {
         
         // Skip optional properties if configured to do so
-        if (!this.options.includeOptionalProperties && rowData.is_optional) {
+        if (!this.options.includeOptionalProperties && rowData['is_optional']) {
           continue;
         }
 
         typeProperties.properties.push({
-          name: rowData.member_name,
-          type: rowData.member_type || 'unknown',
-          isOptional: rowData.is_optional || false
+          name: rowData['member_name'] as string,
+          type: (rowData['member_type'] as string) || 'unknown',
+          isOptional: (rowData['is_optional'] as boolean) || false
         });
       }
     }

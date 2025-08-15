@@ -203,8 +203,9 @@ export class DiscriminatedUnionTransformer {
     // Add usage site files if we can identify them
     for (const phase of candidate.transformationPlan.phases) {
       for (const action of phase.actions) {
-        if (Array.isArray((action as any).targetFiles)) {
-          filesToBackup.push(...(action as any).targetFiles);
+        const actionData = action as unknown as Record<string, unknown>;
+        if (Array.isArray(actionData['targetFiles'])) {
+          filesToBackup.push(...(actionData['targetFiles'] as string[]));
         }
       }
     }

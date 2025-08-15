@@ -150,12 +150,12 @@ export class TypeCompatibilityChecker {
       return null;
     }
 
-    const row = result.rows[0] as any;
+    const row = result.rows[0] as Record<string, unknown>;
     return {
-      id: row.id,
-      name: row.name,
-      filePath: row.file_path,
-      definition: row.definition
+      id: row['id'] as string,
+      name: row['name'] as string,
+      filePath: row['file_path'] as string,
+      definition: row['definition'] as string
     };
   }
 

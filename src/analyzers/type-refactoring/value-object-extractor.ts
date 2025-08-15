@@ -447,8 +447,8 @@ export class ValueObjectExtractor {
     const propertyDetailsMap = new Map<string, PropertyDetail[]>();
 
     for (const row of result.rows) {
-      const rowData = row as any;
-      const propertyName = rowData.member_name;
+      const rowData = row as Record<string, unknown>;
+      const propertyName = rowData['member_name'] as string;
 
       if (!propertyDetailsMap.has(propertyName)) {
         propertyDetailsMap.set(propertyName, []);
@@ -456,10 +456,10 @@ export class ValueObjectExtractor {
 
       propertyDetailsMap.get(propertyName)!.push({
         name: propertyName,
-        type: rowData.member_type,
-        isOptional: rowData.is_optional,
-        typeName: rowData.type_name,
-        filePath: rowData.file_path
+        type: rowData['member_type'] as string,
+        isOptional: rowData['is_optional'] as boolean,
+        typeName: rowData['type_name'] as string,
+        filePath: rowData['file_path'] as string
       });
     }
 

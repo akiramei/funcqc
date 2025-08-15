@@ -196,18 +196,18 @@ export class TypeReplacementAdvisor extends RefactoringGuardRail {
     const usages: TypeUsageInfo[] = [];
     
     for (const row of result.rows) {
-      const usageData = row as any;
+      const usageData = row as Record<string, unknown>;
       
       // Parse usage context to extract location information
-      const location = this.parseLocationFromContext(usageData.usage_context ?? '');
+      const location = this.parseLocationFromContext((usageData['usage_context'] as string) ?? '');
       
       usages.push({
-        functionId: usageData.id,
-        functionName: usageData.name,
-        filePath: usageData.file_path,
-        usageType: usageData.usage_type ?? 'variable',
+        functionId: usageData['id'] as string,
+        functionName: usageData['name'] as string,
+        filePath: usageData['file_path'] as string,
+        usageType: (usageData['usage_type'] as 'property' | 'return' | 'generic' | 'parameter' | 'variable') ?? 'variable',
         location,
-        context: usageData.usage_context ?? ''
+        context: (usageData['usage_context'] as string) ?? ''
       });
     }
 

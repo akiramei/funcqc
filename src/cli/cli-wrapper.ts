@@ -9,6 +9,32 @@ import { BaseCommandOptions } from '../types/command';
 import { loadComprehensiveCallGraphData } from '../utils/lazy-analysis';
 
 /**
+ * Convert kebab-case keys to camelCase
+ */
+function kebabToCamelCase(str: string): string {
+  return str.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+/**
+ * Normalize option keys by converting kebab-case to camelCase
+ */
+function normalizeOptionKeys<T extends Record<string, unknown>>(options: T): T {
+  const normalized = {} as T;
+  
+  for (const [key, value] of Object.entries(options)) {
+    const camelKey = kebabToCamelCase(key);
+    (normalized as Record<string, unknown>)[camelKey] = value;
+    
+    // Keep original key as well for backward compatibility
+    if (key !== camelKey) {
+      (normalized as Record<string, unknown>)[key] = value;
+    }
+  }
+  
+  return normalized;
+}
+
+/**
  * Analysis execution state guard to prevent duplicate execution within same context
  */
 class AnalysisExecutionGuard {
@@ -525,9 +551,12 @@ export function withEnvironment<TOptions extends BaseCommandOptions>(
     const parentOpts = parentCommand?.parent?.opts?.() || parentCommand?.opts?.() || {};
     let appEnv: AppEnvironment | null = null;
     
-    // Merge parent options into command options for global options like --verbose
-    const mergedOptions: TOptions = { ...options };
-    for (const [key, value] of Object.entries(parentOpts)) {
+    // Normalize option keys (kebab-case to camelCase) and merge parent options
+    const normalizedOptions = normalizeOptionKeys(options as Record<string, unknown>) as TOptions;
+    const normalizedParentOpts = normalizeOptionKeys(parentOpts);
+    
+    const mergedOptions: TOptions = { ...normalizedOptions };
+    for (const [key, value] of Object.entries(normalizedParentOpts)) {
       if (!(key in mergedOptions) || mergedOptions[key as keyof TOptions] === undefined) {
         (mergedOptions as Record<string, unknown>)[key] = value;
       }

@@ -220,7 +220,7 @@ export class DTOCanonicalizer {
       console.debug('Type params:', typeParams);
       const typeResult = await this.storage.query(typeQuery, typeParams);
       console.debug('Type result rows:', typeResult.rows);
-      const typeNames = typeResult.rows.map((row: any) => row.name);
+      const typeNames = typeResult.rows.map((row) => (row as Record<string, unknown>)['name'] as string);
       console.debug('Extracted type names:', typeNames);
 
       // Analyze pairwise relationships between all types
@@ -340,13 +340,13 @@ export class DTOCanonicalizer {
     if (result.rows.length === 0) return null;
 
     // Group properties
-    const typeInfo = result.rows[0] as any;
+    const typeInfo = result.rows[0] as Record<string, unknown>;
     const properties = result.rows
-      .filter((row: any) => row.member_name)
-      .map((row: any) => ({
-        name: row.member_name,
-        type: row.member_type,
-        isOptional: row.is_optional
+      .filter((row) => (row as Record<string, unknown>)['member_name'])
+      .map((row) => ({
+        name: (row as Record<string, unknown>)['member_name'] as string,
+        type: (row as Record<string, unknown>)['member_type'] as string,
+        isOptional: (row as Record<string, unknown>)['is_optional'] as boolean
       }));
 
     const finalResult = {
@@ -355,9 +355,9 @@ export class DTOCanonicalizer {
     };
     
     console.debug(`Returning type definition for ${typeName}:`, {
-      name: finalResult.name,
+      name: (finalResult as Record<string, unknown>)['name'],
       propertiesCount: properties.length,
-      propertyNames: properties.map((p: any) => p.name)
+      propertyNames: properties.map(p => p.name)
     });
 
     return finalResult;
@@ -1004,7 +1004,8 @@ export function from${canonicalType}To${targetType}(canonical: ${canonicalType})
     const params = snapshotId ? [allTypes, snapshotId] : [allTypes];
     const result = await this.storage.query(query, params);
     
-    return (result.rows[0] as any)?.count || 0;
+    const row = result.rows[0] as Record<string, unknown>;
+    return (row?.['count'] as number) || 0;
   }
 
   /**
@@ -1030,7 +1031,7 @@ export function from${canonicalType}To${targetType}(canonical: ${canonicalType})
     const params = snapshotId ? [allTypes, snapshotId] : [allTypes];
     const result = await this.storage.query(query, params);
     
-    return result.rows.map((row: any) => row.file_path);
+    return result.rows.map((row) => (row as Record<string, unknown>)['file_path'] as string);
   }
 
   /**
