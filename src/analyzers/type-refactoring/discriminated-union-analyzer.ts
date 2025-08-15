@@ -652,11 +652,12 @@ export type ${typeName}Union = ${unionCases.map(c => c.caseName).join(' | ')};`;
     );
 
     // Generate constructors
-    const constructors = unionCases.map(unionCase => 
-      `export function create${unionCase.caseName}(data: Omit<${unionCase.caseName}, '${discriminant.name}'>): ${unionCase.caseName} {
-  return { ...data, ${discriminant.name}: '${unionCase.discriminantValue}' };
-}`
-    );
+    const constructors = unionCases.map(unionCase => {
+      const valueLiteral = this.formatDiscriminantValue(discriminant.type, unionCase.discriminantValue);
+      return `export function create${unionCase.caseName}(data: Omit<${unionCase.caseName}, '${discriminant.name}'>): ${unionCase.caseName} {
+  return { ...data, ${discriminant.name}: ${valueLiteral} };
+}`;
+    });
 
     // Generate switch helper
     const switchHelpers = [
