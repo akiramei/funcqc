@@ -7,7 +7,7 @@
 
 import { Command } from 'commander';
 import { PGLiteStorageAdapter } from '../../storage/pglite-adapter';
-import { DiscriminatedUnionAnalyzer, type DiscriminatedUnionOptions } from '../../analyzers/type-refactoring/discriminated-union-analyzer';
+import { DiscriminatedUnionAnalyzer, type DiscriminatedUnionOptions, type DiscriminatedUnionCandidate, type RecommendedApproach } from '../../analyzers/type-refactoring/discriminated-union-analyzer';
 import { DiscriminatedUnionTransformer, type TransformationOptions } from '../../analyzers/type-refactoring/discriminated-union-transformer';
 // Using console logging like other CLI commands
 import { performance } from 'perf_hooks';
@@ -160,15 +160,15 @@ async function executeDiscriminate(options: CommandOptions): Promise<void> {
         estimatedEffort: candidate.transformationPlan.estimatedEffort
       })),
       recommendations: {
-        strategy: (analysisResult.recommendedApproach as any).overallStrategy,
-        implementationOrder: (analysisResult.recommendedApproach as any).implementationOrder,
-        nextSteps: generateNextSteps(analysisResult.recommendedApproach as any, options)
+        strategy: analysisResult.recommendedApproach.overallStrategy,
+        implementationOrder: analysisResult.recommendedApproach.implementationOrder,
+        nextSteps: generateNextSteps(analysisResult.recommendedApproach, options)
       }
     };
 
     // Apply transformations if requested
     if (options.transform && filteredCandidates.length > 0) {
-      await applyTransformations(filteredCandidates as any[], options, result);
+      await applyTransformations(filteredCandidates, options, result);
     }
 
     // Output results
@@ -189,7 +189,7 @@ async function executeDiscriminate(options: CommandOptions): Promise<void> {
 }
 
 async function applyTransformations(
-  candidates: any[],
+  candidates: DiscriminatedUnionCandidate[],
   options: CommandOptions,
   result: DiscriminateResult
 ): Promise<void> {
@@ -222,12 +222,12 @@ async function applyTransformations(
       if (transformResult.success) {
         successful++;
         if (options.verbose) {
-          console.log(`✅ Transformed ${candidate['typeName']}`);
+          console.log(`✅ Transformed ${candidate.typeName}`);
         }
       } else {
         failed++;
         if (options.verbose) {
-          console.warn(`⚠️  Failed to transform ${candidate['typeName']}: ${transformResult.errors[0]?.message}`);
+          console.warn(`⚠️  Failed to transform ${candidate.typeName}: ${transformResult.errors[0]?.message}`);
         }
       }
       
@@ -260,7 +260,7 @@ async function applyTransformations(
 }
 
 function generateNextSteps(
-  recommendedApproach: any,
+  recommendedApproach: RecommendedApproach,
   options: CommandOptions
 ): string[] {
   const steps: string[] = [];
