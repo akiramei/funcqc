@@ -661,11 +661,17 @@ export type ${typeName}Union = ${unionCases.map(c => c.caseName).join(' | ')};`;
       `export function handle${typeName}Union<T>(
   obj: ${typeName}Union,
   handlers: {
-    ${unionCases.map(c => `${c.discriminantValue}: (obj: ${c.caseName}) => T`).join(';\n    ')}
+    ${unionCases.map(c => {
+      const keyLiteral = this.formatDiscriminantValue(discriminant.type, c.discriminantValue);
+      return `${keyLiteral}: (obj: ${c.caseName}) => T`;
+    }).join(';\n    ')}
   }
 ): T {
   switch (obj.${discriminant.name}) {
-    ${unionCases.map(c => `case '${c.discriminantValue}': return handlers.${c.discriminantValue}(obj);`).join('\n    ')}
+    ${unionCases.map(c => {
+      const caseLiteral = this.formatDiscriminantValue(discriminant.type, c.discriminantValue);
+      return `case ${caseLiteral}: return handlers[${caseLiteral}](obj);`;
+    }).join('\n    ')}
     default: throw new Error(\`Unhandled ${discriminant.name}: \${(obj as Record<string, unknown>)['${discriminant.name}']}\`);
   }
 }`
@@ -713,6 +719,25 @@ export function migrate${typeName}To Union(legacy: any): ${typeName}Union {
       candidate.unionCases.length >= this.options.minCaseCount &&
       candidate.unionCases.length <= this.options.maxCaseCount
     );
+  }
+
+  /**
+   * Format discriminant value based on its type for safe code generation
+   */
+  private formatDiscriminantValue(
+    discriminantType: string,
+    value: string | number | boolean
+  ): string {
+    switch (discriminantType) {
+      case 'boolean':
+        return String(value); // true / false
+      case 'numeric_literal':
+        return String(value); // 1 / 2 など
+      // 既定: 文字列リテラル
+      case 'string_literal':
+      default:
+        return `'${String(value)}'`;
+    }
   }
 
   /**
