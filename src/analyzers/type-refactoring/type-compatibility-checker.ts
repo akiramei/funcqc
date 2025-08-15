@@ -6,6 +6,7 @@
  */
 
 import * as ts from 'typescript';
+import { existsSync } from 'fs';
 import type { StorageQueryInterface } from '../type-insights/types';
 
 export interface CompatibilityCheckOptions {
@@ -653,7 +654,7 @@ export class TypeCompatibilityChecker {
     
     for (const path of possiblePaths) {
       try {
-        if (require('fs').existsSync(path)) {
+        if (existsSync(path)) {
           return path;
         }
       } catch {

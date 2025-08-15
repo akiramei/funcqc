@@ -461,8 +461,10 @@ export class MigrationPlanGenerator {
       });
     });
 
-    // Final validation phase
-    phases.push(this.createFinalValidationPhase(phases.length + 1));
+    // Final validation phase (depends on all previous phases)
+    const finalValidation = this.createFinalValidationPhase(phases.length + 1);
+    finalValidation.dependencies = phases.map(p => p.id);
+    phases.push(finalValidation);
 
     return phases;
   }
@@ -921,9 +923,9 @@ export class MigrationPlanGenerator {
     _usages: TypeUsageInfo[],
     compatibilityResult: TypeCompatibilityResult
   ): MigrationPhase['riskLevel'] {
-    if (!compatibilityResult.isCompatible) return 'high';
     if (compatibilityResult.migrationComplexity === 'breaking') return 'critical';
     if (compatibilityResult.migrationComplexity === 'complex') return 'medium';
+    if (!compatibilityResult.isCompatible) return 'high';
     return 'low';
   }
 
@@ -946,7 +948,13 @@ export class MigrationPlanGenerator {
    * Safely escape shell arguments to prevent injection attacks
    */
   private escapeShellArg(arg: string): string {
-    // Simple but effective escaping: surround with single quotes and escape single quotes
+    // Cross-platform escaping:
+    // - POSIX: wrap in single quotes and escape single quotes
+    // - Windows (cmd): wrap in double quotes and escape backslashes + quotes
+    if (typeof process !== 'undefined' && process.platform === 'win32') {
+      const escaped = arg.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    }
     return `'${arg.replace(/'/g, "'\"'\"'")}'`;
   }
 }

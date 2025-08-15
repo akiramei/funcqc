@@ -253,7 +253,11 @@ export class DiscriminatedUnionAnalyzer {
       const discriminant = await this.analyzeDiscriminantCandidate(propName, rows);
       if (discriminant && this.isViableDiscriminant(discriminant)) {
         for (const row of rows) {
-          const typeName = row['type_name'] as string;
+          const typeNameValue = row['type_name'];
+          if (typeof typeNameValue !== 'string') {
+            continue; // 無効なデータをスキップ
+          }
+          const typeName = typeNameValue;
           if (!candidateMap.has(typeName)) {
             candidateMap.set(typeName, []);
           }
