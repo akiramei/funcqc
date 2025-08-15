@@ -144,7 +144,7 @@ export class DUPlanGenerator {
     const variants: import('./types').GeneratedVariant[] = duPlan.variants.map((variant, index) => ({
       name: this.generateVariantName(duPlan.typeName, variant.tag, index),
       discriminantValue: variant.tag,
-      properties: variant.required.map(propName => ({
+      properties: [...new Set(variant.required)].map(propName => ({
         name: propName,
         type: this.inferPropertyType(propName, variant.tag),
         isRequired: true,
@@ -203,7 +203,7 @@ export class DUPlanGenerator {
   private generateVariantTypeDefinition(typeName: string, variant: import('./types').DUVariant, index: number): string {
     const variantName = this.generateVariantName(typeName, variant.tag, index);
     
-    const properties = variant.required.map(propName => {
+    const properties = [...new Set(variant.required)].map(propName => {
       const type = this.inferPropertyType(propName, variant.tag);
       return `  ${propName}: ${type};`;
     }).join('\n');
