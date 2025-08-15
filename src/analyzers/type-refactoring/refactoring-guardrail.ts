@@ -125,11 +125,11 @@ export class RefactoringGuardRail {
       const impactAnalysis = await this.analyzeTypeImpact(typeInfo as TypeInfo, snapshotId);
       
       // Generate checklist
-      const checklist = await this.generateRefactoringChecklist(typeInfo, operationType, impactAnalysis);
+      const checklist = await this.generateRefactoringChecklist(typeInfo as TypeInfo, operationType, impactAnalysis);
       
       // Generate test templates
       const testTemplates = this.options.includeTestTemplates 
-        ? this.generateTestTemplates(typeInfo, operationType)
+        ? this.generateTestTemplates(typeInfo as TypeInfo, operationType)
         : [];
 
       // Calculate overall risk
@@ -237,14 +237,14 @@ export class RefactoringGuardRail {
       affectedFunctions,
       affectedTypes: [],
       cochangePartners: [],
-      riskFactors: this.identifyDirectRiskFactors(affectedFunctions.length, typeInfo)
+      riskFactors: this.identifyDirectRiskFactors(affectedFunctions.length, typeInfo as TypeInfo)
     };
   }
 
   /**
    * Analyze structural impact using subsumption analysis
    */
-  private async analyzeStructuralImpact(typeInfo: any, snapshotId?: string): Promise<TypeChangeImpact[]> {
+  private async analyzeStructuralImpact(typeInfo: TypeInfo, snapshotId?: string): Promise<TypeChangeImpact[]> {
     try {
       const patterns = await this.subsumptionAnalyzer.analyze(snapshotId);
       const relatedPatterns = patterns.filter(p => 
@@ -270,7 +270,7 @@ export class RefactoringGuardRail {
   /**
    * Analyze behavioral impact using fingerprint analysis
    */
-  private async analyzeBehavioralImpact(typeInfo: any, snapshotId?: string): Promise<TypeChangeImpact[]> {
+  private async analyzeBehavioralImpact(typeInfo: TypeInfo, snapshotId?: string): Promise<TypeChangeImpact[]> {
     try {
       const patterns = await this.behavioralAnalyzer.analyze(snapshotId);
       const relatedPatterns = patterns.filter(p => 
@@ -296,7 +296,7 @@ export class RefactoringGuardRail {
   /**
    * Analyze co-change impact using Git history
    */
-  private async analyzeCochangeImpact(typeInfo: any, snapshotId?: string): Promise<TypeChangeImpact[]> {
+  private async analyzeCochangeImpact(typeInfo: TypeInfo, snapshotId?: string): Promise<TypeChangeImpact[]> {
     if (!this.cochangeAnalyzer) return [];
 
     try {
@@ -357,7 +357,7 @@ export class RefactoringGuardRail {
   /**
    * Identify risk factors for direct impact
    */
-  private identifyDirectRiskFactors(usageCount: number, typeInfo: any): string[] {
+  private identifyDirectRiskFactors(usageCount: number, typeInfo: TypeInfo): string[] {
     const factors: string[] = [];
     
     if (usageCount > 50) {
@@ -379,7 +379,7 @@ export class RefactoringGuardRail {
    * Generate refactoring checklist
    */
   private async generateRefactoringChecklist(
-    typeInfo: any,
+    typeInfo: TypeInfo,
     operationType: RefactoringGuardRailReport['operationType'],
     impactAnalysis: TypeChangeImpact[]
   ): Promise<RefactoringChecklistItem[]> {
@@ -450,7 +450,7 @@ export class RefactoringGuardRail {
    * Generate test templates
    */
   private generateTestTemplates(
-    typeInfo: any,
+    typeInfo: TypeInfo,
     operationType: RefactoringGuardRailReport['operationType']
   ): TestTemplate[] {
     const templates: TestTemplate[] = [];

@@ -217,7 +217,7 @@ async function applyTransformations(
     attempted++;
     
     try {
-      const transformResult = await transformer.transform(candidate);
+      const transformResult = await transformer.planTransformation(candidate);
       
       if (transformResult.success) {
         successful++;
@@ -234,7 +234,7 @@ async function applyTransformations(
       totalWarnings += transformResult.warnings.length;
       
       if (options.verbose && transformResult.warnings.length > 0) {
-        transformResult.warnings.forEach(warning => {
+        transformResult.warnings.forEach((warning: { message: string }) => {
           console.warn(`   Warning: ${warning.message}`);
         });
       }

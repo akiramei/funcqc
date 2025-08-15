@@ -465,7 +465,7 @@ export class PropertyCooccurrenceAnalyzer {
     propertyStats: PropertyUsageStats[]
   ): number {
     // Base score from pattern confidence
-    let score = pattern.confidence;
+    const score = pattern.confidence;
 
     // Bonus for properties that often appear together
     const propertyFrequencies = pattern.properties.map(prop => {

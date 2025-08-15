@@ -1012,7 +1012,7 @@ ${validations}
         actionType: 'replace_property_group',
         sourceLocation: {
           typeName,
-          filePath: typeInfo.file_path,
+          filePath: (typeInfo as Record<string, unknown>)['file_path'] as string,
           propertyNames: candidate.propertyGroup
         },
         targetVO: valueObject.name,
@@ -1039,7 +1039,7 @@ ${validations}
   /**
    * Get type definition from database
    */
-  private async getTypeDefinition(typeName: string, snapshotId?: string): Promise<any> {
+  private async getTypeDefinition(typeName: string, snapshotId?: string): Promise<Record<string, unknown> | null> {
     const query = snapshotId
       ? `SELECT * FROM type_definitions WHERE name = $1 AND snapshot_id = $2`
       : `SELECT * FROM type_definitions WHERE name = $1 ORDER BY created_at DESC LIMIT 1`;
@@ -1047,7 +1047,7 @@ ${validations}
     const params = snapshotId ? [typeName, snapshotId] : [typeName];
     const result = await this.storage.query(query, params);
 
-    return result.rows[0] || null;
+    return result.rows[0] as Record<string, unknown> || null;
   }
 
   /**
@@ -1130,7 +1130,7 @@ export class ${vo.name} {
    * Generate validation function for invariant
    */
   private generateValidationFunction(invariant: Invariant): string {
-    return `export function validate${invariant.name}(vo: any): boolean {
+    return `export function validate${invariant.name}(vo: Record<string, unknown>): boolean {
   return ${invariant.expression.replace(/this\./g, 'vo.')};
 }`;
   }
@@ -1489,8 +1489,8 @@ const vo = new ${vo.name}(${vo.properties.map(p => `${this.generateSampleValue(p
    * Identify extraction opportunities
    */
   private identifyExtractionOpportunities(
-    _patterns: any[],
-    _propertyStats: any[]
+    _patterns: unknown[],
+    _propertyStats: unknown[]
   ): ExtractionOpportunity[] {
     // Implementation for identifying additional opportunities
     return [];
@@ -1501,7 +1501,7 @@ const vo = new ${vo.name}(${vo.properties.map(p => `${this.generateSampleValue(p
    */
   private analyzeDomainContexts(
     _candidates: ValueObjectCandidate[],
-    _patterns: any[]
+    _patterns: unknown[]
   ): DomainAnalysis {
     // Implementation for domain analysis
     return {

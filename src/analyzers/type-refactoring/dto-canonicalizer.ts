@@ -127,6 +127,20 @@ export interface ConsolidationOpportunity {
   prerequisites: string[];
 }
 
+export interface TypeStructure extends Record<string, unknown> {
+  name: string;
+  properties: PropertyStructure[];
+  filePath?: string;
+  definition?: string;
+}
+
+export interface PropertyStructure {
+  name: string;
+  type: string;
+  isOptional: boolean;
+  description?: string;
+}
+
 export class DTOCanonicalizer {
   private storage: StorageQueryInterface;
   private options: Required<DTOCanonicalizationOptions>;
@@ -232,7 +246,7 @@ export class DTOCanonicalizer {
           const relationship = await this.analyzeTypePair(
             sourceType,
             targetType,
-            null, // No pattern needed for direct analysis
+            {}, // No pattern needed for direct analysis
             _snapshotId
           );
 
@@ -254,7 +268,7 @@ export class DTOCanonicalizer {
   private async analyzeTypePair(
     sourceType: string,
     targetType: string,
-    _pattern: any,
+    _pattern: Record<string, unknown>,
     snapshotId?: string
   ): Promise<TypeRelationship | null> {
     try {
@@ -313,7 +327,7 @@ export class DTOCanonicalizer {
   /**
    * Get type definition from database
    */
-  private async getTypeDefinition(typeName: string, snapshotId?: string): Promise<any> {
+  private async getTypeDefinition(typeName: string, snapshotId?: string): Promise<TypeStructure | null> {
     const query = snapshotId
       ? `SELECT td.*, tm.member_name, tm.member_type, tm.is_optional 
          FROM type_definitions td 
@@ -349,13 +363,20 @@ export class DTOCanonicalizer {
         isOptional: (row as Record<string, unknown>)['is_optional'] as boolean
       }));
 
-    const finalResult = {
-      ...typeInfo,
+    const finalResult: TypeStructure = {
+      name: typeName,
       properties
     };
     
+    if (typeInfo['file_path']) {
+      finalResult.filePath = typeInfo['file_path'] as string;
+    }
+    if (typeInfo['definition']) {
+      finalResult.definition = typeInfo['definition'] as string;
+    }
+    
     console.debug(`Returning type definition for ${typeName}:`, {
-      name: (finalResult as Record<string, unknown>)['name'],
+      name: finalResult.name,
       propertiesCount: properties.length,
       propertyNames: properties.map(p => p.name)
     });
@@ -367,19 +388,19 @@ export class DTOCanonicalizer {
    * Determine relationship type between two types
    */
   private determineRelationshipType(
-    sourceType: any,
-    targetType: any
+    sourceType: TypeStructure,
+    targetType: TypeStructure
   ): TypeRelationship['relationshipType'] {
     // Filter out excluded common properties
     const sourceProps = new Set(
       sourceType.properties
-        .filter((p: any) => !this.options.excludeCommonProperties.includes(p.name))
-        .map((p: any) => p.name)
+        .filter((p: PropertyStructure) => !this.options.excludeCommonProperties.includes(p.name))
+        .map((p: PropertyStructure) => p.name)
     );
     const targetProps = new Set(
       targetType.properties
-        .filter((p: any) => !this.options.excludeCommonProperties.includes(p.name))
-        .map((p: any) => p.name)
+        .filter((p: PropertyStructure) => !this.options.excludeCommonProperties.includes(p.name))
+        .map((p: PropertyStructure) => p.name)
     );
 
     // Debug logging for troubleshooting
@@ -409,9 +430,9 @@ export class DTOCanonicalizer {
   /**
    * Calculate structural similarity between types
    */
-  private calculateStructuralSimilarity(sourceType: any, targetType: any): number {
-    const sourceProps = new Set(sourceType.properties.map((p: any) => p.name));
-    const targetProps = new Set(targetType.properties.map((p: any) => p.name));
+  private calculateStructuralSimilarity(sourceType: TypeStructure, targetType: TypeStructure): number {
+    const sourceProps = new Set(sourceType.properties.map((p: PropertyStructure) => p.name));
+    const targetProps = new Set(targetType.properties.map((p: PropertyStructure) => p.name));
 
     const intersection = new Set([...sourceProps].filter(p => targetProps.has(p)));
     const union = new Set([...sourceProps, ...targetProps]);
@@ -423,8 +444,8 @@ export class DTOCanonicalizer {
    * Calculate compatibility score for merging types
    */
   private calculateCompatibilityScore(
-    sourceType: any,
-    targetType: any,
+    sourceType: TypeStructure,
+    targetType: TypeStructure,
     relationshipType: TypeRelationship['relationshipType'],
     structuralSimilarity: number
   ): number {
@@ -459,18 +480,18 @@ export class DTOCanonicalizer {
   /**
    * Calculate difference in optionality between types
    */
-  private calculateOptionalityDifference(sourceType: any, targetType: any): number {
+  private calculateOptionalityDifference(sourceType: TypeStructure, targetType: TypeStructure): number {
     const sourceOptional = new Set(
-      sourceType.properties.filter((p: any) => p.isOptional).map((p: any) => p.name)
+      sourceType.properties.filter((p: PropertyStructure) => p.isOptional).map((p: PropertyStructure) => p.name)
     );
     const targetOptional = new Set(
-      targetType.properties.filter((p: any) => p.isOptional).map((p: any) => p.name)
+      targetType.properties.filter((p: PropertyStructure) => p.isOptional).map((p: PropertyStructure) => p.name)
     );
 
     const commonProps = new Set(
       sourceType.properties
-        .map((p: any) => p.name)
-        .filter((name: string) => targetType.properties.some((tp: any) => tp.name === name))
+        .map((p: PropertyStructure) => p.name)
+        .filter((name: string) => targetType.properties.some((tp: PropertyStructure) => tp.name === name))
     );
 
     let differences = 0;
@@ -1004,8 +1025,9 @@ export function from${canonicalType}To${targetType}(canonical: ${canonicalType})
     const params = snapshotId ? [allTypes, snapshotId] : [allTypes];
     const result = await this.storage.query(query, params);
     
-    const row = result.rows[0] as Record<string, unknown>;
-    return (row?.['count'] as number) || 0;
+    const raw = (result.rows[0] as { count?: number | string } | undefined)?.count;
+    const count = typeof raw === 'string' ? Number(raw) : raw;
+    return Number.isFinite(count as number) ? (count as number) : 0;
   }
 
   /**

@@ -265,7 +265,12 @@ export class MigrationPlanGenerator {
   private selectMigrationApproach(
     replacementPlan: TypeReplacementPlan,
     dependencyGraph: Map<string, DependencyNode>,
-    context?: any
+    context?: {
+      teamSize?: number;
+      deploymentFrequency?: 'daily' | 'weekly' | 'monthly';
+      riskTolerance?: 'conservative' | 'moderate' | 'aggressive';
+      maintenanceWindow?: string;
+    }
   ): MigrationStrategy['approach'] {
     const usageCount = replacementPlan.affectedUsages.length;
     const hasBreakingChanges = !replacementPlan.compatibilityResult.isCompatible;
@@ -691,7 +696,7 @@ export class MigrationPlanGenerator {
       id: 'batch-backup',
       description: `Backup files: ${group.files.join(', ')}`,
       type: 'automated',
-      command: `git add ${group.files.join(' ')}`,
+      command: `git add -- ${group.files.map(f => this.escapeShellArg(f)).join(' ')}`,
       timeEstimate: '1 minute',
       criticalPath: false
     });
@@ -718,7 +723,7 @@ export class MigrationPlanGenerator {
       description: 'Run affected tests',
       type: 'automated',
       command: `npm test -- ${group.files
-        .map(f => `--testPathPattern="${f.replace(/"/g, '\\"')}"`)
+        .map(f => `--testPathPattern=${this.escapeShellArg(f)}`)
         .join(' ')}`,
       timeEstimate: '5-15 minutes',
       criticalPath: true
@@ -935,5 +940,13 @@ export class MigrationPlanGenerator {
   private estimateBatchReplacementTime(usageCount: number): string {
     const minutes = Math.max(10, usageCount * 3);
     return `${minutes} minutes`;
+  }
+
+  /**
+   * Safely escape shell arguments to prevent injection attacks
+   */
+  private escapeShellArg(arg: string): string {
+    // Simple but effective escaping: surround with single quotes and escape single quotes
+    return `'${arg.replace(/'/g, "'\"'\"'")}'`;
   }
 }

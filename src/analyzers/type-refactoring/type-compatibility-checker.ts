@@ -280,7 +280,7 @@ export class TypeCompatibilityChecker {
         ts.ScriptTarget.Latest,
         true
       );
-    } catch (error) {
+    } catch {
       return undefined;
     }
   }

@@ -111,7 +111,6 @@ export interface GeneratedUnionCode {
   typeGuards: string[];
   constructors: string[];
   switchHelpers: string[];
-  migrationUtils: string[];
 }
 
 export interface DiscriminatedUnionAnalysisResult {
@@ -662,36 +661,31 @@ export type ${typeName}Union = ${unionCases.map(c => c.caseName).join(' | ')};`;
   obj: ${typeName}Union,
   handlers: {
     ${unionCases.map(c => {
-      const keyLiteral = this.formatDiscriminantValue(discriminant.type, c.discriminantValue);
-      return `${keyLiteral}: (obj: ${c.caseName}) => T`;
+      const handlerName = this.generateHandlerName(c.caseName);
+      return `${handlerName}: (obj: ${c.caseName}) => T`;
     }).join(';\n    ')}
   }
 ): T {
   switch (obj.${discriminant.name}) {
     ${unionCases.map(c => {
       const caseLiteral = this.formatDiscriminantValue(discriminant.type, c.discriminantValue);
-      return `case ${caseLiteral}: return handlers[${caseLiteral}](obj);`;
+      const handlerName = this.generateHandlerName(c.caseName);
+      return `case ${caseLiteral}: return handlers.${handlerName}(obj);`;
     }).join('\n    ')}
     default: throw new Error(\`Unhandled ${discriminant.name}: \${(obj as Record<string, unknown>)['${discriminant.name}']}\`);
   }
 }`
     ];
 
-    // Generate migration utilities
-    const migrationUtils = [
-      `// Migration utility to convert legacy ${typeName} to ${typeName}Union
-export function migrate${typeName}To Union(legacy: any): ${typeName}Union {
-  // Implementation would depend on specific legacy structure
-  throw new Error('Migration logic needs to be implemented based on actual data structure');
-}`
-    ];
+    // NOTE: Migration utilities have been removed due to implementation complexity
+    // They would require runtime type analysis and data structure inference
+    // which is beyond the scope of this static analysis tool
 
     return {
       unionDefinition,
       typeGuards,
       constructors,
-      switchHelpers,
-      migrationUtils
+      switchHelpers
     };
   }
 
@@ -738,6 +732,14 @@ export function migrate${typeName}To Union(legacy: any): ${typeName}Union {
       default:
         return `'${String(value)}'`;
     }
+  }
+
+  /**
+   * Generate a valid TypeScript property name for handler object
+   */
+  private generateHandlerName(caseName: string): string {
+    // Convert PascalCase to camelCase for handler method names
+    return caseName.charAt(0).toLowerCase() + caseName.slice(1);
   }
 
   /**
