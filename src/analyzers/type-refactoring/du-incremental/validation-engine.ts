@@ -10,7 +10,7 @@ import type {
   ValidationStep
 } from './transformation-types';
 import fs from 'fs/promises';
-import { execSync } from 'child_process';
+import { spawn } from 'child_process';
 
 /**
  * Validation and rollback engine
@@ -82,7 +82,7 @@ export class ValidationEngine {
         return this.requestManualReview(step);
       
       default:
-        throw new Error(`Unknown validation type: ${(step as any).type}`);
+        throw new Error(`Unknown validation type: ${(step as { type: string }).type}`);
     }
   }
 
@@ -99,10 +99,9 @@ export class ValidationEngine {
     }
 
     try {
-      execSync(step.command, { 
-        encoding: 'utf-8',
-        timeout: 30000 // 30 second timeout
-      });
+      // Parse command safely into arguments
+      const commandArgs = this.parseCommand(step.command);
+      await this.executeSafeCommand(commandArgs, 30000);
 
       return {
         step,
@@ -110,9 +109,11 @@ export class ValidationEngine {
         details: 'TypeScript compilation successful'
       };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // TypeScript compilation errors
-      const errorOutput = error.stdout || error.stderr || error.message;
+      const errorOutput = (error as { stdout?: string; stderr?: string; message?: string }).stdout || 
+                         (error as { stdout?: string; stderr?: string; message?: string }).stderr || 
+                         (error as Error).message;
       return {
         step,
         passed: false,
@@ -134,10 +135,9 @@ export class ValidationEngine {
     }
 
     try {
-      execSync(step.command, { 
-        encoding: 'utf-8',
-        timeout: 60000 // 60 second timeout for tests
-      });
+      // Parse command safely into arguments
+      const commandArgs = this.parseCommand(step.command);
+      await this.executeSafeCommand(commandArgs, 60000);
 
       return {
         step,
@@ -145,8 +145,10 @@ export class ValidationEngine {
         details: 'All tests passed'
       };
 
-    } catch (error: any) {
-      const errorOutput = error.stdout || error.stderr || error.message;
+    } catch (error: unknown) {
+      const errorOutput = (error as { stdout?: string; stderr?: string; message?: string }).stdout || 
+                         (error as { stdout?: string; stderr?: string; message?: string }).stderr || 
+                         (error as Error).message;
       return {
         step,
         passed: false,
@@ -179,24 +181,23 @@ export class ValidationEngine {
       canRollback: true
     };
 
-    // Find backup files
-    for (const filePath of result.filesModified) {
+    // Use tracked backup information instead of directory scanning
+    for (const backup of result.backups) {
       try {
-        const files = await fs.readdir('./');
-        const backupFile = files.find(f => 
-          f.startsWith(filePath.replace('./', '')) && 
-          f.includes('.backup.')
-        );
-        
-        if (backupFile) {
-          rollbackPlan.backupFiles.push(backupFile);
-        } else {
-          rollbackPlan.canRollback = false;
-          rollbackPlan.rollbackCommands.push(`# WARNING: No backup found for ${filePath}`);
-        }
-      } catch (error) {
+        // Verify backup file still exists
+        await fs.access(backup.backupFile);
+        rollbackPlan.backupFiles.push(backup.backupFile);
+        rollbackPlan.rollbackCommands.push(`cp "${backup.backupFile}" "${backup.originalFile}"`);
+      } catch {
         rollbackPlan.canRollback = false;
+        rollbackPlan.rollbackCommands.push(`# WARNING: Backup not found: ${backup.backupFile}`);
       }
+    }
+
+    // Check if all modified files have backups
+    if (result.filesModified.length !== result.backups.length) {
+      rollbackPlan.canRollback = false;
+      rollbackPlan.rollbackCommands.push(`# WARNING: Not all files have backups`);
     }
 
     return rollbackPlan;
@@ -232,10 +233,12 @@ export class ValidationEngine {
           if (this.verboseLogging) {
             console.log(`🔄 Restored ${filePath} from ${backupPath}`);
           }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
+        } catch (restoreError) {
+          const errorMessage = restoreError instanceof Error ? restoreError.message : String(restoreError);
           errors.push(`Failed to restore ${filePath}: ${errorMessage}`);
         }
+      } else {
+        errors.push(`No backup file available for ${filePath}`);
       }
     }
 
@@ -251,6 +254,73 @@ export class ValidationEngine {
         filesRestored
       };
     }
+  }
+
+  /**
+   * Parse command string into safe argument array
+   */
+  private parseCommand(command: string): string[] {
+    // Handle common commands safely
+    if (command.startsWith('npx tsc ')) {
+      const args = command.split(' ').slice(1); // Remove 'npx'
+      return ['npx', ...args];
+    }
+    if (command.startsWith('npm ')) {
+      const args = command.split(' ');
+      return args;
+    }
+    
+    // Default: split by spaces (basic parsing)
+    return command.split(' ').filter(arg => arg.length > 0);
+  }
+
+  /**
+   * Execute command safely with timeout and output limits
+   */
+  private async executeSafeCommand(args: string[], timeoutMs: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const [command, ...commandArgs] = args;
+      
+      const child = spawn(command, commandArgs, {
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: timeoutMs
+      });
+
+      let stdout = '';
+      let stderr = '';
+      const maxOutputSize = 1024 * 1024; // 1MB limit
+
+      child.stdout?.on('data', (data) => {
+        stdout += data.toString();
+        if (stdout.length > maxOutputSize) {
+          child.kill();
+          reject(new Error('Output size limit exceeded'));
+        }
+      });
+
+      child.stderr?.on('data', (data) => {
+        stderr += data.toString();
+        if (stderr.length > maxOutputSize) {
+          child.kill();
+          reject(new Error('Error output size limit exceeded'));
+        }
+      });
+
+      child.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout);
+        } else {
+          const error = new Error(`Command failed with code ${code}`) as Error & { stdout: string; stderr: string };
+          error.stdout = stdout;
+          error.stderr = stderr;
+          reject(error);
+        }
+      });
+
+      child.on('error', (error) => {
+        reject(error);
+      });
+    });
   }
 
   /**

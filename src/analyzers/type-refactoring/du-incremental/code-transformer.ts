@@ -4,7 +4,6 @@
  * Safely transforms existing code to use DU patterns
  */
 
-// Note: Project from 'ts-morph' reserved for future AST-based transformations
 import type { 
   TransformationPlan,
   TransformationResult,
@@ -12,16 +11,56 @@ import type {
   ValidationResult
 } from './transformation-types';
 import fs from 'fs/promises';
+import { AstTransformer } from './ast-transformer';
 
 /**
  * Safe code transformer for DU patterns
  */
 export class CodeTransformer {
   private options: TransformationOptions;
+  private astTransformer?: AstTransformer;
 
   constructor(options: TransformationOptions) {
     this.options = options;
-    // Note: Project instance reserved for future AST-based transformations
+    // Initialize AST transformer for enhanced transformations
+    this.initializeAstTransformer();
+  }
+
+  /**
+   * Initialize AST transformer with tsconfig detection
+   */
+  private async initializeAstTransformer(): Promise<void> {
+    try {
+      const tsConfigPath = await this.findTsConfigPath();
+      this.astTransformer = new AstTransformer(tsConfigPath, this.options.verboseLogging);
+      
+      if (this.options.verboseLogging) {
+        console.log('🔧 AST transformer initialized');
+      }
+    } catch {
+      if (this.options.verboseLogging) {
+        console.warn('⚠ AST transformer initialization failed, falling back to string-based transformations');
+      }
+    }
+  }
+
+  /**
+   * Find tsconfig.json path
+   */
+  private async findTsConfigPath(): Promise<string | undefined> {
+    const path = await import('path');
+    const fs = await import('fs');
+    
+    let currentDir = process.cwd();
+    while (currentDir !== '/') {
+      const tsConfigPath = path.join(currentDir, 'tsconfig.json');
+      if (fs.existsSync(tsConfigPath)) {
+        return tsConfigPath;
+      }
+      currentDir = path.dirname(currentDir);
+    }
+    
+    return undefined;
   }
 
   /**
@@ -32,6 +71,7 @@ export class CodeTransformer {
       success: true,
       transformationsApplied: 0,
       filesModified: [],
+      backups: [],
       errors: [],
       warnings: [],
       validationResults: []
@@ -57,6 +97,7 @@ export class CodeTransformer {
         if (fileResult.filesModified.length > 0) {
           result.filesModified.push(...fileResult.filesModified);
         }
+        result.backups.push(...fileResult.backups);
         result.errors.push(...fileResult.errors);
         result.warnings.push(...fileResult.warnings);
         result.validationResults.push(...fileResult.validationResults);
@@ -82,10 +123,103 @@ export class CodeTransformer {
    * Transform a single file with multiple plans
    */
   private async transformFile(filePath: string, plans: TransformationPlan[]): Promise<TransformationResult> {
+    // Try AST-based transformation first
+    if (this.astTransformer && this.shouldUseAstTransformation(plans)) {
+      return await this.transformFileWithAst(filePath, plans);
+    }
+    
+    // Fall back to string-based transformation
+    return await this.transformFileWithString(filePath, plans);
+  }
+
+  /**
+   * Check if plans are suitable for AST transformation
+   */
+  private shouldUseAstTransformation(plans: TransformationPlan[]): boolean {
+    // Enable AST transformation for specific transformation types
+    return plans.some(plan => 
+      plan.transformationType === 'add-type-guard' ||
+      plan.transformationType === 'replace-property-check'
+    );
+  }
+
+  /**
+   * Transform file using AST-based approach
+   */
+  private async transformFileWithAst(filePath: string, plans: TransformationPlan[]): Promise<TransformationResult> {
     const result: TransformationResult = {
       success: true,
       transformationsApplied: 0,
       filesModified: [],
+      backups: [],
+      errors: [],
+      warnings: [],
+      validationResults: []
+    };
+
+    if (!this.astTransformer) {
+      result.errors.push({ pattern: plans[0].pattern, error: 'AST transformer not available' });
+      return result;
+    }
+
+    // Create backup if requested
+    if (this.options.backupFiles && !this.options.dryRun) {
+      const backupInfo = await this.createBackup(filePath);
+      result.backups.push(backupInfo);
+    }
+
+    try {
+      // Extract discriminant from first plan (assuming all plans for same file use same discriminant)
+      const discriminant = plans[0].pattern.discriminantProperty;
+      const guardsModule = './type-guards'; // TODO: Make configurable
+
+      // Apply AST transformation
+      const astResult = await this.astTransformer.transformFile(
+        filePath,
+        (sourceFile, transformer) => {
+          return transformer.applySimpleGuardReplacement(sourceFile, discriminant, guardsModule);
+        }
+      );
+
+      result.transformationsApplied = astResult.applied;
+      
+      if (astResult.saved) {
+        result.filesModified.push(filePath);
+      }
+
+      if (astResult.errors && astResult.errors.length > 0) {
+        result.errors.push(...astResult.errors.map(error => ({
+          pattern: plans[0].pattern,
+          error
+        })));
+        result.success = false;
+      }
+
+      if (this.options.verboseLogging) {
+        console.log(`   🎯 AST transformation: ${result.transformationsApplied} applied`);
+      }
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      result.errors.push({
+        pattern: plans[0].pattern,
+        error: `AST transformation failed: ${errorMessage}`
+      });
+      result.success = false;
+    }
+
+    return result;
+  }
+
+  /**
+   * Transform file using string-based approach (original implementation)
+   */
+  private async transformFileWithString(filePath: string, plans: TransformationPlan[]): Promise<TransformationResult> {
+    const result: TransformationResult = {
+      success: true,
+      transformationsApplied: 0,
+      filesModified: [],
+      backups: [],
       errors: [],
       warnings: [],
       validationResults: []
@@ -93,7 +227,8 @@ export class CodeTransformer {
 
     // Backup file if requested
     if (this.options.backupFiles && !this.options.dryRun) {
-      await this.createBackup(filePath);
+      const backupInfo = await this.createBackup(filePath);
+      result.backups.push(backupInfo);
     }
 
     // Read original file content
@@ -236,13 +371,21 @@ export class CodeTransformer {
   /**
    * Create backup of file
    */
-  private async createBackup(filePath: string): Promise<void> {
+  private async createBackup(filePath: string): Promise<import('./transformation-types').BackupInfo> {
     const backupPath = `${filePath}.backup.${Date.now()}`;
     await fs.copyFile(filePath, backupPath);
+    
+    const backupInfo: import('./transformation-types').BackupInfo = {
+      originalFile: filePath,
+      backupFile: backupPath,
+      createdAt: new Date().toISOString()
+    };
     
     if (this.options.verboseLogging) {
       console.log(`   💾 Created backup: ${backupPath}`);
     }
+    
+    return backupInfo;
   }
 
   /**
@@ -282,6 +425,9 @@ export class CodeTransformer {
    * Clean up resources
    */
   dispose(): void {
-    // ts-morph cleanup if needed
+    if (this.astTransformer) {
+      this.astTransformer.dispose();
+      delete this.astTransformer;
+    }
   }
 }

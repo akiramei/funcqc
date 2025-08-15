@@ -57,9 +57,19 @@ export interface TransformationResult {
   success: boolean;
   transformationsApplied: number;
   filesModified: string[];
+  backups: BackupInfo[]; // Track created backups
   errors: TransformationError[];
   warnings: string[];
   validationResults: ValidationResult[];
+}
+
+/**
+ * Information about created backup files
+ */
+export interface BackupInfo {
+  originalFile: string;
+  backupFile: string;
+  createdAt: string;
 }
 
 /**
