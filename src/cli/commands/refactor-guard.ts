@@ -6,7 +6,7 @@
 
 import chalk from 'chalk';
 import { table } from 'table';
-import { RefactoringGuardRail } from '../../analyzers/type-refactoring/refactoring-guardrail';
+import { RefactoringGuardRail, type RefactoringGuardRailReport } from '../../analyzers/type-refactoring/refactoring-guardrail';
 import { GitCochangeProvider } from '../../analyzers/type-insights/git-cochange-provider';
 import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
@@ -100,7 +100,7 @@ export const refactorGuardCommand: VoidCommand<RefactorGuardOptions> = (options:
 /**
  * Display results in table format
  */
-function displayTable(report: any): void {
+function displayTable(report: RefactoringGuardRailReport): void {
   // Overall risk assessment
   const riskColor = getRiskColor(report.overallRisk);
   console.log(`\n${chalk.bold('🎯 Refactoring Safety Analysis')}`);
@@ -194,7 +194,7 @@ function displayTable(report: any): void {
   // Test Templates Info
   if (report.testTemplates.length > 0) {
     console.log(chalk.bold('🧪 Test Templates Generated:'));
-    report.testTemplates.forEach((template: any) => {
+    report.testTemplates.forEach((template) => {
       console.log(`  • ${template.testType}: ${template.description}`);
     });
     console.log('');
@@ -211,7 +211,7 @@ function displayTable(report: any): void {
 /**
  * Output results in JSON format
  */
-async function outputJSON(report: any, outputPath?: string): Promise<void> {
+async function outputJSON(report: RefactoringGuardRailReport, outputPath?: string): Promise<void> {
   const json = JSON.stringify(report, null, 2);
   
   if (outputPath) {
@@ -226,7 +226,7 @@ async function outputJSON(report: any, outputPath?: string): Promise<void> {
 /**
  * Output results in Markdown format
  */
-async function outputMarkdown(report: any, outputPath?: string): Promise<void> {
+async function outputMarkdown(report: RefactoringGuardRailReport, outputPath?: string): Promise<void> {
   let markdown = `# Refactoring Safety Analysis: ${report.targetType}
 
 ## Overview
@@ -256,14 +256,8 @@ async function outputMarkdown(report: any, outputPath?: string): Promise<void> {
     markdown += `## Safety Checklist
 
 `;
-    report.checklist.forEach((item: any, i: number) => {
-      markdown += `### ${i + 1}. ${item.description}
-- **Category:** ${item.category}
-- **Priority:** ${item.priority}
-- **Check Method:** ${item.checkMethod}
-- **Automation Possible:** ${item.automationPossible ? 'Yes' : 'No'}
-
-`;
+    report.checklist.forEach((item, i: number) => {
+      markdown += `### ${i + 1}. ${item.description}\n- **Category:** ${item.category}\n- **Priority:** ${item.priority}\n- **Check Method:** ${item.checkMethod}\n- **Automation Possible:** ${item.automationPossible ? 'Yes' : 'No'}\n\n`;
     });
   }
 
@@ -272,17 +266,8 @@ async function outputMarkdown(report: any, outputPath?: string): Promise<void> {
     markdown += `## Test Templates
 
 `;
-    report.testTemplates.forEach((template: any) => {
-      markdown += `### ${template.testType} Test: ${template.description}
-
-\`\`\`typescript
-${template.template}
-\`\`\`
-
-**Required Inputs:** ${template.requiredInputs.join(', ')}
-**Expected Outputs:** ${template.expectedOutputs.join(', ')}
-
-`;
+    report.testTemplates.forEach((template) => {
+      markdown += `### ${template.testType} Test: ${template.description}\n\n\`\`\`typescript\n${template.template}\n\`\`\`\n\n**Required Inputs:** ${template.requiredInputs.join(', ')}\n**Expected Outputs:** ${template.expectedOutputs.join(', ')}\n\n`;
     });
   }
 

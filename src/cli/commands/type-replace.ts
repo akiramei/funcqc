@@ -7,13 +7,27 @@
 
 import chalk from 'chalk';
 import { table } from 'table';
-import { TypeReplacementAdvisor } from '../../analyzers/type-refactoring/type-replacement-advisor';
-import { MigrationPlanGenerator } from '../../analyzers/type-refactoring/migration-plan-generator';
+import { TypeReplacementAdvisor, type TypeReplacementReport } from '../../analyzers/type-refactoring/type-replacement-advisor';
+import { MigrationPlanGenerator, type MigrationStrategy } from '../../analyzers/type-refactoring/migration-plan-generator';
+import { type CompatibilityIssue } from '../../analyzers/type-refactoring/type-compatibility-checker';
 import { GitCochangeProvider } from '../../analyzers/type-insights/git-cochange-provider';
 import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand, BaseCommandOptions } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
+
+interface CompatibilityData {
+  sourceType: string;
+  targetType: string;
+  isCompatible: boolean;
+  compatibilityType: 'identical' | 'assignable' | 'structural_subset' | 'structural_superset' | 'incompatible';
+  confidence: number;
+  migrationComplexity: 'simple' | 'moderate' | 'complex' | 'breaking';
+  issues: CompatibilityIssue[];
+  usageCount: number;
+  automationLevel: number;
+  riskScore: number;
+}
 
 interface TypeReplaceOptions extends BaseCommandOptions {
   from?: string;                    // Source type name
@@ -109,7 +123,7 @@ export const typeReplaceCommand: VoidCommand<TypeReplaceOptions> = (options: Typ
     }
 
     // Generate migration plan if requested
-    let migrationPlan;
+    let migrationPlan: MigrationStrategy | undefined;
     if (options['migration-plan'] || report.automationLevel === 'manual_only') {
       logger.info('🗺️  Generating migration plan...');
       const planGenerator = new MigrationPlanGenerator(storage);
@@ -130,20 +144,20 @@ export const typeReplaceCommand: VoidCommand<TypeReplaceOptions> = (options: Typ
       migrationPlan = await planGenerator.generateMigrationStrategy(
         report.replacementPlan,
         additionalContext
-      );
+      ) as MigrationStrategy;
     }
 
     // Display results based on format
     switch (format) {
       case 'json':
-        await outputJSON({ report, migrationPlan }, options.output);
+        await outputJSON({ report, ...(migrationPlan && { migrationPlan }) }, options.output);
         break;
       case 'markdown':
-        await outputMarkdown({ report, migrationPlan }, options.output);
+        await outputMarkdown({ report, ...(migrationPlan && { migrationPlan }) }, options.output);
         break;
       case 'table':
       default:
-        displayTableResults({ report, migrationPlan }, isDryRun);
+        displayTableResults({ report, ...(migrationPlan && { migrationPlan }) }, isDryRun);
         break;
     }
 
@@ -168,29 +182,32 @@ export const typeReplaceCommand: VoidCommand<TypeReplaceOptions> = (options: Typ
   }
 };
 
+// Using CompatibilityData interface defined above
+
 /**
  * Display compatibility results only
  */
 async function displayCompatibilityResults(
-  report: any,
+  report: TypeReplacementReport,
   format: string,
   outputPath?: string
 ): Promise<void> {
-  const compatibilityData = {
+  const compatibilityData: CompatibilityData = {
     sourceType: report.targetType,
     targetType: report.replacementPlan.targetType,
     isCompatible: report.compatibilityAnalysis.isCompatible,
     compatibilityType: report.compatibilityAnalysis.compatibilityType,
     confidence: report.compatibilityAnalysis.confidence,
-    migrationComplexity: report.compatibilityAnalysis.migrationComplexity,
+    migrationComplexity: report.compatibilityAnalysis.migrationComplexity as 'simple' | 'moderate' | 'complex' | 'breaking',
     issues: report.compatibilityAnalysis.issues,
     usageCount: report.usageAnalysis.totalUsages,
-    automationLevel: report.automationLevel
+    automationLevel: (typeof report.automationLevel === 'string' ? 0 : report.automationLevel) || 0,
+    riskScore: 0 // Add missing property
   };
 
   switch (format) {
     case 'json':
-      await outputJSON(compatibilityData, outputPath);
+      await outputJSON(compatibilityData as unknown as Record<string, unknown>, outputPath);
       break;
     case 'markdown':
       await outputCompatibilityMarkdown(compatibilityData, outputPath);
@@ -205,7 +222,7 @@ async function displayCompatibilityResults(
 /**
  * Display compatibility results in table format
  */
-function displayCompatibilityTable(data: any): void {
+function displayCompatibilityTable(data: CompatibilityData): void {
   console.log(`\n${chalk.bold('🔍 Type Compatibility Analysis')}`);
   console.log(`Source: ${chalk.cyan(data.sourceType)}`);
   console.log(`Target: ${chalk.green(data.targetType)}`);
@@ -245,27 +262,31 @@ function displayCompatibilityTable(data: any): void {
   }
 }
 
+// Using MigrationStrategy from the import instead of local interface
+
 /**
  * Display full table results
  */
 function displayTableResults(
-  data: { report: any; migrationPlan?: any },
+  data: { report: TypeReplacementReport; migrationPlan?: MigrationStrategy },
   isDryRun: boolean
 ): void {
   const { report, migrationPlan } = data;
 
   // Compatibility overview
-  displayCompatibilityTable({
+  const compatibilityData: CompatibilityData = {
     sourceType: report.targetType,
     targetType: report.replacementPlan.targetType,
     isCompatible: report.compatibilityAnalysis.isCompatible,
     compatibilityType: report.compatibilityAnalysis.compatibilityType,
     confidence: report.compatibilityAnalysis.confidence,
-    migrationComplexity: report.compatibilityAnalysis.migrationComplexity,
+    migrationComplexity: report.compatibilityAnalysis.migrationComplexity as 'simple' | 'moderate' | 'complex' | 'breaking',
     issues: report.compatibilityAnalysis.issues,
     usageCount: report.usageAnalysis.totalUsages,
-    automationLevel: report.automationLevel
-  });
+    automationLevel: (typeof report.automationLevel === 'string' ? 0 : report.automationLevel) || 0,
+    riskScore: 0
+  };
+  displayCompatibilityTable(compatibilityData);
 
   // Usage analysis
   console.log(chalk.bold('📊 Usage Analysis:'));
@@ -330,10 +351,10 @@ function displayTableResults(
     
     for (const phase of migrationPlan.phases) {
       phaseData.push([
-        phase.name,
-        phase.estimatedDuration,
-        getRiskColor(phase.riskLevel)(phase.riskLevel),
-        phase.steps.length.toString()
+        phase.name as string,
+        phase.estimatedDuration as string,
+        getRiskColor(phase.riskLevel as string)(phase.riskLevel as string),
+        (phase.steps as unknown[]).length.toString()
       ]);
     }
 
@@ -376,7 +397,7 @@ function displayTableResults(
 /**
  * Output results in JSON format
  */
-async function outputJSON(data: any, outputPath?: string): Promise<void> {
+async function outputJSON(data: Record<string, unknown>, outputPath?: string): Promise<void> {
   const json = JSON.stringify(data, null, 2);
   
   if (outputPath) {
@@ -392,7 +413,7 @@ async function outputJSON(data: any, outputPath?: string): Promise<void> {
  * Output results in Markdown format
  */
 async function outputMarkdown(
-  data: { report: any; migrationPlan?: any },
+  data: { report: TypeReplacementReport; migrationPlan?: MigrationStrategy },
   outputPath?: string
 ): Promise<void> {
   const { report, migrationPlan } = data;
@@ -505,7 +526,7 @@ async function outputMarkdown(
 /**
  * Output compatibility analysis in markdown
  */
-async function outputCompatibilityMarkdown(data: any, outputPath?: string): Promise<void> {
+async function outputCompatibilityMarkdown(data: CompatibilityData, outputPath?: string): Promise<void> {
   let markdown = `# Type Compatibility Check: ${data.sourceType} → ${data.targetType}
 
 ## Results
@@ -543,16 +564,16 @@ async function outputCompatibilityMarkdown(data: any, outputPath?: string): Prom
 /**
  * Execute codemod actions
  */
-async function executeCodemod(report: any, logger: Logger): Promise<void> {
+async function executeCodemod(report: TypeReplacementReport, logger: Logger): Promise<void> {
   logger.info('🔧 Executing codemod actions...');
   
   // This would integrate with ts-morph or similar tool to actually modify files
   // For now, just show what would be done
   
   const actionCount = report.replacementPlan.codemodActions.length;
-  const safeActions = report.replacementPlan.codemodActions.filter((a: any) => a.riskLevel === 'safe').length;
-  const warningActions = report.replacementPlan.codemodActions.filter((a: any) => a.riskLevel === 'warning').length;
-  const breakingActions = report.replacementPlan.codemodActions.filter((a: any) => a.riskLevel === 'breaking').length;
+  const safeActions = report.replacementPlan.codemodActions.filter((a) => a.riskLevel === 'safe').length;
+  const warningActions = report.replacementPlan.codemodActions.filter((a) => a.riskLevel === 'warning').length;
+  const breakingActions = report.replacementPlan.codemodActions.filter((a) => a.riskLevel === 'breaking').length;
 
   logger.info(`Executing ${actionCount} codemod actions:`);
   logger.info(`  • ${safeActions} safe actions`);
@@ -571,7 +592,7 @@ async function executeCodemod(report: any, logger: Logger): Promise<void> {
 /**
  * Display final summary
  */
-function displaySummary(report: any, migrationPlan: any, isDryRun: boolean): void {
+function displaySummary(report: TypeReplacementReport, migrationPlan: MigrationStrategy | undefined, isDryRun: boolean): void {
   console.log(chalk.bold('\n📋 Summary:'));
   
   const isCompatible = report.compatibilityAnalysis.isCompatible;

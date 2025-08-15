@@ -152,11 +152,11 @@ function displayTableResults(
   
   if (typeRelationships.length > 0) {
     const relationshipStats = {
-      identical: typeRelationships.filter((r: any) => r.relationshipType === 'identical').length,
-      subset: typeRelationships.filter((r: any) => r.relationshipType === 'subset').length,
-      superset: typeRelationships.filter((r: any) => r.relationshipType === 'superset').length,
-      overlap: typeRelationships.filter((r: any) => r.relationshipType === 'overlap').length,
-      disjoint: typeRelationships.filter((r: any) => r.relationshipType === 'disjoint').length
+      identical: typeRelationships.filter((r) => r.relationshipType === 'identical').length,
+      subset: typeRelationships.filter((r) => r.relationshipType === 'subset').length,
+      superset: typeRelationships.filter((r) => r.relationshipType === 'superset').length,
+      overlap: typeRelationships.filter((r) => r.relationshipType === 'overlap').length,
+      disjoint: typeRelationships.filter((r) => r.relationshipType === 'disjoint').length
     };
 
     const relationshipData = [
@@ -350,10 +350,10 @@ function displaySummary(result: CanonicalizationResult, isDryRun: boolean): void
   console.log(`Quality Improvement: ${chalk.green((qualityMetrics.maintainabilityScore * 100).toFixed(1))}% maintainability`);
   
   if (recommendations.length > 0) {
-    const totalTypesEliminated = recommendations.reduce((sum: number, rec: any) => 
+    const totalTypesEliminated = recommendations.reduce((sum: number, rec) => 
       sum + rec.estimatedImpact.estimatedSavings.duplicateTypesEliminated, 0
     );
-    const totalLinesReduced = recommendations.reduce((sum: number, rec: any) => 
+    const totalLinesReduced = recommendations.reduce((sum: number, rec) => 
       sum + rec.estimatedImpact.estimatedSavings.linesOfCodeReduced, 0
     );
     

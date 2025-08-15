@@ -7,7 +7,7 @@
 
 import chalk from 'chalk';
 import { table } from 'table';
-import { ValueObjectExtractor } from '../../analyzers/type-refactoring/value-object-extractor';
+import { ValueObjectExtractor, type ValueObjectExtractionPlan } from '../../analyzers/type-refactoring/value-object-extractor';
 import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand, BaseCommandOptions } from '../../types/command';
@@ -65,7 +65,7 @@ export const extractVOCommand: VoidCommand<ExtractVOOptions> = (options: Extract
     const result = await extractor.extract(options.snapshot);
 
     // Filter results based on options
-    const filteredResult = filterResults(result, {
+    const filteredResult = filterResults(result as FilteredResult, {
       ...(options['domain-filter'] && { domainFilter: options['domain-filter'] }),
       ...(options['complexity-filter'] && { complexityFilter: options['complexity-filter'] }),
       maxCandidates
@@ -116,25 +116,57 @@ export const extractVOCommand: VoidCommand<ExtractVOOptions> = (options: Extract
 /**
  * Filter results based on provided options
  */
-function filterResults(result: any, filters: {
+interface FilterOptions {
   domainFilter?: string;
   complexityFilter?: 'low' | 'medium' | 'high';
   maxCandidates: number;
-}): any {
+}
+
+interface FilteredResult {
+  candidates: ValueObjectExtractionPlan[];
+  extractionOpportunities: Array<{
+    id: string;
+    propertyGroup: string[];
+    affectedTypes: string[];
+    benefitScore: number;
+    extractionComplexity: 'low' | 'medium' | 'high';
+    recommendationReason: string;
+  }>;
+  domainAnalysis: {
+    identifiedDomains: Array<{
+      name: string;
+      types: string[];
+      valueObjects: string[];
+      businessRules: string[];
+      commonOperations: string[];
+    }>;
+  };
+  generatedCode?: Array<{
+    category: string;
+    fileName: string;
+    content: string;
+    voName: string;
+  }>;
+  migrationGuide: string;
+}
+
+function filterResults(result: FilteredResult, filters: FilterOptions): FilteredResult {
   let filteredCandidates = result.candidates;
 
   // Filter by domain
   if (filters.domainFilter) {
-    filteredCandidates = filteredCandidates.filter((candidate: any) =>
-      candidate.valueObject.domainContext.toLowerCase().includes(filters.domainFilter!.toLowerCase())
-    );
+    filteredCandidates = filteredCandidates.filter((candidate: ValueObjectExtractionPlan) => {
+      const domainContext = candidate.valueObject.domainContext;
+      return domainContext.toLowerCase().includes(filters.domainFilter!.toLowerCase());
+    });
   }
 
   // Filter by complexity
   if (filters.complexityFilter) {
-    filteredCandidates = filteredCandidates.filter((candidate: any) =>
-      candidate.migrationPlan.phases.some((phase: any) => phase.riskLevel === filters.complexityFilter)
-    );
+    filteredCandidates = filteredCandidates.filter((candidate: ValueObjectExtractionPlan) => {
+      const phases = candidate.migrationPlan.phases;
+      return phases.some((phase) => phase.riskLevel === filters.complexityFilter);
+    });
   }
 
   // Limit number of candidates
@@ -149,14 +181,43 @@ function filterResults(result: any, filters: {
 /**
  * Display results in table format
  */
+interface DisplayOptions {
+  maxCandidates: number;
+  showOpportunities: boolean;
+  showGenerated: boolean;
+  isDryRun: boolean;
+}
+
+interface DisplayResult {
+  candidates: ValueObjectExtractionPlan[];
+  extractionOpportunities: Array<{
+    id: string;
+    propertyGroup: string[];
+    affectedTypes: string[];
+    benefitScore: number;
+    extractionComplexity: 'low' | 'medium' | 'high';
+    recommendationReason: string;
+  }>;
+  domainAnalysis: {
+    identifiedDomains: Array<{
+      name: string;
+      types: string[];
+      valueObjects: string[];
+      businessRules: string[];
+      commonOperations: string[];
+    }>;
+  };
+  generatedCode?: Array<{
+    category: string;
+    fileName: string;
+    content: string;
+    voName: string;
+  }>;
+}
+
 function displayTableResults(
-  result: any,
-  options: {
-    maxCandidates: number;
-    showOpportunities: boolean;
-    showGenerated: boolean;
-    isDryRun: boolean;
-  }
+  result: DisplayResult,
+  options: DisplayOptions
 ): void {
   const { candidates, extractionOpportunities, domainAnalysis } = result;
 
@@ -173,14 +234,17 @@ function displayTableResults(
     for (const candidate of candidates.slice(0, options.maxCandidates)) {
       const vo = candidate.valueObject;
       const impact = candidate.impactAssessment;
+      const migrationPlan = candidate.migrationPlan;
+      const phases = migrationPlan.phases || [];
+      const firstPhase = phases[0];
       
       candidateData.push([
         chalk.cyan(vo.name),
-        vo.properties.map((p: any) => p.name).join(', '),
+        vo.properties.map((p) => p.name).join(', '),
         getDomainColor(vo.domainContext)(vo.domainContext),
         `${impact.typesAffected} types, ${impact.functionsAffected} funcs`,
-        getComplexityColor(candidate.migrationPlan.phases[0]?.riskLevel || 'low')(
-          candidate.migrationPlan.phases[0]?.riskLevel || 'low'
+        getComplexityColor(firstPhase?.riskLevel || 'low')(
+          firstPhase?.riskLevel || 'low'
         ),
         `${impact.benefits.length} benefits`
       ]);
@@ -201,54 +265,60 @@ function displayTableResults(
   // Show detailed info for top candidate
   if (candidates.length > 0) {
     const topCandidate = candidates[0];
-    console.log(`\n${chalk.bold('🎯 Top Candidate: ' + chalk.cyan(topCandidate.valueObject.name))}`);
+    const vo = topCandidate.valueObject;
+    const impact = topCandidate.impactAssessment;
+    
+    console.log(`\n${chalk.bold('🎯 Top Candidate: ' + chalk.cyan(vo.name))}`);
     
     // Properties with types
     console.log(`${chalk.bold('Properties:')}`);
-    for (const prop of topCandidate.valueObject.properties) {
+    for (const prop of vo.properties) {
       console.log(`  • ${chalk.yellow(prop.name)}: ${prop.type}${prop.isReadonly ? ' (readonly)' : ''} - ${prop.description}`);
     }
 
     // Invariants
-    if (topCandidate.valueObject.invariants.length > 0) {
+    const invariants = vo.invariants;
+    if (invariants.length > 0) {
       console.log(`${chalk.bold('Invariants:')}`);
-      for (const inv of topCandidate.valueObject.invariants) {
+      for (const inv of invariants) {
         console.log(`  • ${chalk.green(inv.name)}: ${inv.description}`);
       }
     }
 
     // Methods
-    if (topCandidate.valueObject.methods.length > 0) {
+    const methods = vo.methods;
+    if (methods.length > 0) {
       console.log(`${chalk.bold('Generated Methods:')}`);
-      for (const method of topCandidate.valueObject.methods.slice(0, 3)) {
+      for (const method of methods.slice(0, 3)) {
         console.log(`  • ${chalk.blue(method.name)}(): ${method.returnType} - ${method.description}`);
       }
-      if (topCandidate.valueObject.methods.length > 3) {
-        console.log(`  • ... and ${topCandidate.valueObject.methods.length - 3} more methods`);
+      if (methods.length > 3) {
+        console.log(`  • ... and ${methods.length - 3} more methods`);
       }
     }
 
     // Impact assessment
     console.log(`${chalk.bold('Impact Assessment:')}`);
-    console.log(`  • Types Affected: ${topCandidate.impactAssessment.typesAffected}`);
-    console.log(`  • Functions Affected: ${topCandidate.impactAssessment.functionsAffected}`);
-    console.log(`  • Files Affected: ${topCandidate.impactAssessment.filesAffected.length}`);
+    console.log(`  • Types Affected: ${impact.typesAffected}`);
+    console.log(`  • Functions Affected: ${impact.functionsAffected}`);
+    console.log(`  • Files Affected: ${impact.filesAffected.length}`);
     
-    const qualityImprovements = topCandidate.impactAssessment.qualityImprovements;
+    const qualityImprovements = impact.qualityImprovements;
     if (qualityImprovements.length > 0) {
-      console.log(`  • Quality Improvements: ${qualityImprovements.map((qi: any) => 
+      console.log(`  • Quality Improvements: ${qualityImprovements.map((qi) => 
         `${qi.metric} +${qi.improvementPercentage.toFixed(1)}%`
       ).join(', ')}`);
     }
   }
 
   // Domain analysis
-  if (domainAnalysis.identifiedDomains.length > 0) {
+  const identifiedDomains = domainAnalysis.identifiedDomains || [];
+  if (identifiedDomains.length > 0) {
     console.log(`\n${chalk.bold('🏗️ Domain Analysis')}`);
     
     const domainData = [['Domain', 'Types', 'Value Objects', 'Common Operations']];
     
-    for (const domain of domainAnalysis.identifiedDomains) {
+    for (const domain of identifiedDomains) {
       domainData.push([
         getDomainColor(domain.name)(domain.name),
         domain.types.length.toString(),
@@ -298,10 +368,11 @@ function displayTableResults(
   }
 
   // Generated code preview
-  if (options.showGenerated && result.generatedCode.length > 0) {
+  const generatedCode = result.generatedCode || [];
+  if (options.showGenerated && generatedCode.length > 0) {
     console.log(`\n${chalk.bold('📦 Generated Code Preview')}`);
     
-    const firstVO = result.generatedCode.find((gc: any) => gc.category === 'type_definition');
+    const firstVO = generatedCode.find((gc) => gc.category === 'type_definition');
     if (firstVO) {
       console.log(`${chalk.bold('Sample VO Definition:')} ${chalk.cyan(firstVO.voName)}`);
       console.log(chalk.gray('```typescript'));
@@ -320,7 +391,7 @@ function displayTableResults(
 /**
  * Output results in JSON format
  */
-async function outputJSON(result: any, outputPath?: string): Promise<void> {
+async function outputJSON(result: FilteredResult, outputPath?: string): Promise<void> {
   const json = JSON.stringify(result, null, 2);
   
   if (outputPath) {
@@ -335,55 +406,42 @@ async function outputJSON(result: any, outputPath?: string): Promise<void> {
 /**
  * Output results in Markdown format
  */
-async function outputMarkdown(result: any, outputPath?: string): Promise<void> {
+async function outputMarkdown(result: FilteredResult, outputPath?: string): Promise<void> {
   let markdown = `# Value Object Extraction Analysis Report
 
 ## Summary
 
-- **VO Candidates**: ${result.candidates.length}
-- **Extraction Opportunities**: ${result.extractionOpportunities.length}
-- **Domains Identified**: ${result.domainAnalysis.identifiedDomains.length}
+- **VO Candidates**: ${(result.candidates as ValueObjectExtractionPlan[]).length}
+- **Extraction Opportunities**: ${(result.extractionOpportunities as Array<{ id: string; }>).length}
+- **Domains Identified**: ${(result.domainAnalysis as { identifiedDomains: Array<{ name: string; }> }).identifiedDomains.length}
 
 ## Value Object Candidates
 
 `;
 
-  for (const candidate of result.candidates) {
+  const candidates = result.candidates as ValueObjectExtractionPlan[];
+  for (const candidate of candidates) {
     const vo = candidate.valueObject;
-    markdown += `### ${vo.name} (${vo.domainContext} Domain)
-
-**Properties**: ${vo.properties.map((p: any) => `${p.name}: ${p.type}`).join(', ')}
-
-**Invariants**:
-${vo.invariants.map((inv: any) => `- ${inv.name}: ${inv.description}`).join('\n')}
-
-**Generated Methods**:
-${vo.methods.map((m: any) => `- ${m.name}(): ${m.returnType} - ${m.description}`).join('\n')}
-
-**Impact Assessment**:
-- Types Affected: ${candidate.impactAssessment.typesAffected}
-- Functions Affected: ${candidate.impactAssessment.functionsAffected}
-- Files Affected: ${candidate.impactAssessment.filesAffected.length}
-
-**Migration Strategy**: ${candidate.migrationPlan.strategy}
-**Estimated Effort**: ${candidate.migrationPlan.estimatedEffort}
-
-`;
+    const impact = candidate.impactAssessment;
+    const migrationPlan = candidate.migrationPlan;
+    
+    const properties = vo.properties;
+    const invariants = vo.invariants;
+    const methods = vo.methods;
+    const filesAffected = impact.filesAffected;
+    
+    markdown += `### ${vo.name} (${vo.domainContext} Domain)\n\n**Properties**: ${properties.map((p) => `${p.name}: ${p.type}`).join(', ')}\n\n**Invariants**:\n${invariants.map((inv) => `- ${inv.name}: ${inv.description}`).join('\n')}\n\n**Generated Methods**:\n${methods.map((m) => `- ${m.name}(): ${m.returnType} - ${m.description}`).join('\n')}\n\n**Impact Assessment**:\n- Types Affected: ${impact.typesAffected}\n- Functions Affected: ${impact.functionsAffected}\n- Files Affected: ${filesAffected.length}\n\n**Migration Strategy**: ${migrationPlan.strategy}\n**Estimated Effort**: ${migrationPlan.estimatedEffort}\n\n`;
   }
 
   markdown += `## Domain Analysis
 
 `;
 
-  for (const domain of result.domainAnalysis.identifiedDomains) {
-    markdown += `### ${domain.name} Domain
-
-**Types**: ${domain.types.join(', ')}
-**Value Objects**: ${domain.valueObjects.join(', ')}
-**Business Rules**: ${domain.businessRules.join(', ')}
-**Common Operations**: ${domain.commonOperations.join(', ')}
-
-`;
+  const domainAnalysis = result.domainAnalysis as { identifiedDomains: Array<{ name: string; types: string[]; valueObjects: string[]; businessRules: string[]; commonOperations: string[]; }> };
+  const identifiedDomains = domainAnalysis.identifiedDomains;
+  
+  for (const domain of identifiedDomains) {
+    markdown += `### ${domain.name} Domain\n\n**Types**: ${domain.types.join(', ')}\n**Value Objects**: ${domain.valueObjects.join(', ')}\n**Business Rules**: ${domain.businessRules.join(', ')}\n**Common Operations**: ${domain.commonOperations.join(', ')}\n\n`;
   }
 
   markdown += `## Migration Guide
@@ -406,7 +464,7 @@ ${result.migrationGuide}
 /**
  * Generate VO code files
  */
-async function generateVOCodeFiles(result: any, outputDir: string, logger: Logger): Promise<void> {
+async function generateVOCodeFiles(result: FilteredResult, outputDir: string, logger: Logger): Promise<void> {
   const fs = await import('fs/promises');
   const path = await import('path');
   
@@ -416,21 +474,22 @@ async function generateVOCodeFiles(result: any, outputDir: string, logger: Logge
     
     logger.info(`📁 Generating VO code files in ${outputDir}...`);
     
-    for (const codeFile of result.generatedCode) {
+    const generatedCode = result.generatedCode as Array<{ fileName: string; content: string; category: string; voName: string; }>;
+    for (const codeFile of generatedCode) {
       const filePath = path.join(outputDir, codeFile.fileName);
       await fs.writeFile(filePath, codeFile.content);
       logger.debug(`  Generated ${codeFile.fileName} (${codeFile.category})`);
     }
     
     // Generate index file
-    const indexContent = result.generatedCode
-      .filter((gc: any) => gc.category === 'type_definition')
-      .map((gc: any) => `export { ${gc.voName} } from './${gc.voName}';`)
+    const indexContent = generatedCode
+      .filter((gc) => gc.category === 'type_definition')
+      .map((gc) => `export { ${gc.voName} } from './${gc.voName}';`)
       .join('\n');
     
     await fs.writeFile(path.join(outputDir, 'index.ts'), indexContent);
     
-    logger.info(`✅ Generated ${result.generatedCode.length} VO files + index.ts`);
+    logger.info(`✅ Generated ${generatedCode.length} VO files + index.ts`);
   } catch (error) {
     logger.error(`Failed to generate VO code files: ${error}`);
   }
@@ -439,23 +498,29 @@ async function generateVOCodeFiles(result: any, outputDir: string, logger: Logge
 /**
  * Execute Value Object extractions
  */
-async function executeVOExtractions(result: any, logger: Logger): Promise<void> {
-  const { candidates } = result;
+async function executeVOExtractions(result: FilteredResult, logger: Logger): Promise<void> {
+  const candidates = result.candidates;
   
   logger.info(`Executing Value Object extraction for ${candidates.length} candidates...`);
   
   for (const candidate of candidates) {
-    logger.info(`Processing ${candidate.valueObject.name}...`);
+    const vo = candidate.valueObject;
+    const extractionActions = candidate.extractionActions;
+    
+    logger.info(`Processing ${vo.name}...`);
     
     // Execute extraction actions
-    for (const action of candidate.extractionActions) {
-      logger.debug(`  ${action.actionType}: ${action.transformation.type}`);
+    for (const action of extractionActions) {
+      const transformation = action.transformation;
+      const sourceLocation = action.sourceLocation;
+      
+      logger.debug(`  ${action.actionType}: ${transformation.type}`);
       
       if (action.automationPossible) {
         // In a real implementation, this would execute the actual codemod
-        logger.debug(`    ✅ Automated: ${action.sourceLocation.filePath}`);
+        logger.debug(`    ✅ Automated: ${sourceLocation.filePath}`);
       } else {
-        logger.warn(`    ⚠️  Manual: ${action.sourceLocation.filePath}`);
+        logger.warn(`    ⚠️  Manual: ${sourceLocation.filePath}`);
       }
     }
   }
@@ -467,30 +532,35 @@ async function executeVOExtractions(result: any, logger: Logger): Promise<void> 
 /**
  * Display final summary
  */
-function displaySummary(result: any, isDryRun: boolean): void {
+function displaySummary(result: FilteredResult, isDryRun: boolean): void {
   console.log(`\n${chalk.bold('📋 Summary:')}`);
   
-  const { candidates, extractionOpportunities, domainAnalysis } = result;
+  const candidates = result.candidates;
+  const extractionOpportunities = result.extractionOpportunities;
+  const domainAnalysis = result.domainAnalysis;
+  const identifiedDomains = domainAnalysis.identifiedDomains;
   
   console.log(`Value Object Candidates: ${chalk.cyan(candidates.length)}`);
   console.log(`Extraction Opportunities: ${chalk.cyan(extractionOpportunities.length)}`);
-  console.log(`Domains Identified: ${chalk.cyan(domainAnalysis.identifiedDomains.length)}`);
+  console.log(`Domains Identified: ${chalk.cyan(identifiedDomains.length)}`);
   
   if (candidates.length > 0) {
-    const totalTypesAffected = candidates.reduce((sum: number, candidate: any) => 
-      sum + candidate.impactAssessment.typesAffected, 0
-    );
-    const totalFunctionsAffected = candidates.reduce((sum: number, candidate: any) => 
-      sum + candidate.impactAssessment.functionsAffected, 0
-    );
+    const totalTypesAffected = candidates.reduce((sum: number, candidate) => {
+      return sum + candidate.impactAssessment.typesAffected;
+    }, 0);
+    const totalFunctionsAffected = candidates.reduce((sum: number, candidate) => {
+      return sum + candidate.impactAssessment.functionsAffected;
+    }, 0);
     
     console.log(`Potential Impact: ${chalk.green(totalTypesAffected)} types, ${chalk.green(totalFunctionsAffected)} functions affected`);
   }
 
   // Benefits summary
   if (candidates.length > 0) {
-    const allBenefits = candidates.flatMap((c: any) => c.impactAssessment.benefits);
-    const benefitCategories = new Set(allBenefits.map((b: any) => b.category));
+    const allBenefits = candidates.flatMap((c) => {
+      return c.impactAssessment.benefits;
+    });
+    const benefitCategories = new Set(allBenefits.map((b) => b.category));
     console.log(`Expected Benefits: ${Array.from(benefitCategories).join(', ')}`);
   }
   
