@@ -426,13 +426,8 @@ ${typeGuardPattern}
    * Load source file using ts-morph
    */
   private async loadSourceFile(_filePath: string): Promise<SourceFile | null> {
-    try {
-      // In a real implementation, would use ts-morph Project to load file
-      // For now, return null to indicate we need actual file system access
-      return null;
-    } catch {
-      return null;
-    }
+    // TODO: ts-morph Project実装が必要
+    return null;
   }
 
   /**
