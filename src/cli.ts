@@ -1228,6 +1228,63 @@ Benefits:
   • Enable better IDE support and refactoring safety
 `);
 
+// DU (Discriminated Union) incremental command group
+const duCommand = program.command('du');
+duCommand
+  .description('🏷️  Discriminated Union incremental transformation toolkit')
+  .addHelpText('before', `
+The 'du' command group provides step-by-step discriminated union transformation:
+  • detect: Find DU opportunities (Step A: Detection)
+  • plan: Generate transformation plans (Step B: Planning) 
+  • gen: Generate types and helpers (Step C: Generation)
+  • migrate: Create migration utilities (Step D: Migration)
+  • rewrite: Transform call sites (Step E: Transformation)
+`);
+
+// Add detect subcommand
+duCommand.command('detect')
+  .description('🔍 Detect discriminated union opportunities (Step A: Detection)')
+  .option('--snapshot-id <id>', 'use specific snapshot for analysis')
+  .option('--target-types <types>', 'comma-separated list of specific types to analyze')
+  .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', '0.8')
+  .option('--min-mutual-exclusivity <number>', 'minimum mutual exclusivity score (0-1)', '0.7')
+  .option('--min-usage-frequency <number>', 'minimum discriminant usage frequency (0-1)', '0.3')
+  .option('--max-variants <number>', 'maximum union variants per type', '8')
+  .option('--min-variants <number>', 'minimum union variants per type', '2')
+  .option('--exclude-props <props>', 'comma-separated properties to exclude', 'id,createdAt,updatedAt')
+  .option('--output <format>', 'output format: table|json|detailed', 'table')
+  .option('--format <format>', 'alias for --output', 'table')
+  .option('--save-json [path]', 'save detailed results as JSON file', false)
+  .option('--save-html [path]', 'save analysis report as HTML file', false)
+  .option('--verbose', 'enable verbose logging', false)
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { executeDetect } = await import('./cli/commands/du/detect');
+    return withEnvironment((opts) => async (_env) => {
+      await executeDetect(opts);
+    })(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  funcqc du detect                                    # Detect all DU opportunities
+  funcqc du detect --target-types Payment,OrderStatus # Analyze specific types  
+  funcqc du detect --min-coverage 0.9 --verbose       # High coverage threshold
+  funcqc du detect --save-html report.html --save-json data.json # Save reports
+  funcqc du detect --exclude-props id,timestamp       # Exclude common properties
+  funcqc du detect --output detailed                  # Show detailed analysis
+
+Detection Process:
+  📊 Step A1: Flag correlation analysis (φ coefficient, Jaccard index)
+  🎯 Step A2: Risk classification (coverage, exclusivity, complexity)
+  📈 Step A3: Impact estimation (file references, call sites)
+
+Output:
+  • DU Plan JSON with coverage metrics and variant definitions
+  • Risk assessment (low/medium/high) for each candidate
+  • Implementation priority and effort estimation
+  • HTML report for visualization and sharing
+`);
+
 // Overview command functionality has been integrated into the types command
 
 // Handle unknown commands
