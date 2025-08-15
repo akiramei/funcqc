@@ -23,6 +23,7 @@ export enum ErrorCode {
   PARSING_FAILED = 'PARSING_FAILED',
   FILE_NOT_ACCESSIBLE = 'FILE_NOT_ACCESSIBLE',
   ANALYSIS_TIMEOUT = 'ANALYSIS_TIMEOUT',
+  ANALYSIS_FAILED = 'ANALYSIS_FAILED',
   
   // Resource errors
   NOT_FOUND = 'NOT_FOUND',
@@ -154,6 +155,17 @@ export class ErrorHandler {
           ],
         };
       
+      case ErrorCode.ANALYSIS_FAILED:
+        return {
+          recoverable: true,
+          recoveryActions: [
+            'Re-run with --verbose or --debug to collect detailed logs',
+            'Narrow the analysis scope using include/exclude filters',
+            'Fix any upstream TypeScript errors and retry',
+            'Try analyzing a smaller snapshot or subset of files',
+          ],
+        };
+      
       case ErrorCode.NOT_FOUND:
         return {
           recoverable: true,
@@ -224,6 +236,7 @@ export class ErrorHandler {
 
       case ErrorCode.PARSING_FAILED:
       case ErrorCode.TYPESCRIPT_CONFIG_ERROR:
+      case ErrorCode.ANALYSIS_FAILED:
         return 4; // Analysis errors
 
       case ErrorCode.INSUFFICIENT_MEMORY:

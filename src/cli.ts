@@ -978,6 +978,256 @@ Exit codes:
 import { createTypesCommand } from './cli/commands/types';
 program.addCommand(createTypesCommand());
 
+// Add refactor-guard command for type refactoring safety
+program
+  .command('refactor-guard')
+  .description('🛡️  Analyze refactoring safety and generate guardrails')
+  .requiredOption('--type <name>', 'target type name to analyze')
+  .option('--operation <op>', 'refactoring operation (replace|merge|split|extract|inline)', 'replace')
+  .option('--snapshot <id>', 'specific snapshot ID to analyze')
+  .option('--no-include-tests', 'exclude test template generation')
+  .option('--no-include-behavioral', 'exclude behavioral pattern checks')
+  .option('--no-include-cochange', 'exclude co-change analysis (requires Git)')
+  .option('--risk-threshold <level>', 'risk tolerance level (low|medium|high)', 'medium')
+  .option('--format <format>', 'output format (table|json|markdown)', 'table')
+  .option('--output <path>', 'save output to file')
+  .option('--no-pr-template', 'skip PR template generation')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { refactorGuardCommand } = await import('./cli/commands/refactor-guard');
+    return withEnvironment(refactorGuardCommand)(options);
+  });
+
+// Add type-replace command for safe type replacement
+program
+  .command('type-replace')
+  .description('🔄 Analyze and execute safe type replacements with compatibility checking')
+  .requiredOption('--from <type>', 'source type name to replace')
+  .requiredOption('--to <type>', 'target type name for replacement')
+  .option('--snapshot <id>', 'specific snapshot ID to analyze')
+  .option('--check-only', 'only perform compatibility check without execution')
+  .option('--generate-codemod', 'generate automatic code modifications')
+  .option('--migration-plan', 'generate detailed migration plan')
+  .option('--ts-config <path>', 'path to TypeScript configuration file')
+  .option('--allow-unsafe', 'allow unsafe replacements with warnings')
+  .option('--risk-threshold <level>', 'risk tolerance level (low|medium|high)', 'medium')
+  .option('--format <format>', 'output format (table|json|markdown)', 'table')
+  .option('--output <path>', 'save output to file')
+  .option('--dry-run', 'show what would be done without executing changes')
+  .option('--no-include-cochange', 'exclude co-change analysis (requires Git)')
+  .option('--team-size <size>', 'team size for migration planning (number)', parseInt)
+  .option('--risk-tolerance <level>', 'team risk tolerance (conservative|moderate|aggressive)', 'moderate')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { typeReplaceCommand } = await import('./cli/commands/type-replace');
+    return withEnvironment(typeReplaceCommand)(options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Basic safety analysis for type replacement
+  $ funcqc refactor-guard --type UserType
+  
+  # Analyze merge operation with high risk tolerance
+  $ funcqc refactor-guard --type UserType --operation merge --risk-threshold high
+  
+  # Generate comprehensive analysis with all features
+  $ funcqc refactor-guard --type PaymentRequest --include-cochange --format markdown
+  
+  # Export analysis to file for documentation
+  $ funcqc refactor-guard --type ApiResponse --output safety-analysis.md --format markdown
+  
+  # Quick check without behavioral analysis
+  $ funcqc refactor-guard --type ConfigType --no-include-behavioral --format json
+
+Features:
+  🔍 Impact Analysis        - Identifies affected functions and types
+  ⚠️  Risk Assessment      - Calculates overall refactoring risk
+  ✅ Safety Checklist      - Generates actionable safety items  
+  🧪 Test Templates        - Auto-generates test code templates
+  📈 Co-change Analysis    - Uses Git history for temporal coupling
+  📝 PR Template          - Creates comprehensive PR documentation
+  🎯 Smart Recommendations - Provides context-aware guidance
+
+Risk Levels:
+  🟢 low      - Safe refactoring with minimal impact
+  🟡 medium   - Moderate risk, requires careful testing
+  🟠 high     - High risk, extensive validation needed
+  🔴 critical - Major breaking change, consider alternatives
+`);
+
+// Add canonicalize command for DTO canonicalization
+program
+  .command('canonicalize')
+  .description('🎯 Analyze and consolidate duplicate DTO types into canonical forms')
+  .option('--snapshot <id>', 'specific snapshot ID to analyze')
+  .option('--min-support <num>', 'minimum support for patterns (default: 2)', parseInt)
+  .option('--min-confidence <num>', 'minimum confidence threshold (default: 0.6)', parseFloat)
+  .option('--no-include-behavioral', 'exclude behavioral analysis')
+  .option('--generate-codemod', 'generate codemod actions for consolidation')
+  .option('--require-minimal-impact', 'only suggest low-impact changes')
+  .option('--no-preserve-optionality', 'don\'t preserve optional property differences')
+  .option('--format <format>', 'output format (table|json|markdown)', 'table')
+  .option('--output <path>', 'save output to file')
+  .option('--dry-run', 'show what would be done without executing changes')
+  .option('--max-candidates <num>', 'maximum number of canonicalization candidates (default: 10)', parseInt)
+  .option('--show-opportunities', 'show consolidation opportunities')
+  .option('--show-artifacts', 'show generated artifacts (view types, mappers)')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { canonicalizeCommand } = await import('./cli/commands/canonicalize');
+    return withEnvironment(canonicalizeCommand)(options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Basic DTO canonicalization analysis
+  $ funcqc canonicalize
+  
+  # Show consolidation opportunities and generated artifacts
+  $ funcqc canonicalize --show-opportunities --show-artifacts
+  
+  # Generate codemod actions with custom thresholds
+  $ funcqc canonicalize --generate-codemod --min-confidence 0.8
+  
+  # Export detailed analysis to markdown
+  $ funcqc canonicalize --format markdown --output dto-canonicalization.md
+  
+  # Low-impact changes only
+  $ funcqc canonicalize --require-minimal-impact --max-candidates 5
+  
+  # Dry run to preview changes
+  $ funcqc canonicalize --dry-run --show-opportunities
+
+Features:
+  🔍 Pattern Recognition    - Identifies similar DTO structures
+  📊 Relationship Analysis  - Maps structural relationships between types
+  🎯 Canonical Selection   - Recommends optimal canonical types
+  🔧 View Type Generation   - Creates Pick/Omit-based view types
+  🗺️  Migration Planning    - Generates step-by-step migration strategies
+  📦 Artifact Generation   - Creates mappers and conversion utilities
+  📈 Quality Metrics       - Measures duplicate reduction and maintainability
+
+Benefits:
+  • Reduce type duplication by 30-50%
+  • Improve maintainability through centralized types
+  • Generate automatic migration tools
+  • Preserve type safety during consolidation
+`);
+
+// Add extract-vo command for Value Object extraction
+program
+  .command('extract-vo')
+  .description('🧩 Extract Value Objects from property clusters to improve encapsulation')
+  .option('--snapshot <id>', 'specific snapshot ID to analyze')
+  .option('--min-support <num>', 'minimum support for patterns (default: 3)', parseInt)
+  .option('--min-confidence <num>', 'minimum confidence threshold (default: 0.7)', parseFloat)
+  .option('--min-cohesion <num>', 'minimum cohesion score (default: 0.6)', parseFloat)
+  .option('--no-include-computed', 'exclude computed methods generation')
+  .option('--no-generate-constructors', 'don\'t generate smart constructors')
+  .option('--no-infer-invariants', 'don\'t try to infer business rules')
+  .option('--no-preserve-original', 'don\'t keep original types during transition')
+  .option('--format <format>', 'output format (table|json|markdown)', 'table')
+  .option('--output <path>', 'save output to file')
+  .option('--output-code <dir>', 'directory to output generated VO code')
+  .option('--dry-run', 'show what would be done without executing changes')
+  .option('--max-candidates <num>', 'maximum number of VO candidates (default: 10)', parseInt)
+  .option('--show-opportunities', 'show extraction opportunities')
+  .option('--show-generated', 'show generated code samples')
+  .option('--domain-filter <domain>', 'filter by domain context (Finance, Geography, etc.)')
+  .option('--complexity-filter <level>', 'filter by extraction complexity (low|medium|high)')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { extractVOCommand } = await import('./cli/commands/extract-vo');
+    return withEnvironment(extractVOCommand)(options);
+  })
+  .addHelpText('after', `
+Examples:
+  # Basic Value Object extraction analysis
+  $ funcqc extract-vo
+  
+  # Filter by domain and show generated code
+  $ funcqc extract-vo --domain-filter Finance --show-generated
+  
+  # Generate VO code files with custom thresholds
+  $ funcqc extract-vo --output-code ./value-objects --min-cohesion 0.8
+  
+  # Low complexity extractions only
+  $ funcqc extract-vo --complexity-filter low --max-candidates 5
+  
+  # Export comprehensive analysis
+  $ funcqc extract-vo --format markdown --output vo-extraction.md --show-opportunities
+  
+  # Generate VOs without smart constructors
+  $ funcqc extract-vo --no-generate-constructors --no-infer-invariants
+
+Features:
+  🔍 Pattern Detection      - Identifies cohesive property clusters
+  🏗️  Domain Analysis       - Groups VOs by business domain
+  💎 Smart Generation      - Creates VOs with methods and invariants
+  🧪 Constructor Creation   - Generates validation and factory functions
+  📊 Impact Assessment     - Measures benefits and risks of extraction
+  🎯 Migration Planning    - Creates step-by-step extraction plan
+  📦 Code Generation       - Outputs ready-to-use VO implementations
+
+Value Object Types:
+  💰 Money          - amount, currency
+  🌍 Coordinate     - lat, lng
+  ⏰ TimeRange      - start, end
+  📐 Dimensions     - width, height
+  📧 ContactInfo    - email, phone
+  🏷️  General        - custom property combinations
+
+Benefits:
+  • Improve type safety through encapsulation
+  • Enforce business rules and invariants
+  • Increase code reusability and testability
+  • Provide domain-specific operations and validation
+`);
+
+// Add discriminate command
+program
+  .command('discriminate')
+  .description('🏷️  Analyze and transform types into discriminated unions')
+  .option('--snapshot-id <id>', 'use specific snapshot for analysis')
+  .option('--target-types <types>', 'comma-separated list of specific types to analyze')
+  .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', parseFloat, 0.8)
+  .option('--min-confidence <number>', 'minimum confidence threshold (0-1)', parseFloat, 0.6)
+  .option('--max-cases <number>', 'maximum union cases per type', parseInt, 8)
+  .option('--include-booleans', 'include boolean discriminants', true)
+  .option('--include-enums', 'include enum discriminants', true)
+  .option('--allow-breaking', 'allow breaking changes during transformation', false)
+  .option('--dry-run', 'preview changes without applying them', false)
+  .option('--transform', 'apply transformations automatically', false)
+  .option('--output <format>', 'output format: table|json|detailed', 'table')
+  .option('-v, --verbose', 'enable verbose logging', false)
+  .option('-j, --json', 'output results as JSON', false)
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { executeDiscriminate } = await import('./cli/commands/discriminate');
+    return withEnvironment((opts) => async (_env) => {
+      await executeDiscriminate(opts);
+    })(options, command);
+  })
+  .addHelpText('after', `
+
+Examples:
+  funcqc discriminate --target-types UserState,OrderStatus
+  funcqc discriminate --dry-run --transform --verbose
+  funcqc discriminate --min-confidence 0.8 --output detailed
+  funcqc discriminate --transform --allow-breaking
+
+Pattern Detection:
+  🏷️  Boolean flags      - status: boolean
+  🔢 Enum discriminants  - type: 'A' | 'B' | 'C'  
+  ⚡ Mutual exclusion   - (propA && !propB) patterns
+  🔄 Correlated props   - properties that change together
+
+Benefits:
+  • Eliminate runtime type checking and branching logic
+  • Provide exhaustive case analysis with TypeScript
+  • Improve type safety and prevent invalid state combinations
+  • Enable better IDE support and refactoring safety
+`);
+
 // Overview command functionality has been integrated into the types command
 
 // Handle unknown commands
