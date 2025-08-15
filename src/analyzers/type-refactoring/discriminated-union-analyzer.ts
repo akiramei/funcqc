@@ -403,9 +403,8 @@ export class DiscriminatedUnionAnalyzer {
    * Generate appropriate case name for union variant
    */
   private generateCaseName(typeName: string, _discriminantName: string, value: string): string {
-    // Convert discriminant value to PascalCase
-    const capitalizedValue = value.charAt(0).toUpperCase() + value.slice(1);
-    return `${typeName}${capitalizedValue}`;
+    const pascal = this.toPascalCaseFromValue(value);
+    return `${typeName}${pascal}`;
   }
 
   /**
@@ -744,6 +743,24 @@ export type ${typeName}Union = ${unionCases.map(c => c.caseName).join(' | ')};`;
   private generateHandlerName(caseName: string): string {
     // Convert PascalCase to camelCase for handler method names
     return caseName.charAt(0).toLowerCase() + caseName.slice(1);
+  }
+
+  /**
+   * Convert a discriminant value to safe PascalCase identifier
+   */
+  private toPascalCaseFromValue(value: string): string {
+    const cleaned = String(value)
+      .replace(/['"\`]/g, '')           // クォート除去
+      .replace(/[^a-zA-Z0-9]+/g, ' ')  // 非英数字を区切りに
+      .trim();
+    const pascal = cleaned
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(s => s.charAt(0).toUpperCase() + s.slice(1))
+      .join('');
+    // 先頭が英字でなければ接頭辞を付与
+    const safe = /^[A-Za-z_]/.test(pascal) ? pascal : `V${pascal}`;
+    return safe || 'Variant';
   }
 
   /**

@@ -6,6 +6,7 @@
  */
 
 import * as ts from 'typescript';
+import * as path from 'path';
 import { existsSync } from 'fs';
 import type { StorageQueryInterface } from '../type-insights/types';
 
@@ -61,8 +62,7 @@ export class TypeCompatibilityChecker {
       exactOptionalPropertyTypes: options.exactOptionalPropertyTypes ?? false,
       checkGenerics: options.checkGenerics ?? true,
       checkFunctionSignatures: options.checkFunctionSignatures ?? true,
-      includeMethodNames: options.includeMethodNames ?? true,
-      ...options
+      includeMethodNames: options.includeMethodNames ?? true
     } as Required<CompatibilityCheckOptions>;
   }
 
@@ -412,8 +412,8 @@ export class TypeCompatibilityChecker {
     // Determine relationship
     if (typeConflicts > 0) return 'disjoint';
     if (missingInTarget === 0 && missingInSource === 0) return 'identical';
-    if (missingInTarget === 0) return 'superset'; // Source has all target properties
-    if (missingInSource === 0) return 'subset';   // Target has all source properties
+    if (missingInTarget === 0) return 'subset';   // Source can be assigned to target
+    if (missingInSource === 0) return 'superset'; // Target can be assigned to source
     return 'overlap';
   }
 
@@ -650,18 +650,22 @@ export class TypeCompatibilityChecker {
    * Find TypeScript configuration file
    */
   private findTsConfig(): string | undefined {
-    const possiblePaths = ['./tsconfig.json', '../tsconfig.json', '../../tsconfig.json'];
-    
-    for (const path of possiblePaths) {
+    const projectRoot = process.cwd();
+    const possiblePaths = [
+      path.join(projectRoot, 'tsconfig.json'),
+      path.join(projectRoot, '..', 'tsconfig.json'),
+    ];
+
+    for (const configPath of possiblePaths) {
       try {
-        if (existsSync(path)) {
-          return path;
+        if (existsSync(configPath)) {
+          return configPath;
         }
       } catch {
         // Continue searching
       }
     }
-    
+
     return undefined;
   }
 }

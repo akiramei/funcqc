@@ -217,17 +217,18 @@ async function applyTransformations(
     attempted++;
     
     try {
+      // TODO: Transformer に実行 API がある場合は DRY RUN: plan / LIVE: apply で分岐
       const transformResult = await transformer.planTransformation(candidate);
       
       if (transformResult.success) {
         successful++;
         if (options.verbose) {
-          console.log(`✅ Transformed ${candidate.typeName}`);
+          console.log(`✅ ${options['dry-run'] ? 'Planned' : 'Transformed'} ${candidate.typeName}`);
         }
       } else {
         failed++;
         if (options.verbose) {
-          console.warn(`⚠️  Failed to transform ${candidate.typeName}: ${transformResult.errors[0]?.message}`);
+          console.warn(`⚠️  ${options['dry-run'] ? 'Planning' : 'Transform'} failed for ${candidate.typeName}: ${transformResult.errors[0]?.message}`);
         }
       }
       
