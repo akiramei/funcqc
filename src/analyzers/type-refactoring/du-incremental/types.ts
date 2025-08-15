@@ -163,6 +163,247 @@ export enum AnalysisPhase {
   TRANSFORMATION = 'transformation'
 }
 
+// =============================================================================
+// PHASE 2: TYPE GENERATION TYPES (B1-B3)
+// =============================================================================
+
+/**
+ * Enhanced DU Plan with type generation information
+ */
+export interface DUTransformationPlan extends DUPlan {
+  // B1: Type Generation Schema
+  typeGeneration: TypeGenerationPlan;
+  
+  // B2: Implementation Steps
+  implementationSteps: ImplementationStep[];
+  
+  // B3: Compatibility & Validation
+  compatibilityInfo: CompatibilityInfo;
+  
+  // Plan metadata
+  planVersion: string;
+  generatedAt: string;
+  estimatedEffort: EffortEstimate;
+}
+
+/**
+ * B1: Type generation configuration and output
+ */
+export interface TypeGenerationPlan {
+  // Generated TypeScript types
+  unionType: GeneratedUnionType;
+  smartConstructors: SmartConstructor[];
+  typeGuards: TypeGuard[];
+  
+  // Migration helpers
+  migrationTypes: MigrationType[];
+  conversionFunctions: ConversionFunction[];
+  
+  // Validation
+  compilationTest: string; // TypeScript code for compilation test
+  exampleUsage: string[];  // Usage examples
+}
+
+/**
+ * Generated discriminated union type definition
+ */
+export interface GeneratedUnionType {
+  typeName: string;
+  discriminantProperty: string;
+  variants: GeneratedVariant[];
+  baseInterface?: string; // Common properties interface
+  typeDefinition: string; // Complete TypeScript type definition
+}
+
+/**
+ * Individual variant in generated union
+ */
+export interface GeneratedVariant {
+  name: string;
+  discriminantValue: string | number | boolean;
+  properties: VariantProperty[];
+  typeDefinition: string; // TypeScript interface for this variant
+  documentation?: string;
+}
+
+/**
+ * Property definition for variant
+ */
+export interface VariantProperty {
+  name: string;
+  type: string;
+  isRequired: boolean;
+  isInherited: boolean; // From base interface
+  documentation?: string;
+  defaultValue?: string;
+}
+
+/**
+ * Smart constructor for creating variant instances
+ */
+export interface SmartConstructor {
+  functionName: string;
+  variantName: string;
+  parameters: ConstructorParameter[];
+  returnType: string;
+  implementation: string; // TypeScript function implementation
+  documentation: string;
+}
+
+/**
+ * Parameter for smart constructor
+ */
+export interface ConstructorParameter {
+  name: string;
+  type: string;
+  isOptional: boolean;
+  defaultValue?: string;
+  documentation?: string;
+}
+
+/**
+ * Type guard function definition
+ */
+export interface TypeGuard {
+  functionName: string;
+  variantName: string;
+  implementation: string; // TypeScript function implementation
+  returnType: string; // e.g., "obj is SuccessResult"
+  documentation: string;
+}
+
+/**
+ * Migration type for gradual transition
+ */
+export interface MigrationType {
+  name: string;
+  purpose: 'legacy-compat' | 'partial-migration' | 'validation';
+  typeDefinition: string;
+  usage: string; // How to use this migration type
+}
+
+/**
+ * Conversion function for data migration
+ */
+export interface ConversionFunction {
+  functionName: string;
+  fromType: string;
+  toType: string;
+  implementation: string;
+  safetyLevel: 'safe' | 'lossy' | 'validation-required';
+  documentation: string;
+}
+
+/**
+ * B2: Implementation step definition
+ */
+export interface ImplementationStep {
+  stepNumber: number;
+  title: string;
+  description: string;
+  category: 'preparation' | 'type-definition' | 'migration' | 'validation' | 'cleanup';
+  
+  // What to do
+  actions: ImplementationAction[];
+  
+  // Verification
+  successCriteria: string[];
+  rollbackInstructions?: string;
+  
+  // Dependencies
+  dependsOn: number[]; // Other step numbers
+  estimatedTime: string; // e.g., "15 minutes"
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+/**
+ * Individual action within implementation step
+ */
+export interface ImplementationAction {
+  type: 'create-file' | 'modify-file' | 'run-command' | 'manual-check';
+  description: string;
+  target?: string; // File path or command
+  content?: string; // File content or detailed instructions
+  automated: boolean; // Can this be automated?
+}
+
+/**
+ * B3: Compatibility and validation information
+ */
+export interface CompatibilityInfo {
+  // Backward compatibility
+  breakingChanges: BreakingChange[];
+  migrationRequired: boolean;
+  
+  // Forward compatibility  
+  extensibilityOptions: string[];
+  futureConsiderations: string[];
+  
+  // Validation
+  validationRules: ValidationRule[];
+  testRequirements: TestRequirement[];
+  
+  // Risk assessment
+  risks: RiskAssessment[];
+  mitigations: string[];
+}
+
+/**
+ * Breaking change description
+ */
+export interface BreakingChange {
+  area: 'type-signature' | 'property-access' | 'function-signature' | 'data-structure';
+  description: string;
+  impact: 'low' | 'medium' | 'high';
+  mitigation: string;
+  affectedFiles: string[];
+}
+
+/**
+ * Validation rule for the transformation
+ */
+export interface ValidationRule {
+  rule: string;
+  description: string;
+  automated: boolean;
+  command?: string; // For automated validation
+}
+
+/**
+ * Test requirement for the transformation
+ */
+export interface TestRequirement {
+  type: 'unit' | 'integration' | 'compilation' | 'runtime';
+  description: string;
+  priority: 'critical' | 'important' | 'nice-to-have';
+  implementation?: string; // Test code or description
+}
+
+/**
+ * Risk assessment for transformation
+ */
+export interface RiskAssessment {
+  risk: string;
+  probability: 'low' | 'medium' | 'high';
+  impact: 'low' | 'medium' | 'high';
+  mitigation: string;
+}
+
+/**
+ * Effort estimation breakdown
+ */
+export interface EffortEstimate {
+  totalTime: string; // e.g., "2-4 hours"
+  complexity: 'simple' | 'moderate' | 'complex';
+  skillLevel: 'junior' | 'mid' | 'senior';
+  breakdown: {
+    planning: string;
+    implementation: string;
+    testing: string;
+    review: string;
+  };
+}
+
 /**
  * Analysis result wrapper with phase information
  */
