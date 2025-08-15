@@ -1,0 +1,55 @@
+
+// Real-world API response handling
+interface ApiResponse {
+  success: boolean;
+  data?: any;
+  error?: string;
+  timestamp: string;
+}
+
+class ApiClient {
+  async fetchUser(id: string): Promise<ApiResponse> {
+    // Simulation
+    return { success: true, data: { id, name: 'John' }, timestamp: new Date().toISOString() };
+  }
+
+  handleResponse(response: ApiResponse): void {
+    if (response.success) {
+      console.log('User data:', response.data);
+      this.processUserData(response.data);
+    } else {
+      console.error('API Error:', response.error);
+      this.handleError(response.error);
+    }
+  }
+
+  async processMultipleRequests(): Promise<void> {
+    const responses = await Promise.all([
+      this.fetchUser('1'),
+      this.fetchUser('2'),
+      this.fetchUser('3')
+    ]);
+
+    responses.forEach(response => {
+      const status = response.success ? 'OK' : 'ERROR';
+      console.log(`Request status: ${status}`);
+      
+      if (response.success) {
+        // Process successful response
+        this.logSuccess(response.data);
+      }
+    });
+  }
+
+  private processUserData(data: any): void {
+    console.log('Processing:', data);
+  }
+
+  private handleError(error?: string): void {
+    console.error('Handling error:', error);
+  }
+
+  private logSuccess(data: any): void {
+    console.log('Success logged:', data);
+  }
+}
