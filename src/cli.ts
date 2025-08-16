@@ -147,6 +147,35 @@ program
   });
 
 program
+  .command('inspect')
+  .description('🔍 Unified function and file inspection (consolidates list, search, files, show)')
+  .option('--type <type>', 'inspection type: functions (default), files', 'functions')
+  .option('-j, --json', 'output as JSON for jq/script processing')
+  .option('--limit <num>', 'limit number of results')
+  .option('--sort <field>', 'sort by field (cc, loc, changes, name, file)')
+  .option('--desc', 'sort in descending order')
+  
+  // Function filters (from list command)
+  .option('--cc-ge <num>', 'filter functions with complexity >= N')
+  .option('--changes-ge <num>', 'filter functions with change count >= N')
+  .option('--file <pattern>', 'filter by file path pattern')
+  .option('--name <pattern>', 'filter by function name pattern')
+  .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
+  
+  // Search-like functionality (simplified for now)
+  // .option('--semantic', 'enable semantic search (local TF-IDF)')
+  // .option('--hybrid', 'enable hybrid search (semantic + keyword + AST)')
+  
+  // Output options
+  .option('--detailed', 'show detailed information for each result (like show command)')
+  
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { inspectCommand } = await import('./cli/commands/inspect');
+    return withEnvironment(inspectCommand)(options, command);
+  });
+
+program
   .command('show')
   .description('Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')

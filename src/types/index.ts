@@ -1258,6 +1258,32 @@ export interface DescribeCommandOptions extends CommandOptions {
   aiMode?: boolean;
 }
 
+export interface InspectCommandOptions extends CommandOptions {
+  type?: 'functions' | 'files'; // Type of inspection (default: functions)
+  json?: boolean; // JSON output for jq/script processing
+  limit?: number; // Limit number of results
+  sort?: string; // Sort by field (cc, loc, changes, name, file)
+  desc?: boolean; // Sort in descending order
+  
+  // Function filters (from list command)
+  ccGe?: number; // Filter functions with complexity >= N
+  changesGe?: number; // Filter by change count
+  file?: string; // Filter by file path pattern
+  name?: string; // Filter/search by function name pattern
+  scope?: string; // Filter by scope
+  
+  // Detail level (unified interface)
+  level?: 'basic' | 'detailed' | 'expert'; // Detail level for output
+  detailed?: boolean; // Show detailed information (like show command)
+  
+  // Show options (from show command)
+  id?: string; // Specific function ID to inspect
+  usage?: boolean; // Show usage information
+  current?: boolean; // Show current metrics (default)
+  history?: boolean; // Show historical data
+  source?: boolean; // Show source code
+}
+
 export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
