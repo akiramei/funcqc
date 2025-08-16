@@ -216,7 +216,7 @@ const COMMAND_GROUPS = {
   
   // Type System: Type information only
   TYPE_SYSTEM_ONLY: {
-    commands: ['types'],
+    commands: ['types', 'du'],
     requires: ['BASIC', 'TYPE_SYSTEM']
   },
   
