@@ -1,6 +1,18 @@
 import { Command } from 'commander';
 import { TypeListOptions, TypeHealthOptions, TypeDepsOptions, TypeApiOptions, TypeMembersOptions, TypeCoverageOptions, TypeClusterOptions, TypeRiskOptions, TypeInsightsOptions, TypeSlicesOptions, TypeSubsumeOptions, TypeFingerprintOptions, TypeConvertersOptions, TypeCochangeOptions, isUuidOrPrefix, escapeLike } from './types.types';
 import type { CochangeAnalysisReport } from '../../types';
+import { 
+  getTypeKindIcon, 
+  getTypeKindText, 
+  getHealthIcon, 
+  getRiskIcon, 
+  getMemberKindIcon, 
+  getAccessModifierIcon 
+} from './types/shared/formatters';
+import { 
+  applyTypeFilters, 
+  type MemberCounts 
+} from './types/shared/filters';
 
 // Types for insights command
 interface AnalysisResults {
@@ -1183,17 +1195,7 @@ interface TypeHealthReport {
 }
 
 
-/**
- * Member count data for each type
- */
-interface MemberCounts {
-  properties: number;
-  methods: number;
-  constructors: number;
-  indexSignatures: number;
-  callSignatures: number;
-  total: number;
-}
+// MemberCounts interface is now imported from shared/filters
 
 /**
  * Get comprehensive member counts for types using type_members table
@@ -1263,171 +1265,7 @@ async function getMemberCountsForTypes(
   return memberCounts;
 }
 
-/**
- * Apply filters to types
- */
-async function applyTypeFilters(
-  types: TypeDefinition[],
-  options: TypeListOptions,
-  memberCounts: Map<string, MemberCounts>
-): Promise<TypeDefinition[]> {
-  let filteredTypes = types;
-  
-  // Basic filters
-  if (options.kind) {
-    const validKinds = ['interface', 'class', 'type_alias', 'enum', 'namespace'] as const;
-    if (!validKinds.includes(options.kind as typeof validKinds[number])) {
-      throw new Error(`Invalid kind: ${options.kind}. Valid options are: ${validKinds.join(', ')}`);
-    }
-    filteredTypes = filteredTypes.filter(t => t.kind === options.kind);
-  }
-  
-  if (options.exported) {
-    filteredTypes = filteredTypes.filter(t => t.isExported);
-  }
-  
-  if (options.generic) {
-    filteredTypes = filteredTypes.filter(t => t.isGeneric);
-  }
-  
-  if (options.file) {
-    const filePath = options.file;
-    filteredTypes = filteredTypes.filter(t => t.filePath.includes(filePath));
-  }
-  
-  if (options.name) {
-    const pattern = options.name.toLowerCase();
-    filteredTypes = filteredTypes.filter(t => t.name.toLowerCase().includes(pattern));
-  }
-  
-  // Helper function to parse and validate count value
-  const parseCountValue = (value: string | undefined, fieldName: string): number => {
-    if (value === undefined) return NaN;
-    const target = Number(value);
-    if (!Number.isFinite(target) || !Number.isInteger(target) || target < 0) {
-      throw new Error(`Invalid count value for ${fieldName}: ${value}. Must be a non-negative integer.`);
-    }
-    return target;
-  };
-
-  // Properties filters
-  const propEq = parseCountValue(options.propEq, '--prop-eq');
-  if (!isNaN(propEq)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) === propEq);
-  }
-  const propGe = parseCountValue(options.propGe, '--prop-ge');
-  if (!isNaN(propGe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) >= propGe);
-  }
-  const propLe = parseCountValue(options.propLe, '--prop-le');
-  if (!isNaN(propLe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) <= propLe);
-  }
-  const propGt = parseCountValue(options.propGt, '--prop-gt');
-  if (!isNaN(propGt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) > propGt);
-  }
-  const propLt = parseCountValue(options.propLt, '--prop-lt');
-  if (!isNaN(propLt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.properties || 0) < propLt);
-  }
-
-  // Methods filters
-  const methEq = parseCountValue(options.methEq, '--meth-eq');
-  if (!isNaN(methEq)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) === methEq);
-  }
-  const methGe = parseCountValue(options.methGe, '--meth-ge');
-  if (!isNaN(methGe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) >= methGe);
-  }
-  const methLe = parseCountValue(options.methLe, '--meth-le');
-  if (!isNaN(methLe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) <= methLe);
-  }
-  const methGt = parseCountValue(options.methGt, '--meth-gt');
-  if (!isNaN(methGt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) > methGt);
-  }
-  const methLt = parseCountValue(options.methLt, '--meth-lt');
-  if (!isNaN(methLt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.methods || 0) < methLt);
-  }
-
-  // Total member filters
-  const totalEq = parseCountValue(options.totalEq, '--total-eq');
-  if (!isNaN(totalEq)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) === totalEq);
-  }
-  const totalGe = parseCountValue(options.totalGe, '--total-ge');
-  if (!isNaN(totalGe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) >= totalGe);
-  }
-  const totalLe = parseCountValue(options.totalLe, '--total-le');
-  if (!isNaN(totalLe)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) <= totalLe);
-  }
-  const totalGt = parseCountValue(options.totalGt, '--total-gt');
-  if (!isNaN(totalGt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) > totalGt);
-  }
-  const totalLt = parseCountValue(options.totalLt, '--total-lt');
-  if (!isNaN(totalLt)) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.total || 0) < totalLt);
-  }
-
-  // Legacy function count filters (methods + constructors for backward compatibility)
-  const fnEq = parseCountValue(options.fnEq, '--fn-eq');
-  if (!isNaN(fnEq)) {
-    filteredTypes = filteredTypes.filter(t => {
-      const memberCount = memberCounts.get(t.id);
-      const functionCount = (memberCount?.methods || 0) + (memberCount?.constructors || 0);
-      return functionCount === fnEq;
-    });
-  }
-  const fnGe = parseCountValue(options.fnGe, '--fn-ge');
-  if (!isNaN(fnGe)) {
-    filteredTypes = filteredTypes.filter(t => {
-      const memberCount = memberCounts.get(t.id);
-      const functionCount = (memberCount?.methods || 0) + (memberCount?.constructors || 0);
-      return functionCount >= fnGe;
-    });
-  }
-  const fnLe = parseCountValue(options.fnLe, '--fn-le');
-  if (!isNaN(fnLe)) {
-    filteredTypes = filteredTypes.filter(t => {
-      const memberCount = memberCounts.get(t.id);
-      const functionCount = (memberCount?.methods || 0) + (memberCount?.constructors || 0);
-      return functionCount <= fnLe;
-    });
-  }
-  const fnGt = parseCountValue(options.fnGt, '--fn-gt');
-  if (!isNaN(fnGt)) {
-    filteredTypes = filteredTypes.filter(t => {
-      const memberCount = memberCounts.get(t.id);
-      const functionCount = (memberCount?.methods || 0) + (memberCount?.constructors || 0);
-      return functionCount > fnGt;
-    });
-  }
-  const fnLt = parseCountValue(options.fnLt, '--fn-lt');
-  if (!isNaN(fnLt)) {
-    filteredTypes = filteredTypes.filter(t => {
-      const memberCount = memberCounts.get(t.id);
-      const functionCount = (memberCount?.methods || 0) + (memberCount?.constructors || 0);
-      return functionCount < fnLt;
-    });
-  }
-
-  // Special filters
-  if (options.hasIndex) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.indexSignatures || 0) > 0);
-  }
-  if (options.hasCall) {
-    filteredTypes = filteredTypes.filter(t => (memberCounts.get(t.id)?.callSignatures || 0) > 0);
-  }
-  
-  return filteredTypes;
-}
+// applyTypeFilters function is now imported from shared/filters
 
 /**
  * Sort types by field
@@ -2027,37 +1865,7 @@ function displayDependenciesDB(typeName: string, dependencies: Array<{ source: s
   }
 }
 
-function getTypeKindIcon(kind: string): string {
-  switch (kind) {
-    case 'interface': return '🔗';
-    case 'class': return '🏗️';
-    case 'type_alias': return '🏷️';
-    case 'enum': return '🔢';
-    case 'namespace': return '📦';
-    default: return '❓';
-  }
-}
-
-function getTypeKindText(kind: string): string {
-  switch (kind) {
-    case 'interface': return 'INTF';
-    case 'class': return 'CLSS';
-    case 'type_alias': return 'TYPE';
-    case 'enum': return 'ENUM';
-    case 'namespace': return 'NSPC';
-    default: return 'UNKN';
-  }
-}
-
-function getHealthIcon(health: string): string {
-  switch (health) {
-    case 'EXCELLENT': return '🌟';
-    case 'GOOD': return '✅';
-    case 'FAIR': return '⚠️';
-    case 'POOR': return '❌';
-    default: return '❓';
-  }
-}
+// Formatter functions are now imported from shared/formatters
 
 // New analysis functions for enhanced type commands
 
@@ -2308,27 +2116,7 @@ function displayTypeMembersAnalysis(typeName: string, members: TypeMemberDetail[
   }
 }
 
-function getMemberKindIcon(kind: string): string {
-  switch (kind) {
-    case 'property': return '🏷️';
-    case 'method': return '⚡';
-    case 'constructor': return '🏗️';
-    case 'getter': return '📤';
-    case 'setter': return '📥';
-    case 'index_signature': return '🔍';
-    case 'call_signature': return '📞';
-    default: return '❓';
-  }
-}
-
-function getAccessModifierIcon(modifier: string | null): string {
-  switch (modifier) {
-    case 'public': return '🌐';
-    case 'protected': return '🛡️';
-    case 'private': return '🔒';
-    default: return '📋';
-  }
-}
+// getMemberKindIcon and getAccessModifierIcon functions are now imported from shared/formatters
 
 /**
  * Format integrated insights report combining all analyses
@@ -2469,15 +2257,7 @@ function formatIntegratedInsightsReport(insights: InsightsReport): string {
   return lines.join('\n');
 }
 
-function getRiskIcon(risk: string): string {
-  switch (risk) {
-    case 'CRITICAL': return '🚨';
-    case 'HIGH': return '⚠️';
-    case 'MEDIUM': return '⚡';
-    case 'LOW': return '✅';
-    default: return '❓';
-  }
-}
+// getRiskIcon function is now imported from shared/formatters
 
 /**
  * Execute types slices command using database
