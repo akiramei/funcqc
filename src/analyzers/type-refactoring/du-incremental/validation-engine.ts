@@ -289,18 +289,21 @@ export class ValidationEngine {
       const [command, ...commandArgs] = args;
       
       const child = spawn(command, commandArgs, {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        timeout: timeoutMs
+        stdio: ['ignore', 'pipe', 'pipe']
       });
 
       let stdout = '';
       let stderr = '';
       const maxOutputSize = 1024 * 1024; // 1MB limit
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch {}
+        reject(new Error(`Command timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
 
       child.stdout?.on('data', (data) => {
         stdout += data.toString();
         if (stdout.length > maxOutputSize) {
-          child.kill();
+          try { child.kill(); } catch {}
           reject(new Error('Output size limit exceeded'));
         }
       });
@@ -308,12 +311,13 @@ export class ValidationEngine {
       child.stderr?.on('data', (data) => {
         stderr += data.toString();
         if (stderr.length > maxOutputSize) {
-          child.kill();
+          try { child.kill(); } catch {}
           reject(new Error('Error output size limit exceeded'));
         }
       });
 
       child.on('close', (code) => {
+        clearTimeout(timer);
         if (code === 0) {
           resolve(stdout);
         } else {
@@ -325,6 +329,7 @@ export class ValidationEngine {
       });
 
       child.on('error', (error) => {
+        clearTimeout(timer);
         reject(error);
       });
     });

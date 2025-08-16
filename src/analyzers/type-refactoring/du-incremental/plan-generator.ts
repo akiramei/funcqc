@@ -146,12 +146,12 @@ export class DUPlanGenerator {
       discriminantValue: variant.tag,
       properties: [...new Set(variant.required)].map(propName => ({
         name: propName,
-        type: this.inferPropertyType(propName, variant.tag),
+        type: this.inferPropertyType(propName, duPlan.discriminant, variant.tag),
         isRequired: true,
         isInherited: false,
         documentation: `Property for ${variant.tag} variant`
       })),
-      typeDefinition: this.generateVariantTypeDefinition(duPlan.typeName, variant, index),
+      typeDefinition: this.generateVariantTypeDefinition(duPlan.typeName, variant, index, duPlan.discriminant),
       documentation: `Variant for ${duPlan.discriminant} = ${variant.tag}`
     }));
 
@@ -223,16 +223,22 @@ export class DUPlanGenerator {
   /**
    * Infer TypeScript type for a property
    */
-  private inferPropertyType(propName: string, discriminantValue: string | number | boolean): string {
+  private inferPropertyType(
+    propName: string,
+    discriminantPropName: string,
+    discriminantValue: string | number | boolean
+  ): string {
     // Simple type inference - can be enhanced later
+    if (propName === discriminantPropName) {
+      return typeof discriminantValue === 'string'
+        ? `'${discriminantValue}'`
+        : String(discriminantValue);
+    }
     if (propName === 'success' || propName.startsWith('is') || propName.endsWith('ed')) {
       return 'boolean';
     }
     if (propName.includes('count') || propName.includes('index') || propName.includes('id')) {
       return 'number';
-    }
-    if (propName === discriminantValue) {
-      return typeof discriminantValue === 'string' ? `'${discriminantValue}'` : String(discriminantValue);
     }
     return 'string'; // Default fallback
   }
@@ -240,15 +246,20 @@ export class DUPlanGenerator {
   /**
    * Generate TypeScript interface for a single variant
    */
-  private generateVariantTypeDefinition(typeName: string, variant: import('./types').DUVariant, index: number): string {
+  private generateVariantTypeDefinition(
+    typeName: string, 
+    variant: import('./types').DUVariant, 
+    index: number,
+    discriminant: string
+  ): string {
     const variantName = this.generateVariantName(typeName, variant.tag, index);
     
     const properties = [...new Set(variant.required)].map(propName => {
-      const type = this.inferPropertyType(propName, variant.tag);
+      const type = this.inferPropertyType(propName, discriminant, variant.tag);
       return `  ${propName}: ${type};`;
     }).join('\n');
 
-    return `interface ${variantName}${typeName} {
+    return `export interface ${variantName}${typeName} {
 ${properties}
 }`;
   }

@@ -22,14 +22,17 @@ export class CodeTransformer {
 
   constructor(options: TransformationOptions) {
     this.options = options;
-    // Initialize AST transformer for enhanced transformations
-    this.initializeAstTransformer();
   }
 
   /**
-   * Initialize AST transformer with tsconfig detection
+   * Initialize AST transformer with tsconfig detection (idempotent)
    */
   private async initializeAstTransformer(): Promise<void> {
+    // Idempotent - only initialize once
+    if (this.astTransformer) {
+      return;
+    }
+
     try {
       const tsConfigPath = await this.findTsConfigPath();
       this.astTransformer = new AstTransformer(tsConfigPath, this.options.verboseLogging);
@@ -52,12 +55,15 @@ export class CodeTransformer {
     const fs = await import('fs');
     
     let currentDir = process.cwd();
-    while (currentDir !== '/') {
+    const root = path.parse(currentDir).root;
+    while (true) {
       const tsConfigPath = path.join(currentDir, 'tsconfig.json');
       if (fs.existsSync(tsConfigPath)) {
         return tsConfigPath;
       }
-      currentDir = path.dirname(currentDir);
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir || currentDir === root) break;
+      currentDir = parent;
     }
     
     return undefined;
@@ -123,9 +129,14 @@ export class CodeTransformer {
    * Transform a single file with multiple plans
    */
   private async transformFile(filePath: string, plans: TransformationPlan[]): Promise<TransformationResult> {
-    // Try AST-based transformation first
-    if (this.astTransformer && this.shouldUseAstTransformation(plans)) {
-      return await this.transformFileWithAst(filePath, plans);
+    // Try AST-based transformation first (lazy init)
+    if (this.shouldUseAstTransformation(plans)) {
+      if (!this.astTransformer) {
+        await this.initializeAstTransformer();
+      }
+      if (this.astTransformer) {
+        return await this.transformFileWithAst(filePath, plans);
+      }
     }
     
     // Fall back to string-based transformation
@@ -295,23 +306,19 @@ export class CodeTransformer {
   private applyTransformation(content: string, plan: TransformationPlan): string {
     const lines = content.split('\n');
     const startLine = plan.pattern.location.startLine - 1; // Convert to 0-based
-
-    // Simple replacement strategy for Phase 4 start
-    // In a full implementation, this would use AST-based transformation
-    
     if (startLine < 0 || startLine >= lines.length) {
       throw new Error(`Invalid line number: ${startLine + 1}`);
     }
 
     const originalLine = lines[startLine];
-    const originalCode = plan.pattern.originalCode;
-
-    // Replace the specific pattern in the line
-    if (originalLine.includes(originalCode)) {
-      lines[startLine] = originalLine.replace(originalCode, plan.newCode);
-    } else {
-      throw new Error(`Pattern not found in line: "${originalCode}"`);
+    const startCol = Math.max(0, plan.pattern.location.startColumn - 1);
+    const endCol = Math.max(startCol, plan.pattern.location.endColumn - 1);
+    if (endCol > originalLine.length) {
+      throw new Error(`Invalid column range: ${startCol + 1}-${endCol + 1}`);
     }
+    const before = originalLine.slice(0, startCol);
+    const after = originalLine.slice(endCol);
+    lines[startLine] = `${before}${plan.newCode}${after}`;
 
     return lines.join('\n');
   }

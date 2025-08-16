@@ -281,7 +281,10 @@ export class UsagePatternDetector {
    * Create basic transformation plan (simplified for Phase 4 start)
    */
   private createBasicTransformationPlan(pattern: UsagePattern, duPlan: DUPlan): import('./transformation-types').TransformationPlan {
-    const typeGuardName = `is${this.capitalize(duPlan.variants[0]?.tag?.toString() || 'Valid')}${duPlan.typeName}`;
+    const rawTag = duPlan.variants[0]?.tag;
+    const safeTagPart = this.sanitizeIdentifier(String(rawTag ?? 'Valid'));
+    const typeGuardName = `is${safeTagPart}${duPlan.typeName}`;
+    const guardsModule = this.options.guardsModulePath || './type-guards';
     
     return {
       pattern,
@@ -290,7 +293,7 @@ export class UsagePatternDetector {
       // NOTE: Use placeholder instead of direct string substitution
       // Actual transformation is performed by AST-based transformer
       newCode: `/* TODO: add guard */ ${typeGuardName}(/* value */) && (${pattern.originalCode})`,
-      dependencies: [`${typeGuardName} from './path/to/type-guards'`],
+      dependencies: [`${typeGuardName} from '${guardsModule}'`],
       riskLevel: pattern.confidence >= 0.9 ? 'low' : 'medium',
       validationSteps: [
         {
@@ -301,6 +304,19 @@ export class UsagePatternDetector {
         }
       ]
     };
+  }
+
+  /**
+   * Sanitize identifier for safe TypeScript usage
+   */
+  private sanitizeIdentifier(raw: string): string {
+    // Remove non-identifier characters
+    let id = String(raw).replace(/[^\p{L}\p{N}_$]/gu, '');
+    // Ensure it starts with a letter, underscore, or dollar sign
+    if (!/^[A-Za-z_$]/.test(id)) {
+      id = `Variant${id}`;
+    }
+    return this.capitalize(id);
   }
 
   /**
