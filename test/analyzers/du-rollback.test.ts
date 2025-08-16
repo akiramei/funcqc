@@ -258,7 +258,7 @@ function isTag(item: Item): boolean {
         transformers.push(trans);
         
         // Attempt transformation that will fail due to syntax error injection
-        const syntaxErrorContent = validContent.replace('{', '{ SYNTAX_ERROR ');
+        const syntaxErrorContent = validContent.replace(/\{/g, '{ SYNTAX_ERROR ');
         await fs.writeFile(testFilePath, syntaxErrorContent);
         
         const result = await trans.transformFile(testFilePath, (sourceFile, astTransformer) => {

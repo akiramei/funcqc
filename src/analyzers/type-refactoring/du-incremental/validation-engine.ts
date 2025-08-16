@@ -266,12 +266,19 @@ export class ValidationEngine {
       return ['npx', ...args];
     }
     if (command.startsWith('npm ')) {
-      const args = command.split(' ');
+      // npm commands need special handling for -- arguments
+      const args = command.split(' ').filter(arg => arg.length > 0);
       return args;
     }
-    
-    // Default: split by spaces (basic parsing)
-    return command.split(' ').filter(arg => arg.length > 0);
+
+    // Basic parsing with quote handling
+    const args: string[] = [];
+    const regex = /[^\s"']+|"([^"]*)"|'([^']*)'/g;
+    let match;
+    while ((match = regex.exec(command)) !== null) {
+      args.push(match[1] || match[2] || match[0]);
+    }
+    return args.filter(arg => arg.length > 0);
   }
 
   /**

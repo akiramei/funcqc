@@ -111,6 +111,9 @@ export interface TransformationOptions {
   // Output preferences
   generateReport: boolean;
   verboseLogging: boolean;
+  
+  // Module paths
+  guardsModulePath?: string;
 }
 
 /**

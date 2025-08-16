@@ -63,16 +63,18 @@ export class UsagePatternDetector {
    * Find tsconfig.json following core/analyzer pattern
    */
   private async findTsConfigPath(): Promise<string | undefined> {
-    // Search in parent directories (same logic as core/analyzer)
+    // Search upward until filesystem root (cross-platform)
     let currentDir = process.cwd();
-    while (currentDir !== '/') {
+    const root = path.parse(currentDir).root;
+    while (true) {
       const tsConfigPath = path.join(currentDir, 'tsconfig.json');
       if (fs.existsSync(tsConfigPath)) {
         return tsConfigPath;
       }
-      currentDir = path.dirname(currentDir);
+      const parent = path.dirname(currentDir);
+      if (parent === currentDir || currentDir === root) break;
+      currentDir = parent;
     }
-    
     return undefined;
   }
 
@@ -285,10 +287,9 @@ export class UsagePatternDetector {
       pattern,
       targetType: duPlan.typeName,
       transformationType: 'add-type-guard',
-      newCode: pattern.originalCode.replace(
-        new RegExp(`\\.${pattern.discriminantProperty}`),
-        ` && ${typeGuardName}(obj)`
-      ),
+      // NOTE: Use placeholder instead of direct string substitution
+      // Actual transformation is performed by AST-based transformer
+      newCode: `/* TODO: add guard */ ${typeGuardName}(/* value */) && (${pattern.originalCode})`,
       dependencies: [`${typeGuardName} from './path/to/type-guards'`],
       riskLevel: pattern.confidence >= 0.9 ? 'low' : 'medium',
       validationSteps: [
@@ -301,6 +302,11 @@ export class UsagePatternDetector {
       ]
     };
   }
+
+  /**
+   * TODO: Implement proper regex-based pattern matching when needed
+   * For now, using AST-based detection which is more reliable
+   */
 
   /**
    * Estimate effort for transformations

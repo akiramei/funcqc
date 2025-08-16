@@ -539,8 +539,11 @@ export class DUIncrementalDetector {
       }
     }
 
-    // Calculate φ coefficient (simplified)
+    // Calculate Jaccard index
     const jaccardIndex = totalCount > 0 ? cooccurrenceCount / totalCount : 0;
+    
+    // TODO: Implement proper φ coefficient calculation using 2x2 contingency table
+    // For now, use a simplified approximation
     const phiCoefficient = jaccardIndex > 0.8 ? 1 : jaccardIndex < 0.2 ? -1 : 0;
 
     const relationshipType: FlagCorrelation['relationshipType'] = 

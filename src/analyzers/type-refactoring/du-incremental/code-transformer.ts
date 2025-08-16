@@ -171,7 +171,7 @@ export class CodeTransformer {
     try {
       // Extract discriminant from first plan (assuming all plans for same file use same discriminant)
       const discriminant = plans[0].pattern.discriminantProperty;
-      const guardsModule = './type-guards'; // TODO: Make configurable
+      const guardsModule = this.options.guardsModulePath || './type-guards';
 
       // Apply AST transformation
       const astResult = await this.astTransformer.transformFile(

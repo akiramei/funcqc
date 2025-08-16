@@ -260,15 +260,15 @@ function getActionLabel(action: Action): string {
   describe('Error Handling and Rollback', () => {
     it('should handle invalid transformations and rollback gracefully', async () => {
       const invalidContent = `
-// This content has syntax errors that should cause rollback
 interface Broken {
-  kind: 'test'  // Missing semicolon
-  data: string
+  kind: 'test';
+  data: string;
 }
 
 function broken(item: Broken) {
-  if (item.kind === 'test' {  // Missing closing parenthesis
-    return 'broken';
+  // Valid syntax but will create unresolved import after transformation
+  if (item.kind === 'test') {
+    return 'ok';
   }
 }
 `;
@@ -284,7 +284,7 @@ function broken(item: Broken) {
         return astTransformer.applySimpleGuardReplacement(sourceFile, 'kind', './guards');
       });
 
-      // Should fail due to syntax errors
+      // Should fail due to unresolved import (guards module not present)
       expect(result.applied).toBe(0);
       expect(result.saved).toBe(false);
       expect(result.errors).toBeDefined();

@@ -193,7 +193,7 @@ export class DUPlanGenerator {
       'boolean', 'constructor', 'declare', 'get', 'implements', 'interface',
       'is', 'keyof', 'let', 'module', 'namespace', 'never', 'number', 'object',
       'of', 'readonly', 'require', 'set', 'string', 'symbol', 'type', 'undefined',
-      'unique', 'unknown', 'from', 'global', 'bigint', 'of'
+      'unique', 'unknown', 'from', 'global', 'bigint'
     ]);
 
     // Start with the original value
@@ -593,8 +593,8 @@ import type { ${typeGeneration.unionType.typeName} } from '../types/${typeGenera
     // Add smart constructors
     if (typeGeneration.smartConstructors.length > 0) {
       content += '// Smart Constructors\n';
-      typeGeneration.smartConstructors.forEach(constructor => {
-        content += `${constructor.implementation}\n\n`;
+      typeGeneration.smartConstructors.forEach(smartConstructor => {
+        content += `${smartConstructor.implementation}\n\n`;
       });
     }
 

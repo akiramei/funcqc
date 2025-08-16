@@ -18,7 +18,8 @@ import {
   IndentationText,
   SwitchStatement,
   CaseClause,
-  DefaultClause
+  DefaultClause,
+  Statement
 } from 'ts-morph';
 
 /**
@@ -595,7 +596,7 @@ export class AstTransformer {
   /**
    * Generate body text from case statements
    */
-  private generateCaseBody(statements: any[]): string {
+  private generateCaseBody(statements: Statement[]): string {
     if (statements.length === 0) {
       return '  // Empty case';
     }
