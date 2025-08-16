@@ -176,6 +176,44 @@ program
   });
 
 program
+  .command('measure')
+  .description('📊 Unified measurement command (consolidates scan + analyze functionality)')
+  .option('--label <text>', 'label for this measurement snapshot')
+  .option('--comment <text>', 'comment for measurement configuration changes')
+  .option('--scope <name>', 'measurement scope (src, test, all, or custom scope)')
+  .option('-j, --json', 'output measurement results as JSON')
+  
+  // Measurement level (unified approach)
+  .option('--level <level>', 'measurement level: quick, basic, standard, deep, complete')
+  
+  // Specific analysis types
+  .option('--call-graph', 'include call graph analysis')
+  .option('--types', 'include TypeScript type system analysis') 
+  .option('--coupling', 'include coupling analysis')
+  
+  // Quality and performance options
+  .option('--realtime-gate', 'enable real-time quality gate')
+  .option('--async', 'run heavy analyses in background')
+  .option('--force', 'force measurement even if snapshot exists')
+  
+  // Output control
+  .option('--verbose', 'detailed progress output')
+  .option('--quiet', 'minimal output')
+  
+  // Compatibility aliases (for transition)
+  .option('--full', 'alias for --level complete')
+  .option('--with-basic', 'alias for --level basic')
+  .option('--with-graph', 'alias for --call-graph')
+  .option('--with-types', 'alias for --types')
+  .option('--with-coupling', 'alias for --coupling')
+  
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { measureCommand } = await import('./cli/commands/measure');
+    return withEnvironment(measureCommand)(options, command);
+  });
+
+program
   .command('show')
   .description('Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')

@@ -1284,6 +1284,38 @@ export interface InspectCommandOptions extends CommandOptions {
   source?: boolean; // Show source code
 }
 
+export interface MeasureCommandOptions extends CommandOptions {
+  // Core measurement options
+  label?: string; // Label for the measurement snapshot
+  comment?: string; // Comment for measurement changes
+  scope?: string; // Measurement scope (src, test, all, or custom scope)
+  json?: boolean; // JSON output for script processing
+  
+  // Measurement level (unified scan + analyze)
+  level?: 'quick' | 'basic' | 'standard' | 'deep' | 'complete'; // Measurement depth
+  
+  // Specific analysis types (from analyze command)
+  callGraph?: boolean; // Include call graph analysis
+  types?: boolean; // Include TypeScript type system analysis
+  coupling?: boolean; // Include coupling analysis
+  
+  // Quality and performance options
+  realtimeGate?: boolean; // Enable real-time quality gate
+  async?: boolean; // Run heavy analyses in background
+  force?: boolean; // Force measurement even if snapshot exists
+  
+  // Output and verbosity
+  verbose?: boolean; // Detailed progress output
+  quiet?: boolean; // Minimal output
+  
+  // Compatibility aliases (for transition from scan/analyze)
+  full?: boolean; // Alias for level=complete
+  withBasic?: boolean; // Alias for level=basic
+  withGraph?: boolean; // Alias for callGraph=true
+  withTypes?: boolean; // Alias for types=true
+  withCoupling?: boolean; // Alias for coupling=true
+}
+
 export interface SearchCommandOptions extends CommandOptions {
   format?: 'table' | 'json' | 'friendly';
   limit?: string;
