@@ -344,6 +344,14 @@ export class UsagePatternDetector {
    * Clean up resources
    */
   dispose(): void {
-    // ts-morph cleanup if needed
+    if (this.project) {
+      try {
+        // ts-morph Project のメモリを解放
+        // Note: ts-morph doesn't have explicit disposal, but we clear the reference
+        (this.project as Project | undefined) = undefined;
+      } catch (error) {
+        // Ignore cleanup errors in dispose
+      }
+    }
   }
 }

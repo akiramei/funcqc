@@ -270,7 +270,7 @@ ${properties}
   private generateUnionTypeDefinition(duPlan: DUPlan, variants: import('./types').GeneratedVariant[]): string {
     const variantTypes = variants.map(v => `${v.name}${duPlan.typeName}`).join(' | ');
     
-    return `type ${duPlan.typeName} = ${variantTypes};`;
+    return `export type ${duPlan.typeName} = ${variantTypes};`;
   }
 
   /**
