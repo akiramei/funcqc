@@ -301,10 +301,17 @@ ${unionType.variants.map(v =>
    */
   private generateExampleUsage(unionType: import('./types').GeneratedUnionType): string[] {
     return unionType.variants.map(variant => {
-      const props = variant.properties.map(p => 
-        `${p.name}: ${this.generateExampleValue(p.type)}`
-      ).join(', ');
-      
+      const discriminantProp = unionType.discriminantProperty;
+      const discriminantLiteral = typeof variant.discriminantValue === 'string'
+        ? `'${variant.discriminantValue}'`
+        : String(variant.discriminantValue);
+      const props = [
+        `${discriminantProp}: ${discriminantLiteral}`,
+        ...variant.properties
+          .filter(p => p.name !== discriminantProp)
+          .map(p => `${p.name}: ${this.generateExampleValue(p.type)}`)
+      ].join(', ');
+
       return `const example${variant.name}: ${unionType.typeName} = { ${props} };`;
     });
   }
@@ -343,7 +350,7 @@ ${unionType.variants.map(v =>
         ...parameters.map(p => `${p.name}`)
       ].join(',\n    ');
 
-      const implementation = `function ${functionName}(${paramList}): ${unionType.typeName} {
+      const implementation = `export function ${functionName}(${paramList}): ${unionType.typeName} {
   return {
     ${propAssignments}
   };
@@ -372,7 +379,7 @@ ${unionType.variants.map(v =>
         ? `obj.${unionType.discriminantProperty} === '${variant.discriminantValue}'`
         : `obj.${unionType.discriminantProperty} === ${variant.discriminantValue}`;
 
-      const implementation = `function ${functionName}(obj: ${unionType.typeName}): ${returnType} {
+      const implementation = `export function ${functionName}(obj: ${unionType.typeName}): ${returnType} {
   return ${discriminantCheck};
 }`;
 
