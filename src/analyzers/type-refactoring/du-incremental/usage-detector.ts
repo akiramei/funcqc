@@ -344,14 +344,18 @@ export class UsagePatternDetector {
    * Clean up resources
    */
   dispose(): void {
-    if (this.project) {
-      try {
-        // ts-morph Project のメモリを解放
-        // Note: ts-morph doesn't have explicit disposal, but we clear the reference
-        (this.project as Project | undefined) = undefined;
-      } catch (error) {
-        // Ignore cleanup errors in dispose
+    try {
+      if (this.project) {
+        // Release AST references held by source files to aid GC
+        for (const sf of this.project.getSourceFiles()) {
+          sf.forget();
+        }
+        // Clear the project reference using unknown type bypass for strict optional property types
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (this.project as any) = undefined;
       }
+    } catch {
+      // Ignore cleanup errors in dispose
     }
   }
 }
