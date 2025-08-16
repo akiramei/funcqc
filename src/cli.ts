@@ -214,6 +214,37 @@ program
   });
 
 program
+  .command('improve')
+  .description('🔧 Unified code improvement command (consolidates similar, refactor-guard, safe-delete)')
+  .option('--type <type>', 'improvement type: duplicates, safety, dead-code (default: comprehensive)')
+  .option('-j, --json', 'output results as JSON for script processing')
+  .option('--auto-apply', 'automatically apply safe improvements')
+  .option('--threshold <value>', 'similarity threshold for duplicate detection (0-1, default: 0.85)')
+  .option('--risky', 'include risky improvements in analysis')
+  .option('--preview', 'preview changes before applying')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { improveCommand } = await import('./cli/commands/improve');
+    return withEnvironment(improveCommand)(options, command);
+  });
+
+program
+  .command('assess')
+  .description('📊 Unified quality assessment command (consolidates health, evaluate, types health)')
+  .option('--type <type>', 'assessment type: health, quality, types (default: comprehensive)')
+  .option('-j, --json', 'output results as JSON for script processing')
+  .option('--trend', 'show trend analysis')
+  .option('--risks', 'show detailed risk assessment')
+  .option('--scope <name>', 'assessment scope (src, test, all, or custom scope)')
+  .option('--baseline <snapshot>', 'baseline snapshot for comparison')
+  .option('--threshold <value>', 'quality threshold for pass/fail determination')
+  .action(async (options: OptionValues, command) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { assessCommand } = await import('./cli/commands/assess');
+    return withEnvironment(assessCommand)(options, command);
+  });
+
+program
   .command('show')
   .description('Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')

@@ -1322,14 +1322,25 @@ export interface SearchCommandOptions extends CommandOptions {
   json?: boolean;
   semantic?: boolean; // Enable semantic search using local embeddings
   threshold?: string; // Similarity threshold (0-1) for semantic search
-  hybrid?: boolean; // Use hybrid search (keyword + semantic + AST)
-  hybridWeight?: string; // Weight for semantic vs keyword (0-1, default 0.5)
-  showSimilarity?: boolean; // Show similarity scores in results
-  minSimilarity?: string; // Minimum similarity score to include results
-  aiHints?: string; // JSON string with AI hints for enhanced search
-  similarityWeights?: string; // JSON string with similarity algorithm weights
-  contextFunctions?: string; // Comma-separated list of context function IDs
-  intermediate?: boolean; // Output intermediate results for AI analysis
+}
+
+export interface ImproveCommandOptions extends CommandOptions {
+  type?: 'duplicates' | 'safety' | 'dead-code'; // Type of improvement (default: show all options)
+  json?: boolean; // JSON output for script processing
+  autoApply?: boolean; // Automatically apply safe improvements
+  threshold?: string; // Similarity threshold for duplicate detection
+  risky?: boolean; // Include risky improvements
+  preview?: boolean; // Preview changes before applying
+}
+
+export interface AssessCommandOptions extends CommandOptions {
+  type?: 'health' | 'quality' | 'types'; // Type of assessment (default: comprehensive)
+  json?: boolean; // JSON output for script processing
+  trend?: boolean; // Show trend analysis
+  risks?: boolean; // Show detailed risk assessment
+  scope?: string; // Assessment scope (src, test, all, or custom scope)
+  baseline?: string; // Baseline snapshot for comparison
+  threshold?: string; // Quality threshold for pass/fail determination
 }
 
 
