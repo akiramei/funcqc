@@ -38,12 +38,11 @@ export const measureCommand: VoidCommand<MeasureCommandOptions> = (options) =>
 
       if (!options.quiet) {
         env.commandLogger.log('✅ Comprehensive measurement completed successfully!');
-        
-        if (options.json) {
-          await outputMeasurementResults(env, options);
-        } else {
-          await displayMeasurementSummary(env, options);
-        }
+      }
+      if (options.json) {
+        await outputMeasurementResults(env, options);
+      } else if (!options.quiet) {
+        await displayMeasurementSummary(env, options);
       }
 
     } catch (error) {

@@ -6,7 +6,7 @@
 import { FunctionInfo, QualityMetrics, AssessCommandOptions } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
-import { StructuralMetrics, StructuralAnomaly } from '../../../utils/structural-analyzer';
+import { StructuralAnalyzer, StructuralMetrics, StructuralAnomaly } from '../../../utils/structural-analyzer';
 import { QualityAssessment, QualityViolation } from '../../../core/realtime-quality-gate';
 import { 
   DynamicWeightConfig, 
@@ -115,8 +115,12 @@ export interface RiskDistribution {
  */
 export class AdvancedEvaluator {
   private dynamicWeightCalculator?: DynamicWeightCalculator;
+  private structuralAnalyzer: StructuralAnalyzer; // TODO: Integrate structural analysis
 
   constructor(private options: AssessCommandOptions, private env: CommandEnvironment) {
+    this.structuralAnalyzer = new StructuralAnalyzer();
+    // TODO: Integrate structural analysis functionality
+    void this.structuralAnalyzer; // Prevent unused variable error
     
     // Initialize dynamic weight calculator if dynamic mode is enabled
     if (options.mode === 'dynamic') {

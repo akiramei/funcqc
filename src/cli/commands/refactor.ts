@@ -206,7 +206,7 @@ async function executeCanonicalize(env: CommandEnvironment, options: RefactorCom
       snapshot: options.snapshot,
       'min-support': options.minSupport,
       'min-confidence': options.minConfidence,
-      'include-behavioral': options.includeBehavioral2,
+      'include-behavioral': options.canonicalizeBehavioral,
       'generate-codemod': options.generateCodemod,
       'require-minimal-impact': options.requireMinimalImpact,
       'preserve-optionality': options.preserveOptionality,

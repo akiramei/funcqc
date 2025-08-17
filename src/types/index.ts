@@ -1262,6 +1262,7 @@ export interface DescribeCommandOptions extends CommandOptions {
   aiMode?: boolean;
 }
 
+
 export interface InspectCommandOptions extends CommandOptions {
   type?: 'functions' | 'files'; // Type of inspection (default: functions)
   json?: boolean; // JSON output for jq/script processing
@@ -1546,7 +1547,7 @@ export interface RefactorCommandOptions extends CommandOptions {
   transform?: boolean; // Apply transformations automatically
   
   // Canonicalize action options (DTO canonicalization)
-  includeBehavioral2?: boolean; // Include behavioral analysis (renamed to avoid conflict)
+  canonicalizeBehavioral?: boolean; // Include behavioral analysis for canonicalization
   generateCodemod?: boolean; // Generate codemod actions
   requireMinimalImpact?: boolean; // Only suggest low-impact changes
   preserveOptionality?: boolean; // Preserve optional property differences
