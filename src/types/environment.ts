@@ -28,5 +28,6 @@ export interface CallGraphData {
  */
 export interface CommandEnvironment extends AppEnvironment {
   commandLogger: Logger;
+  advancedAssessmentResult?: Record<string, unknown>; // For storing assessment results between commands
   callGraphData?: CallGraphData; // Available for commands that require call graph analysis
 }

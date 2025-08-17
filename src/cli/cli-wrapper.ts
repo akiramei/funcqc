@@ -373,24 +373,24 @@ function determineUnifiedInitRequirements(command: string, options: Record<strin
   // New unified commands use dynamic initialization
   switch (command) {
     case 'measure':
-      if (options.history) return []; // History display is lightweight
-      if (options.level === 'quick') return ['BASIC']; 
-      if (options.level === 'standard') return ['BASIC', 'CALL_GRAPH'];
-      if (options.level === 'deep' || options.level === 'complete') {
+      if (options['history']) return []; // History display is lightweight
+      if (options['level'] === 'quick') return ['BASIC']; 
+      if (options['level'] === 'standard') return ['BASIC', 'CALL_GRAPH'];
+      if (options['level'] === 'deep' || options['level'] === 'complete') {
         return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
       }
       // Default: basic measurement
       return ['BASIC'];
       
     case 'assess':
-      if (options.quick) return ['BASIC'];
-      if (options.type === 'health') return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
-      if (options.type === 'quality') return ['BASIC'];
+      if (options['quick']) return ['BASIC'];
+      if (options['type'] === 'health') return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
+      if (options['type'] === 'quality') return ['BASIC'];
       // Default: comprehensive assessment
       return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
       
     case 'improve':
-      if (options.action === 'dead-code' || options.action === 'antipattern') {
+      if (options['action'] === 'dead-code' || options['action'] === 'antipattern') {
         return ['CALL_GRAPH'];
       }
       // Default: basic improvement (dedupe, debug-code)
@@ -398,9 +398,9 @@ function determineUnifiedInitRequirements(command: string, options: Record<strin
       
     case 'dependencies':
       // Most dependency analysis requires call graph data
-      if (options.action === 'stats' || options.action === 'lint' || 
-          options.action === 'dead' || options.action === 'cycles' ||
-          options.action === 'show' || options.action === 'list') {
+      if (options['action'] === 'stats' || options['action'] === 'lint' || 
+          options['action'] === 'dead' || options['action'] === 'cycles' ||
+          options['action'] === 'show' || options['action'] === 'list') {
         return ['BASIC', 'CALL_GRAPH'];
       }
       // Default overview needs basic data
@@ -408,7 +408,7 @@ function determineUnifiedInitRequirements(command: string, options: Record<strin
       
     case 'refactor':
       // Most refactoring operations need type information
-      if (options.action === 'guard' || options.action === 'type-replace') {
+      if (options['action'] === 'guard' || options['action'] === 'type-replace') {
         // Guard and type replacement need comprehensive analysis
         return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM'];
       }
@@ -438,7 +438,7 @@ function unifiedCommandRequires(analysisType: string, command: string, options: 
  * Ensures basic analysis is available for commands that require it
  */
 async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
-  if (requiresBasicAnalysis(mergedOptions)) {
+  if (requiresBasicAnalysis(mergedOptions as Record<string, unknown>)) {
     try {
       // Get the latest snapshot (or specified snapshot)
       let snapshot;
@@ -496,7 +496,7 @@ async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions
  * Ensures call graph data is available for commands that require it
  */
 async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
-  if (requiresCallGraphAnalysis(mergedOptions)) {
+  if (requiresCallGraphAnalysis(mergedOptions as Record<string, unknown>)) {
     try {
       // Get the latest snapshot (or specified snapshot)
       let snapshot;
@@ -545,7 +545,7 @@ async function ensureCallGraphAnalysis(commandEnv: CommandEnvironment, mergedOpt
  * Ensures type system data is available for commands that require it
  */
 async function ensureTypeSystemAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
-  if (requiresTypeSystemAnalysis(mergedOptions)) {
+  if (requiresTypeSystemAnalysis(mergedOptions as Record<string, unknown>)) {
     try {
       // Get the latest snapshot (or specified snapshot)
       let snapshot;
@@ -616,7 +616,7 @@ async function ensureTypeSystemAnalysis(commandEnv: CommandEnvironment, mergedOp
  * Ensure coupling analysis is available for commands that require it
  */
 async function ensureCouplingAnalysis(commandEnv: CommandEnvironment, mergedOptions: BaseCommandOptions & { json?: boolean; aiOptimized?: boolean; snapshot?: string }): Promise<void> {
-  if (requiresCouplingAnalysis(mergedOptions)) {
+  if (requiresCouplingAnalysis(mergedOptions as Record<string, unknown>)) {
     try {
       // Get the latest snapshot (or specified snapshot)
       let snapshot;

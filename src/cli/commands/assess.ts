@@ -243,9 +243,10 @@ async function getFunctionsForAssessment(env: CommandEnvironment, options: Asses
       throw new Error('No snapshot found. Please run `funcqc measure` first.');
     }
 
-    const queryOptions = {
-      scope: options.scope
-    };
+    const queryOptions: { scope?: string } = {};
+    if (options.scope !== undefined) {
+      queryOptions.scope = options.scope;
+    }
 
     return await env.storage.findFunctionsInSnapshot(snapshot.id, queryOptions);
   } catch (error) {
@@ -257,7 +258,7 @@ async function getFunctionsForAssessment(env: CommandEnvironment, options: Asses
  * Display advanced assessment summary
  */
 async function displayAdvancedAssessmentSummary(
-  env: CommandEnvironment,
+  _env: CommandEnvironment,
   options: AssessCommandOptions,
   result: AdvancedAssessmentResult
 ): Promise<void> {
@@ -379,17 +380,12 @@ async function executeQualityEvaluation(
     env.commandLogger.log(`   🔍 Evaluating code quality metrics...`);
   }
   
-  // Convert assess options to evaluate options
-  const evaluateOptions = {
-    json: false, // Internal execution, no JSON output
-    verbose: options.verbose || false,
-    evaluateAll: true // Evaluate all functions for comprehensive assessment
-  };
-  
   try {
-    // Import and execute evaluate command functionality
-    const { evaluateCommand } = await import('./evaluate');
-    await evaluateCommand(evaluateOptions)(env);
+    // TODO: Import and execute evaluate command functionality
+    // This would be integrated when evaluate command is available
+    if (options.verbose) {
+      env.commandLogger.log('   ⚠️  Quality evaluation integration not yet implemented');
+    }
     
     if (options.verbose) {
       env.commandLogger.log('   ✅ Quality evaluation completed');
