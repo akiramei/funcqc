@@ -6,7 +6,7 @@
 import { FunctionInfo, QualityMetrics, AssessCommandOptions } from '../../../types';
 import { CommandEnvironment } from '../../../types/environment';
 import { DynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
-import { StructuralAnalyzer, StructuralMetrics, StructuralAnomaly } from '../../../utils/structural-analyzer';
+import { StructuralMetrics, StructuralAnomaly } from '../../../utils/structural-analyzer';
 import { QualityAssessment, QualityViolation } from '../../../core/realtime-quality-gate';
 import { 
   DynamicWeightConfig, 
@@ -27,6 +27,9 @@ export interface AdvancedAssessmentResult {
     totalFunctions: number;
     analysisTime: number;
   };
+  
+  /** Index signature for compatibility with Record<string, unknown> */
+  [key: string]: unknown;
 
   /** Project-level assessment */
   projectAssessment: {
@@ -111,11 +114,9 @@ export interface RiskDistribution {
  * Advanced Quality Evaluator
  */
 export class AdvancedEvaluator {
-  private structuralAnalyzer: StructuralAnalyzer;
   private dynamicWeightCalculator?: DynamicWeightCalculator;
 
   constructor(private options: AssessCommandOptions, private env: CommandEnvironment) {
-    this.structuralAnalyzer = new StructuralAnalyzer();
     
     // Initialize dynamic weight calculator if dynamic mode is enabled
     if (options.mode === 'dynamic') {
@@ -279,8 +280,7 @@ export class AdvancedEvaluator {
 
     this.dynamicWeightCalculator = new DynamicWeightCalculator({
       config,
-      enableCaching: true,
-      cacheSize: 1000
+      enableExplanation: true
     });
   }
 
@@ -295,14 +295,18 @@ export class AdvancedEvaluator {
     // Mock implementation - replace with actual structural analyzer
     const metrics: StructuralMetrics = {
       cyclomaticComplexity: func.metrics?.cyclomaticComplexity || 0,
-      cognitiveComplexity: func.metrics?.cognitiveComplexity || 0,
       linesOfCode: func.metrics?.linesOfCode || 0,
       parameterCount: func.metrics?.parameterCount || 0,
       nestingLevel: func.metrics?.maxNestingLevel || 0,
       fanIn: 0, // Would be calculated from call graph
       fanOut: 0, // Would be calculated from call graph
-      cohesion: 0.5, // Would be calculated from method interactions
-      coupling: 0.3 // Would be calculated from external dependencies
+      // Required properties from StructuralMetrics interface
+      betweenness: 0,
+      closeness: 0,
+      pageRank: 0,
+      degreeCentrality: 0,
+      callDepth: 0,
+      clustering: 0
     };
 
     const anomalies: StructuralAnomaly[] = [];
@@ -310,8 +314,10 @@ export class AdvancedEvaluator {
     // Detect common structural anomalies
     if (metrics.linesOfCode > 50) {
       anomalies.push({
-        type: 'LongMethod',
-        severity: 'medium',
+        metric: 'linesOfCode',
+        value: metrics.linesOfCode,
+        expectedRange: [10, 50] as [number, number],
+        severity: 'warning',
         description: `Function has ${metrics.linesOfCode} lines, consider breaking it down`,
         suggestion: 'Extract smaller, focused methods'
       });
@@ -319,8 +325,10 @@ export class AdvancedEvaluator {
 
     if (metrics.parameterCount > 5) {
       anomalies.push({
-        type: 'LongParameterList',
-        severity: 'high',
+        metric: 'parameterCount',
+        value: metrics.parameterCount,
+        expectedRange: [1, 5] as [number, number],
+        severity: 'critical',
         description: `Function has ${metrics.parameterCount} parameters`,
         suggestion: 'Use parameter objects or split the function'
       });
@@ -368,16 +376,16 @@ export class AdvancedEvaluator {
 
     // Calculate weight
     const result = this.dynamicWeightCalculator.calculateWeight(
-      'cyclomaticComplexity',
       func.metrics?.cyclomaticComplexity || 0,
-      context
+      context,
+      'complexity'
     );
 
     return {
-      finalWeight: result.adjustedWeight,
-      baseWeight: result.baseWeight,
-      adjustments: result.breakdown.adjustments,
-      explanation: result.breakdown.explanation
+      finalWeight: result.finalWeight,
+      baseWeight: result.baseMetric,
+      adjustments: result.breakdown.appliedRules.reduce((acc, rule) => ({ ...acc, [rule.rule]: rule.multiplier }), {} as Record<string, number>),
+      explanation: `Weight calculation: ${result.breakdown.appliedRules.map(r => r.reason).join(', ')}`
     };
   }
 
@@ -431,9 +439,9 @@ export class AdvancedEvaluator {
     const metrics = func.metrics || this.getDefaultMetrics();
     
     // Calculate Z-scores for key metrics
-    zScores.complexity = this.calculateZScore(metrics.cyclomaticComplexity, 5, 3);
-    zScores.linesOfCode = this.calculateZScore(metrics.linesOfCode, 25, 15);
-    zScores.parameters = this.calculateZScore(metrics.parameterCount, 3, 2);
+    zScores['complexity'] = this.calculateZScore(metrics.cyclomaticComplexity, 5, 3);
+    zScores['linesOfCode'] = this.calculateZScore(metrics.linesOfCode, 25, 15);
+    zScores['parameters'] = this.calculateZScore(metrics.parameterCount, 3, 2);
 
     // Check for violations
     if (metrics.cyclomaticComplexity > 10) {
@@ -441,8 +449,9 @@ export class AdvancedEvaluator {
         metric: 'cyclomaticComplexity',
         value: metrics.cyclomaticComplexity,
         threshold: 10,
-        zScore: zScores.complexity,
-        severity: metrics.cyclomaticComplexity > 15 ? 'critical' : 'high'
+        zScore: zScores['complexity'],
+        severity: metrics.cyclomaticComplexity > 15 ? 'critical' : 'warning',
+        suggestion: 'Consider breaking down this complex function'
       });
     }
 
@@ -451,16 +460,17 @@ export class AdvancedEvaluator {
         metric: 'linesOfCode',
         value: metrics.linesOfCode,
         threshold: 50,
-        zScore: zScores.linesOfCode,
-        severity: metrics.linesOfCode > 100 ? 'critical' : 'medium'
+        zScore: zScores['linesOfCode'],
+        severity: metrics.linesOfCode > 100 ? 'critical' : 'warning',
+        suggestion: 'Consider splitting this long function'
       });
     }
 
     // Calculate overall risk score and level
     const riskScore = Math.max(
-      Math.abs(zScores.complexity),
-      Math.abs(zScores.linesOfCode),
-      Math.abs(zScores.parameters)
+      Math.abs(zScores['complexity']),
+      Math.abs(zScores['linesOfCode']),
+      Math.abs(zScores['parameters'])
     );
 
     let level: 'low' | 'medium' | 'high' | 'critical';
@@ -546,7 +556,8 @@ export class AdvancedEvaluator {
     // Count anomaly types
     const anomalyTypes: Record<string, number> = {};
     allAnomalies.forEach(anomaly => {
-      anomalyTypes[anomaly.type] = (anomalyTypes[anomaly.type] || 0) + 1;
+      const anomalyType = anomaly.metric;
+      anomalyTypes[anomalyType] = (anomalyTypes[anomalyType] || 0) + 1;
     });
     result.structuralSummary.anomalyTypes = anomalyTypes;
     result.structuralSummary.structuralScore = result.projectAssessment.structuralHealth;

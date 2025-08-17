@@ -1,4 +1,5 @@
-import { ManageCommandOptions } from '../../types';
+import { ManageCommandOptions, DbCommandOptions, HistoryCommandOptions } from '../../types';
+import { DiffCommandOptions } from './diff';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
@@ -80,17 +81,18 @@ async function executeDatabase(env: CommandEnvironment, options: ManageCommandOp
   try {
     // Import and execute db command functionality
     const { dbCommand } = await import('./db');
-    await dbCommand({
+    const dbOptions: DbCommandOptions = {
       list: options.list || false,
-      table: options.table,
-      where: options.where,
-      columns: options.columns,
-      limit: options.limit?.toString(),
-      count: options.count || false,
       json: options.json || false,
       verbose: options.verbose || false,
       quiet: options.quiet || false
-    })(env);
+    };
+    if (options.table) dbOptions.table = options.table;
+    if (options.where) dbOptions.where = options.where;
+    if (options.columns) dbOptions.columns = options.columns;
+    if (options.limit) dbOptions.limit = typeof options.limit === 'number' ? options.limit.toString() : options.limit;
+    
+    await dbCommand(dbOptions)(env);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ Database operation completed');
@@ -111,13 +113,15 @@ async function executeDiff(env: CommandEnvironment, options: ManageCommandOption
   try {
     // Import and execute diff command functionality
     const { diffCommand } = await import('./diff');
-    await diffCommand(options.from || '', options.to || '', {
+    const diffOptions: DiffCommandOptions = {
       insights: options.insights || false,
-      similarityThreshold: options.similarityThreshold,
       json: options.json || false,
       verbose: options.verbose || false,
       quiet: options.quiet || false
-    })(env);
+    };
+    if (options.similarityThreshold !== undefined) diffOptions.similarityThreshold = options.similarityThreshold;
+    
+    await diffCommand(options.from || '', options.to || '')(diffOptions)(env);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ Diff analysis completed');
@@ -268,7 +272,7 @@ async function executeListBackups(env: CommandEnvironment, options: ManageComman
   try {
     // List snapshots as current "backup" system
     const snapshots = await env.storage.getSnapshots({ 
-      limit: options.limit?.toString() || '20',
+      limit: typeof options.limit === 'number' ? options.limit : parseInt(options.limit || '20'),
       sort: 'createdAt' 
     });
 
@@ -331,16 +335,18 @@ async function executeHistory(env: CommandEnvironment, options: ManageCommandOpt
   try {
     // Import and execute history command functionality
     const { historyCommand } = await import('./history');
-    await historyCommand({
-      limit: options.limit,
-      since: options.since,
-      until: options.until,
-      branch: options.branch,
-      label: options.label,
-      scope: options.scope,
+    const historyOptions: HistoryCommandOptions = {
       verbose: options.verbose || false,
       json: options.json || false
-    })(env);
+    };
+    if (options.limit !== undefined) historyOptions.limit = typeof options.limit === 'number' ? options.limit.toString() : options.limit;
+    if (options.since) historyOptions.since = options.since;
+    if (options.until) historyOptions.until = options.until;
+    if (options.branch) historyOptions.branch = options.branch;
+    if (options.label) historyOptions.label = options.label;
+    if (options.scope) historyOptions.scope = options.scope;
+    
+    await historyCommand(historyOptions)(env);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ History display completed');

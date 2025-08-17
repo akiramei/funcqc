@@ -1144,6 +1144,10 @@ export interface ConfigCommandOptions extends CommandOptions {
   interactive?: boolean; // Interactive mode
   output?: string; // Output file path
   json?: boolean; // JSON output for jq/script processing
+  show?: boolean; // Show current configuration
+  set?: string; // Set configuration value
+  get?: string; // Get configuration value
+  reset?: boolean; // Reset configuration
 }
 
 // Statistical analysis types
@@ -1325,6 +1329,14 @@ export interface SearchCommandOptions extends CommandOptions {
   json?: boolean;
   semantic?: boolean; // Enable semantic search using local embeddings
   threshold?: string; // Similarity threshold (0-1) for semantic search
+  hybrid?: boolean; // Enable hybrid search (semantic + text)
+  minSimilarity?: number; // Minimum similarity threshold
+  aiHints?: boolean; // Enable AI-generated search hints
+  similarityWeights?: string; // Custom similarity weights
+  intermediate?: boolean; // Show intermediate results
+  showSimilarity?: boolean; // Show similarity scores in output
+  hybridWeight?: number; // Weight for hybrid search scoring
+  contextFunctions?: number; // Number of context functions to include
 }
 
 export interface ImproveCommandOptions extends CommandOptions {

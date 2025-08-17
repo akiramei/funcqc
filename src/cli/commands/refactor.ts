@@ -164,21 +164,23 @@ async function executeDiscriminate(env: CommandEnvironment, options: RefactorCom
   try {
     // Import and execute discriminate functionality
     const { executeDiscriminate } = await import('./discriminate');
-    const discriminateOptions = {
-      'snapshot-id': options.snapshot,
-      'target-types': options.targetTypes,
-      'min-coverage': options.minCoverage,
-      'min-confidence': options.minConfidence,
-      'max-cases': options.maxCases,
-      'include-booleans': options.includeBooleans,
-      'include-enums': options.includeEnums,
-      'allow-breaking': options.allowBreaking,
-      'dry-run': options.dryRun,
-      'transform': options.transform,
-      output: options.format,
-      verbose: options.verbose,
-      json: options.json
-    };
+    // Build discriminate options with proper typing
+    const discriminateOptions: Record<string, unknown> = {};
+    
+    // Add defined properties only
+    if (options.verbose !== undefined) discriminateOptions['verbose'] = options.verbose;
+    if (options.json !== undefined) discriminateOptions['json'] = options.json;
+    if (options.snapshot !== undefined) discriminateOptions['snapshot-id'] = options.snapshot;
+    if (options.targetTypes !== undefined) discriminateOptions['target-types'] = options.targetTypes;
+    if (options.minCoverage !== undefined) discriminateOptions['min-coverage'] = options.minCoverage;
+    if (options.minConfidence !== undefined) discriminateOptions['min-confidence'] = options.minConfidence;
+    if (options.maxCases !== undefined) discriminateOptions['max-cases'] = options.maxCases;
+    if (options.includeBooleans !== undefined) discriminateOptions['include-booleans'] = options.includeBooleans;
+    if (options.includeEnums !== undefined) discriminateOptions['include-enums'] = options.includeEnums;
+    if (options.allowBreaking !== undefined) discriminateOptions['allow-breaking'] = options.allowBreaking;
+    if (options.dryRun !== undefined) discriminateOptions['dry-run'] = options.dryRun;
+    if (options.transform !== undefined) discriminateOptions['transform'] = options.transform;
+    if (options.format !== undefined) discriminateOptions['output'] = options.format;
     await executeDiscriminate(discriminateOptions);
     
     if (!options.quiet) {

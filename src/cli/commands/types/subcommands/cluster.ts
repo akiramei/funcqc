@@ -45,7 +45,7 @@ async function findTypeById(
   return {
     id: row.id,
     name: row.name,
-    kind: row.kind,
+    kind: row.kind as "class" | "interface" | "type_alias" | "enum" | "namespace",
     filePath: row.file_path,
     startLine: row.start_line,
     endLine: row.end_line,
@@ -54,7 +54,7 @@ async function findTypeById(
     isExported: row.is_exported,
     isGeneric: row.is_generic,
     metadata: row.metadata as Record<string, unknown>
-  };
+  } as TypeDefinition;
 }
 
 /**

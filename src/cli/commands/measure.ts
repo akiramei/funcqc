@@ -263,14 +263,21 @@ async function executeScanPhase(
   
   // Convert measure options to scan options
   const scanOptions: ScanCommandOptions = {
-    label: options.label,
-    comment: options.comment,
-    scope: options.scope,
-    realtimeGate: options.realtimeGate,
     json: false, // Internal execution, no JSON output
-    force: options.force,
+    verbose: options.verbose || false,
+    quiet: options.quiet || false,
     ...plan.scanOptions // Apply level-specific options
   };
+  
+  if (options.force !== undefined) {
+    scanOptions.force = options.force;
+  }
+  
+  // Only add defined optional properties
+  if (options.label !== undefined) scanOptions.label = options.label;
+  if (options.comment !== undefined) scanOptions.comment = options.comment;
+  if (options.scope !== undefined) scanOptions.scope = options.scope;
+  if (options.realtimeGate !== undefined) scanOptions.realtimeGate = options.realtimeGate;
   
   try {
     // Import and execute scan command functionality
@@ -294,7 +301,10 @@ async function checkExistingSnapshot(
 ): Promise<{ id: string; createdAt: string } | null> {
   try {
     const snapshots = await env.storage.getSnapshots({ limit: 1 });
-    return snapshots.length > 0 ? snapshots[0] : null;
+    return snapshots.length > 0 ? {
+      id: snapshots[0].id,
+      createdAt: new Date(snapshots[0].createdAt).toISOString()
+    } : null;
   } catch {
     return null;
   }

@@ -2,10 +2,13 @@ import { TypesCommandOptions } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+import { TypeListOptions } from './types.types';
+
 import { DatabaseError } from '../../storage/pglite-adapter';
 
+
 /**
- * Filter out undefined properties from an object
+ * Filter undefined values from object
  */
 function filterUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
   const result: Partial<T> = {};
@@ -151,7 +154,7 @@ async function executeList(env: CommandEnvironment, options: TypesCommandOptions
       verbose: options.verbose,
       quiet: options.quiet
     });
-    await executeTypesListDB(listOptions)(env);
+    await executeTypesListDB(listOptions as TypeListOptions)(env);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ Type listing completed');
@@ -254,15 +257,16 @@ async function executeMembers(env: CommandEnvironment, options: TypesCommandOpti
 
   try {
     const { executeTypesMembersDB } = await import('./types/subcommands/members');
-    const membersOptions = filterUndefined({
+    const membersOptionsRaw = {
       typeName: options.typeName,
       json: options.json,
       detail: options.detail,
-      kind: options.memberKind,
+      kind: options.memberKind as "method" | "property" | "getter" | "setter" | "constructor" | "index_signature" | "call_signature" | undefined,
       accessModifier: options.accessModifier,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const membersOptions = filterUndefined(membersOptionsRaw) as import('./types.types').TypeMembersOptions;
     await executeTypesMembersDB(membersOptions)(env);
     
     if (!options.quiet) {
@@ -396,20 +400,21 @@ async function executeSlices(env: CommandEnvironment, options: TypesCommandOptio
 
   try {
     const { executeTypesSlicesDB } = await import('./types/subcommands/slices');
-    const slicesOptions = filterUndefined({
+    const slicesOptionsRaw = {
       json: options.json,
       minSupport: options.minSupport,
       minSliceSize: options.minSliceSize,
       maxSliceSize: options.maxSliceSize,
       considerMethods: options.considerMethods,
       excludeCommon: !options.noExcludeCommon,
-      benefit: options.benefit,
+      benefit: options.benefit as "low" | "medium" | "high" | undefined,
       limit: options.limit,
-      sort: options.sort,
+      sort: options.sort as "types" | "impact" | "overlap" | undefined,
       desc: options.desc,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const slicesOptions = filterUndefined(slicesOptionsRaw) as import('./types.types').TypeSlicesOptions;
     await executeTypesSlicesDB(slicesOptions)(env);
     
     if (!options.quiet) {
@@ -430,18 +435,19 @@ async function executeSubsume(env: CommandEnvironment, options: TypesCommandOpti
 
   try {
     const { executeTypesSubsumeDB } = await import('./types/subcommands/subsume');
-    const subsumeOptions = filterUndefined({
+    const subsumeOptionsRaw = {
       json: options.json,
       minOverlap: options.minOverlap,
       includePartial: !options.noIncludePartial,
       showRedundant: options.showRedundant,
       considerMethods: options.considerMethods,
       limit: options.limit,
-      sort: options.sort,
+      sort: options.sort as "types" | "impact" | "overlap" | undefined,
       desc: options.desc,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const subsumeOptions = filterUndefined(subsumeOptionsRaw) as import('./types.types').TypeSubsumeOptions;
     await executeTypesSubsumeDB(subsumeOptions)(env);
     
     if (!options.quiet) {
@@ -462,7 +468,7 @@ async function executeFingerprint(env: CommandEnvironment, options: TypesCommand
 
   try {
     const { executeTypesFingerprintDB } = await import('./types/subcommands/fingerprint');
-    const fingerprintOptions = filterUndefined({
+    const fingerprintOptionsRaw = {
       json: options.json,
       includeCallsOut: !options.noIncludeCallsOut,
       includeCallsIn: !options.noIncludeCallsIn,
@@ -471,11 +477,12 @@ async function executeFingerprint(env: CommandEnvironment, options: TypesCommand
       maxFingerprintSize: options.maxFingerprintSize,
       includeInternalCalls: options.includeInternalCalls,
       limit: options.limit,
-      sort: options.sort,
+      sort: options.sort as "size" | "impact" | "similarity" | undefined,
       desc: options.desc,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const fingerprintOptions = filterUndefined(fingerprintOptionsRaw) as import('./types.types').TypeFingerprintOptions;
     await executeTypesFingerprintDB(fingerprintOptions)(env);
     
     if (!options.quiet) {
@@ -496,7 +503,7 @@ async function executeConverters(env: CommandEnvironment, options: TypesCommandO
 
   try {
     const { executeTypesConvertersDB } = await import('./types/subcommands/converters');
-    const convertersOptions = filterUndefined({
+    const convertersOptionsRaw = {
       json: options.json,
       minConverters: options.minConverters,
       includeInternalCalls: !options.noIncludeInternalCalls,
@@ -505,11 +512,12 @@ async function executeConverters(env: CommandEnvironment, options: TypesCommandO
       canonicalOnly: options.canonicalOnly,
       maxChainLength: options.maxChainLength,
       limit: options.limit,
-      sort: options.sort,
+      sort: options.sort as "usage" | "converters" | "centrality" | undefined,
       desc: options.desc,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const convertersOptions = filterUndefined(convertersOptionsRaw) as import('./types.types').TypeConvertersOptions;
     await executeTypesConvertersDB(convertersOptions)(env);
     
     if (!options.quiet) {
@@ -530,7 +538,7 @@ async function executeCochange(env: CommandEnvironment, options: TypesCommandOpt
 
   try {
     const { executeTypesCochangeDB } = await import('./types/subcommands/cochange');
-    const cochangeOptions = filterUndefined({
+    const cochangeOptionsRaw = {
       json: options.json,
       monthsBack: options.monthsBack,
       minChanges: options.minChanges,
@@ -540,11 +548,12 @@ async function executeCochange(env: CommandEnvironment, options: TypesCommandOpt
       maxCommits: options.maxCommits,
       excludePaths: options.excludePaths ? options.excludePaths.split(',') : undefined,
       limit: options.limit,
-      sort: options.sort,
+      sort: options.sort as string | undefined,
       desc: options.desc,
       verbose: options.verbose,
       quiet: options.quiet
-    });
+    };
+    const cochangeOptions = filterUndefined(cochangeOptionsRaw) as import('./types.types').TypeCochangeOptions;
     await executeTypesCochangeDB(cochangeOptions)(env);
     
     if (!options.quiet) {

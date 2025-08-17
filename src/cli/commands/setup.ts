@@ -1,4 +1,4 @@
-import { SetupCommandOptions } from '../../types';
+import { SetupCommandOptions, ConfigCommandOptions } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
@@ -94,14 +94,17 @@ async function executeConfig(env: CommandEnvironment, options: SetupCommandOptio
   try {
     // Import and execute config command functionality
     const { configCommand } = await import('../config');
-    await configCommand('show', {
+    const configOptions: ConfigCommandOptions = {
       show: options.show || false,
-      set: options.set,
-      get: options.get,
       reset: options.reset || false,
       verbose: options.verbose || false,
       quiet: options.quiet || false
-    });
+    };
+    
+    if (options.set !== undefined) configOptions.set = options.set;
+    if (options.get !== undefined) configOptions.get = options.get;
+    
+    await configCommand('show', configOptions);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ Configuration management completed');
@@ -139,7 +142,8 @@ async function executeCheck(env: CommandEnvironment, options: SetupCommandOption
 
   // Check configuration
   try {
-    const _config = env.config;
+    // Check if config is accessible
+    void env.config;
     checks.push({
       name: 'Configuration',
       status: 'ok',
