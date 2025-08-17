@@ -3,6 +3,7 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import { AdvancedEvaluator, AdvancedAssessmentResult } from './assess/advanced-evaluator';
 
 /**
  * Assess command - unified quality assessment functionality
@@ -60,7 +61,7 @@ export const assessCommand: VoidCommand<AssessCommandOptions> = (options) =>
   };
 
 /**
- * Assessment plan configuration
+ * Assessment plan configuration with performance optimization
  */
 interface AssessmentPlan {
   type: string;
@@ -70,59 +71,76 @@ interface AssessmentPlan {
   includesQuality: boolean;
   includesTypes: boolean;
   detailLevel: 'basic' | 'standard' | 'comprehensive';
+  requiresHeavyAnalysis: boolean; // Performance flag
+  reuseExistingData: boolean; // Performance flag
+  useAdvancedEvaluator: boolean; // Use advanced evaluation engine
 }
 
 /**
  * Determine assessment plan based on options
  */
 function determineAssessmentPlan(options: AssessCommandOptions): AssessmentPlan {
-  // Handle specific type selection
+  // Handle specific type selection with performance optimization
   if (options.type) {
     switch (options.type) {
       case 'health':
         return {
           type: 'health',
-          description: 'Project health assessment',
-          estimatedTime: '10-20s',
+          description: 'Project health assessment (optimized)',
+          estimatedTime: options.advanced ? '10-20s' : '2-5s',
           includesHealth: true,
           includesQuality: false,
           includesTypes: false,
-          detailLevel: options.risks || options.trend ? 'comprehensive' : 'standard'
+          detailLevel: options.risks || options.trend ? 'comprehensive' : 'standard',
+          requiresHeavyAnalysis: !!(options.risks || options.trend || options.advanced),
+          reuseExistingData: !options.advanced, // Advanced mode requires fresh analysis
+          useAdvancedEvaluator: !!options.advanced
         };
       
       case 'quality':
         return {
           type: 'quality',
-          description: 'Code quality evaluation',
-          estimatedTime: '15-30s',
+          description: 'Code quality evaluation (lightweight)',
+          estimatedTime: options.advanced ? '15-30s' : '3-8s',
           includesHealth: false,
           includesQuality: true,
           includesTypes: false,
-          detailLevel: 'standard'
+          detailLevel: options.advanced ? 'comprehensive' : 'standard',
+          requiresHeavyAnalysis: !!options.advanced,
+          reuseExistingData: !options.advanced, // Advanced mode requires fresh analysis
+          useAdvancedEvaluator: !!options.advanced
         };
       
       case 'types':
         return {
           type: 'types',
           description: 'Type system health assessment',
-          estimatedTime: '20-40s',
+          estimatedTime: options.advanced ? '30-60s' : '20-40s',
           includesHealth: false,
           includesQuality: false,
           includesTypes: true,
-          detailLevel: 'standard'
+          detailLevel: options.advanced ? 'comprehensive' : 'standard',
+          requiresHeavyAnalysis: true, // Types analysis is inherently heavy
+          reuseExistingData: false,
+          useAdvancedEvaluator: !!options.advanced
         };
     }
   }
 
-  // Default: comprehensive assessment
+  // Default: performance-optimized comprehensive assessment
   return {
     type: 'comprehensive',
-    description: 'Comprehensive quality assessment (all types)',
-    estimatedTime: '30-60s',
+    description: options.advanced 
+      ? 'Advanced comprehensive quality assessment with dynamic analysis'
+      : 'Comprehensive quality assessment (performance optimized)',
+    estimatedTime: options.advanced ? '20-45s' : '5-15s',
     includesHealth: true,
     includesQuality: true,
-    includesTypes: true,
-    detailLevel: 'comprehensive'
+    includesTypes: !!options.advanced, // Advanced mode includes type analysis
+    detailLevel: options.advanced ? 'comprehensive' : 'standard',
+    requiresHeavyAnalysis: !!options.advanced,
+    reuseExistingData: !options.advanced, // Advanced mode requires fresh analysis
+    useAdvancedEvaluator: !!options.advanced
   };
 }
 
@@ -134,6 +152,13 @@ async function executeAssessmentWorkflow(
   options: AssessCommandOptions,
   plan: AssessmentPlan
 ): Promise<void> {
+  // Advanced evaluation path
+  if (plan.useAdvancedEvaluator) {
+    await executeAdvancedAssessment(env, options, plan);
+    return;
+  }
+
+  // Legacy evaluation path
   // Phase 1: Health assessment (if requested)
   if (plan.includesHealth) {
     if (!options.quiet) {
@@ -159,6 +184,152 @@ async function executeAssessmentWorkflow(
     }
     
     await executeTypesAssessment(env, options, plan);
+  }
+}
+
+/**
+ * Execute advanced assessment using the new evaluation engine
+ */
+async function executeAdvancedAssessment(
+  env: CommandEnvironment,
+  options: AssessCommandOptions,
+  _plan: AssessmentPlan
+): Promise<void> {
+  if (!options.quiet) {
+    env.commandLogger.log('🚀 Starting advanced quality assessment...');
+  }
+
+  try {
+    // Get functions for analysis
+    const functions = await getFunctionsForAssessment(env, options);
+    
+    if (functions.length === 0) {
+      if (!options.quiet) {
+        env.commandLogger.log('⚠️  No functions found for assessment');
+      }
+      return;
+    }
+
+    // Initialize advanced evaluator
+    const evaluator = new AdvancedEvaluator(options, env);
+    
+    // Perform comprehensive assessment
+    const result = await evaluator.performAssessment(functions);
+    
+    // Store result for later display/export
+    env.advancedAssessmentResult = result;
+    
+    if (!options.quiet) {
+      await displayAdvancedAssessmentSummary(env, options, result);
+    }
+
+    // Export report if requested
+    if (options.exportReport) {
+      await exportAdvancedAssessmentReport(env, options, result);
+    }
+
+  } catch (error) {
+    throw new Error(`Advanced assessment failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Get functions for assessment from the latest snapshot
+ */
+async function getFunctionsForAssessment(env: CommandEnvironment, options: AssessCommandOptions) {
+  try {
+    const snapshot = await env.storage.getLatestSnapshot();
+    if (!snapshot) {
+      throw new Error('No snapshot found. Please run `funcqc measure` first.');
+    }
+
+    const queryOptions = {
+      scope: options.scope
+    };
+
+    return await env.storage.findFunctionsInSnapshot(snapshot.id, queryOptions);
+  } catch (error) {
+    throw new Error(`Failed to get functions for assessment: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+/**
+ * Display advanced assessment summary
+ */
+async function displayAdvancedAssessmentSummary(
+  env: CommandEnvironment,
+  options: AssessCommandOptions,
+  result: AdvancedAssessmentResult
+): Promise<void> {
+  const { projectAssessment, metadata, structuralSummary } = result;
+
+  console.log('\n🎯 Advanced Quality Assessment Summary');
+  console.log('====================================');
+  
+  console.log(`\n📊 Project Overview:`);
+  console.log(`   • Overall Score: ${projectAssessment.overallScore.toFixed(1)}/100 (Grade: ${projectAssessment.qualityGrade})`);
+  console.log(`   • Functions Analyzed: ${metadata.totalFunctions}`);
+  console.log(`   • Evaluation Mode: ${metadata.evaluationMode}`);
+  console.log(`   • Analysis Time: ${metadata.analysisTime}ms`);
+
+  console.log(`\n⚠️  Risk Distribution:`);
+  console.log(`   • Critical: ${projectAssessment.riskDistribution.critical}`);
+  console.log(`   • High: ${projectAssessment.riskDistribution.high}`);
+  console.log(`   • Medium: ${projectAssessment.riskDistribution.medium}`);
+  console.log(`   • Low: ${projectAssessment.riskDistribution.low}`);
+
+  if (options.includeStructural !== false) {
+    console.log(`\n🏗️  Structural Health:`);
+    console.log(`   • Overall Score: ${projectAssessment.structuralHealth.toFixed(1)}/100`);
+    console.log(`   • Total Anomalies: ${structuralSummary.totalAnomalies}`);
+    console.log(`   • Critical Issues: ${structuralSummary.criticalAnomalies}`);
+  }
+
+  if (projectAssessment.recommendations.length > 0) {
+    console.log(`\n💡 Key Recommendations:`);
+    projectAssessment.recommendations.forEach(rec => {
+      console.log(`   ${rec}`);
+    });
+  }
+
+  if (options.showWeightBreakdown && metadata.evaluationMode === 'dynamic') {
+    console.log(`\n🧮 Dynamic Weight Configuration:`);
+    console.log(`   • Team Experience: ${options.teamExperience || 'Mixed'}`);
+    console.log(`   • Domain Complexity: ${options.domainComplexity || 'Medium'}`);
+    console.log(`   • Architecture Pattern: ${options.architecturePattern || 'Unknown'}`);
+  }
+}
+
+/**
+ * Export advanced assessment report
+ */
+async function exportAdvancedAssessmentReport(
+  env: CommandEnvironment,
+  options: AssessCommandOptions,
+  result: AdvancedAssessmentResult
+): Promise<void> {
+  if (!options.exportReport) return;
+
+  const format = options.exportReport.endsWith('.html') ? 'html' :
+                 options.exportReport.endsWith('.md') ? 'markdown' : 'json';
+
+  if (!options.quiet) {
+    env.commandLogger.log(`📄 Exporting ${format} report to ${options.exportReport}...`);
+  }
+
+  try {
+    // For now, export as JSON (can be extended to HTML/Markdown later)
+    const reportContent = JSON.stringify(result, null, 2);
+    
+    // Write report to file (using Node.js fs)
+    const fs = await import('fs/promises');
+    await fs.writeFile(options.exportReport, reportContent, 'utf8');
+    
+    if (!options.quiet) {
+      env.commandLogger.log(`✅ Report exported successfully`);
+    }
+  } catch (error) {
+    throw new Error(`Failed to export report: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -202,7 +373,7 @@ async function executeHealthAssessment(
 async function executeQualityEvaluation(
   env: CommandEnvironment,
   options: AssessCommandOptions,
-  plan: AssessmentPlan
+  _plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
     env.commandLogger.log(`   🔍 Evaluating code quality metrics...`);
@@ -234,7 +405,7 @@ async function executeQualityEvaluation(
 async function executeTypesAssessment(
   env: CommandEnvironment,
   options: AssessCommandOptions,
-  plan: AssessmentPlan
+  _plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
     env.commandLogger.log(`   🔧 Assessing type system health...`);

@@ -1,6 +1,6 @@
-import { TypeHealthOptions } from '../types.types';
-import { VoidCommand } from '../../../types/command';
-import { CommandEnvironment } from '../../../types/environment';
+import { TypeHealthOptions } from '../../types.types';
+import { VoidCommand } from '../../../../types/command';
+import { CommandEnvironment } from '../../../../types/environment';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../../../utils/error-handler';
 import { 
   calculateTypeHealthFromDB, 

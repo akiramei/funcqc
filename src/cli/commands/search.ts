@@ -14,6 +14,12 @@ import path from 'path';
  */
 export function searchCommand(keyword: string): VoidCommand<SearchCommandOptions> {
   return (options) => async (env: CommandEnvironment): Promise<void> => {
+    // 非推奨警告
+    console.warn(chalk.yellow('⚠️  DEPRECATED: The "search" command is deprecated and will be removed in a future version.'));
+    console.warn(chalk.cyan('💡 Use "funcqc inspect --name <pattern>" instead for better functionality.'));
+    console.warn(chalk.gray('   Example: funcqc inspect --name "' + keyword + '"'));
+    console.warn('');
+
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {

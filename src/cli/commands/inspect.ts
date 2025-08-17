@@ -485,6 +485,13 @@ function outputFilesTable(sourceFiles: SourceFile[], options: InspectCommandOpti
     return;
   }
 
+  // Check for compact/table format request
+  if (options.format === 'table' || options.format === 'compact') {
+    outputFilesTableCompact(sourceFiles, options);
+    return;
+  }
+
+  // Default card format
   console.log(`📁 Found ${sourceFiles.length} file(s):`);
   console.log();
 
@@ -503,6 +510,62 @@ function outputFilesTable(sourceFiles: SourceFile[], options: InspectCommandOpti
 
   console.log();
   console.log(`💡 Use --json for machine-readable output`);
+  console.log(`💡 Use --format=table for compact table view`);
+  if (options.limit && sourceFiles.length === options.limit) {
+    console.log(`⚠️  Results limited to ${options.limit}. Use --limit to adjust.`);
+  }
+}
+
+/**
+ * Output files as compact table (similar to files command)
+ */
+function outputFilesTableCompact(sourceFiles: SourceFile[], options: InspectCommandOptions): void {
+  console.log(`📁 Source Files (${sourceFiles.length})`);
+  console.log('────────────────────────────────────────────────────────────────────────────────');
+  
+  // Table header
+  const maxPathLength = 50;
+  const langWidth = 10;
+  const sizeWidth = 10;
+  const linesWidth = 7;
+  const funcsWidth = 6;
+  
+  console.log(
+    'Path'.padEnd(maxPathLength) + ' ' +
+    'Lang'.padEnd(langWidth) + ' ' +
+    'Size'.padStart(sizeWidth) + ' ' +
+    'Lines'.padStart(linesWidth) + ' ' +
+    'Funcs'.padStart(funcsWidth)
+  );
+  
+  console.log(
+    '─'.repeat(maxPathLength) + ' ' +
+    '─'.repeat(langWidth) + ' ' +
+    '─'.repeat(sizeWidth) + ' ' +
+    '─'.repeat(linesWidth) + ' ' +
+    '─'.repeat(funcsWidth)
+  );
+  
+  // Table rows
+  sourceFiles.forEach(file => {
+    const displayPath = file.filePath.length > maxPathLength 
+      ? '...' + file.filePath.slice(-(maxPathLength - 3))
+      : file.filePath;
+    
+    const formattedSize = formatFileSize(file.fileSizeBytes);
+    const formattedLines = file.lineCount.toLocaleString();
+    const formattedFuncs = file.functionCount.toString();
+    
+    console.log(
+      displayPath.padEnd(maxPathLength) + ' ' +
+      file.language.padEnd(langWidth) + ' ' +
+      formattedSize.padStart(sizeWidth) + ' ' +
+      formattedLines.padStart(linesWidth) + ' ' +
+      formattedFuncs.padStart(funcsWidth)
+    );
+  });
+
+  console.log();
   if (options.limit && sourceFiles.length === options.limit) {
     console.log(`⚠️  Results limited to ${options.limit}. Use --limit to adjust.`);
   }

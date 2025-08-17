@@ -1264,6 +1264,8 @@ export interface InspectCommandOptions extends CommandOptions {
   limit?: number; // Limit number of results
   sort?: string; // Sort by field (cc, loc, changes, name, file)
   desc?: boolean; // Sort in descending order
+  format?: 'table' | 'card' | 'compact'; // Output format (default: card)
+  stats?: boolean; // Show statistics (for files)
   
   // Function filters (from list command)
   ccGe?: number; // Filter functions with complexity >= N
@@ -1290,6 +1292,7 @@ export interface MeasureCommandOptions extends CommandOptions {
   comment?: string; // Comment for measurement changes
   scope?: string; // Measurement scope (src, test, all, or custom scope)
   json?: boolean; // JSON output for script processing
+  history?: boolean; // Display snapshot history instead of creating measurements
   
   // Measurement level (unified scan + analyze)
   level?: 'quick' | 'basic' | 'standard' | 'deep' | 'complete'; // Measurement depth
@@ -1341,9 +1344,338 @@ export interface AssessCommandOptions extends CommandOptions {
   scope?: string; // Assessment scope (src, test, all, or custom scope)
   baseline?: string; // Baseline snapshot for comparison
   threshold?: string; // Quality threshold for pass/fail determination
+  
+  // Advanced assessment options
+  mode?: 'static' | 'dynamic'; // Evaluation mode (default: static)
+  advanced?: boolean; // Enable advanced analysis features
+  includeStructural?: boolean; // Include structural analysis
+  includeRisk?: boolean; // Include risk evaluation
+  includeGate?: boolean; // Include quality gate evaluation
+  
+  // Dynamic assessment configuration
+  teamExperience?: 'Senior' | 'Mixed' | 'Junior'; // Team experience level for weight adjustment
+  domainComplexity?: 'High' | 'Medium' | 'Low'; // Domain complexity for threshold adjustment
+  architecturePattern?: 'MVC' | 'Microservices' | 'Layered' | 'Unknown'; // Architecture pattern detection
+  
+  // Output and reporting options
+  exportReport?: string; // Export comprehensive report to file (html|json|markdown)
+  includeRecommendations?: boolean; // Include improvement recommendations
+  showWeightBreakdown?: boolean; // Show weight calculation breakdown (for dynamic mode)
+  explainScoring?: boolean; // Explain scoring methodology
 }
 
+export interface SetupCommandOptions extends CommandOptions {
+  action?: 'init' | 'config' | 'check'; // Setup action (default: interactive)
+  
+  // Init options
+  force?: boolean; // Force initialization even if already exists
+  configPath?: string; // Path to configuration file
+  
+  // Config options
+  show?: boolean; // Show current configuration
+  set?: string; // Set configuration value (key=value format)
+  get?: string; // Get configuration value by key
+  reset?: boolean; // Reset configuration to defaults
+  
+  // Output options
+  json?: boolean; // JSON output for script processing
+}
 
+export interface ManageCommandOptions extends CommandOptions {
+  action?: 'db' | 'diff' | 'export' | 'import' | 'convert' | 'list-backups' | 'history'; // Management action (default: status)
+  
+  // Database options (db action)
+  list?: boolean; // List all tables
+  table?: string; // Table name to query
+  where?: string; // WHERE clause for database queries
+  columns?: string; // Columns to select (comma-separated)
+  limit?: number; // Limit number of rows
+  count?: boolean; // Show count instead of data
+  
+  // Diff options (diff action)
+  from?: string; // Source snapshot for comparison
+  to?: string; // Target snapshot for comparison
+  insights?: boolean; // Show detailed insights
+  similarityThreshold?: number; // Similarity threshold for analysis
+  
+  // Export/Import options
+  format?: 'json' | 'sql' | 'csv'; // Export/import format
+  file?: string; // File path for export/import operations
+  includeSourceCode?: boolean; // Include source code in export
+  compress?: boolean; // Compress exported data
+  
+  // History options (history action)
+  since?: string; // Filter history since date/snapshot
+  until?: string; // Filter history until date/snapshot
+  branch?: string; // Filter by git branch
+  label?: string; // Filter by snapshot label
+  scope?: string; // Filter by scope
+  
+  // Output options
+  json?: boolean; // JSON output for script processing
+  verbose?: boolean; // Detailed output
+}
+
+export interface DependenciesCommandOptions extends CommandOptions {
+  action?: 'list' | 'show' | 'stats' | 'lint' | 'dead' | 'cycles'; // Dependency analysis action (default: overview)
+  
+  // Common options across all dependency actions
+  snapshot?: string; // Snapshot ID for analysis
+  json?: boolean; // JSON output for script processing
+  format?: 'table' | 'json' | 'dot'; // Output format
+  verbose?: boolean; // Detailed output
+  
+  // List action options (from DepListOptions)
+  caller?: string; // Filter by caller function
+  callee?: string; // Filter by callee function
+  callerClass?: string; // Filter by caller class
+  calleeClass?: string; // Filter by callee class
+  file?: string; // Filter by file path
+  type?: 'direct' | 'async' | 'conditional' | 'external'; // Call type filter
+  limit?: string; // Limit number of results
+  sort?: 'caller' | 'callee' | 'file' | 'line' | 'fanin' | 'fanout' | 'depth' | 'name' | 'length' | 'complexity' | 'importance'; // Sort criteria
+  desc?: boolean; // Sort in descending order
+  
+  // Show action options (from DepShowOptions)
+  direction?: 'in' | 'out' | 'both'; // Dependency direction
+  depth?: string; // Analysis depth
+  includeExternal?: boolean; // Include external dependencies
+  externalFilter?: 'all' | 'transit' | 'none'; // External dependency filter
+  showComplexity?: boolean; // Show complexity metrics
+  rankByLength?: boolean; // Sort routes by depth
+  maxRoutes?: string; // Limit number of routes
+  
+  // Stats action options (from DepStatsOptions)
+  showHubs?: boolean; // Show hub functions
+  showUtility?: boolean; // Show utility functions
+  showIsolated?: boolean; // Show isolated functions
+  hubThreshold?: string; // Hub threshold value
+  utilityThreshold?: string; // Utility threshold value
+  maxHubFunctions?: string; // Max hub functions to show
+  maxUtilityFunctions?: string; // Max utility functions to show
+  
+  // Lint action options (from DepLintOptions)
+  config?: string; // Configuration file path
+  severity?: 'error' | 'warning' | 'info'; // Minimum severity level
+  maxViolations?: string; // Maximum violations to show
+  includeMetrics?: boolean; // Include metrics in output
+  failOn?: 'error' | 'warning' | 'any'; // Fail criteria
+  showLayers?: boolean; // Show layer information
+  showRules?: boolean; // Show applied rules
+  showConfig?: boolean; // Show configuration
+  showConsolidation?: boolean; // Show consolidation strategies
+  dryRun?: boolean; // Dry run mode
+  
+  // Dead action options (from DepDeadOptions)
+  excludeTests?: boolean; // Exclude test files
+  excludeExports?: boolean; // Exclude exported functions
+  excludeSmall?: boolean; // Exclude small functions
+  threshold?: string; // Size threshold
+  showReasons?: boolean; // Show reasons for dead code
+  layerEntryPoints?: string; // Layer entry points
+  
+  // Cycles action options (from DepCyclesOptions)
+  minSize?: string; // Minimum cycle size
+  maxLength?: string; // Maximum cycle length
+  includeRecursive?: boolean; // Include recursive cycles
+  includeClear?: boolean; // Include clear cycles
+  includeAll?: boolean; // Include all cycles
+  excludeRecursive?: boolean; // Exclude recursive cycles
+  excludeClear?: boolean; // Exclude clear cycles
+  minComplexity?: string; // Minimum complexity
+  crossModuleOnly?: boolean; // Cross-module cycles only
+  crossLayerOnly?: boolean; // Cross-layer cycles only
+  recursiveOnly?: boolean; // Recursive cycles only
+  sortByImportance?: boolean; // Sort by importance
+}
+
+export interface RefactorCommandOptions extends CommandOptions {
+  action?: 'guard' | 'extract-vo' | 'discriminate' | 'canonicalize' | 'type-replace' | 'overview'; // Refactoring action (default: overview)
+  
+  // Common options across all refactor actions
+  snapshot?: string; // Snapshot ID for analysis
+  json?: boolean; // JSON output for script processing
+  format?: 'table' | 'json' | 'markdown'; // Output format
+  verbose?: boolean; // Detailed output
+  dryRun?: boolean; // Preview changes without applying them
+  output?: string; // Output file path
+  
+  // Refactor Guard action options
+  type?: string; // Target type name for guard analysis
+  operation?: 'replace' | 'merge' | 'split' | 'extract' | 'inline'; // Refactoring operation
+  includeTests?: boolean; // Include test templates
+  includeBehavioral?: boolean; // Include behavioral checks
+  includeCochange?: boolean; // Include co-change analysis
+  riskThreshold?: 'low' | 'medium' | 'high'; // Risk assessment threshold
+  prTemplate?: boolean; // Generate PR template
+  
+  // Extract Value Objects action options
+  minSupport?: number; // Minimum support for patterns
+  minConfidence?: number; // Minimum confidence threshold
+  minCohesion?: number; // Minimum cohesion score
+  includeComputed?: boolean; // Include computed methods
+  generateConstructors?: boolean; // Generate smart constructors
+  inferInvariants?: boolean; // Try to infer business rules
+  preserveOriginal?: boolean; // Keep original types during transition
+  outputCode?: string; // Directory to output generated VO code
+  maxCandidates?: number; // Maximum number of VO candidates
+  showOpportunities?: boolean; // Show extraction opportunities
+  showGenerated?: boolean; // Show generated code samples
+  domainFilter?: string; // Filter by domain context
+  complexityFilter?: 'low' | 'medium' | 'high'; // Filter by extraction complexity
+  
+  // Discriminate action options (discriminated unions)
+  targetTypes?: string; // Comma-separated list of specific types to analyze
+  minCoverage?: string; // Minimum coverage threshold (0-1)
+  maxCases?: string; // Maximum union cases per type
+  includeBooleans?: boolean; // Include boolean discriminants
+  includeEnums?: boolean; // Include enum discriminants
+  allowBreaking?: boolean; // Allow breaking changes during transformation
+  transform?: boolean; // Apply transformations automatically
+  
+  // Canonicalize action options (DTO canonicalization)
+  includeBehavioral2?: boolean; // Include behavioral analysis (renamed to avoid conflict)
+  generateCodemod?: boolean; // Generate codemod actions
+  requireMinimalImpact?: boolean; // Only suggest low-impact changes
+  preserveOptionality?: boolean; // Preserve optional property differences
+  showArtifacts?: boolean; // Show generated artifacts
+  
+  // Type Replace action options
+  from?: string; // Source type name
+  to?: string; // Target type name
+  checkOnly?: boolean; // Only perform compatibility check
+  migrationPlan?: boolean; // Generate migration plan
+  tsConfig?: string; // Path to TypeScript config
+  allowUnsafe?: boolean; // Allow unsafe replacements with warnings
+  teamSize?: number; // Team size for migration planning
+  riskTolerance?: 'conservative' | 'moderate' | 'aggressive'; // Risk tolerance level
+}
+
+export interface TypesCommandOptions extends CommandOptions {
+  action?: 'list' | 'health' | 'deps' | 'api' | 'members' | 'coverage' | 'cluster' | 'risk' | 'insights' | 'slices' | 'subsume' | 'fingerprint' | 'converters' | 'cochange' | 'overview'; // Type analysis action (default: overview)
+  
+  // Common options across all type actions
+  snapshot?: string; // Snapshot ID for analysis
+  json?: boolean; // JSON output for script processing
+  verbose?: boolean; // Detailed output
+  
+  // Type name parameter (for actions that need it)
+  typeName?: string; // Target type name for analysis
+  
+  // List action options
+  kind?: string; // Filter by type kind (interface|class|type_alias|enum|namespace)
+  exported?: boolean; // Show only exported types
+  generic?: boolean; // Show only generic types
+  file?: string; // Filter by file path
+  name?: string; // Filter by type name (contains)
+  
+  // Property filters
+  propEq?: number; // Filter types with exactly N properties
+  propGe?: number; // Filter types with >= N properties
+  propLe?: number; // Filter types with <= N properties
+  propGt?: number; // Filter types with > N properties
+  propLt?: number; // Filter types with < N properties
+  
+  // Method filters
+  methEq?: number; // Filter types with exactly N methods
+  methGe?: number; // Filter types with >= N methods
+  methLe?: number; // Filter types with <= N methods
+  methGt?: number; // Filter types with > N methods
+  methLt?: number; // Filter types with < N methods
+  
+  // Legacy function filters (methods + constructors for backward compatibility)
+  fnEq?: number; // Filter types with exactly N functions (methods+constructors)
+  fnGe?: number; // Filter types with >= N functions (methods+constructors)
+  fnLe?: number; // Filter types with <= N functions (methods+constructors)
+  fnGt?: number; // Filter types with > N functions (methods+constructors)
+  fnLt?: number; // Filter types with < N functions (methods+constructors)
+  
+  // Total member filters
+  totalEq?: number; // Filter types with exactly N total members
+  totalGe?: number; // Filter types with >= N total members
+  totalLe?: number; // Filter types with <= N total members
+  totalGt?: number; // Filter types with > N total members
+  totalLt?: number; // Filter types with < N total members
+  
+  // Special filters
+  hasIndex?: boolean; // Show only types with index signatures
+  hasCall?: boolean; // Show only types with call signatures
+  
+  // Output options
+  limit?: number; // Limit number of results
+  sort?: string; // Sort by field (name|kind|file|functions|props|methods|ctors|total)
+  desc?: boolean; // Sort in descending order
+  detail?: boolean; // Show detailed information in multi-line format
+  showLocation?: boolean; // Show FILE and LINE columns
+  showId?: boolean; // Show ID column for unique identification
+  
+  // Health action options
+  thresholds?: string; // Custom thresholds for health analysis
+  legend?: boolean; // Show legend for health metrics
+  
+  // Deps action options
+  depth?: number; // Maximum dependency depth to analyze
+  circular?: boolean; // Show only circular dependencies
+  
+  // API action options
+  optimize?: boolean; // Include optimization recommendations
+  
+  // Members action options
+  memberKind?: string; // Filter by member kind (property|method|getter|setter|constructor|index_signature|call_signature)
+  accessModifier?: string; // Filter by access modifier (public|protected|private)
+  
+  // Coverage action options
+  hotThreshold?: number; // Minimum calls for hot properties
+  writeHubThreshold?: number; // Minimum writers for write hubs
+  includePrivate?: boolean; // Include private properties in analysis
+  
+  // Cluster action options
+  similarityThreshold?: number; // Minimum similarity for clustering
+  minClusterSize?: number; // Minimum properties per cluster
+  
+  // Insights action options
+  noCoverage?: boolean; // Skip coverage analysis
+  noApi?: boolean; // Skip API optimization analysis
+  noCluster?: boolean; // Skip property clustering analysis
+  noRisk?: boolean; // Skip dependency risk analysis
+  
+  // Slices action options
+  minSupport?: number; // Minimum types containing slice
+  minSliceSize?: number; // Minimum properties per slice
+  maxSliceSize?: number; // Maximum properties per slice
+  considerMethods?: boolean; // Include methods in pattern analysis
+  noExcludeCommon?: boolean; // Include common properties (id, name, etc.)
+  benefit?: string; // Filter by extraction benefit (high|medium|low)
+  
+  // Subsume action options
+  minOverlap?: number; // Minimum overlap ratio (0-1)
+  noIncludePartial?: boolean; // Exclude partial overlap relationships
+  showRedundant?: boolean; // Show only redundant (equivalent) types
+  
+  // Fingerprint action options
+  noIncludeCallsOut?: boolean; // Exclude outgoing function calls
+  noIncludeCallsIn?: boolean; // Exclude incoming function calls
+  minCallFrequency?: number; // Minimum call frequency
+  maxFingerprintSize?: number; // Maximum behavioral vector size
+  includeInternalCalls?: boolean; // Include internal method calls
+  
+  // Converters action options
+  minConverters?: number; // Minimum converters to form a network
+  noIncludeInternalCalls?: boolean; // Exclude internal function calls
+  noIncludeParsers?: boolean; // Exclude parse functions as converters
+  showChains?: boolean; // Show conversion chains
+  canonicalOnly?: boolean; // Show only canonical types
+  maxChainLength?: number; // Maximum conversion chain length
+  
+  // Cochange action options
+  monthsBack?: number; // How far back to analyze in months
+  minChanges?: number; // Minimum changes to consider a type
+  cochangeThreshold?: number; // Threshold for co-change significance (0-1)
+  showMatrix?: boolean; // Show co-change matrix
+  noSuggestModules?: boolean; // Disable module reorganization suggestions
+  maxCommits?: number; // Maximum commits to analyze
+  excludePaths?: string; // Comma-separated paths to exclude from analysis
+}
 
 export interface RiskDistribution {
   low: number;

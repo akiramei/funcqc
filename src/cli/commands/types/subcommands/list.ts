@@ -1,12 +1,11 @@
-import { TypeListOptions } from '../types.types';
-import { VoidCommand } from '../../../types/command';
-import { CommandEnvironment } from '../../../types/environment';
+import { TypeListOptions } from '../../types.types';
+import { VoidCommand } from '../../../../types/command';
+import { CommandEnvironment } from '../../../../types/environment';
 import { createErrorHandler, ErrorCode, FuncqcError } from '../../../../utils/error-handler';
 import { 
   getMemberCountsForTypes, 
   sortTypesDB, 
   displayTypesListDB, 
-  type MemberCounts,
   type CouplingInfo 
 } from '../shared/list-operations';
 import { applyTypeFilters } from '../shared/filters';
@@ -36,7 +35,7 @@ export const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       }
       
       // Create a minimal command environment for type analysis
-      const { createAppEnvironment, destroyAppEnvironment } = await import('../../../core/environment');
+      const { createAppEnvironment, destroyAppEnvironment } = await import('../../../../core/environment');
       const appEnv = await createAppEnvironment({
         quiet: Boolean(isJsonMode),
         verbose: false,
@@ -50,12 +49,12 @@ export const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
         const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
         
         if (analysisLevel === 'NONE') {
-          const { performDeferredBasicAnalysis } = await import('../scan');
+          const { performDeferredBasicAnalysis } = await import('../../scan');
           await performDeferredBasicAnalysis(latestSnapshot.id, commandEnv, !isJsonMode);
         }
         
         // Perform type system analysis
-        const { performDeferredTypeSystemAnalysis } = await import('../scan');
+        const { performDeferredTypeSystemAnalysis } = await import('../../scan');
         const result = await performDeferredTypeSystemAnalysis(latestSnapshot.id, commandEnv, !isJsonMode);
         
         if (!isJsonMode) {

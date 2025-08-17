@@ -168,7 +168,7 @@ async function executeImprovementWorkflow(
 async function executeDuplicateAnalysis(
   env: CommandEnvironment,
   options: ImproveCommandOptions,
-  plan: ImprovementPlan
+  _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
     env.commandLogger.log(`   🔄 Analyzing similar code patterns...`);
@@ -202,7 +202,7 @@ async function executeDuplicateAnalysis(
 async function executeSafetyAnalysis(
   env: CommandEnvironment,
   options: ImproveCommandOptions,
-  plan: ImprovementPlan
+  _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
     env.commandLogger.log(`   🔍 Evaluating refactoring safety...`);
@@ -231,7 +231,7 @@ async function executeSafetyAnalysis(
 async function executeDeadCodeAnalysis(
   env: CommandEnvironment,
   options: ImproveCommandOptions,
-  plan: ImprovementPlan
+  _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
     env.commandLogger.log(`   🗑️  Scanning for dead code...`);

@@ -1,8 +1,10 @@
-import { MeasureCommandOptions, ScanCommandOptions } from '../../types';
+import { MeasureCommandOptions, ScanCommandOptions, SnapshotInfo } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
 import { DatabaseError } from '../../storage/pglite-adapter';
+import chalk from 'chalk';
+import { formatRelativeDate, formatDiffValue, formatSizeDisplay } from './history';
 
 /**
  * Measure command - unified scan and analyze functionality
@@ -13,6 +15,12 @@ export const measureCommand: VoidCommand<MeasureCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
+      // Handle history display mode
+      if (options.history) {
+        await displaySnapshotHistory(env, options);
+        return;
+      }
+
       if (!options.quiet) {
         env.commandLogger.log('📊 Starting comprehensive measurement...');
       }
@@ -79,7 +87,7 @@ interface MeasurementPlan {
 }
 
 /**
- * Determine measurement plan based on options
+ * Determine measurement plan based on options with performance optimization
  */
 function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPlan {
   // Handle level-based configuration
@@ -88,9 +96,9 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
       case 'quick':
         return {
           level: 'quick',
-          description: 'Quick measurement (snapshot only)',
-          estimatedTime: '5-10s',
-          includesScan: true,
+          description: 'Quick measurement (existing snapshot reuse)',
+          estimatedTime: '1-2s',
+          includesScan: false, // Performance: Reuse existing snapshot
           includesCallGraph: false,
           includesTypes: false,
           includesCoupling: false,
@@ -101,9 +109,9 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
       case 'basic':
         return {
           level: 'basic',
-          description: 'Basic measurement (functions only)',
-          estimatedTime: '15-20s',
-          includesScan: true,
+          description: 'Basic measurement (light analysis)',
+          estimatedTime: '2-5s',
+          includesScan: false, // Performance: Reuse existing snapshot
           includesCallGraph: false,
           includesTypes: false,
           includesCoupling: false,
@@ -161,32 +169,36 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
     return determineMeasurementPlan({ ...options, level: 'basic' });
   }
 
-  // Build custom plan based on specific options
+  // Build custom plan based on specific options with performance optimization
   const includesCallGraph = !!(options.callGraph || options.withGraph);
   const includesTypes = !!(options.types || options.withTypes);
   const includesCoupling = !!(options.coupling || options.withCoupling);
 
-  let estimatedTime = '15-20s';
-  let description = 'Custom measurement';
+  // Performance optimization: Default to lightweight mode
+  let estimatedTime = '2-5s';
+  let description = 'Custom measurement (optimized)';
+  let needsScan = false;
   
   if (includesCallGraph && includesTypes && includesCoupling) {
     estimatedTime = '50-60s';
     description = 'Complete custom measurement';
+    needsScan = true;
   } else if (includesCallGraph || includesTypes) {
     estimatedTime = '30-40s';
     description = 'Extended custom measurement';
+    needsScan = true;
   }
 
   return {
     level: 'custom',
     description,
     estimatedTime,
-    includesScan: true,
+    includesScan: needsScan, // Performance: Only scan when heavy analysis is requested
     includesCallGraph,
     includesTypes,
     includesCoupling,
     scanOptions: {
-      withBasic: true,
+      withBasic: !needsScan, // Light mode if no scan needed
       withGraph: includesCallGraph,
       withTypes: includesTypes,
       withCoupling: includesCoupling
@@ -199,31 +211,41 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
 }
 
 /**
- * Execute the complete measurement workflow
+ * Execute the complete measurement workflow with intelligent snapshot reuse
  */
 async function executeMeasurementWorkflow(
   env: CommandEnvironment,
   options: MeasureCommandOptions,
   plan: MeasurementPlan
 ): Promise<void> {
-  // Phase 1: Scan (always included)
-  if (plan.includesScan) {
+  // Phase 0: Check existing snapshot and determine if new scan is needed
+  const existingSnapshot = await checkExistingSnapshot(env, options);
+  const needsNewScan = await determineScanNecessity(existingSnapshot, plan);
+
+  // Phase 1: Scan (only if needed or forced)
+  if (plan.includesScan && (needsNewScan || options.force)) {
     if (!options.quiet) {
       env.commandLogger.log('📦 Phase 1: Function scanning...');
+      if (!needsNewScan) {
+        env.commandLogger.log('   🔄 Force scan requested, creating new snapshot');
+      }
     }
     
     // Execute integrated scan functionality
     await executeScanPhase(env, options, plan);
+  } else if (existingSnapshot && !options.quiet) {
+    env.commandLogger.log('📦 Phase 1: Using existing snapshot (performance optimized)');
+    env.commandLogger.log(`   📅 Snapshot: ${existingSnapshot.id.slice(0, 8)} (${new Date(existingSnapshot.createdAt).toLocaleString()})`);
   }
 
-  // Phase 2: Additional analyses (if requested)
+  // Phase 2: Additional analyses (only if specifically requested)
   if (plan.includesCallGraph || plan.includesTypes) {
     if (!options.quiet) {
-      env.commandLogger.log('🔄 Phase 2: Advanced analysis...');
+      env.commandLogger.log('🔄 Phase 2: Advanced analysis (on-demand)...');
     }
     
-    // Execute integrated analyze functionality
-    await executeAnalyzePhase(env, options, plan);
+    // Execute lazy analyze functionality
+    await executeLazyAnalyzePhase(env, options, plan);
   }
 }
 
@@ -264,9 +286,46 @@ async function executeScanPhase(
 }
 
 /**
- * Execute analyze functionality (integrated from analyze command)
+ * Check for existing snapshot and return latest if available
  */
-async function executeAnalyzePhase(
+async function checkExistingSnapshot(
+  env: CommandEnvironment,
+  _options: MeasureCommandOptions
+): Promise<{ id: string; createdAt: string } | null> {
+  try {
+    const snapshots = await env.storage.getSnapshots({ limit: 1 });
+    return snapshots.length > 0 ? snapshots[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Determine if a new scan is necessary based on existing snapshot and plan
+ */
+async function determineScanNecessity(
+  existingSnapshot: { id: string; createdAt: string } | null,
+  plan: MeasurementPlan
+): Promise<boolean> {
+  // No existing snapshot - scan needed
+  if (!existingSnapshot) {
+    return true;
+  }
+
+  // Quick scan level - use existing snapshot unless very old
+  if (plan.level === 'quick') {
+    const snapshotAge = Date.now() - new Date(existingSnapshot.createdAt).getTime();
+    return snapshotAge > 24 * 60 * 60 * 1000; // 1 day
+  }
+
+  // For other levels, use existing snapshot for performance unless specifically forced
+  return false;
+}
+
+/**
+ * Execute lazy analyze functionality (only when explicitly requested)
+ */
+async function executeLazyAnalyzePhase(
   env: CommandEnvironment,
   options: MeasureCommandOptions,
   plan: MeasurementPlan
@@ -277,7 +336,7 @@ async function executeAnalyzePhase(
   if (plan.includesCoupling) analyses.push('coupling');
 
   if (!options.quiet) {
-    env.commandLogger.log(`   🔍 Running ${analyses.join(', ')} analysis...`);
+    env.commandLogger.log(`   🔍 Running ${analyses.join(', ')} analysis (lazy execution)...`);
   }
   
   // Convert measure options to analyze options
@@ -355,4 +414,139 @@ async function displayMeasurementSummary(
   console.log('   • Run `funcqc inspect` to explore results');
   console.log('   • Run `funcqc health` for quality analysis');
   console.log('   • Run `funcqc list --cc-ge 10` for complex functions');
+}
+
+/**
+ * Display snapshot history (integrated from history command)
+ */
+async function displaySnapshotHistory(
+  env: CommandEnvironment,
+  options: MeasureCommandOptions
+): Promise<void> {
+  const limit = 20; // Default limit
+  
+  const snapshots = await env.storage.getSnapshots({ limit });
+  
+  if (snapshots.length === 0) {
+    console.log('📈 No snapshots found. Run `funcqc measure` to create your first snapshot.');
+    return;
+  }
+
+  if (options.json) {
+    displaySnapshotHistoryJSON(snapshots);
+    return;
+  }
+
+  console.log(chalk.cyan.bold(`\n📈 Snapshot History (${snapshots.length} snapshots)\n`));
+  displayCompactHistory(snapshots);
+}
+
+/**
+ * Display snapshot history in JSON format
+ */
+function displaySnapshotHistoryJSON(snapshots: SnapshotInfo[]): void {
+  const output = {
+    snapshots: snapshots.map(snapshot => ({
+      id: snapshot.id,
+      label: snapshot.label || null,
+      comment: snapshot.comment || null,     
+      scope: snapshot.scope || 'src',
+      createdAt: new Date(snapshot.createdAt).toISOString(),
+      gitBranch: snapshot.gitBranch || null,
+      gitCommit: snapshot.gitCommit || null,
+      metadata: {
+        totalFunctions: snapshot.metadata.totalFunctions,
+        totalFiles: snapshot.metadata.totalFiles,
+        avgComplexity: snapshot.metadata.avgComplexity,
+        maxComplexity: snapshot.metadata.maxComplexity
+      }
+    })),
+    summary: {
+      totalSnapshots: snapshots.length
+    }
+  };
+
+  console.log(JSON.stringify(output, null, 2));
+}
+
+/**
+ * Display compact history table
+ */
+function displayCompactHistory(snapshots: SnapshotInfo[]): void {
+  // Display header with fixed-width columns
+  console.log(
+    'ID       Created       Scope Label               Functions +/-      Files +/-    Size'
+  );
+  console.log(
+    '-------- ------------- ----- ------------------- --------- -------- ----- ------ ----------'
+  );
+
+  // Display each snapshot
+  for (let i = 0; i < snapshots.length; i++) {
+    const snapshot = snapshots[i];
+    const prevSnapshot = findPreviousSnapshotWithSameScope(snapshots, i);
+
+    const id = formatSnapshotIdForDisplay(snapshot.id);
+    const created = formatRelativeDate(snapshot.createdAt).padEnd(13);
+    const scope = (snapshot.scope || 'src').padEnd(5);
+    const label = truncateWithEllipsis(snapshot.label || '', 19).padEnd(19);
+
+    // Functions with diff (only compare with same scope)
+    const currentFunctions = snapshot.metadata.totalFunctions ?? 0;
+    const prevFunctions = prevSnapshot?.metadata.totalFunctions ?? 0;
+    const functionDiff = prevSnapshot ? currentFunctions - prevFunctions : 0;
+    const functionsDisplay = currentFunctions.toString().padStart(9);
+    const functionsDiffDisplay = formatDiffValue(functionDiff, 8);
+
+    // Files count (only compare with same scope)
+    const currentFiles = snapshot.metadata.totalFiles ?? 0;
+    const prevFiles = prevSnapshot?.metadata.totalFiles ?? 0;
+    const filesDiff = prevSnapshot ? currentFiles - prevFiles : 0;
+    const filesDisplay = currentFiles.toString().padStart(5);
+    const filesDiffDisplay = formatDiffValue(filesDiff, 6);
+
+    // Size estimation (rough LOC calculation)
+    const sizeDisplay = formatSizeDisplay(snapshot.metadata);
+
+    console.log(
+      `${id} ${created} ${scope} ${label} ${functionsDisplay} ${functionsDiffDisplay} ${filesDisplay} ${filesDiffDisplay} ${sizeDisplay}`
+    );
+  }
+}
+
+/**
+ * Display a shortened version of snapshot ID for table display
+ */
+function formatSnapshotIdForDisplay(id: string): string {
+  return id.substring(0, 8);
+}
+
+/**
+ * Truncate string with ellipsis if it exceeds max length
+ */
+function truncateWithEllipsis(str: string, maxLength: number): string {
+  if (!str || str.length <= maxLength) {
+    return str;
+  }
+  return str.substring(0, maxLength - 3) + '...';
+}
+
+/**
+ * Find the previous snapshot with the same scope
+ */
+function findPreviousSnapshotWithSameScope(snapshots: SnapshotInfo[], currentIndex: number): SnapshotInfo | null {
+  const currentSnapshot = snapshots[currentIndex];
+  const currentScope = currentSnapshot.scope || 'src';
+  
+  // Look for the next snapshot (older) with the same scope
+  for (let i = currentIndex + 1; i < snapshots.length; i++) {
+    const candidateSnapshot = snapshots[i];
+    const candidateScope = candidateSnapshot.scope || 'src';
+    
+    if (candidateScope === currentScope) {
+      return candidateSnapshot;
+    }
+  }
+  
+  return null;
 }
