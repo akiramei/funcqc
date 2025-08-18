@@ -284,19 +284,24 @@ export const executeTypesConvertersDB: VoidCommand<TypeConvertersOptions> = (opt
       // Apply sorting and limiting to nodes
       let nodes = [...report.nodes];
       
+      const desc = options.desc ?? true;
       if (sort === 'centrality') {
-        nodes = nodes.sort((a, b) => b.centralityScore - a.centralityScore);
+        nodes = nodes.sort((a, b) =>
+          desc ? b.centralityScore - a.centralityScore : a.centralityScore - b.centralityScore
+        );
       } else if (sort === 'converters') {
-        nodes = nodes.sort((a, b) => b.totalConverters - a.totalConverters);
+        nodes = nodes.sort((a, b) =>
+          desc ? b.totalConverters - a.totalConverters : a.totalConverters - b.totalConverters
+        );
       } else if (sort === 'usage') {
         const getUsage = (node: typeof nodes[0]) =>
-          [...node.convertersIn, ...node.convertersOut]
-            .reduce((sum, conv) => sum + (conv.usageCount || 0), 0);
-        nodes = nodes.sort((a, b) => getUsage(b) - getUsage(a));
-      }
-
-      if (!options.desc) {
-        nodes = nodes.reverse();
+          [...node.convertersIn, ...node.convertersOut].reduce(
+            (sum, conv) => sum + (conv.usageCount || 0),
+            0
+          );
+        nodes = nodes.sort((a, b) =>
+          desc ? getUsage(b) - getUsage(a) : getUsage(a) - getUsage(b)
+        );
       }
 
       if (limit) {

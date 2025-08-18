@@ -201,12 +201,15 @@ export const executeTypesFingerprintDB: VoidCommand<TypeFingerprintOptions> = (o
 
       // Apply sorting
       let sortedResults = [...clusters];
-      const allowedSorts = new Set(['similarity', 'impact', 'size'] as const);
-      type AllowedSort = 'similarity' | 'impact' | 'size';
-      const sortField = allowedSorts.has((options.sort ?? 'impact') as AllowedSort)
-        ? (options.sort ?? 'impact')
-        : 'impact';
-      if (options.sort && !allowedSorts.has(options.sort as AllowedSort)) {
+      const ALLOWED_SORTS = ['similarity', 'impact', 'size'] as const;
+      type AllowedSort = typeof ALLOWED_SORTS[number];
+
+      const isValidSort = (sort: unknown): sort is AllowedSort =>
+        ALLOWED_SORTS.includes(sort as AllowedSort);
+
+      const sortField: AllowedSort = isValidSort(options.sort) ? options.sort : 'impact';
+
+      if (options.sort && !isValidSort(options.sort)) {
         env.commandLogger.warn(`Invalid --sort '${options.sort}'. Falling back to 'impact'.`);
       }
       const descending = options.desc === true;

@@ -66,6 +66,8 @@ export function getMemberKindIcon(kind: string): string {
     case 'method': return '⚙️';
     case 'constructor': return '🏗️';
     case 'accessor': return '🔧';
+    case 'getter': return '🔎';
+    case 'setter': return '✍️';
     case 'index_signature': return '🔤';
     case 'call_signature': return '📞';
     default: return '❓';
