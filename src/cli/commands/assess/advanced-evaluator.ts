@@ -135,7 +135,7 @@ export class AdvancedEvaluator {
     const startTime = Date.now();
     
     if (!this.options.quiet) {
-      this.env.commandLogger.log(`🔬 Starting advanced assessment of ${functions.length} functions...`);
+      this.env.commandLogger.info(`🔬 Starting advanced assessment of ${functions.length} functions...`);
     }
 
     // Initialize result structure
@@ -174,7 +174,7 @@ export class AdvancedEvaluator {
       const batch = batches[i];
       
       if (!this.options.quiet) {
-        this.env.commandLogger.log(`   📊 Processing batch ${i + 1}/${batches.length} (${batch.length} functions)`);
+        this.env.commandLogger.info(`   📊 Processing batch ${i + 1}/${batches.length} (${batch.length} functions)`);
       }
       
       const batchResults = await this.processFunctionBatch(batch);
@@ -196,8 +196,8 @@ export class AdvancedEvaluator {
     result.performance.functionsPerSecond = Math.round(functions.length / (result.performance.evaluationTime / 1000));
 
     if (!this.options.quiet) {
-      this.env.commandLogger.log(`✅ Advanced assessment completed in ${result.performance.evaluationTime}ms`);
-      this.env.commandLogger.log(`   📈 Performance: ${result.performance.functionsPerSecond} functions/second`);
+      this.env.commandLogger.info(`✅ Advanced assessment completed in ${result.performance.evaluationTime}ms`);
+      this.env.commandLogger.info(`   📈 Performance: ${result.performance.functionsPerSecond} functions/second`);
     }
 
     return result;
@@ -216,7 +216,7 @@ export class AdvancedEvaluator {
       } catch (error) {
         // Log error but continue processing
         if (!this.options.quiet) {
-          this.env.commandLogger.log(`⚠️  Failed to evaluate function ${func.name}: ${error}`);
+          this.env.commandLogger.info(`⚠️  Failed to evaluate function ${func.name}: ${error}`);
         }
       }
     }

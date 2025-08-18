@@ -14,22 +14,22 @@ export const improveCommand: VoidCommand<ImproveCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('🔧 Starting code improvement analysis...');
+        env.commandLogger.info('🔧 Starting code improvement analysis...');
       }
 
       // Determine improvement type and strategy
       const improvementPlan = determineImprovementPlan(options);
       
       if (!options.quiet) {
-        env.commandLogger.log(`🎯 Improvement plan: ${improvementPlan.description}`);
-        env.commandLogger.log(`⏱️  Estimated time: ${improvementPlan.estimatedTime}`);
+        env.commandLogger.info(`🎯 Improvement plan: ${improvementPlan.description}`);
+        env.commandLogger.info(`⏱️  Estimated time: ${improvementPlan.estimatedTime}`);
       }
 
       // Execute improvement workflow
       await executeImprovementWorkflow(env, options, improvementPlan);
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Code improvement analysis completed successfully!');
+        env.commandLogger.info('✅ Code improvement analysis completed successfully!');
       }
       if (options.json) {
         await outputImprovementResults(env, options);
@@ -136,7 +136,7 @@ async function executeImprovementWorkflow(
   // Phase 1: Duplicate detection (if requested)
   if (plan.includesDuplicates) {
     if (!options.quiet) {
-      env.commandLogger.log('🔍 Phase 1: Analyzing code duplicates...');
+      env.commandLogger.info('🔍 Phase 1: Analyzing code duplicates...');
     }
     
     await executeDuplicateAnalysis(env, options, plan);
@@ -145,7 +145,7 @@ async function executeImprovementWorkflow(
   // Phase 2: Safety assessment (if requested)
   if (plan.includesSafety) {
     if (!options.quiet) {
-      env.commandLogger.log('🛡️  Phase 2: Assessing refactoring safety...');
+      env.commandLogger.info('🛡️  Phase 2: Assessing refactoring safety...');
     }
     
     await executeSafetyAnalysis(env, options, plan);
@@ -154,7 +154,7 @@ async function executeImprovementWorkflow(
   // Phase 3: Dead code detection (if requested)
   if (plan.includesDeadCode) {
     if (!options.quiet) {
-      env.commandLogger.log('🗑️  Phase 3: Detecting dead code...');
+      env.commandLogger.info('🗑️  Phase 3: Detecting dead code...');
     }
     
     await executeDeadCodeAnalysis(env, options, plan);
@@ -170,7 +170,7 @@ async function executeDuplicateAnalysis(
   _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🔄 Analyzing similar code patterns...`);
+    env.commandLogger.info(`   🔄 Analyzing similar code patterns...`);
   }
   
   // Convert improve options to similar options
@@ -188,7 +188,7 @@ async function executeDuplicateAnalysis(
     await similarCommand(similarOptions)(env);
     
     if (options.verbose) {
-      env.commandLogger.log('   ✅ Duplicate analysis completed');
+      env.commandLogger.info('   ✅ Duplicate analysis completed');
     }
   } catch (error) {
     throw new Error(`Duplicate analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -204,7 +204,7 @@ async function executeSafetyAnalysis(
   _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🔍 Evaluating refactoring safety...`);
+    env.commandLogger.info(`   🔍 Evaluating refactoring safety...`);
   }
   
   try {
@@ -216,8 +216,8 @@ async function executeSafetyAnalysis(
     // - Git co-change patterns
     
     if (options.verbose) {
-      env.commandLogger.log('   ⚠️  Comprehensive safety analysis not yet implemented');
-      env.commandLogger.log('   💡 Use `funcqc refactor-guard --type <TypeName>` for specific type analysis');
+      env.commandLogger.info('   ⚠️  Comprehensive safety analysis not yet implemented');
+      env.commandLogger.info('   💡 Use `funcqc refactor-guard --type <TypeName>` for specific type analysis');
     }
   } catch (error) {
     throw new Error(`Safety analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -233,7 +233,7 @@ async function executeDeadCodeAnalysis(
   _plan: ImprovementPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🗑️  Scanning for dead code...`);
+    env.commandLogger.info(`   🗑️  Scanning for dead code...`);
   }
   
   try {
@@ -241,7 +241,7 @@ async function executeDeadCodeAnalysis(
     // This would integrate with a future safe-delete command
     
     if (options.verbose) {
-      env.commandLogger.log('   ⚠️  Dead code analysis not yet implemented');
+      env.commandLogger.info('   ⚠️  Dead code analysis not yet implemented');
     }
   } catch (error) {
     throw new Error(`Dead code analysis failed: ${error instanceof Error ? error.message : String(error)}`);

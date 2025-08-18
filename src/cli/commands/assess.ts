@@ -15,15 +15,15 @@ export const assessCommand: VoidCommand<AssessCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('📊 Starting quality assessment analysis...');
+        env.commandLogger.info('📊 Starting quality assessment analysis...');
       }
 
       // Determine assessment type and strategy
       const assessmentPlan = determineAssessmentPlan(options);
       
       if (!options.quiet) {
-        env.commandLogger.log(`🎯 Assessment plan: ${assessmentPlan.description}`);
-        env.commandLogger.log(`⏱️  Estimated time: ${assessmentPlan.estimatedTime}`);
+        env.commandLogger.info(`🎯 Assessment plan: ${assessmentPlan.description}`);
+        env.commandLogger.info(`⏱️  Estimated time: ${assessmentPlan.estimatedTime}`);
       }
 
       // Execute assessment workflow
@@ -35,7 +35,7 @@ export const assessCommand: VoidCommand<AssessCommandOptions> = (options) =>
         await displayAssessmentSummary(env, options);
       }
       if (!options.quiet) {
-        env.commandLogger.log('✅ Quality assessment analysis completed successfully!');
+        env.commandLogger.info('✅ Quality assessment analysis completed successfully!');
       }
 
     } catch (error) {
@@ -161,7 +161,7 @@ async function executeAssessmentWorkflow(
   // Phase 1: Health assessment (if requested)
   if (plan.includesHealth) {
     if (!options.quiet) {
-      env.commandLogger.log('🏥 Phase 1: Analyzing project health...');
+      env.commandLogger.info('🏥 Phase 1: Analyzing project health...');
     }
     
     await executeHealthAssessment(env, options, plan);
@@ -170,7 +170,7 @@ async function executeAssessmentWorkflow(
   // Phase 2: Quality evaluation (if requested)
   if (plan.includesQuality) {
     if (!options.quiet) {
-      env.commandLogger.log('🔍 Phase 2: Evaluating code quality...');
+      env.commandLogger.info('🔍 Phase 2: Evaluating code quality...');
     }
     
     await executeQualityEvaluation(env, options, plan);
@@ -179,7 +179,7 @@ async function executeAssessmentWorkflow(
   // Phase 3: Type system assessment (if requested)
   if (plan.includesTypes) {
     if (!options.quiet) {
-      env.commandLogger.log('🔧 Phase 3: Assessing type system health...');
+      env.commandLogger.info('🔧 Phase 3: Assessing type system health...');
     }
     
     await executeTypesAssessment(env, options, plan);
@@ -195,7 +195,7 @@ async function executeAdvancedAssessment(
   _plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🚀 Starting advanced quality assessment...');
+    env.commandLogger.info('🚀 Starting advanced quality assessment...');
   }
 
   try {
@@ -204,7 +204,7 @@ async function executeAdvancedAssessment(
     
     if (functions.length === 0) {
       if (!options.quiet) {
-        env.commandLogger.log('⚠️  No functions found for assessment');
+        env.commandLogger.info('⚠️  No functions found for assessment');
       }
       return;
     }
@@ -314,7 +314,7 @@ async function exportAdvancedAssessmentReport(
                  options.exportReport.endsWith('.md') ? 'markdown' : 'json';
 
   if (!options.quiet) {
-    env.commandLogger.log(`📄 Exporting ${format} report to ${options.exportReport}...`);
+    env.commandLogger.info(`📄 Exporting ${format} report to ${options.exportReport}...`);
   }
 
   try {
@@ -326,7 +326,7 @@ async function exportAdvancedAssessmentReport(
     await fs.writeFile(options.exportReport, reportContent, 'utf8');
     
     if (!options.quiet) {
-      env.commandLogger.log(`✅ Report exported successfully`);
+      env.commandLogger.info(`✅ Report exported successfully`);
     }
   } catch (error) {
     throw new Error(`Failed to export report: ${error instanceof Error ? error.message : String(error)}`);
@@ -342,7 +342,7 @@ async function executeHealthAssessment(
   plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🩺 Analyzing overall project health...`);
+    env.commandLogger.info(`   🩺 Analyzing overall project health...`);
   }
   
   // Convert assess options to health options
@@ -360,7 +360,7 @@ async function executeHealthAssessment(
     await healthCommand(healthOptions)(env);
     
     if (options.verbose) {
-      env.commandLogger.log('   ✅ Health assessment completed');
+      env.commandLogger.info('   ✅ Health assessment completed');
     }
   } catch (error) {
     throw new Error(`Health assessment failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -376,18 +376,18 @@ async function executeQualityEvaluation(
   _plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🔍 Evaluating code quality metrics...`);
+    env.commandLogger.info(`   🔍 Evaluating code quality metrics...`);
   }
   
   try {
     // TODO: Import and execute evaluate command functionality
     // This would be integrated when evaluate command is available
     if (options.verbose) {
-      env.commandLogger.log('   ⚠️  Quality evaluation integration not yet implemented');
+      env.commandLogger.info('   ⚠️  Quality evaluation integration not yet implemented');
     }
     
     if (options.verbose) {
-      env.commandLogger.log('   ✅ Quality evaluation completed');
+      env.commandLogger.info('   ✅ Quality evaluation completed');
     }
   } catch (error) {
     throw new Error(`Quality evaluation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -403,7 +403,7 @@ async function executeTypesAssessment(
   _plan: AssessmentPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   🔧 Assessing type system health...`);
+    env.commandLogger.info(`   🔧 Assessing type system health...`);
   }
   
   try {
@@ -412,8 +412,8 @@ async function executeTypesAssessment(
     // For now, provide a placeholder indicating the feature is planned
     
     if (options.verbose) {
-      env.commandLogger.log('   ⚠️  Type system assessment not yet implemented');
-      env.commandLogger.log('   💡 Use `funcqc types health` for type system analysis');
+      env.commandLogger.info('   ⚠️  Type system assessment not yet implemented');
+      env.commandLogger.info('   💡 Use `funcqc types health` for type system analysis');
     }
   } catch (error) {
     throw new Error(`Type system assessment failed: ${error instanceof Error ? error.message : String(error)}`);

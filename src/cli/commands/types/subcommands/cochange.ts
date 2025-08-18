@@ -150,10 +150,9 @@ export const executeTypesCochangeDB: VoidCommand<TypeCochangeOptions> = (options
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
     
-    const { GitCochangeProvider } = await import('../../../../analyzers/type-insights/git-cochange-provider');
-    const { CochangeAnalyzer } = await import('../../../../analyzers/type-insights/cochange-analyzer');
-
     try {
+      const { GitCochangeProvider } = await import('../../../../analyzers/type-insights/git-cochange-provider');
+      const { CochangeAnalyzer } = await import('../../../../analyzers/type-insights/cochange-analyzer');
       env.commandLogger.info('📈 Analyzing type co-evolution patterns from Git history...');
       
       // Initialize Git provider

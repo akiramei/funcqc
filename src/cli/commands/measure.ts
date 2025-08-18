@@ -22,22 +22,22 @@ export const measureCommand: VoidCommand<MeasureCommandOptions> = (options) =>
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('📊 Starting comprehensive measurement...');
+        env.commandLogger.info('📊 Starting comprehensive measurement...');
       }
 
       // Determine measurement level and scope
       const measurementPlan = determineMeasurementPlan(options);
       
       if (!options.quiet) {
-        env.commandLogger.log(`🎯 Measurement plan: ${measurementPlan.description}`);
-        env.commandLogger.log(`📈 Estimated time: ${measurementPlan.estimatedTime}`);
+        env.commandLogger.info(`🎯 Measurement plan: ${measurementPlan.description}`);
+        env.commandLogger.info(`📈 Estimated time: ${measurementPlan.estimatedTime}`);
       }
 
       // Execute measurement workflow
       await executeMeasurementWorkflow(env, options, measurementPlan);
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Comprehensive measurement completed successfully!');
+        env.commandLogger.info('✅ Comprehensive measurement completed successfully!');
       }
       if (options.json) {
         await outputMeasurementResults(env, options);
@@ -227,23 +227,23 @@ async function executeMeasurementWorkflow(
   // Phase 1: Scan (only if needed or forced)
   if (plan.includesScan && (needsNewScan || options.force)) {
     if (!options.quiet) {
-      env.commandLogger.log('📦 Phase 1: Function scanning...');
+      env.commandLogger.info('📦 Phase 1: Function scanning...');
       if (!needsNewScan) {
-        env.commandLogger.log('   🔄 Force scan requested, creating new snapshot');
+        env.commandLogger.info('   🔄 Force scan requested, creating new snapshot');
       }
     }
     
     // Execute integrated scan functionality
     await executeScanPhase(env, options, plan);
   } else if (existingSnapshot && !options.quiet) {
-    env.commandLogger.log('📦 Phase 1: Using existing snapshot (performance optimized)');
-    env.commandLogger.log(`   📅 Snapshot: ${existingSnapshot.id.slice(0, 8)} (${new Date(existingSnapshot.createdAt).toLocaleString()})`);
+    env.commandLogger.info('📦 Phase 1: Using existing snapshot (performance optimized)');
+    env.commandLogger.info(`   📅 Snapshot: ${existingSnapshot.id.slice(0, 8)} (${new Date(existingSnapshot.createdAt).toLocaleString()})`);
   }
 
   // Phase 2: Additional analyses (only if specifically requested)
   if (plan.includesCallGraph || plan.includesTypes) {
     if (!options.quiet) {
-      env.commandLogger.log('🔄 Phase 2: Advanced analysis (on-demand)...');
+      env.commandLogger.info('🔄 Phase 2: Advanced analysis (on-demand)...');
     }
     
     // Execute lazy analyze functionality
@@ -260,7 +260,7 @@ async function executeScanPhase(
   plan: MeasurementPlan
 ): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log(`   📊 Scanning functions (${plan.level} level)...`);
+    env.commandLogger.info(`   📊 Scanning functions (${plan.level} level)...`);
   }
   
   // Convert measure options to scan options
@@ -287,7 +287,7 @@ async function executeScanPhase(
     await scanCommand(scanOptions)(env);
     
     if (options.verbose) {
-      env.commandLogger.log('   ✅ Function scanning completed');
+      env.commandLogger.info('   ✅ Function scanning completed');
     }
   } catch (error) {
     throw new Error(`Scan phase failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -348,7 +348,7 @@ async function executeLazyAnalyzePhase(
   if (plan.includesCoupling) analyses.push('coupling');
 
   if (!options.quiet) {
-    env.commandLogger.log(`   🔍 Running ${analyses.join(', ')} analysis (lazy execution)...`);
+    env.commandLogger.info(`   🔍 Running ${analyses.join(', ')} analysis (lazy execution)...`);
   }
   
   // Convert measure options to analyze options
@@ -368,7 +368,7 @@ async function executeLazyAnalyzePhase(
     await analyzeCommand(analyzeOptions)(env);
     
     if (options.verbose) {
-      env.commandLogger.log(`   ✅ ${analyses.join(', ')} analysis completed`);
+      env.commandLogger.info(`   ✅ ${analyses.join(', ')} analysis completed`);
     }
   } catch (error) {
     throw new Error(`Analysis phase failed: ${error instanceof Error ? error.message : String(error)}`);

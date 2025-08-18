@@ -26,6 +26,19 @@ export const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       const latestSnapshot = snapshots[0];
       let types = await env.storage.getTypeDefinitions(latestSnapshot.id);
     
+    // Helper function for consistent empty types handling
+    const handleEmptyTypes = (): boolean => {
+      if (types.length === 0) {
+        if (options.json) {
+          console.log(JSON.stringify([], null, 2));
+        } else {
+          console.log('No types found in the codebase.');
+        }
+        return true; // Indicates we should return early
+      }
+      return false;
+    };
+
     // If no types found, trigger lazy type system analysis
     if (types.length === 0) {
       const isJsonMode = options.json;
@@ -100,12 +113,8 @@ export const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
       }
     }
     
-    if (types.length === 0) {
-      if (options.json) {
-        console.log(JSON.stringify([], null, 2));
-      } else {
-        console.log('No types found in the codebase.');
-      }
+    // Check if types are still empty after analysis (if it was performed)
+    if (handleEmptyTypes()) {
       return;
     }
     

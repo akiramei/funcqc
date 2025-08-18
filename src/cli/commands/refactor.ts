@@ -27,7 +27,7 @@ export const refactorCommand: VoidCommand<RefactorCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('🔧 Starting refactoring analysis...');
+        env.commandLogger.info('🔧 Starting refactoring analysis...');
       }
 
       switch (options.action) {
@@ -52,7 +52,7 @@ export const refactorCommand: VoidCommand<RefactorCommandOptions> = (options) =>
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Refactoring analysis completed!');
+        env.commandLogger.info('✅ Refactoring analysis completed!');
       }
 
     } catch (error) {
@@ -81,7 +81,7 @@ export const refactorCommand: VoidCommand<RefactorCommandOptions> = (options) =>
  */
 async function executeGuard(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🛡️ Analyzing refactoring safety and guardrails...');
+    env.commandLogger.info('🛡️ Analyzing refactoring safety and guardrails...');
   }
 
   try {
@@ -104,7 +104,7 @@ async function executeGuard(env: CommandEnvironment, options: RefactorCommandOpt
     await refactorGuardCommand(guardOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Refactor guard analysis completed');
+      env.commandLogger.info('✅ Refactor guard analysis completed');
     }
   } catch (error) {
     throw new Error(`Refactor guard analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -116,7 +116,7 @@ async function executeGuard(env: CommandEnvironment, options: RefactorCommandOpt
  */
 async function executeExtractVO(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🧩 Analyzing value object extraction opportunities...');
+    env.commandLogger.info('🧩 Analyzing value object extraction opportunities...');
   }
 
   try {
@@ -146,7 +146,7 @@ async function executeExtractVO(env: CommandEnvironment, options: RefactorComman
     await extractVOCommand(voOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Value object extraction completed');
+      env.commandLogger.info('✅ Value object extraction completed');
     }
   } catch (error) {
     throw new Error(`Value object extraction failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -158,7 +158,7 @@ async function executeExtractVO(env: CommandEnvironment, options: RefactorComman
  */
 async function executeDiscriminate(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🎯 Analyzing discriminated union opportunities...');
+    env.commandLogger.info('🎯 Analyzing discriminated union opportunities...');
   }
 
   try {
@@ -184,7 +184,7 @@ async function executeDiscriminate(env: CommandEnvironment, options: RefactorCom
     await executeDiscriminate(discriminateOptions);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Discriminated union analysis completed');
+      env.commandLogger.info('✅ Discriminated union analysis completed');
     }
   } catch (error) {
     throw new Error(`Discriminated union analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -196,7 +196,7 @@ async function executeDiscriminate(env: CommandEnvironment, options: RefactorCom
  */
 async function executeCanonicalize(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Analyzing DTO canonicalization opportunities...');
+    env.commandLogger.info('🔄 Analyzing DTO canonicalization opportunities...');
   }
 
   try {
@@ -222,7 +222,7 @@ async function executeCanonicalize(env: CommandEnvironment, options: RefactorCom
     await canonicalizeCommand(canonicalizeOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ DTO canonicalization completed');
+      env.commandLogger.info('✅ DTO canonicalization completed');
     }
   } catch (error) {
     throw new Error(`DTO canonicalization failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -234,7 +234,7 @@ async function executeCanonicalize(env: CommandEnvironment, options: RefactorCom
  */
 async function executeTypeReplace(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Analyzing type replacement safety...');
+    env.commandLogger.info('🔄 Analyzing type replacement safety...');
   }
 
   try {
@@ -262,7 +262,7 @@ async function executeTypeReplace(env: CommandEnvironment, options: RefactorComm
     await typeReplaceCommand(typeReplaceOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type replacement analysis completed');
+      env.commandLogger.info('✅ Type replacement analysis completed');
     }
   } catch (error) {
     throw new Error(`Type replacement analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -274,7 +274,7 @@ async function executeTypeReplace(env: CommandEnvironment, options: RefactorComm
  */
 async function executeOverview(env: CommandEnvironment, options: RefactorCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Displaying refactoring capabilities overview...');
+    env.commandLogger.info('📊 Displaying refactoring capabilities overview...');
   }
 
   const overview = {
@@ -363,6 +363,6 @@ async function executeOverview(env: CommandEnvironment, options: RefactorCommand
   }
   
   if (!options.quiet) {
-    env.commandLogger.log('✅ Refactoring overview completed');
+    env.commandLogger.info('✅ Refactoring overview completed');
   }
 }

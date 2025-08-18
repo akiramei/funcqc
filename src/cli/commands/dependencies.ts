@@ -27,7 +27,7 @@ export const dependenciesCommand: VoidCommand<DependenciesCommandOptions> = (opt
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('🔗 Starting dependency analysis...');
+        env.commandLogger.info('🔗 Starting dependency analysis...');
       }
 
       switch (options.action) {
@@ -55,7 +55,7 @@ export const dependenciesCommand: VoidCommand<DependenciesCommandOptions> = (opt
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Dependency analysis completed!');
+        env.commandLogger.info('✅ Dependency analysis completed!');
       }
 
     } catch (error) {
@@ -84,7 +84,7 @@ export const dependenciesCommand: VoidCommand<DependenciesCommandOptions> = (opt
  */
 async function executeList(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📋 Listing function dependencies...');
+    env.commandLogger.info('📋 Listing function dependencies...');
   }
 
   try {
@@ -108,7 +108,7 @@ async function executeList(env: CommandEnvironment, options: DependenciesCommand
     await depListCommand(listOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Dependency list completed');
+      env.commandLogger.info('✅ Dependency list completed');
     }
   } catch (error) {
     throw new Error(`List dependencies failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -120,7 +120,7 @@ async function executeList(env: CommandEnvironment, options: DependenciesCommand
  */
 async function executeShow(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔍 Showing detailed dependency information...');
+    env.commandLogger.info('🔍 Showing detailed dependency information...');
   }
 
   try {
@@ -143,7 +143,7 @@ async function executeShow(env: CommandEnvironment, options: DependenciesCommand
     await depShowCommand(undefined)(showOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Dependency details completed');
+      env.commandLogger.info('✅ Dependency details completed');
     }
   } catch (error) {
     throw new Error(`Show dependency details failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -155,7 +155,7 @@ async function executeShow(env: CommandEnvironment, options: DependenciesCommand
  */
 async function executeStats(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Analyzing dependency statistics...');
+    env.commandLogger.info('📊 Analyzing dependency statistics...');
   }
 
   try {
@@ -180,7 +180,7 @@ async function executeStats(env: CommandEnvironment, options: DependenciesComman
     await depStatsCommand(statsOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Dependency statistics completed');
+      env.commandLogger.info('✅ Dependency statistics completed');
     }
   } catch (error) {
     throw new Error(`Dependency statistics failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -192,7 +192,7 @@ async function executeStats(env: CommandEnvironment, options: DependenciesComman
  */
 async function executeLint(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔧 Linting dependency architecture...');
+    env.commandLogger.info('🔧 Linting dependency architecture...');
   }
 
   try {
@@ -217,7 +217,7 @@ async function executeLint(env: CommandEnvironment, options: DependenciesCommand
     await depLintCommand(lintOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Dependency linting completed');
+      env.commandLogger.info('✅ Dependency linting completed');
     }
   } catch (error) {
     throw new Error(`Dependency linting failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -229,7 +229,7 @@ async function executeLint(env: CommandEnvironment, options: DependenciesCommand
  */
 async function executeDead(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('💀 Detecting dead code...');
+    env.commandLogger.info('💀 Detecting dead code...');
   }
 
   try {
@@ -250,7 +250,7 @@ async function executeDead(env: CommandEnvironment, options: DependenciesCommand
     await depDeadCommand(deadOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Dead code detection completed');
+      env.commandLogger.info('✅ Dead code detection completed');
     }
   } catch (error) {
     throw new Error(`Dead code detection failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -262,7 +262,7 @@ async function executeDead(env: CommandEnvironment, options: DependenciesCommand
  */
 async function executeCycles(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Detecting circular dependencies...');
+    env.commandLogger.info('🔄 Detecting circular dependencies...');
   }
 
   try {
@@ -292,7 +292,7 @@ async function executeCycles(env: CommandEnvironment, options: DependenciesComma
     await depCyclesCommand(cyclesOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Cycle detection completed');
+      env.commandLogger.info('✅ Cycle detection completed');
     }
   } catch (error) {
     throw new Error(`Cycle detection failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -304,7 +304,7 @@ async function executeCycles(env: CommandEnvironment, options: DependenciesComma
  */
 async function executeOverview(env: CommandEnvironment, options: DependenciesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Analyzing dependency overview...');
+    env.commandLogger.info('📊 Analyzing dependency overview...');
   }
 
   const overview = {
@@ -349,6 +349,6 @@ async function executeOverview(env: CommandEnvironment, options: DependenciesCom
   }
   
   if (!options.quiet) {
-    env.commandLogger.log('✅ Dependency overview completed');
+    env.commandLogger.info('✅ Dependency overview completed');
   }
 }

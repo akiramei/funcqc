@@ -49,7 +49,7 @@ export const healthCommand: VoidCommand<HealthCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      env.commandLogger.log('🔍 Analyzing project health...');
+      env.commandLogger.info('🔍 Analyzing project health...');
       
       await executeHealthCommand(env, options);
     } catch (error) {

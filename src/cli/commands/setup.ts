@@ -14,7 +14,7 @@ export const setupCommand: VoidCommand<SetupCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('🛠️  Starting setup process...');
+        env.commandLogger.info('🛠️  Starting setup process...');
       }
 
       switch (options.action) {
@@ -34,7 +34,7 @@ export const setupCommand: VoidCommand<SetupCommandOptions> = (options) =>
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Setup completed successfully!');
+        env.commandLogger.info('✅ Setup completed successfully!');
       }
 
     } catch (error) {
@@ -63,7 +63,7 @@ export const setupCommand: VoidCommand<SetupCommandOptions> = (options) =>
  */
 async function executeInit(env: CommandEnvironment, options: SetupCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔧 Initializing funcqc project...');
+    env.commandLogger.info('🔧 Initializing funcqc project...');
   }
 
   try {
@@ -82,7 +82,7 @@ async function executeInit(env: CommandEnvironment, options: SetupCommandOptions
     await initCommand(initOptions);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Project initialization completed');
+      env.commandLogger.info('✅ Project initialization completed');
     }
   } catch (error) {
     throw new Error(`Initialization failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -94,7 +94,7 @@ async function executeInit(env: CommandEnvironment, options: SetupCommandOptions
  */
 async function executeConfig(env: CommandEnvironment, options: SetupCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('⚙️  Managing configuration...');
+    env.commandLogger.info('⚙️  Managing configuration...');
   }
 
   try {
@@ -113,7 +113,7 @@ async function executeConfig(env: CommandEnvironment, options: SetupCommandOptio
     await configCommand('show', configOptions);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Configuration management completed');
+      env.commandLogger.info('✅ Configuration management completed');
     }
   } catch (error) {
     throw new Error(`Configuration failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -125,7 +125,7 @@ async function executeConfig(env: CommandEnvironment, options: SetupCommandOptio
  */
 async function executeCheck(env: CommandEnvironment, options: SetupCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔍 Checking setup status...');
+    env.commandLogger.info('🔍 Checking setup status...');
   }
 
   const checks = [];
@@ -196,7 +196,7 @@ async function executeCheck(env: CommandEnvironment, options: SetupCommandOption
  */
 async function executeInteractiveSetup(env: CommandEnvironment, options: SetupCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🚀 Starting interactive setup...');
+    env.commandLogger.info('🚀 Starting interactive setup...');
   }
 
   // First, check current status
@@ -209,12 +209,12 @@ async function executeInteractiveSetup(env: CommandEnvironment, options: SetupCo
 
   if (needsInit) {
     if (!options.quiet) {
-      env.commandLogger.log('📋 No existing setup detected, initializing...');
+      env.commandLogger.info('📋 No existing setup detected, initializing...');
     }
     await executeInit(env, options);
   } else {
     if (!options.quiet) {
-      env.commandLogger.log('📋 Existing setup detected');
+      env.commandLogger.info('📋 Existing setup detected');
     }
   }
 
@@ -223,7 +223,7 @@ async function executeInteractiveSetup(env: CommandEnvironment, options: SetupCo
   
   if (!options.quiet) {
     console.log('\n🎯 Next steps:');
-    console.log('   • Run `funcqc scan` to create your first snapshot');
+    console.log('   • Run `funcqc measure` to create your first snapshot');
     console.log('   • Run `funcqc inspect` to explore your codebase');
     console.log('   • Run `funcqc assess` for quality analysis');
   }
