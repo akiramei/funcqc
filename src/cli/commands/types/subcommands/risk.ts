@@ -15,7 +15,15 @@ export const executeTypesRiskDB: VoidCommand<TypeRiskOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
     
     try {
-      const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      const typeNameOrId = options.typeName?.trim() ?? '';
+      if (!typeNameOrId) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.MISSING_ARGUMENT,
+          'Type identifier is required. Usage: funcqc types risk <typeName> or funcqc types --action=risk --type-name=<typeName>',
+          { argument: 'typeName' }
+        );
+        throw funcqcError;
+      }
       
       env.commandLogger.info(`⚠️ Analyzing dependency risk for type: ${typeNameOrId}`);
       

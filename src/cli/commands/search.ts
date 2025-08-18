@@ -738,7 +738,7 @@ async function processAstSimilarity(
   allFunctions: FunctionInfo[],
   contextFunctionsStr: string
 ): Promise<FunctionInfo[]> {
-  const contextIds = parseContextFunctionIds(contextFunctionsStr);
+  const contextIds = parseContextFunctionIds(contextFunctionsStr).filter(Boolean);
   const contextFunctions = filterContextFunctions(allFunctions, contextIds);
 
   if (contextFunctions.length === 0) {
@@ -746,7 +746,7 @@ async function processAstSimilarity(
   }
 
   try {
-    return await findSimilarFunctions(allFunctions);
+    return await findSimilarFunctions(allFunctions, new Set(contextIds));
   } catch {
     env.commandLogger.warn('AST similarity search failed, using semantic + keyword only');
     return [];
@@ -771,7 +771,8 @@ function filterContextFunctions(allFunctions: FunctionInfo[], contextIds: string
  * Find structurally similar functions
  */
 async function findSimilarFunctions(
-  allFunctions: FunctionInfo[]
+  allFunctions: FunctionInfo[],
+  contextIdSet: Set<string>
 ): Promise<FunctionInfo[]> {
   const similarityOptions = { threshold: AST_SIMILARITY_THRESHOLD };
   const similarityManager = new SimilarityManager(undefined, similarityOptions);
@@ -782,8 +783,8 @@ async function findSimilarFunctions(
     ['advanced-structural']
   );
 
-  // Extract unique function IDs from similarity results
-  const similarFunctionIds = extractSimilarFunctionIds(similarities);
+  // 文脈IDを含むグループのみを対象にする
+  const similarFunctionIds = extractSimilarFunctionIds(similarities, contextIdSet);
   
   // Filter functions by similarity IDs
   return allFunctions.filter((f: FunctionInfo) => similarFunctionIds.has(f.id));
@@ -792,16 +793,18 @@ async function findSimilarFunctions(
 /**
  * Extract function IDs from similarity results
  */
-function extractSimilarFunctionIds(similarities: import('../../types').SimilarityResult[]): Set<string> {
-  const similarFunctionIds = new Set<string>();
-  
-  for (const similarity of similarities) {
-    for (const func of similarity.functions) {
-      similarFunctionIds.add(func.functionId);
-    }
+function extractSimilarFunctionIds(
+  similarities: import('../../types').SimilarityResult[],
+  contextIdSet: Set<string>
+): Set<string> {
+  const ids = new Set<string>();
+  for (const group of similarities) {
+    const groupIds = group.functions.map(f => f.functionId);
+    const intersects = groupIds.some(id => contextIdSet.has(id));
+    if (!intersects) continue;
+    for (const id of groupIds) ids.add(id);
   }
-  
-  return similarFunctionIds;
+  return ids;
 }
 
 /**
