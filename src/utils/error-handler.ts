@@ -28,6 +28,9 @@ export enum ErrorCode {
   // Resource errors
   NOT_FOUND = 'NOT_FOUND',
 
+  // Input validation errors
+  MISSING_ARGUMENT = 'MISSING_ARGUMENT',
+
   // Generic errors
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
   OPERATION_CANCELLED = 'OPERATION_CANCELLED',

@@ -17,8 +17,12 @@ export const executeTypesRiskDB: VoidCommand<TypeRiskOptions> = (options) =>
     try {
       const typeNameOrId = options.typeName?.trim() ?? '';
       if (!typeNameOrId) {
-        env.commandLogger.error('Type identifier is required. Provide a type name or id (UUID/prefix) via --type.');
-        return;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.MISSING_ARGUMENT,
+          'Type identifier is required. Provide a type name or id (UUID/prefix) via --type.',
+          { option: '--type' }
+        );
+        throw funcqcError;
       }
       
       env.commandLogger.info(`⚠️ Analyzing dependency risk for type: ${typeNameOrId}`);
