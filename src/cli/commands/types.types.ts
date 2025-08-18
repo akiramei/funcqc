@@ -86,6 +86,7 @@ export interface TypeCoverageOptions {
   hotThreshold?: number;
   writeHubThreshold?: number;
   includePrivate?: boolean;
+  detail?: boolean;
 }
 
 export interface TypeClusterOptions {

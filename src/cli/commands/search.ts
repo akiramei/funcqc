@@ -14,6 +14,12 @@ import path from 'path';
  */
 export function searchCommand(keyword: string): VoidCommand<SearchCommandOptions> {
   return (options) => async (env: CommandEnvironment): Promise<void> => {
+    // 非推奨警告
+    console.warn(chalk.yellow('⚠️  DEPRECATED: The "search" command is deprecated and will be removed in a future version.'));
+    console.warn(chalk.cyan('💡 Use "funcqc inspect --name <pattern>" instead for better functionality.'));
+    console.warn(chalk.gray('   Example: funcqc inspect --name "' + keyword + '"'));
+    console.warn('');
+
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
@@ -423,7 +429,7 @@ function parseSearchOptions(options: SearchCommandOptions): {
   return {
     limit: options.limit ? parseInt(options.limit, 10) : 50,
     threshold: options.threshold ? parseFloat(options.threshold) : 0.3,
-    minSimilarity: options.minSimilarity ? parseFloat(options.minSimilarity) : 0.1,
+    minSimilarity: options.minSimilarity ? parseFloat(String(options.minSimilarity)) : 0.1,
   };
 }
 
@@ -495,7 +501,7 @@ function parseOptionsJson(
 } {
   let aiHints: AIHints | undefined;
   try {
-    aiHints = options.aiHints ? JSON.parse(options.aiHints) : undefined;
+    aiHints = options.aiHints ? JSON.parse(String(options.aiHints)) : undefined;
   } catch (error) {
     env.commandLogger.warn(
       `Invalid AI hints JSON format, ignoring: ${error instanceof Error ? error.message : String(error)}`
@@ -661,7 +667,7 @@ async function performHybridSearch(
  * Parse hybrid weight from options
  */
 function parseHybridWeight(options: SearchCommandOptions): number {
-  return options.hybridWeight ? parseFloat(options.hybridWeight) : DEFAULT_HYBRID_WEIGHT;
+  return options.hybridWeight ? parseFloat(String(options.hybridWeight)) : DEFAULT_HYBRID_WEIGHT;
 }
 
 /**
@@ -706,7 +712,8 @@ async function fetchAstSimilarityResults(
   const allFunctions = await env.storage.findFunctionsInSnapshot(snapshot.id);
   
   // Process AST similarity
-  return processAstSimilarity(env, allFunctions, options.contextFunctions);
+  const contextFunctionsStr = options.contextFunctions !== undefined ? String(options.contextFunctions) : '0';
+  return processAstSimilarity(env, allFunctions, contextFunctionsStr);
 }
 
 /**

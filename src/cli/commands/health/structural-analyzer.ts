@@ -9,6 +9,7 @@ import { DependencyMetricsCalculator, DependencyMetrics } from '../../../analyze
 import { PageRankCalculator } from '../../../analyzers/pagerank-calculator';
 import { defaultLayerDetector } from '../../../analyzers/architecture-layer-detector';
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
+import { EnhancedCycleAnalyzer } from '../../../analyzers/enhanced-cycle-analyzer';
 import { StructuralMetrics, PageRankMetrics } from './types';
 import { calculateStructuralPenaltyBreakdown } from './calculator';
 import { performLayerBasedPageRank } from './layer-based-pagerank';
@@ -195,18 +196,33 @@ function aggregateStructuralMetrics(
   hubThreshold: number,
   pageRankMetrics: PageRankMetrics,
   snapshotId: string,
-  callEdgesHash: string
+  callEdgesHash: string,
+  callEdges: CallEdge[],
+  functions: FunctionInfo[]
 ): StructuralMetrics {
   const hubMetrics = depMetrics.filter((m: DependencyMetrics) => m.fanIn >= hubThreshold);
   const hubFunctions = hubMetrics.length;
   const hubFunctionIds = hubMetrics.map((m: DependencyMetrics) => m.functionId);
+  
+  // ENHANCED: Use EnhancedCycleAnalyzer to get true cyclic functions (exclude recursive)
+  const enhancedAnalyzer = new EnhancedCycleAnalyzer();
+  const cycleAnalysisOptions = {
+    excludeRecursive: true,  // Same as dep cycles command
+    excludeClear: true,
+    minComplexity: 4
+  };
+  
+  const cycleResult = enhancedAnalyzer.analyzeClassifiedCycles(callEdges, functions, cycleAnalysisOptions);
+  const trueCyclicFunctions = cycleResult.classifiedCycles
+    .flat()
+    .reduce((acc, cycle) => acc + cycle.nodes.length, 0);
   
   const structuralRisk = calculateStructuralRisk(sccResult, hubFunctions, fanStats.maxFanIn, fanStats.maxFanOut);
   
   const baseMetrics: StructuralMetrics = {
     totalComponents: sccResult.totalComponents,
     largestComponentSize: sccResult.largestComponentSize,
-    cyclicFunctions: sccResult.recursiveFunctions.length,
+    cyclicFunctions: trueCyclicFunctions,  // FIXED: Use true cyclic functions only
     hubFunctions,
     avgFanIn: Math.round(fanStats.avgFanIn * 10) / 10,
     avgFanOut: Math.round(fanStats.avgFanOut * 10) / 10,
@@ -215,7 +231,9 @@ function aggregateStructuralMetrics(
     structuralRisk,
     hubThreshold,
     hubFunctionIds,
-    cyclicFunctionIds: sccResult.recursiveFunctions,
+    cyclicFunctionIds: cycleResult.classifiedCycles
+      .flat()
+      .flatMap(cycle => cycle.nodes),  // FIXED: Use true cyclic function IDs only
     pageRank: pageRankMetrics,
     depMetrics // Include dependency metrics for structural recommendations
   };
@@ -512,7 +530,7 @@ export async function analyzeStructuralMetrics(
     const { hubThreshold } = await calculateProjectStructureMetrics(functions, snapshotId, env, mode, fanStats);
     
     // Aggregate results (reuse the hash calculated at the beginning)
-    const result = aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash);
+    const result = aggregateStructuralMetrics(sccResult, fanStats, depMetrics, hubThreshold, pageRankMetrics, snapshotId, callEdgesHash, callEdges, functions);
     
     env.commandLogger.debug(`Structural analysis completed in ${Date.now() - startTime}ms`);
     return result;

@@ -48,6 +48,14 @@ export interface StructuralMetrics {
   fanOut: number;
   /** Clustering coefficient */
   clustering: number;
+  /** Cyclomatic complexity */
+  cyclomaticComplexity: number;
+  /** Lines of code */
+  linesOfCode: number;
+  /** Parameter count */
+  parameterCount: number;
+  /** Nesting level */
+  nestingLevel: number;
 }
 
 /**
@@ -183,6 +191,10 @@ export class StructuralAnalyzer {
       fanIn: node.inDegree,
       fanOut: node.outDegree,
       clustering,
+      cyclomaticComplexity: node.functionInfo.metrics?.cyclomaticComplexity || 0,
+      linesOfCode: node.functionInfo.metrics?.linesOfCode || 0,
+      parameterCount: node.functionInfo.metrics?.parameterCount || 0,
+      nestingLevel: node.functionInfo.metrics?.maxNestingLevel || 0,
     };
   }
 

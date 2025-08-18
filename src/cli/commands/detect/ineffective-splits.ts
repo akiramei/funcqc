@@ -17,9 +17,13 @@ export const detectIneffectiveSplitsCommand: VoidCommand<DetectCommandOptions> =
 
     try {
       // Get snapshot
-      const snapshot = options.snapshot 
-        ? await env.storage.getSnapshot(options.snapshot)
-        : await env.storage.getLatestSnapshot();
+      let snapshot;
+      if (options.snapshot) {
+        snapshot = await env.storage.getSnapshot(options.snapshot);
+      } else {
+        const latest = await env.storage.getSnapshots({ sort: 'created_at desc', limit: 1 });
+        snapshot = latest[0] ?? null;
+      }
         
       if (!snapshot) {
         spinner.fail(chalk.yellow('No snapshots found. Run `funcqc scan` first.'));

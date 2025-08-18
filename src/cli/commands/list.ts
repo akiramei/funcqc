@@ -10,6 +10,12 @@ import { DatabaseError } from '../../storage/pglite-adapter';
  */
 export const listCommand: VoidCommand<ListCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
+    // 非推奨警告
+    console.warn('\x1b[33m⚠️  DEPRECATED: The "list" command is deprecated and will be removed in a future version.\x1b[0m');
+    console.warn('\x1b[36m💡 Use "funcqc inspect" instead for enhanced functionality.\x1b[0m');
+    console.warn('\x1b[90m   Example: funcqc inspect (same options work)\x1b[0m');
+    console.warn('');
+
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {

@@ -55,6 +55,12 @@ interface AnalyzedSimilarityResult extends SimilarityResult {
  */
 export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
+    // 非推奨警告
+    console.warn(chalk.yellow('⚠️  DEPRECATED: The "similar" command is deprecated and will be removed in a future version.'));
+    console.warn(chalk.cyan('💡 Use "funcqc improve --action=dedupe" instead for guided duplicate code improvement.'));
+    console.warn(chalk.gray('   Example: funcqc improve --action=dedupe'));
+    console.warn('');
+
     const errorHandler = createErrorHandler(env.commandLogger);
     const spinner = ora();
 

@@ -11,6 +11,12 @@ import { formatBytes, formatNumber } from '../../utils/format-utils';
 export const filesCommand = () => 
   (options: FilesCommandOptions) => 
     async (env: CommandEnvironment): Promise<void> => {
+      // 非推奨警告
+      console.warn(chalk.yellow('⚠️  DEPRECATED: The "files" command is deprecated and will be removed in a future version.'));
+      console.warn(chalk.cyan('💡 Use "funcqc inspect --type=files" instead for enhanced file exploration.'));
+      console.warn(chalk.gray('   Example: funcqc inspect --type=files --sort lines --desc'));
+      console.warn('');
+
       const errorHandler = createErrorHandler(env.commandLogger);
 
       try {
