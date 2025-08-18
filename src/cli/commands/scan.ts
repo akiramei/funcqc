@@ -18,7 +18,7 @@ import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/par
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { FunctionAnalyzer } from '../../core/analyzer';
@@ -160,7 +160,14 @@ export const scanCommand: VoidCommand<ScanCommandOptions> = (options) =>
       await executeScanCommand(env, options, spinner);
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
-        errorHandler.handleError(error as DatabaseErrorLike);
+        const dbErr = error as DatabaseErrorLike;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
+        );
+        errorHandler.handleError(funcqcError);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

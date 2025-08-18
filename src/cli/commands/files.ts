@@ -1,6 +1,6 @@
 import chalk from 'chalk';
 import { FilesCommandOptions } from '../../types';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { CommandEnvironment } from '../../types/environment';
 import { formatBytes, formatNumber } from '../../utils/format-utils';
 
@@ -34,7 +34,14 @@ export const filesCommand = () =>
         }
       } catch (error) {
         if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
-          errorHandler.handleError(error as DatabaseErrorLike);
+          const dbErr = error as DatabaseErrorLike;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
+        );
+        errorHandler.handleError(funcqcError);
         } else {
           const funcqcError = errorHandler.createError(
             ErrorCode.UNKNOWN_ERROR,

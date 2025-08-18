@@ -3,7 +3,7 @@ import ora from 'ora';
 import { minimatch } from 'minimatch';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler } from '../../utils/error-handler';
+import { createErrorHandler, ErrorCode, type DatabaseErrorLike } from '../../utils/error-handler';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { ArchitectureValidator } from '../../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult, ArchitectureConfig, LayerDefinition } from '../../types/architecture';
@@ -204,7 +204,14 @@ export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
     } catch (error) {
       spinner.fail('Failed to analyze architecture');
       if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
-        errorHandler.handleError(error as DatabaseErrorLike);
+        const dbErr = error as DatabaseErrorLike;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
+        );
+        errorHandler.handleError(funcqcError);
       } else {
         errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
       }

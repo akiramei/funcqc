@@ -1,7 +1,7 @@
 import chalk from 'chalk';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler } from '../../utils/error-handler';
+import { createErrorHandler, ErrorCode, type DatabaseErrorLike } from '../../utils/error-handler';
 import { CallEdge, FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepListOptions } from './types';
@@ -60,7 +60,14 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       }
     } catch (error) {
       if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
-        errorHandler.handleError(error as DatabaseErrorLike);
+        const dbErr = error as DatabaseErrorLike;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
+        );
+        errorHandler.handleError(funcqcError);
       } else {
         errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
       }

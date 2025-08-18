@@ -1,6 +1,7 @@
 import { InspectCommandOptions, FunctionInfo, QueryOptions, SourceFile } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
+import type { DatabaseErrorLike } from '../../utils/error-handler';
 
 /**
  * Inspect command - unified search and exploration interface
