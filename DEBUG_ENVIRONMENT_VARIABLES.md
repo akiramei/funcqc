@@ -60,6 +60,11 @@ Enables detailed logging of database operations:
 - Short ID expansion in WHERE clauses
 - Result row counts
 
+⚠️ **Security Notice:**
+- This logging may include sensitive data (credentials, tokens, PII). Avoid enabling in production.
+- Prefer masking/redacting parameter values (e.g., show length or hash) in logs.
+- Ensure logs are stored securely and rotated with appropriate retention policies.
+
 **Usage:**
 ```bash
 DEBUG_DB=true npm run dev -- db --table functions --where "id='a1b2c3d4'" --limit 5

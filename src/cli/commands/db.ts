@@ -528,14 +528,14 @@ async function buildParameterizedWhereClause(
   let parameterizedClause = whereClause;
   let currentParamIndex = paramOffset + 1;
   
-  // Enhanced patterns that include LIKE operator
+  // Enhanced patterns that include multi-character operators and ILIKE
   const patterns = [
-    // String values with single quotes: column='value' or column LIKE 'pattern%'
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:=|>|<|LIKE)\s*)'([^']*)'/gi,
-    // String values with double quotes: column="value" or column LIKE "pattern%"
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:=|>|<|LIKE)\s*)"([^"]*)"/gi,
-    // Numeric values: column=123 or column>456  
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(\d+(?:\.\d+)?)/g
+    // String values with single quotes: supports >=, <=, <>, !=, LIKE, ILIKE
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<|LIKE|ILIKE)\s*)'([^']*)'/gi,
+    // String values with double quotes: supports >=, <=, <>, !=, LIKE, ILIKE
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<|LIKE|ILIKE)\s*)"([^"]*)"/gi,
+    // Numeric values: supports all multi-character operators
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<)\s*)(\d+(?:\.\d+)?)/g
   ];
   
   // Handle string values with single quotes (including LIKE patterns)
@@ -548,6 +548,7 @@ async function buildParameterizedWhereClause(
     }
     
     let processedValue = value;
+    const isLike = /\bLIKE\b/i.test(operator);
     
     // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
     if (isIDField(column) && idResolver.isShortID(value)) {
@@ -563,6 +564,26 @@ async function buildParameterizedWhereClause(
         // If ID resolution fails, continue with original value
         if (process.env['DEBUG_DB']) {
           console.log(`Debug: ID resolution failed for '${value}': ${error}`);
+        }
+      }
+    } else if (isIDField(column) && isLike) {
+      // Support patterns like 'a1b2c3d4%' -> expand only if uniquely resolvable
+      const m = value.match(/^([a-f0-9]{8})([%_].*)?$/i);
+      if (m) {
+        const shortPart = m[1];
+        const suffix = m[2] ?? '';
+        try {
+          const resolved = await idResolver.resolveID(shortPart, { minConfidence: 'exact' });
+          if (resolved && resolved.confidence === 'exact') {
+            processedValue = resolved.id + suffix;
+            if (process.env['DEBUG_DB']) {
+              console.log(`Debug: Expanded LIKE short ID '${value}' -> '${processedValue}' for column '${column}'`);
+            }
+          }
+        } catch (error) {
+          if (process.env['DEBUG_DB']) {
+            console.log(`Debug: LIKE short ID resolution failed for '${value}': ${error}`);
+          }
         }
       }
     }
@@ -582,6 +603,7 @@ async function buildParameterizedWhereClause(
     }
     
     let processedValue = value;
+    const isLike = /\bLIKE\b/i.test(operator);
     
     // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
     if (isIDField(column) && idResolver.isShortID(value)) {
@@ -597,6 +619,26 @@ async function buildParameterizedWhereClause(
         // If ID resolution fails, continue with original value
         if (process.env['DEBUG_DB']) {
           console.log(`Debug: ID resolution failed for '${value}': ${error}`);
+        }
+      }
+    } else if (isIDField(column) && isLike) {
+      // Support patterns like "a1b2c3d4%" -> expand only if uniquely resolvable
+      const m = value.match(/^([a-f0-9]{8})([%_].*)?$/i);
+      if (m) {
+        const shortPart = m[1];
+        const suffix = m[2] ?? '';
+        try {
+          const resolved = await idResolver.resolveID(shortPart, { minConfidence: 'exact' });
+          if (resolved && resolved.confidence === 'exact') {
+            processedValue = resolved.id + suffix;
+            if (process.env['DEBUG_DB']) {
+              console.log(`Debug: Expanded LIKE short ID '${value}' -> '${processedValue}' for column '${column}'`);
+            }
+          }
+        } catch (error) {
+          if (process.env['DEBUG_DB']) {
+            console.log(`Debug: LIKE short ID resolution failed for '${value}': ${error}`);
+          }
         }
       }
     }

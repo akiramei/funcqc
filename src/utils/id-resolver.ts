@@ -156,7 +156,7 @@ export class IDResolver {
     // Build short ID cache
     this.shortIdCache = new Map();
     for (const func of functions) {
-      const shortId = this.getShortID(func.id);
+      const shortId = this.getShortID(func.id).toLowerCase();
       if (!this.shortIdCache.has(shortId)) {
         this.shortIdCache.set(shortId, []);
       }
@@ -169,10 +169,20 @@ export class IDResolver {
    */
   private async resolveByFullUUID(input: string): Promise<IDResolutionResult | null> {
     if (!this.isFullUUID(input)) return null;
-    
-    const func = this.functionCache!.get(input);
-    if (!func) return null;
-    
+
+    // Try direct hit; if not found, fall back to case-insensitive search
+    let func = this.functionCache!.get(input);
+    if (!func) {
+      const normalized = input.toLowerCase();
+      for (const f of this.functionCache!.values()) {
+        if (f.id.toLowerCase() === normalized) {
+          func = f;
+          break;
+        }
+      }
+      if (!func) return null;
+    }
+
     return {
       id: input,
       confidence: 'exact',
