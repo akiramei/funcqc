@@ -19,8 +19,8 @@ export const executeTypesRiskDB: VoidCommand<TypeRiskOptions> = (options) =>
       if (!typeNameOrId) {
         const funcqcError = errorHandler.createError(
           ErrorCode.MISSING_ARGUMENT,
-          'Type identifier is required. Provide a type name or id (UUID/prefix) via --type.',
-          { option: '--type' }
+          'Type identifier is required. Usage: funcqc types risk <typeName> or funcqc types --action=risk --type-name=<typeName>',
+          { argument: 'typeName' }
         );
         throw funcqcError;
       }

@@ -163,8 +163,8 @@ export const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) 
       if (!typeNameOrId) {
         const funcqcError = errorHandler.createError(
           ErrorCode.MISSING_ARGUMENT,
-          'Type name or ID is required. Pass --type-name=<name-or-id>.',
-          { option: '--type-name' }
+          'Type identifier is required. Usage: funcqc types members <typeName> or funcqc types --action=members --type-name=<typeName>',
+          { argument: 'typeName' }
         );
         throw funcqcError;
       }
