@@ -2,7 +2,8 @@ import { TypeRiskOptions, isUuidOrPrefix } from '../../types.types';
 import { TypeDefinition } from '../../../../types';
 import { VoidCommand } from '../../../../types/command';
 import { CommandEnvironment } from '../../../../types/environment';
-import { createErrorHandler, ErrorCode, FuncqcError } from '../../../../utils/error-handler';
+import { createErrorHandler, ErrorCode } from '../../../../utils/error-handler';
+import type { FuncqcError } from '../../../../types';
 import { findTypeById } from '../shared/utils';
 
 

@@ -110,7 +110,16 @@ async function executeConfig(env: CommandEnvironment, options: SetupCommandOptio
     if (options.set !== undefined) configOptions.set = options.set;
     if (options.get !== undefined) configOptions.get = options.get;
     
-    await configCommand('show', configOptions);
+    // Map setup options to appropriate config actions
+    const action = options.show
+      ? 'show'
+      : options.reset
+        ? 'validate'  // Reset -> validate configuration
+        : (options.set || options.get)
+          ? 'edit'    // Set/get -> edit configuration
+          : 'show';   // Default to show
+    
+    await configCommand(action, configOptions);
     
     if (!options.quiet) {
       env.commandLogger.info('✅ Configuration management completed');

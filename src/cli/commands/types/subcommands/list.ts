@@ -122,7 +122,7 @@ export const executeTypesListDB: VoidCommand<TypeListOptions> = (options) =>
     const memberCounts = await getMemberCountsForTypes(env.storage, types, latestSnapshot.id);
     
     // Apply filters (pass member counts for filtering)
-    types = await applyTypeFilters(types, options, memberCounts);
+    types = applyTypeFilters(types, options, memberCounts);
     
     // Sort types (pass member counts for sorting)
     types = sortTypesDB(types, options.sort || 'name', options.desc, memberCounts);
