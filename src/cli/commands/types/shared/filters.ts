@@ -41,13 +41,13 @@ export function applyBasicFilters(types: TypeDefinition[], options: TypeListOpti
   }
   
   // Exported filter
-  if (options.exported) {
-    filteredTypes = filteredTypes.filter(t => t.isExported);
+  if (options.exported !== undefined) {
+    filteredTypes = filteredTypes.filter(t => t.isExported === options.exported);
   }
   
   // Generic filter
-  if (options.generic) {
-    filteredTypes = filteredTypes.filter(t => t.isGeneric);
+  if (options.generic !== undefined) {
+    filteredTypes = filteredTypes.filter(t => t.isGeneric === options.generic);
   }
   
   // File filter

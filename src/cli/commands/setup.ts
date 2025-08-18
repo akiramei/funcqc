@@ -156,21 +156,12 @@ async function executeCheck(env: CommandEnvironment, options: SetupCommandOption
   }
 
   // Check configuration
-  try {
-    // Check if config is accessible
-    void env.config;
-    checks.push({
-      name: 'Configuration',
-      status: 'ok',
-      message: `Loaded from default location`
-    });
-  } catch (error) {
-    checks.push({
-      name: 'Configuration',
-      status: 'error',
-      message: `Cannot load config: ${error instanceof Error ? error.message : String(error)}`
-    });
-  }
+  const configLoaded = Boolean(env.config);
+  checks.push({
+    name: 'Configuration',
+    status: configLoaded ? 'ok' : 'error',
+    message: configLoaded ? 'Loaded from default location' : 'Not loaded'
+  });
 
   // Output results
   if (options.json) {

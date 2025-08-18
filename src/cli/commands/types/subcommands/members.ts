@@ -160,6 +160,14 @@ export const executeTypesMembersDB: VoidCommand<TypeMembersOptions> = (options) 
     
     try {
       const typeNameOrId = (options as { typeName?: string }).typeName || '';
+      if (!typeNameOrId) {
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          'Type name or ID is required. Pass --type-name=<name-or-id>.',
+          { options }
+        );
+        throw funcqcError;
+      }
       
       env.commandLogger.info(`👥 Analyzing members for type: ${typeNameOrId}`);
       

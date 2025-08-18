@@ -152,13 +152,12 @@ function applyNameSearch(
   functions: FunctionInfo[], 
   namePattern: string
 ): FunctionInfo[] {
-  const searchPattern = new RegExp(namePattern, 'i');
-  
-  return functions.filter(f => 
-    searchPattern.test(f.name) || 
-    searchPattern.test(f.displayName || '')
-    // Note: removed file path search to focus on function names
-  );
+  const needle = namePattern.toLowerCase();
+  return functions.filter(f => {
+    const name = f.name?.toLowerCase() || '';
+    const disp = f.displayName?.toLowerCase() || '';
+    return name.includes(needle) || disp.includes(needle);
+  });
 }
 
 /**
