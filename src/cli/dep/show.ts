@@ -1,7 +1,6 @@
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepShowOptions } from './types';
@@ -131,14 +130,8 @@ export const depShowCommand = (functionRef?: string): VoidCommand<DepShowOptions
         );
       }
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
       }

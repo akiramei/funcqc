@@ -2,7 +2,6 @@ import chalk from 'chalk';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { CallEdge, FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepListOptions } from './types';
@@ -60,14 +59,8 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
         outputDepFormatted(limitedEdges, filteredEdges.length, allEdges.length, functions, options);
       }
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
       }

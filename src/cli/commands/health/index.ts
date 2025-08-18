@@ -7,7 +7,6 @@ import { HealthCommandOptions } from '../../../types';
 import { VoidCommand } from '../../../types/command';
 import { CommandEnvironment } from '../../../types/environment';
 import { ErrorCode, createErrorHandler } from '../../../utils/error-handler';
-import { DatabaseError } from '../../../storage/pglite-adapter';
 import { resolveSnapshotId } from '../../../utils/snapshot-resolver';
 import { calculateQualityMetrics } from './calculator';
 import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from '../../../types';
@@ -53,14 +52,8 @@ export const healthCommand: VoidCommand<HealthCommandOptions> = (options) =>
       
       await executeHealthCommand(env, options);
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

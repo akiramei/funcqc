@@ -21,7 +21,6 @@ import { Logger } from '../../utils/cli-utils';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, TypeChecker, ts } from 'ts-morph';
@@ -160,14 +159,8 @@ export const scanCommand: VoidCommand<ScanCommandOptions> = (options) =>
       
       await executeScanCommand(env, options, spinner);
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

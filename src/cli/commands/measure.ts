@@ -1,8 +1,7 @@
 import { MeasureCommandOptions, ScanCommandOptions, SnapshotInfo } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import chalk from 'chalk';
 import { formatRelativeDate, formatDiffValue, formatSizeDisplay } from './history';
 
@@ -46,14 +45,8 @@ export const measureCommand: VoidCommand<MeasureCommandOptions> = (options) =>
       }
 
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

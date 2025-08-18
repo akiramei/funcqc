@@ -7,7 +7,6 @@ import {
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { formatDuration } from '../../utils/file-utils';
 import { formatDate } from '../../utils/date-utils';
 
@@ -32,14 +31,8 @@ export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) =>
       // Standard snapshot history mode
       await displaySnapshotHistory(options, env);
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

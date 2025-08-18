@@ -2,8 +2,7 @@ import { ManageCommandOptions, DbCommandOptions, HistoryCommandOptions } from '.
 import { DiffCommandOptions } from './diff';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 
 /**
  * Manage command - unified data management interface
@@ -50,14 +49,8 @@ export const manageCommand: VoidCommand<ManageCommandOptions> = (options) =>
       }
 
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

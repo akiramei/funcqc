@@ -6,7 +6,6 @@ import { FunctionInfo, SimilarityResult, ConsensusStrategy, SimilarityOptions } 
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { BaseCommandOptions } from '../../types/command';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { LayerAssigner } from '../../analyzers/layer-assigner';
@@ -89,14 +88,8 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
       showSummaryIfNeeded(results, limitedResults, options, env);
     } catch (error) {
       spinner.fail();
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

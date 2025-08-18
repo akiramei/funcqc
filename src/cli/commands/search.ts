@@ -3,7 +3,6 @@ import { SearchCommandOptions, FunctionInfo } from '../../types';
 import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { LocalSimilarityService } from '../../services/local-similarity-service';
 import { SimilarityManager } from '../../similarity/similarity-manager';
 import path from 'path';
@@ -32,14 +31,8 @@ export function searchCommand(keyword: string): VoidCommand<SearchCommandOptions
 
       handleSearchResults(functions, keyword, options);
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,

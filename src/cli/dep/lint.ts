@@ -4,7 +4,6 @@ import { minimatch } from 'minimatch';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { ArchitectureValidator } from '../../analyzers/architecture-validator';
 import { ArchitectureViolation, ArchitectureAnalysisResult, ArchitectureConfig, LayerDefinition } from '../../types/architecture';
@@ -204,14 +203,8 @@ export const depLintCommand: VoidCommand<DepLintOptions> = (options) =>
 
     } catch (error) {
       spinner.fail('Failed to analyze architecture');
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
       }

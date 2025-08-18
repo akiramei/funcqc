@@ -11,7 +11,6 @@ import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
 import { resolveSnapshotId } from '../../utils/snapshot-resolver';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { formatDate } from '../../utils/date-utils';
 
 export interface DiffCommandOptions extends CommandOptions {
@@ -128,14 +127,8 @@ async function displayDiffResults(diff: SnapshotDiff, options: DiffCommandOption
 }
 
 function handleDiffError(error: unknown, errorHandler: import('../../utils/error-handler').ErrorHandler): void {
-  if (error instanceof DatabaseError) {
-    const funcqcError = errorHandler.createError(
-      error.code,
-      error.message,
-      {},
-      error.originalError
-    );
-    errorHandler.handleError(funcqcError);
+  if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+    errorHandler.handleError(error as DatabaseErrorLike);
   } else {
     const funcqcError = errorHandler.createError(
       ErrorCode.UNKNOWN_ERROR,

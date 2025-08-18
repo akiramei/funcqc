@@ -1,7 +1,6 @@
 import { InspectCommandOptions, FunctionInfo, QueryOptions, SourceFile } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 
 /**
  * Inspect command - unified search and exploration interface
@@ -21,8 +20,8 @@ export const inspectCommand: VoidCommand<InspectCommandOptions> = (options) =>
           break;
       }
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        env.commandLogger.error(`Database error during inspect: ${error.message}`);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        env.commandLogger.error(`Database error during inspect: ${(error as DatabaseErrorLike).message}`);
         throw error;
       }
       throw error;

@@ -1,8 +1,7 @@
 import { AssessCommandOptions } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import { AdvancedEvaluator, AdvancedAssessmentResult } from './assess/advanced-evaluator';
 
 /**
@@ -30,23 +29,21 @@ export const assessCommand: VoidCommand<AssessCommandOptions> = (options) =>
       await executeAssessmentWorkflow(env, options, assessmentPlan);
 
       if (options.json) {
-        await outputAssessmentResults(env, options);
+        await outputAssessmentResults(env, options); // env.advancedAssessmentResult を利用
       } else {
-        await displayAssessmentSummary(env, options);
+        if (env.advancedAssessmentResult) {
+          await displayAdvancedAssessmentSummary(env, options, env.advancedAssessmentResult as AdvancedAssessmentResult);
+        } else {
+          await displayAssessmentSummary(env, options);
+        }
       }
       if (!options.quiet) {
         env.commandLogger.info('✅ Quality assessment analysis completed successfully!');
       }
 
     } catch (error) {
-      if (error instanceof DatabaseError) {
-        const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
-        );
-        errorHandler.handleError(funcqcError);
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        errorHandler.handleError(error as DatabaseErrorLike);
       } else {
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,
@@ -215,11 +212,8 @@ async function executeAdvancedAssessment(
     // Perform comprehensive assessment
     const result = await evaluator.performAssessment(functions);
     
-    // Result is passed directly to display function
-    
-    if (!options.quiet) {
-      await displayAdvancedAssessmentSummary(env, options, result);
-    }
+    // Save result for later unified output at top-level
+    env.advancedAssessmentResult = result;
 
     // Export report if requested
     if (options.exportReport) {

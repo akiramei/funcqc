@@ -43,6 +43,15 @@ export interface FuncqcError {
   stack?: string;
 }
 
+/**
+ * Shape-based error interface for DatabaseError-like objects
+ */
+export interface DatabaseErrorLike {
+  code: string;
+  message: string;
+  originalError?: Error;
+}
+
 export interface ErrorHandlerOptions {
   maxRetries: number;
   retryDelay: number;

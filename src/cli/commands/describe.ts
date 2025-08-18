@@ -1,8 +1,7 @@
 import chalk from 'chalk';
 import { DescribeCommandOptions, FunctionDescription, FunctionInfo } from '../../types';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import fs from 'fs';
 
 interface DescribeBatchInput {
@@ -38,14 +37,8 @@ export const describeCommand = (functionIdOrPattern: string = '') =>
           await handleSingleDescribe(env, functionIdOrPattern, options);
         }
       } catch (error) {
-        if (error instanceof DatabaseError) {
-          const funcqcError = errorHandler.createError(
-            error.code,
-            error.message,
-            { functionId: functionIdOrPattern, options },
-            error.originalError
-          );
-          errorHandler.handleError(funcqcError);
+        if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+          errorHandler.handleError(error as DatabaseErrorLike);
         } else {
           const funcqcError = errorHandler.createError(
             ErrorCode.UNKNOWN_ERROR,
