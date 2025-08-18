@@ -53,7 +53,7 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
       if (options.json) {
         outputJSON(limitedFunctions);
       } else {
-        outputFormatted(limitedFunctions);
+        outputFormatted(limitedFunctions, options);
       }
     } catch (error) {
       if (isDatabaseErrorLike(error)) {
@@ -191,7 +191,8 @@ function outputJSON(functions: FunctionInfo[]): void {
 }
 
 function outputFormatted(
-  functions: FunctionInfo[]
+  functions: FunctionInfo[],
+  options: ListCommandOptions
 ): void {
   if (functions.length === 0) {
     console.log('No functions match the criteria.');
@@ -203,31 +204,45 @@ function outputFormatted(
 
   if (hasChangeCounts) {
     // Table format with CHG column
-    console.log('ID       Name                            CC LOC CHG File                                 Line');
-    console.log('-------- ------------------------------- -- --- --- ------------------------------------ ----');
+    const idWidth = options.fullId ? 36 : 8;
+    const idHeader = options.fullId ? 'ID                                  ' : 'ID      ';
+    const idSeparator = options.fullId ? '------------------------------------' : '--------';
+    const fileWidth = options.fullId ? 20 : 36;
+    const fileHeader = options.fullId ? 'File                ' : 'File                                ';
+    const fileSeparator = options.fullId ? '--------------------' : '------------------------------------';
+    
+    console.log(`${idHeader} Name                            CC LOC CHG ${fileHeader} Line`);
+    console.log(`${idSeparator} ------------------------------- -- --- --- ${fileSeparator} ----`);
 
     functions.forEach(func => {
-      const id = func.id.substring(0, 8);
+      const id = (options.fullId ? func.id : func.id.substring(0, 8)).padEnd(idWidth);
       const name = truncateString(func.displayName, 31).padEnd(31);
       const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
       const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
       const chg = (func.changeCount?.toString() || '-').padStart(3);
-      const file = truncateString(func.filePath, 36).padEnd(36);
+      const file = truncateString(func.filePath, fileWidth).padEnd(fileWidth);
       const line = func.startLine.toString().padStart(4);
       
       console.log(`${id} ${name} ${cc} ${loc} ${chg} ${file} ${line}`);
     });
   } else {
     // Original table format without CHG column
-    console.log('ID       Name                            CC LOC File                                     Line');
-    console.log('-------- ------------------------------- -- --- ---------------------------------------- ----');
+    const idWidth = options.fullId ? 36 : 8;
+    const idHeader = options.fullId ? 'ID                                  ' : 'ID      ';
+    const idSeparator = options.fullId ? '------------------------------------' : '--------';
+    const fileWidth = options.fullId ? 24 : 40;
+    const fileHeader = options.fullId ? 'File                    ' : 'File                                    ';
+    const fileSeparator = options.fullId ? '------------------------' : '----------------------------------------';
+    
+    console.log(`${idHeader} Name                            CC LOC ${fileHeader} Line`);
+    console.log(`${idSeparator} ------------------------------- -- --- ${fileSeparator} ----`);
 
     functions.forEach(func => {
-      const id = func.id.substring(0, 8);
+      const id = (options.fullId ? func.id : func.id.substring(0, 8)).padEnd(idWidth);
       const name = truncateString(func.displayName, 31).padEnd(31);
       const cc = (func.metrics?.cyclomaticComplexity?.toString() || '-').padStart(2);
       const loc = (func.metrics?.linesOfCode?.toString() || '-').padStart(3);
-      const file = truncateString(func.filePath, 40).padEnd(40);
+      const file = truncateString(func.filePath, fileWidth).padEnd(fileWidth);
       const line = func.startLine.toString().padStart(4);
       
       console.log(`${id} ${name} ${cc} ${loc} ${file} ${line}`);

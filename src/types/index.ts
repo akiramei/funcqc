@@ -500,6 +500,7 @@ export interface ListCommandOptions extends CommandOptions {
   name?: string;
   scope?: string; // Filter by scope (src, test, all, or custom scope)
   includeTypes?: boolean; // Include type context information for functions
+  fullId?: boolean; // Display full UUIDs instead of 8-character short IDs
 }
 
 export interface ShowCommandOptions extends CommandOptions {
