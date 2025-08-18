@@ -534,8 +534,8 @@ async function buildParameterizedWhereClause(
     /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<|LIKE|ILIKE)\s*)'([^']*)'/gi,
     // String values with double quotes: supports >=, <=, <>, !=, LIKE, ILIKE
     /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<|LIKE|ILIKE)\s*)"([^"]*)"/gi,
-    // Numeric values: supports all multi-character operators
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<)\s*)(\d+(?:\.\d+)?)/g
+    // Numeric values: supports all multi-character operators and signed numbers
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:>=|<=|<>|!=|=|>|<)\s*)([+-]?\d+(?:\.\d+)?)/g
   ];
   
   // Handle string values with single quotes (including LIKE patterns)
@@ -548,7 +548,7 @@ async function buildParameterizedWhereClause(
     }
     
     let processedValue = value;
-    const isLike = /\bLIKE\b/i.test(operator);
+    const isLike = /\bI?LIKE\b/i.test(operator);
     
     // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
     if (isIDField(column) && idResolver.isShortID(value)) {
@@ -603,7 +603,7 @@ async function buildParameterizedWhereClause(
     }
     
     let processedValue = value;
-    const isLike = /\bLIKE\b/i.test(operator);
+    const isLike = /\bI?LIKE\b/i.test(operator);
     
     // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
     if (isIDField(column) && idResolver.isShortID(value)) {
@@ -703,8 +703,8 @@ function validateWhereClauseSafety(whereClause: string): void {
     }
   }
   
-  // Additional pattern checks - now allows % for LIKE patterns and LIKE keyword
-  if (upperClause.match(/[^a-zA-Z0-9\s=><'"._(),%-]/)) {
+  // Additional pattern checks - now allows % for LIKE patterns, LIKE/!= operators
+  if (upperClause.match(/[^a-zA-Z0-9\s=><'"._(),%!-]/)) {
     throw new Error('WHERE clause contains potentially dangerous characters');
   }
 }
