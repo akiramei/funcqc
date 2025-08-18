@@ -355,6 +355,7 @@ async function executeLazyAnalyzePhase(
   const analyzeOptions = {
     callGraph: plan.includesCallGraph,
     types: plan.includesTypes,
+    coupling: plan.includesCoupling,
     all: plan.includesCallGraph && plan.includesTypes,
     json: false, // Internal execution, no JSON output
     verbose: options.verbose || false,
@@ -424,8 +425,8 @@ async function displayMeasurementSummary(
   
   console.log('💡 Next steps:');
   console.log('   • Run `funcqc inspect` to explore results');
-  console.log('   • Run `funcqc health` for quality analysis');
-  console.log('   • Run `funcqc list --cc-ge 10` for complex functions');
+  console.log('   • Run `funcqc assess` for quality analysis');
+  console.log('   • Run `funcqc inspect --cc-ge 10` for complex functions');
 }
 
 /**

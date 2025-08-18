@@ -141,7 +141,8 @@ async function executeExport(env: CommandEnvironment, options: ManageCommandOpti
 
   try {
     // Get latest snapshot if no specific snapshot specified
-    const snapshot = await env.storage.getLatestSnapshot();
+    const latest = await env.storage.getSnapshots({ sort: 'created_at desc', limit: 1 });
+    const snapshot = latest[0];
     if (!snapshot) {
       console.log('❌ No snapshots found to export');
       return;

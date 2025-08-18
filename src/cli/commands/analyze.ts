@@ -9,6 +9,7 @@ import { AnalysisLevel } from '../../types';
 export interface AnalyzeCommandOptions {
   callGraph?: boolean;
   types?: boolean;
+  coupling?: boolean;
   all?: boolean;
   json?: boolean;
   verbose?: boolean;
@@ -25,7 +26,8 @@ export const analyzeCommand: VoidCommand<AnalyzeCommandOptions> = (options) =>
     
     try {
       // Get latest snapshot
-      const snapshot = await env.storage.getLatestSnapshot();
+      const latest = await env.storage.getSnapshots({ sort: 'created_at desc', limit: 1 });
+      const snapshot = latest[0] ?? null;
       if (!snapshot) {
         if (options.json) {
           console.log(JSON.stringify({

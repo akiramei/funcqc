@@ -236,7 +236,8 @@ async function executeAdvancedAssessment(
  */
 async function getFunctionsForAssessment(env: CommandEnvironment, options: AssessCommandOptions) {
   try {
-    const snapshot = await env.storage.getLatestSnapshot();
+    const latest = await env.storage.getSnapshots({ sort: 'created_at desc', limit: 1 });
+    const snapshot = latest[0] ?? null;
     if (!snapshot) {
       throw new Error('No snapshot found. Please run `funcqc measure` first.');
     }
