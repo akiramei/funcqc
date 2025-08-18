@@ -43,6 +43,10 @@ function detectEntryPoints(functions: FunctionInfo[], initialMetrics: Dependency
   const entryPoints = new Set<string>();
   const metricsById = new Map(initialMetrics.map(m => [m.functionId, m]));
   
+  if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+    console.log(`Debug EntryPoints: Detecting entry points for ${functions.length} functions`);
+  }
+  
   for (const func of functions) {
     const metrics = metricsById.get(func.id);
     if (!metrics) continue;
@@ -50,18 +54,27 @@ function detectEntryPoints(functions: FunctionInfo[], initialMetrics: Dependency
     // Priority 1: Clear entry point function names
     if (isEntryPointByName(func.name, func.filePath)) {
       entryPoints.add(func.id);
+      if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+        console.log(`Debug EntryPoints: Added by name pattern: ${func.name} (${func.filePath})`);
+      }
       continue;
     }
     
     // Priority 2: Exported functions with zero fan-in (public APIs)
     if (func.isExported && metrics.fanIn === 0) {
       entryPoints.add(func.id);
+      if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+        console.log(`Debug EntryPoints: Added exported zero fan-in: ${func.name} (${func.filePath})`);
+      }
       continue;
     }
     
     // Priority 3: Command handlers and CLI functions
     if (isCommandHandler(func.name, func.filePath)) {
       entryPoints.add(func.id);
+      if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+        console.log(`Debug EntryPoints: Added command handler: ${func.name} (${func.filePath})`);
+      }
       continue;
     }
   }
@@ -69,15 +82,30 @@ function detectEntryPoints(functions: FunctionInfo[], initialMetrics: Dependency
   // Fallback: If no clear entry points found, use some zero fan-in functions
   // but limit to reasonable candidates
   if (entryPoints.size === 0) {
+    if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+      console.log(`Debug EntryPoints: No clear entry points found, using fallback method`);
+    }
+    
     const zeroFanInFunctions = initialMetrics.filter(m => m.fanIn === 0);
     const functionsById = new Map(functions.map(f => [f.id, f]));
+    
+    if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+      console.log(`Debug EntryPoints: Found ${zeroFanInFunctions.length} functions with zero fan-in`);
+    }
     
     for (const metrics of zeroFanInFunctions.slice(0, 10)) { // Limit to first 10
       const func = functionsById.get(metrics.functionId);
       if (func && (func.isExported || func.filePath.includes('cli') || func.filePath.includes('main'))) {
         entryPoints.add(metrics.functionId);
+        if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+          console.log(`Debug EntryPoints: Added fallback candidate: ${func.name} (${func.filePath})`);
+        }
       }
     }
+  }
+  
+  if (process.env['FUNCQC_DEBUG_ENTRY_POINTS']) {
+    console.log(`Debug EntryPoints: Detected ${entryPoints.size} entry points total`);
   }
   
   return entryPoints;
@@ -127,8 +155,16 @@ function performSCCAnalysis(
   functions: FunctionInfo[], 
   callEdges: CallEdge[]
 ): { sccResult: SCCAnalysisResult; depMetrics: DependencyMetrics[]; fanStats: FanStatistics } {
+  if (process.env['FUNCQC_DEBUG_SCC']) {
+    console.log(`Debug SCC: Starting SCC analysis for ${functions.length} functions with ${callEdges.length} edges`);
+  }
+  
   const sccAnalyzer = new SCCAnalyzer();
   const sccResult = sccAnalyzer.findStronglyConnectedComponents(callEdges);
+  
+  if (process.env['FUNCQC_DEBUG_SCC']) {
+    console.log(`Debug SCC: Found ${sccResult.totalComponents} components, largest: ${sccResult.largestComponentSize}, recursive: ${sccResult.recursiveFunctions.length}`);
+  }
   
   const depCalculator = new DependencyMetricsCalculator();
   

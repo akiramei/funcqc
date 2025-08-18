@@ -3,6 +3,7 @@ import { DbCommandOptions } from '../../types';
 import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
+import { IDResolver } from '../../utils/id-resolver';
 
 /**
  * Database CLI command for inspecting PGLite database contents
@@ -24,6 +25,8 @@ export const dbCommand: VoidCommand<DbCommandOptions> = (options) =>
         console.log(chalk.gray('  funcqc db --list  # Show all tables'));
         console.log(chalk.gray('  funcqc db --table snapshots --limit 5'));
         console.log(chalk.gray('  funcqc db --table call_edges --where "call_type=\'external\'" --limit 5'));
+        console.log(chalk.gray('  funcqc db --table functions --where "name LIKE \'analyze%\'" --limit 5'));
+        console.log(chalk.gray('  funcqc db --table call_edges --where "caller_function_id=\'a1b2c3d4\'" --limit 10  # Short ID expansion'));
         return;
       }
 
@@ -83,6 +86,8 @@ async function listTables(env: CommandEnvironment): Promise<void> {
     console.log(chalk.gray('  funcqc db --table snapshots --limit 5'));
     console.log(chalk.gray('  funcqc db --table call_edges --where "call_type=\'external\'" --limit 10'));
     console.log(chalk.gray('  funcqc db --table functions --where "cyclomatic_complexity>10" --json'));
+    console.log(chalk.gray('  funcqc db --table functions --where "name LIKE \'analyze%\'" --limit 5'));
+    console.log(chalk.gray('  funcqc db --table call_edges --where "caller_function_id=\'a1b2c3d4\'" --limit 10  # Short ID auto-expansion'));
     console.log(chalk.gray('  funcqc db --table source_contents --limit-all'));
   } catch (error) {
     throw new Error(`Failed to list tables: ${error instanceof Error ? error.message : String(error)}`);
@@ -323,7 +328,7 @@ async function queryTableDirect(env: CommandEnvironment, options: DbCommandOptio
     
     // Add WHERE clause if specified
     if (options.where) {
-      const whereResult = addWhereClause(query, options.where, params);
+      const whereResult = await addWhereClause(query, options.where, params, env);
       query = whereResult.query;
       params = whereResult.params;
     }
@@ -358,14 +363,15 @@ function buildSelectQuery(tableName: string, columns: string): string {
 }
 
 /**
- * Add WHERE clause to query with parameters
+ * Add WHERE clause to query with parameters and ID resolution
  */
-function addWhereClause(
+async function addWhereClause(
   query: string, 
   whereCondition: string, 
-  params: (string | number)[]
-): { query: string; params: (string | number)[] } {
-  const { whereClause, whereParams } = buildParameterizedWhereClause(whereCondition, params.length);
+  params: (string | number)[],
+  env: CommandEnvironment
+): Promise<{ query: string; params: (string | number)[] }> {
+  const { whereClause, whereParams } = await buildParameterizedWhereClause(whereCondition, params.length, env);
   const updatedQuery = `${query} WHERE ${whereClause}`;
   const updatedParams = [...params, ...whereParams];
   
@@ -503,65 +509,141 @@ function isValidColumnName(columnName: string): boolean {
 }
 
 /**
- * Build parameterized WHERE clause from simple conditions
- * Supports basic conditions like: column=value, column>value, etc.
+ * Build parameterized WHERE clause from simple conditions with ID resolution
+ * Supports: column=value, column>value, column LIKE 'pattern%', short ID expansion
  */
-function buildParameterizedWhereClause(whereClause: string, paramOffset: number): { whereClause: string; whereParams: (string | number)[] } {
+async function buildParameterizedWhereClause(
+  whereClause: string, 
+  paramOffset: number, 
+  env: CommandEnvironment
+): Promise<{ whereClause: string; whereParams: (string | number)[] }> {
   // First, validate for dangerous patterns
   validateWhereClauseSafety(whereClause);
+  
+  // Initialize ID resolver for short ID expansion
+  const idResolver = new IDResolver(env);
   
   // Parse simple conditions (column operator value)
   const params: (string | number)[] = [];
   let parameterizedClause = whereClause;
   let currentParamIndex = paramOffset + 1;
   
-  // Replace simple patterns like column='value' or column=123
-  // This is a basic implementation - for complex queries, consider a proper SQL parser
+  // Enhanced patterns that include LIKE operator
   const patterns = [
-    // String values with single quotes: column='value'
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)'([^']*)'/g,
-    // String values with double quotes: column="value"
-    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)"([^"]*)"/g,
+    // String values with single quotes: column='value' or column LIKE 'pattern%'
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:=|>|<|LIKE)\s*)'([^']*)'/gi,
+    // String values with double quotes: column="value" or column LIKE "pattern%"
+    /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*(?:=|>|<|LIKE)\s*)"([^"]*)"/gi,
     // Numeric values: column=123 or column>456  
     /([a-zA-Z_][a-zA-Z0-9_.]*)(\s*[=><]\s*)(\d+(?:\.\d+)?)/g
   ];
   
-  // Handle string values with single quotes
-  parameterizedClause = parameterizedClause.replace(patterns[0], (_match, column, operator, value) => {
+  // Handle string values with single quotes (including LIKE patterns)
+  const singleQuoteMatches = Array.from(whereClause.matchAll(patterns[0]));
+  for (const match of singleQuoteMatches) {
+    const [fullMatch, column, operator, value] = match;
+    
     if (!isValidColumnName(column)) {
       throw new Error(`Invalid column name in WHERE clause: ${column}`);
     }
-    params.push(value);
-    return `${column}${operator}$${currentParamIndex++}`;
-  });
+    
+    let processedValue = value;
+    
+    // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
+    if (isIDField(column) && idResolver.isShortID(value)) {
+      try {
+        const resolved = await idResolver.resolveID(value, { minConfidence: 'high' });
+        if (resolved && resolved.confidence !== 'low') {
+          processedValue = resolved.id;
+          if (process.env['DEBUG_DB']) {
+            console.log(`Debug: Expanded short ID '${value}' to '${processedValue}' for column '${column}'`);
+          }
+        }
+      } catch (error) {
+        // If ID resolution fails, continue with original value
+        if (process.env['DEBUG_DB']) {
+          console.log(`Debug: ID resolution failed for '${value}': ${error}`);
+        }
+      }
+    }
+    
+    params.push(processedValue);
+    const replacement = `${column}${operator}$${currentParamIndex++}`;
+    parameterizedClause = parameterizedClause.replace(fullMatch, replacement);
+  }
   
-  // Handle string values with double quotes
-  parameterizedClause = parameterizedClause.replace(patterns[1], (_match, column, operator, value) => {
+  // Handle string values with double quotes (including LIKE patterns)
+  const doubleQuoteMatches = Array.from(parameterizedClause.matchAll(patterns[1]));
+  for (const match of doubleQuoteMatches) {
+    const [fullMatch, column, operator, value] = match;
+    
     if (!isValidColumnName(column)) {
       throw new Error(`Invalid column name in WHERE clause: ${column}`);
     }
-    params.push(value);
-    return `${column}${operator}$${currentParamIndex++}`;
-  });
+    
+    let processedValue = value;
+    
+    // Try to resolve short IDs if this looks like an ID field and value looks like a short ID
+    if (isIDField(column) && idResolver.isShortID(value)) {
+      try {
+        const resolved = await idResolver.resolveID(value, { minConfidence: 'high' });
+        if (resolved && resolved.confidence !== 'low') {
+          processedValue = resolved.id;
+          if (process.env['DEBUG_DB']) {
+            console.log(`Debug: Expanded short ID '${value}' to '${processedValue}' for column '${column}'`);
+          }
+        }
+      } catch (error) {
+        // If ID resolution fails, continue with original value
+        if (process.env['DEBUG_DB']) {
+          console.log(`Debug: ID resolution failed for '${value}': ${error}`);
+        }
+      }
+    }
+    
+    params.push(processedValue);
+    const replacement = `${column}${operator}$${currentParamIndex++}`;
+    parameterizedClause = parameterizedClause.replace(fullMatch, replacement);
+  }
   
   // Handle numeric values
-  parameterizedClause = parameterizedClause.replace(patterns[2], (_match, column, operator, value) => {
+  const numericMatches = Array.from(parameterizedClause.matchAll(patterns[2]));
+  for (const match of numericMatches) {
+    const [fullMatch, column, operator, value] = match;
+    
     if (!isValidColumnName(column)) {
       throw new Error(`Invalid column name in WHERE clause: ${column}`);
     }
+    
     const numValue = parseFloat(value);
     if (isNaN(numValue)) {
       throw new Error(`Invalid numeric value in WHERE clause: ${value}`);
     }
+    
     params.push(numValue);
-    return `${column}${operator}$${currentParamIndex++}`;
-  });
+    const replacement = `${column}${operator}$${currentParamIndex++}`;
+    parameterizedClause = parameterizedClause.replace(fullMatch, replacement);
+  }
   
   return { whereClause: parameterizedClause, whereParams: params };
 }
 
 /**
+ * Check if a column name indicates it contains ID values
+ */
+function isIDField(columnName: string): boolean {
+  const lowerName = columnName.toLowerCase();
+  return lowerName.includes('id') || 
+         lowerName.includes('function_id') ||
+         lowerName.includes('caller_function_id') ||
+         lowerName.includes('callee_function_id') ||
+         lowerName.includes('type_id') ||
+         lowerName.includes('snapshot_id');
+}
+
+/**
  * Validate WHERE clause for dangerous patterns
+ * Now allows LIKE operator and % wildcards for pattern matching
  */
 function validateWhereClauseSafety(whereClause: string): void {
   // Block dangerous keywords and patterns
@@ -579,8 +661,8 @@ function validateWhereClauseSafety(whereClause: string): void {
     }
   }
   
-  // Additional pattern checks
-  if (upperClause.match(/[^a-zA-Z0-9\s=><'"._(),-]/)) {
+  // Additional pattern checks - now allows % for LIKE patterns and LIKE keyword
+  if (upperClause.match(/[^a-zA-Z0-9\s=><'"._(),%-]/)) {
     throw new Error('WHERE clause contains potentially dangerous characters');
   }
 }

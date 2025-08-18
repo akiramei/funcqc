@@ -145,6 +145,7 @@ program
   .option('--file <pattern>', 'filter by file path pattern')
   .option('--name <pattern>', 'filter by function name pattern')
   .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
+  .option('--full-id', 'display full UUIDs instead of 8-character short IDs')
   .hook('preAction', () => {
     console.log(chalk.yellow('\n⚠️  DEPRECATED: The "list" command is deprecated and will be removed in a future version.'));
     console.log(chalk.blue('💡 Use "funcqc inspect" instead for enhanced function inspection.'));

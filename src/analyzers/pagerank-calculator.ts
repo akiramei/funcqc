@@ -90,6 +90,9 @@ export class PageRankCalculator {
     // For graphs with very few edges, return uniform distribution to avoid noise dominating
     // Increase threshold to be more conservative about when to use PageRank
     if (totalEdges < Math.max(20, Math.floor(numFunctions * 0.05))) {
+      if (process.env['FUNCQC_DEBUG_PAGERANK']) {
+        console.log(`Debug PageRank: Using uniform distribution (${totalEdges} edges < ${Math.max(20, Math.floor(numFunctions * 0.05))} threshold for ${numFunctions} functions)`);
+      }
       return this.createUniformResult(functionMap, functionIds);
     }
 
@@ -107,6 +110,11 @@ export class PageRankCalculator {
     // Iterative PageRank computation
     let iteration = 0;
     let converged = false;
+    
+    if (process.env['FUNCQC_DEBUG_PAGERANK']) {
+      console.log(`Debug PageRank: Starting PageRank computation for ${numFunctions} functions with ${totalEdges} edges`);
+      console.log(`Debug PageRank: Configuration - damping=${this.dampingFactor}, maxIterations=${this.maxIterations}, tolerance=${this.tolerance}`);
+    }
 
     for (iteration = 0; iteration < this.maxIterations; iteration++) {
       // Calculate new scores
@@ -139,10 +147,21 @@ export class PageRankCalculator {
         scores.set(functionId, newScore);
       }
       
+      if (process.env['FUNCQC_DEBUG_PAGERANK'] && (iteration % 10 === 0 || iteration < 5)) {
+        console.log(`Debug PageRank: Iteration ${iteration + 1}, maxDiff=${maxDiff.toExponential(3)}, converged=${maxDiff < this.tolerance}`);
+      }
+      
       if (maxDiff < this.tolerance) {
         converged = true;
+        if (process.env['FUNCQC_DEBUG_PAGERANK']) {
+          console.log(`Debug PageRank: Converged after ${iteration + 1} iterations with maxDiff=${maxDiff.toExponential(3)}`);
+        }
         break;
       }
+    }
+    
+    if (process.env['FUNCQC_DEBUG_PAGERANK'] && !converged) {
+      console.log(`Debug PageRank: Did not converge after ${this.maxIterations} iterations`);
     }
 
     // Create result with rankings and importance levels
@@ -176,6 +195,10 @@ export class PageRankCalculator {
     outLinks: Map<string, string[]>;
     inLinks: Map<string, string[]>;
   } {
+    if (process.env['FUNCQC_DEBUG_CALL_GRAPH']) {
+      console.log(`Debug CallGraph: Building call graph from ${callEdges.length} edges for ${functionMap.size} functions`);
+    }
+    
     // Use Sets for O(1) deduplication instead of O(n) includes()
     const outSet = new Map<string, Set<string>>();
     const inSet = new Map<string, Set<string>>();
@@ -187,23 +210,34 @@ export class PageRankCalculator {
     }
 
     // Process call edges - filter both caller and callee to internal functions only
+    let validEdges = 0;
+    let externalEdges = 0;
+    let selfLoops = 0;
+    
     for (const edge of callEdges) {
       const callerId = edge.callerFunctionId;
       const calleeId = edge.calleeFunctionId;
 
       // Skip external calls (caller or callee not in our function set)
       if (!calleeId || !functionMap.has(calleeId) || !functionMap.has(callerId)) {
+        externalEdges++;
         continue;
       }
 
       // Skip self-loops to avoid inflation
       if (callerId === calleeId) {
+        selfLoops++;
         continue;
       }
 
       // Add to Sets (automatic deduplication)
       outSet.get(callerId)!.add(calleeId);
       inSet.get(calleeId)!.add(callerId);
+      validEdges++;
+    }
+    
+    if (process.env['FUNCQC_DEBUG_CALL_GRAPH']) {
+      console.log(`Debug CallGraph: Processed edges - valid: ${validEdges}, external: ${externalEdges}, self-loops: ${selfLoops}`);
     }
 
     // Convert Sets to arrays
