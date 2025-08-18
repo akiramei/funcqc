@@ -3,10 +3,9 @@ import chalk from 'chalk';
 import fs from 'fs';
 import { SimilarityManager } from '../../similarity/similarity-manager';
 import { FunctionInfo, SimilarityResult, ConsensusStrategy, SimilarityOptions } from '../../types';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { BaseCommandOptions } from '../../types/command';
 import { ArchitectureConfigManager } from '../../config/architecture-config';
 import { LayerAssigner } from '../../analyzers/layer-assigner';
@@ -89,12 +88,13 @@ export const similarCommand: VoidCommand<SimilarCommandOptions> = (options) =>
       showSummaryIfNeeded(results, limitedResults, options, env);
     } catch (error) {
       spinner.fail();
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

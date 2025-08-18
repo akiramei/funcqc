@@ -6,8 +6,7 @@ import chalk from 'chalk';
 import { HealthCommandOptions } from '../../../types';
 import { VoidCommand } from '../../../types/command';
 import { CommandEnvironment } from '../../../types/environment';
-import { ErrorCode, createErrorHandler } from '../../../utils/error-handler';
-import { DatabaseError } from '../../../storage/pglite-adapter';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../../utils/error-handler';
 import { resolveSnapshotId } from '../../../utils/snapshot-resolver';
 import { calculateQualityMetrics } from './calculator';
 import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from '../../../types';
@@ -53,12 +52,13 @@ export const healthCommand: VoidCommand<HealthCommandOptions> = (options) =>
       
       await executeHealthCommand(env, options);
     } catch (error) {
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

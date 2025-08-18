@@ -1,8 +1,7 @@
 import { ListCommandOptions, FunctionInfo, QueryOptions } from '../../types';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, isDatabaseErrorLike, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 
 /**
  * List command as a Reader function
@@ -57,12 +56,13 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
         outputFormatted(limitedFunctions);
       }
     } catch (error) {
-      if (error instanceof DatabaseError) {
+      if (isDatabaseErrorLike(error)) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          `List command failed: ${dbErr.message}`,
+          { dbCode: dbErr.code, op: 'list.query' },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

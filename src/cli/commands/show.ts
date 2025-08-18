@@ -1,8 +1,7 @@
 import chalk from 'chalk';
 import { ShowCommandOptions, FunctionInfo } from '../../types';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 
 /**
  * Show command as a Reader function
@@ -22,14 +21,15 @@ export const showCommand = (namePattern: string = '') =>
           await outputFriendly(func, env, options);
         }
       } catch (error) {
-        if (error instanceof DatabaseError) {
-          const funcqcError = errorHandler.createError(
-            error.code,
-            error.message,
-            {},
-            error.originalError
-          );
-          errorHandler.handleError(funcqcError);
+        if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+          const dbErr = error as DatabaseErrorLike;
+        const funcqcError = errorHandler.createError(
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
+        );
+        errorHandler.handleError(funcqcError);
         } else {
           const funcqcError = errorHandler.createError(
             ErrorCode.UNKNOWN_ERROR,

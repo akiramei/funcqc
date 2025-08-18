@@ -4,10 +4,9 @@ import {
   SnapshotInfo, 
   SnapshotMetadata 
 } from '../../types';
-import { ErrorCode, createErrorHandler } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { DatabaseError } from '../../storage/pglite-adapter';
 import { formatDuration } from '../../utils/file-utils';
 import { formatDate } from '../../utils/date-utils';
 
@@ -32,12 +31,13 @@ export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) =>
       // Standard snapshot history mode
       await displaySnapshotHistory(options, env);
     } catch (error) {
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

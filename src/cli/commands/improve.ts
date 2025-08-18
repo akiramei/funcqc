@@ -1,8 +1,7 @@
 import { ImproveCommandOptions } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 
 /**
  * Improve command - unified code improvement functionality
@@ -38,12 +37,13 @@ export const improveCommand: VoidCommand<ImproveCommandOptions> = (options) =>
       }
 
     } catch (error) {
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

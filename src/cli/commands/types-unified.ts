@@ -1,10 +1,9 @@
 import { TypesCommandOptions } from '../../types';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler, ErrorCode } from '../../utils/error-handler';
+import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import { TypeListOptions } from './types.types';
 
-import { DatabaseError } from '../../storage/pglite-adapter';
 
 
 /**
@@ -86,12 +85,13 @@ export const typesCommand: VoidCommand<TypesCommandOptions> = (options) =>
       }
 
     } catch (error) {
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

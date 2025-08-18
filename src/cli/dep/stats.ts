@@ -2,8 +2,7 @@ import chalk from 'chalk';
 import ora, { Ora } from 'ora';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { createErrorHandler } from '../../utils/error-handler';
-import { DatabaseError } from '../../storage/pglite-adapter';
+import { createErrorHandler, ErrorCode, type DatabaseErrorLike } from '../../utils/error-handler';
 import { CallEdge, FunctionInfo } from '../../types';
 import { DependencyMetricsCalculator, DependencyMetrics, DependencyStats, DependencyOptions } from '../../analyzers/dependency-metrics';
 import { ReachabilityAnalyzer } from '../../analyzers/reachability-analyzer';
@@ -24,12 +23,13 @@ export const depStatsCommand: VoidCommand<DepStatsOptions> = (options) =>
       await executeDepStatsAnalysis(env, options, spinner);
     } catch (error) {
       spinner.fail('Failed to calculate dependency metrics');
-      if (error instanceof DatabaseError) {
+      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+        const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
-          error.code,
-          error.message,
-          {},
-          error.originalError
+          ErrorCode.UNKNOWN_ERROR,
+          dbErr.message,
+          { dbCode: dbErr.code },
+          dbErr.originalError
         );
         errorHandler.handleError(funcqcError);
       } else {

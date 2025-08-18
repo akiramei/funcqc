@@ -119,8 +119,6 @@ export class AdvancedEvaluator {
 
   constructor(private options: AssessCommandOptions, private env: CommandEnvironment) {
     this.structuralAnalyzer = new StructuralAnalyzer();
-    // TODO: Integrate structural analysis functionality
-    void this.structuralAnalyzer; // Prevent unused variable error
     
     // Initialize dynamic weight calculator if dynamic mode is enabled
     if (options.mode === 'dynamic') {
@@ -296,54 +294,15 @@ export class AdvancedEvaluator {
     anomalies: StructuralAnomaly[];
     score: number;
   }> {
-    // Mock implementation - replace with actual structural analyzer
-    const metrics: StructuralMetrics = {
-      cyclomaticComplexity: func.metrics?.cyclomaticComplexity || 0,
-      linesOfCode: func.metrics?.linesOfCode || 0,
-      parameterCount: func.metrics?.parameterCount || 0,
-      nestingLevel: func.metrics?.maxNestingLevel || 0,
-      fanIn: 0, // Would be calculated from call graph
-      fanOut: 0, // Would be calculated from call graph
-      // Required properties from StructuralMetrics interface
-      betweenness: 0,
-      closeness: 0,
-      pageRank: 0,
-      degreeCentrality: 0,
-      callDepth: 0,
-      clustering: 0
-    };
+    // 依存グラフに基づく実メトリクス/アノマリ取得
+    const metrics = this.structuralAnalyzer.analyzeFunction(func.id) ?? ({} as StructuralMetrics);
+    const anomalies = this.structuralAnalyzer.detectAnomalies(func.id) ?? [];
 
-    const anomalies: StructuralAnomaly[] = [];
-    
-    // Detect common structural anomalies
-    if (metrics.linesOfCode > 50) {
-      anomalies.push({
-        metric: 'linesOfCode',
-        value: metrics.linesOfCode,
-        expectedRange: [10, 50] as [number, number],
-        severity: 'warning',
-        description: `Function has ${metrics.linesOfCode} lines, consider breaking it down`,
-        suggestion: 'Extract smaller, focused methods'
-      });
-    }
-
-    if (metrics.parameterCount > 5) {
-      anomalies.push({
-        metric: 'parameterCount',
-        value: metrics.parameterCount,
-        expectedRange: [1, 5] as [number, number],
-        severity: 'critical',
-        description: `Function has ${metrics.parameterCount} parameters`,
-        suggestion: 'Use parameter objects or split the function'
-      });
-    }
-
-    // Calculate structural score (0-100)
+    // 簡易スコア（構造的な深さ/結合度を主因に減点）
     const score = Math.max(0, 100 - (
-      metrics.cyclomaticComplexity * 5 +
-      metrics.linesOfCode * 0.5 +
-      metrics.parameterCount * 10 +
-      metrics.nestingLevel * 15
+      ((metrics.callDepth ?? 0) * 10) +
+      ((metrics.fanOut ?? 0) * 2) +
+      ((metrics.fanIn ?? 0) * 1)
     ));
 
     return { metrics, anomalies, score };
