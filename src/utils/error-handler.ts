@@ -52,6 +52,20 @@ export interface DatabaseErrorLike {
   originalError?: Error;
 }
 
+/**
+ * Type guard function to check if an error is DatabaseError-like
+ */
+export function isDatabaseErrorLike(error: unknown): error is DatabaseErrorLike {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    'message' in error &&
+    typeof (error as Record<string, unknown>).code === 'string' &&
+    typeof (error as Record<string, unknown>).message === 'string'
+  );
+}
+
 export interface ErrorHandlerOptions {
   maxRetries: number;
   retryDelay: number;

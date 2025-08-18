@@ -1,5 +1,5 @@
 import { ListCommandOptions, FunctionInfo, QueryOptions } from '../../types';
-import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
+import { ErrorCode, createErrorHandler, isDatabaseErrorLike, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 
@@ -56,12 +56,12 @@ export const listCommand: VoidCommand<ListCommandOptions> = (options) =>
         outputFormatted(limitedFunctions);
       }
     } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
+      if (isDatabaseErrorLike(error)) {
         const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
           ErrorCode.UNKNOWN_ERROR,
-          dbErr.message,
-          { dbCode: dbErr.code },
+          `List command failed: ${dbErr.message}`,
+          { dbCode: dbErr.code, op: 'list.query' },
           dbErr.originalError
         );
         errorHandler.handleError(funcqcError);

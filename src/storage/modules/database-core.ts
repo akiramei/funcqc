@@ -6,7 +6,7 @@ import { Kysely } from 'kysely';
 import { PGliteDialect } from '../dialects/pglite-dialect';
 import { Database } from '../types/kysely-types';
 import { DatabaseError } from '../errors/database-error';
-import { ErrorCode } from '../../utils/error-handler';
+import { ErrorCode, isDatabaseErrorLike } from '../../utils/error-handler';
 import { StorageContext, TransactionHandler } from './types';
 
 
@@ -147,7 +147,7 @@ export class DatabaseCore {
     } catch (error) {
       this.transactionDepth--;
       
-      if (error instanceof DatabaseError) {
+      if (isDatabaseErrorLike(error)) {
         throw error;
       }
       
