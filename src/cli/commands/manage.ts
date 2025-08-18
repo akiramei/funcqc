@@ -271,9 +271,9 @@ async function executeListBackups(env: CommandEnvironment, options: ManageComman
 
   try {
     // List snapshots as current "backup" system
-    const snapshots = await env.storage.getSnapshots({ 
+    const snapshots = await env.storage.getSnapshots({
       limit: typeof options.limit === 'number' ? options.limit : parseInt(options.limit || '20'),
-      sort: 'createdAt' 
+      sort: 'created_at'
     });
 
     if (snapshots.length === 0) {

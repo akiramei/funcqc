@@ -161,11 +161,14 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
 
   // Handle legacy option combinations
   if (options.full) {
-    return determineMeasurementPlan({ ...options, level: 'complete' });
+    // 無限再帰を防ぐためにlegacyオプションを削除
+    const { full: _, ...cleanOptions } = options;
+    return determineMeasurementPlan({ ...cleanOptions, level: 'complete' });
   }
-  
+
   if (options.withBasic) {
-    return determineMeasurementPlan({ ...options, level: 'basic' });
+    const { withBasic: _, ...cleanOptions } = options;
+    return determineMeasurementPlan({ ...cleanOptions, level: 'basic' });
   }
 
   // Build custom plan based on specific options with performance optimization

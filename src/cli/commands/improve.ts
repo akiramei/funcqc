@@ -30,12 +30,11 @@ export const improveCommand: VoidCommand<ImproveCommandOptions> = (options) =>
 
       if (!options.quiet) {
         env.commandLogger.log('✅ Code improvement analysis completed successfully!');
-        
-        if (options.json) {
-          await outputImprovementResults(env, options);
-        } else {
-          await displayImprovementSummary(env, options);
-        }
+      }
+      if (options.json) {
+        await outputImprovementResults(env, options);
+      } else if (!options.quiet) {
+        await displayImprovementSummary(env, options);
       }
 
     } catch (error) {

@@ -20,11 +20,14 @@ export const historyCommand: VoidCommand<HistoryCommandOptions> = (options) =>
     const errorHandler = createErrorHandler(env.commandLogger);
 
     try {
-      // 非推奨警告
-      console.warn(chalk.yellow('⚠️  DEPRECATED: The "history" command is deprecated and will be removed in a future version.'));
-      console.warn(chalk.cyan('💡 Use "funcqc measure --history" instead for enhanced measurement history tracking.'));
-      console.warn(chalk.gray('   Example: funcqc measure --history --json'));
-      console.warn('');
+      // 非推奨警告（JSONモードでは抑制）
+      const isJsonMode = options.json || process.argv.includes('--json');
+      if (!isJsonMode) {
+        console.warn(chalk.yellow('⚠️  DEPRECATED: The "history" command is deprecated and will be removed in a future version.'));
+        console.warn(chalk.cyan('💡 Use "funcqc measure --history" instead for enhanced measurement history tracking.'));
+        console.warn(chalk.gray('   Example: funcqc measure --history --json'));
+        console.warn('');
+      }
 
       // Standard snapshot history mode
       await displaySnapshotHistory(options, env);

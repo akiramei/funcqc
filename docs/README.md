@@ -96,7 +96,7 @@ funcqc types        # types * 15機能統合
 funcqc refactor     # リファクタリング6機能統合
 
 funcqc setup       # init + config
-funcqc data        # db + history + diff
+funcqc manage      # db + diff + export
 ```
 
 ## 📊 評価結果のハイライト

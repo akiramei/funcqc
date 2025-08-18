@@ -32,7 +32,7 @@ funcqcが自身のコードに対して行った分析結果と、実際のソ�
 #### ❌ 誤判定・過大評価
 
 1. **循環依存の誤検知**: 95%が誤判定
-   ```
+   ```text
    実際: 80サイクル中76が正常な再帰関数
    funcqc判定: 全て「構造的問題」として扱い
    影響: -41.1pts という巨大なペナルティ
@@ -175,7 +175,7 @@ private analyzeTypeNode(typeNode: TypeNode, visited = new Set<TypeNode>()): {
 #### ✅ 真の設計問題 (1件のみ)
 
 **AST Canonicalizer** (11関数のサイクル):
-```
+```text
 canonicalizeCallExpression → canonicalizeBinaryExpression 
 → canonicalizeIfStatement → ... → canonicalizeExpressionNode 
 → canonicalizeCallExpression (完結)

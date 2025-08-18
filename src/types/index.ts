@@ -468,6 +468,7 @@ export interface InitCommandOptions extends CommandOptions {
   show?: boolean;
   reset?: boolean;
   force?: boolean;
+  configPath?: string;
 }
 
 export interface ScanCommandOptions extends CommandOptions {

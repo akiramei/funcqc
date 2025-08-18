@@ -29,14 +29,13 @@ export const assessCommand: VoidCommand<AssessCommandOptions> = (options) =>
       // Execute assessment workflow
       await executeAssessmentWorkflow(env, options, assessmentPlan);
 
+      if (options.json) {
+        await outputAssessmentResults(env, options);
+      } else {
+        await displayAssessmentSummary(env, options);
+      }
       if (!options.quiet) {
         env.commandLogger.log('✅ Quality assessment analysis completed successfully!');
-        
-        if (options.json) {
-          await outputAssessmentResults(env, options);
-        } else {
-          await displayAssessmentSummary(env, options);
-        }
       }
 
     } catch (error) {
@@ -216,8 +215,7 @@ async function executeAdvancedAssessment(
     // Perform comprehensive assessment
     const result = await evaluator.performAssessment(functions);
     
-    // Store result for later display/export
-    env.advancedAssessmentResult = result;
+    // Result is passed directly to display function
     
     if (!options.quiet) {
       await displayAdvancedAssessmentSummary(env, options, result);

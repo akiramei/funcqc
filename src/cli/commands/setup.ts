@@ -69,11 +69,17 @@ async function executeInit(env: CommandEnvironment, options: SetupCommandOptions
   try {
     // Import and execute init command functionality
     const { initCommand } = await import('../init');
-    await initCommand({
+    const initOptions = {
       force: options.force || false,
       verbose: options.verbose || false,
       quiet: options.quiet || false
-    });
+    };
+    
+    if (options.configPath !== undefined) {
+      Object.assign(initOptions, { configPath: options.configPath });
+    }
+    
+    await initCommand(initOptions);
     
     if (!options.quiet) {
       env.commandLogger.log('✅ Project initialization completed');

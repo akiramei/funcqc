@@ -390,7 +390,7 @@ function determineUnifiedInitRequirements(command: string, options: Record<strin
       return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
       
     case 'improve':
-      if (options['action'] === 'dead-code' || options['action'] === 'antipattern') {
+      if (options['type'] === 'dead-code' || options['type'] === 'antipattern') {
         return ['CALL_GRAPH'];
       }
       // Default: basic improvement (dedupe, debug-code)

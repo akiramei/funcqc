@@ -80,7 +80,7 @@ async function applyTypeFilters(types, options, memberCounts) {
 #### 問題サイクル: AST Canonicalizer (11関数)
 
 **循環パス**:
-```
+```text
 canonicalizeCallExpression → canonicalizeBinaryExpression 
 → canonicalizeIfStatement → canonicalizeLoop 
 → canonicalizeReturnStatement → canonicalizeExpressionStatement

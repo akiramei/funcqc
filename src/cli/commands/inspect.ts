@@ -138,8 +138,8 @@ function applyFunctionFilters(
 
   // File pattern filter
   if (options.file) {
-    const filePattern = new RegExp(options.file, 'i');
-    filtered = filtered.filter(f => filePattern.test(f.filePath));
+    const filePattern = options.file.toLowerCase();
+    filtered = filtered.filter(f => f.filePath.toLowerCase().includes(filePattern));
   }
 
   return filtered;
@@ -391,8 +391,8 @@ function applyFileFilters(
   
   // File path filter (reuse the file option)
   if (options.file) {
-    const filePattern = new RegExp(options.file, 'i');
-    filteredFiles = filteredFiles.filter(f => filePattern.test(f.filePath));
+    const needle = options.file.toLowerCase();
+    filteredFiles = filteredFiles.filter(f => f.filePath.toLowerCase().includes(needle));
   }
   
   return filteredFiles;
