@@ -116,7 +116,7 @@ export const residueCheckCommand: VoidCommand<ResidueCheckOptions> = (options) =
 
       // Start detection
       if (!options.quiet) {
-        env.commandLogger.log(chalk.bold('🔍 Checking for debug residue...'));
+        env.commandLogger.info(chalk.bold('🔍 Checking for debug residue...'));
       }
 
       // Load configuration

@@ -15,7 +15,7 @@ export const manageCommand: VoidCommand<ManageCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('📊 Starting data management operation...');
+        env.commandLogger.info('📊 Starting data management operation...');
       }
 
       switch (options.action) {
@@ -46,7 +46,7 @@ export const manageCommand: VoidCommand<ManageCommandOptions> = (options) =>
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ Data management operation completed!');
+        env.commandLogger.info('✅ Data management operation completed!');
       }
 
     } catch (error) {
@@ -75,7 +75,7 @@ export const manageCommand: VoidCommand<ManageCommandOptions> = (options) =>
  */
 async function executeDatabase(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🗄️  Managing database...');
+    env.commandLogger.info('🗄️  Managing database...');
   }
 
   try {
@@ -95,7 +95,7 @@ async function executeDatabase(env: CommandEnvironment, options: ManageCommandOp
     await dbCommand(dbOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Database operation completed');
+      env.commandLogger.info('✅ Database operation completed');
     }
   } catch (error) {
     throw new Error(`Database operation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -107,7 +107,7 @@ async function executeDatabase(env: CommandEnvironment, options: ManageCommandOp
  */
 async function executeDiff(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Analyzing differences...');
+    env.commandLogger.info('🔄 Analyzing differences...');
   }
 
   try {
@@ -124,7 +124,7 @@ async function executeDiff(env: CommandEnvironment, options: ManageCommandOption
     await diffCommand(options.from || '', options.to || '')(diffOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Diff analysis completed');
+      env.commandLogger.info('✅ Diff analysis completed');
     }
   } catch (error) {
     throw new Error(`Diff operation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -136,7 +136,7 @@ async function executeDiff(env: CommandEnvironment, options: ManageCommandOption
  */
 async function executeExport(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📤 Exporting data...');
+    env.commandLogger.info('📤 Exporting data...');
   }
 
   try {
@@ -190,7 +190,7 @@ async function executeExport(env: CommandEnvironment, options: ManageCommandOpti
     }
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Export completed');
+      env.commandLogger.info('✅ Export completed');
     }
   } catch (error) {
     throw new Error(`Export failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -202,7 +202,7 @@ async function executeExport(env: CommandEnvironment, options: ManageCommandOpti
  */
 async function executeImport(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📥 Importing data...');
+    env.commandLogger.info('📥 Importing data...');
   }
 
   try {
@@ -220,7 +220,7 @@ async function executeImport(env: CommandEnvironment, options: ManageCommandOpti
     console.log('   • Export/import workflows will be available in v2.0');
     
     if (!options.quiet) {
-      env.commandLogger.log('ℹ️  Import preparation completed');
+      env.commandLogger.info('ℹ️  Import preparation completed');
     }
   } catch (error) {
     throw new Error(`Import failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -232,7 +232,7 @@ async function executeImport(env: CommandEnvironment, options: ManageCommandOpti
  */
 async function executeConvert(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Converting data format...');
+    env.commandLogger.info('🔄 Converting data format...');
   }
 
   try {
@@ -255,7 +255,7 @@ async function executeConvert(env: CommandEnvironment, options: ManageCommandOpt
     console.log('💡 Current alternative: Use database export/import tools');
     
     if (!options.quiet) {
-      env.commandLogger.log('ℹ️  Conversion planning completed');
+      env.commandLogger.info('ℹ️  Conversion planning completed');
     }
   } catch (error) {
     throw new Error(`Convert failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -267,7 +267,7 @@ async function executeConvert(env: CommandEnvironment, options: ManageCommandOpt
  */
 async function executeListBackups(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📋 Listing backups...');
+    env.commandLogger.info('📋 Listing backups...');
   }
 
   try {
@@ -318,7 +318,7 @@ async function executeListBackups(env: CommandEnvironment, options: ManageComman
     }
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Backup listing completed');
+      env.commandLogger.info('✅ Backup listing completed');
     }
   } catch (error) {
     throw new Error(`Backup listing failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -330,7 +330,7 @@ async function executeListBackups(env: CommandEnvironment, options: ManageComman
  */
 async function executeHistory(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📈 Showing detailed history...');
+    env.commandLogger.info('📈 Showing detailed history...');
   }
 
   try {
@@ -350,7 +350,7 @@ async function executeHistory(env: CommandEnvironment, options: ManageCommandOpt
     await historyCommand(historyOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ History display completed');
+      env.commandLogger.info('✅ History display completed');
     }
   } catch (error) {
     throw new Error(`History operation failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -362,7 +362,7 @@ async function executeHistory(env: CommandEnvironment, options: ManageCommandOpt
  */
 async function executeStatus(env: CommandEnvironment, options: ManageCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Checking data status...');
+    env.commandLogger.info('📊 Checking data status...');
   }
 
   const status = [];

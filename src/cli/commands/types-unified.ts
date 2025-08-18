@@ -30,7 +30,7 @@ export const typesCommand: VoidCommand<TypesCommandOptions> = (options) =>
 
     try {
       if (!options.quiet) {
-        env.commandLogger.log('🧩 Starting TypeScript type analysis...');
+        env.commandLogger.info('🧩 Starting TypeScript type analysis...');
       }
 
       switch (options.action) {
@@ -82,7 +82,7 @@ export const typesCommand: VoidCommand<TypesCommandOptions> = (options) =>
       }
 
       if (!options.quiet) {
-        env.commandLogger.log('✅ TypeScript type analysis completed!');
+        env.commandLogger.info('✅ TypeScript type analysis completed!');
       }
 
     } catch (error) {
@@ -111,7 +111,7 @@ export const typesCommand: VoidCommand<TypesCommandOptions> = (options) =>
  */
 async function executeList(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📋 Listing TypeScript types from database...');
+    env.commandLogger.info('📋 Listing TypeScript types from database...');
   }
 
   try {
@@ -157,7 +157,7 @@ async function executeList(env: CommandEnvironment, options: TypesCommandOptions
     await executeTypesListDB(listOptions as TypeListOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type listing completed');
+      env.commandLogger.info('✅ Type listing completed');
     }
   } catch (error) {
     throw new Error(`Type listing failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -169,7 +169,7 @@ async function executeList(env: CommandEnvironment, options: TypesCommandOptions
  */
 async function executeHealth(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🏥 Analyzing type system health...');
+    env.commandLogger.info('🏥 Analyzing type system health...');
   }
 
   try {
@@ -184,7 +184,7 @@ async function executeHealth(env: CommandEnvironment, options: TypesCommandOptio
     await executeTypesHealthDB(healthOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type health analysis completed');
+      env.commandLogger.info('✅ Type health analysis completed');
     }
   } catch (error) {
     throw new Error(`Type health analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -196,7 +196,7 @@ async function executeHealth(env: CommandEnvironment, options: TypesCommandOptio
  */
 async function executeDeps(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔗 Analyzing type dependencies...');
+    env.commandLogger.info('🔗 Analyzing type dependencies...');
   }
 
   try {
@@ -212,7 +212,7 @@ async function executeDeps(env: CommandEnvironment, options: TypesCommandOptions
     await executeTypesDepsDB(depsOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type dependencies analysis completed');
+      env.commandLogger.info('✅ Type dependencies analysis completed');
     }
   } catch (error) {
     throw new Error(`Type dependencies analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -224,7 +224,7 @@ async function executeDeps(env: CommandEnvironment, options: TypesCommandOptions
  */
 async function executeApi(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Analyzing type API design and surface area...');
+    env.commandLogger.info('📊 Analyzing type API design and surface area...');
   }
 
   try {
@@ -240,7 +240,7 @@ async function executeApi(env: CommandEnvironment, options: TypesCommandOptions)
     await executeTypesApiDB(apiOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type API analysis completed');
+      env.commandLogger.info('✅ Type API analysis completed');
     }
   } catch (error) {
     throw new Error(`Type API analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -252,7 +252,7 @@ async function executeApi(env: CommandEnvironment, options: TypesCommandOptions)
  */
 async function executeMembers(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('👥 Showing detailed type member information...');
+    env.commandLogger.info('👥 Showing detailed type member information...');
   }
 
   try {
@@ -270,7 +270,7 @@ async function executeMembers(env: CommandEnvironment, options: TypesCommandOpti
     await executeTypesMembersDB(membersOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type members analysis completed');
+      env.commandLogger.info('✅ Type members analysis completed');
     }
   } catch (error) {
     throw new Error(`Type members analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -282,7 +282,7 @@ async function executeMembers(env: CommandEnvironment, options: TypesCommandOpti
  */
 async function executeCoverage(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Analyzing property usage coverage and patterns...');
+    env.commandLogger.info('📊 Analyzing property usage coverage and patterns...');
   }
 
   try {
@@ -299,7 +299,7 @@ async function executeCoverage(env: CommandEnvironment, options: TypesCommandOpt
     await executeTypesCoverageDB(coverageOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type coverage analysis completed');
+      env.commandLogger.info('✅ Type coverage analysis completed');
     }
   } catch (error) {
     throw new Error(`Type coverage analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -311,7 +311,7 @@ async function executeCoverage(env: CommandEnvironment, options: TypesCommandOpt
  */
 async function executeCluster(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🎪 Analyzing property clustering and co-occurrence patterns...');
+    env.commandLogger.info('🎪 Analyzing property clustering and co-occurrence patterns...');
   }
 
   try {
@@ -327,7 +327,7 @@ async function executeCluster(env: CommandEnvironment, options: TypesCommandOpti
     await executeTypesClusterDB(clusterOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type clustering analysis completed');
+      env.commandLogger.info('✅ Type clustering analysis completed');
     }
   } catch (error) {
     throw new Error(`Type clustering analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -339,7 +339,7 @@ async function executeCluster(env: CommandEnvironment, options: TypesCommandOpti
  */
 async function executeRisk(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('⚠️ Analyzing dependency risk and change impact...');
+    env.commandLogger.info('⚠️ Analyzing dependency risk and change impact...');
   }
 
   try {
@@ -353,7 +353,7 @@ async function executeRisk(env: CommandEnvironment, options: TypesCommandOptions
     await executeTypesRiskDB(riskOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type risk analysis completed');
+      env.commandLogger.info('✅ Type risk analysis completed');
     }
   } catch (error) {
     throw new Error(`Type risk analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -365,7 +365,7 @@ async function executeRisk(env: CommandEnvironment, options: TypesCommandOptions
  */
 async function executeInsights(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔍 Performing comprehensive type analysis...');
+    env.commandLogger.info('🔍 Performing comprehensive type analysis...');
   }
 
   try {
@@ -383,7 +383,7 @@ async function executeInsights(env: CommandEnvironment, options: TypesCommandOpt
     await executeTypesInsightsDB(insightsOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type insights analysis completed');
+      env.commandLogger.info('✅ Type insights analysis completed');
     }
   } catch (error) {
     throw new Error(`Type insights analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -395,7 +395,7 @@ async function executeInsights(env: CommandEnvironment, options: TypesCommandOpt
  */
 async function executeSlices(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🍰 Discovering reusable property patterns across types...');
+    env.commandLogger.info('🍰 Discovering reusable property patterns across types...');
   }
 
   try {
@@ -418,7 +418,7 @@ async function executeSlices(env: CommandEnvironment, options: TypesCommandOptio
     await executeTypesSlicesDB(slicesOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Property slices analysis completed');
+      env.commandLogger.info('✅ Property slices analysis completed');
     }
   } catch (error) {
     throw new Error(`Property slices analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -430,7 +430,7 @@ async function executeSlices(env: CommandEnvironment, options: TypesCommandOptio
  */
 async function executeSubsume(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🎯 Analyzing structural subsumption and containment relationships...');
+    env.commandLogger.info('🎯 Analyzing structural subsumption and containment relationships...');
   }
 
   try {
@@ -451,7 +451,7 @@ async function executeSubsume(env: CommandEnvironment, options: TypesCommandOpti
     await executeTypesSubsumeDB(subsumeOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Subsumption analysis completed');
+      env.commandLogger.info('✅ Subsumption analysis completed');
     }
   } catch (error) {
     throw new Error(`Subsumption analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -463,7 +463,7 @@ async function executeSubsume(env: CommandEnvironment, options: TypesCommandOpti
  */
 async function executeFingerprint(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔍 Analyzing behavioral fingerprints and function clustering...');
+    env.commandLogger.info('🔍 Analyzing behavioral fingerprints and function clustering...');
   }
 
   try {
@@ -486,7 +486,7 @@ async function executeFingerprint(env: CommandEnvironment, options: TypesCommand
     await executeTypesFingerprintDB(fingerprintOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Behavioral fingerprint analysis completed');
+      env.commandLogger.info('✅ Behavioral fingerprint analysis completed');
     }
   } catch (error) {
     throw new Error(`Behavioral fingerprint analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -498,7 +498,7 @@ async function executeFingerprint(env: CommandEnvironment, options: TypesCommand
  */
 async function executeConverters(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('🔄 Analyzing type conversion networks and canonical types...');
+    env.commandLogger.info('🔄 Analyzing type conversion networks and canonical types...');
   }
 
   try {
@@ -521,7 +521,7 @@ async function executeConverters(env: CommandEnvironment, options: TypesCommandO
     await executeTypesConvertersDB(convertersOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type conversion network analysis completed');
+      env.commandLogger.info('✅ Type conversion network analysis completed');
     }
   } catch (error) {
     throw new Error(`Type conversion network analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -533,7 +533,7 @@ async function executeConverters(env: CommandEnvironment, options: TypesCommandO
  */
 async function executeCochange(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📈 Analyzing type co-evolution patterns from Git history...');
+    env.commandLogger.info('📈 Analyzing type co-evolution patterns from Git history...');
   }
 
   try {
@@ -557,7 +557,7 @@ async function executeCochange(env: CommandEnvironment, options: TypesCommandOpt
     await executeTypesCochangeDB(cochangeOptions)(env);
     
     if (!options.quiet) {
-      env.commandLogger.log('✅ Type co-change analysis completed');
+      env.commandLogger.info('✅ Type co-change analysis completed');
     }
   } catch (error) {
     throw new Error(`Type co-change analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -569,7 +569,7 @@ async function executeCochange(env: CommandEnvironment, options: TypesCommandOpt
  */
 async function executeOverview(env: CommandEnvironment, options: TypesCommandOptions): Promise<void> {
   if (!options.quiet) {
-    env.commandLogger.log('📊 Displaying TypeScript type analysis capabilities overview...');
+    env.commandLogger.info('📊 Displaying TypeScript type analysis capabilities overview...');
   }
 
   const overview = {
@@ -680,6 +680,6 @@ async function executeOverview(env: CommandEnvironment, options: TypesCommandOpt
   }
   
   if (!options.quiet) {
-    env.commandLogger.log('✅ Types overview completed');
+    env.commandLogger.info('✅ Types overview completed');
   }
 }

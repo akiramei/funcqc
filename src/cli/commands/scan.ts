@@ -156,7 +156,7 @@ export const scanCommand: VoidCommand<ScanCommandOptions> = (options) =>
     const spinner = ora();
 
     try {
-      env.commandLogger.log('🔍 Starting function analysis...');
+      env.commandLogger.info('🔍 Starting function analysis...');
       
       await executeScanCommand(env, options, spinner);
     } catch (error) {
