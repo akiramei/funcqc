@@ -35,6 +35,90 @@ interface FanStatistics {
   maxFanOut: number;
 }
 
+/**
+ * Detect entry points using multiple heuristics for better accuracy
+ * Instead of just fan-in=0, consider function names, export status, etc.
+ */
+function detectEntryPoints(functions: FunctionInfo[], initialMetrics: DependencyMetrics[]): Set<string> {
+  const entryPoints = new Set<string>();
+  const metricsById = new Map(initialMetrics.map(m => [m.functionId, m]));
+  
+  for (const func of functions) {
+    const metrics = metricsById.get(func.id);
+    if (!metrics) continue;
+    
+    // Priority 1: Clear entry point function names
+    if (isEntryPointByName(func.name, func.filePath)) {
+      entryPoints.add(func.id);
+      continue;
+    }
+    
+    // Priority 2: Exported functions with zero fan-in (public APIs)
+    if (func.isExported && metrics.fanIn === 0) {
+      entryPoints.add(func.id);
+      continue;
+    }
+    
+    // Priority 3: Command handlers and CLI functions
+    if (isCommandHandler(func.name, func.filePath)) {
+      entryPoints.add(func.id);
+      continue;
+    }
+  }
+  
+  // Fallback: If no clear entry points found, use some zero fan-in functions
+  // but limit to reasonable candidates
+  if (entryPoints.size === 0) {
+    const zeroFanInFunctions = initialMetrics.filter(m => m.fanIn === 0);
+    const functionsById = new Map(functions.map(f => [f.id, f]));
+    
+    for (const metrics of zeroFanInFunctions.slice(0, 10)) { // Limit to first 10
+      const func = functionsById.get(metrics.functionId);
+      if (func && (func.isExported || func.filePath.includes('cli') || func.filePath.includes('main'))) {
+        entryPoints.add(metrics.functionId);
+      }
+    }
+  }
+  
+  return entryPoints;
+}
+
+/**
+ * Check if function name indicates it's an entry point
+ */
+function isEntryPointByName(name: string, filePath: string): boolean {
+  // Main functions
+  if (name === 'main' || name === 'run' || name === 'start') {
+    return true;
+  }
+  
+  // CLI entry points
+  if (name.includes('Command') && filePath.includes('cli')) {
+    return true;
+  }
+  
+  // Server/app entry points
+  if (name === 'createApp' || name === 'startServer' || name === 'bootstrap') {
+    return true;
+  }
+  
+  return false;
+}
+
+/**
+ * Check if function is likely a command handler
+ */
+function isCommandHandler(name: string, filePath: string): boolean {
+  if (!filePath.includes('cli') && !filePath.includes('command')) {
+    return false;
+  }
+  
+  return name.endsWith('Command') || 
+         name.startsWith('handle') || 
+         name.startsWith('execute') ||
+         name.includes('Handler');
+}
+
 
 /**
  * Perform SCC analysis and calculate dependency metrics
@@ -59,12 +143,8 @@ function performSCCAnalysis(
   const initialEntryPoints = new Set<string>();
   const initialMetrics = depCalculator.calculateMetrics(functions, callEdges, initialEntryPoints, cyclicFunctions);
   
-  // Fix: Automatically detect entry points as functions with zero in-degree
-  const entryPoints = new Set(
-    initialMetrics
-      .filter(m => m.fanIn === 0)
-      .map(m => m.functionId)
-  );
+  // Improved: Detect entry points using multiple heuristics instead of just fan-in=0
+  const entryPoints = detectEntryPoints(functions, initialMetrics);
   
   // Second pass: Recalculate with proper entry points for accurate depthFromEntry
   const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);
@@ -343,12 +423,8 @@ async function performSimplifiedStructuralAnalysis(
   const initialEntryPoints = new Set<string>();
   const initialMetrics = depCalculator.calculateMetrics(functions, callEdges, initialEntryPoints, cyclicFunctions);
   
-  // Fix: Automatically detect entry points as functions with zero in-degree
-  const entryPoints = new Set(
-    initialMetrics
-      .filter(m => m.fanIn === 0)
-      .map(m => m.functionId)
-  );
+  // Improved: Detect entry points using multiple heuristics instead of just fan-in=0
+  const entryPoints = detectEntryPoints(functions, initialMetrics);
   
   // Second pass: Recalculate with proper entry points for accurate depthFromEntry
   const depMetrics = depCalculator.calculateMetrics(functions, callEdges, entryPoints, cyclicFunctions);

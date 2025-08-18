@@ -79,6 +79,20 @@ export class PageRankCalculator {
       return this.createEmptyResult();
     }
 
+    // Check if the graph has any edges at all
+    const totalEdges = callEdges.filter(edge => 
+      functionMap.has(edge.callerFunctionId) && 
+      edge.calleeFunctionId && 
+      functionMap.has(edge.calleeFunctionId) &&
+      edge.callerFunctionId !== edge.calleeFunctionId
+    ).length;
+
+    // For graphs with very few edges, return uniform distribution to avoid noise dominating
+    // Increase threshold to be more conservative about when to use PageRank
+    if (totalEdges < Math.max(20, Math.floor(numFunctions * 0.05))) {
+      return this.createUniformResult(functionMap, functionIds);
+    }
+
     // Initialize PageRank scores with uniform distribution (1/N) for better convergence
     const scores = new Map<string, number>();
     const newScores = new Map<string, number>();
@@ -106,6 +120,9 @@ export class PageRankCalculator {
           
           if (callerOutDegree > 0) {
             newScore += this.dampingFactor * (callerScore / callerOutDegree);
+          } else {
+            // Handle dangling nodes: redistribute their score uniformly
+            newScore += this.dampingFactor * (callerScore / numFunctions);
           }
         }
         
@@ -303,6 +320,54 @@ export class PageRankCalculator {
   }
 
   /**
+   * Create uniform distribution result for sparse graphs
+   * Prevents noise from dominating when there are very few edges
+   */
+  private createUniformResult(
+    functionMap: Map<string, FunctionInfo>,
+    functionIds: string[]
+  ): PageRankResult {
+    const uniformScore = 1.0 / functionIds.length;
+    const pageRankScores: PageRankScore[] = functionIds.map((functionId, index) => {
+      const functionInfo = functionMap.get(functionId)!;
+      return {
+        functionId,
+        functionName: functionInfo.name,
+        filePath: functionInfo.filePath,
+        startLine: functionInfo.startLine,
+        score: uniformScore,
+        rank: index + 1,
+        normalizedScore: 1.0, // All functions are equally important
+        importance: 'medium' as const
+      };
+    });
+
+    // Sort by function name for consistent ordering
+    pageRankScores.sort((a, b) => a.functionName.localeCompare(b.functionName));
+    
+    // Update ranks after sorting
+    pageRankScores.forEach((score, index) => {
+      score.rank = index + 1;
+    });
+
+    return {
+      scores: pageRankScores,
+      iterations: 1,
+      converged: true,
+      totalFunctions: functionIds.length,
+      averageScore: uniformScore,
+      maxScore: uniformScore,
+      minScore: uniformScore,
+      importanceDistribution: {
+        critical: 0,
+        high: 0,
+        medium: functionIds.length,
+        low: 0
+      }
+    };
+  }
+
+  /**
    * Calculate PageRank-based centrality metrics for structural analysis
    */
   calculateCentralityMetrics(
@@ -344,17 +409,37 @@ export class PageRankCalculator {
     const centralityGini = (n > 1 && avgCentrality > 0) ? giniSum / (n * avgCentrality * (n - 1)) : 0;
 
     // Get top central functions
-    // Use original score for relative comparison when normalization results in 0s
-    const maxScore = Math.max(...result.scores.map(s => s.score));
+    // Use more robust relative scoring to avoid artificial 100% dominance
+    const allScores = result.scores.map(s => s.score);
+    const maxScore = Math.max(...allScores);
+    const minScore = Math.min(...allScores);
+    const scoreRange = maxScore - minScore;
+    
     const topCentralFunctions = result.scores
       .slice(0, 10)
-      .map(score => ({
-        functionId: score.functionId,
-        functionName: score.functionName,
-        filePath: score.filePath,
-        startLine: score.startLine,
-        centrality: maxScore > 0 ? score.score / maxScore : 0
-      }));
+      .map(score => {
+        let centrality: number;
+        
+        // If the score range is very small compared to the average, treat as uniform
+        const avgScore = allScores.reduce((sum, s) => sum + s, 0) / allScores.length;
+        const relativeRange = avgScore > 0 ? scoreRange / avgScore : 0;
+        
+        if (scoreRange > 0 && relativeRange > 0.1) {
+          // Use relative ranking within the range, only if range is significant
+          centrality = (score.score - minScore) / scoreRange;
+        } else {
+          // Treat as uniform distribution when differences are too small to be meaningful
+          centrality = 1.0 / result.totalFunctions;
+        }
+        
+        return {
+          functionId: score.functionId,
+          functionName: score.functionName,
+          filePath: score.filePath,
+          startLine: score.startLine,
+          centrality
+        };
+      });
 
     return {
       centralityScores,
