@@ -209,8 +209,17 @@ export class OnePassASTVisitor {
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
     
     // Check if this is a parameter access
-    const paramName = expression.getText();
-    if (!paramMap.has(paramName)) return;
+    // Fixed: Properly extract parameter name from expression
+    let paramName: string | null = null;
+    if (Node.isIdentifier(expression)) {
+      paramName = expression.getText();
+    } else if (Node.isThisExpression(expression)) {
+      paramName = 'this';
+    }
+    
+    if (!paramName || !paramMap.has(paramName)) {
+      return;
+    }
     
     // Classify access type
     const accessType = this.classifyPropertyAccess(node);
@@ -265,9 +274,18 @@ export class OnePassASTVisitor {
     if (!expression || !propertyName || propertyName === 'unknown') return;
     
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
-    const paramName = expression.getText();
     
-    if (!paramMap.has(paramName)) return;
+    // Fixed: Properly extract parameter name from expression
+    let paramName: string | null = null;
+    if (Node.isIdentifier(expression)) {
+      paramName = expression.getText();
+    } else if (Node.isThisExpression(expression)) {
+      paramName = 'this';
+    }
+    
+    if (!paramName || !paramMap.has(paramName)) {
+      return;
+    }
     
     // Store parameter usage for coupling analysis
     if (!ctx.couplingData.parameterUsage.has(funcId)) {
