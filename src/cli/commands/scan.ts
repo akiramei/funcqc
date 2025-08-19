@@ -932,23 +932,26 @@ async function performCouplingAnalysisForFile(
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
 
+    // Create a function ID lookup map for debugging and fallback
+    const dbFunctionIds = new Set(fileFunctions.map(f => f.id));
+    
     // Extract property access data from coupling analysis
     for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
       console.log(`🔍 Processing function hash ID: ${funcHashId}`);
       
       for (const analysis of analyses) {
-        // CRITICAL FIX: funcHashId IS already the correct DB function ID
-        // No lookup needed - OnePassASTVisitor generates same IDs as DB storage
-        const correctFunctionId = funcHashId;
-        
-        // Validate function ID exists in DB to avoid FK constraint violations
-        const functionExists = fileFunctions.some(f => f.id === correctFunctionId);
-        if (!functionExists) {
+        // Check if funcHashId exists in DB functions
+        if (!dbFunctionIds.has(funcHashId)) {
+          console.log(`  ⚠️  Skipping ${funcHashId}: not found in DB functions`);
           if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-            console.log(`  ⚠️  Skipping ${correctFunctionId}: not found in DB functions`);
+            console.log(`    Available function IDs in file (first 3):`, 
+              Array.from(dbFunctionIds).slice(0, 3));
+            console.log(`    Total DB functions in file: ${dbFunctionIds.size}`);
           }
           continue; // Skip to avoid FK violation
         }
+        
+        const correctFunctionId = funcHashId;
         
         if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
           console.log(`  ✅ Using direct function ID: ${correctFunctionId}`);
