@@ -937,24 +937,12 @@ async function performCouplingAnalysisForFile(
       console.log(`🔍 Processing function hash ID: ${funcHashId}`);
       
       for (const analysis of analyses) {
-        // Try multiple strategies to find the correct function ID
-        const correctFunctionId = functionLookupMap.get(funcHashId);
+        // CRITICAL FIX: funcHashId IS already the correct DB function ID
+        // No lookup needed - OnePassASTVisitor generates same IDs as DB storage
+        const correctFunctionId = funcHashId;
         
         if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-          console.log(`  🗺️  Looking up: ${funcHashId} -> ${correctFunctionId || 'NOT FOUND'}`);
-          if (!correctFunctionId) {
-            console.log(`  📋 Available lookup keys (first 5):`, 
-              Array.from(functionLookupMap.keys()).slice(0, 5));
-            console.log(`  📋 Total lookup entries: ${functionLookupMap.size}`);
-          }
-        }
-        
-        // If direct lookup fails, skip this coupling data to avoid FK violations
-        if (!correctFunctionId) {
-          // Skip this function's coupling data to prevent FK constraint violations
-          // This is expected behavior for anonymous functions that aren't stored in the main function table
-          console.log(`  ⚠️  Skipping coupling data for ${funcHashId}: no matching function ID`);
-          continue; // Skip to next function
+          console.log(`  ✅ Using direct function ID: ${correctFunctionId}`);
         }
         
         // Rename for clarity and index accesses by property for O(1) lookups
