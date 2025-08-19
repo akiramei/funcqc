@@ -373,19 +373,26 @@ export class OnePassASTVisitor {
     
     for (const [funcId, paramUsage] of ctx.couplingData.parameterUsage) {
       const analyses: SimpleCouplingAnalysis[] = [];
+      console.log(`  📋 Function ${funcId}: ${paramUsage.size} parameters`);
       
       for (const [paramName, usedProps] of paramUsage) {
+        console.log(`    🔧 Parameter ${paramName}: ${usedProps.size} used properties`);
+        
         // Get total properties for this parameter type
         let totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
+        console.log(`    📊 totalProps for ${paramName}: ${totalProps}`);
+        
+        // Skip if no properties are used
+        if (usedProps.size === 0) {
+          console.log(`    ⚠️  Skipping ${paramName}: no properties used`);
+          continue;
+        }
         
         // Fallback: If TypeChecker cannot resolve type properties, 
         // still proceed with coupling analysis based on observed usage
         if (totalProps === 0) {
           totalProps = Math.max(usedProps.size, 1);
-          
-          if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-            console.log(`[DEBUG] totalProps=0 for ${funcId}.${paramName}, using fallback: ${totalProps}`);
-          }
+          console.log(`    🔄 Using fallback totalProps=${totalProps} for ${paramName}`);
         }
         
         const usageRatio = usedProps.size / totalProps;
@@ -405,7 +412,10 @@ export class OnePassASTVisitor {
       }
       
       if (analyses.length > 0) {
+        console.log(`  ✅ Added ${analyses.length} coupling analyses for function ${funcId}`);
         ctx.couplingData.overCoupling.set(funcId, analyses);
+      } else {
+        console.log(`  ❌ No coupling analyses created for function ${funcId}`);
       }
     }
   }
