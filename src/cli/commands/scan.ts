@@ -500,6 +500,22 @@ export async function performDeferredBasicAnalysis(
     throw new Error(`No source files found for snapshot ${snapshotId}`);
   }
 
+  // Check for incomplete previous analysis to prevent duplicate key violations
+  const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const currentSnapshot = await env.storage.getSnapshot(snapshotId);
+  const metadata = currentSnapshot?.metadata as Record<string, unknown>;
+  const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+  
+  if (existingFunctions.length > 0 && analysisLevel === 'NONE') {
+    // Detected incomplete previous analysis - functions exist but analysis level not updated
+    env.logger?.warn(`Detected incomplete previous analysis for snapshot ${snapshotId.substring(0, 8)} (${existingFunctions.length} functions exist but analysis level is NONE)`);
+    
+    // Clean up incomplete state by updating analysis level to prevent duplicate execution
+    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+    env.logger?.info(`Fixed incomplete analysis state for snapshot ${snapshotId.substring(0, 8)}`);
+    return; // Skip re-analysis since functions are already present
+  }
+
   const ora = (await import('ora')).default;
   const spinner = ora();
   
@@ -562,10 +578,20 @@ export async function performPureBasicAnalysis(
       console.log(chalk.green(`✅ Basic analysis completed! Analyzed ${totalFunctions} functions (no coupling)`));
     }
     
-    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-    spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files (BASIC only)`);
+    // Only update analysis level if functions were successfully analyzed
+    if (totalFunctions > 0) {
+      await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
+      spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files (BASIC only)`);
+    } else {
+      spinner.fail(`No functions were analyzed - analysis level not updated`);
+      throw new Error('No functions were successfully analyzed');
+    }
     
     return { functionsAnalyzed: totalFunctions };
+  } catch (error) {
+    spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+    // Don't update analysis level on error to prevent incomplete state
+    throw error;
   } finally {
     await performAnalysisCleanup(components, env);
   }
@@ -573,6 +599,7 @@ export async function performPureBasicAnalysis(
 
 /**
  * Execute PURE BASIC batch analysis (no coupling) 
+ * Modified to use single transaction for all batches to prevent duplicate key violations
  */
 async function executePureBasicBatchAnalysis(
   batches: import('../../types').SourceFile[][],
@@ -619,32 +646,60 @@ async function executePureBasicBatchAnalysis(
       }
     }
     
-    // Store functions only (no coupling data)
-    if (batchFunctions.length > 0) {
-      await env.storage.storeFunctions(batchFunctions, snapshotId);
-      
-      // Update function counts for files in this batch
-      const batchFunctionCounts = new Map<string, number>();
-      batchFunctions.forEach(func => {
-        const count = batchFunctionCounts.get(func.filePath) || 0;
-        batchFunctionCounts.set(func.filePath, count + 1);
-      });
-      
-      if (batchFunctionCounts.size > 0) {
-        await env.storage.updateSourceFileFunctionCounts(batchFunctionCounts, snapshotId);
-      }
-    }
-    
     if (batchErrors.length > 0) {
       console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
     } else {
       console.log(chalk.green(`✅ Batch ${batchIndex + 1} completed successfully (${batchFunctions.length} functions)`));
     }
     
-    return { functionCount: batchFunctions.length, errors: batchErrors };
+    return { 
+      functionCount: batchFunctions.length, 
+      errors: batchErrors,
+      functions: batchFunctions // Return functions for later storage
+    };
   });
   
-  return Promise.all(batchPromises);
+  // Execute all batch processing in parallel
+  const batchResults = await Promise.all(batchPromises);
+  
+  // Collect all functions from all batches
+  const allFunctions: FunctionInfo[] = [];
+  const allFunctionCounts = new Map<string, number>();
+  
+  for (const result of batchResults) {
+    allFunctions.push(...(result as any).functions);
+    
+    // Collect function counts by file
+    (result as any).functions.forEach((func: FunctionInfo) => {
+      const count = allFunctionCounts.get(func.filePath) || 0;
+      allFunctionCounts.set(func.filePath, count + 1);
+    });
+  }
+  
+  // Store all functions in a single transaction to prevent duplicate key violations
+  if (allFunctions.length > 0) {
+    try {
+      await env.storage.storeFunctions(allFunctions, snapshotId);
+      
+      // Update function counts for all files
+      if (allFunctionCounts.size > 0) {
+        await env.storage.updateSourceFileFunctionCounts(allFunctionCounts, snapshotId);
+      }
+      
+      console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
+    } catch (error) {
+      console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
+      
+      // Don't update analysis level on error to prevent incomplete state
+      throw new Error(`Function storage failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  // Return results without functions property (clean up)
+  return batchResults.map(result => ({
+    functionCount: result.functionCount,
+    errors: result.errors
+  }));
 }
 
 export async function performBasicAnalysis(
