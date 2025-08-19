@@ -18,6 +18,7 @@ import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/par
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
+import { FunctionIdGenerator } from '../../utils/function-id-generator';
 import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
@@ -914,6 +915,18 @@ async function performCouplingAnalysisForFile(
       const fileName = path.basename(func.filePath);
       const altCompositeKey = generateFunctionCompositeKey(fileName, func.startLine, func.name);
       functionLookupMap.set(altCompositeKey, func.id);
+      
+      // Strategy 4: CRITICAL FIX - Use the same ID generation as OnePassASTVisitor
+      // This generates the exact same hash ID that coupling analysis uses
+      const couplingHashId = FunctionIdGenerator.generateDeterministicUUID(
+        func.filePath,
+        func.name,
+        null, // className - not available from FunctionInfo
+        func.startLine,
+        func.startColumn || 0,
+        snapshotId
+      );
+      functionLookupMap.set(couplingHashId, func.id);
     }
 
     // Convert coupling data to parameter property usage format
@@ -921,14 +934,26 @@ async function performCouplingAnalysisForFile(
 
     // Extract property access data from coupling analysis
     for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
+      console.log(`🔍 Processing function hash ID: ${funcHashId}`);
+      
       for (const analysis of analyses) {
         // Try multiple strategies to find the correct function ID
         const correctFunctionId = functionLookupMap.get(funcHashId);
+        
+        if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+          console.log(`  🗺️  Looking up: ${funcHashId} -> ${correctFunctionId || 'NOT FOUND'}`);
+          if (!correctFunctionId) {
+            console.log(`  📋 Available lookup keys (first 5):`, 
+              Array.from(functionLookupMap.keys()).slice(0, 5));
+            console.log(`  📋 Total lookup entries: ${functionLookupMap.size}`);
+          }
+        }
         
         // If direct lookup fails, skip this coupling data to avoid FK violations
         if (!correctFunctionId) {
           // Skip this function's coupling data to prevent FK constraint violations
           // This is expected behavior for anonymous functions that aren't stored in the main function table
+          console.log(`  ⚠️  Skipping coupling data for ${funcHashId}: no matching function ID`);
           continue; // Skip to next function
         }
         
