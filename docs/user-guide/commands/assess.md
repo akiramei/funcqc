@@ -237,7 +237,7 @@ funcqc assess --type health --baseline main --trend --format report
 ```bash
 funcqc assess --type health
 ```
-```
+```text
 Overall Health Index: 72/100 (Fair)
 ├── Code Size: 85/100 (Good)
 ├── Maintainability: 68/100 (Poor)
