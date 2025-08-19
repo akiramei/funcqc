@@ -28,7 +28,7 @@ The `dependencies` command provides comprehensive analysis of function dependenc
 - `--type <type>` - Dependency type: `direct`, `indirect`, `circular`
 
 ### Display Options
-- `--format <format>` - Output format: `tree`, `list`, `graph`, `json`
+- `--format <format>` - Output format: `tree`, `list`, `graph`, `json`, `report`
 - `--show-paths` - Show dependency paths
 - `--show-metrics` - Include dependency metrics
 - `--show-hubs` - Highlight hub functions

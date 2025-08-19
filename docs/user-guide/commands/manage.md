@@ -25,19 +25,24 @@ The `manage` command provides comprehensive data management capabilities for fun
 - `--to <snapshot>` - Target snapshot for comparison
 - `--insights` - Include change insights and recommendations
 - `--similarity-threshold <number>` - Threshold for moved/renamed function detection
+- `--scope <scope>` - Limit comparison scope (directory, module, file)
+- `--format <format>` - Diff output format: `table`, `json`, `report`
 
 ### Database Options
 - `--table <name>` - Database table name
 - `--where <condition>` - SQL WHERE condition
 - `--limit <number>` - Limit number of results
+- `--offset <number>` - Offset for pagination
 - `--columns <fields>` - Specify columns to show
 - `--count` - Show count instead of data
+- `--list` - List available tables
 
 ### Export/Import Options
 - `--format <format>` - Export format: `json`, `csv`, `sqlite`
 - `--output <path>` - Output file path
 - `--input <path>` - Input file path for import
 - `--compress` - Compress exported data
+- `--table <name>` - Table to export/import (when applicable)
 
 ## Management Actions
 

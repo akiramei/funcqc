@@ -24,7 +24,7 @@ The `refactor` command provides comprehensive refactoring analysis and transform
 ### Analysis Options
 - `--type <type>` - Refactoring type: `extract`, `inline`, `move`, `rename`, `split`
 - `--target <target>` - Specific function or file to analyze
-- `--scope <scope>` - Analysis scope (function, file, module)
+- `--scope <scope>` - Analysis scope (function, file, module, project)
 - `--confidence <level>` - Confidence level: `low`, `medium`, `high`
 
 ### Safety Options
@@ -290,7 +290,7 @@ funcqc refactor --action suggest --target performanceCriticalFunction --verbose
 funcqc refactor --action analyze --confidence high
 
 # Target high-complexity functions
-funcqc refactor --action suggest --scope high-complexity --type split
+funcqc refactor --action suggest --type split --confidence high
 ```
 
 ## Integration Examples

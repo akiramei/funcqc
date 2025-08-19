@@ -24,6 +24,7 @@ The `inspect` command provides comprehensive inspection capabilities for functio
 ### Filtering Options
 - `--name <pattern>` - Filter by function/file name pattern
 - `--file <path>` - Filter by specific file path
+- `--id <id>` - Filter by function identifier
 - `--cc-ge <number>` - Cyclomatic complexity >= threshold
 - `--cc-le <number>` - Cyclomatic complexity <= threshold
 - `--risk-ge <number>` - Risk score >= threshold
@@ -32,7 +33,7 @@ The `inspect` command provides comprehensive inspection capabilities for functio
 
 ### Display Options
 - `--limit <number>` - Limit number of results
-- `--sort <field>` - Sort by field (cc, risk, lines, name)
+- `--sort <field>` - Sort by field (cc, risk, lines, name, funcs, complexity)
 - `--desc` - Sort in descending order
 - `--columns <fields>` - Specify output columns
 - `--format <format>` - Output format (table, json, csv)
@@ -197,6 +198,9 @@ funcqc inspect --format csv --columns name,file,cc,risk --sort cc --desc
 ```
 
 ## Pattern Matching
+
+Patterns support glob syntax (e.g., `**/*.ts`) and negation with a leading `!`
+(e.g., `!**/*.test.ts`). Multiple `--name`/`--file` filters are combined.
 
 ### Name Patterns
 

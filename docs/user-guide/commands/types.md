@@ -31,12 +31,18 @@ The `types` command provides comprehensive TypeScript type system analysis, incl
 - `--include-utilities` - Include utility type usage
 - `--include-mapped` - Include mapped type analysis
 - `--design-patterns` - Analyze type design patterns
+- `--confidence <level>` - Analysis/transform confidence: `low`, `medium`, `high`
 
 ### Quality Options
 - `--safety-check` - Type safety analysis
 - `--consistency-check` - Type naming and design consistency
 - `--performance-check` - Type compilation performance impact
 - `--best-practices` - TypeScript best practices compliance
+
+### Transformation Options
+- `--type <type>` - Transformation type: `consolidate`, `simplify`, `modernize`, `optimize`
+- `--interactive` - Interactive transformation mode
+- `--dry-run` - Show what would be changed without making changes
 
 ## Type Analysis Actions
 

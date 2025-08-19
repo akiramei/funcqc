@@ -21,7 +21,6 @@ The `assess` command provides comprehensive quality assessment of your codebase.
 - `--quiet` - Minimal output, scores only
 
 ### Assessment Modes
-- `--advanced` - Enable advanced assessment algorithms
 - `--mode <mode>` - Assessment mode: `static`, `dynamic`, `contextual`
 - `--baseline <snapshot>` - Compare against baseline snapshot
 - `--trend` - Include trend analysis
@@ -31,6 +30,9 @@ The `assess` command provides comprehensive quality assessment of your codebase.
 - `--max-risk <score>` - Maximum acceptable risk score
 - `--team-experience <level>` - Team experience: `Junior`, `Mid`, `Senior`
 - `--domain-complexity <level>` - Domain complexity: `Low`, `Medium`, `High`
+
+### Scope Options
+- `--scope <scope>` - Limit assessment to specific scope (file, module, directory)
 
 ### Output Options
 - `--format <format>` - Output format: `summary`, `detailed`, `report`
@@ -68,7 +70,7 @@ Detailed quality evaluation of individual functions.
 funcqc assess --type quality
 
 # Advanced quality with team context
-funcqc assess --type quality --advanced --team-experience Senior
+funcqc assess --type advanced --team-experience Senior
 
 # Quality trends over time
 funcqc assess --type quality --trend
@@ -89,7 +91,7 @@ Specialized assessment for TypeScript type system usage.
 funcqc assess --type types
 
 # Advanced type analysis
-funcqc assess --type types --advanced --verbose
+funcqc assess --type advanced --verbose
 ```
 
 **Type Assessment Includes:**
@@ -104,10 +106,10 @@ Combines all assessment types with advanced algorithms.
 
 ```bash
 # Complete advanced assessment
-funcqc assess --advanced
+funcqc assess --type advanced
 
 # Dynamic assessment with context
-funcqc assess --advanced --mode dynamic --team-experience Senior
+funcqc assess --type advanced --mode dynamic --team-experience Senior
 ```
 
 ## Assessment Modes
@@ -169,7 +171,7 @@ funcqc assess --type health --quiet
 funcqc assess --type health --verbose --export weekly-health.json
 
 # Pre-release assessment
-funcqc assess --advanced --mode dynamic --team-experience Senior
+funcqc assess --type advanced --mode dynamic --team-experience Senior
 ```
 
 ### CI/CD Integration
@@ -274,8 +276,8 @@ funcqc assess --type health --json
     "complexity": 75,
     "structure": 60
   },
-  "riskFactors": [...],
-  "recommendations": [...]
+  "riskFactors": [],
+  "recommendations": []
 }
 ```
 
