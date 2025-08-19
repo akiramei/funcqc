@@ -941,6 +941,15 @@ async function performCouplingAnalysisForFile(
         // No lookup needed - OnePassASTVisitor generates same IDs as DB storage
         const correctFunctionId = funcHashId;
         
+        // Validate function ID exists in DB to avoid FK constraint violations
+        const functionExists = fileFunctions.some(f => f.id === correctFunctionId);
+        if (!functionExists) {
+          if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+            console.log(`  ⚠️  Skipping ${correctFunctionId}: not found in DB functions`);
+          }
+          continue; // Skip to avoid FK violation
+        }
+        
         if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
           console.log(`  ✅ Using direct function ID: ${correctFunctionId}`);
         }
