@@ -442,16 +442,26 @@ export class OnePassASTVisitor {
     // Extract function information for deterministic ID generation
     const filePath = func.getSourceFile().getFilePath();
     
-    // Extract class name from parent context (needed for generateDeterministicUUIDFromNode)
-    let className: string | null = null;
-    let parent = func.getParent();
-    while (parent) {
-      if (Node.isClassDeclaration(parent) && parent.getName()) {
-        className = parent.getName() || null;
-        break;
+    // Extract class name from parent context using same method as unified-ast-analyzer
+    // This ensures consistent ID generation between coupling analysis and DB storage
+    const contextPath: string[] = [];
+    let current: Node | undefined = func.getParent();
+    while (current) {
+      if (Node.isClassDeclaration(current)) {
+        const className = current.getName();
+        if (className) contextPath.unshift(className);
+      } else if (Node.isModuleDeclaration(current)) {
+        const moduleName = current.getName();
+        if (moduleName) contextPath.unshift(moduleName);
+      } else if (Node.isFunctionDeclaration(current)) {
+        const funcName = current.getName();
+        if (funcName) contextPath.unshift(funcName);
       }
-      parent = parent.getParent();
+      current = current.getParent();
     }
+    
+    // Use last element of contextPath as className (same as unified-ast-analyzer)
+    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
     
     // Use FunctionIdGenerator.generateDeterministicUUIDFromNode for consistent ID generation
     // This ensures proper normalization of getter/setter/constructor names
