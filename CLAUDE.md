@@ -40,8 +40,11 @@ src/schemas/database.sql
 
 **必須実行コマンド（例外なし）**：
 ```bash
-# すべての品質改善作業の起点
-npm run dev -- health --verbose
+# すべての品質改善作業の起点（新しい高度分析機能付き）
+npm run dev -- assess --advanced
+
+# 従来方式（基本的な品質レポート）
+npm run dev -- assess --type health --verbose
 ```
 
 #### 📊 Health Report分析で重視すべき指標
@@ -120,10 +123,10 @@ npm run dev -- health --verbose
 ### 品質管理の基本フロー
 
 **必須手順（例外なし）**:
-1. **改善前**: `npm run dev -- health --verbose` で現状把握
+1. **改善前**: `npm run dev -- assess --advanced` で現状把握
 2. **目標設定**: 上記基準に基づく具体的数値目標
 3. **改善実施**: 構造的問題に集中した改善
-4. **改善後**: 再度health分析で目標達成を確認
+4. **改善後**: 再度assess分析で目標達成を確認
 5. **PR作成前**: ファイル行数チェック（下記参照）
 6. **コミット**: 目標達成時のみコミット実行
 
@@ -134,7 +137,7 @@ npm run dev -- health --verbose
 **必須チェックコマンド**:
 ```bash
 # トップ10最大ファイル確認
-npm run dev -- files --sort lines --desc --limit 10
+npm run dev -- inspect --type files --sort lines --desc --limit 10
 ```
 
 **分割必要性の判定基準**:
@@ -151,7 +154,7 @@ npm run dev -- files --sort lines --desc --limit 10
 **分割完了の確認**:
 ```bash
 # 分割後に再確認（編集ファイルがトップ10圏外であることを確認）
-npm run dev -- files --sort lines --desc --limit 10
+npm run dev -- inspect --type files --sort lines --desc --limit 10
 ```
 
 **🎯 分割目標**:
@@ -293,67 +296,94 @@ fi
 
 ## funcqc使い方ガイド（開発時の品質管理ツール）
 
-### 🔍 基本的なワークフロー
+### 🔍 基本的なワークフロー（新コマンド体系）
 
 ```bash
 # 1. 作業開始時にスナップショットを作成（ブランチ名でラベル付け）
-npm run dev -- scan --label feature/my-branch
+npm run dev -- measure --label feature/my-branch
 
 # 2. 関数の品質状況を確認
-npm run dev -- health                    # 全体的な品質レポート
-npm run dev -- list --cc-ge 10          # 複雑度10以上の関数一覧
+npm run dev -- assess --advanced                   # 全体的な品質レポート（高度分析）
+npm run dev -- inspect --cc-ge 10                 # 複雑度10以上の関数一覧
 
 # 3. 作業後に再度スキャンして比較
-npm run dev -- scan --label feature/my-branch-after
-npm run dev -- diff HEAD~1 HEAD         # 変更内容の確認
+npm run dev -- measure --label feature/my-branch-after
+npm run dev -- manage --action=diff --from HEAD~1 --to HEAD  # 変更内容の確認
 ```
 
 ### 📊 主要コマンド一覧
 
-#### scan - 関数スキャン
+#### measure - 関数測定と分析（scanの進化版）
 ```bash
-# 基本スキャン
-npm run dev -- scan
+# 基本測定（scanの後継）
+npm run dev -- measure
 
-# ラベル付きスキャン（推奨）
-npm run dev -- scan --label <label-name>
+# ラベル付き測定（推奨）
+npm run dev -- measure --label <label-name>
+
+# 高度な分析付き測定
+npm run dev -- measure --level complete --call-graph --types --coupling
+
+# 広範囲分析（旧scanの完全代替）
+npm run dev -- measure --full --with-graph --with-types --with-coupling
 ```
 
-#### list - 関数一覧表示
+#### inspect - 統合検査コマンド（list、files、show、searchの統合）
 ```bash
-# 全関数表示
-npm run dev -- list
+# 全関数表示（旧listの代替）
+npm run dev -- inspect
 
 # 複雑度でフィルタ
-npm run dev -- list --cc-ge 10          # 複雑度10以上
-npm run dev -- list --cc-ge 20 --limit 10 --sort cc --desc
+npm run dev -- inspect --cc-ge 10                    # 複雑度10以上
+npm run dev -- inspect --cc-ge 20 --limit 10 --sort cc --desc
 
 # ファイルでフィルタ
-npm run dev -- list --file src/storage/pglite-adapter.ts
+npm run dev -- inspect --file src/storage/pglite-adapter.ts
 
-# 関数名でフィルタ
-npm run dev -- list --name analyze
+# 関数名でフィルタ（旧searchの代替）
+npm run dev -- inspect --name analyze
+
+# 詳細情報表示（旧showの代替）
+npm run dev -- inspect --detailed --name <function-name>
+
+# ファイル一覧（旧filesの代替）
+npm run dev -- inspect --type files --sort lines --desc --limit 10
 ```
 
-#### health - 品質レポート
+#### assess - 統合品質評価コマンド（高度なAI分析機能付き）
 ```bash
-# 基本レポート
-npm run dev -- health
+# 基本品質レポート（旧healthの代替）
+npm run dev -- assess --type health
 
-# 詳細レポート（推奨アクション付き）
-npm run dev -- health --verbose
+# 詳細レポート（従来のhealth --verboseの代替）
+npm run dev -- assess --type health --verbose
+
+# 高度分析（推奨）
+npm run dev -- assess --advanced
+
+# 動的重み付け評価
+npm run dev -- assess --advanced --mode dynamic
+
+# コード品質評価（旧evaluateの代替）
+npm run dev -- assess --type quality
+
+# 型システム品質評価
+npm run dev -- assess --type types
 ```
 
-#### history - スキャン履歴
+#### 履歴管理
 ```bash
-# スナップショット履歴を表示
-npm run dev -- history
+# スナップショット履歴を表示（旧historyの代替）
+npm run dev -- manage --action=history
+
+# 測定履歴を表示
+npm run dev -- measure --history
 ```
 
 #### diff - 変更差分
 ```bash
 # スナップショット間の差分
-npm run dev -- diff <from> <to>
+npm run dev -- manage --action=diff --from <from> --to <to>
 
 # 指定可能な値：
 # - スナップショットID: fd526278
@@ -361,39 +391,122 @@ npm run dev -- diff <from> <to>
 # - HEAD記法: HEAD, HEAD~1, HEAD~3
 
 # 類似関数の洞察付き
-npm run dev -- diff <from> <to> --insights
+npm run dev -- manage --action=diff --from <from> --to <to> --insights
 
 # カスタム類似度閾値（デフォルト: 0.95）
-npm run dev -- diff <from> <to> --similarity-threshold 0.8
+npm run dev -- manage --action=diff --from <from> --to <to> --similarity-threshold 0.8
 ```
 
-#### files - ファイル分析
+#### ファイル分析（inspectに統合）
 ```bash
-# 行数の多いファイルTOP10
-npm run dev -- files --sort lines --desc --limit 10
+# 行数の多いファイルTOP10（旧filesの代替）
+npm run dev -- inspect --type files --sort lines --desc --limit 10
 
 # 関数数の多いファイル
-npm run dev -- files --sort funcs --desc --limit 10
+npm run dev -- inspect --type files --sort funcs --desc --limit 10
+
+# ファイル統計情報表示
+npm run dev -- inspect --type files --stats
 ```
 
-#### similar - 類似関数検出
+#### improve - コード改善（similar、safe-delete、refactor-guardの統合）
 ```bash
-# 重複・類似コードの検出
-npm run dev -- similar
+# 重複・類似コードの検出（旧similarの代替）
+npm run dev -- improve --type duplicates
+
+# カスタム類似度闾値
+npm run dev -- improve --type duplicates --threshold 0.8
+
+# デッドコード検出（旧safe-deleteの代替）
+npm run dev -- improve --type dead-code
+
+# リファクタリング安全性分析（旧refactor-guardの代替）
+npm run dev -- improve --type safety
+
+# 包括的改善分析
+npm run dev -- improve
 ```
 
-#### db - データベース参照
+#### manage - データ管理（db、diff、export、import、historyの統合）
 ```bash
 # テーブル一覧
-npm run dev -- db --list
+npm run dev -- manage --action=db --list
 
 # テーブル内容確認
-npm run dev -- db --table snapshots --limit 5
-npm run dev -- db --table functions --where "cyclomatic_complexity > 10" --limit 10
+npm run dev -- manage --action=db --table snapshots --limit 5
+npm run dev -- manage --action=db --table functions --where "cyclomatic_complexity > 10" --limit 10
 
 # JSON出力（他ツールとの連携用）
-npm run dev -- db --table functions --json | jq '.rows[0]'
+npm run dev -- manage --action=db --table functions --json | jq '.rows[0]'
+
+# データエクスポート
+npm run dev -- manage --action=export --format json
+
+# バックアップ一覧
+npm run dev -- manage --action=list-backups
 ```
+
+#### dependencies - 依存関係分析（depの進化版）
+```bash
+# 依存関係概要（depコマンドの後継）
+npm run dev -- dependencies
+
+# アーキテクチャルール検証
+npm run dev -- dependencies --action=lint
+
+# ハブ関数分析
+npm run dev -- dependencies --action=stats --show-hubs
+
+# デッドコード検出
+npm run dev -- dependencies --action=dead
+
+# 循環依存検出
+npm run dev -- dependencies --action=cycles
+```
+
+#### types - TypeScript型システム分析（高度な型設計インテリジェンス）
+```bash
+# 型システム健全性分析
+npm run dev -- types --action=health
+
+# 複雑なインターフェース一覧
+npm run dev -- types --action=list --kind=interface --prop-ge=5
+
+# 型依存関係分析
+npm run dev -- types --action=deps --type-name="UserProfile"
+
+# API設計最適化分析
+npm run dev -- types --action=api --optimize
+
+# プロパティクラスタリングパターン
+npm run dev -- types --action=cluster
+
+# 再利用可能パターン抽出
+npm run dev -- types --action=slices --benefit=high
+
+# 重複型の特定
+npm run dev -- types --action=subsume --show-redundant
+```
+
+### 🌆 新しい高度機能のハイライト
+
+**assess --advancedの高度機能**:
+- **動的重み付け**: プロジェクト特性に応じた適応型閾値
+- **構造分析**: 設計パターン違反やアーキテクチャ異常の検出
+- **リスク評価**: Zスコア分析による統計的リスク評価
+- **品質ゲート**: リアルタイム品質フィードバック
+
+**typesコマンドの高度機能**:
+- **コー進化分析**: 型の変更履歴や相関関係の分析
+- **フィンガープリント分析**: 行動ベースの型類似性検出
+- **コンバーターネットワーク**: 型変換チェーンの可視化
+- **プロパティクラスタリング**: 再利用可能パターンの発見
+
+**dependenciesコマンドの高度機能**:
+- **アーキテクチャルールエンジン**: 設計ルールの自動検証
+- **統合戦略推薦**: コード共通化の最適配置推薦
+- **PageRank中心性分析**: ボトルネック関数の特定
+- **クリティカルパス分析**: 重要な依存経路の特定
 
 ### 🎯 品質指標の理解
 
@@ -409,8 +522,8 @@ npm run dev -- db --table functions --json | jq '.rows[0]'
 ##### 🚨 絶対禁止：機械的CC削減
 ```bash
 # ❌ これらは禁止 - CC値による機械的な対象選定
-npm run dev -- list --cc-ge 20
-npm run dev -- list --sort cc --desc
+npm run dev -- inspect --cc-ge 20
+npm run dev -- inspect --sort cc --desc
 ```
 
 ##### 📋 CC値の適切な判断基準
@@ -439,14 +552,15 @@ npm run dev -- list --sort cc --desc
 
 **🎯 唯一の正しいアプローチ（例外なし）**:
 ```bash
-# 1. 必須：Health Score分析
-npm run dev -- health --verbose
+# 1. 必須：Health Score高度分析
+npm run dev -- assess --advanced
 
 # 2. 構造的問題のみに注目（推奨アクションは無視）
 # - Structural Penalty Breakdown
 # - Most Central Functions  
 # - Max Fan-in異常値
 # - Hub Functions
+# - Dynamic Weight Analysis（動的重み付け分析）
 ```
 
 **🎯 改善対象の優先順位**:
@@ -463,26 +577,29 @@ npm run dev -- health --verbose
 **⚠️ 特定ファイルのCC確認（新規関数チェック用のみ）**:
 ```bash
 # ✅ 許可：新規作成したファイル/関数の品質確認
-npm run dev -- list --file src/new-feature.ts
-npm run dev -- list --name newFunction
+npm run dev -- inspect --file src/new-feature.ts
+npm run dev -- inspect --name newFunction
 
 # ❌ 禁止：リファクタリング対象の選定
-npm run dev -- list --cc-ge 10  # これは禁止
+npm run dev -- inspect --cc-ge 10  # これは禁止
 ```
 
 #### 2. 変更の影響確認
 ```bash
 # 変更前後の差分と類似関数
-npm run dev -- diff HEAD~1 HEAD --insights
+npm run dev -- manage --action=diff --from HEAD~1 --to HEAD --insights
 
 # 新規追加された関数の品質確認（コミット前チェック）
-npm run dev -- diff <ブランチ開始時のラベル> HEAD
+npm run dev -- manage --action=diff --from <ブランチ開始時のラベル> --to HEAD
 ```
 
 #### 3. 重複コードの発見
 ```bash
-# 類似関数のグループを表示
-npm run dev -- similar
+# 類似関数のグループを表示（旧similarの代替）
+npm run dev -- improve --type duplicates
+
+# カスタム類似度闾値で検出
+npm run dev -- improve --type duplicates --threshold 0.8
 ```
 
 ### 🎯 diffコマンドによる品質チェック手法
@@ -493,16 +610,16 @@ npm run dev -- similar
 ```bash
 # 1. ブランチ開始時にベースラインスナップショット作成
 git checkout -b feature/my-feature
-npm run dev -- scan --label feature/my-feature
+npm run dev -- measure --label feature/my-feature
 
 # 2. 開発作業を実施
 # [コーディング作業]
 
 # 3. 作業完了後にスナップショット作成
-npm run dev -- scan --label feature/my-feature-final
+npm run dev -- measure --label feature/my-feature-final
 
 # 4. 品質変化の確認（重要）
-npm run dev -- diff feature/my-feature HEAD
+npm run dev -- manage --action=diff --from feature/my-feature --to HEAD
 ```
 
 #### 品質チェックのポイント
@@ -521,14 +638,14 @@ npm run dev -- diff feature/my-feature HEAD
 
 #### 品質問題発見時の対応
 ```bash
-# Health Scoreで構造的問題を特定
-npm run dev -- health --verbose
+# Health Scoreで構造的問題を特定（高度分析）
+npm run dev -- assess --advanced
 
-# 構造的問題の詳細確認
-npm run dev -- dep lint
+# 構造的問題の詳細確認（新dependenciesコマンド）
+npm run dev -- dependencies --action=lint
 
 # リファクタリング実施後に再確認
-npm run dev -- diff <before-label> HEAD
+npm run dev -- manage --action=diff --from <before-label> --to HEAD
 ```
 
 #### メリット
@@ -562,24 +679,24 @@ npm run dev -- diff <before-label> HEAD
 ```bash
 # 1. ブランチ作成とベースライン作成
 git checkout -b refactor/consolidate-similar-functions
-npm run dev -- scan --label refactor-baseline
+npm run dev -- measure --label refactor-baseline
 
 # 2. アーキテクチャ情報の確認
-npm run dev -- dep lint --show-consolidation    # 統合戦略を確認
-npm run dev -- dep lint --show-layers          # レイヤー情報を確認
+npm run dev -- dependencies --action=lint --show-consolidation    # 統合戦略を確認
+npm run dev -- dependencies --action=lint --show-layers          # レイヤー情報を確認
 ```
 
 #### ステップ2: 類似関数の発見と分析
 
 ```bash
-# 3. 類似関数の検出
-npm run dev -- similar
+# 3. 類似関数の検出（新improveコマンド）
+npm run dev -- improve --type duplicates
 
 # 4. 高複雑度関数の確認（共通化対象の優先順位付け）
-npm run dev -- list --cc-ge 10 --limit 20
+npm run dev -- inspect --cc-ge 10 --limit 20
 
-# 5. 品質状況の把握
-npm run dev -- health --verbose
+# 5. 品質状況の把握（高度分析）
+npm run dev -- assess --advanced
 ```
 
 #### ステップ3: アーキテクチャ理解による適切な配置決定
@@ -588,7 +705,7 @@ npm run dev -- health --verbose
 
 ```bash
 # レイヤー情報の詳細確認
-npm run dev -- dep lint --show-layers
+npm run dev -- dependencies --action=lint --show-layers
 ```
 
 **🔧 統合戦略の適用**
@@ -626,11 +743,11 @@ npm run dev -- dep lint --show-layers
 
 ```bash
 # 7. 各リファクタリング後の品質チェック
-npm run dev -- scan --label refactor-step1
-npm run dev -- diff refactor-baseline refactor-step1
+npm run dev -- measure --label refactor-step1
+npm run dev -- manage --action=diff --from refactor-baseline --to refactor-step1
 
 # 8. アーキテクチャ違反のチェック
-npm run dev -- dep lint
+npm run dev -- dependencies --action=lint
 
 # 9. 型チェックとテスト
 npm run typecheck
@@ -642,16 +759,16 @@ npm test
 
 ```bash
 # 10. 最終スナップショット作成
-npm run dev -- scan --label refactor-complete
+npm run dev -- measure --label refactor-complete
 
 # 11. 完全な差分確認
-npm run dev -- diff refactor-baseline refactor-complete --insights
+npm run dev -- manage --action=diff --from refactor-baseline --to refactor-complete --insights
 
-# 12. 品質改善の確認
-npm run dev -- health --verbose
+# 12. 品質改善の確認（高度分析）
+npm run dev -- assess --advanced
 
 # 13. 最終的なアーキテクチャ検証
-npm run dev -- dep lint
+npm run dev -- dependencies --action=lint
 ```
 
 ### 🎯 判断基準とベストプラクティス
@@ -682,7 +799,7 @@ npm run dev -- dep lint
 2. **循環依存の作成**
    ```bash
    # 依存関係チェック
-   npm run dev -- dep lint --max-violations 0
+   npm run dev -- dependencies --action=lint --max-violations 0
    ```
 
 3. **ドメイン知識の混入**
@@ -696,21 +813,21 @@ npm run dev -- dep lint
 ```bash
 # 実際のリファクタリング例
 git checkout -b refactor/consolidate-validators
-npm run dev -- scan --label validator-refactor-start
+npm run dev -- measure --label validator-refactor-start
 
 # 類似するバリデーション関数を発見
-npm run dev -- similar | grep -i "validat"
+npm run dev -- improve --type duplicates | grep -i "validat"
 
 # アーキテクチャ情報を確認してutils層への配置を決定
-npm run dev -- dep lint --show-consolidation
+npm run dev -- dependencies --action=lint --show-consolidation
 
 # 共通化実行（例: email, url, path バリデーション関数をutils/validation.tsに統合）
 # [リファクタリング作業]
 
 # 品質確認
-npm run dev -- scan --label validator-refactor-complete
-npm run dev -- diff validator-refactor-start validator-refactor-complete
-npm run dev -- health --verbose
+npm run dev -- measure --label validator-refactor-complete
+npm run dev -- manage --action=diff --from validator-refactor-start --to validator-refactor-complete
+npm run dev -- assess --advanced
 
 # 最終チェック
 npm run typecheck && npm run lint && npm test
