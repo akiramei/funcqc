@@ -97,7 +97,7 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
           level: 'quick',
           description: 'Quick measurement (existing snapshot reuse)',
           estimatedTime: '1-2s',
-          includesScan: false, // Performance: Reuse existing snapshot
+          includesScan: true, // Allow scan when snapshot is old or missing
           includesCallGraph: false,
           includesTypes: false,
           includesCoupling: false,
@@ -110,7 +110,7 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
           level: 'basic',
           description: 'Basic measurement (light analysis)',
           estimatedTime: '2-5s',
-          includesScan: false, // Performance: Reuse existing snapshot
+          includesScan: true, // Allow scan when snapshot is old or missing
           includesCallGraph: false,
           includesTypes: false,
           includesCoupling: false,
@@ -225,7 +225,7 @@ async function executeMeasurementWorkflow(
   const needsNewScan = await determineScanNecessity(existingSnapshot, plan);
 
   // Phase 1: Scan (only if needed or forced)
-  if (plan.includesScan && (needsNewScan || options.force)) {
+  if (options.force || (plan.includesScan && needsNewScan)) {
     if (!options.quiet) {
       env.commandLogger.info('📦 Phase 1: Function scanning...');
       if (!needsNewScan) {
