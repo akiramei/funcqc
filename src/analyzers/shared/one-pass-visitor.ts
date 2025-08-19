@@ -209,8 +209,27 @@ export class OnePassASTVisitor {
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
     
     // Check if this is a parameter access
-    const paramName = expression.getText();
-    if (!paramMap.has(paramName)) return;
+    // Fixed: Properly extract parameter name from expression
+    let paramName: string | null = null;
+    if (Node.isIdentifier(expression)) {
+      paramName = expression.getText();
+    } else if (Node.isThisExpression(expression)) {
+      paramName = 'this';
+    }
+    
+    // `this` は関数パラメータに含まれないため、型を動的に注入する
+    if (paramName === 'this' && !paramMap.has('this')) {
+      try {
+        const thisType = ctx.checker.getTypeAtLocation(expression);
+        paramMap.set('this', thisType);
+      } catch {
+        return; // 型解決に失敗した場合はスキップ
+      }
+    }
+    
+    if (!paramName || !paramMap.has(paramName)) {
+      return;
+    }
     
     // Classify access type
     const accessType = this.classifyPropertyAccess(node);
@@ -265,9 +284,28 @@ export class OnePassASTVisitor {
     if (!expression || !propertyName || propertyName === 'unknown') return;
     
     const paramMap = this.getOrCreateParamTypeMap(func, ctx);
-    const paramName = expression.getText();
     
-    if (!paramMap.has(paramName)) return;
+    // Fixed: Properly extract parameter name from expression
+    let paramName: string | null = null;
+    if (Node.isIdentifier(expression)) {
+      paramName = expression.getText();
+    } else if (Node.isThisExpression(expression)) {
+      paramName = 'this';
+    }
+    
+    // `this` はパラメータマップに存在しないため型情報を取得して登録
+    if (paramName === 'this' && !paramMap.has('this')) {
+      try {
+        const thisType = ctx.checker.getTypeAtLocation(expression);
+        paramMap.set('this', thisType);
+      } catch {
+        return;
+      }
+    }
+    
+    if (!paramName || !paramMap.has(paramName)) {
+      return;
+    }
     
     // Store parameter usage for coupling analysis
     if (!ctx.couplingData.parameterUsage.has(funcId)) {
