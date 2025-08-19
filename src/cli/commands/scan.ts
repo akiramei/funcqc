@@ -816,6 +816,7 @@ export async function performDeferredCouplingAnalysis(
     for (const sourceFile of sourceFiles) {
       project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
     }
+    console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
     
     const typeChecker = project.getTypeChecker();
     
@@ -877,7 +878,8 @@ async function performCouplingAnalysisForFile(
     // Get the source file from the shared project (already loaded during initialization)
     const tsSourceFile = project.getSourceFile(sourceFile.filePath);
     if (!tsSourceFile) {
-      console.warn(`Warning: Source file not found in project: ${sourceFile.filePath}`);
+      console.warn(`⚠️  Warning: Source file not found in project: ${sourceFile.filePath}`);
+      console.warn(`📋 Available files in project: ${project.getSourceFiles().map(f => f.getFilePath()).slice(0, 3).join(', ')}...`);
       return [];
     }
 
@@ -885,10 +887,12 @@ async function performCouplingAnalysisForFile(
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
 
+    // Always show project file count for debugging
+    console.log(`📁 Project contains ${project.getSourceFiles().length} files for ${sourceFile.filePath}`);
+    
     // Debug output for coupling analysis troubleshooting
     if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
       console.log(`[DEBUG] Scanning ${sourceFile.filePath}`);
-      console.log(`[DEBUG] Project has ${project.getSourceFiles().length} files loaded`);
       console.log(`[DEBUG] overCoupling.size=${context.couplingData.overCoupling.size}`);
       console.log(`[DEBUG] parameterUsage.size=${context.couplingData.parameterUsage.size}`);
       console.log(`[DEBUG] propertyAccesses.size=${context.usageData.propertyAccesses.size}`);

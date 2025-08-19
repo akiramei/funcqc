@@ -369,6 +369,8 @@ export class OnePassASTVisitor {
    * Analyze coupling patterns and compute severity scores
    */
   private analyzeCoupling(ctx: ScanContext): void {
+    console.log(`🔍 analyzeCoupling: processing ${ctx.couplingData.parameterUsage.size} functions`);
+    
     for (const [funcId, paramUsage] of ctx.couplingData.parameterUsage) {
       const analyses: SimpleCouplingAnalysis[] = [];
       
