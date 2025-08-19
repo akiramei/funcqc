@@ -440,7 +440,17 @@ export class OnePassASTVisitor {
     }
     
     // Extract function information for deterministic ID generation
-    const filePath = func.getSourceFile().getFilePath();
+    const rawFilePath = func.getSourceFile().getFilePath();
+    
+    // CRITICAL FIX: Use same file path normalization as DB storage
+    // This ensures OnePassASTVisitor generates same IDs as unified-ast-analyzer
+    const filePath = rawFilePath.startsWith('/') ? rawFilePath.slice(1) : rawFilePath;
+    
+    // DEBUG: Log filePath used by OnePassASTVisitor
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`    🗂️  OnePassASTVisitor rawFilePath: ${rawFilePath}`);
+      console.log(`    🗂️  OnePassASTVisitor normalized filePath: ${filePath}`);
+    }
     
     // Extract class name from parent context using same method as unified-ast-analyzer
     // This ensures consistent ID generation between coupling analysis and DB storage
@@ -465,12 +475,42 @@ export class OnePassASTVisitor {
     
     // Use FunctionIdGenerator.generateDeterministicUUIDFromNode for consistent ID generation
     // This ensures proper normalization of getter/setter/constructor names
+    
+    // DEBUG: Log all ID generation parameters
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      const startLine = func.getStartLineNumber();
+      const startColumn = func.getStart() - func.getStartLinePos();
+      let functionName = '<anonymous>';
+      if (Node.isGetAccessorDeclaration(func)) {
+        functionName = `get_${func.getName()}`;
+      } else if (Node.isSetAccessorDeclaration(func)) {
+        functionName = `set_${func.getName()}`;
+      } else if (Node.isConstructorDeclaration(func) || func.getKindName() === 'Constructor') {
+        functionName = 'constructor';
+      } else if ('getName' in func && typeof func.getName === 'function') {
+        functionName = func.getName() || '<anonymous>';
+      }
+      
+      console.log(`    🏗️  OnePassASTVisitor ID params:`);
+      console.log(`      filePath: ${filePath}`);
+      console.log(`      functionName: ${functionName}`);
+      console.log(`      className: ${className}`);
+      console.log(`      startLine: ${startLine}`);
+      console.log(`      startColumn: ${startColumn}`);
+      console.log(`      snapshotId: ${_ctx.snapshotId || 'unknown'}`);
+    }
+    
     const funcId = FunctionIdGenerator.generateDeterministicUUIDFromNode(
       func,
       filePath,
       _ctx.snapshotId || 'unknown',
       className
     );
+    
+    // DEBUG: Log generated ID
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`    🆔 OnePassASTVisitor generated ID: ${funcId}`);
+    }
     
     this.funcIdCache.set(func, funcId);
     return funcId;
