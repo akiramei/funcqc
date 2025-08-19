@@ -240,11 +240,39 @@ export async function generateStructuralRecommendations(
   const callAnalysisMap = await analyzeCallPatternsWithDepMetrics(functions, depMetrics, snapshotId, env);
   const recommendations: StructuralRecommendation[] = [];
   
-  // Get top risk functions with structural context
-  const topRiskAssessments = riskAssessments
-    .filter(assessment => assessment.riskLevel === 'high' || assessment.riskLevel === 'critical')
-    .sort((a, b) => b.riskScore - a.riskScore)
-    .slice(0, topN);
+  // Get hub functions (high fan-in) prioritized for structural impact
+  // Create fan-in lookup from dependency metrics
+  const fanInMap = new Map<string, number>();
+  for (const depMetric of depMetrics) {
+    fanInMap.set(depMetric.functionId, depMetric.fanIn);
+  }
+  
+  // Priority 1: High fan-in functions (Hub functions) - structural impact is most important
+  const hubAssessments = riskAssessments
+    .filter(assessment => {
+      const fanIn = fanInMap.get(assessment.functionId) || 0;
+      return fanIn >= 10; // Hub threshold
+    })
+    .sort((a, b) => {
+      const fanInA = fanInMap.get(a.functionId) || 0;
+      const fanInB = fanInMap.get(b.functionId) || 0;
+      // Sort by fan-in first (structural impact), then by risk score
+      return fanInB - fanInA || b.riskScore - a.riskScore;
+    });
+  
+  // Priority 2: High risk functions (if we don't have enough hub functions)
+  const highRiskAssessments = riskAssessments
+    .filter(assessment => {
+      const fanIn = fanInMap.get(assessment.functionId) || 0;
+      return fanIn < 10 && (assessment.riskLevel === 'high' || assessment.riskLevel === 'critical');
+    })
+    .sort((a, b) => b.riskScore - a.riskScore);
+  
+  // Combine with hub functions taking priority
+  const topRiskAssessments = [
+    ...hubAssessments.slice(0, topN),
+    ...highRiskAssessments.slice(0, Math.max(0, topN - hubAssessments.length))
+  ].slice(0, topN);
   
   for (const assessment of topRiskAssessments) {
     const func = functions.find(f => f.id === assessment.functionId);
