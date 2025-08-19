@@ -374,8 +374,17 @@ export class OnePassASTVisitor {
       
       for (const [paramName, usedProps] of paramUsage) {
         // Get total properties for this parameter type
-        const totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
-        if (totalProps === 0) continue;
+        let totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
+        
+        // Fallback: If TypeChecker cannot resolve type properties, 
+        // still proceed with coupling analysis based on observed usage
+        if (totalProps === 0) {
+          totalProps = Math.max(usedProps.size, 1);
+          
+          if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+            console.log(`[DEBUG] totalProps=0 for ${funcId}.${paramName}, using fallback: ${totalProps}`);
+          }
+        }
         
         const usageRatio = usedProps.size / totalProps;
         let severity: 'LOW' | 'MEDIUM' | 'HIGH';

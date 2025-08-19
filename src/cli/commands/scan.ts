@@ -809,6 +809,14 @@ export async function performDeferredCouplingAnalysis(
         skipLibCheck: true,
       }
     });
+    
+    // Load all source files into the project for complete type resolution
+    // This ensures that imported types and interfaces are available for coupling analysis
+    console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
+    for (const sourceFile of sourceFiles) {
+      project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+    }
+    
     const typeChecker = project.getTypeChecker();
     
     // Process batches sequentially to avoid memory pressure from multiple Project instances
@@ -866,12 +874,25 @@ async function performCouplingAnalysisForFile(
   snapshotId: string
 ): Promise<ParameterPropertyUsage[]> {
   try {
-    // Reuse shared project and add source file
-    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+    // Get the source file from the shared project (already loaded during initialization)
+    const tsSourceFile = project.getSourceFile(sourceFile.filePath);
+    if (!tsSourceFile) {
+      console.warn(`Warning: Source file not found in project: ${sourceFile.filePath}`);
+      return [];
+    }
 
     // Execute 1-pass AST visitor with the actual snapshot ID
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
+
+    // Debug output for coupling analysis troubleshooting
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`[DEBUG] Scanning ${sourceFile.filePath}`);
+      console.log(`[DEBUG] Project has ${project.getSourceFiles().length} files loaded`);
+      console.log(`[DEBUG] overCoupling.size=${context.couplingData.overCoupling.size}`);
+      console.log(`[DEBUG] parameterUsage.size=${context.couplingData.parameterUsage.size}`);
+      console.log(`[DEBUG] propertyAccesses.size=${context.usageData.propertyAccesses.size}`);
+    }
 
     // Create FunctionInfo lookup map using composite keys for better matching
     const functionLookupMap = new Map<string, string>();
