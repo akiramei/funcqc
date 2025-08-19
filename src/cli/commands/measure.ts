@@ -324,13 +324,23 @@ async function determineScanNecessity(
     return true;
   }
 
-  // Quick scan level - use existing snapshot unless very old
-  if (plan.level === 'quick') {
+  // Complete and deep levels always require fresh scan
+  if (plan.level === 'complete' || plan.level === 'deep') {
+    return true;
+  }
+
+  // Standard level requires fresh scan for accurate analysis
+  if (plan.level === 'standard') {
+    return true;
+  }
+
+  // Quick and basic levels - use existing snapshot unless very old
+  if (plan.level === 'quick' || plan.level === 'basic') {
     const snapshotAge = Date.now() - new Date(existingSnapshot.createdAt).getTime();
     return snapshotAge > 24 * 60 * 60 * 1000; // 1 day
   }
 
-  // For other levels, use existing snapshot for performance unless specifically forced
+  // Custom level - use existing snapshot for performance unless specifically forced
   return false;
 }
 
