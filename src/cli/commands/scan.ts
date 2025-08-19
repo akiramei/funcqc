@@ -28,6 +28,15 @@ import { SnapshotMetadata } from '../../types';
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
 
 /**
+ * Result type for batch processing operations
+ */
+interface BatchProcessingResult {
+  functionCount: number;
+  errors: string[];
+  functions: FunctionInfo[];
+}
+
+/**
  * Scan level configuration
  */
 interface ScanLevel {
@@ -608,7 +617,7 @@ async function executePureBasicBatchAnalysis(
   env: CommandEnvironment,
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionCount: number; errors: string[] }[]> {
-  const batchPromises = batches.map(async (batch, batchIndex) => {
+  const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
     
@@ -667,13 +676,13 @@ async function executePureBasicBatchAnalysis(
   const allFunctionCounts = new Map<string, number>();
   
   for (const result of batchResults) {
-    allFunctions.push(...(result as any).functions);
+    allFunctions.push(...result.functions);
     
     // Collect function counts by file
-    (result as any).functions.forEach((func: FunctionInfo) => {
+    for (const func of result.functions) {
       const count = allFunctionCounts.get(func.filePath) || 0;
       allFunctionCounts.set(func.filePath, count + 1);
-    });
+    }
   }
   
   // Store all functions in a single transaction to prevent duplicate key violations

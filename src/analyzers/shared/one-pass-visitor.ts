@@ -217,6 +217,16 @@ export class OnePassASTVisitor {
       paramName = 'this';
     }
     
+    // `this` は関数パラメータに含まれないため、型を動的に注入する
+    if (paramName === 'this' && !paramMap.has('this')) {
+      try {
+        const thisType = ctx.checker.getTypeAtLocation(expression);
+        paramMap.set('this', thisType);
+      } catch {
+        return; // 型解決に失敗した場合はスキップ
+      }
+    }
+    
     if (!paramName || !paramMap.has(paramName)) {
       return;
     }
@@ -281,6 +291,16 @@ export class OnePassASTVisitor {
       paramName = expression.getText();
     } else if (Node.isThisExpression(expression)) {
       paramName = 'this';
+    }
+    
+    // `this` はパラメータマップに存在しないため型情報を取得して登録
+    if (paramName === 'this' && !paramMap.has('this')) {
+      try {
+        const thisType = ctx.checker.getTypeAtLocation(expression);
+        paramMap.set('this', thisType);
+      } catch {
+        return;
+      }
     }
     
     if (!paramName || !paramMap.has(paramName)) {
