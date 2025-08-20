@@ -230,8 +230,12 @@ async function executeMeasurementWorkflow(
   const existingSnapshot = await checkExistingSnapshot(env, options);
   const needsNewScan = await determineScanNecessity(existingSnapshot, plan);
 
-  // Phase 1: Scan (only if needed or forced)
-  if (options.force || (plan.includesScan && needsNewScan)) {
+  if (!options.quiet) {
+    env.commandLogger.info(`🔍 Scan necessity check: needsNewScan=${needsNewScan}, existingLevel=${existingSnapshot?.analysisLevel || 'none'}`);
+  }
+
+  // Phase 1: Scan (only if needed or forced)  
+  if (options.force || needsNewScan) {
     if (!options.quiet) {
       env.commandLogger.info('📦 Phase 1: Function scanning...');
       if (!needsNewScan) {
@@ -244,6 +248,7 @@ async function executeMeasurementWorkflow(
   } else if (existingSnapshot && !options.quiet) {
     env.commandLogger.info('📦 Phase 1: Using existing snapshot (performance optimized)');
     env.commandLogger.info(`   📅 Snapshot: ${existingSnapshot.id.slice(0, 8)} (${new Date(existingSnapshot.createdAt).toLocaleString()})`);
+    env.commandLogger.info(`   📊 Analysis level: ${existingSnapshot.analysisLevel}`);
   }
 
   // Phase 2: Additional analyses (only if specifically requested)
@@ -309,13 +314,19 @@ async function executeScanPhase(
 async function checkExistingSnapshot(
   env: CommandEnvironment,
   _options: MeasureCommandOptions
-): Promise<{ id: string; createdAt: string } | null> {
+): Promise<{ id: string; createdAt: string; analysisLevel: string } | null> {
   try {
     const snapshots = await env.storage.getSnapshots({ limit: 1 });
-    return snapshots.length > 0 ? {
-      id: snapshots[0].id,
-      createdAt: new Date(snapshots[0].createdAt).toISOString()
-    } : null;
+    if (snapshots.length === 0) return null;
+    
+    const snapshot = snapshots[0];
+    const analysisLevel = (snapshot.metadata as any)?.analysisLevel || 'NONE';
+    
+    return {
+      id: snapshot.id,
+      createdAt: new Date(snapshot.createdAt).toISOString(),
+      analysisLevel
+    };
   } catch {
     return null;
   }
@@ -325,7 +336,7 @@ async function checkExistingSnapshot(
  * Determine if a new scan is necessary based on existing snapshot and plan
  */
 async function determineScanNecessity(
-  existingSnapshot: { id: string; createdAt: string } | null,
+  existingSnapshot: { id: string; createdAt: string; analysisLevel: string } | null,
   plan: MeasurementPlan
 ): Promise<boolean> {
   // No existing snapshot - scan needed
@@ -333,38 +344,48 @@ async function determineScanNecessity(
     return true;
   }
 
-  // Complete and deep levels always require fresh scan
-  if (plan.level === 'complete' || plan.level === 'deep') {
-    return true;
+  const currentLevel = existingSnapshot.analysisLevel;
+  
+  // Define analysis level hierarchy
+  const levelHierarchy: Record<string, number> = {
+    'NONE': 0,
+    'BASIC': 1,
+    'COUPLING': 2,
+    'CALL_GRAPH': 3,
+    'TYPE_SYSTEM': 4,
+    'COMPLETE': 5
+  };
+  
+  // Determine required level based on plan
+  let requiredLevel = 'BASIC';
+  if (plan.includesCallGraph && plan.includesTypes && plan.includesCoupling) {
+    requiredLevel = 'COMPLETE';
+  } else if (plan.includesTypes) {
+    requiredLevel = 'TYPE_SYSTEM';
+  } else if (plan.includesCallGraph) {
+    requiredLevel = 'CALL_GRAPH';
+  } else if (plan.includesCoupling) {
+    requiredLevel = 'COUPLING';
   }
-
-  // Standard level requires fresh scan for accurate analysis
-  if (plan.level === 'standard') {
-    return true;
-  }
-
-  // Quick and basic levels - use existing snapshot unless very old
-  if (plan.level === 'quick' || plan.level === 'basic') {
-    const snapshotAge = Date.now() - new Date(existingSnapshot.createdAt).getTime();
-    return snapshotAge > 24 * 60 * 60 * 1000; // 1 day
-  }
-
-  // Custom level - check if analysis requires fresh scan
-  if (plan.level === 'custom') {
-    // Coupling analysis requires fresh scan to collect parameter usage data
-    if (plan.includesCoupling) {
-      return true;
-    }
-    // CallGraph and Types analysis require fresh scan for accurate results
-    if (plan.includesCallGraph || plan.includesTypes) {
-      return true;
-    }
-    // Other custom analyses can use existing snapshot for performance
+  
+  const currentLevelNum = levelHierarchy[currentLevel] || 0;
+  const requiredLevelNum = levelHierarchy[requiredLevel] || 0;
+  
+  // If current level meets or exceeds required level, no new scan needed
+  if (currentLevelNum >= requiredLevelNum) {
     return false;
   }
   
-  // Default fallback
-  return false;
+  // Check snapshot age for time-based invalidation
+  const snapshotAge = Date.now() - new Date(existingSnapshot.createdAt).getTime();
+  const maxAge = 24 * 60 * 60 * 1000; // 1 day
+  
+  if (snapshotAge > maxAge) {
+    return true;
+  }
+  
+  // Need new scan if analysis level is insufficient
+  return true;
 }
 
 /**
