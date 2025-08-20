@@ -177,7 +177,7 @@ function handleCommandError(error: unknown, parentOpts: OptionValues): never {
 const COMMAND_GROUPS = {
   // Standalone: No DB access required
   STANDALONE: {
-    commands: ['init', 'config', 'scan', 'eval'],
+    commands: ['init', 'config', 'scan', 'eval', 'measure'],
     requires: []
   },
   
@@ -236,7 +236,7 @@ const COMMAND_GROUPS = {
   
   // Unified Dynamic: Commands with option-dependent initialization
   UNIFIED_DYNAMIC: {
-    commands: ['measure', 'assess', 'improve'],
+    commands: ['assess', 'improve'],
     requires: [] // Determined dynamically based on options
   },
   
@@ -262,10 +262,63 @@ const CALL_GRAPH_COMMANDS = COMMAND_GROUPS.CALL_GRAPH.commands;
 
 /**
  * Determines if the current command is lightweight
+ * Includes dynamic classification for commands with mixed responsibilities
  */
 function isLightweightCommand(): boolean {
   const command = process.argv[2];
+  
+  // Handle dynamic classification for measure command
+  if (command === 'measure') {
+    return isMeasureCommandLightweight();
+  }
+  
   return LIGHTWEIGHT_COMMANDS.includes(command);
+}
+
+/**
+ * Determine if measure command should be treated as lightweight
+ * based on its options (history display vs actual measurement)
+ */
+function isMeasureCommandLightweight(): boolean {
+  const args = process.argv.slice(3);
+
+  // Check if --history is present (lightweight mode)
+  if (args.includes('--history')) {
+    return true;
+  }
+
+  // Determine level (prioritize level semantics first)
+  const levelIndex = args.indexOf('--level');
+  const hasForce = args.includes('--force');
+  if (levelIndex >= 0 && levelIndex < args.length - 1) {
+    const levelValue = args[levelIndex + 1];
+    // quick + --force -> heavy (new scan is enforced)
+    if (levelValue === 'quick') {
+      return !hasForce;
+    }
+    // levels other than quick imply heavier work
+    return false;
+  }
+
+  // Check for scanning/analysis options (standalone mode)
+  const scanningOptions = [
+    '--full',
+    '--with-graph', '--with-types', '--with-coupling',
+    '--call-graph', '--types', '--coupling'
+  ];
+  const hasScanning = scanningOptions.some(opt => args.includes(opt)) || hasForce;
+
+  // Default to lightweight when no scanning/analysis indicators
+  return !hasScanning;
+}
+
+/**
+ * Check if measure command is in pure history display mode
+ * History display doesn't require analysis - just shows existing snapshots
+ */
+function isMeasureCommandHistoryOnly(): boolean {
+  const args = process.argv.slice(3);
+  return args.includes('--history');
 }
 
 /**
@@ -273,6 +326,12 @@ function isLightweightCommand(): boolean {
  */
 function requiresCallGraphAnalysis(mergedOptions?: Record<string, unknown>): boolean {
   const command = process.argv[2];
+  
+  // Handle dynamic classification for measure command
+  // measure in standalone mode (scanning) handles its own analysis
+  if (command === 'measure') {
+    return false; // measure handles its own call graph analysis internally
+  }
   
   // Check legacy commands
   if (CALL_GRAPH_COMMANDS.includes(command) || COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command)) {
@@ -305,6 +364,16 @@ export function getCallGraphCommands(): string[] {
 function requiresBasicAnalysis(mergedOptions?: Record<string, unknown>): boolean {
   const command = process.argv[2];
   
+  // Handle dynamic classification for measure command
+  if (command === 'measure') {
+    // History display doesn't require analysis - just shows existing snapshots
+    if (isMeasureCommandHistoryOnly()) {
+      return false;
+    }
+    // Other lightweight measure commands may need basic analysis
+    return isMeasureCommandLightweight();
+  }
+  
   // Check legacy lightweight commands
   if (COMMAND_GROUPS.LIGHTWEIGHT.commands.includes(command)) {
     return true;
@@ -328,6 +397,12 @@ function requiresBasicAnalysis(mergedOptions?: Record<string, unknown>): boolean
  */
 function requiresTypeSystemAnalysis(mergedOptions?: Record<string, unknown>): boolean {
   const command = process.argv[2];
+  
+  // Handle dynamic classification for measure command
+  // measure handles its own type system analysis internally
+  if (command === 'measure') {
+    return false; // measure handles its own type system analysis internally
+  }
   
   // Legacy commands
   if (command === 'types' || COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command)) {
@@ -353,6 +428,12 @@ function requiresTypeSystemAnalysis(mergedOptions?: Record<string, unknown>): bo
 function requiresCouplingAnalysis(mergedOptions?: Record<string, unknown>): boolean {
   const command = process.argv[2];
   
+  // Handle dynamic classification for measure command
+  // measure handles its own coupling analysis internally
+  if (command === 'measure') {
+    return false; // measure handles its own coupling analysis internally
+  }
+  
   // Legacy comprehensive commands
   if (COMMAND_GROUPS.COMPREHENSIVE.commands.includes(command)) {
     return true;
@@ -372,16 +453,6 @@ function requiresCouplingAnalysis(mergedOptions?: Record<string, unknown>): bool
 function determineUnifiedInitRequirements(command: string, options: Record<string, unknown>): string[] {
   // New unified commands use dynamic initialization
   switch (command) {
-    case 'measure':
-      if (options['history']) return []; // History display is lightweight
-      if (options['level'] === 'quick') return ['BASIC']; 
-      if (options['level'] === 'standard') return ['BASIC', 'CALL_GRAPH'];
-      if (options['level'] === 'deep' || options['level'] === 'complete') {
-        return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
-      }
-      // Default: basic measurement
-      return ['BASIC'];
-      
     case 'assess':
       if (options['quick']) return ['BASIC'];
       if (options['type'] === 'health') return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];

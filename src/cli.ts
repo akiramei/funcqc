@@ -125,6 +125,7 @@ program
   .description('🔄 Perform deferred analyses on existing snapshots')
   .option('--call-graph', 'analyze function dependencies')
   .option('--types', 'analyze TypeScript type system')
+  .option('--coupling', 'analyze parameter coupling patterns')
   .option('--all', 'run all analyses')
   .option('-j, --json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
@@ -222,9 +223,9 @@ program
   .option('--with-coupling', 'alias for --coupling')
   
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { measureCommand } = await import('./cli/commands/measure');
-    return withEnvironment(measureCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedMeasureCommand } = await import('./cli/commands/unified-measure');
+    return createUnifiedCommandHandler(UnifiedMeasureCommand)(options, command);
   });
 
 program
