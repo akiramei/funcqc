@@ -223,9 +223,9 @@ program
   .option('--with-coupling', 'alias for --coupling')
   
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { measureCommand } = await import('./cli/commands/measure');
-    return withEnvironment(measureCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedMeasureCommand } = await import('./cli/commands/unified-measure');
+    return createUnifiedCommandHandler(UnifiedMeasureCommand)(options, command);
   });
 
 program
