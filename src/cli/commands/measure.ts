@@ -388,7 +388,8 @@ async function executeLazyAnalyzePhase(
   const analyzeOptions = {
     callGraph: plan.includesCallGraph,
     types: plan.includesTypes,
-    coupling: plan.includesCoupling,
+    // scanフェーズで実行済みのためPhase 2では無効化
+    coupling: false,
     all: plan.includesCallGraph && plan.includesTypes,
     json: false, // Internal execution, no JSON output
     verbose: options.verbose || false,
