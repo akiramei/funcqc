@@ -279,35 +279,106 @@ export class DependencyManager {
   
   // === 個別初期化メソッド（既存実装を活用） ===
   
-  private async initializeBasicAnalysis(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
+  /**
+   * スナップショットを取得または作成
+   * CRITICAL: Command Protocolの設計では、cli-wrapperが初期化の責任を持つ
+   */
+  private async ensureSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<string> {
+    let snapshot = await env.storage.getLatestSnapshot();
+    
+    if (!snapshot) {
+      // スナップショットが存在しない場合は作成
+      if (!options.quiet) {
+        console.log('🔍 No snapshot found. Creating initial snapshot...');
+      }
+      
+      await this.createInitialSnapshot(env, options);
+      snapshot = await env.storage.getLatestSnapshot();
+      
+      if (!snapshot) {
+        throw new Error('Failed to create initial snapshot');
+      }
+    }
+    
+    return snapshot.id;
+  }
+  
+  /**
+   * 初期スナップショットを作成
+   * scan commandの初期化部分を利用
+   */
+  private async createInitialSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    const { scanCommand } = await import('../cli/commands/scan');
+    
+    // 基本的なスキャンオプションを作成
+    const scanOptions = {
+      json: false,
+      verbose: options.verbose || false,
+      quiet: options.quiet || false,
+      force: false,
+      // 初期スナップショット作成では基本的なスキャンのみ実行
+      quick: true  // 最小限のスキャンで済ませる
+    };
+    
+    // scanCommandを実行してスナップショットを作成
+    await scanCommand(scanOptions)(env);
+  }
+  
+  private async initializeBasicAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    const snapshotId = await this.ensureSnapshot(env, options);
+    
+    // 既存の関数をチェックして重複実行を防ぐ
+    const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    if (existingFunctions.length > 0) {
+      if (!options.quiet) {
+        console.log(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
+      }
+      // 分析レベルを確認・更新
+      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
+      return;
+    }
+    
     const { performDeferredBasicAnalysis } = await import('../cli/commands/scan');
-    const snapshot = await env.storage.getLatestSnapshot();
-    if (!snapshot) throw new Error('No snapshot found for basic analysis');
-    
-    await performDeferredBasicAnalysis(snapshot.id, env, true);
+    await performDeferredBasicAnalysis(snapshotId, env, true);
   }
   
-  private async initializeCallGraphAnalysis(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
+  /**
+   * 分析レベルが正しく設定されているかチェックし、必要に応じて更新
+   */
+  private async ensureAnalysisLevelUpdated(snapshotId: string, expectedLevel: string, env: CommandEnvironment): Promise<void> {
+    try {
+      const snapshot = await env.storage.getSnapshot(snapshotId);
+      if (!snapshot) return;
+      
+      const metadata = snapshot.metadata as Record<string, unknown>;
+      const currentLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      
+      if (currentLevel === 'NONE' || currentLevel < expectedLevel) {
+        await env.storage.updateAnalysisLevel(snapshotId, expectedLevel as AnalysisLevel);
+      }
+    } catch (error) {
+      console.warn(`Warning: Failed to update analysis level: ${error}`);
+    }
+  }
+  
+  private async initializeCallGraphAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    const snapshotId = await this.ensureSnapshot(env, options);
+    
     const { performCallGraphAnalysis } = await import('../cli/commands/scan');
-    const snapshot = await env.storage.getLatestSnapshot();
-    if (!snapshot) throw new Error('No snapshot found for call graph analysis');
-    
-    await performCallGraphAnalysis(snapshot.id, env, undefined);
+    await performCallGraphAnalysis(snapshotId, env, undefined);
   }
   
-  private async initializeTypeSystemAnalysis(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
+  private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    const snapshotId = await this.ensureSnapshot(env, options);
+    
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
-    const snapshot = await env.storage.getLatestSnapshot();
-    if (!snapshot) throw new Error('No snapshot found for type system analysis');
-    
-    await performDeferredTypeSystemAnalysis(snapshot.id, env, true);
+    await performDeferredTypeSystemAnalysis(snapshotId, env, true);
   }
   
-  private async initializeCouplingAnalysis(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
-    const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
-    const snapshot = await env.storage.getLatestSnapshot();
-    if (!snapshot) throw new Error('No snapshot found for coupling analysis');
+  private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    const snapshotId = await this.ensureSnapshot(env, options);
     
-    await performDeferredCouplingAnalysis(snapshot.id, env, undefined);
+    const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
+    await performDeferredCouplingAnalysis(snapshotId, env, undefined);
   }
 }

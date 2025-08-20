@@ -7,7 +7,7 @@
 
 import { Command, DependencyType } from '../../types/command-protocol';
 import { CommandEnvironment } from '../../types/environment';
-import { MeasureCommandOptions, SnapshotInfo, ScanCommandOptions } from '../../types';
+import { MeasureCommandOptions, SnapshotInfo } from '../../types';
 import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import chalk from 'chalk';
 import { formatRelativeDate, formatDiffValue, formatSizeDisplay } from './history';
@@ -132,41 +132,6 @@ export class UnifiedMeasureCommand implements Command {
   }
 
   /**
-   * 初回実行時のスキャンを実行
-   */
-  private async performInitialScan(env: CommandEnvironment, options: MeasureCommandOptions): Promise<void> {
-    if (!options.quiet) {
-      env.commandLogger.info('🔍 No snapshot found. Performing initial scan...');
-    }
-
-    // Convert measure options to scan options
-    const scanOptions: ScanCommandOptions = {
-      json: false, // Internal execution, no JSON output
-      verbose: options.verbose || false,
-      quiet: options.quiet || false,
-      force: options.force || false
-    };
-
-    // Only add defined optional properties
-    if (options.label !== undefined) scanOptions.label = options.label;
-    if (options.comment !== undefined) scanOptions.comment = options.comment;
-    if (options.scope !== undefined) scanOptions.scope = options.scope;
-    if (options.realtimeGate !== undefined) scanOptions.realtimeGate = options.realtimeGate;
-
-    try {
-      // Import and execute scan command functionality
-      const { scanCommand } = await import('./scan');
-      await scanCommand(scanOptions)(env);
-      
-      if (!options.quiet) {
-        env.commandLogger.info('✅ Initial scan completed');
-      }
-    } catch (error) {
-      throw new Error(`Initial scan failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  
-  /**
    * コマンドライン引数からオプションを解析
    */
   private parseOptions(subCommand: string[]): MeasureCommandOptions {
@@ -204,24 +169,22 @@ export class UnifiedMeasureCommand implements Command {
   
   /**
    * 測定処理を実行
+   * 
+   * 前提条件: cli-wrapper(UnifiedCommandExecutor)により依存関係が初期化済み
+   *          必要なスナップショットと分析データが存在する
    */
   private async executeMeasurement(env: CommandEnvironment, options: MeasureCommandOptions): Promise<void> {
     if (!options.quiet) {
       env.commandLogger.info('📊 Starting measurement...');
     }
     
-    // スナップショット存在確認
-    let snapshot = await env.storage.getLatestSnapshot();
+    // Command Protocolに従い、依存関係は既に満たされていることを前提とする
+    const snapshot = await env.storage.getLatestSnapshot();
     if (!snapshot) {
-      // 初回実行：自動でスキャン＆スナップショット作成
-      await this.performInitialScan(env, options);
-      snapshot = await env.storage.getLatestSnapshot();
-      if (!snapshot) {
-        throw new Error('初回スキャン後もスナップショットが見つかりません');
-      }
+      throw new Error('No snapshot found. Dependencies should have been initialized by cli-wrapper.');
     }
     
-    // 測定結果の表示
+    // 測定結果の表示（measureコマンドの責任）
     if (options.json) {
       await this.outputMeasurementResults(env, options);
     } else if (!options.quiet) {
