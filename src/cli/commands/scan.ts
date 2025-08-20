@@ -280,18 +280,23 @@ async function executeScanCommand(
     }
     
     // Step 5: Type system analysis (for full scan)
+    let typeSystemResult: { typesAnalyzed: number } | undefined;
     if (scanLevel.includes.includes('TYPE_SYSTEM')) {
       if (options.async) {
         // Schedule for background execution
         if (!options.json) {
           console.log(chalk.blue('🧩 Type system analysis scheduled for background execution'));
         }
-        // TODO: Implement type system analysis and background scheduling
+        // TODO: Implement background scheduling
       } else {
-        // TODO: Implement type system analysis
         if (!options.json) {
-          console.log(chalk.yellow('⚠️  Type system analysis not yet implemented'));
+          console.log(chalk.blue('🧩 Performing type system analysis...'));
         }
+        typeSystemResult = await performDeferredTypeSystemAnalysis(snapshotId, env, !options.json);
+        if (!options.json) {
+          console.log(chalk.green(`✓ Type system analysis completed (${typeSystemResult.typesAnalyzed} types analyzed)`));
+        }
+        analysisLevel = 'TYPE_SYSTEM';
       }
     }
     
