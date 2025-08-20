@@ -923,7 +923,7 @@ async function performCouplingAnalysisForFile(
       const couplingHashId = FunctionIdGenerator.generateDeterministicUUID(
         func.filePath,
         func.name,
-        null, // className - not available from FunctionInfo
+        func.className || null, // Use className when available for better matching
         func.startLine,
         func.startColumn || 0,
         snapshotId
@@ -960,8 +960,33 @@ async function performCouplingAnalysisForFile(
         console.log(`🔍 Processing function hash ID: ${funcHashId}`);
       }
       
-      // Check if funcHashId exists in DB functions (function-level check)
-      if (!dbFunctionIds.has(funcHashId)) {
+      // Try to resolve function ID: first direct match, then fallback lookup
+      let resolvedFunctionId: string | undefined = dbFunctionIds.has(funcHashId) ? funcHashId : undefined;
+
+      // If not found in DB, try fallback lookup using functionLookupMap
+      if (!resolvedFunctionId) {
+        const funcNode = context.funcIdToNodeCache?.get(funcHashId);
+        if (funcNode) {
+          const info = extractFunctionCharacteristics(funcNode);
+          const startLine = funcNode.getStartLineNumber();
+          const nameForKey = info.name || '<anonymous>';
+          
+          // Try multiple composite key strategies
+          const directKey = generateFunctionCompositeKey(sourceFile.filePath, startLine, nameForKey);
+          const altKey = generateFunctionCompositeKey(path.basename(sourceFile.filePath), startLine, nameForKey);
+          
+          const mappedId = functionLookupMap.get(directKey) || functionLookupMap.get(altKey);
+          if (mappedId && dbFunctionIds.has(mappedId)) {
+            resolvedFunctionId = mappedId;
+            if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+              console.log(`  🔁 Fallback resolved: ${funcHashId} -> ${resolvedFunctionId}`);
+            }
+          }
+        }
+      }
+
+      // If still not resolved, skip with detailed logging
+      if (!resolvedFunctionId) {
         // Track skipped function only once per function (not per parameter)
         if (!skippedFunctionIds.has(funcHashId)) {
           skippedFunctionIds.add(funcHashId);
@@ -983,7 +1008,7 @@ async function performCouplingAnalysisForFile(
             reason: string;
           } = {
             funcHashId,
-            reason: 'ID_NOT_FOUND_IN_DB'
+            reason: 'ID_NOT_FOUND_AFTER_FALLBACK'
           };
           
           if (functionInfo.name) {
@@ -1003,35 +1028,11 @@ async function performCouplingAnalysisForFile(
           
           // Only show detailed debug in DEBUG mode and only once per function
           if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-            console.log(`  ⚠️  Skipping ${funcHashId}: not found in DB functions`);
+            console.log(`  ⚠️  Skipping ${funcHashId}: not found even after fallback`);
             console.log(`    Function info: ${JSON.stringify(functionInfo)}`);
             console.log(`    Available function IDs in file (first 3):`, 
               Array.from(dbFunctionIds).slice(0, 3));
             console.log(`    Total DB functions in file: ${dbFunctionIds.size}`);
-            
-            // Show ID generation comparison only for first occurrence
-            if (skippedFunctions.length === 1) {
-              const firstDbFunc = fileFunctions[0];
-              if (firstDbFunc) {
-                console.log(`    🔍 DEBUG: Comparing ID generation for first DB function:`);
-                console.log(`      DB function: ${firstDbFunc.name} at ${firstDbFunc.startLine}:${firstDbFunc.startColumn || 0}`);
-                console.log(`      DB ID: ${firstDbFunc.id}`);
-                console.log(`      File: ${firstDbFunc.filePath}`);
-                console.log(`      Coupling snapshotId: ${snapshotId}`);
-                
-                // Generate what OnePassASTVisitor would create
-                const testId = FunctionIdGenerator.generateDeterministicUUID(
-                  firstDbFunc.filePath,
-                  firstDbFunc.name,
-                  null, // className - test without first
-                  firstDbFunc.startLine,
-                  firstDbFunc.startColumn || 0,
-                  snapshotId
-                );
-                console.log(`      Test generated ID: ${testId}`);
-                console.log(`      IDs match: ${testId === firstDbFunc.id}`);
-              }
-            }
           }
         }
         
@@ -1044,10 +1045,10 @@ async function performCouplingAnalysisForFile(
       
       for (const analysis of analyses) {
         
-        const correctFunctionId = funcHashId;
+        const correctFunctionId = resolvedFunctionId!;
         
         if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-          console.log(`  ✅ Using direct function ID: ${correctFunctionId}`);
+          console.log(`  ✅ Using function ID: ${correctFunctionId}`);
         }
         
         // Rename for clarity and index accesses by property for O(1) lookups
