@@ -281,31 +281,34 @@ function isLightweightCommand(): boolean {
  */
 function isMeasureCommandLightweight(): boolean {
   const args = process.argv.slice(3);
-  
+
   // Check if --history is present (lightweight mode)
   if (args.includes('--history')) {
     return true;
   }
-  
+
+  // Determine level (prioritize level semantics first)
+  const levelIndex = args.indexOf('--level');
+  const hasForce = args.includes('--force');
+  if (levelIndex >= 0 && levelIndex < args.length - 1) {
+    const levelValue = args[levelIndex + 1];
+    // quick + --force -> heavy (new scan is enforced)
+    if (levelValue === 'quick') {
+      return !hasForce;
+    }
+    // levels other than quick imply heavier work
+    return false;
+  }
+
   // Check for scanning/analysis options (standalone mode)
   const scanningOptions = [
-    '--full', '--level', '--force', 
+    '--full',
     '--with-graph', '--with-types', '--with-coupling',
     '--call-graph', '--types', '--coupling'
   ];
-  
-  const hasScanning = scanningOptions.some(opt => args.includes(opt));
-  
-  // If no specific scanning options, check for level values
-  const levelIndex = args.indexOf('--level');
-  if (levelIndex >= 0 && levelIndex < args.length - 1) {
-    const levelValue = args[levelIndex + 1];
-    // All level values except 'quick' require scanning
-    return levelValue === 'quick';
-  }
-  
-  // If no scanning options detected, default to lightweight for performance
-  // (empty measure command or basic display operations)
+  const hasScanning = scanningOptions.some(opt => args.includes(opt)) || hasForce;
+
+  // Default to lightweight when no scanning/analysis indicators
   return !hasScanning;
 }
 

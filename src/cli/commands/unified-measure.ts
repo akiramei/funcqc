@@ -5,9 +5,9 @@
  * 自分の依存関係を明確に申告し、cli-wrapperに依存せず動作する
  */
 
-import { Command, DependencyType, DependencyViolationError } from '../../types/command-protocol';
+import { Command, DependencyType } from '../../types/command-protocol';
 import { CommandEnvironment } from '../../types/environment';
-import { MeasureCommandOptions, SnapshotInfo } from '../../types';
+import { MeasureCommandOptions, SnapshotInfo, ScanCommandOptions } from '../../types';
 import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
 import chalk from 'chalk';
 import { formatRelativeDate, formatDiffValue, formatSizeDisplay } from './history';
@@ -49,10 +49,15 @@ export class UnifiedMeasureCommand implements Command {
       dependencies.push('COUPLING');
     }
     
-    // オプションが何もない場合は軽量モード（依存関係なし）
-    if (subCommand.length === 0 || 
-        (subCommand.length === 1 && (subCommand.includes('--json') || subCommand.includes('--quiet') || subCommand.includes('--verbose')))) {
-      return [];
+    // オプションが何もない場合でも、測定サマリ表示にはBASICが必要
+    // （json/quiet/verboseのみの場合も同様）
+    if (subCommand.length === 0) {
+      return ['BASIC']; // デフォルト測定にはBASICが必要
+    }
+    
+    // 表示オプションのみの場合もBASICは必要
+    if (subCommand.length === 1 && (subCommand.includes('--json') || subCommand.includes('--quiet') || subCommand.includes('--verbose'))) {
+      return ['BASIC'];
     }
     
     return [...new Set(dependencies)];
@@ -64,7 +69,7 @@ export class UnifiedMeasureCommand implements Command {
   private getLevelDependencies(level: string): DependencyType[] {
     switch (level) {
       case 'quick':
-        return []; // 軽量モード
+        return ['BASIC']; // 軽量だがメトリクス出力にはBASICが必要
       case 'basic':
         return ['BASIC'];
       case 'standard':
@@ -118,6 +123,48 @@ export class UnifiedMeasureCommand implements Command {
       }
     }
   }
+
+  /**
+   * レベル値の妥当性チェック
+   */
+  private isValidLevel(level?: string): level is NonNullable<MeasureCommandOptions['level']> {
+    return level === 'quick' || level === 'basic' || level === 'standard' || level === 'deep' || level === 'complete';
+  }
+
+  /**
+   * 初回実行時のスキャンを実行
+   */
+  private async performInitialScan(env: CommandEnvironment, options: MeasureCommandOptions): Promise<void> {
+    if (!options.quiet) {
+      env.commandLogger.info('🔍 No snapshot found. Performing initial scan...');
+    }
+
+    // Convert measure options to scan options
+    const scanOptions: ScanCommandOptions = {
+      json: false, // Internal execution, no JSON output
+      verbose: options.verbose || false,
+      quiet: options.quiet || false,
+      force: options.force || false
+    };
+
+    // Only add defined optional properties
+    if (options.label !== undefined) scanOptions.label = options.label;
+    if (options.comment !== undefined) scanOptions.comment = options.comment;
+    if (options.scope !== undefined) scanOptions.scope = options.scope;
+    if (options.realtimeGate !== undefined) scanOptions.realtimeGate = options.realtimeGate;
+
+    try {
+      // Import and execute scan command functionality
+      const { scanCommand } = await import('./scan');
+      await scanCommand(scanOptions)(env);
+      
+      if (!options.quiet) {
+        env.commandLogger.info('✅ Initial scan completed');
+      }
+    } catch (error) {
+      throw new Error(`Initial scan failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   
   /**
    * コマンドライン引数からオプションを解析
@@ -136,7 +183,10 @@ export class UnifiedMeasureCommand implements Command {
     // 値を持つオプション
     const levelIndex = subCommand.indexOf('--level');
     if (levelIndex >= 0 && levelIndex < subCommand.length - 1) {
-      options.level = subCommand[levelIndex + 1] as any;
+      const lvl = subCommand[levelIndex + 1] as string | undefined;
+      if (this.isValidLevel(lvl)) {
+        options.level = lvl;
+      }
     }
     
     const labelIndex = subCommand.indexOf('--label');
@@ -160,16 +210,15 @@ export class UnifiedMeasureCommand implements Command {
       env.commandLogger.info('📊 Starting measurement...');
     }
     
-    // この時点で必要な依存関係は全て初期化済みのはず
-    // 依存関係が満たされていない場合はcli-wrapper側の責務違反
-    
-    const snapshot = await env.storage.getLatestSnapshot();
+    // スナップショット存在確認
+    let snapshot = await env.storage.getLatestSnapshot();
     if (!snapshot) {
-      throw new DependencyViolationError(
-        'measure',
-        'BASIC',
-        'No snapshot found - basic analysis should have been initialized'
-      );
+      // 初回実行：自動でスキャン＆スナップショット作成
+      await this.performInitialScan(env, options);
+      snapshot = await env.storage.getLatestSnapshot();
+      if (!snapshot) {
+        throw new Error('初回スキャン後もスナップショットが見つかりません');
+      }
     }
     
     // 測定結果の表示

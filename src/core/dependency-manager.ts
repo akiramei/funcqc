@@ -12,6 +12,7 @@ import { CommandEnvironment } from '../types/environment';
 import { BaseCommandOptions } from '../types/command';
 import { DependencyType, InitializationResult } from '../types/command-protocol';
 import { DEPENDENCY_DEFINITIONS, DependencyOrderResolver } from '../config/dependencies';
+import type { AnalysisLevel } from '../types';
 
 interface AnalysisState {
   level: string;
@@ -241,7 +242,7 @@ export class DependencyManager {
       const newLevel = this.calculateAnalysisLevel(newCompleted);
       
       // DB状態を更新
-      await env.storage.updateAnalysisLevel(snapshot.id, newLevel as any);
+      await env.storage.updateAnalysisLevel(snapshot.id, newLevel as AnalysisLevel);
     } catch (error) {
       // ログに記録するが、初期化処理は成功扱い
       console.warn(`Warning: Failed to update analysis level for ${dependency}:`, error);
@@ -251,7 +252,7 @@ export class DependencyManager {
   /**
    * 完了済み依存関係から適切な分析レベルを計算
    */
-  private calculateAnalysisLevel(completed: DependencyType[]): string {
+  private calculateAnalysisLevel(completed: DependencyType[]): AnalysisLevel {
     if (completed.includes('BASIC') && completed.includes('CALL_GRAPH') && 
         completed.includes('TYPE_SYSTEM') && completed.includes('COUPLING')) {
       return 'COMPLETE';

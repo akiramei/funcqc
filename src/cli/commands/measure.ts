@@ -320,7 +320,8 @@ async function checkExistingSnapshot(
     if (snapshots.length === 0) return null;
     
     const snapshot = snapshots[0];
-    const analysisLevel = (snapshot.metadata as any)?.analysisLevel || 'NONE';
+    const metadata = snapshot.metadata as Record<string, unknown>;
+    const analysisLevel = (metadata['analysisLevel'] as string) || 'NONE';
     
     return {
       id: snapshot.id,
