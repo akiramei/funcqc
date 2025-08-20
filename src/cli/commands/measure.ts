@@ -247,7 +247,7 @@ async function executeMeasurementWorkflow(
   }
 
   // Phase 2: Additional analyses (only if specifically requested)
-  if (plan.includesCallGraph || plan.includesTypes) {
+  if (plan.includesCallGraph || plan.includesTypes || plan.includesCoupling) {
     if (!options.quiet) {
       env.commandLogger.info('🔄 Phase 2: Advanced analysis (on-demand)...');
     }
@@ -256,8 +256,8 @@ async function executeMeasurementWorkflow(
     await executeLazyAnalyzePhase(env, options, plan);
   }
   
-  // Note: Coupling analysis is integrated into the scan phase (executeScanPhase)
-  // and does not require separate phase 2 execution
+  // Note: Coupling analysis can be executed in either scan phase or analyze phase
+  // depending on when analysis is needed and snapshot availability
 }
 
 /**
@@ -388,8 +388,8 @@ async function executeLazyAnalyzePhase(
   const analyzeOptions = {
     callGraph: plan.includesCallGraph,
     types: plan.includesTypes,
-    // scanフェーズで実行済みのためPhase 2では無効化
-    coupling: false,
+    // Enable coupling analysis if requested (may be skipped if already completed in scan phase)
+    coupling: plan.includesCoupling,
     all: plan.includesCallGraph && plan.includesTypes,
     json: false, // Internal execution, no JSON output
     verbose: options.verbose || false,

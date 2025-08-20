@@ -49,15 +49,17 @@ export const analyzeCommand: VoidCommand<AnalyzeCommandOptions> = (options) =>
       } else {
         if (options.callGraph) analysesToRun.push('CALL_GRAPH');
         if (options.types) analysesToRun.push('TYPE_SYSTEM');
+        if (options.coupling) analysesToRun.push('COUPLING');
       }
       
       if (analysesToRun.length === 0) {
         if (!options.json) {
-          console.log(chalk.yellow('⚠️  No analysis specified. Use --call-graph, --types, or --all'));
+          console.log(chalk.yellow('⚠️  No analysis specified. Use --call-graph, --types, --coupling, or --all'));
           console.log();
           console.log('Available analyses:');
           console.log('  --call-graph  Analyze function dependencies');
           console.log('  --types       Analyze TypeScript type system');
+          console.log('  --coupling    Analyze parameter coupling patterns');
           console.log('  --all         Run all analyses');
         }
         return;
@@ -137,6 +139,29 @@ export const analyzeCommand: VoidCommand<AnalyzeCommandOptions> = (options) =>
         }
       }
       
+      // Run coupling analysis if needed
+      if (analysesToRun.includes('COUPLING')) {
+        const hasCoupling = currentLevel === 'COUPLING' || currentLevel === 'COMPLETE';
+        
+        if (hasCoupling) {
+          if (!options.json) {
+            console.log(chalk.green('✓ Coupling analysis already completed'));
+          }
+          resultsInfo['couplingSkipped'] = true;
+        } else {
+          // Perform deferred coupling analysis
+          const { performDeferredCouplingAnalysis } = await import('./scan');
+          if (!options.json) {
+            console.log(chalk.blue('🔗 Performing deferred coupling analysis...'));
+          }
+          const couplingResult = await performDeferredCouplingAnalysis(snapshot.id, env, !options.json ? undefined : undefined);
+          if (!options.json) {
+            console.log(chalk.green(`✓ Coupling analysis completed (${couplingResult.couplingDataStored} data points)`));
+          }
+          resultsInfo['couplingDataStored'] = couplingResult.couplingDataStored;
+        }
+      }
+      
       // Update analysis level
       const newLevel = determineNewAnalysisLevel(currentLevel, analysesToRun);
       if (newLevel !== currentLevel) {
@@ -210,23 +235,31 @@ function determineNewAnalysisLevel(
   currentLevel: AnalysisLevel | string,
   analysesRun: string[]
 ): AnalysisLevel {
-  // If we have BASIC and ran CALL_GRAPH
+  // Comprehensive analysis with all major components
   if (analysesRun.includes('CALL_GRAPH') && analysesRun.includes('TYPE_SYSTEM')) {
     return 'COMPLETE';
   }
   
+  // Handle individual analyses and their interactions with existing levels
   if (analysesRun.includes('CALL_GRAPH')) {
-    if (currentLevel === 'TYPE_SYSTEM' || currentLevel === 'COMPLETE') {
+    if (currentLevel === 'TYPE_SYSTEM' || currentLevel === 'COUPLING' || currentLevel === 'COMPLETE') {
       return 'COMPLETE';
     }
     return 'CALL_GRAPH';
   }
   
   if (analysesRun.includes('TYPE_SYSTEM')) {
-    if (currentLevel === 'CALL_GRAPH' || currentLevel === 'COMPLETE') {
+    if (currentLevel === 'CALL_GRAPH' || currentLevel === 'COUPLING' || currentLevel === 'COMPLETE') {
       return 'COMPLETE';
     }
     return 'TYPE_SYSTEM' as AnalysisLevel;
+  }
+  
+  if (analysesRun.includes('COUPLING')) {
+    if (currentLevel === 'CALL_GRAPH' || currentLevel === 'TYPE_SYSTEM' || currentLevel === 'COMPLETE') {
+      return 'COMPLETE';
+    }
+    return 'COUPLING';
   }
   
   return currentLevel as AnalysisLevel;

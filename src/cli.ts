@@ -125,6 +125,7 @@ program
   .description('🔄 Perform deferred analyses on existing snapshots')
   .option('--call-graph', 'analyze function dependencies')
   .option('--types', 'analyze TypeScript type system')
+  .option('--coupling', 'analyze parameter coupling patterns')
   .option('--all', 'run all analyses')
   .option('-j, --json', 'output as JSON')
   .action(async (options: OptionValues, command) => {

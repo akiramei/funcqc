@@ -374,6 +374,21 @@ function determineUnifiedInitRequirements(command: string, options: Record<strin
   switch (command) {
     case 'measure':
       if (options['history']) return []; // History display is lightweight
+      // Handle legacy --full option (most comprehensive analysis)
+      if (options['full']) {
+        return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
+      }
+      // Handle specific analysis options
+      if (options['withCoupling']) {
+        return ['BASIC', 'COUPLING'];
+      }
+      if (options['withTypes']) {
+        return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
+      }
+      if (options['withGraph']) {
+        return ['BASIC', 'CALL_GRAPH'];
+      }
+      // Handle level-based options
       if (options['level'] === 'quick') return ['BASIC']; 
       if (options['level'] === 'standard') return ['BASIC', 'CALL_GRAPH'];
       if (options['level'] === 'deep' || options['level'] === 'complete') {
