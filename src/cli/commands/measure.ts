@@ -185,9 +185,15 @@ function determineMeasurementPlan(options: MeasureCommandOptions): MeasurementPl
     estimatedTime = '50-60s';
     description = 'Complete custom measurement';
     needsScan = true;
-  } else if (includesCallGraph || includesTypes) {
-    estimatedTime = '30-40s';
-    description = 'Extended custom measurement';
+  } else if (includesCallGraph || includesTypes || includesCoupling) {
+    // CRITICAL FIX: Coupling analysis also requires scan, not just callGraph/types
+    if (includesCoupling && !includesCallGraph && !includesTypes) {
+      estimatedTime = '15-25s';
+      description = 'Coupling analysis measurement';
+    } else {
+      estimatedTime = '30-40s';
+      description = 'Extended custom measurement';
+    }
     needsScan = true;
   }
 
@@ -249,6 +255,9 @@ async function executeMeasurementWorkflow(
     // Execute lazy analyze functionality
     await executeLazyAnalyzePhase(env, options, plan);
   }
+  
+  // Note: Coupling analysis is integrated into the scan phase (executeScanPhase)
+  // and does not require separate phase 2 execution
 }
 
 /**
@@ -340,7 +349,21 @@ async function determineScanNecessity(
     return snapshotAge > 24 * 60 * 60 * 1000; // 1 day
   }
 
-  // Custom level - use existing snapshot for performance unless specifically forced
+  // Custom level - check if analysis requires fresh scan
+  if (plan.level === 'custom') {
+    // Coupling analysis requires fresh scan to collect parameter usage data
+    if (plan.includesCoupling) {
+      return true;
+    }
+    // CallGraph and Types analysis require fresh scan for accurate results
+    if (plan.includesCallGraph || plan.includesTypes) {
+      return true;
+    }
+    // Other custom analyses can use existing snapshot for performance
+    return false;
+  }
+  
+  // Default fallback
   return false;
 }
 
@@ -365,7 +388,8 @@ async function executeLazyAnalyzePhase(
   const analyzeOptions = {
     callGraph: plan.includesCallGraph,
     types: plan.includesTypes,
-    coupling: plan.includesCoupling,
+    // scanフェーズで実行済みのためPhase 2では無効化
+    coupling: false,
     all: plan.includesCallGraph && plan.includesTypes,
     json: false, // Internal execution, no JSON output
     verbose: options.verbose || false,

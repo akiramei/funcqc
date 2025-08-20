@@ -18,12 +18,13 @@ import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/par
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
+import { FunctionIdGenerator } from '../../utils/function-id-generator';
 import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project, TypeChecker, ts } from 'ts-morph';
+import { Project, TypeChecker, ts, Node } from 'ts-morph';
 import { SnapshotMetadata } from '../../types';
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
 
@@ -457,7 +458,6 @@ async function storeParameterPropertyUsage(
   try {
     // FIXED: Now using correct function IDs from FunctionInfo
     await storage.storeParameterPropertyUsage(couplingData, snapshotId);
-    console.log(`📊 Stored ${couplingData.length} coupling analysis records`);
   } catch (error) {
     console.warn(`Warning: Failed to store coupling analysis data: ${error}`);
   }
@@ -809,6 +809,15 @@ export async function performDeferredCouplingAnalysis(
         skipLibCheck: true,
       }
     });
+    
+    // Load all source files into the project for complete type resolution
+    // This ensures that imported types and interfaces are available for coupling analysis
+    console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
+    for (const sourceFile of sourceFiles) {
+      project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+    }
+    console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
+    
     const typeChecker = project.getTypeChecker();
     
     // Process batches sequentially to avoid memory pressure from multiple Project instances
@@ -866,12 +875,26 @@ async function performCouplingAnalysisForFile(
   snapshotId: string
 ): Promise<ParameterPropertyUsage[]> {
   try {
-    // Reuse shared project and add source file
-    const tsSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+    // Get the source file from the shared project (already loaded during initialization)
+    const tsSourceFile = project.getSourceFile(sourceFile.filePath);
+    if (!tsSourceFile) {
+      console.warn(`⚠️  Warning: Source file not found in project: ${sourceFile.filePath}`);
+      console.warn(`📋 Available files in project: ${project.getSourceFiles().map(f => f.getFilePath()).slice(0, 3).join(', ')}...`);
+      return [];
+    }
 
     // Execute 1-pass AST visitor with the actual snapshot ID
     const visitor = new OnePassASTVisitor();
     const context = visitor.scanFile(tsSourceFile, typeChecker, snapshotId);
+
+    // Debug output for coupling analysis troubleshooting
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`📁 Project contains ${project.getSourceFiles().length} files for ${sourceFile.filePath}`);
+      console.log(`[DEBUG] Scanning ${sourceFile.filePath}`);
+      console.log(`[DEBUG] overCoupling.size=${context.couplingData.overCoupling.size}`);
+      console.log(`[DEBUG] parameterUsage.size=${context.couplingData.parameterUsage.size}`);
+      console.log(`[DEBUG] propertyAccesses.size=${context.usageData.propertyAccesses.size}`);
+    }
 
     // Create FunctionInfo lookup map using composite keys for better matching
     const functionLookupMap = new Map<string, string>();
@@ -889,22 +912,137 @@ async function performCouplingAnalysisForFile(
       const fileName = path.basename(func.filePath);
       const altCompositeKey = generateFunctionCompositeKey(fileName, func.startLine, func.name);
       functionLookupMap.set(altCompositeKey, func.id);
+      
+      // Strategy 4: CRITICAL FIX - Use the same ID generation as OnePassASTVisitor
+      // This generates the exact same hash ID that coupling analysis uses
+      const couplingHashId = FunctionIdGenerator.generateDeterministicUUID(
+        func.filePath,
+        func.name,
+        null, // className - not available from FunctionInfo
+        func.startLine,
+        func.startColumn || 0,
+        snapshotId
+      );
+      functionLookupMap.set(couplingHashId, func.id);
     }
 
     // Convert coupling data to parameter property usage format
     const couplingData: ParameterPropertyUsage[] = [];
 
+    // Create a function ID lookup map for debugging and fallback
+    const dbFunctionIds = new Set(fileFunctions.map(f => f.id));
+    
+    // Collect skipped function analysis for better diagnostics (function-level tracking)
+    const skippedFunctionIds = new Set<string>();
+    const skippedFunctions: Array<{
+      funcHashId: string;
+      functionName?: string;
+      functionType?: string;
+      contextPath?: string[];
+      isAnonymous?: boolean;
+      reason: string;
+    }> = [];
+    
+    let totalProcessed = 0;
+    let totalSuccessful = 0;
+    
     // Extract property access data from coupling analysis
     for (const [funcHashId, analyses] of context.couplingData.overCoupling) {
-      for (const analysis of analyses) {
-        // Try multiple strategies to find the correct function ID
-        const correctFunctionId = functionLookupMap.get(funcHashId);
+      totalProcessed++;
+      
+      // Only show processing logs in DEBUG mode
+      if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+        console.log(`🔍 Processing function hash ID: ${funcHashId}`);
+      }
+      
+      // Check if funcHashId exists in DB functions (function-level check)
+      if (!dbFunctionIds.has(funcHashId)) {
+        // Track skipped function only once per function (not per parameter)
+        if (!skippedFunctionIds.has(funcHashId)) {
+          skippedFunctionIds.add(funcHashId);
+          
+          // Try to find the actual function node in AST to get more info
+          const funcNode = context.funcIdToNodeCache?.get(funcHashId);
+          let functionInfo: { name?: string; type?: string; contextPath?: string[]; isAnonymous?: boolean } = {};
+          
+          if (funcNode) {
+            functionInfo = extractFunctionCharacteristics(funcNode);
+          }
+          
+          const skippedFunction: {
+            funcHashId: string;
+            functionName?: string;
+            functionType?: string;
+            contextPath?: string[];
+            isAnonymous?: boolean;
+            reason: string;
+          } = {
+            funcHashId,
+            reason: 'ID_NOT_FOUND_IN_DB'
+          };
+          
+          if (functionInfo.name) {
+            skippedFunction.functionName = functionInfo.name;
+          }
+          if (functionInfo.type) {
+            skippedFunction.functionType = functionInfo.type;
+          }
+          if (functionInfo.contextPath) {
+            skippedFunction.contextPath = functionInfo.contextPath;
+          }
+          if (functionInfo.isAnonymous !== undefined) {
+            skippedFunction.isAnonymous = functionInfo.isAnonymous;
+          }
+          
+          skippedFunctions.push(skippedFunction);
+          
+          // Only show detailed debug in DEBUG mode and only once per function
+          if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+            console.log(`  ⚠️  Skipping ${funcHashId}: not found in DB functions`);
+            console.log(`    Function info: ${JSON.stringify(functionInfo)}`);
+            console.log(`    Available function IDs in file (first 3):`, 
+              Array.from(dbFunctionIds).slice(0, 3));
+            console.log(`    Total DB functions in file: ${dbFunctionIds.size}`);
+            
+            // Show ID generation comparison only for first occurrence
+            if (skippedFunctions.length === 1) {
+              const firstDbFunc = fileFunctions[0];
+              if (firstDbFunc) {
+                console.log(`    🔍 DEBUG: Comparing ID generation for first DB function:`);
+                console.log(`      DB function: ${firstDbFunc.name} at ${firstDbFunc.startLine}:${firstDbFunc.startColumn || 0}`);
+                console.log(`      DB ID: ${firstDbFunc.id}`);
+                console.log(`      File: ${firstDbFunc.filePath}`);
+                console.log(`      Coupling snapshotId: ${snapshotId}`);
+                
+                // Generate what OnePassASTVisitor would create
+                const testId = FunctionIdGenerator.generateDeterministicUUID(
+                  firstDbFunc.filePath,
+                  firstDbFunc.name,
+                  null, // className - test without first
+                  firstDbFunc.startLine,
+                  firstDbFunc.startColumn || 0,
+                  snapshotId
+                );
+                console.log(`      Test generated ID: ${testId}`);
+                console.log(`      IDs match: ${testId === firstDbFunc.id}`);
+              }
+            }
+          }
+        }
         
-        // If direct lookup fails, skip this coupling data to avoid FK violations
-        if (!correctFunctionId) {
-          // Skip this function's coupling data to prevent FK constraint violations
-          // This is expected behavior for anonymous functions that aren't stored in the main function table
-          continue; // Skip to next function
+        // Skip all analyses for this function
+        continue; 
+      }
+      
+      // Function was successfully processed
+      totalSuccessful++;
+      
+      for (const analysis of analyses) {
+        
+        const correctFunctionId = funcHashId;
+        
+        if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+          console.log(`  ✅ Using direct function ID: ${correctFunctionId}`);
         }
         
         // Rename for clarity and index accesses by property for O(1) lookups
@@ -954,6 +1092,63 @@ async function performCouplingAnalysisForFile(
         }
       }
     }
+
+    // Generate summary report instead of verbose individual logs
+    const totalSkipped = skippedFunctions.length;
+    
+    if (totalSkipped > 0 && process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`\n📊 Coupling Analysis Summary for ${sourceFile.filePath}:`);
+      console.log(`  ✅ Processed: ${totalSuccessful}/${totalProcessed} functions`);
+      console.log(`  ⚠️  Skipped: ${totalSkipped} functions`);
+      
+      // Analyze patterns in skipped functions
+      const skippedPatterns = analyzeSkippedFunctionPatterns(skippedFunctions);
+      
+      if (skippedPatterns.anonymous > 0) {
+        console.log(`    • Anonymous functions: ${skippedPatterns.anonymous}`);
+      }
+      if (skippedPatterns.constructors > 0) {
+        console.log(`    • Constructors: ${skippedPatterns.constructors}`);
+      }
+      if (skippedPatterns.methods > 0) {
+        console.log(`    • Methods: ${skippedPatterns.methods}`);
+      }
+      if (skippedPatterns.arrows > 0) {
+        console.log(`    • Arrow functions: ${skippedPatterns.arrows}`);
+      }
+      if (skippedPatterns.getters > 0) {
+        console.log(`    • Getters/Setters: ${skippedPatterns.getters}`);
+      }
+      
+      // Show most common function names that were skipped (already deduplicated by function)
+      const nameFreq = skippedFunctions
+        .filter(f => f.functionName && !f.isAnonymous)
+        .reduce((acc, f) => {
+          acc[f.functionName!] = (acc[f.functionName!] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+      
+      const topSkippedNames = Object.entries(nameFreq)
+        .sort(([,a], [,b]) => b - a)
+        .slice(0, 3);
+      
+      if (topSkippedNames.length > 0) {
+        console.log(`    • Top skipped names: ${topSkippedNames.map(([name, count]) => `${name}(${count})`).join(', ')}`);
+      }
+      
+      // Show sample of skipped functions for investigation
+      if (skippedFunctions.length > 0) {
+        console.log(`\n🔍 Sample skipped functions (first 3):`);
+        skippedFunctions.slice(0, 3).forEach((func, i) => {
+          console.log(`  ${i + 1}. ${func.functionName || '<anonymous>'} (${func.functionType || 'unknown'})`);
+          console.log(`     ID: ${func.funcHashId}`);
+          console.log(`     Context: ${func.contextPath?.join('.') || 'none'}`);
+        });
+      }
+    } else {
+      // console.log(`✅ All ${totalProcessed} functions processed successfully in ${sourceFile.filePath}`);
+    }
+
     return couplingData;
   } catch (error) {
     console.warn(`Warning: Coupling analysis failed for ${sourceFile.filePath}: ${error}`);
@@ -2161,4 +2356,125 @@ async function displayQualityAssessment(
   if (assessment.improvementInstruction) {
     console.log(chalk.blue(`   💡 Suggestion: ${assessment.improvementInstruction}`));
   }
+}
+
+/**
+ * Extract function characteristics for diagnostic analysis
+ */
+function extractFunctionCharacteristics(node: Node): {
+  name?: string;
+  type?: string;
+  contextPath?: string[];
+  isAnonymous?: boolean;
+} {
+  let functionName = '<anonymous>';
+  let functionType = 'unknown';
+  let isAnonymous = true;
+  
+  // Determine function type and name
+  if (Node.isFunctionDeclaration(node)) {
+    functionType = 'function';
+    functionName = node.getName() || '<anonymous>';
+    isAnonymous = !node.getName();
+  } else if (Node.isMethodDeclaration(node)) {
+    functionType = 'method';
+    functionName = node.getName() || '<anonymous>';
+    isAnonymous = !node.getName();
+  } else if (Node.isArrowFunction(node)) {
+    functionType = 'arrow';
+    // Try to get name from variable declaration
+    const parent = node.getParent();
+    if (parent && Node.isVariableDeclaration(parent)) {
+      const varName = parent.getName();
+      if (varName) {
+        functionName = varName;
+        isAnonymous = false;
+      }
+    }
+  } else if (Node.isFunctionExpression(node)) {
+    functionType = 'expression';
+    functionName = node.getName() || '<anonymous>';
+    isAnonymous = !node.getName();
+  } else if (Node.isConstructorDeclaration(node)) {
+    functionType = 'constructor';
+    functionName = 'constructor';
+    isAnonymous = false;
+  } else if (Node.isGetAccessorDeclaration(node)) {
+    functionType = 'getter';
+    functionName = `get_${node.getName()}`;
+    isAnonymous = false;
+  } else if (Node.isSetAccessorDeclaration(node)) {
+    functionType = 'setter';
+    functionName = `set_${node.getName()}`;
+    isAnonymous = false;
+  }
+  
+  // Extract context path
+  const contextPath: string[] = [];
+  let current: Node | undefined = node.getParent();
+  
+  while (current) {
+    if (Node.isClassDeclaration(current)) {
+      const className = current.getName();
+      if (className) contextPath.unshift(className);
+    } else if (Node.isModuleDeclaration(current)) {
+      const moduleName = current.getName();
+      if (moduleName) contextPath.unshift(moduleName);
+    } else if (Node.isFunctionDeclaration(current)) {
+      const funcName = current.getName();
+      if (funcName) contextPath.unshift(funcName);
+    }
+    current = current.getParent();
+  }
+  
+  return {
+    name: functionName,
+    type: functionType,
+    contextPath,
+    isAnonymous
+  };
+}
+
+/**
+ * Analyze patterns in skipped functions to identify common issues
+ */
+function analyzeSkippedFunctionPatterns(skippedFunctions: Array<{
+  funcHashId: string;
+  functionName?: string;
+  functionType?: string;
+  contextPath?: string[];
+  isAnonymous?: boolean;
+  reason: string;
+}>): {
+  anonymous: number;
+  constructors: number;
+  methods: number;
+  arrows: number;
+  getters: number;
+} {
+  const patterns = {
+    anonymous: 0,
+    constructors: 0,
+    methods: 0,
+    arrows: 0,
+    getters: 0
+  };
+  
+  for (const func of skippedFunctions) {
+    if (func.isAnonymous) {
+      patterns.anonymous++;
+    }
+    
+    if (func.functionType === 'constructor') {
+      patterns.constructors++;
+    } else if (func.functionType === 'method') {
+      patterns.methods++;
+    } else if (func.functionType === 'arrow') {
+      patterns.arrows++;
+    } else if (func.functionType === 'getter' || func.functionType === 'setter') {
+      patterns.getters++;
+    }
+  }
+  
+  return patterns;
 }

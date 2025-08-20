@@ -369,13 +369,31 @@ export class OnePassASTVisitor {
    * Analyze coupling patterns and compute severity scores
    */
   private analyzeCoupling(ctx: ScanContext): void {
+    // console.log(`🔍 analyzeCoupling: processing ${ctx.couplingData.parameterUsage.size} functions`);
+    
     for (const [funcId, paramUsage] of ctx.couplingData.parameterUsage) {
       const analyses: SimpleCouplingAnalysis[] = [];
+      // console.log(`  📋 Function ${funcId}: ${paramUsage.size} parameters`);
       
       for (const [paramName, usedProps] of paramUsage) {
+        // console.log(`    🔧 Parameter ${paramName}: ${usedProps.size} used properties`);
+        
         // Get total properties for this parameter type
-        const totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
-        if (totalProps === 0) continue;
+        let totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
+        // console.log(`    📊 totalProps for ${paramName}: ${totalProps}`);
+        
+        // Skip if no properties are used
+        if (usedProps.size === 0) {
+          // console.log(`    ⚠️  Skipping ${paramName}: no properties used`);
+          continue;
+        }
+        
+        // Fallback: If TypeChecker cannot resolve type properties, 
+        // still proceed with coupling analysis based on observed usage
+        if (totalProps === 0) {
+          totalProps = Math.max(usedProps.size, 1);
+          // console.log(`    🔄 Using fallback totalProps=${totalProps} for ${paramName}`);
+        }
         
         const usageRatio = usedProps.size / totalProps;
         let severity: 'LOW' | 'MEDIUM' | 'HIGH';
@@ -394,7 +412,10 @@ export class OnePassASTVisitor {
       }
       
       if (analyses.length > 0) {
+        // console.log(`  ✅ Added ${analyses.length} coupling analyses for function ${funcId}`);
         ctx.couplingData.overCoupling.set(funcId, analyses);
+      } else {
+        // console.log(`  ❌ No coupling analyses created for function ${funcId}`);
       }
     }
   }
@@ -419,27 +440,92 @@ export class OnePassASTVisitor {
     }
     
     // Extract function information for deterministic ID generation
-    const filePath = func.getSourceFile().getFilePath();
+    const rawFilePath = func.getSourceFile().getFilePath();
     
-    // Extract class name from parent context (needed for generateDeterministicUUIDFromNode)
-    let className: string | null = null;
-    let parent = func.getParent();
-    while (parent) {
-      if (Node.isClassDeclaration(parent) && parent.getName()) {
-        className = parent.getName() || null;
-        break;
-      }
-      parent = parent.getParent();
+    // CRITICAL FIX: Use same file path normalization as DB storage
+    // This ensures OnePassASTVisitor generates same IDs as unified-ast-analyzer
+    const filePath = rawFilePath.startsWith('/') ? rawFilePath.slice(1) : rawFilePath;
+    
+    // DEBUG: Log filePath used by OnePassASTVisitor
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      console.log(`    🗂️  OnePassASTVisitor rawFilePath: ${rawFilePath}`);
+      console.log(`    🗂️  OnePassASTVisitor normalized filePath: ${filePath}`);
     }
+    
+    // Extract class name from parent context using same method as unified-ast-analyzer
+    // This ensures consistent ID generation between coupling analysis and DB storage
+    const contextPath: string[] = [];
+    let current: Node | undefined = func.getParent();
+    while (current) {
+      if (Node.isClassDeclaration(current)) {
+        const className = current.getName();
+        if (className) contextPath.unshift(className);
+      } else if (Node.isModuleDeclaration(current)) {
+        const moduleName = current.getName();
+        if (moduleName) contextPath.unshift(moduleName);
+      } else if (Node.isFunctionDeclaration(current)) {
+        const funcName = current.getName();
+        if (funcName) contextPath.unshift(funcName);
+      }
+      current = current.getParent();
+    }
+    
+    // Use last element of contextPath as className (same as unified-ast-analyzer)
+    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
     
     // Use FunctionIdGenerator.generateDeterministicUUIDFromNode for consistent ID generation
     // This ensures proper normalization of getter/setter/constructor names
-    const funcId = FunctionIdGenerator.generateDeterministicUUIDFromNode(
-      func,
+    
+    // DEBUG: Log all ID generation parameters
+    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+      const startLine = func.getStartLineNumber();
+      const startColumn = func.getStart() - func.getStartLinePos();
+      let functionName = '<anonymous>';
+      if (Node.isGetAccessorDeclaration(func)) {
+        functionName = `get_${func.getName()}`;
+      } else if (Node.isSetAccessorDeclaration(func)) {
+        functionName = `set_${func.getName()}`;
+      } else if (Node.isConstructorDeclaration(func) || func.getKindName() === 'Constructor') {
+        functionName = 'constructor';
+      } else if ('getName' in func && typeof func.getName === 'function') {
+        functionName = func.getName() || '<anonymous>';
+      }
+      
+      console.log(`    🏗️  OnePassASTVisitor ID params:`);
+      console.log(`      filePath: ${filePath}`);
+      console.log(`      functionName: ${functionName}`);
+      console.log(`      className: ${className}`);
+      console.log(`      startLine: ${startLine}`);
+      console.log(`      startColumn: ${startColumn}`);
+      console.log(`      snapshotId: ${_ctx.snapshotId || 'unknown'}`);
+    }
+    
+    // CRITICAL FIX: Use same ID generation method as unified-ast-analyzer
+    // Extract function name using same logic as unified-ast-analyzer
+    let functionName = '<anonymous>';
+    if (Node.isConstructorDeclaration(func)) {
+      functionName = 'constructor';
+    } else if ('getName' in func && typeof func.getName === 'function') {
+      functionName = func.getName() || '<anonymous>';
+    }
+    // Note: NO special getter/setter prefixing (unified-ast-analyzer doesn't do this)
+    
+    const startLine = func.getStartLineNumber();
+    const startColumn = func.getStart() - func.getStartLinePos();
+    
+    // Use same method as unified-ast-analyzer
+    const funcId = FunctionIdGenerator.generateDeterministicUUID(
       filePath,
-      _ctx.snapshotId || 'unknown',
-      className
+      functionName,
+      className,
+      startLine,
+      startColumn,
+      _ctx.snapshotId || 'unknown'
     );
+    
+    // DEBUG: Log generated ID (disabled for performance)
+    // console.log(`    🆔 OnePassASTVisitor: filePath=${filePath}, name=${functionName}, className=${className}, line=${startLine}:${startColumn}`);
+    // console.log(`    🆔 OnePassASTVisitor generated ID: ${funcId}`);
     
     this.funcIdCache.set(func, funcId);
     return funcId;
