@@ -362,20 +362,23 @@ export class UnifiedMeasureCommand implements Command {
    */
   private async outputMeasurementResults(env: CommandEnvironment, options: MeasureCommandOptions): Promise<void> {
     const snapshot = await env.storage.getLatestSnapshot();
+    const metadata = snapshot?.metadata as Record<string, unknown> | undefined;
+    const rawLevel = metadata ? metadata['analysisLevel'] : undefined;
+    const safeLevel = typeof rawLevel === 'string' ? rawLevel : undefined;
     const results = {
       measurement: {
         timestamp: new Date().toISOString(),
         level: options.level || 'custom',
         scope: options.scope || 'all',
         snapshotId: snapshot?.id,
-        analysisLevel: snapshot?.metadata.analysisLevel
+        analysisLevel: safeLevel
       },
       // 実際のメトリクスデータを含める
       metrics: snapshot ? {
-        totalFunctions: snapshot.metadata.totalFunctions,
-        totalFiles: snapshot.metadata.totalFiles,
-        avgComplexity: snapshot.metadata.avgComplexity,
-        maxComplexity: snapshot.metadata.maxComplexity
+        totalFunctions: metadata ? (typeof metadata['totalFunctions'] === 'number' ? metadata['totalFunctions'] : Number(metadata['totalFunctions'] ?? 0)) : 0,
+        totalFiles: metadata ? (typeof metadata['totalFiles'] === 'number' ? metadata['totalFiles'] : Number(metadata['totalFiles'] ?? 0)) : 0,
+        avgComplexity: metadata ? (typeof metadata['avgComplexity'] === 'number' ? metadata['avgComplexity'] : Number(metadata['avgComplexity'] ?? 0)) : 0,
+        maxComplexity: metadata ? (typeof metadata['maxComplexity'] === 'number' ? metadata['maxComplexity'] : Number(metadata['maxComplexity'] ?? 0)) : 0
       } : null
     };
     
@@ -395,15 +398,30 @@ export class UnifiedMeasureCommand implements Command {
     console.log(`📦 Scope: ${options.scope || 'all'}`);
     
     if (snapshot) {
+      const m = snapshot.metadata as Record<string, unknown>;
+      const al = typeof m['analysisLevel'] === 'string' ? m['analysisLevel'] : 'BASIC';
+      const tf = typeof m['totalFunctions'] === 'number'
+        ? m['totalFunctions']
+        : Number(m['totalFunctions'] ?? 0);
+      const tfi = typeof m['totalFiles'] === 'number'
+        ? m['totalFiles']
+        : Number(m['totalFiles'] ?? 0);
+      const ac = typeof m['avgComplexity'] === 'number'
+        ? m['avgComplexity']
+        : Number(m['avgComplexity'] ?? 0);
+      const mc = typeof m['maxComplexity'] === 'number'
+        ? m['maxComplexity']
+        : Number(m['maxComplexity'] ?? 0);
+
       console.log(`📸 Snapshot: ${snapshot.id.substring(0, 8)}`);
-      console.log(`📊 Analysis Level: ${snapshot.metadata.analysisLevel || 'BASIC'}`);
+      console.log(`📊 Analysis Level: ${al}`);
       console.log();
       
       console.log('📈 Results:');
-      console.log(`   • Functions analyzed: ${snapshot.metadata.totalFunctions || 0}`);
-      console.log(`   • Files processed: ${snapshot.metadata.totalFiles || 0}`);
-      console.log(`   • Average complexity: ${(snapshot.metadata.avgComplexity || 0).toFixed(1)}`);
-      console.log(`   • Maximum complexity: ${snapshot.metadata.maxComplexity || 0}`);
+      console.log(`   • Functions analyzed: ${tf}`);
+      console.log(`   • Files processed: ${tfi}`);
+      console.log(`   • Average complexity: ${ac.toFixed(1)}`);
+      console.log(`   • Maximum complexity: ${mc}`);
     }
     
     console.log();

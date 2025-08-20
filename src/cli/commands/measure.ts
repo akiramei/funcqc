@@ -347,26 +347,26 @@ async function determineScanNecessity(
 
   const currentLevel = existingSnapshot.analysisLevel;
   
-  // Define analysis level hierarchy
+  // src/config/dependencies.ts の priority に合わせて整合
   const levelHierarchy: Record<string, number> = {
-    'NONE': 0,
-    'BASIC': 1,
-    'COUPLING': 2,
-    'CALL_GRAPH': 3,
-    'TYPE_SYSTEM': 4,
-    'COMPLETE': 5
+    NONE: 0,
+    BASIC: 1,
+    CALL_GRAPH: 2,
+    TYPE_SYSTEM: 3,
+    COUPLING: 4,
+    COMPLETE: 5
   };
   
   // Determine required level based on plan
   let requiredLevel = 'BASIC';
   if (plan.includesCallGraph && plan.includesTypes && plan.includesCoupling) {
     requiredLevel = 'COMPLETE';
+  } else if (plan.includesCoupling) {
+    requiredLevel = 'COUPLING';
   } else if (plan.includesTypes) {
     requiredLevel = 'TYPE_SYSTEM';
   } else if (plan.includesCallGraph) {
     requiredLevel = 'CALL_GRAPH';
-  } else if (plan.includesCoupling) {
-    requiredLevel = 'COUPLING';
   }
   
   const currentLevelNum = levelHierarchy[currentLevel] || 0;
