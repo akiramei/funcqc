@@ -965,21 +965,33 @@ async function performCouplingAnalysisForFile(
 
       // If not found in DB, try fallback lookup using functionLookupMap
       if (!resolvedFunctionId) {
-        const funcNode = context.funcIdToNodeCache?.get(funcHashId);
-        if (funcNode) {
-          const info = extractFunctionCharacteristics(funcNode);
-          const startLine = funcNode.getStartLineNumber();
-          const nameForKey = info.name || '<anonymous>';
-          
-          // Try multiple composite key strategies
-          const directKey = generateFunctionCompositeKey(sourceFile.filePath, startLine, nameForKey);
-          const altKey = generateFunctionCompositeKey(path.basename(sourceFile.filePath), startLine, nameForKey);
-          
-          const mappedId = functionLookupMap.get(directKey) || functionLookupMap.get(altKey);
-          if (mappedId && dbFunctionIds.has(mappedId)) {
-            resolvedFunctionId = mappedId;
-            if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-              console.log(`  🔁 Fallback resolved: ${funcHashId} -> ${resolvedFunctionId}`);
+        // 1) まず couplingHashId での直接参照を試す（最も安価でヒット率が高い）
+        const mappedByHash = functionLookupMap.get(funcHashId);
+        if (mappedByHash && dbFunctionIds.has(mappedByHash)) {
+          resolvedFunctionId = mappedByHash;
+          if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+            console.log(`  🔁 Fallback resolved via couplingHashId: ${funcHashId} -> ${resolvedFunctionId}`);
+          }
+        }
+
+        // 2) 未解決なら AST 特性に基づく複合キーでの探索
+        if (!resolvedFunctionId) {
+          const funcNode = context.funcIdToNodeCache?.get(funcHashId);
+          if (funcNode) {
+            const info = extractFunctionCharacteristics(funcNode);
+            const startLine = funcNode.getStartLineNumber();
+            const nameForKey = info.name || '<anonymous>';
+            
+            // Try multiple composite key strategies
+            const directKey = generateFunctionCompositeKey(sourceFile.filePath, startLine, nameForKey);
+            const altKey = generateFunctionCompositeKey(path.basename(sourceFile.filePath), startLine, nameForKey);
+            
+            const mappedId = functionLookupMap.get(directKey) || functionLookupMap.get(altKey);
+            if (mappedId && dbFunctionIds.has(mappedId)) {
+              resolvedFunctionId = mappedId;
+              if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
+                console.log(`  🔁 Fallback resolved: ${funcHashId} -> ${resolvedFunctionId}`);
+              }
             }
           }
         }
