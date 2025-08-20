@@ -124,11 +124,16 @@ export const analyzeCommand: VoidCommand<AnalyzeCommandOptions> = (options) =>
           }
           resultsInfo['typeSystemSkipped'] = true;
         } else {
-          // TODO: Implement type system analysis
+          // Perform deferred type system analysis
+          const { performDeferredTypeSystemAnalysis } = await import('./scan');
           if (!options.json) {
-            console.log(chalk.yellow('⚠️  Type system analysis not yet implemented'));
+            console.log(chalk.blue('🧩 Performing deferred type system analysis...'));
           }
-          resultsInfo['typeSystemStatus'] = 'not_implemented';
+          const typeResult = await performDeferredTypeSystemAnalysis(snapshot.id, env, !options.json);
+          if (!options.json) {
+            console.log(chalk.green(`✓ Type system analysis completed (${typeResult.typesAnalyzed} types analyzed)`));
+          }
+          resultsInfo['typesAnalyzed'] = typeResult.typesAnalyzed;
         }
       }
       
