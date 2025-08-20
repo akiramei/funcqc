@@ -210,6 +210,10 @@ export class UnifiedASTAnalyzer {
     const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
     const physicalId = this.generatePhysicalId(filePath, name, className, startLine, startColumn, snapshotId || 'unknown');
     
+    // DEBUG: Log generated ID (disabled for performance)
+    // console.log(`    🔧 unified-ast-analyzer: filePath=${filePath}, name=${name}, className=${className}, line=${startLine}:${startColumn}`);
+    // console.log(`    🔧 unified-ast-analyzer generated ID: ${physicalId}`);
+    
     // Generate content-based ID using source code
     const contentId = this.generateContentId(sourceCode, filePath, startLine, endLine);
     

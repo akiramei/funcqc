@@ -369,22 +369,22 @@ export class OnePassASTVisitor {
    * Analyze coupling patterns and compute severity scores
    */
   private analyzeCoupling(ctx: ScanContext): void {
-    console.log(`🔍 analyzeCoupling: processing ${ctx.couplingData.parameterUsage.size} functions`);
+    // console.log(`🔍 analyzeCoupling: processing ${ctx.couplingData.parameterUsage.size} functions`);
     
     for (const [funcId, paramUsage] of ctx.couplingData.parameterUsage) {
       const analyses: SimpleCouplingAnalysis[] = [];
-      console.log(`  📋 Function ${funcId}: ${paramUsage.size} parameters`);
+      // console.log(`  📋 Function ${funcId}: ${paramUsage.size} parameters`);
       
       for (const [paramName, usedProps] of paramUsage) {
-        console.log(`    🔧 Parameter ${paramName}: ${usedProps.size} used properties`);
+        // console.log(`    🔧 Parameter ${paramName}: ${usedProps.size} used properties`);
         
         // Get total properties for this parameter type
         let totalProps = this.getTotalPropertiesForParam(funcId, paramName, ctx);
-        console.log(`    📊 totalProps for ${paramName}: ${totalProps}`);
+        // console.log(`    📊 totalProps for ${paramName}: ${totalProps}`);
         
         // Skip if no properties are used
         if (usedProps.size === 0) {
-          console.log(`    ⚠️  Skipping ${paramName}: no properties used`);
+          // console.log(`    ⚠️  Skipping ${paramName}: no properties used`);
           continue;
         }
         
@@ -392,7 +392,7 @@ export class OnePassASTVisitor {
         // still proceed with coupling analysis based on observed usage
         if (totalProps === 0) {
           totalProps = Math.max(usedProps.size, 1);
-          console.log(`    🔄 Using fallback totalProps=${totalProps} for ${paramName}`);
+          // console.log(`    🔄 Using fallback totalProps=${totalProps} for ${paramName}`);
         }
         
         const usageRatio = usedProps.size / totalProps;
@@ -412,10 +412,10 @@ export class OnePassASTVisitor {
       }
       
       if (analyses.length > 0) {
-        console.log(`  ✅ Added ${analyses.length} coupling analyses for function ${funcId}`);
+        // console.log(`  ✅ Added ${analyses.length} coupling analyses for function ${funcId}`);
         ctx.couplingData.overCoupling.set(funcId, analyses);
       } else {
-        console.log(`  ❌ No coupling analyses created for function ${funcId}`);
+        // console.log(`  ❌ No coupling analyses created for function ${funcId}`);
       }
     }
   }
@@ -500,17 +500,32 @@ export class OnePassASTVisitor {
       console.log(`      snapshotId: ${_ctx.snapshotId || 'unknown'}`);
     }
     
-    const funcId = FunctionIdGenerator.generateDeterministicUUIDFromNode(
-      func,
+    // CRITICAL FIX: Use same ID generation method as unified-ast-analyzer
+    // Extract function name using same logic as unified-ast-analyzer
+    let functionName = '<anonymous>';
+    if (Node.isConstructorDeclaration(func)) {
+      functionName = 'constructor';
+    } else if ('getName' in func && typeof func.getName === 'function') {
+      functionName = func.getName() || '<anonymous>';
+    }
+    // Note: NO special getter/setter prefixing (unified-ast-analyzer doesn't do this)
+    
+    const startLine = func.getStartLineNumber();
+    const startColumn = func.getStart() - func.getStartLinePos();
+    
+    // Use same method as unified-ast-analyzer
+    const funcId = FunctionIdGenerator.generateDeterministicUUID(
       filePath,
-      _ctx.snapshotId || 'unknown',
-      className
+      functionName,
+      className,
+      startLine,
+      startColumn,
+      _ctx.snapshotId || 'unknown'
     );
     
-    // DEBUG: Log generated ID
-    if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-      console.log(`    🆔 OnePassASTVisitor generated ID: ${funcId}`);
-    }
+    // DEBUG: Log generated ID (disabled for performance)
+    // console.log(`    🆔 OnePassASTVisitor: filePath=${filePath}, name=${functionName}, className=${className}, line=${startLine}:${startColumn}`);
+    // console.log(`    🆔 OnePassASTVisitor generated ID: ${funcId}`);
     
     this.funcIdCache.set(func, funcId);
     return funcId;
