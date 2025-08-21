@@ -334,7 +334,7 @@ export class DependencyManager {
         console.log(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
       }
       // 分析レベルを確認・更新
-      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
+      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC' as AnalysisLevel, env);
       return;
     }
     
@@ -343,9 +343,25 @@ export class DependencyManager {
   }
   
   /**
+   * AnalysisLevel の序数ランク（dependency-manager内で統一）
+   */
+  private readonly analysisLevelRank: Record<AnalysisLevel, number> = {
+    NONE: 0,
+    BASIC: 1,
+    COUPLING: 2,
+    CALL_GRAPH: 3,
+    TYPE_SYSTEM: 4,
+    COMPLETE: 5,
+  };
+
+  /**
    * 分析レベルが正しく設定されているかチェックし、必要に応じて更新
    */
-  private async ensureAnalysisLevelUpdated(snapshotId: string, expectedLevel: string, env: CommandEnvironment): Promise<void> {
+  private async ensureAnalysisLevelUpdated(
+    snapshotId: string,
+    expectedLevel: AnalysisLevel,
+    env: CommandEnvironment,
+  ): Promise<void> {
     try {
       const snapshot = await env.storage.getSnapshot(snapshotId);
       if (!snapshot) return;
@@ -353,8 +369,11 @@ export class DependencyManager {
       const metadata = snapshot.metadata as Record<string, unknown>;
       const currentLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
       
-      if (currentLevel === 'NONE' || currentLevel < expectedLevel) {
-        await env.storage.updateAnalysisLevel(snapshotId, expectedLevel as AnalysisLevel);
+      const currentRank = this.analysisLevelRank[(currentLevel as AnalysisLevel)] ?? 0;
+      const expectedRank = this.analysisLevelRank[expectedLevel];
+      
+      if (currentRank < expectedRank) {
+        await env.storage.updateAnalysisLevel(snapshotId, expectedLevel);
       }
     } catch (error) {
       console.warn(`Warning: Failed to update analysis level: ${error}`);
