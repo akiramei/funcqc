@@ -112,10 +112,10 @@ CREATE TABLE functions (
   -- 物理識別次元
   id TEXT PRIMARY KEY,                   -- Physical UUID（物理的実体の一意識別）
   snapshot_id TEXT NOT NULL,             -- スナップショット参照
-  start_line INTEGER NOT NULL,           -- ファイル内開始行
-  end_line INTEGER NOT NULL,             -- ファイル内終了行
-  start_column INTEGER NOT NULL DEFAULT 0,
-  end_column INTEGER NOT NULL DEFAULT 0,
+  start_line INTEGER NOT NULL,           -- ファイル内開始行 (1-based, inclusive)
+  end_line INTEGER NOT NULL,             -- ファイル内終了行 (1-based, inclusive)
+  start_column INTEGER NOT NULL DEFAULT 0,  -- 開始列 (0-based, inclusive)
+  end_column INTEGER NOT NULL DEFAULT 0,    -- 終了列 (0-based, exclusive)
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   
   -- 意味識別次元

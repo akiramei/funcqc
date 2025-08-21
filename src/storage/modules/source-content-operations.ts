@@ -448,6 +448,11 @@ export class SourceContentOperations extends BaseStorageOperations implements St
 
   /**
    * Extract source code from content based on position information
+   * 
+   * @param startLine 1-based line number (inclusive)
+   * @param endLine 1-based line number (inclusive)
+   * @param startColumn 0-based column number (inclusive)
+   * @param endColumn 0-based column number (exclusive, works with substring)
    */
   private extractSourceFromContent(
     content: string,
@@ -477,13 +482,13 @@ export class SourceContentOperations extends BaseStorageOperations implements St
 
     if (startLineIndex === endLineIndex) {
       const line = lines[startLineIndex];
-      const startCol = Math.max(0, startColumn - 1);
-      const endCol = endColumn > 0 ? endColumn - 1 : line.length;
+      const startCol = startColumn; // Column numbers are 0-based from TypeScript AST
+      const endCol = endColumn > 0 ? endColumn : line.length; // endColumn is exclusive for substring
       return line.substring(startCol, endCol);
     }
 
     const result: string[] = [];
-    const startCol = Math.max(0, startColumn - 1);
+    const startCol = startColumn; // Column numbers are 0-based from TypeScript AST
     result.push(lines[startLineIndex].substring(startCol));
 
     for (let i = startLineIndex + 1; i < endLineIndex; i++) {
@@ -491,7 +496,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
     }
 
     if (endLineIndex < lines.length) {
-      const endCol = endColumn > 0 ? endColumn - 1 : lines[endLineIndex].length;
+      const endCol = endColumn > 0 ? endColumn : lines[endLineIndex].length; // endColumn is exclusive for substring
       result.push(lines[endLineIndex].substring(0, endCol));
     }
 
