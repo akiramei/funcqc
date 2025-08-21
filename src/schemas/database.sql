@@ -103,6 +103,9 @@ CREATE INDEX idx_source_file_refs_file_path ON source_file_refs(file_path);
 CREATE INDEX idx_source_file_refs_content_id ON source_file_refs(content_id);
 CREATE INDEX idx_source_file_refs_function_count ON source_file_refs(function_count);
 
+-- Composite index for GROUP BY queries with snapshot_id and file_path
+CREATE INDEX IF NOT EXISTS idx_source_file_refs_snapshot_file ON source_file_refs(snapshot_id, file_path);
+
 -- -----------------------------------------------------------------------------
 -- Functions: Core function information with 3-dimensional identification
 -- -----------------------------------------------------------------------------
@@ -171,6 +174,9 @@ CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_
 CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
 CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
 CREATE INDEX idx_functions_snapshot_file_method ON functions(snapshot_id, file_path) WHERE is_method = TRUE;
+
+-- Composite index for all functions with snapshot_id and file_path (complements the method-only index above)
+CREATE INDEX IF NOT EXISTS idx_functions_snapshot_file ON functions(snapshot_id, file_path);
 
 -- File relationship indexes (N:1 design)
 CREATE INDEX idx_functions_source_file_ref_id ON functions(source_file_ref_id);
