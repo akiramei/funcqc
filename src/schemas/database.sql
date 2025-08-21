@@ -103,8 +103,7 @@ CREATE INDEX idx_source_file_refs_file_path ON source_file_refs(file_path);
 CREATE INDEX idx_source_file_refs_content_id ON source_file_refs(content_id);
 CREATE INDEX idx_source_file_refs_function_count ON source_file_refs(function_count);
 
--- Composite index for GROUP BY queries with snapshot_id and file_path
-CREATE INDEX IF NOT EXISTS idx_source_file_refs_snapshot_file ON source_file_refs(snapshot_id, file_path);
+-- Note: Composite index (snapshot_id, file_path) is already provided by the UNIQUE constraint above
 
 -- -----------------------------------------------------------------------------
 -- Functions: Core function information with 3-dimensional identification
