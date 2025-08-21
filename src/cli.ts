@@ -459,12 +459,12 @@ program
   .addHelpText('after', `
 Examples:
   $ funcqc dependencies                                 # Dependency overview (default)
-  $ funcqc dependencies --action=list --caller="MyClass"  # List dependencies with filter
-  $ funcqc dependencies --action=show --direction=both --depth=3  # Show detailed dependencies
-  $ funcqc dependencies --action=stats --show-hubs     # Show hub analysis
-  $ funcqc dependencies --action=lint --severity=error # Lint architecture rules
-  $ funcqc dependencies --action=dead --exclude-tests  # Find dead code
-  $ funcqc dependencies --action=cycles --min-size=2   # Find circular dependencies
+  $ funcqc dependencies --action list --caller "MyClass"  # List dependencies with filter
+  $ funcqc dependencies --action show --direction both --depth 3  # Show detailed dependencies
+  $ funcqc dependencies --action stats --show-hubs     # Show hub analysis
+  $ funcqc dependencies --action lint --severity error # Lint architecture rules
+  $ funcqc dependencies --action dead --exclude-tests  # Find dead code
+  $ funcqc dependencies --action cycles --min-size 2   # Find circular dependencies
 
 Actions:
   overview     Show dependency analysis overview (default)
