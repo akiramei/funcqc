@@ -181,7 +181,7 @@ export class UnifiedMeasureCommand implements Command {
     // Command Protocolに従い、依存関係は既に満たされていることを前提とする
     const snapshot = await env.storage.getLatestSnapshot();
     if (!snapshot) {
-      throw new DependencyViolationError('measure', 'BASIC', 'executeMeasurement');
+      throw new DependencyViolationError('measure', 'SNAPSHOT', 'executeMeasurement');
     }
     
     // 測定結果の表示（measureコマンドの責任）

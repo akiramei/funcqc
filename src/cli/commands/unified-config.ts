@@ -13,7 +13,8 @@ export class UnifiedConfigCommand implements Command {
   }
 
   async perform(_env: CommandEnvironment, subCommand: string[]): Promise<void> {
-    const action = subCommand.length > 0 && !subCommand[0].startsWith('--') ? subCommand[0] : '';
+    // 先頭に -- があっても、最初の非オプショントークンを action として扱う
+    const action = subCommand.find((t) => !t.startsWith('--')) ?? '';
     const options = this.parseOptions(subCommand);
     
     await configCommand(action, options);
