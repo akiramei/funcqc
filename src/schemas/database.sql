@@ -103,6 +103,8 @@ CREATE INDEX idx_source_file_refs_file_path ON source_file_refs(file_path);
 CREATE INDEX idx_source_file_refs_content_id ON source_file_refs(content_id);
 CREATE INDEX idx_source_file_refs_function_count ON source_file_refs(function_count);
 
+-- Note: Composite index (snapshot_id, file_path) is already provided by the UNIQUE constraint above
+
 -- -----------------------------------------------------------------------------
 -- Functions: Core function information with 3-dimensional identification
 -- -----------------------------------------------------------------------------
@@ -110,10 +112,10 @@ CREATE TABLE functions (
   -- 物理識別次元
   id TEXT PRIMARY KEY,                   -- Physical UUID（物理的実体の一意識別）
   snapshot_id TEXT NOT NULL,             -- スナップショット参照
-  start_line INTEGER NOT NULL,           -- ファイル内開始行
-  end_line INTEGER NOT NULL,             -- ファイル内終了行
-  start_column INTEGER NOT NULL DEFAULT 0,
-  end_column INTEGER NOT NULL DEFAULT 0,
+  start_line INTEGER NOT NULL,           -- ファイル内開始行 (1-based, inclusive)
+  end_line INTEGER NOT NULL,             -- ファイル内終了行 (1-based, inclusive)
+  start_column INTEGER NOT NULL DEFAULT 0,  -- 開始列 (0-based, inclusive)
+  end_column INTEGER NOT NULL DEFAULT 0,    -- 終了列 (0-based, exclusive)
   created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
   
   -- 意味識別次元
@@ -171,6 +173,9 @@ CREATE INDEX idx_functions_snapshot_semantic ON functions(snapshot_id, semantic_
 CREATE INDEX idx_functions_exported ON functions(is_exported) WHERE is_exported = TRUE;
 CREATE INDEX idx_functions_async ON functions(is_async) WHERE is_async = TRUE;
 CREATE INDEX idx_functions_snapshot_file_method ON functions(snapshot_id, file_path) WHERE is_method = TRUE;
+
+-- Composite index for all functions with snapshot_id and file_path (complements the method-only index above)
+CREATE INDEX IF NOT EXISTS idx_functions_snapshot_file ON functions(snapshot_id, file_path);
 
 -- File relationship indexes (N:1 design)
 CREATE INDEX idx_functions_source_file_ref_id ON functions(source_file_ref_id);

@@ -175,7 +175,7 @@ export interface FunctionInfo {
   fileContentHash?: string; // ファイル変更検出高速化用
   
   // File relationship (New)
-  sourceFileId?: string; // Reference to source_files table
+  sourceFileId?: string; // Reference to source_file_refs table
 
   // ドキュメント
   jsDoc?: string; // JSDocコメント
@@ -636,6 +636,7 @@ export interface StorageAdapter {
   updateAnalysisLevel(snapshotId: string, level: AnalysisLevel): Promise<void>;
   getSnapshots(options?: QueryOptions): Promise<SnapshotInfo[]>;
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
+  getLatestSnapshot(scope?: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
   getLastConfigHash?(): Promise<string | null>;
 
@@ -700,6 +701,18 @@ export interface StorageAdapter {
 
   // Function source code extraction
   extractFunctionSourceCode(functionId: string): Promise<string | null>;
+
+  // Unified virtual project analysis support
+  getSnapshotContentsForAnalysis(snapshotId: string): Promise<Array<{
+    filePath: string;      // Normalized path (stored in DB)
+    content: string;       // File content for virtual project
+    contentId: string;     // Content ID for deduplication
+    refId: string;         // Source file reference ID
+    fileHash: string;      // SHA-256 of content (mirrors source_contents.file_hash)
+    fileSizeBytes: number; // Mirrors source_contents.file_size_bytes
+    lineCount: number;     // Mirrors source_contents.line_count
+    encoding: string;      // e.g. 'utf-8'
+  }>>;
 
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;

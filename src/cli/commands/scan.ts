@@ -371,7 +371,7 @@ async function saveSourceFilesWithDeduplication(
 }
 
 /**
- * Get source file ID mapping: filePath -> source_files.id
+ * Get source file ID mapping: filePath -> source_file_refs.id
  */
 async function getSourceFileIdMapping(
   storage: CliComponents['storage'],
@@ -379,12 +379,12 @@ async function getSourceFileIdMapping(
 ): Promise<Map<string, string>> {
   const resultMap = new Map<string, string>();
   
-  // Get all source files for this snapshot
-  const savedSourceFiles = await storage.getSourceFilesBySnapshot(snapshotId);
+  // Get all source files for this snapshot using the new optimized method
+  const snapshotContents = await storage.getSnapshotContentsForAnalysis(snapshotId);
   
-  // Create mapping from filePath to source_files.id
-  for (const file of savedSourceFiles) {
-    resultMap.set(file.filePath, file.id);
+  // Create mapping from filePath to source_file_refs.id (refId)
+  for (const content of snapshotContents) {
+    resultMap.set(content.filePath, content.refId);
   }
   
   return resultMap;
@@ -507,12 +507,30 @@ export async function performDeferredBasicAnalysis(
   env: CommandEnvironment,
   showProgress: boolean = true
 ): Promise<void> {
-  // Get source files for the snapshot
-  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  // Get snapshot contents optimized for virtual project analysis
+  const snapshotContents = await env.storage.getSnapshotContentsForAnalysis(snapshotId);
   
-  if (sourceFiles.length === 0) {
+  if (snapshotContents.length === 0) {
     throw new Error(`No source files found for snapshot ${snapshotId}`);
   }
+
+  // Convert to SourceFile format for compatibility with existing analysis
+  const sourceFiles = snapshotContents.map(content => ({
+    id: content.refId,
+    snapshotId: snapshotId,
+    filePath: content.filePath,
+    fileContent: content.content,
+    fileHash: '', // Not needed for analysis
+    encoding: 'utf-8',
+    fileSizeBytes: content.content.length,
+    lineCount: content.content.split('\n').length,
+    language: 'typescript',
+    functionCount: 0,
+    exportCount: 0,
+    importCount: 0,
+    fileModifiedTime: new Date(),
+    createdAt: new Date()
+  }));
 
   // Check for incomplete previous analysis to prevent duplicate key violations
   const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);

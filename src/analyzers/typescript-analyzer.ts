@@ -256,7 +256,8 @@ export class TypeScriptAnalyzer extends CacheAware {
         overwrite: true,
       });
       
-      const relativePath = path.relative(process.cwd(), virtualPath);
+      // Use virtualPath directly as it's already normalized when stored in DB
+      const relativePath = virtualPath;
       const fileHash = this.calculateFileHash(content);
       
       // Extract all function types

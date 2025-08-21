@@ -143,18 +143,36 @@ export class UnifiedMeasureCommand implements Command {
     
     // フラグ系オプション
     if (subCommand.includes('--history')) options.history = true;
-    if (subCommand.includes('--full')) options.full = true;
+    if (subCommand.includes('--full')) {
+      options.full = true;
+      options.level = 'complete'; // --fullはlevel=completeのエイリアス
+    }
+    if (subCommand.includes('--with-basic')) {
+      if (!options.level) options.level = 'basic'; // --with-basicはlevel=basicのエイリアス
+    }
     if (subCommand.includes('--force')) options.force = true;
     if (subCommand.includes('--json')) options.json = true;
     if (subCommand.includes('--quiet')) options.quiet = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
     
+    // 分析タイプ系オプション（互換性エイリアス）
+    if (subCommand.includes('--call-graph') || subCommand.includes('--with-graph')) {
+      options.callGraph = true;
+    }
+    if (subCommand.includes('--types') || subCommand.includes('--with-types')) {
+      options.types = true;
+    }
+    if (subCommand.includes('--coupling') || subCommand.includes('--with-coupling')) {
+      options.coupling = true;
+    }
+    
     // 値を持つオプション
+    // Note: --level takes precedence over --full if both are specified
     const levelIndex = subCommand.indexOf('--level');
     if (levelIndex >= 0 && levelIndex < subCommand.length - 1) {
       const lvl = subCommand[levelIndex + 1] as string | undefined;
       if (this.isValidLevel(lvl)) {
-        options.level = lvl;
+        options.level = lvl; // Overrides any level set by --full
       }
     }
     
@@ -166,6 +184,11 @@ export class UnifiedMeasureCommand implements Command {
     const commentIndex = subCommand.indexOf('--comment');
     if (commentIndex >= 0 && commentIndex < subCommand.length - 1) {
       options.comment = subCommand[commentIndex + 1];
+    }
+    
+    const scopeIndex = subCommand.indexOf('--scope');
+    if (scopeIndex >= 0 && scopeIndex < subCommand.length - 1) {
+      options.scope = subCommand[scopeIndex + 1];
     }
     
     return options;
