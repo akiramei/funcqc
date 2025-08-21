@@ -592,6 +592,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     content: string;
     contentId: string;
     refId: string;
+    fileHash: string;
+    fileSizeBytes: number;
+    lineCount: number;
+    encoding: string;
   }>> {
     await this.ensureInitialized();
     return this.sourceContentOps.getSnapshotContentsForAnalysis(snapshotId);

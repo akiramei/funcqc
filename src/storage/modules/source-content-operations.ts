@@ -507,13 +507,21 @@ export class SourceContentOperations extends BaseStorageOperations implements St
     content: string;       // File content for virtual project
     contentId: string;     // Content ID for deduplication
     refId: string;         // Source file reference ID
+    fileHash: string;      // SHA-256 of content (mirrors source_contents.file_hash)
+    fileSizeBytes: number; // Mirrors source_contents.file_size_bytes
+    lineCount: number;     // Mirrors source_contents.line_count
+    encoding: string;      // e.g. 'utf-8'
   }>> {
     const result = await this.db.query(`
       SELECT 
         sfr.file_path,
         sc.content,
         sc.id as content_id,
-        sfr.id as ref_id
+        sfr.id as ref_id,
+        sc.file_hash,
+        sc.file_size_bytes,
+        sc.line_count,
+        sc.encoding
       FROM source_file_refs sfr
       INNER JOIN source_contents sc ON sfr.content_id = sc.id
       WHERE sfr.snapshot_id = $1
@@ -526,12 +534,20 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         content: string;
         content_id: string;
         ref_id: string;
+        file_hash: string;
+        file_size_bytes: number;
+        line_count: number;
+        encoding: string;
       };
       return {
         filePath: r.file_path,
         content: r.content,
         contentId: r.content_id,
-        refId: r.ref_id
+        refId: r.ref_id,
+        fileHash: r.file_hash,
+        fileSizeBytes: r.file_size_bytes,
+        lineCount: r.line_count,
+        encoding: r.encoding
       };
     });
   }

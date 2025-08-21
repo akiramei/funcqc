@@ -167,11 +167,12 @@ export class UnifiedMeasureCommand implements Command {
     }
     
     // 値を持つオプション
+    // Note: --level takes precedence over --full if both are specified
     const levelIndex = subCommand.indexOf('--level');
     if (levelIndex >= 0 && levelIndex < subCommand.length - 1) {
       const lvl = subCommand[levelIndex + 1] as string | undefined;
       if (this.isValidLevel(lvl)) {
-        options.level = lvl;
+        options.level = lvl; // Overrides any level set by --full
       }
     }
     
@@ -183,6 +184,11 @@ export class UnifiedMeasureCommand implements Command {
     const commentIndex = subCommand.indexOf('--comment');
     if (commentIndex >= 0 && commentIndex < subCommand.length - 1) {
       options.comment = subCommand[commentIndex + 1];
+    }
+    
+    const scopeIndex = subCommand.indexOf('--scope');
+    if (scopeIndex >= 0 && scopeIndex < subCommand.length - 1) {
+      options.scope = subCommand[scopeIndex + 1];
     }
     
     return options;
