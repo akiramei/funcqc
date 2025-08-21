@@ -103,6 +103,10 @@ export class UnifiedMeasureCommand implements Command {
       await this.executeMeasurement(env, options);
       
     } catch (error) {
+      // Command Protocol 準拠の依存違反は上位で処理させる
+      if (error instanceof DependencyViolationError) {
+        throw error;
+      }
       if (error && typeof error === 'object' && 'code' in error && 'message' in error) {
         const dbErr = error as DatabaseErrorLike;
         const funcqcError = errorHandler.createError(
