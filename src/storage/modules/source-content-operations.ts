@@ -497,4 +497,42 @@ export class SourceContentOperations extends BaseStorageOperations implements St
 
     return result.join('\n');
   }
+
+  /**
+   * Get snapshot contents optimized for virtual project analysis
+   * Returns unified data structure for consistent function ID generation
+   */
+  async getSnapshotContentsForAnalysis(snapshotId: string): Promise<Array<{
+    filePath: string;      // Normalized path (stored in DB)
+    content: string;       // File content for virtual project
+    contentId: string;     // Content ID for deduplication
+    refId: string;         // Source file reference ID
+  }>> {
+    const result = await this.db.query(`
+      SELECT 
+        sfr.file_path,
+        sc.content,
+        sc.id as content_id,
+        sfr.id as ref_id
+      FROM source_file_refs sfr
+      INNER JOIN source_contents sc ON sfr.content_id = sc.id
+      WHERE sfr.snapshot_id = $1
+      ORDER BY sfr.file_path
+    `, [snapshotId]);
+
+    return result.rows.map(row => {
+      const r = row as {
+        file_path: string;
+        content: string;
+        content_id: string;
+        ref_id: string;
+      };
+      return {
+        filePath: r.file_path,
+        content: r.content,
+        contentId: r.content_id,
+        refId: r.ref_id
+      };
+    });
+  }
 }

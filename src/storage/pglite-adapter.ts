@@ -583,8 +583,18 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async getSourceFilesBySnapshot(snapshotId: string): Promise<SourceFile[]> {
     await this.ensureInitialized();
-    const result = await this.sourceContentOps.getSourceFilesBySnapshot(snapshotId);
+    const result = await this.utilityOps.getSourceFilesBySnapshot(snapshotId);
     return result as unknown as SourceFile[];
+  }
+
+  async getSnapshotContentsForAnalysis(snapshotId: string): Promise<Array<{
+    filePath: string;
+    content: string;
+    contentId: string;
+    refId: string;
+  }>> {
+    await this.ensureInitialized();
+    return this.sourceContentOps.getSnapshotContentsForAnalysis(snapshotId);
   }
 
   async getSourceFileByPath(filePath: string, snapshotId: string): Promise<SourceFile | null> {

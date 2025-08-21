@@ -439,7 +439,20 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
     functionCount: number;
     createdAt: Date;
   } | null> {
-    const result = await this.db.query('SELECT * FROM source_files WHERE id = $1', [id]);
+    const result = await this.db.query(`
+      SELECT 
+        sfr.id,
+        sfr.snapshot_id,
+        sfr.file_path,
+        sc.content,
+        sc.file_hash as hash,
+        sc.file_size_bytes as size,
+        sfr.function_count,
+        sfr.created_at
+      FROM source_file_refs sfr
+      INNER JOIN source_contents sc ON sfr.content_id = sc.id
+      WHERE sfr.id = $1
+    `, [id]);
     
     if (result.rows.length === 0) {
       return null;
@@ -469,13 +482,28 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
 
   async getSourceFilesBySnapshot(snapshotId: string): Promise<import('../../types').SourceFile[]> {
     // Get source files referenced by functions in this snapshot
-    // This correctly handles the source_files sharing mechanism
+    // This correctly handles the source_file_refs + source_contents N:1 design
     const result = await this.db.query(`
-      SELECT DISTINCT sf.* 
-      FROM source_files sf
-      INNER JOIN functions f ON sf.id = f.source_file_ref_id
+      SELECT DISTINCT 
+        sfr.id,
+        sfr.snapshot_id,
+        sfr.file_path,
+        sc.content as file_content,
+        sc.file_hash,
+        sc.file_size_bytes,
+        sc.line_count,
+        sc.language,
+        sfr.function_count,
+        sc.export_count,
+        sc.import_count,
+        sc.encoding,
+        sfr.file_modified_time,
+        sfr.created_at
+      FROM source_file_refs sfr
+      INNER JOIN source_contents sc ON sfr.content_id = sc.id
+      INNER JOIN functions f ON sfr.id = f.source_file_ref_id
       WHERE f.snapshot_id = $1
-      ORDER BY sf.file_path
+      ORDER BY sfr.file_path
     `, [snapshotId]);
     
     return result.rows.map(row => {
@@ -524,7 +552,20 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
     functionCount: number;
     createdAt: Date;
   } | null> {
-    const result = await this.db.query('SELECT * FROM source_files WHERE file_path = $1 AND snapshot_id = $2', [filePath, snapshotId]);
+    const result = await this.db.query(`
+      SELECT 
+        sfr.id,
+        sfr.snapshot_id,
+        sfr.file_path,
+        sc.content,
+        sc.file_hash as hash,
+        sc.file_size_bytes as size,
+        sfr.function_count,
+        sfr.created_at
+      FROM source_file_refs sfr
+      INNER JOIN source_contents sc ON sfr.content_id = sc.id
+      WHERE sfr.file_path = $1 AND sfr.snapshot_id = $2
+    `, [filePath, snapshotId]);
     
     if (result.rows.length === 0) {
       return null;
@@ -555,7 +596,7 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
   async findExistingSourceFile(compositeId: string): Promise<string | null> {
     try {
       const result = await this.db.query(`
-        SELECT id FROM source_files 
+        SELECT id FROM source_file_refs 
         WHERE id = $1 
         LIMIT 1
       `, [compositeId]);
@@ -572,7 +613,7 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
   }
 
   async deleteSourceFiles(snapshotId: string): Promise<number> {
-    const result = await this.db.query('DELETE FROM source_files WHERE snapshot_id = $1', [snapshotId]);
+    const result = await this.db.query('DELETE FROM source_file_refs WHERE snapshot_id = $1', [snapshotId]);
     
     // Try to get the changes count from the result
     return (result as unknown as { changes?: number }).changes || 0;
@@ -580,11 +621,10 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
 
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
     for (const [filePath, count] of functionCountByFile.entries()) {
-      // Update the source file that functions actually reference, not by snapshot_id
-      // Since source files are deduplicated, we need to find the actual source_file_id
-      // that functions in this snapshot are referencing for this file path
+      // Update the source file reference that functions actually reference
+      // Find the source_file_ref_id that functions in this snapshot are using for this file path
       await this.db.query(`
-        UPDATE source_files 
+        UPDATE source_file_refs 
         SET function_count = $1 
         WHERE id = (
           SELECT DISTINCT f.source_file_ref_id 
@@ -633,9 +673,10 @@ export class UtilityOperations extends BaseStorageOperations implements StorageO
           f.end_line,
           f.start_column,
           f.end_column,
-          sf.file_content
+          sc.content as file_content
         FROM functions f
-        JOIN source_files sf ON f.source_file_ref_id = sf.id
+        JOIN source_file_refs sfr ON f.source_file_ref_id = sfr.id
+        JOIN source_contents sc ON sfr.content_id = sc.id
         WHERE f.id = $1
       `, [functionId]);
       

@@ -507,7 +507,7 @@ export class SnapshotOperations implements StorageOperationModule {
                 ELSE 'other'
               END AS file_extension,
               COUNT(*) AS file_count
-            FROM source_files
+            FROM source_file_refs
             WHERE snapshot_id = $1
             GROUP BY 1
           ) ext_counts
