@@ -159,7 +159,7 @@ export class DependencyManager {
    */
   private getCompletedAnalysesFromMetadata(metadata: Record<string, unknown>): DependencyType[] {
     // 新方式: completedAnalysesが存在する場合は優先
-    const completedAnalyses = metadata?.completedAnalyses as string[];
+    const completedAnalyses = metadata?.['completedAnalyses'] as string[];
     if (completedAnalyses && Array.isArray(completedAnalyses)) {
       return completedAnalyses as DependencyType[];
     }
@@ -294,6 +294,7 @@ export class DependencyManager {
       // この実装は storage adapter の内部実装に依存するため、将来的には
       // storage interface に updateSnapshotMetadata メソッドを追加することが理想
       if ('query' in env.storage && typeof env.storage.query === 'function') {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (env.storage as any).query(
           'UPDATE snapshots SET metadata = $1 WHERE id = $2',
           [JSON.stringify(updatedMetadata), snapshotId]
@@ -343,7 +344,7 @@ export class DependencyManager {
    * 既存スナップショットを取得（作成は行わない）
    * BASIC等の分析系依存関係で使用
    */
-  private async ensureSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<string> {
+  private async ensureSnapshot(env: CommandEnvironment, _options: BaseCommandOptions): Promise<string> {
     const snapshot = await env.storage.getLatestSnapshot();
     
     if (!snapshot) {

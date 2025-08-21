@@ -54,12 +54,10 @@ program
   .option('--interactive', 'use interactive mode for confirmations')
   .option('--output <path>', 'output file path for backup')
   .option('--json', 'output as JSON')
-  .action(async (action: string, options: OptionValues, cmd) => {
-    // グローバルオプションをマージ
-    const globalOpts = cmd.parent.opts();
-    const mergedOptions = { ...globalOpts, ...options };
-    const { configCommand } = await import('./cli/config');
-    await configCommand(action, mergedOptions);
+  .action(async (_action: string, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedConfigCommand } = await import('./cli/commands/unified-config');
+    return createUnifiedCommandHandler(UnifiedConfigCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -115,9 +113,9 @@ program
     console.log(chalk.gray('   Example: funcqc measure --level standard (same options work)\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { scanCommand } = await import('./cli/commands/scan');
-    return withEnvironment(scanCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedScanCommand } = await import('./cli/commands/unified-scan');
+    return createUnifiedCommandHandler(UnifiedScanCommand)(options, command);
   });
 
 program
@@ -129,9 +127,9 @@ program
   .option('--all', 'run all analyses')
   .option('-j, --json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { analyzeCommand } = await import('./cli/commands/analyze');
-    return withEnvironment(analyzeCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedAnalyzeCommand } = await import('./cli/commands/unified-analyze');
+    return createUnifiedCommandHandler(UnifiedAnalyzeCommand)(options, command);
   });
 
 program
@@ -153,9 +151,9 @@ program
     console.log(chalk.gray('   Example: funcqc inspect --cc-ge 10 (same options work)\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { listCommand } = await import('./cli/commands/list');
-    return withEnvironment(listCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedListCommand } = await import('./cli/commands/unified-list');
+    return createUnifiedCommandHandler(UnifiedListCommand)(options, command);
   });
 
 program
@@ -184,9 +182,9 @@ program
   .option('--detailed', 'show detailed information for each result (like show command)')
   
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { inspectCommand } = await import('./cli/commands/inspect');
-    return withEnvironment(inspectCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedInspectCommand } = await import('./cli/commands/unified-inspect');
+    return createUnifiedCommandHandler(UnifiedInspectCommand)(options, command);
   });
 
 program
@@ -238,9 +236,9 @@ program
   .option('--risky', 'include risky improvements in analysis')
   .option('--preview', 'preview changes before applying')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { improveCommand } = await import('./cli/commands/improve');
-    return withEnvironment(improveCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedImproveCommand } = await import('./cli/commands/unified-improve');
+    return createUnifiedCommandHandler(UnifiedImproveCommand)(options, command);
   });
 
 program
@@ -273,9 +271,9 @@ program
   .option('--explain-scoring', 'explain scoring methodology')
   
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { assessCommand } = await import('./cli/commands/assess');
-    return withEnvironment(assessCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedAssessCommand } = await import('./cli/commands/unified-assess');
+    return createUnifiedCommandHandler(UnifiedAssessCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -319,9 +317,9 @@ program
   .option('--reset', 'reset configuration to defaults')
   .option('-j, --json', 'output as JSON for script processing')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { setupCommand } = await import('./cli/commands/setup');
-    return withEnvironment(setupCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedSetupCommand } = await import('./cli/commands/unified-setup');
+    return createUnifiedCommandHandler(UnifiedSetupCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -364,9 +362,9 @@ program
   .option('-j, --json', 'output as JSON for script processing')
   .option('--verbose', 'detailed output')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { manageCommand } = await import('./cli/commands/manage');
-    return withEnvironment(manageCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedManageCommand } = await import('./cli/commands/unified-manage');
+    return createUnifiedCommandHandler(UnifiedManageCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -454,9 +452,9 @@ program
   .option('--recursive-only', 'recursive cycles only (cycles action)')
   .option('--sort-by-importance', 'sort by importance (cycles action)')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { dependenciesCommand } = await import('./cli/commands/dependencies');
-    return withEnvironment(dependenciesCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedDependenciesCommand } = await import('./cli/commands/unified-dependencies');
+    return createUnifiedCommandHandler(UnifiedDependenciesCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -534,9 +532,9 @@ program
   .option('--team-size <num>', 'team size for migration planning (type-replace action)')
   .option('--risk-tolerance <level>', 'risk tolerance: conservative, moderate, aggressive (type-replace action)')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { refactorCommand } = await import('./cli/commands/refactor');
-    return withEnvironment(refactorCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedRefactorCommand } = await import('./cli/commands/unified-refactor');
+    return createUnifiedCommandHandler(UnifiedRefactorCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -571,10 +569,10 @@ program
     console.log(chalk.blue('💡 Use "funcqc inspect --detailed" instead for enhanced function inspection.'));
     console.log(chalk.gray('   Example: funcqc inspect --name myFunction --detailed\n'));
   })
-  .action(async (namePattern: string | undefined, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { showCommand } = await import('./cli/commands/show');
-    return withEnvironment(showCommand(namePattern || ''))(options, command);
+  .action(async (_namePattern: string | undefined, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedShowCommand } = await import('./cli/commands/unified-show');
+    return createUnifiedCommandHandler(UnifiedShowCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -617,9 +615,9 @@ program
     console.log(chalk.gray('   Example: funcqc inspect --type files --stats\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { filesCommand } = await import('./cli/commands/files');
-    return withEnvironment(filesCommand())(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedFilesCommand } = await import('./cli/commands/unified-files');
+    return createUnifiedCommandHandler(UnifiedFilesCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -673,9 +671,9 @@ program
     console.log(chalk.gray('   Example: funcqc assess (same options work)\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { healthCommand } = await import('./cli/commands/health');
-    return withEnvironment(healthCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedHealthCommand } = await import('./cli/commands/unified-health');
+    return createUnifiedCommandHandler(UnifiedHealthCommand)(options, command);
   });
 
 program
@@ -691,9 +689,9 @@ program
   .option('--scope <name>', 'filter by analysis scope (src, test, etc.)')
   .option('--json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { historyCommand } = await import('./cli/commands/history');
-    return withEnvironment(historyCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedHistoryCommand } = await import('./cli/commands/unified-history');
+    return createUnifiedCommandHandler(UnifiedHistoryCommand)(options, command);
   });
 
 program
@@ -710,10 +708,10 @@ program
   .option('--no-change-detection', 'disable smart change detection for modified functions')
   .option('--insights', 'show suggested actions and insights for similarity analysis')
   .option('--similarity-threshold <num>', 'similarity threshold for function matching (0-1, default: 0.95)', '0.95')
-  .action(async (from: string, to: string, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { diffCommand } = await import('./cli/commands/diff');
-    return withEnvironment(diffCommand(from, to))(options, command);
+  .action(async (_from: string, _to: string, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedDiffCommand } = await import('./cli/commands/unified-diff');
+    return createUnifiedCommandHandler(UnifiedDiffCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -754,9 +752,9 @@ program
     console.log(chalk.gray('   Example: funcqc improve --type duplicates --threshold 0.95\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { similarCommand } = await import('./cli/commands/similar');
-    return withEnvironment(similarCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedSimilarCommand } = await import('./cli/commands/unified-similar');
+    return createUnifiedCommandHandler(UnifiedSimilarCommand)(options, command);
   });
 
 program
@@ -784,10 +782,10 @@ program
     console.log(chalk.blue('💡 Use "funcqc inspect --detailed" instead for enhanced function inspection.'));
     console.log(chalk.gray('   Example: funcqc inspect --name myFunction --detailed\n'));
   })
-  .action(async (functionId: string | undefined, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { describeCommand } = await import('./cli/commands/describe');
-    return withEnvironment(describeCommand(functionId || ''))(options, command);
+  .action(async (_functionId: string | undefined, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedDescribeCommand } = await import('./cli/commands/unified-describe');
+    return createUnifiedCommandHandler(UnifiedDescribeCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -859,10 +857,10 @@ program
     console.log(chalk.blue('💡 Use "funcqc inspect --name" instead for enhanced function search.'));
     console.log(chalk.gray('   Example: funcqc inspect --name "*auth*" (pattern matching)\n'));
   })
-  .action(async (keyword: string, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { searchCommand } = await import('./cli/commands/search');
-    return withEnvironment(searchCommand(keyword))(options, command);
+  .action(async (_keyword: string, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedSearchCommand } = await import('./cli/commands/unified-search');
+    return createUnifiedCommandHandler(UnifiedSearchCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -903,10 +901,10 @@ program
   .option('--score-mode <mode>', 'scoring strategy: sum (legacy) or prob (default)', 'prob')
   .option('--r2-ast', 'enable AST-based R2 analysis (more precise but slower)')
   .option('--snapshot <id>', 'analyze specific snapshot')
-  .action(async (subcommand: string, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { detectCommand } = await import('./cli/commands/detect');
-    return withEnvironment(detectCommand(subcommand))(options, command);
+  .action(async (_subcommand: string, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedDetectCommand } = await import('./cli/commands/unified-detect');
+    return createUnifiedCommandHandler(UnifiedDetectCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -960,10 +958,10 @@ program
   .option('--strict', 'strict mode for critical violations')
   .option('-j, --json', 'output as JSON for integration')
   .option('--evaluate-all', 'evaluate all functions in the file/code')
-  .action(async (input: string | undefined, options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { evaluateCommand } = await import('./cli/commands/evaluate');
-    return withEnvironment(evaluateCommand(input || ''))(options, command);
+  .action(async (_input: string | undefined, options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedEvaluateCommand } = await import('./cli/commands/unified-evaluate');
+    return createUnifiedCommandHandler(UnifiedEvaluateCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -1006,9 +1004,9 @@ program
   .option('--columns <list>', 'comma-separated list of columns to select')
   .option('--json', 'output as JSON')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { dbCommand } = await import('./cli/commands/db');
-    return withEnvironment(dbCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedDbCommand } = await import('./cli/commands/unified-db');
+    return createUnifiedCommandHandler(UnifiedDbCommand)(options, command);
   })
   .addHelpText('after', `
 Database Query Examples:
@@ -1335,9 +1333,9 @@ program
     console.log(chalk.gray('   Example: funcqc improve --type dead-code (same functionality)\n'));
   })
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { safeDeleteCommand } = await import('./cli/safe-delete');
-    return withEnvironment(safeDeleteCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedSafeDeleteCommand } = await import('./cli/commands/unified-safe-delete');
+    return createUnifiedCommandHandler(UnifiedSafeDeleteCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -1386,9 +1384,9 @@ program
   .option('--fix-mode <mode>', 'fix mode: none, preview, auto, interactive, script', 'none')
   .option('--quiet', 'suppress non-essential output')
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { residueCheckCommand } = await import('./cli/commands/residue-check');
-    return withEnvironment(residueCheckCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedResidueCheckCommand } = await import('./cli/commands/unified-residue-check');
+    return createUnifiedCommandHandler(UnifiedResidueCheckCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -1563,9 +1561,9 @@ program
   .option('--exclude-paths <paths>', 'comma-separated paths to exclude from analysis')
   
   .action(async (options: OptionValues, command) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { typesCommand } = await import('./cli/commands/types-unified');
-    return withEnvironment(typesCommand)(options, command);
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedTypesCommand } = await import('./cli/commands/unified-types');
+    return createUnifiedCommandHandler(UnifiedTypesCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
