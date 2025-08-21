@@ -289,10 +289,17 @@ export class DependencyManager {
     if (!snapshot) {
       // スナップショットが存在しない場合は作成
       if (!options.quiet) {
-        console.log('🔍 No snapshot found. Creating initial snapshot...');
+        env.commandLogger.info('🔍 No snapshot found. Creating initial snapshot...');
       }
       
-      await this.createInitialSnapshot(env, options);
+      try {
+        await this.createInitialSnapshot(env, options);
+      } catch (e) {
+        // 競合（同時実行）で既に作成済みの可能性を考慮し再取得
+        if (!options.quiet) {
+          env.commandLogger.warn(`Initial snapshot creation raced or failed: ${e instanceof Error ? e.message : String(e)}. Retrying fetch...`);
+        }
+      }
       snapshot = await env.storage.getLatestSnapshot();
       
       if (!snapshot) {
@@ -307,14 +314,15 @@ export class DependencyManager {
    * 初期スナップショットを作成
    * scan commandの初期化部分を利用
    */
-  private async createInitialSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+  private async createInitialSnapshot(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
     const { scanCommand } = await import('../cli/commands/scan');
     
     // 基本的なスキャンオプションを作成
     const scanOptions = {
       json: false,
-      verbose: options.verbose || false,
-      quiet: options.quiet || false,
+      // 内部呼び出しのため出力は抑制（DEPRECATED 警告などのノイズ回避）
+      verbose: false,
+      quiet: true,
       force: false,
       // 初期スナップショット作成では基本的なスキャンのみ実行
       quick: true  // 最小限のスキャンで済ませる
@@ -331,10 +339,10 @@ export class DependencyManager {
     const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
     if (existingFunctions.length > 0) {
       if (!options.quiet) {
-        console.log(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
+        env.commandLogger.info(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
       }
       // 分析レベルを確認・更新
-      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC' as AnalysisLevel, env);
+      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
       return;
     }
     
@@ -367,36 +375,57 @@ export class DependencyManager {
       if (!snapshot) return;
       
       const metadata = snapshot.metadata as Record<string, unknown>;
-      const currentLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      const currentLevel = (metadata?.['analysisLevel'] as AnalysisLevel) ?? 'NONE';
       
-      const currentRank = this.analysisLevelRank[(currentLevel as AnalysisLevel)] ?? 0;
+      const currentRank = this.analysisLevelRank[currentLevel] ?? 0;
       const expectedRank = this.analysisLevelRank[expectedLevel];
       
       if (currentRank < expectedRank) {
         await env.storage.updateAnalysisLevel(snapshotId, expectedLevel);
       }
     } catch (error) {
-      console.warn(`Warning: Failed to update analysis level: ${error}`);
+      env.commandLogger.warn(`Warning: Failed to update analysis level: ${error}`);
     }
   }
   
   private async initializeCallGraphAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    
+    const state = await this.getCurrentAnalysisState(env);
+    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
+    if (currentRank >= this.analysisLevelRank['CALL_GRAPH']) {
+      if (!options.quiet) {
+        env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed - skipping duplicate analysis');
+      }
+      return;
+    }
     const { performCallGraphAnalysis } = await import('../cli/commands/scan');
     await performCallGraphAnalysis(snapshotId, env, undefined);
   }
   
   private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    
+    const state = await this.getCurrentAnalysisState(env);
+    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
+    if (currentRank >= this.analysisLevelRank['TYPE_SYSTEM']) {
+      if (!options.quiet) {
+        env.commandLogger.info('⏭️  TYPE_SYSTEM analysis already completed - skipping duplicate analysis');
+      }
+      return;
+    }
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
     await performDeferredTypeSystemAnalysis(snapshotId, env, true);
   }
   
   private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    
+    const state = await this.getCurrentAnalysisState(env);
+    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
+    if (currentRank >= this.analysisLevelRank['COUPLING']) {
+      if (!options.quiet) {
+        env.commandLogger.info('⏭️  COUPLING analysis already completed - skipping duplicate analysis');
+      }
+      return;
+    }
     const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
     await performDeferredCouplingAnalysis(snapshotId, env, undefined);
   }
