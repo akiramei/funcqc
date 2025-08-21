@@ -8,9 +8,11 @@ import { analyzeCommand } from './analyze';
 
 export class UnifiedAnalyzeCommand implements Command {
   async getRequires(subCommand: string[]): Promise<DependencyType[]> {
-    // Analyze typically requires existing snapshot data for analysis
+    // Analyze requires BASIC; add others based on flags
     const dependencies: DependencyType[] = ['BASIC'];
-    
+    if (subCommand.includes('--all')) {
+      dependencies.push('CALL_GRAPH', 'TYPE_SYSTEM');
+    }
     if (subCommand.includes('--call-graph')) dependencies.push('CALL_GRAPH');
     if (subCommand.includes('--types')) dependencies.push('TYPE_SYSTEM');
     if (subCommand.includes('--coupling')) dependencies.push('COUPLING');
@@ -32,6 +34,7 @@ export class UnifiedAnalyzeCommand implements Command {
     if (subCommand.includes('--json')) options.json = true;
     if (subCommand.includes('--quiet')) options.quiet = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
+    if (subCommand.includes('--all')) options.all = true;
     if (subCommand.includes('--call-graph')) options.callGraph = true;
     if (subCommand.includes('--types')) options.types = true;
     if (subCommand.includes('--coupling')) options.coupling = true;

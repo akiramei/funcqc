@@ -32,6 +32,7 @@ export class UnifiedConfigCommand implements Command {
     
     if (subCommand.includes('--replace')) options.replace = true;
     if (subCommand.includes('--quiet')) options.quiet = true;
+    if (subCommand.includes('--verbose')) options.verbose = true;
     
     return options;
   }

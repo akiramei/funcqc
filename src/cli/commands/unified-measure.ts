@@ -5,7 +5,7 @@
  * 自分の依存関係を明確に申告し、cli-wrapperに依存せず動作する
  */
 
-import { Command, DependencyType } from '../../types/command-protocol';
+import { Command, DependencyType, DependencyViolationError } from '../../types/command-protocol';
 import { CommandEnvironment } from '../../types/environment';
 import { MeasureCommandOptions, SnapshotInfo } from '../../types';
 import { createErrorHandler, ErrorCode, DatabaseErrorLike } from '../../utils/error-handler';
@@ -181,7 +181,7 @@ export class UnifiedMeasureCommand implements Command {
     // Command Protocolに従い、依存関係は既に満たされていることを前提とする
     const snapshot = await env.storage.getLatestSnapshot();
     if (!snapshot) {
-      throw new Error('No snapshot found. Dependencies should have been initialized by cli-wrapper.');
+      throw new DependencyViolationError('measure', 'BASIC', 'executeMeasurement');
     }
     
     // 測定結果の表示（measureコマンドの責任）
