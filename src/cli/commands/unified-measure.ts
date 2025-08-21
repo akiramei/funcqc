@@ -143,11 +143,28 @@ export class UnifiedMeasureCommand implements Command {
     
     // フラグ系オプション
     if (subCommand.includes('--history')) options.history = true;
-    if (subCommand.includes('--full')) options.full = true;
+    if (subCommand.includes('--full')) {
+      options.full = true;
+      options.level = 'complete'; // --fullはlevel=completeのエイリアス
+    }
+    if (subCommand.includes('--with-basic')) {
+      if (!options.level) options.level = 'basic'; // --with-basicはlevel=basicのエイリアス
+    }
     if (subCommand.includes('--force')) options.force = true;
     if (subCommand.includes('--json')) options.json = true;
     if (subCommand.includes('--quiet')) options.quiet = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
+    
+    // 分析タイプ系オプション（互換性エイリアス）
+    if (subCommand.includes('--call-graph') || subCommand.includes('--with-graph')) {
+      options.callGraph = true;
+    }
+    if (subCommand.includes('--types') || subCommand.includes('--with-types')) {
+      options.types = true;
+    }
+    if (subCommand.includes('--coupling') || subCommand.includes('--with-coupling')) {
+      options.coupling = true;
+    }
     
     // 値を持つオプション
     const levelIndex = subCommand.indexOf('--level');

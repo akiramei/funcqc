@@ -701,6 +701,14 @@ export interface StorageAdapter {
   // Function source code extraction
   extractFunctionSourceCode(functionId: string): Promise<string | null>;
 
+  // Unified virtual project analysis support
+  getSnapshotContentsForAnalysis(snapshotId: string): Promise<Array<{
+    filePath: string;      // Normalized path (stored in DB)
+    content: string;       // File content for virtual project
+    contentId: string;     // Content ID for deduplication
+    refId: string;         // Source file reference ID
+  }>>;
+
   // Call edge operations
   insertCallEdges(edges: CallEdge[], snapshotId: string): Promise<void>;
   getCallEdges(options?: {
