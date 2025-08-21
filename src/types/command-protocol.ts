@@ -12,6 +12,7 @@ import { CommandEnvironment } from './environment';
  * 依存関係タイプの定義
  */
 export type DependencyType = 
+  | 'SNAPSHOT'    // 新規スナップショット作成
   | 'BASIC'       // 基本的な関数解析
   | 'CALL_GRAPH'  // 関数間呼び出し関係解析  
   | 'TYPE_SYSTEM' // TypeScript型システム解析

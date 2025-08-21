@@ -17,25 +17,26 @@ export class UnifiedMeasureCommand implements Command {
    * subCommandに基づいて必要な依存関係を返す
    */
   async getRequires(subCommand: string[]): Promise<DependencyType[]> {
-    // --history オプションの場合：依存関係なし
+    // --history オプションの場合：既存スナップショット利用
     if (subCommand.includes('--history')) {
-      return [];
+      return ['BASIC'];
     }
     
-    // --full オプションの場合：全ての依存関係
+    // --full オプションの場合：新規スナップショット + 全分析
     if (subCommand.includes('--full')) {
-      return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
+      return ['SNAPSHOT', 'BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
     }
     
-    // --level オプションの処理
+    // --level オプションの処理：新規スナップショット + レベル指定分析
     const levelIndex = subCommand.indexOf('--level');
     if (levelIndex >= 0 && levelIndex < subCommand.length - 1) {
       const level = subCommand[levelIndex + 1];
-      return this.getLevelDependencies(level);
+      const levelDeps = this.getLevelDependencies(level);
+      return ['SNAPSHOT', ...levelDeps];
     }
     
-    // 個別オプションの確認
-    const dependencies: DependencyType[] = ['BASIC']; // デフォルトでBASICは必要
+    // 個別オプションの確認：新規スナップショット + 指定分析
+    const dependencies: DependencyType[] = ['SNAPSHOT', 'BASIC']; // デフォルトで新規 + BASIC
     
     if (subCommand.includes('--call-graph') || subCommand.includes('--with-graph')) {
       dependencies.push('CALL_GRAPH');
@@ -49,15 +50,14 @@ export class UnifiedMeasureCommand implements Command {
       dependencies.push('COUPLING');
     }
     
-    // オプションが何もない場合でも、測定サマリ表示にはBASICが必要
-    // （json/quiet/verboseのみの場合も同様）
+    // オプションが何もない場合：新規スナップショット + 基本測定
     if (subCommand.length === 0) {
-      return ['BASIC']; // デフォルト測定にはBASICが必要
+      return ['SNAPSHOT', 'BASIC'];
     }
     
-    // 表示オプションのみの場合もBASICは必要
+    // 表示オプションのみの場合：新規スナップショット + BASIC
     if (subCommand.length === 1 && (subCommand.includes('--json') || subCommand.includes('--quiet') || subCommand.includes('--verbose'))) {
-      return ['BASIC'];
+      return ['SNAPSHOT', 'BASIC'];
     }
     
     return [...new Set(dependencies)];

@@ -145,7 +145,7 @@ export class DependencyManager {
       
       return {
         level: analysisLevel,
-        completedAnalyses: this.getCompletedAnalysesFromLevel(analysisLevel, metadata),
+        completedAnalyses: this.getCompletedAnalysesFromMetadata(metadata),
         timestamp: new Date(snapshot.createdAt)
       };
     } catch {
@@ -154,42 +154,52 @@ export class DependencyManager {
   }
   
   /**
-   * 分析レベルから完了済み依存関係を推定
+   * 完了済み分析をメタデータから取得（ハイブリッド判定）
+   * 新方式のcompletedAnalysesを優先し、古いanalysisLevelからのフォールバックを提供
    */
-  private getCompletedAnalysesFromLevel(level: string, _metadata: Record<string, unknown>): DependencyType[] {
-    const completed: DependencyType[] = [];
-    
-    // レベルから推定
-    switch (level) {
-      case 'COMPLETE':
-        completed.push('BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING');
-        break;
-      case 'TYPE_SYSTEM':
-        completed.push('BASIC', 'TYPE_SYSTEM');
-        break;
-      case 'CALL_GRAPH':
-        completed.push('BASIC', 'CALL_GRAPH');
-        break;
-      case 'COUPLING':
-        completed.push('BASIC', 'COUPLING');
-        break;
-      case 'BASIC':
-        completed.push('BASIC');
-        break;
+  private getCompletedAnalysesFromMetadata(metadata: Record<string, unknown>): DependencyType[] {
+    // 新方式: completedAnalysesが存在する場合は優先
+    const completedAnalyses = metadata?.completedAnalyses as string[];
+    if (completedAnalyses && Array.isArray(completedAnalyses)) {
+      return completedAnalyses as DependencyType[];
     }
     
-    // メタデータから詳細チェック（将来の拡張用）
-    // if (metadata.callGraphAnalysisCompleted) completed.push('CALL_GRAPH');
-    // if (metadata.typeSystemAnalysisCompleted) completed.push('TYPE_SYSTEM');
-    // if (metadata.couplingAnalysisCompleted) completed.push('COUPLING');
-    
-    return [...new Set(completed)];
+    // 古い方式: analysisLevelから推定（下位互換）
+    const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+    return this.getCompletedAnalysesFromLegacyLevel(analysisLevel);
+  }
+
+  /**
+   * レガシーanalysisLevelから完了済み依存関係を推定
+   * 指定レベルまでの全ての依存関係が完了済みと仮定
+   * 注意: レガシーデータではSNAPSHOTという概念がないため、BASIC以上があればSNAPSHOTも暗黙的に完了済みとみなす
+   */
+  private getCompletedAnalysesFromLegacyLevel(level: string): DependencyType[] {
+    switch (level) {
+      case 'COMPLETE':
+        return ['SNAPSHOT', 'BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'];
+      case 'TYPE_SYSTEM':
+        // TYPE_SYSTEMまで完了している場合、通常はBASIC, CALL_GRAPHも完了済み
+        return ['SNAPSHOT', 'BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM'];
+      case 'CALL_GRAPH':
+        return ['SNAPSHOT', 'BASIC', 'CALL_GRAPH'];
+      case 'COUPLING':
+        return ['SNAPSHOT', 'BASIC', 'COUPLING'];
+      case 'BASIC':
+        return ['SNAPSHOT', 'BASIC'];
+      default:
+        return [];
+    }
   }
   
   /**
    * 依存関係が満たされているかチェック
    */
   private isDependencyMet(dependency: DependencyType, state: AnalysisState): boolean {
+    // SNAPSHOTは常に新規作成なので、既存状態に関係なく必要
+    if (dependency === 'SNAPSHOT') {
+      return false;
+    }
     return state.completedAnalyses.includes(dependency);
   }
   
@@ -202,6 +212,10 @@ export class DependencyManager {
     options: BaseCommandOptions
   ): Promise<void> {
     switch (dependency) {
+      case 'SNAPSHOT':
+        await this.initializeSnapshot(env, options);
+        break;
+        
       case 'BASIC':
         await this.initializeBasicAnalysis(env, options);
         break;
@@ -225,6 +239,7 @@ export class DependencyManager {
   
   /**
    * 依存関係完了をDBに確定
+   * 新方式: completedAnalyses配列を直接更新し、analysisLevelも互換性のため更新
    */
   private async commitDependencyCompletion(
     dependency: DependencyType,
@@ -241,36 +256,81 @@ export class DependencyManager {
       // 新しいレベルを計算
       const newLevel = this.calculateAnalysisLevel(newCompleted);
       
-      // DB状態を更新
+      // 直接 updateAnalysisLevel を使用し、その後 completedAnalyses を個別に更新
       await env.storage.updateAnalysisLevel(snapshot.id, newLevel as AnalysisLevel);
+      
+      // 新方式の completedAnalyses 配列をメタデータに追加で更新
+      await this.updateCompletedAnalysesMetadata(snapshot.id, newCompleted, env);
     } catch (error) {
       // ログに記録するが、初期化処理は成功扱い
-      console.warn(`Warning: Failed to update analysis level for ${dependency}:`, error);
+      console.warn(`Warning: Failed to update analysis completion for ${dependency}:`, error);
+    }
+  }
+  
+  /**
+   * completedAnalyses配列をメタデータに更新
+   * updateAnalysisLevelと同様の直接SQL更新アプローチを使用
+   */
+  private async updateCompletedAnalysesMetadata(
+    snapshotId: string,
+    completedAnalyses: DependencyType[],
+    env: CommandEnvironment
+  ): Promise<void> {
+    try {
+      // 既存のスナップショット取得（最新のメタデータを取得）
+      const snapshot = await env.storage.getSnapshot(snapshotId);
+      if (!snapshot) return;
+      
+      // 現在のメタデータを取得
+      const currentMetadata = (snapshot.metadata as Record<string, unknown>) || {};
+      
+      // completedAnalyses配列を追加・更新
+      const updatedMetadata = {
+        ...currentMetadata,
+        completedAnalyses: completedAnalyses
+      };
+      
+      // 低レベルのSQLクエリで直接更新（updateAnalysisLevelと同じパターン）
+      // この実装は storage adapter の内部実装に依存するため、将来的には
+      // storage interface に updateSnapshotMetadata メソッドを追加することが理想
+      if ('query' in env.storage && typeof env.storage.query === 'function') {
+        await (env.storage as any).query(
+          'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+          [JSON.stringify(updatedMetadata), snapshotId]
+        );
+      }
+    } catch (error) {
+      // 失敗してもプロセスは継続（ログのみ）
+      console.warn(`Warning: Failed to update completedAnalyses metadata:`, error);
     }
   }
   
   /**
    * 完了済み依存関係から適切な分析レベルを計算
+   * 注意: SNAPSHOTは分析レベルではないため、計算から除外
    */
   private calculateAnalysisLevel(completed: DependencyType[]): AnalysisLevel {
-    if (completed.includes('BASIC') && completed.includes('CALL_GRAPH') && 
-        completed.includes('TYPE_SYSTEM') && completed.includes('COUPLING')) {
+    // SNAPSHOT は分析レベルの計算から除外
+    const analysisTypes = completed.filter(dep => dep !== 'SNAPSHOT');
+    
+    if (analysisTypes.includes('BASIC') && analysisTypes.includes('CALL_GRAPH') && 
+        analysisTypes.includes('TYPE_SYSTEM') && analysisTypes.includes('COUPLING')) {
       return 'COMPLETE';
     }
     
-    if (completed.includes('TYPE_SYSTEM')) {
+    if (analysisTypes.includes('TYPE_SYSTEM')) {
       return 'TYPE_SYSTEM';
     }
     
-    if (completed.includes('CALL_GRAPH')) {
+    if (analysisTypes.includes('CALL_GRAPH')) {
       return 'CALL_GRAPH';
     }
     
-    if (completed.includes('COUPLING')) {
+    if (analysisTypes.includes('COUPLING')) {
       return 'COUPLING';
     }
     
-    if (completed.includes('BASIC')) {
+    if (analysisTypes.includes('BASIC')) {
       return 'BASIC';
     }
     
@@ -280,34 +340,42 @@ export class DependencyManager {
   // === 個別初期化メソッド（既存実装を活用） ===
   
   /**
-   * スナップショットを取得または作成
-   * CRITICAL: Command Protocolの設計では、cli-wrapperが初期化の責任を持つ
+   * 既存スナップショットを取得（作成は行わない）
+   * BASIC等の分析系依存関係で使用
    */
   private async ensureSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<string> {
-    let snapshot = await env.storage.getLatestSnapshot();
+    const snapshot = await env.storage.getLatestSnapshot();
     
     if (!snapshot) {
-      // スナップショットが存在しない場合は作成
-      if (!options.quiet) {
-        env.commandLogger.info('🔍 No snapshot found. Creating initial snapshot...');
-      }
-      
-      try {
-        await this.createInitialSnapshot(env, options);
-      } catch (e) {
-        // 競合（同時実行）で既に作成済みの可能性を考慮し再取得
-        if (!options.quiet) {
-          env.commandLogger.warn(`Initial snapshot creation raced or failed: ${e instanceof Error ? e.message : String(e)}. Retrying fetch...`);
-        }
-      }
-      snapshot = await env.storage.getLatestSnapshot();
-      
-      if (!snapshot) {
-        throw new Error('Failed to create initial snapshot');
-      }
+      throw new Error('No snapshot found. A SNAPSHOT dependency must be initialized first.');
     }
     
     return snapshot.id;
+  }
+  
+  /**
+   * 新規スナップショットを強制作成
+   * SNAPSHOT依存関係で使用
+   */
+  private async initializeSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    if (!options.quiet) {
+      env.commandLogger.info('📸 Creating new snapshot...');
+    }
+    
+    try {
+      await this.createInitialSnapshot(env, options);
+    } catch (e) {
+      throw new Error(`Failed to create new snapshot: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    
+    const snapshot = await env.storage.getLatestSnapshot();
+    if (!snapshot) {
+      throw new Error('Failed to create initial snapshot');
+    }
+    
+    if (!options.quiet) {
+      env.commandLogger.info(`📸 New snapshot created: ${snapshot.id.substring(0, 8)}`);
+    }
   }
   
   /**

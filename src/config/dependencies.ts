@@ -24,38 +24,46 @@ export interface DependencyDefinition {
  * 依存関係定義テーブル
  * 
  * 優先順位ルール:
- * 1. BASIC (最優先 - 他の全ての前提条件)
- * 2. CALL_GRAPH (BASICに依存)
- * 3. TYPE_SYSTEM (BASICに依存、CALL_GRAPHとは独立)
- * 4. COUPLING (BASICに依存、他とは独立)
+ * 0. SNAPSHOT (最優先 - 新規スナップショット作成)
+ * 1. BASIC (関数解析 - SNAPSHOTに依存)
+ * 2. CALL_GRAPH (SNAPSHOT、BASICに依存)
+ * 3. TYPE_SYSTEM (SNAPSHOT、BASICに依存、CALL_GRAPHとは独立)
+ * 4. COUPLING (SNAPSHOT、BASICに依存、他とは独立)
  */
 export const DEPENDENCY_DEFINITIONS: Record<DependencyType, DependencyDefinition> = {
+  SNAPSHOT: {
+    priority: 0,
+    name: "Snapshot Creation",
+    description: "新規スナップショット作成",
+    prerequisites: []
+  },
+  
   BASIC: {
     priority: 1,
     name: "Basic Function Analysis",
     description: "基本的な関数解析（CC、LOC、パラメータ数等）",
-    prerequisites: []
+    prerequisites: ["SNAPSHOT"]
   },
   
   CALL_GRAPH: {
     priority: 2,
     name: "Call Graph Analysis", 
     description: "関数間の呼び出し関係解析",
-    prerequisites: ["BASIC"]
+    prerequisites: ["SNAPSHOT", "BASIC"]
   },
   
   TYPE_SYSTEM: {
     priority: 3,
     name: "TypeScript Type Analysis",
     description: "TypeScript型システム解析",
-    prerequisites: ["BASIC"]
+    prerequisites: ["SNAPSHOT", "BASIC"]
   },
   
   COUPLING: {
     priority: 4,
     name: "Parameter Coupling Analysis",
     description: "パラメータ結合度解析",
-    prerequisites: ["BASIC"]
+    prerequisites: ["SNAPSHOT", "BASIC"]
   }
 } as const;
 
