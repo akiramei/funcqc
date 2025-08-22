@@ -28,6 +28,7 @@ export interface DepListOptions extends BaseCommandOptions {
   desc?: boolean;
   json?: boolean;
   snapshot?: string;
+  scope?: string;
 }
 
 export interface DepShowOptions extends BaseCommandOptions {
@@ -40,6 +41,7 @@ export interface DepShowOptions extends BaseCommandOptions {
   maxRoutes?: string;          // Limit number of displayed routes
   json?: boolean;
   snapshot?: string;
+  scope?: string;
 }
 
 export interface DepStatsOptions extends BaseCommandOptions {
@@ -55,6 +57,7 @@ export interface DepStatsOptions extends BaseCommandOptions {
   json?: boolean;
   format?: 'table' | 'json' | 'dot';
   snapshot?: string;
+  scope?: string;
 }
 
 export interface DepLintOptions extends BaseCommandOptions {
@@ -71,6 +74,7 @@ export interface DepLintOptions extends BaseCommandOptions {
   showConfig?: boolean;
   showConsolidation?: boolean;
   dryRun?: boolean;
+  scope?: string;
 }
 
 export interface DepDeadOptions extends BaseCommandOptions {
@@ -83,6 +87,7 @@ export interface DepDeadOptions extends BaseCommandOptions {
   verbose?: boolean;
   snapshot?: string;
   layerEntryPoints?: string; // Comma-separated list of layer names
+  scope?: string;
 }
 
 export interface DepCyclesOptions extends BaseCommandOptions {
@@ -93,6 +98,7 @@ export interface DepCyclesOptions extends BaseCommandOptions {
   sort?: 'length' | 'complexity' | 'importance';
   limit?: string;
   snapshot?: string;
+  scope?: string;
   // New filtering options
   includeRecursive?: boolean;
   includeClear?: boolean;

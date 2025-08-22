@@ -1,6 +1,14 @@
 // Re-export common types
 export * from './common';
 
+// Scope configuration for file filtering
+export interface ScopeConfig {
+  roots: string[];
+  exclude?: string[];
+  include?: string[];
+  description?: string;
+}
+
 // Re-export quality enhancement types
 export * from './quality-enhancements';
 
@@ -36,12 +44,7 @@ export interface FuncqcConfig {
   
   // スコープ設定: 複数のスコープを定義可能
   scopes?: {
-    [scopeName: string]: {
-      roots: string[];
-      exclude?: string[];
-      include?: string[];
-      description?: string;
-    };
+    [scopeName: string]: ScopeConfig;
   };
 
   storage: {
@@ -1357,6 +1360,7 @@ export interface SearchCommandOptions extends CommandOptions {
 
 export interface ImproveCommandOptions extends CommandOptions {
   type?: 'duplicates' | 'safety' | 'dead-code'; // Type of improvement (default: show all options)
+  scope?: string; // Analyze improvements within specific scope (src, test, all, or custom scope)
   json?: boolean; // JSON output for script processing
   autoApply?: boolean; // Automatically apply safe improvements
   threshold?: string; // Similarity threshold for duplicate detection
@@ -1449,6 +1453,7 @@ export interface DependenciesCommandOptions extends CommandOptions {
   
   // Common options across all dependency actions
   snapshot?: string; // Snapshot ID for analysis
+  scope?: string; // Analyze dependencies within specific scope (src, test, all, or custom scope)
   json?: boolean; // JSON output for script processing
   format?: 'table' | 'json' | 'dot'; // Output format
   verbose?: boolean; // Detailed output

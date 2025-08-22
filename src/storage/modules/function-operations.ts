@@ -25,6 +25,8 @@ import {
   splitIntoBatches,
   calculateOptimalBatchSize
 } from '../bulk-insert-utils';
+import { buildScopeWhereClause } from '../../utils/scope-utils';
+import { ConfigManager } from '../../core/config';
 
 // Type for PGLite transaction object
 interface PGTransaction {
@@ -120,6 +122,24 @@ export class FunctionOperations implements StorageOperationModule {
       
       let sql = this.buildFunctionQuery(isListCommand, needsChangeCount);
       const params: (string | number | unknown)[] = [snapshotId];
+
+      // Add scope-based filtering if scope is specified
+      if (options?.scope) {
+        try {
+          const configManager = new ConfigManager();
+          await configManager.load();
+          const scopeConfig = configManager.resolveScopeConfig(options.scope);
+          const scopeFilter = buildScopeWhereClause(scopeConfig, 'f.file_path', params.length);
+          
+          if (scopeFilter.whereClause !== '1=1') {
+            sql += ' AND ' + scopeFilter.whereClause;
+            params.push(...scopeFilter.params);
+          }
+        } catch (error) {
+          // Log warning but continue without scope filtering to avoid breaking queries
+          this.logger?.warn(`Failed to apply scope filtering for '${options.scope}': ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
 
       // Add filters
       if (options?.filters && options.filters.length > 0) {

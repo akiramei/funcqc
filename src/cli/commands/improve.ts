@@ -133,6 +133,11 @@ async function executeImprovementWorkflow(
   options: ImproveCommandOptions,
   plan: ImprovementPlan
 ): Promise<void> {
+  // Apply scope filtering if specified
+  if (options.scope && !options.quiet) {
+    env.commandLogger.info(`🎯 Applying scope filter: ${options.scope}`);
+  }
+
   // Phase 1: Duplicate detection (if requested)
   if (plan.includesDuplicates) {
     if (!options.quiet) {
@@ -179,7 +184,8 @@ async function executeDuplicateAnalysis(
     threshold: options.threshold || '0.85',
     json: false, // Internal execution, no JSON output
     verbose: options.verbose || false,
-    quiet: options.quiet || false
+    quiet: options.quiet || false,
+    scope: options.scope
   };
   
   try {
