@@ -117,7 +117,7 @@ export class FunctionAnalyzer {
   /**
    * Analyze files with ideal call graph analysis
    */
-  async analyzeFilesWithIdealCallGraph(filePaths: string[]): Promise<{ 
+  async analyzeFilesWithIdealCallGraph(filePaths: string[], snapshotId?: string): Promise<{ 
     functions: FunctionInfo[]; 
     callEdges: CallEdge[];
     internalCallEdges: import('../types').InternalCallEdge[];
@@ -170,7 +170,7 @@ export class FunctionAnalyzer {
       const callEdges = this.convertCallEdgesToLegacy(callGraphResult.edges);
       
       // Perform internal call analysis with unified virtual project
-      const internalCallEdges = await this.analyzeInternalCallsUnified(virtualProject, functions);
+      const internalCallEdges = await this.analyzeInternalCallsUnified(virtualProject, functions, snapshotId || 'temp');
       
       this.logger.info(`[PATH] IDEAL-UNIFIED SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
       this.logger.warn(`🔍 IDEAL-UNIFIED SUCCESS: Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
@@ -431,46 +431,6 @@ export class FunctionAnalyzer {
   /**
    * Create mapping between virtual project function IDs and real database function IDs
    */
-  private createFunctionIdMapping(
-    virtualFunctions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>, 
-    realFunctions: FunctionInfo[]
-  ): Map<string, string> {
-    const mapping = new Map<string, string>();
-    
-    // Create a lookup for real functions by signature
-    const realFunctionMap = new Map<string, FunctionInfo>();
-    for (const realFunc of realFunctions) {
-      // Create a signature key based on file path, function name, and line
-      const key = `${realFunc.filePath}:${realFunc.name}:${realFunc.startLine}`;
-      realFunctionMap.set(key, realFunc);
-    }
-    
-    // Convert Map to Array
-    const virtualFuncArray = Array.from(virtualFunctions.values());
-    
-    // Map virtual functions to real functions
-    for (const virtualFunc of virtualFuncArray) {
-      // Check if filePath is defined
-      if (!virtualFunc.filePath) {
-        this.logger.debug(`Skipping virtual function ${virtualFunc.id} (${virtualFunc.name}): no filePath`);
-        continue;
-      }
-      
-      // Convert virtual path back to real path
-      const realPath = virtualFunc.filePath.replace('/virtual', '');
-      const key = `${realPath}:${virtualFunc.name}:${virtualFunc.startLine || 0}`;
-      
-      const realFunc = realFunctionMap.get(key);
-      if (realFunc) {
-        mapping.set(virtualFunc.id, realFunc.id);
-      } else {
-        // Log warning for unmapped functions
-        this.logger.debug(`Could not map virtual function ${virtualFunc.id} (${virtualFunc.name}) to real function at ${key}`);
-      }
-    }
-    
-    return mapping;
-  }
 
   /**
    * Convert ideal call edges to legacy format without ID mapping (unified paths)
@@ -642,8 +602,9 @@ export class FunctionAnalyzer {
         // Perform internal call analysis on virtual project
         const internalStartTime = performance.now();
         const internalCallEdges = await this.analyzeInternalCallsUnified(
-          virtualProject, 
-          functions
+          virtualProject,
+          functions,
+          snapshotId
         );
         const internalEndTime = performance.now();
         console.log(chalk.gray(`⏱️  Internal call analysis: ${((internalEndTime - internalStartTime) / 1000).toFixed(2)}s`));
@@ -677,61 +638,6 @@ export class FunctionAnalyzer {
   /**
    * Analyze internal calls from virtual project created from stored content
    */
-  private async analyzeInternalCallsFromVirtualProject(
-    virtualProject: Project,
-    functions: FunctionInfo[],
-    virtualPaths: Map<string, string>
-  ): Promise<import('../types').InternalCallEdge[]> {
-    this.logger.debug(`Starting internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
-
-    const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
-    const debugLogger = new (await import('../utils/cli-utils')).Logger(
-      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
-      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
-    );
-    const internalCallAnalyzer = new InternalCallAnalyzer(virtualProject, debugLogger);
-    const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
-
-    try {
-      // Group functions by file for efficient analysis
-      const functionsByFile = new Map<string, FunctionInfo[]>();
-      for (const func of functions) {
-        if (!functionsByFile.has(func.filePath)) {
-          functionsByFile.set(func.filePath, []);
-        }
-        functionsByFile.get(func.filePath)!.push(func);
-      }
-
-
-
-      // Analyze each file for internal function calls using virtual paths
-      for (const [realFilePath, fileFunctions] of functionsByFile.entries()) {
-        if (fileFunctions.length > 1) { // Only analyze files with multiple functions
-          try {
-            // Map real file path to virtual path for analysis
-            const virtualPath = virtualPaths.get(realFilePath);
-            if (!virtualPath) {
-              this.logger.debug(`No virtual path found for ${realFilePath}, skipping internal call analysis`);
-              continue;
-            }
-            
-            const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
-              virtualPath, // Use virtual path for analysis
-              fileFunctions,
-              'temp' // snapshotId will be set later in scan.ts
-            );
-            allInternalCallEdges.push(...internalEdges);
-          } catch (error) {
-            this.logger.debug(`Failed to analyze internal calls in ${realFilePath}: ${error instanceof Error ? error.message : String(error)}`);
-          }
-        }
-      }
-
-      return allInternalCallEdges;
-    } finally {
-      internalCallAnalyzer.dispose();
-    }
-  }
 
   /**
    * Analyze internal calls from virtual project with unified path handling
@@ -739,7 +645,8 @@ export class FunctionAnalyzer {
    */
   private async analyzeInternalCallsUnified(
     virtualProject: Project,
-    functions: FunctionInfo[]
+    functions: FunctionInfo[],
+    snapshotId: string = 'temp'
   ): Promise<import('../types').InternalCallEdge[]> {
     this.logger.debug(`Starting unified internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
 
@@ -767,9 +674,9 @@ export class FunctionAnalyzer {
           try {
             // Use original file path directly (no virtual path mapping needed)
             const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
-              filePath, // Use original path directly
+              filePath,
               fileFunctions,
-              'temp' // snapshotId will be set later in scan.ts
+              snapshotId
             );
             allInternalCallEdges.push(...internalEdges);
           } catch (error) {

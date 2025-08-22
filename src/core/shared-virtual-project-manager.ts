@@ -33,27 +33,29 @@ class SharedVirtualProjectManager {
     
     
     if (cached && this.isProjectValid(cached)) {
+      // 追加ファイルがある場合は反映してから返す
+      if (fileContentMap.size > cached.fileContentMap.size) {
+        console.log(chalk.gray(`🔄 Updating virtual project for snapshot ${snapshotId.substring(0, 8)} with additional files...`));
+        for (const [filePath, content] of fileContentMap) {
+          if (!cached.fileContentMap.has(filePath)) {
+            const existing = cached.project.getSourceFile(filePath);
+            if (existing) {
+              existing.replaceWithText(content);
+            } else {
+              cached.project.createSourceFile(filePath, content, { overwrite: true });
+            }
+          }
+        }
+        cached.fileContentMap = new Map(fileContentMap);
+        console.log(chalk.gray(`⚡ Updated virtual project (${cached.project.getSourceFiles().length} files)`));
+      }
+      // アクセスでTTLを延長
+      cached.createdAt = Date.now();
       console.log(chalk.gray(`⚡ Reusing virtual project for snapshot ${snapshotId.substring(0, 8)} (${cached.project.getSourceFiles().length} files)`));
       return { project: cached.project, isNewlyCreated: false };
     }
-    
-    // CRITICAL FIX: If cached project exists but fileContentMap is larger, update the project
-    if (cached && fileContentMap.size > cached.fileContentMap.size) {
-      console.log(chalk.gray(`🔄 Updating virtual project for snapshot ${snapshotId.substring(0, 8)} with additional files...`));
-      
-      // Add new files to existing project
-      for (const [filePath, content] of fileContentMap) {
-        if (!cached.fileContentMap.has(filePath)) {
-          cached.project.createSourceFile(filePath, content, { overwrite: true });
-        }
-      }
-      
-      // Update cached fileContentMap
-      cached.fileContentMap = new Map(fileContentMap);
-      
-      console.log(chalk.gray(`⚡ Updated virtual project (${cached.project.getSourceFiles().length} files)`));
-      return { project: cached.project, isNewlyCreated: false };
-    }
+
+    // ここまで来たら新規作成
     
     // Create new virtual project only if no cache exists
     console.log(chalk.gray(`🔧 Creating virtual project for snapshot ${snapshotId.substring(0, 8)}...`));

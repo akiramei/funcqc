@@ -641,8 +641,8 @@ async function executePureBasicBatchAnalysis(
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionCount: number; errors: string[] }[]> {
   // Prepare shared virtual project for true integration
-  console.log(chalk.blue('🔧 Preparing shared virtual project for BASIC analysis...'));
-  
+  env.commandLogger.info('🔧 Preparing shared virtual project for BASIC analysis...');
+
   // Collect all file contents for shared project creation
   const allFileContentMap = new Map<string, string>();
   for (const batch of batches) {
@@ -650,18 +650,28 @@ async function executePureBasicBatchAnalysis(
       allFileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
     }
   }
-  
+
   // Create shared project once for all analysis using TypeScript analyzer
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { isNewlyCreated } = await (components.analyzer as any).prepareSharedProject(
-    snapshotId,
-    allFileContentMap
-  );
-  
-  if (isNewlyCreated) {
-    console.log(chalk.green(`✅ Shared virtual project created (${allFileContentMap.size} files)`));
+  const maybePrepare =
+    (components.analyzer as unknown as {
+      prepareSharedProject?: (
+        sid: string,
+        map: Map<string, string>
+      ) => Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }>;
+    }).prepareSharedProject;
+  let isNewlyCreated = false;
+  if (typeof maybePrepare === 'function') {
+    ({ isNewlyCreated } = await maybePrepare(snapshotId, allFileContentMap));
   } else {
-    console.log(chalk.green(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`));
+    env.commandLogger.debug?.(
+      'Shared project not supported by analyzer — skipping prepareSharedProject'
+    );
+  }
+
+  if (isNewlyCreated) {
+    env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
+  } else {
+    env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
   }
 
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
