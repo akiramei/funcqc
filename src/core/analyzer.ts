@@ -2,6 +2,7 @@ import { FunctionInfo, FuncqcConfig, AnalysisResult, FuncqcError, CallEdge, Stor
 import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
+import { VirtualProjectFactory } from './virtual-project-factory';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
@@ -126,36 +127,53 @@ export class FunctionAnalyzer {
     this.logger.debug('Starting ideal call graph analysis...');
     
     try {
-      // Initialize ts-morph project with specific files
-      await this.initializeProject(filePaths);
+      // Read file contents and create virtual project using unified approach
+      this.logger.warn('🔍 IDEAL: Starting unified virtual project analysis...');
+      this.logger.debug('[PATH] IDEAL-UNIFIED - Reading file contents...');
       
-      if (!this.project || !this.idealCallGraphAnalyzer) {
-        throw new Error('Failed to initialize ideal call graph analyzer');
+      const fs = await import('fs');
+      const fileContentMap = new Map<string, string>();
+      
+      for (const filePath of filePaths) {
+        try {
+          const content = fs.readFileSync(filePath, 'utf-8');
+          fileContentMap.set(filePath, content);
+        } catch (error) {
+          this.logger.debug(`Failed to read file ${filePath}: ${error}`);
+        }
       }
       
-      // Perform ideal call graph analysis
-      this.logger.warn('🔍 IDEAL: Starting ideal call graph analysis...');
-      this.logger.debug('[PATH] IDEAL - Starting analysis');
+      // Create virtual project using unified factory
+      const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
+      const { project: virtualProject } = await VirtualProjectFactory.createFromContent(
+        fileContentMap,
+        config
+      );
+      
+      // Initialize ideal call graph analyzer with unified virtual project
+      this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
+        logger: this.logger 
+      });
       
       // TEMPORARY: Force fallback for debugging
       if (process.env['FUNCQC_FORCE_FALLBACK'] === '1') {
         throw new Error('Forced fallback for debugging');
       }
       
+      this.logger.debug('[PATH] IDEAL-UNIFIED - Starting analysis');
       const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
       
       // Convert to legacy format for compatibility
       const functions = await this.convertToLegacyFormat(callGraphResult.functions);
       
-      // CRITICAL FIX: Use ID mapping for IDEAL path consistency
-      const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
-      const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
+      // Use unified conversion without ID mapping (paths are already unified)
+      const callEdges = this.convertCallEdgesToLegacy(callGraphResult.edges);
       
-      // Perform internal call analysis while the project is still active
-      const internalCallEdges = await this.analyzeInternalCalls(functions);
+      // Perform internal call analysis with unified virtual project
+      const internalCallEdges = await this.analyzeInternalCallsUnified(virtualProject, functions);
       
-      this.logger.info(`[PATH] IDEAL SUCCESS - Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
-      this.logger.warn(`🔍 IDEAL SUCCESS: Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
+      this.logger.info(`[PATH] IDEAL-UNIFIED SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
+      this.logger.warn(`🔍 IDEAL-UNIFIED SUCCESS: Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
       
       return {
         functions,
@@ -213,8 +231,29 @@ export class FunctionAnalyzer {
   ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../types').InternalCallEdge[] }> {
     this.logger.warn('🔍 STARTING: Improved call graph analysis...');
     
-    // Initialize ts-morph project for call graph analysis
-    await this.initializeProject(filePaths);
+    // Use unified virtual project approach for improved call graph analysis
+    this.logger.warn('🔍 IMPROVED: Using unified virtual project approach...');
+    
+    const fs = await import('fs');
+    const fileContentMap = new Map<string, string>();
+    
+    for (const filePath of filePaths) {
+      try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        fileContentMap.set(filePath, content);
+      } catch (error) {
+        this.logger.debug(`Failed to read file ${filePath}: ${error}`);
+      }
+    }
+    
+    // Create virtual project using unified factory
+    const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
+    const { project: virtualProject } = await VirtualProjectFactory.createFromContent(
+      fileContentMap,
+      config
+    );
+    
+    this.project = virtualProject;
     
     if (!this.project) {
       throw new Error('Failed to initialize project for improved analysis');
@@ -540,6 +579,38 @@ export class FunctionAnalyzer {
     }).filter((edge): edge is NonNullable<typeof edge> => edge !== null); // Remove null entries
   }
 
+  /**
+   * Convert ideal call edges to legacy format without ID mapping
+   * Used when virtual project uses original file paths (unified approach)
+   */
+  private convertCallEdgesToLegacy(
+    edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]
+  ): CallEdge[] {
+    return edges.map((edge, index) => {
+      // Direct conversion without ID mapping since paths are unified
+      return {
+        id: `edge_${index}_${edge.callerFunctionId?.substring(0, 8) || 'unknown'}`,
+        callerFunctionId: edge.callerFunctionId,
+        calleeFunctionId: edge.calleeFunctionId || undefined,
+        calleeName: edge.calleeName || edge.callSite?.methodName || 'unknown',
+        calleeSignature: edge.calleeSignature,
+        callerClassName: edge.callerClassName,
+        calleeClassName: edge.calleeClassName,
+        callType: edge.callType || 'direct',
+        callContext: edge.callContext,
+        lineNumber: edge.callSite?.lineNumber || 0,
+        columnNumber: edge.callSite?.columnNumber || 0,
+        isAsync: edge.isAsync || false,
+        isChained: edge.isChained || false,
+        confidenceScore: edge.confidenceScore,
+        metadata: edge.analysisMetadata || {},
+        createdAt: new Date().toISOString(),
+        resolutionLevel: edge.resolutionLevel,
+        calleeCandidates: edge.candidates
+      } as CallEdge;
+    });
+  }
+
   /* DEPRECATED: convertCallEdges method removed - use convertCallEdgesWithMapping for proper ID mapping */
 
   /**
@@ -608,32 +679,13 @@ export class FunctionAnalyzer {
     this.logger.debug('Starting call graph analysis from stored content...');
     
     try {
-      // Create a temporary project with virtual files from stored content
-      const projectStartTime = performance.now();
-      const virtualProject = new Project({
-        skipAddingFilesFromTsConfig: true,
-        skipLoadingLibFiles: true,
-        skipFileDependencyResolution: true,
-        useInMemoryFileSystem: true, // Use in-memory filesystem for virtual files
-        compilerOptions: {
-          isolatedModules: true,
-          noResolve: true,
-          skipLibCheck: true,
-          noLib: true
-        }
-      });
+      // Create virtual project using factory with unified path handling
+      const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
+      const { project: virtualProject } = await VirtualProjectFactory.createFromContent(
+        fileContentMap,
+        config
+      );
       
-      // Add virtual source files from stored content
-      const virtualPaths = new Map<string, string>();
-      for (const [filePath, content] of fileContentMap) {
-        // Create a virtual path to avoid conflicts with real filesystem
-        const virtualPath = `/virtual${filePath}`;
-        virtualPaths.set(filePath, virtualPath);
-        virtualProject.createSourceFile(virtualPath, content, { overwrite: true });
-      }
-      
-      const projectEndTime = performance.now();
-      console.log(chalk.gray(`⏱️  Virtual project creation: ${((projectEndTime - projectStartTime) / 1000).toFixed(2)}s for ${virtualProject.getSourceFiles().length} files`));
       this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
@@ -650,21 +702,17 @@ export class FunctionAnalyzer {
         const analysisEndTime = performance.now();
         console.log(chalk.gray(`⏱️  Call graph analysis: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
         
-        // Create mapping between virtual functions and real functions
+        // Convert to legacy format for compatibility (no ID mapping needed)
         const mappingStartTime = performance.now();
-        const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
-        
-        // Convert to legacy format for compatibility with ID mapping
-        const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
+        const callEdges = this.convertCallEdgesToLegacy(callGraphResult.edges);
         const mappingEndTime = performance.now();
-        console.log(chalk.gray(`⏱️  ID mapping and conversion: ${((mappingEndTime - mappingStartTime) / 1000).toFixed(2)}s`));
+        console.log(chalk.gray(`⏱️  Edge conversion: ${((mappingEndTime - mappingStartTime) / 1000).toFixed(2)}s`));
         
         // Perform internal call analysis on virtual project
         const internalStartTime = performance.now();
-        const internalCallEdges = await this.analyzeInternalCallsFromVirtualProject(
+        const internalCallEdges = await this.analyzeInternalCallsUnified(
           virtualProject, 
-          functions, 
-          virtualPaths
+          functions
         );
         const internalEndTime = performance.now();
         console.log(chalk.gray(`⏱️  Internal call analysis: ${((internalEndTime - internalStartTime) / 1000).toFixed(2)}s`));
@@ -672,7 +720,7 @@ export class FunctionAnalyzer {
         const totalTime = performance.now() - startTime;
         console.log(chalk.yellow(`⏱️  Total call graph analysis time: ${(totalTime / 1000).toFixed(2)}s`));
         
-        this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (${functionIdMapping.size} ID mappings), ${internalCallEdges.length} internal edges`);
+        this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
         
         return {
           callEdges,
@@ -744,6 +792,57 @@ export class FunctionAnalyzer {
             allInternalCallEdges.push(...internalEdges);
           } catch (error) {
             this.logger.debug(`Failed to analyze internal calls in ${realFilePath}: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+
+      return allInternalCallEdges;
+    } finally {
+      internalCallAnalyzer.dispose();
+    }
+  }
+
+  /**
+   * Analyze internal calls from virtual project with unified path handling
+   * No virtual path mapping needed since original paths are used
+   */
+  private async analyzeInternalCallsUnified(
+    virtualProject: Project,
+    functions: FunctionInfo[]
+  ): Promise<import('../types').InternalCallEdge[]> {
+    this.logger.debug(`Starting unified internal call analysis with ${virtualProject.getSourceFiles().length} virtual source files`);
+
+    const { InternalCallAnalyzer } = await import('../analyzers/internal-call-analyzer');
+    const debugLogger = new (await import('../utils/cli-utils')).Logger(
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS'], 
+      !!process.env['FUNCQC_DEBUG_INTERNAL_CALLS']
+    );
+    const internalCallAnalyzer = new InternalCallAnalyzer(virtualProject, debugLogger);
+    const allInternalCallEdges: import('../types').InternalCallEdge[] = [];
+
+    try {
+      // Group functions by file for efficient analysis
+      const functionsByFile = new Map<string, FunctionInfo[]>();
+      for (const func of functions) {
+        if (!functionsByFile.has(func.filePath)) {
+          functionsByFile.set(func.filePath, []);
+        }
+        functionsByFile.get(func.filePath)!.push(func);
+      }
+
+      // Analyze each file for internal function calls using original paths
+      for (const [filePath, fileFunctions] of functionsByFile.entries()) {
+        if (fileFunctions.length > 1) { // Only analyze files with multiple functions
+          try {
+            // Use original file path directly (no virtual path mapping needed)
+            const internalEdges = await internalCallAnalyzer.analyzeFileForInternalCalls(
+              filePath, // Use original path directly
+              fileFunctions,
+              'temp' // snapshotId will be set later in scan.ts
+            );
+            allInternalCallEdges.push(...internalEdges);
+          } catch (error) {
+            this.logger.debug(`Failed to analyze internal calls in ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
       }
