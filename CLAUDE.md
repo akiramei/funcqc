@@ -175,7 +175,7 @@ npm run dev -- assess
 
 # 3. 作業後に再度スキャンして比較
 npm run dev -- measure --label feature/my-branch-after
-npm run dev -- manage --action=diff --from HEAD~1 --to HEAD  # 変更内容の確認
+npm run dev -- manage --action diff --from HEAD~1 --to HEAD  # 変更内容の確認
 ```
 
 ### 📊 主要コマンド一覧
@@ -237,7 +237,7 @@ npm run dev -- assess --type types
 #### 履歴管理
 ```bash
 # スナップショット履歴を表示（旧historyの代替）
-npm run dev -- manage --action=history
+npm run dev -- manage --action history
 
 # 測定履歴を表示
 npm run dev -- measure --history
@@ -246,7 +246,7 @@ npm run dev -- measure --history
 #### diff - 変更差分
 ```bash
 # スナップショット間の差分
-npm run dev -- manage --action=diff --from <from> --to <to>
+npm run dev -- manage --action diff --from <from> --to <to>
 
 # 指定可能な値：
 # - スナップショットID: fd526278
@@ -254,10 +254,10 @@ npm run dev -- manage --action=diff --from <from> --to <to>
 # - HEAD記法: HEAD, HEAD~1, HEAD~3
 
 # 類似関数の洞察付き
-npm run dev -- manage --action=diff --from <from> --to <to> --insights
+npm run dev -- manage --action diff --from <from> --to <to> --insights
 
 # カスタム類似度閾値（デフォルト: 0.95）
-npm run dev -- manage --action=diff --from <from> --to <to> --similarity-threshold 0.8
+npm run dev -- manage --action diff --from <from> --to <to> --similarity-threshold 0.8
 ```
 
 #### ファイル分析（inspectに統合）
@@ -293,20 +293,20 @@ npm run dev -- improve
 #### manage - データ管理（db、diff、export、import、historyの統合）
 ```bash
 # テーブル一覧
-npm run dev -- manage --action=db --list
+npm run dev -- manage --action db --list
 
 # テーブル内容確認
-npm run dev -- manage --action=db --table snapshots --limit 5
-npm run dev -- manage --action=db --table functions --where "cyclomatic_complexity > 10" --limit 10
+npm run dev -- manage --action db --table snapshots --limit 5
+npm run dev -- manage --action db --table functions --where "cyclomatic_complexity > 10" --limit 10
 
 # JSON出力（他ツールとの連携用）
-npm run dev -- manage --action=db --table functions --json | jq '.rows[0]'
+npm run dev -- manage --action db --table functions --json | jq '.rows[0]'
 
 # データエクスポート
-npm run dev -- manage --action=export --format json
+npm run dev -- manage --action export --format json
 
 # バックアップ一覧
-npm run dev -- manage --action=list-backups
+npm run dev -- manage --action list-backups
 ```
 
 #### dependencies - 依存関係分析（depの進化版）
@@ -315,7 +315,7 @@ npm run dev -- manage --action=list-backups
 npm run dev -- dependencies
 
 # 基本的な依存関係分析
-npm run dev -- dependencies --action=lint
+npm run dev -- dependencies --action lint
 ```
 
 
@@ -341,10 +341,10 @@ npm run dev -- inspect --name newFunction
 #### 2. 変更の影響確認
 ```bash
 # 変更前後の差分と類似関数
-npm run dev -- manage --action=diff --from HEAD~1 --to HEAD --insights
+npm run dev -- manage --action diff --from HEAD~1 --to HEAD --insights
 
 # 新規追加された関数の確認
-npm run dev -- manage --action=diff --from <ブランチ開始時のラベル> --to HEAD
+npm run dev -- manage --action diff --from <ブランチ開始時のラベル> --to HEAD
 ```
 
 #### 3. 重複コードの発見
@@ -373,7 +373,7 @@ npm run dev -- measure --label feature/my-feature
 npm run dev -- measure --label feature/my-feature-final
 
 # 4. 品質変化の確認（重要）
-npm run dev -- manage --action=diff --from feature/my-feature --to HEAD
+npm run dev -- manage --action diff --from feature/my-feature --to HEAD
 ```
 
 
@@ -383,10 +383,10 @@ npm run dev -- manage --action=diff --from feature/my-feature --to HEAD
 npm run dev -- assess
 
 # 依存関係の詳細確認
-npm run dev -- dependencies --action=lint
+npm run dev -- dependencies --action lint
 
 # リファクタリング実施後に再確認
-npm run dev -- manage --action=diff --from <before-label> --to HEAD
+npm run dev -- manage --action diff --from <before-label> --to HEAD
 ```
 
 #### メリット

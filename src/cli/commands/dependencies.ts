@@ -318,12 +318,12 @@ async function executeOverview(env: CommandEnvironment, options: DependenciesCom
       'cycles    - Detect circular dependencies in call graph'
     ],
     examples: [
-      'funcqc dependencies --action=list --caller="MyClass"',
-      'funcqc dependencies --action=show --direction=both --depth=3',
-      'funcqc dependencies --action=stats --show-hubs',
-      'funcqc dependencies --action=lint --severity=error',
-      'funcqc dependencies --action=dead --exclude-tests',
-      'funcqc dependencies --action=cycles --min-size=2'
+      'funcqc dependencies --action list --caller "MyClass"',
+      'funcqc dependencies --action show --direction both --depth 3',
+      'funcqc dependencies --action stats --show-hubs',
+      'funcqc dependencies --action lint --severity error',
+      'funcqc dependencies --action dead --exclude-tests',
+      'funcqc dependencies --action cycles --min-size 2'
     ]
   };
 
@@ -342,10 +342,10 @@ async function executeOverview(env: CommandEnvironment, options: DependenciesCom
     });
     
     console.log('\n🎯 Quick Start:');
-    console.log('   • --action=stats          # Get dependency overview');
-    console.log('   • --action=lint           # Check architectural rules');
-    console.log('   • --action=cycles         # Find circular dependencies');
-    console.log('   • --action=dead          # Find unused functions');
+    console.log('   • --action stats          # Get dependency overview');
+    console.log('   • --action lint           # Check architectural rules');
+    console.log('   • --action cycles         # Find circular dependencies');
+    console.log('   • --action dead           # Find unused functions');
   }
   
   if (!options.quiet) {

@@ -278,25 +278,25 @@ program
   .addHelpText('after', `
 Examples:
   # Basic assessment (existing functionality)
-  $ funcqc assess --type=health                  # Project health assessment
-  $ funcqc assess --type=quality                 # Code quality evaluation
+  $ funcqc assess --type health                  # Project health assessment
+  $ funcqc assess --type quality                 # Code quality evaluation
   $ funcqc assess --risks --trend                # Risk assessment with trends
   
   # Advanced assessment with dynamic analysis
   $ funcqc assess --advanced                     # Comprehensive advanced assessment
-  $ funcqc assess --advanced --mode=dynamic      # Dynamic weight-based evaluation
-  $ funcqc assess --advanced --team-experience=Senior  # Team-specific evaluation
+  $ funcqc assess --advanced --mode dynamic      # Dynamic weight-based evaluation
+  $ funcqc assess --advanced --team-experience Senior  # Team-specific evaluation
   
   # Specialized advanced analysis
   $ funcqc assess --advanced --include-structural --include-risk
-  $ funcqc assess --advanced --domain-complexity=High --architecture-pattern=Microservices
+  $ funcqc assess --advanced --domain-complexity High --architecture-pattern Microservices
   
   # Report generation
-  $ funcqc assess --advanced --export-report=quality-report.json
-  $ funcqc assess --advanced --export-report=report.html --include-recommendations
+  $ funcqc assess --advanced --export-report quality-report.json
+  $ funcqc assess --advanced --export-report report.html --include-recommendations
   
   # Dynamic evaluation with detailed insights
-  $ funcqc assess --advanced --mode=dynamic --show-weight-breakdown --explain-scoring
+  $ funcqc assess --advanced --mode dynamic --show-weight-breakdown --explain-scoring
 
 Advanced Features:
   🔬 Dynamic Weights    Adaptive thresholds based on project characteristics
@@ -324,10 +324,10 @@ program
   .addHelpText('after', `
 Examples:
   $ funcqc setup                           # Interactive setup (default)
-  $ funcqc setup --action=init            # Initialize funcqc in project
-  $ funcqc setup --action=config --show   # Show current configuration
-  $ funcqc setup --action=check           # Verify setup status
-  $ funcqc setup --action=config --set="roots=src,lib"  # Set configuration
+  $ funcqc setup --action init            # Initialize funcqc in project
+  $ funcqc setup --action config --show   # Show current configuration
+  $ funcqc setup --action check           # Verify setup status
+  $ funcqc setup --action config --set "roots=src,lib"  # Set configuration
 
 Actions:
   interactive  Interactive guided setup (default)
@@ -369,11 +369,11 @@ program
   .addHelpText('after', `
 Examples:
   $ funcqc manage                                    # Show data status (default)
-  $ funcqc manage --action=db --table=snapshots     # Query snapshots table
-  $ funcqc manage --action=diff --from=abc --to=def # Compare snapshots
-  $ funcqc manage --action=export --json            # Export data as JSON
-  $ funcqc manage --action=history --limit=10       # Show recent history
-  $ funcqc manage --action=list-backups             # List available backups
+  $ funcqc manage --action db --table snapshots     # Query snapshots table
+  $ funcqc manage --action diff --from abc --to def # Compare snapshots
+  $ funcqc manage --action export --json            # Export data as JSON
+  $ funcqc manage --action history --limit 10       # Show recent history
+  $ funcqc manage --action list-backups             # List available backups
 
 Actions:
   status       Show data management status (default)
@@ -539,11 +539,11 @@ program
   .addHelpText('after', `
 Examples:
   $ funcqc refactor                                      # Refactoring overview (default)
-  $ funcqc refactor --action=guard --type="MyInterface" --operation=split  # Safety analysis
-  $ funcqc refactor --action=extract-vo --min-cohesion=0.7 --show-opportunities  # VO extraction
-  $ funcqc refactor --action=discriminate --target-types="User,Order" --transform  # Discriminated unions
-  $ funcqc refactor --action=canonicalize --generate-codemod --dry-run  # DTO canonicalization
-  $ funcqc refactor --action=type-replace --from="OldType" --to="NewType" --check-only  # Type replacement
+  $ funcqc refactor --action guard --type "MyInterface" --operation split  # Safety analysis
+  $ funcqc refactor --action extract-vo --min-cohesion 0.7 --show-opportunities  # VO extraction
+  $ funcqc refactor --action discriminate --target-types "User,Order" --transform  # Discriminated unions
+  $ funcqc refactor --action canonicalize --generate-codemod --dry-run  # DTO canonicalization
+  $ funcqc refactor --action type-replace --from "OldType" --to "NewType" --check-only  # Type replacement
 
 Actions:
   overview       Show refactoring capabilities overview (default)
@@ -1108,12 +1108,12 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `dep` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `dependencies` command instead:'));
     console.log('');
-    console.log('  funcqc dependencies --action=list     # was: funcqc dep list');
-    console.log('  funcqc dependencies --action=show     # was: funcqc dep show');
-    console.log('  funcqc dependencies --action=stats    # was: funcqc dep stats');
-    console.log('  funcqc dependencies --action=lint     # was: funcqc dep lint');
-    console.log('  funcqc dependencies --action=dead     # was: funcqc dep dead');
-    console.log('  funcqc dependencies --action=cycles   # was: funcqc dep cycles');
+    console.log('  funcqc dependencies --action list     # was: funcqc dep list');
+    console.log('  funcqc dependencies --action show     # was: funcqc dep show');
+    console.log('  funcqc dependencies --action stats    # was: funcqc dep stats');
+    console.log('  funcqc dependencies --action lint     # was: funcqc dep lint');
+    console.log('  funcqc dependencies --action dead     # was: funcqc dep dead');
+    console.log('  funcqc dependencies --action cycles   # was: funcqc dep cycles');
     console.log('');
     console.log(chalk.yellow('Legacy dep subcommands (will be removed):'));
     console.log('  list     - List function dependencies');
@@ -1124,7 +1124,7 @@ program
     console.log('  cycles   - Detect circular dependencies in the call graph');
     console.log('');
     console.log('Example (legacy): funcqc dep list');
-    console.log(chalk.green('Example (new):    funcqc dependencies --action=list'));
+    console.log(chalk.green('Example (new):    funcqc dependencies --action list'));
   });
 
 // Add dep subcommands
@@ -1568,40 +1568,40 @@ program
   .addHelpText('after', `
 Examples:
   # List complex interfaces with many properties
-  $ funcqc types --action=list --kind=interface --prop-ge=5 --detail
+  $ funcqc types --action list --kind interface --prop-ge 5 --detail
   
   # Comprehensive type system health analysis
-  $ funcqc types --action=health --verbose --json
+  $ funcqc types --action health --verbose --json
   
   # Analyze specific type dependencies
-  $ funcqc types --action=deps --type-name="UserProfile" --depth=3
+  $ funcqc types --action deps --type-name "UserProfile" --depth 3
   
   # Evaluate type API design and optimization
-  $ funcqc types --action=api --type-name="ApiResponse" --optimize
+  $ funcqc types --action api --type-name "ApiResponse" --optimize
   
   # Show detailed member information
-  $ funcqc types --action=members --type-name="BaseEntity" --detail
+  $ funcqc types --action members --type-name "BaseEntity" --detail
   
   # Property usage coverage analysis  
-  $ funcqc types --action=coverage --type-name="OrderDTO" --hot-threshold=10
+  $ funcqc types --action coverage --type-name "OrderDTO" --hot-threshold 10
   
   # Property clustering patterns
-  $ funcqc types --action=cluster --type-name="Product" --similarity-threshold=0.8
+  $ funcqc types --action cluster --type-name "Product" --similarity-threshold 0.8
   
   # Find reusable property patterns
-  $ funcqc types --action=slices --min-support=3 --benefit=high
+  $ funcqc types --action slices --min-support 3 --benefit high
   
   # Identify redundant types
-  $ funcqc types --action=subsume --min-overlap=0.7 --show-redundant
+  $ funcqc types --action subsume --min-overlap 0.7 --show-redundant
   
   # Type co-evolution analysis
-  $ funcqc types --action=cochange --months-back=12 --show-matrix
+  $ funcqc types --action cochange --months-back 12 --show-matrix
 
 Advanced Analysis:
-  • --action=insights      # Comprehensive analysis combining all insights
-  • --action=fingerprint   # Behavioral fingerprint analysis
-  • --action=converters    # Type conversion network analysis
-  • --action=risk          # Dependency risk assessment
+  • --action insights      # Comprehensive analysis combining all insights
+  • --action fingerprint   # Behavioral fingerprint analysis
+  • --action converters    # Type conversion network analysis
+  • --action risk          # Dependency risk assessment
 `);
 
 // Add deprecated types subcommand with migration guidance
@@ -1613,12 +1613,12 @@ legacyTypesCommand
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `types <subcommand>` syntax will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new unified `types` command instead:'));
     console.log('');
-    console.log('  funcqc types --action=list --prop-ge=5                # was: funcqc types list --prop-ge 5');
-    console.log('  funcqc types --action=health --verbose               # was: funcqc types health --verbose');
-    console.log('  funcqc types --action=deps --type-name="MyType"      # was: funcqc types deps MyType');
-    console.log('  funcqc types --action=api --type-name="MyType"       # was: funcqc types api MyType');
-    console.log('  funcqc types --action=members --type-name="MyType"   # was: funcqc types members MyType');
-    console.log('  funcqc types --action=slices --min-support=3         # was: funcqc types slices --min-support 3');
+    console.log('  funcqc types --action list --prop-ge 5                # was: funcqc types list --prop-ge 5');
+    console.log('  funcqc types --action health --verbose               # was: funcqc types health --verbose');
+    console.log('  funcqc types --action deps --type-name "MyType"      # was: funcqc types deps MyType');
+    console.log('  funcqc types --action api --type-name "MyType"       # was: funcqc types api MyType');
+    console.log('  funcqc types --action members --type-name "MyType"   # was: funcqc types members MyType');
+    console.log('  funcqc types --action slices --min-support 3         # was: funcqc types slices --min-support 3');
     console.log('');
     console.log('See: funcqc types --help');
     console.log('');
@@ -1632,9 +1632,9 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `refactor-guard` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
     console.log('');
-    console.log('  funcqc refactor --action=guard --type="TypeName"      # was: funcqc refactor-guard --type TypeName');
-    console.log('  funcqc refactor --action=guard --operation=split      # was: funcqc refactor-guard --operation split');
-    console.log('  funcqc refactor --action=guard --include-cochange     # was: funcqc refactor-guard --include-cochange');
+    console.log('  funcqc refactor --action guard --type "TypeName"      # was: funcqc refactor-guard --type TypeName');
+    console.log('  funcqc refactor --action guard --operation split      # was: funcqc refactor-guard --operation split');
+    console.log('  funcqc refactor --action guard --include-cochange     # was: funcqc refactor-guard --include-cochange');
     console.log('');
     console.log('See: funcqc refactor --help');
     process.exit(0);
@@ -1647,9 +1647,9 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `type-replace` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
     console.log('');
-    console.log('  funcqc refactor --action=type-replace --from="OldType" --to="NewType"  # was: funcqc type-replace --from OldType --to NewType');
-    console.log('  funcqc refactor --action=type-replace --check-only                     # was: funcqc type-replace --check-only');
-    console.log('  funcqc refactor --action=type-replace --migration-plan                 # was: funcqc type-replace --migration-plan');
+    console.log('  funcqc refactor --action type-replace --from "OldType" --to "NewType"  # was: funcqc type-replace --from OldType --to NewType');
+    console.log('  funcqc refactor --action type-replace --check-only                     # was: funcqc type-replace --check-only');
+    console.log('  funcqc refactor --action type-replace --migration-plan                 # was: funcqc type-replace --migration-plan');
     console.log('');
     console.log('See: funcqc refactor --help');
     process.exit(0);
@@ -1694,9 +1694,9 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `canonicalize` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
     console.log('');
-    console.log('  funcqc refactor --action=canonicalize                     # was: funcqc canonicalize');
-    console.log('  funcqc refactor --action=canonicalize --generate-codemod  # was: funcqc canonicalize --generate-codemod');
-    console.log('  funcqc refactor --action=canonicalize --show-opportunities # was: funcqc canonicalize --show-opportunities');
+    console.log('  funcqc refactor --action canonicalize                     # was: funcqc canonicalize');
+    console.log('  funcqc refactor --action canonicalize --generate-codemod  # was: funcqc canonicalize --generate-codemod');
+    console.log('  funcqc refactor --action canonicalize --show-opportunities # was: funcqc canonicalize --show-opportunities');
     console.log('');
     console.log('See: funcqc refactor --help');
     process.exit(0);
@@ -1744,9 +1744,9 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `extract-vo` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
     console.log('');
-    console.log('  funcqc refactor --action=extract-vo                          # was: funcqc extract-vo');
-    console.log('  funcqc refactor --action=extract-vo --show-opportunities     # was: funcqc extract-vo --show-opportunities');
-    console.log('  funcqc refactor --action=extract-vo --output-code ./vo       # was: funcqc extract-vo --output-code ./vo');
+    console.log('  funcqc refactor --action extract-vo                          # was: funcqc extract-vo');
+    console.log('  funcqc refactor --action extract-vo --show-opportunities     # was: funcqc extract-vo --show-opportunities');
+    console.log('  funcqc refactor --action extract-vo --output-code ./vo       # was: funcqc extract-vo --output-code ./vo');
     console.log('');
     console.log('See: funcqc refactor --help');
     process.exit(0);
@@ -1802,9 +1802,9 @@ program
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `discriminate` command will be removed in v2.0'));
     console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
     console.log('');
-    console.log('  funcqc refactor --action=discriminate                         # was: funcqc discriminate');
-    console.log('  funcqc refactor --action=discriminate --transform             # was: funcqc discriminate --transform');
-    console.log('  funcqc refactor --action=discriminate --target-types="User,Order"  # was: funcqc discriminate --target-types User,Order');
+    console.log('  funcqc refactor --action discriminate                         # was: funcqc discriminate');
+    console.log('  funcqc refactor --action discriminate --transform             # was: funcqc discriminate --transform');
+    console.log('  funcqc refactor --action discriminate --target-types "User,Order"  # was: funcqc discriminate --target-types User,Order');
     console.log('');
     console.log('See: funcqc refactor --help');
     process.exit(0);
