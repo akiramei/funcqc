@@ -5,6 +5,7 @@ import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
+import { getGlobalVirtualProjectManager } from './virtual-project-manager';
 import * as path from 'path';
 import chalk from 'chalk';
 
@@ -491,6 +492,61 @@ export class FunctionAnalyzer {
   }
 
   /**
+   * Create mapping between virtual project function IDs and real database function IDs with virtual path support
+   */
+  private createFunctionIdMappingWithVirtualPaths(
+    virtualFunctions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>, 
+    realFunctions: FunctionInfo[],
+    virtualPaths: Map<string, string>
+  ): Map<string, string> {
+    const mapping = new Map<string, string>();
+    
+    // Create reverse mapping from virtual paths to real paths
+    const virtualToRealPath = new Map<string, string>();
+    for (const [realPath, virtualPath] of virtualPaths) {
+      virtualToRealPath.set(virtualPath, realPath);
+    }
+    
+    // Create a lookup for real functions by signature
+    const realFunctionMap = new Map<string, FunctionInfo>();
+    for (const realFunc of realFunctions) {
+      // Create a signature key based on file path, function name, and line
+      const key = `${realFunc.filePath}:${realFunc.name}:${realFunc.startLine}`;
+      realFunctionMap.set(key, realFunc);
+    }
+    
+    // Convert Map to Array
+    const virtualFuncArray = Array.from(virtualFunctions.values());
+    
+    // Map virtual functions to real functions
+    for (const virtualFunc of virtualFuncArray) {
+      // Check if filePath is defined
+      if (!virtualFunc.filePath) {
+        this.logger.debug(`Skipping virtual function ${virtualFunc.id} (${virtualFunc.name}): no filePath`);
+        continue;
+      }
+      
+      // Convert virtual path back to real path using virtual path mapping
+      const realPath = virtualToRealPath.get(virtualFunc.filePath) || virtualFunc.filePath.replace('/virtual', '');
+      const key = `${realPath}:${virtualFunc.name}:${virtualFunc.startLine || 0}`;
+      
+      const realFunc = realFunctionMap.get(key);
+      if (realFunc) {
+        mapping.set(virtualFunc.id, realFunc.id);
+      } else {
+        // Log warning for unmapped functions with enhanced debugging
+        this.logger.debug(`Could not map virtual function ${virtualFunc.id} (${virtualFunc.name}) to real function at ${key}`);
+        this.logger.debug(`  Virtual path: ${virtualFunc.filePath}`);
+        this.logger.debug(`  Resolved real path: ${realPath}`);
+        this.logger.debug(`  Available paths: ${Array.from(realFunctionMap.keys()).slice(0, 5).join(', ')}...`);
+      }
+    }
+    
+    this.logger.debug(`Function ID mapping created: ${mapping.size}/${virtualFuncArray.length} virtual functions mapped to real functions`);
+    return mapping;
+  }
+
+  /**
    * Convert ideal call edges to legacy format with ID mapping
    */
   private convertCallEdgesWithMapping(
@@ -608,33 +664,24 @@ export class FunctionAnalyzer {
     this.logger.debug('Starting call graph analysis from stored content...');
     
     try {
-      // Create a temporary project with virtual files from stored content
+      // Get or create virtual project using VirtualProjectManager
       const projectStartTime = performance.now();
-      const virtualProject = new Project({
-        skipAddingFilesFromTsConfig: true,
-        skipLoadingLibFiles: true,
-        skipFileDependencyResolution: true,
-        useInMemoryFileSystem: true, // Use in-memory filesystem for virtual files
-        compilerOptions: {
-          isolatedModules: true,
-          noResolve: true,
-          skipLibCheck: true,
-          noLib: true
-        }
-      });
-      
-      // Add virtual source files from stored content
-      const virtualPaths = new Map<string, string>();
-      for (const [filePath, content] of fileContentMap) {
-        // Create a virtual path to avoid conflicts with real filesystem
-        const virtualPath = `/virtual${filePath}`;
-        virtualPaths.set(filePath, virtualPath);
-        virtualProject.createSourceFile(virtualPath, content, { overwrite: true });
-      }
+      const virtualProjectManager = getGlobalVirtualProjectManager();
+      const { project: virtualProject, virtualPaths, isNewlyCreated } = virtualProjectManager.getOrCreateProject(
+        snapshotId,
+        fileContentMap
+      );
       
       const projectEndTime = performance.now();
-      console.log(chalk.gray(`⏱️  Virtual project creation: ${((projectEndTime - projectStartTime) / 1000).toFixed(2)}s for ${virtualProject.getSourceFiles().length} files`));
-      this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
+      const projectCreationTime = (projectEndTime - projectStartTime) / 1000;
+      
+      if (isNewlyCreated) {
+        console.log(chalk.gray(`⏱️  Virtual project creation: ${projectCreationTime.toFixed(2)}s for ${virtualProject.getSourceFiles().length} files`));
+        this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
+      } else {
+        console.log(chalk.green(`⏱️  Virtual project retrieved from cache: ${projectCreationTime.toFixed(3)}s for ${virtualProject.getSourceFiles().length} files (cache hit)`));
+        this.logger.debug(`Reused cached virtual project with ${virtualProject.getSourceFiles().length} files`);
+      }
       
       // Initialize ideal call graph analyzer with virtual project
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
@@ -652,7 +699,7 @@ export class FunctionAnalyzer {
         
         // Create mapping between virtual functions and real functions
         const mappingStartTime = performance.now();
-        const functionIdMapping = this.createFunctionIdMapping(callGraphResult.functions, functions);
+        const functionIdMapping = this.createFunctionIdMappingWithVirtualPaths(callGraphResult.functions, functions, virtualPaths);
         
         // Convert to legacy format for compatibility with ID mapping
         const callEdges = this.convertCallEdgesWithMapping(callGraphResult.edges, functionIdMapping);
