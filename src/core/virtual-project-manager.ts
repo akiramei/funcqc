@@ -51,7 +51,7 @@ export class VirtualProjectManager {
   }
 
   /**
-   * Get or create a virtual project for the given snapshot and content
+   * Get or create a virtual project for the given content
    */
   getOrCreateProject(
     snapshotId: string,
@@ -59,8 +59,8 @@ export class VirtualProjectManager {
   ): VirtualProjectResult {
     const startTime = performance.now();
     
-    // Create cache key from snapshot ID and content hash
-    const cacheKey = this.createCacheKey(snapshotId, fileContentMap);
+    // Create cache key from content hash (snapshot-independent)
+    const cacheKey = this.createCacheKey(fileContentMap);
     
     // Check for existing cached project
     const existing = this.projectCache.get(cacheKey);
@@ -70,7 +70,7 @@ export class VirtualProjectManager {
       existing.accessCount++;
       
       const retrievalTime = performance.now() - startTime;
-      this.logger.debug(`🚀 Virtual project cache HIT: ${cacheKey.substring(0, 8)} (${retrievalTime.toFixed(1)}ms, accessed ${existing.accessCount} times)`);
+      this.logger.debug(`🚀 Virtual project cache HIT: ${cacheKey.substring(0, 16)} (${retrievalTime.toFixed(1)}ms, accessed ${existing.accessCount} times, snapshot: ${snapshotId.substring(0, 8)})`);
       
       return {
         project: existing.project,
@@ -81,7 +81,7 @@ export class VirtualProjectManager {
     }
     
     // Create new virtual project
-    this.logger.debug(`🔧 Creating new virtual project for snapshot ${snapshotId.substring(0, 8)}`);
+    this.logger.debug(`🔧 Creating new virtual project for content ${cacheKey.substring(0, 16)} (snapshot: ${snapshotId.substring(0, 8)})`);
     const { project, virtualPaths } = this.createVirtualProject(fileContentMap);
     
     // Store in cache
@@ -99,7 +99,7 @@ export class VirtualProjectManager {
     this.projectCache.set(cacheKey, entry);
     
     const creationTime = performance.now() - startTime;
-    this.logger.debug(`✅ Virtual project created and cached: ${cacheKey.substring(0, 8)} (${creationTime.toFixed(1)}ms)`);
+    this.logger.debug(`✅ Virtual project created and cached: ${cacheKey.substring(0, 16)} (${creationTime.toFixed(1)}ms, snapshot: ${snapshotId.substring(0, 8)})`);
     
     return {
       project,
@@ -110,9 +110,9 @@ export class VirtualProjectManager {
   }
 
   /**
-   * Create cache key from snapshot ID and file content map
+   * Create cache key from file content map (snapshot-independent)
    */
-  private createCacheKey(snapshotId: string, fileContentMap: Map<string, string>): string {
+  private createCacheKey(fileContentMap: Map<string, string>): string {
     // Create a deterministic hash of file paths and content
     const contentItems: string[] = [];
     
@@ -125,8 +125,10 @@ export class VirtualProjectManager {
       contentItems.push(`${filePath}:${contentHash}`);
     }
     
+    // Cache key based purely on content, not snapshot ID
+    // This allows cache hits across different snapshots with same content
     const contentSignature = crypto.createHash('md5').update(contentItems.join('|')).digest('hex').substring(0, 16);
-    return `${snapshotId}:${contentSignature}`;
+    return `content:${contentSignature}`;
   }
 
   /**
