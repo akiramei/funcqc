@@ -2,7 +2,7 @@ import chalk from 'chalk';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler, ErrorCode, type DatabaseErrorLike } from '../../utils/error-handler';
-import { CallEdge, FunctionInfo } from '../../types';
+import { CallEdge, FunctionInfo, ScopeConfig } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepListOptions } from './types';
 import { isPathInScope } from '../../utils/scope-utils';
@@ -11,15 +11,26 @@ import { ConfigManager } from '../../core/config';
 /**
  * Check if a file path is in the specified scope
  */
+// Cache scope configs to avoid repeated I/O per edge
+const scopeCache = new Map<string, ScopeConfig>();
+
 async function isInScope(filePath: string, scopeName: string): Promise<boolean> {
   try {
-    const configManager = new ConfigManager();
-    await configManager.load();
-    const scopeConfig = configManager.resolveScopeConfig(scopeName);
+    let scopeConfig = scopeCache.get(scopeName);
+    if (!scopeConfig) {
+      const configManager = new ConfigManager();
+      await configManager.load();
+      scopeConfig = configManager.resolveScopeConfig(scopeName);
+      scopeCache.set(scopeName, scopeConfig);
+    }
     return isPathInScope(filePath, scopeConfig);
   } catch (error) {
     // If scope resolution fails, default to include the function
-    console.warn(`Warning: Failed to resolve scope '${scopeName}': ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(
+      `Warning: Failed to resolve scope '${scopeName}': ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return true;
   }
 }
