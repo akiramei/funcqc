@@ -28,6 +28,7 @@ import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
 import { TypeSystemAnalyzer } from './type-system-analyzer';
+import { SharedVirtualProjectManager } from '../core/shared-virtual-project-manager';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
 
@@ -244,15 +245,36 @@ export class TypeScriptAnalyzer extends CacheAware {
   }
 
   /**
+   * Prepare shared virtual project for batch analysis
+   * Creates or reuses cached project for optimal performance
+   */
+  async prepareSharedProject(
+    snapshotId: string,
+    fileContentMap: Map<string, string>
+  ): Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }> {
+    return SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
+  }
+
+  /**
    * Analyze TypeScript content from string instead of file
-   * Used for analyzing stored file content
+   * Used for analyzing stored file content with shared virtual project
    */
   async analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
     
     try {
+      // Use shared project if available for this snapshot, otherwise use default project
+      let targetProject = this.project;
+      
+      if (snapshotId) {
+        // Try to get shared project from cache
+        const fileContentMap = new Map([[virtualPath, content]]);
+        const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
+        targetProject = sharedProject;
+      }
+      
       // Create virtual source file from content
-      const sourceFile = this.project.createSourceFile(virtualPath, content, {
+      const sourceFile = targetProject.createSourceFile(virtualPath, content, {
         overwrite: true,
       });
       

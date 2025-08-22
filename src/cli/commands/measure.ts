@@ -234,11 +234,16 @@ async function executeMeasurementWorkflow(
     env.commandLogger.info(`🔍 Scan necessity check: needsNewScan=${needsNewScan}, existingLevel=${existingSnapshot?.analysisLevel || 'none'}`);
   }
 
-  // Phase 1: Scan (only if needed or forced)  
-  if (options.force || needsNewScan) {
+  // Phase 1: Scan (only if needed or forced)
+  // CRITICAL FIX: --full should always force new scan for complete analysis
+  const shouldForceNewScan = options.force || options.full || needsNewScan;
+  
+  if (shouldForceNewScan) {
     if (!options.quiet) {
       env.commandLogger.info('📦 Phase 1: Function scanning...');
-      if (!needsNewScan) {
+      if (options.full) {
+        env.commandLogger.info('   🚀 Full analysis requested, creating new complete snapshot');
+      } else if (options.force) {
         env.commandLogger.info('   🔄 Force scan requested, creating new snapshot');
       }
     }

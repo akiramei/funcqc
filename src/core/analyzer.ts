@@ -3,6 +3,7 @@ import { TypeScriptAnalyzer } from '../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { VirtualProjectFactory } from './virtual-project-factory';
+import { SharedVirtualProjectManager } from './shared-virtual-project-manager';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
@@ -679,14 +680,21 @@ export class FunctionAnalyzer {
     this.logger.debug('Starting call graph analysis from stored content...');
     
     try {
-      // Create virtual project using factory with unified path handling
-      const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
-      const { project: virtualProject } = await VirtualProjectFactory.createFromContent(
-        fileContentMap,
-        config
+      // Use shared virtual project for true integration (reuse from BASIC analysis)
+      this.logger.debug('[PATH] CONTENT-UNIFIED - Attempting to reuse shared virtual project...');
+      
+      const { project: virtualProject, isNewlyCreated } = await SharedVirtualProjectManager.getOrCreateProject(
+        snapshotId,
+        fileContentMap
       );
       
-      this.logger.debug(`Created virtual project with ${virtualProject.getSourceFiles().length} files`);
+      if (isNewlyCreated) {
+        this.logger.warn('⚠️  Created new virtual project for Call Graph (BASIC project should have been reused)');
+      } else {
+        this.logger.info('⚡ Successfully reusing virtual project from BASIC analysis');
+      }
+      
+      this.logger.debug(`Using virtual project with ${virtualProject.getSourceFiles().length} files`);
       
       // Initialize ideal call graph analyzer with virtual project
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 

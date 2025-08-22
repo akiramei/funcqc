@@ -640,6 +640,29 @@ async function executePureBasicBatchAnalysis(
   env: CommandEnvironment,
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionCount: number; errors: string[] }[]> {
+  // Prepare shared virtual project for true integration
+  console.log(chalk.blue('🔧 Preparing shared virtual project for BASIC analysis...'));
+  
+  // Collect all file contents for shared project creation
+  const allFileContentMap = new Map<string, string>();
+  for (const batch of batches) {
+    for (const sourceFile of batch) {
+      allFileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
+    }
+  }
+  
+  // Create shared project once for all analysis
+  const { isNewlyCreated } = await components.analyzer.prepareSharedProject(
+    snapshotId,
+    allFileContentMap
+  );
+  
+  if (isNewlyCreated) {
+    console.log(chalk.green(`✅ Shared virtual project created (${allFileContentMap.size} files)`));
+  } else {
+    console.log(chalk.green(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`));
+  }
+
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
