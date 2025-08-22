@@ -226,6 +226,9 @@ export class VirtualProjectManager {
     this.cleanupTimer = setInterval(() => {
       this.clearExpiredCache();
     }, this.CLEANUP_INTERVAL);
+    
+    // Don't let this timer keep the process alive
+    this.cleanupTimer.unref();
   }
 
   /**
@@ -319,6 +322,24 @@ let globalVirtualProjectManager: VirtualProjectManager | null = null;
 export function getGlobalVirtualProjectManager(): VirtualProjectManager {
   if (!globalVirtualProjectManager) {
     globalVirtualProjectManager = new VirtualProjectManager();
+    
+    // Set up process cleanup handlers to prevent hanging
+    const cleanup = () => {
+      if (globalVirtualProjectManager) {
+        globalVirtualProjectManager.dispose();
+        globalVirtualProjectManager = null;
+      }
+    };
+
+    // Handle graceful shutdown
+    process.on('exit', cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+    process.on('uncaughtException', (error) => {
+      console.error('Uncaught exception, cleaning up virtual project manager:', error);
+      cleanup();
+      process.exit(1);
+    });
   }
   return globalVirtualProjectManager;
 }
