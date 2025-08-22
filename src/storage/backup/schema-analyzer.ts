@@ -44,6 +44,14 @@ export class SchemaAnalyzer {
     const dependencies = this.analyzeDependencies(schemaContent, tables);
     const { tableOrder, circularDependencies } = this.performTopologicalSort(dependencies);
     
+    // Only log issues or in debug mode
+    if (circularDependencies.length > 0) {
+      console.log(`[SchemaAnalyzer] Circular dependencies detected: [${circularDependencies.join(', ')}]`);
+    }
+    if (process.env['DEBUG_SCHEMA']) {
+      console.log(`[SchemaAnalyzer] Tables: ${tables.length}, Order: [${tableOrder.join(', ')}]`);
+    }
+    
     return {
       tables,
       dependencies,
@@ -107,10 +115,22 @@ export class SchemaAnalyzer {
     const tableRegex = /CREATE\s+TABLE\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
     const matches = [...content.matchAll(tableRegex)];
     
-    return matches
+    // Warn if no tables found
+    if (matches.length === 0) {
+      console.warn(`[SchemaAnalyzer] No CREATE TABLE statements found in schema file`);
+      if (process.env['DEBUG_SCHEMA']) {
+        const lines = content.split('\n');
+        const createTableLines = lines.filter(line => line.includes('CREATE TABLE')).slice(0, 5);
+        console.log(`[SchemaAnalyzer] Sample lines containing 'CREATE TABLE':`, createTableLines);
+      }
+    }
+    
+    const tables = matches
       .map(match => match[1])
       .filter((table, index, arr) => arr.indexOf(table) === index) // Remove duplicates
       .sort();
+    
+    return tables;
   }
 
   /**

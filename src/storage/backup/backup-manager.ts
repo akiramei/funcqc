@@ -69,16 +69,16 @@ export class BackupManager {
       // Resolve backup path
       const backupPath = await this.resolveBackupPath(options.label, options.outputDir);
       
+      // Analyze schema (needed for both dry-run and actual backup)
+      const schemaAnalysis = await this.schemaAnalyzer.analyzeSchema();
+      
       if (options.dryRun) {
         console.log(`[DRY RUN] Would create backup at: ${backupPath}`);
-        return this.createDryRunResult(backupPath, startTime);
+        return this.createDryRunResult(backupPath, startTime, schemaAnalysis);
       }
 
       // Create backup directory
       await fs.mkdir(backupPath, { recursive: true });
-      
-      // Analyze schema
-      const schemaAnalysis = await this.schemaAnalyzer.analyzeSchema();
       
       if (schemaAnalysis.circularDependencies.length > 0) {
         warnings.push(`Circular dependencies detected: ${schemaAnalysis.circularDependencies.join(', ')}`);
@@ -383,9 +383,22 @@ export class BackupManager {
       }
       
       // Use escaped identifier to prevent SQL injection
-      const result = await this.storage.query(`SELECT * FROM "${tableName}"`);
-      return (result as { rows: unknown[] }).rows || [];
-    } catch {
+      const query = `SELECT * FROM "${tableName}"`;
+      if (process.env['DEBUG_BACKUP']) {
+        console.log(`[BackupManager] Executing query: ${query}`);
+      }
+      
+      const result = await this.storage.query(query);
+      const rows = (result as { rows: unknown[] }).rows || [];
+      
+      if (process.env['DEBUG_BACKUP']) {
+        console.log(`[BackupManager] Table ${tableName}: ${rows.length} rows exported, result:`, 
+          JSON.stringify(result, null, 2).substring(0, 200) + '...');
+      }
+      
+      return rows;
+    } catch (error) {
+      console.warn(`[BackupManager] Failed to export table ${tableName}:`, error instanceof Error ? error.message : String(error));
       return [];
     }
   }
@@ -488,15 +501,28 @@ export class BackupManager {
       let restoredRows = 0;
       
       // Insert data in batches to avoid memory issues
-      const batchSize = 1000;
+      const batchSize = 100; // Reduced batch size for better performance
+      const totalRows = data.length;
+      
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize);
+        
+        // Progress logging for large tables
+        if (totalRows > 1000 && i % 1000 === 0) {
+          console.log(`[BackupManager] Restoring ${tableName}: ${i}/${totalRows} rows (${Math.round(i/totalRows*100)}%)`);
+        }
         
         for (const row of batch) {
           if (row && typeof row === 'object') {
             const record = row as Record<string, unknown>;
             const columns = Object.keys(record);
-            const values = Object.values(record);
+            const values = Object.values(record).map(value => {
+              // Handle JSON/JSONB fields by stringifying objects and arrays
+              if (value !== null && typeof value === 'object') {
+                return JSON.stringify(value);
+              }
+              return value;
+            });
             
             if (columns.length > 0) {
               const placeholders = values.map((_, index) => `$${index + 1}`).join(', ');
@@ -644,15 +670,23 @@ export class BackupManager {
     }
   }
 
-  private createDryRunResult(backupPath: string, startTime: number): BackupResult {
+  private createDryRunResult(backupPath: string, startTime: number, schemaAnalysis?: SchemaAnalysisResult): BackupResult {
+    const tablesExported = schemaAnalysis?.tables.length || 0;
+    const tableOrder = schemaAnalysis?.tableOrder || [];
+    
+    // Show table list in debug mode
+    if (process.env['DEBUG_BACKUP'] && tableOrder.length > 0) {
+      console.log(`[BackupManager] Dry run would export ${tablesExported} tables: [${tableOrder.join(', ')}]`);
+    }
+    
     return {
       success: true,
       backupPath,
       manifest: {} as BackupManifest,
       duration: Date.now() - startTime,
       stats: {
-        tablesExported: 0,
-        totalRows: 0,
+        tablesExported,
+        totalRows: 0, // Can't determine row count in dry-run without actual queries
         backupSize: '0 B',
       },
       warnings: ['Dry run - no actual backup created'],
