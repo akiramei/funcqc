@@ -651,8 +651,9 @@ async function executePureBasicBatchAnalysis(
     }
   }
   
-  // Create shared project once for all analysis
-  const { isNewlyCreated } = await components.analyzer.prepareSharedProject(
+  // Create shared project once for all analysis using TypeScript analyzer
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { isNewlyCreated } = await (components.analyzer as any).prepareSharedProject(
     snapshotId,
     allFileContentMap
   );

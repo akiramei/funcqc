@@ -20,10 +20,14 @@ export class FunctionRegistry {
   private functionMap = new Map<string, FunctionMetadata>();
   private declToIdMap = new WeakMap<Node, string>(); // 宣言ノード → functionId 逆引き
   private snapshotId: string;
+  private existingFunctionIds: Map<string, string> | undefined; // filePath:line:column -> existing function ID mapping
+  private normalizedPathMapping: Map<string, string> | undefined; // ts-morph path -> normalized path
 
-  constructor(project: Project, snapshotId?: string) {
+  constructor(project: Project, snapshotId?: string, existingFunctionIds?: Map<string, string>, normalizedPathMapping?: Map<string, string>) {
     this.project = project;
     this.snapshotId = snapshotId || 'unknown';
+    this.existingFunctionIds = existingFunctionIds;
+    this.normalizedPathMapping = normalizedPathMapping;
   }
 
   /**
@@ -47,7 +51,10 @@ export class FunctionRegistry {
 
   private async collectFunctionsFromFile(sourceFile: SourceFile): Promise<number> {
     let functionCount = 0;
-    const filePath = sourceFile.getFilePath();
+    const rawFilePath = sourceFile.getFilePath();
+    
+    // CRITICAL FIX: Use normalized path if available to ensure consistency with BASIC analysis
+    const filePath = this.normalizedPathMapping?.get(rawFilePath) || rawFilePath;
     
     // Use forEachDescendant to visit every node
     sourceFile.forEachDescendant((node, _traversal) => {
@@ -90,17 +97,41 @@ export class FunctionRegistry {
     const contentHash = this.calculateContentHash(node);
     
     const className = this.getClassName(node);
-    
-    // Generate snapshot-specific physical ID to avoid duplicate key violations
+    const startLine = node.getStartLineNumber();
     const startColumn = node.getStart() - node.getStartLinePos();
-    const uniqueId = FunctionIdGenerator.generateDeterministicUUID(
-      filePath, // Will be normalized internally
-      name,
-      className || null,
-      node.getStartLineNumber(),
-      startColumn,
-      this.snapshotId
-    );
+    
+    // CRITICAL FIX: Use existing Function ID if available to maintain consistency with BASIC analysis
+    let uniqueId: string;
+    
+    if (this.existingFunctionIds) {
+      // Create lookup key for existing ID mapping
+      const lookupKey = `${filePath}:${startLine}:${startColumn}:${name}`;
+      const existingId = this.existingFunctionIds.get(lookupKey);
+      
+      if (existingId) {
+        uniqueId = existingId;
+      } else {
+        // Generate new ID if not found in existing mappings
+        uniqueId = FunctionIdGenerator.generateDeterministicUUID(
+          filePath, // Will be normalized internally
+          name,
+          className || null,
+          startLine,
+          startColumn,
+          this.snapshotId
+        );
+      }
+    } else {
+      // Generate snapshot-specific physical ID to avoid duplicate key violations
+      uniqueId = FunctionIdGenerator.generateDeterministicUUID(
+        filePath, // Will be normalized internally
+        name,
+        className || null,
+        startLine,
+        startColumn,
+        this.snapshotId
+      );
+    }
     
     return {
       id: uniqueId,

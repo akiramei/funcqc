@@ -265,12 +265,21 @@ export class TypeScriptAnalyzer extends CacheAware {
     try {
       // Use shared project if available for this snapshot, otherwise use default project
       let targetProject = this.project;
+      let isUsingSharedProject = false;
       
       if (snapshotId) {
-        // Try to get shared project from cache
-        const fileContentMap = new Map([[virtualPath, content]]);
-        const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-        targetProject = sharedProject;
+        // CRITICAL FIX: For single file analysis, prioritize cache lookup without creating new project
+        const cachedProject = SharedVirtualProjectManager.getCachedProject(snapshotId);
+        if (cachedProject) {
+          targetProject = cachedProject;
+          isUsingSharedProject = true;
+        } else {
+          // Fallback: only create if no cache exists (should rarely happen)
+          const fileContentMap = new Map([[virtualPath, content]]);
+          const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
+          targetProject = sharedProject;
+          isUsingSharedProject = true;
+        }
       }
       
       // Create virtual source file from content
@@ -312,9 +321,12 @@ export class TypeScriptAnalyzer extends CacheAware {
         functions.push(info);
       }
       
-      // Clean up virtual source file
-      this.project.removeSourceFile(sourceFile);
-      this.manageMemory();
+      // CRITICAL FIX: Only clean up if not using shared project
+      // Shared projects should preserve files for reuse across analyses
+      if (!isUsingSharedProject) {
+        targetProject.removeSourceFile(sourceFile);
+        this.manageMemory();
+      }
       
       return functions;
     } catch (error) {

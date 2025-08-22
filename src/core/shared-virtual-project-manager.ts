@@ -31,12 +31,31 @@ class SharedVirtualProjectManager {
     // Check if project exists in cache
     const cached = this.projectCache.get(snapshotId);
     
+    
     if (cached && this.isProjectValid(cached)) {
       console.log(chalk.gray(`⚡ Reusing virtual project for snapshot ${snapshotId.substring(0, 8)} (${cached.project.getSourceFiles().length} files)`));
       return { project: cached.project, isNewlyCreated: false };
     }
     
-    // Create new virtual project
+    // CRITICAL FIX: If cached project exists but fileContentMap is larger, update the project
+    if (cached && fileContentMap.size > cached.fileContentMap.size) {
+      console.log(chalk.gray(`🔄 Updating virtual project for snapshot ${snapshotId.substring(0, 8)} with additional files...`));
+      
+      // Add new files to existing project
+      for (const [filePath, content] of fileContentMap) {
+        if (!cached.fileContentMap.has(filePath)) {
+          cached.project.createSourceFile(filePath, content, { overwrite: true });
+        }
+      }
+      
+      // Update cached fileContentMap
+      cached.fileContentMap = new Map(fileContentMap);
+      
+      console.log(chalk.gray(`⚡ Updated virtual project (${cached.project.getSourceFiles().length} files)`));
+      return { project: cached.project, isNewlyCreated: false };
+    }
+    
+    // Create new virtual project only if no cache exists
     console.log(chalk.gray(`🔧 Creating virtual project for snapshot ${snapshotId.substring(0, 8)}...`));
     
     const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
@@ -48,7 +67,7 @@ class SharedVirtualProjectManager {
     // Cache the project
     this.projectCache.set(snapshotId, {
       project,
-      fileContentMap,
+      fileContentMap: new Map(fileContentMap), // Create copy to avoid reference issues
       createdAt: Date.now(),
       snapshotId
     });
@@ -88,10 +107,7 @@ class SharedVirtualProjectManager {
     for (const [snapshotId, cached] of this.projectCache.entries()) {
       if (!this.isProjectValid(cached)) {
         try {
-          // Dispose project if possible
-          if (typeof cached.project.dispose === 'function') {
-            cached.project.dispose();
-          }
+          // Projects don't have dispose method in ts-morph, just remove from cache
         } catch {
           // Ignore disposal errors
         }
@@ -109,9 +125,7 @@ class SharedVirtualProjectManager {
     const cached = this.projectCache.get(snapshotId);
     if (cached) {
       try {
-        if (typeof cached.project.dispose === 'function') {
-          cached.project.dispose();
-        }
+        // Projects don't have dispose method in ts-morph, just remove from cache
       } catch {
         // Ignore disposal errors
       }
@@ -121,6 +135,17 @@ class SharedVirtualProjectManager {
     }
   }
   
+  /**
+   * Get cached project for snapshot if available
+   */
+  getCachedProject(snapshotId: string): Project | null {
+    const cached = this.projectCache.get(snapshotId);
+    if (cached && this.isProjectValid(cached)) {
+      return cached.project;
+    }
+    return null;
+  }
+
   /**
    * Get cache statistics
    */
@@ -141,11 +166,9 @@ class SharedVirtualProjectManager {
    * Clear all cached projects
    */
   clearAll(): void {
-    for (const [_snapshotId, cached] of this.projectCache.entries()) {
+    for (const [_snapshotId, _cached] of this.projectCache.entries()) {
       try {
-        if (typeof cached.project.dispose === 'function') {
-          cached.project.dispose();
-        }
+        // Projects don't have dispose method in ts-morph, just remove from cache
       } catch {
         // Ignore disposal errors
       }

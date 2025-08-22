@@ -7,7 +7,6 @@ import { SharedVirtualProjectManager } from './shared-virtual-project-manager';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
-import * as path from 'path';
 import chalk from 'chalk';
 
 export class FunctionAnalyzer {
@@ -346,64 +345,7 @@ export class FunctionAnalyzer {
   /**
    * Initialize ts-morph project for ideal analysis
    */
-  private async initializeProject(filePaths: string[]): Promise<void> {
-    this.logger.debug('Initializing ts-morph project...');
-    
-    // Find tsconfig.json
-    const tsConfigPath = await this.findTsConfigPath();
-    
-    const projectOptions: import('ts-morph').ProjectOptions = {
-      skipAddingFilesFromTsConfig: true, // Don't load all files, we'll add specific ones
-      skipLoadingLibFiles: true,
-      useInMemoryFileSystem: false
-    };
-    
-    if (tsConfigPath) {
-      projectOptions.tsConfigFilePath = tsConfigPath;
-    }
-    
-    this.project = new Project(projectOptions);
-    
-    // Add specific files we want to analyze with normalized paths
-    this.logger.debug(`Adding ${filePaths.length} files to project...`);
-    for (const filePath of filePaths) {
-      const normalizedPath = path.resolve(filePath); // Ensure absolute path
-      this.project.addSourceFileAtPath(normalizedPath);
-    }
-    
-    // Initialize ideal call graph analyzer
-    this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(this.project, { logger: this.logger });
-    
-    this.logger.debug(`Project initialized with ${this.project.getSourceFiles().length} files`);
-  }
 
-  /**
-   * Find tsconfig.json path
-   */
-  private async findTsConfigPath(): Promise<string | undefined> {
-    const fs = await import('fs');
-    const path = await import('path');
-    
-    // Search for tsconfig.json in project roots
-    for (const root of this.config.roots) {
-      const tsConfigPath = path.join(root, 'tsconfig.json');
-      if (fs.existsSync(tsConfigPath)) {
-        return tsConfigPath;
-      }
-    }
-    
-    // Search in parent directories
-    let currentDir = process.cwd();
-    while (currentDir !== '/') {
-      const tsConfigPath = path.join(currentDir, 'tsconfig.json');
-      if (fs.existsSync(tsConfigPath)) {
-        return tsConfigPath;
-      }
-      currentDir = path.dirname(currentDir);
-    }
-    
-    return undefined;
-  }
 
   /**
    * Convert ideal function metadata to legacy FunctionInfo format
@@ -531,27 +473,16 @@ export class FunctionAnalyzer {
   }
 
   /**
-   * Convert ideal call edges to legacy format with ID mapping
+   * Convert ideal call edges to legacy format without ID mapping (unified paths)
    */
-  private convertCallEdgesWithMapping(
-    edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[], 
-    functionIdMapping: Map<string, string>
+  private convertCallEdgesToLegacy(
+    edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]
   ): CallEdge[] {
     return edges.map((edge, index) => {
-      // Map virtual function IDs to real function IDs
-      const realCallerFunctionId = functionIdMapping.get(edge.callerFunctionId);
-      const realCalleeFunctionId = edge.calleeFunctionId ? functionIdMapping.get(edge.calleeFunctionId) : undefined;
-      
-      // Skip edges where caller function mapping is missing (required)
-      if (!realCallerFunctionId) {
-        this.logger.debug(`Skipping edge ${index}: caller function ${edge.callerFunctionId} (${edge.calleeName || 'unknown'}) not mapped`);
-        return null;
-      }
-      
       return {
         id: edge.id || `edge_${index}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
-        callerFunctionId: realCallerFunctionId,
-        calleeFunctionId: realCalleeFunctionId,
+        callerFunctionId: edge.callerFunctionId,
+        calleeFunctionId: edge.calleeFunctionId || undefined,
         calleeName: edge.calleeName || edge.calleeFunctionId || 'unknown',
         calleeSignature: edge.calleeSignature || '', 
         callType: edge.callType || 'direct' as const,
@@ -577,40 +508,9 @@ export class FunctionAnalyzer {
         resolutionSource: edge.resolutionSource,
         runtimeConfirmed: edge.runtimeConfirmed
       };
-    }).filter((edge): edge is NonNullable<typeof edge> => edge !== null); // Remove null entries
+    }).filter(Boolean) as CallEdge[];
   }
 
-  /**
-   * Convert ideal call edges to legacy format without ID mapping
-   * Used when virtual project uses original file paths (unified approach)
-   */
-  private convertCallEdgesToLegacy(
-    edges: import('../analyzers/ideal-call-graph-analyzer').IdealCallEdge[]
-  ): CallEdge[] {
-    return edges.map((edge, index) => {
-      // Direct conversion without ID mapping since paths are unified
-      return {
-        id: `edge_${index}_${edge.callerFunctionId?.substring(0, 8) || 'unknown'}`,
-        callerFunctionId: edge.callerFunctionId,
-        calleeFunctionId: edge.calleeFunctionId || undefined,
-        calleeName: edge.calleeName || edge.callSite?.methodName || 'unknown',
-        calleeSignature: edge.calleeSignature,
-        callerClassName: edge.callerClassName,
-        calleeClassName: edge.calleeClassName,
-        callType: edge.callType || 'direct',
-        callContext: edge.callContext,
-        lineNumber: edge.callSite?.lineNumber || 0,
-        columnNumber: edge.callSite?.columnNumber || 0,
-        isAsync: edge.isAsync || false,
-        isChained: edge.isChained || false,
-        confidenceScore: edge.confidenceScore,
-        metadata: edge.analysisMetadata || {},
-        createdAt: new Date().toISOString(),
-        resolutionLevel: edge.resolutionLevel,
-        calleeCandidates: edge.candidates
-      } as CallEdge;
-    });
-  }
 
   /* DEPRECATED: convertCallEdges method removed - use convertCallEdgesWithMapping for proper ID mapping */
 
@@ -696,11 +596,34 @@ export class FunctionAnalyzer {
       
       this.logger.debug(`Using virtual project with ${virtualProject.getSourceFiles().length} files`);
       
-      // Initialize ideal call graph analyzer with virtual project
+      // CRITICAL FIX: Create comprehensive mappings to ensure Function ID consistency
+      const existingFunctionIds = new Map<string, string>();
+      // Create normalized path mapping: ts-morph path -> database normalized path
+      const normalizedPathMapping = new Map<string, string>();
+      
+      // Build path mapping from fileContentMap (normalized paths) to virtual project paths
+      for (const [normalizedPath, _content] of fileContentMap) {
+        // Find corresponding source file in virtual project
+        const sourceFile = virtualProject.getSourceFile(normalizedPath);
+        if (sourceFile) {
+          const tsmpPath = sourceFile.getFilePath();
+          normalizedPathMapping.set(tsmpPath, normalizedPath);
+        }
+      }
+      
+      for (const func of functions) {
+        // Create lookup key that matches the one used in function-registry
+        const lookupKey = `${func.filePath}:${func.startLine}:${func.startColumn}:${func.name}`;
+        existingFunctionIds.set(lookupKey, func.id);
+      }
+      
+      // Initialize ideal call graph analyzer with virtual project and mappings
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
         logger: this.logger,
         ...(snapshotId && { snapshotId }),
-        ...(storage && { storage })
+        ...(storage && { storage }),
+        existingFunctionIds,
+        normalizedPathMapping
       });
       
       try {

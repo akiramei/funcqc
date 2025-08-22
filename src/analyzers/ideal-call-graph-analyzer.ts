@@ -86,9 +86,11 @@ export class IdealCallGraphAnalyzer {
     logger?: Logger;
     snapshotId?: string;
     storage?: StorageAdapter;
+    existingFunctionIds?: Map<string, string>;
+    normalizedPathMapping?: Map<string, string>;
   } = {}) {
     this.typeChecker = project.getTypeChecker();
-    this.functionRegistry = new FunctionRegistry(project);
+    this.functionRegistry = new FunctionRegistry(project, options.snapshotId, options.existingFunctionIds, options.normalizedPathMapping);
     this.logger = options.logger || new Logger();
     this.snapshotId = options.snapshotId;
     this.storage = options.storage;

@@ -33,7 +33,14 @@ export class DependencyManager {
     // 現在のDB状態を確認
     const currentState = await this.getCurrentAnalysisState(env);
     
-    // 要求された依存関係をフィルタリング
+    // CRITICAL FIX: SNAPSHOTが要求されている場合、全ての依存関係を無効化
+    if (required.includes('SNAPSHOT')) {
+      // 新しいスナップショットが作成される場合、全ての分析が無効になる
+      // prerequisites関係に関係なく、要求された全ての依存関係が必要
+      return required;
+    }
+    
+    // SNAPSHOTが要求されていない場合は、個別に依存関係をチェック
     const missing = required.filter(dep => !this.isDependencyMet(dep, currentState));
     
     return missing;
