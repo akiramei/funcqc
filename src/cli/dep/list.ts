@@ -5,6 +5,24 @@ import { createErrorHandler, ErrorCode, type DatabaseErrorLike } from '../../uti
 import { CallEdge, FunctionInfo } from '../../types';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepListOptions } from './types';
+import { isPathInScope } from '../../utils/scope-utils';
+import { ConfigManager } from '../../core/config';
+
+/**
+ * Check if a file path is in the specified scope
+ */
+async function isInScope(filePath: string, scopeName: string): Promise<boolean> {
+  try {
+    const configManager = new ConfigManager();
+    await configManager.load();
+    const scopeConfig = configManager.resolveScopeConfig(scopeName);
+    return isPathInScope(filePath, scopeConfig);
+  } catch (error) {
+    // If scope resolution fails, default to include the function
+    console.warn(`Warning: Failed to resolve scope '${scopeName}': ${error instanceof Error ? error.message : String(error)}`);
+    return true;
+  }
+}
 
 /**
  * List function dependencies
@@ -32,7 +50,7 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
       const functionMap = new Map(functions.map(f => [f.id, f]));
 
       // Apply filters
-      let filteredEdges = applyDepFilters(allEdges, options, functionMap);
+      let filteredEdges = await applyDepFilters(allEdges, options, functionMap);
 
       // Apply sorting
       filteredEdges = applyDepSorting(filteredEdges, options, functionMap);
@@ -77,12 +95,33 @@ export const depListCommand: VoidCommand<DepListOptions> = (options) =>
 /**
  * Apply filters to call edges based on options
  */
-function applyDepFilters(
+async function applyDepFilters(
   edges: CallEdge[],
   options: DepListOptions,
   functionMap: Map<string, FunctionInfo>
-): CallEdge[] {
+): Promise<CallEdge[]> {
   let filtered = edges;
+
+  // Apply scope filtering if specified
+  if (options.scope) {
+    const scopeFilteredEdges: CallEdge[] = [];
+    
+    for (const edge of filtered) {
+      const caller = functionMap.get(edge.callerFunctionId);
+      const callee = functionMap.get(edge.calleeFunctionId ?? '');
+      
+      // Check if caller or callee (if exists) are in the specified scope
+      const callerInScope = caller ? await isInScope(caller.filePath, options.scope) : false;
+      const calleeInScope = !edge.calleeFunctionId || 
+        (callee ? await isInScope(callee.filePath, options.scope) : false);
+      
+      if (callerInScope || calleeInScope) {
+        scopeFilteredEdges.push(edge);
+      }
+    }
+    
+    filtered = scopeFilteredEdges;
+  }
 
   if (options.caller) {
     filtered = filtered.filter(edge => {

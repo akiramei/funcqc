@@ -28,6 +28,7 @@ export interface DepListOptions extends BaseCommandOptions {
   desc?: boolean;
   json?: boolean;
   snapshot?: string;
+  scope?: string;
 }
 
 export interface DepShowOptions extends BaseCommandOptions {

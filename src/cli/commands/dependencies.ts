@@ -102,6 +102,7 @@ async function executeList(env: CommandEnvironment, options: DependenciesCommand
       desc: options.desc || false,
       json: options.json || false,
       snapshot: options.snapshot,
+      scope: options.scope,
       verbose: options.verbose || false,
       quiet: options.quiet || false
     }) as import('../dep/types').DepListOptions;
