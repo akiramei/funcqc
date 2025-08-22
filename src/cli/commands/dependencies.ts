@@ -137,6 +137,7 @@ async function executeShow(env: CommandEnvironment, options: DependenciesCommand
       maxRoutes: options.maxRoutes,
       json: options.json || false,
       snapshot: options.snapshot,
+      scope: options.scope,
       verbose: options.verbose || false,
       quiet: options.quiet || false
     }) as import('../dep/types').DepShowOptions;
@@ -175,6 +176,7 @@ async function executeStats(env: CommandEnvironment, options: DependenciesComman
       json: options.json || false,
       format: options.format,
       snapshot: options.snapshot,
+      scope: options.scope,
       verbose: options.verbose || false,
       quiet: options.quiet || false
     }) as import('../dep/types').DepStatsOptions;
@@ -212,6 +214,7 @@ async function executeLint(env: CommandEnvironment, options: DependenciesCommand
       showConfig: options.showConfig || false,
       showConsolidation: options.showConsolidation || false,
       dryRun: options.dryRun || false,
+      scope: options.scope,
       verbose: options.verbose || false,
       quiet: options.quiet || false
     }) as import('../dep/types').DepLintOptions;
@@ -246,6 +249,7 @@ async function executeDead(env: CommandEnvironment, options: DependenciesCommand
       verbose: options.verbose || false,
       snapshot: options.snapshot,
       layerEntryPoints: options.layerEntryPoints,
+      scope: options.scope,
       quiet: options.quiet || false
     }) as import('../dep/types').DepDeadOptions;
     await depDeadCommand(deadOptions)(env);
@@ -277,6 +281,7 @@ async function executeCycles(env: CommandEnvironment, options: DependenciesComma
       sort: (options.sort as 'length' | 'complexity' | 'importance') || 'length',
       limit: options.limit,
       snapshot: options.snapshot,
+      scope: options.scope,
       includeRecursive: options.includeRecursive || false,
       includeClear: options.includeClear || false,
       includeAll: options.includeAll || false,

@@ -112,8 +112,7 @@ async function applyDepFilters(
       
       // Check if caller or callee (if exists) are in the specified scope
       const callerInScope = caller ? await isInScope(caller.filePath, options.scope) : false;
-      const calleeInScope = !edge.calleeFunctionId || 
-        (callee ? await isInScope(callee.filePath, options.scope) : false);
+      const calleeInScope = !!(callee && await isInScope(callee.filePath, options.scope));
       
       if (callerInScope || calleeInScope) {
         scopeFilteredEdges.push(edge);

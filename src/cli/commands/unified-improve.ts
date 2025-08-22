@@ -39,6 +39,11 @@ export class UnifiedImproveCommand implements Command {
       if (!isNaN(threshold)) options.threshold = threshold;
     }
     
+    const scopeIndex = subCommand.indexOf('--scope');
+    if (scopeIndex >= 0 && scopeIndex < subCommand.length - 1) {
+      options.scope = subCommand[scopeIndex + 1];
+    }
+    
     return options;
   }
 }
