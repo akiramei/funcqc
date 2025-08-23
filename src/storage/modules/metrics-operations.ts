@@ -113,7 +113,8 @@ export class MetricsOperations implements StorageOperationModule {
           code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
           halstead_volume = EXCLUDED.halstead_volume,
           halstead_difficulty = EXCLUDED.halstead_difficulty,
-          maintainability_index = EXCLUDED.maintainability_index
+          maintainability_index = EXCLUDED.maintainability_index,
+          updated_at = CURRENT_TIMESTAMP
         `,
         [
           functionId,
@@ -718,10 +719,10 @@ export class MetricsOperations implements StorageOperationModule {
         COUNT(f.id) as total,
         COUNT(ne.function_id) as with_evaluations,
         COUNT(CASE WHEN ne.function_id IS NULL OR ne.revision_needed = true THEN 1 END) as needing_evaluation,
-        AVG(ne.rating) as average_rating,
-        COUNT(CASE WHEN ne.rating = 1 THEN 1 END) as rating_1,
-        COUNT(CASE WHEN ne.rating = 2 THEN 1 END) as rating_2,
-        COUNT(CASE WHEN ne.rating = 3 THEN 1 END) as rating_3
+        AVG(ne.overall_score) as average_rating,
+        COUNT(CASE WHEN ne.overall_score = 1 THEN 1 END) as rating_1,
+        COUNT(CASE WHEN ne.overall_score = 2 THEN 1 END) as rating_2,
+        COUNT(CASE WHEN ne.overall_score = 3 THEN 1 END) as rating_3
       FROM functions f
       LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
       WHERE f.snapshot_id = $1

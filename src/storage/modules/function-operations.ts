@@ -600,7 +600,8 @@ export class FunctionOperations implements StorageOperationModule {
               code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
               halstead_volume = EXCLUDED.halstead_volume,
               halstead_difficulty = EXCLUDED.halstead_difficulty,
-              maintainability_index = EXCLUDED.maintainability_index`
+              maintainability_index = EXCLUDED.maintainability_index,
+              updated_at = CURRENT_TIMESTAMP`
           };
         case 'function_parameters':
           return {

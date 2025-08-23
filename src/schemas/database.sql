@@ -279,6 +279,7 @@ CREATE TABLE quality_metrics (
   halstead_volume REAL,                 -- Halstead Volume（オプション）
   halstead_difficulty REAL,            -- Halstead Difficulty（オプション）
   maintainability_index REAL,          -- 保守性指標（オプション）
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- 最終更新日時
   FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
   FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
   PRIMARY KEY (function_id, snapshot_id)  -- 複合主キー
@@ -419,7 +420,8 @@ CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_eval
 CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function_descriptions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
+CREATE TRIGGER update_quality_metrics_updated_at BEFORE UPDATE ON quality_metrics
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
