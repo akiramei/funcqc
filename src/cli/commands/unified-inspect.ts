@@ -78,6 +78,14 @@ export class UnifiedInspectCommand implements Command {
       options.scope = subCommand[scopeIndex + 1];
     }
 
+    const formatIndex = subCommand.indexOf('--format');
+    if (formatIndex >= 0 && formatIndex < subCommand.length - 1) {
+      const format = subCommand[formatIndex + 1];
+      if (['table', 'card', 'compact'].includes(format)) {
+        options.format = format as 'table' | 'card' | 'compact';
+      }
+    }
+
     // Numeric options
     const ccGeIndex = subCommand.indexOf('--cc-ge');
     if (ccGeIndex >= 0 && ccGeIndex < subCommand.length - 1) {
