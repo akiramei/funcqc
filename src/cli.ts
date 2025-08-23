@@ -134,7 +134,7 @@ program
 
 program
   .command('list')
-  .description('📋 [DEPRECATED] List all functions - Use `funcqc inspect` instead')
+  .description('📋 List all functions')
   .option('-j, --json', 'output as JSON for jq/script processing')
   .option('--limit <num>', 'limit number of results')
   .option('--sort <field>', 'sort by field (cc, loc, changes, name, file)')
@@ -145,15 +145,10 @@ program
   .option('--name <pattern>', 'filter by function name pattern')
   .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
   .option('--full-id', 'display full UUIDs instead of 8-character short IDs')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "list" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect" instead for enhanced function inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --cc-ge 10 (same options work)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedListCommand } = await import('./cli/commands/unified-list');
-    return createUnifiedCommandHandler(UnifiedListCommand)(options, command);
+    const { ListCommand } = await import('./cli/commands/list-command');
+    return createUnifiedCommandHandler(ListCommand)(options, command);
   });
 
 program
