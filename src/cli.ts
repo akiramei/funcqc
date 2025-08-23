@@ -592,7 +592,7 @@ How to find function IDs:
 
 program
   .command('files')
-  .description('📁 [DEPRECATED] List and display source files stored in snapshots - Use `funcqc inspect --type files` instead')
+  .description('📁 List and display source files stored in snapshots')
   .option('--snapshot <id>', 'snapshot ID to display files from (default: latest)')
   .option('--language <lang>', 'filter by programming language')
   .option('--path <pattern>', 'filter by file path pattern')
@@ -601,15 +601,10 @@ program
   .option('--limit <num>', 'limit number of results')
   .option('--stats', 'show file statistics')
   .option('--json', 'output as JSON')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "files" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --type files" instead for enhanced file inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --type files --stats\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedFilesCommand } = await import('./cli/commands/unified-files');
-    return createUnifiedCommandHandler(UnifiedFilesCommand)(options, command);
+    const { FilesCommand } = await import('./cli/commands/files-command');
+    return createUnifiedCommandHandler(FilesCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
