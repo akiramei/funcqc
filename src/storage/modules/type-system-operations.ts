@@ -8,9 +8,7 @@ import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext } from './types';
 import { 
-  generateBulkInsertSQL,
-  splitIntoBatches,
-  calculateOptimalBatchSize
+  executeUnnestBulkInsert
 } from '../bulk-insert-utils';
 
 interface PGTransaction {
@@ -32,17 +30,6 @@ export class TypeSystemOperations {
     return this.context.kysely;
   }
 
-  /**
-   * Safely stringify data to JSON with error handling
-   */
-  private safeJsonStringify(data: unknown, fallback: string | null = null): string | null {
-    try {
-      return JSON.stringify(data);
-    } catch (error) {
-      this.context.logger?.warn(`JSON stringify failed, using fallback: ${error}`);
-      return fallback;
-    }
-  }
 
   /**
    * Safely parse JSON string with error handling
@@ -80,12 +67,12 @@ export class TypeSystemOperations {
           is_exported: type.isExported,
           is_default_export: type.isDefaultExport,
           is_generic: type.isGeneric,
-          generic_parameters: this.safeJsonStringify(type.genericParameters || [], '[]'),
+          generic_parameters: JSON.stringify(type.genericParameters || []),
           type_text: type.typeText || null,
-          resolved_type: type.resolvedType ? this.safeJsonStringify(type.resolvedType, null) : null,
-          modifiers: this.safeJsonStringify(type.modifiers || [], '[]'),
+          resolved_type: type.resolvedType ? JSON.stringify(type.resolvedType) : null,
+          modifiers: JSON.stringify(type.modifiers || []),
           jsdoc: type.jsdoc || null,
-          metadata: this.safeJsonStringify(type.metadata || {}, '{}')
+          metadata: JSON.stringify(type.metadata || {})
         };
         
         // Skip detailed validation for performance
@@ -175,9 +162,9 @@ export class TypeSystemOperations {
         position: rel.position,
         is_array: rel.isArray,
         is_optional: rel.isOptional,
-        generic_arguments: this.safeJsonStringify(rel.genericArguments || [], '[]'),
+        generic_arguments: JSON.stringify(rel.genericArguments || []),
         confidence_score: rel.confidenceScore,
-        metadata: this.safeJsonStringify(rel.metadata || {}, '{}')
+        metadata: JSON.stringify(rel.metadata || {})
       }));
 
       const columns = ['id', 'snapshot_id', 'source_type_id', 'target_type_id', 'target_name', 'relationship_kind',
@@ -257,7 +244,7 @@ export class TypeSystemOperations {
         end_column: member.endColumn,
         function_id: member.functionId || null,
         jsdoc: member.jsdoc || null,
-        metadata: this.safeJsonStringify(member.metadata || {}, '{}')
+        metadata: JSON.stringify(member.metadata || {})
       }));
 
       const columns = ['id', 'snapshot_id', 'type_id', 'name', 'member_kind', 'type_text', 'is_optional', 'is_readonly',
@@ -323,9 +310,9 @@ export class TypeSystemOperations {
         target_type_id: override.targetTypeId || null,
         override_kind: override.overrideKind,
         is_compatible: override.isCompatible,
-        compatibility_errors: this.safeJsonStringify(override.compatibilityErrors || [], '[]'),
+        compatibility_errors: JSON.stringify(override.compatibilityErrors || []),
         confidence_score: override.confidenceScore,
-        metadata: this.safeJsonStringify(override.metadata || {}, '{}')
+        metadata: JSON.stringify(override.metadata || {})
       }));
 
       const columns = ['id', 'snapshot_id', 'method_member_id', 'source_type_id', 'target_member_id', 'target_type_id',
@@ -368,7 +355,7 @@ export class TypeSystemOperations {
   }
 
   /**
-   * Execute bulk insert within a transaction with optimal batching (following FunctionOperations pattern)
+   * Execute bulk insert within a transaction with UNNEST for optimal PGLite performance
    */
   private async executeBulkInsertInTransaction(
     trx: PGTransaction,
@@ -379,16 +366,14 @@ export class TypeSystemOperations {
   ): Promise<void> {
     if (data.length === 0) return;
     
-    // Calculate optimal batch size based on column count
-    const batchSize = calculateOptimalBatchSize(columns.length);
-    const batches = splitIntoBatches(data, batchSize);
-    
-    for (const batch of batches) {
-      const sql = generateBulkInsertSQL(tableName, columns, batch.length, options);
-      const flatParams = batch.flat();
-      
-      await trx.query(sql, flatParams);
-    }
+    // Use UNNEST-based bulk insert for better PGLite performance
+    await executeUnnestBulkInsert(
+      (sql, params) => trx.query(sql, params),
+      tableName,
+      columns,
+      data,
+      options?.idempotent ? { idempotent: options.idempotent } : {}
+    );
   }
 
   /**

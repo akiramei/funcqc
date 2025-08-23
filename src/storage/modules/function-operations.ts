@@ -21,9 +21,7 @@ import {
 } from '../../utils/batch-processor';
 import { 
   prepareBulkInsertData,
-  generateBulkInsertSQL,
-  splitIntoBatches,
-  calculateOptimalBatchSize
+  executeUnnestBulkInsert
 } from '../bulk-insert-utils';
 import { buildScopeWhereClause } from '../../utils/scope-utils';
 import { ConfigManager } from '../../core/config';
@@ -495,7 +493,7 @@ export class FunctionOperations implements StorageOperationModule {
         func.isStatic,
         func.accessModifier || null,
         func.sourceCode || null,
-        func.sourceFileId || null,
+        func.sourceFileRefId || null,
       ]
     );
   }
@@ -513,10 +511,14 @@ export class FunctionOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO function_parameters (
-          function_id, snapshot_id, name, type, type_simple, position, is_optional, default_value
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          function_id, snapshot_id, name, type, type_simple, position,
+          is_optional, is_rest, default_value, description
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         `,
-        [func.id, func.snapshotId, param.name, param.type, param.typeSimple, i, param.isOptional, param.defaultValue]
+        [
+          func.id, func.snapshotId, param.name, param.type, param.typeSimple, i,
+          param.isOptional, param.isRest ?? false, param.defaultValue ?? null, param.description ?? null
+        ]
       );
     }
   }
@@ -565,7 +567,8 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Execute bulk insert within a transaction with optimal batching
+   * Execute bulk insert within a transaction with optimal UNNEST-based batching
+   * Uses UNNEST approach for better PGLite performance vs VALUES approach
    */
   private async executeBulkInsertInTransaction(
     trx: PGTransaction,
@@ -575,16 +578,86 @@ export class FunctionOperations implements StorageOperationModule {
   ): Promise<void> {
     if (data.length === 0) return;
     
-    // Calculate optimal batch size based on column count
-    const batchSize = calculateOptimalBatchSize(columns.length);
-    const batches = splitIntoBatches(data, batchSize);
-    
-    for (const batch of batches) {
-      const sql = generateBulkInsertSQL(tableName, columns, batch.length);
-      const flatParams = batch.flat();
-      
-      await trx.query(sql, flatParams);
-    }
+    // Use UNNEST-based bulk insert with table-specific UPSERT support
+    const getConflictClause = (table: string): { idempotent?: boolean; onConflict?: string } => {
+      switch (table) {
+        case 'quality_metrics':
+          return {
+            onConflict: `ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
+              lines_of_code = EXCLUDED.lines_of_code,
+              total_lines = EXCLUDED.total_lines,
+              cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
+              cognitive_complexity = EXCLUDED.cognitive_complexity,
+              max_nesting_level = EXCLUDED.max_nesting_level,
+              parameter_count = EXCLUDED.parameter_count,
+              return_statement_count = EXCLUDED.return_statement_count,
+              branch_count = EXCLUDED.branch_count,
+              loop_count = EXCLUDED.loop_count,
+              try_catch_count = EXCLUDED.try_catch_count,
+              async_await_count = EXCLUDED.async_await_count,
+              callback_count = EXCLUDED.callback_count,
+              comment_lines = EXCLUDED.comment_lines,
+              code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
+              halstead_volume = EXCLUDED.halstead_volume,
+              halstead_difficulty = EXCLUDED.halstead_difficulty,
+              maintainability_index = EXCLUDED.maintainability_index,
+              updated_at = CURRENT_TIMESTAMP`
+          };
+        case 'function_parameters':
+          return {
+            onConflict: `ON CONFLICT (function_id, snapshot_id, position) DO UPDATE SET
+              name = EXCLUDED.name,
+              type = EXCLUDED.type,
+              type_simple = EXCLUDED.type_simple,
+              is_optional = EXCLUDED.is_optional,
+              is_rest = EXCLUDED.is_rest,
+              default_value = EXCLUDED.default_value,
+              description = EXCLUDED.description`
+          };
+        case 'functions':
+          return {
+            onConflict: `ON CONFLICT (id) DO UPDATE SET
+              semantic_id = EXCLUDED.semantic_id,
+              content_id = EXCLUDED.content_id,
+              snapshot_id = EXCLUDED.snapshot_id,
+              name = EXCLUDED.name,
+              display_name = EXCLUDED.display_name,
+              signature = EXCLUDED.signature,
+              signature_hash = EXCLUDED.signature_hash,
+              file_path = EXCLUDED.file_path,
+              file_hash = EXCLUDED.file_hash,
+              start_line = EXCLUDED.start_line,
+              end_line = EXCLUDED.end_line,
+              start_column = EXCLUDED.start_column,
+              end_column = EXCLUDED.end_column,
+              ast_hash = EXCLUDED.ast_hash,
+              context_path = EXCLUDED.context_path,
+              function_type = EXCLUDED.function_type,
+              modifiers = EXCLUDED.modifiers,
+              nesting_level = EXCLUDED.nesting_level,
+              is_exported = EXCLUDED.is_exported,
+              is_async = EXCLUDED.is_async,
+              is_generator = EXCLUDED.is_generator,
+              is_arrow_function = EXCLUDED.is_arrow_function,
+              is_method = EXCLUDED.is_method,
+              is_constructor = EXCLUDED.is_constructor,
+              is_static = EXCLUDED.is_static,
+              access_modifier = EXCLUDED.access_modifier,
+              source_code = EXCLUDED.source_code,
+              source_file_ref_id = EXCLUDED.source_file_ref_id`
+          };
+        default:
+          return { idempotent: true };
+      }
+    };
+
+    await executeUnnestBulkInsert(
+      (sql, params) => trx.query(sql, params),
+      tableName,
+      columns,
+      data,
+      getConflictClause(tableName)
+    );
   }
 
   /**
@@ -836,7 +909,7 @@ export class FunctionOperations implements StorageOperationModule {
    */
   private mapSourceFileId(sourceFileRefId: string | undefined): Partial<FunctionInfo> {
     if (sourceFileRefId) {
-      return { sourceFileId: sourceFileRefId };
+      return { sourceFileRefId: sourceFileRefId };
     }
     return {};
   }
@@ -1041,7 +1114,7 @@ export class FunctionOperations implements StorageOperationModule {
       FROM functions f
       LEFT JOIN quality_metrics q ON f.id = q.function_id
       LEFT JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
-      WHERE f.snapshot_id = $1 AND (fd.semantic_id IS NULL OR fd.needs_update = true)
+      WHERE f.snapshot_id = $1 AND (fd.semantic_id IS NULL OR fd.needs_review = true)
       ORDER BY f.start_line
     `, [snapshotId]);
     
@@ -1083,21 +1156,27 @@ export class FunctionOperations implements StorageOperationModule {
   }): Promise<void> {
     await this.db.query(`
       INSERT INTO function_descriptions (
-        semantic_id, description, source, model, content_id, needs_update, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        semantic_id, description, source, created_by, ai_model, confidence_score,
+        validated_for_content_id, needs_review, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (semantic_id) DO UPDATE SET
         description = EXCLUDED.description,
         source = EXCLUDED.source,
-        model = EXCLUDED.model,
-        needs_update = EXCLUDED.needs_update,
+        created_by = EXCLUDED.created_by,
+        ai_model = EXCLUDED.ai_model,
+        confidence_score = EXCLUDED.confidence_score,
+        validated_for_content_id = EXCLUDED.validated_for_content_id,
+        needs_review = EXCLUDED.needs_review,
         updated_at = EXCLUDED.updated_at
     `, [
       description.semanticId,
       description.description,
-      description.source || 'manual',
-      description.model,
-      description.contentId,
-      false,
+      description.source ?? 'human',
+      null,                              // created_by
+      description.model ?? null,         // ai_model
+      null,                              // confidence_score  
+      description.contentId ?? null,     // validated_for_content_id
+      description.needsUpdate ?? false,  // needs_review
       new Date().toISOString(),
       new Date().toISOString()
     ]);
@@ -1111,7 +1190,7 @@ export class FunctionOperations implements StorageOperationModule {
     contentId: string;
     needsUpdate: boolean;
     createdAt: Date;
-    updatedAt: string;
+    updatedAt: Date;
   } | null> {
     const result = await this.db.query('SELECT * FROM function_descriptions WHERE semantic_id = $1', [semanticId]);
     
@@ -1123,9 +1202,11 @@ export class FunctionOperations implements StorageOperationModule {
       semantic_id: string;
       description: string;
       source: string;
-      model: string;
-      content_id: string;
-      needs_update: boolean;
+      created_by: string;
+      ai_model: string;
+      confidence_score: number;
+      validated_for_content_id: string;
+      needs_review: boolean;
       created_at: string;
       updated_at: string;
     };
@@ -1133,11 +1214,11 @@ export class FunctionOperations implements StorageOperationModule {
       semanticId: row.semantic_id,
       description: row.description,
       source: row.source,
-      model: row.model,
-      contentId: row.content_id,
-      needsUpdate: row.needs_update,
+      model: row.ai_model,
+      contentId: row.validated_for_content_id,
+      needsUpdate: row.needs_review,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date()
     };
   }
 
@@ -1201,7 +1282,8 @@ export class FunctionOperations implements StorageOperationModule {
       isConstructor: row.is_constructor,
       isStatic: row.is_static || false,
       astHash: row.ast_hash || '',
-      modifiers: this.parseModifiers(row.modifiers)
+      modifiers: this.parseModifiers(row.modifiers),
+      ...this.mapSourceFileId(row.source_file_ref_id)
     };
   }
 

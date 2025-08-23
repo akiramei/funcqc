@@ -178,7 +178,7 @@ export interface FunctionInfo {
   fileContentHash?: string; // ファイル変更検出高速化用
   
   // File relationship (New)
-  sourceFileId?: string; // Reference to source_file_refs table
+  sourceFileRefId?: string; // Reference to source_file_refs table
 
   // ドキュメント
   jsDoc?: string; // JSDocコメント

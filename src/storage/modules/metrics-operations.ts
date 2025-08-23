@@ -11,6 +11,7 @@ import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
 import { BatchProcessor } from '../../utils/batch-processor';
+import { executeUnnestBulkInsert } from '../bulk-insert-utils';
 
 export class MetricsOperations implements StorageOperationModule {
   readonly db;
@@ -132,9 +133,9 @@ export class MetricsOperations implements StorageOperationModule {
           metrics.callbackCount,
           metrics.commentLines,
           metrics.codeToCommentRatio,
-          metrics.halsteadVolume || null,
-          metrics.halsteadDifficulty || null,
-          metrics.maintainabilityIndex || null,
+          metrics.halsteadVolume ?? null,
+          metrics.halsteadDifficulty ?? null,
+          metrics.maintainabilityIndex ?? null,
         ]
       );
     } catch (error) {
@@ -206,7 +207,7 @@ export class MetricsOperations implements StorageOperationModule {
       values.push(functionId); // Add function_id as last parameter
 
       await this.db.query(
-        `UPDATE quality_metrics SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP 
+        `UPDATE quality_metrics SET ${setClauses.join(', ')} 
          WHERE function_id = $${paramIndex}`,
         values
       );
@@ -380,45 +381,48 @@ export class MetricsOperations implements StorageOperationModule {
   // Private helper methods
 
   /**
-   * Bulk insert metrics using Kysely
+   * Bulk insert metrics using UNNEST for better PGLite performance
    */
   private async bulkInsertMetrics(functions: FunctionInfo[]): Promise<void> {
     const metricsRows = functions
       .filter(func => func.metrics)
-      .map(func => ({
-        function_id: func.id,
-        snapshot_id: func.snapshotId,
-        lines_of_code: func.metrics!.linesOfCode,
-        total_lines: func.metrics!.totalLines,
-        cyclomatic_complexity: func.metrics!.cyclomaticComplexity,
-        cognitive_complexity: func.metrics!.cognitiveComplexity,
-        max_nesting_level: func.metrics!.maxNestingLevel,
-        parameter_count: func.metrics!.parameterCount,
-        return_statement_count: func.metrics!.returnStatementCount,
-        branch_count: func.metrics!.branchCount,
-        loop_count: func.metrics!.loopCount,
-        try_catch_count: func.metrics!.tryCatchCount,
-        async_await_count: func.metrics!.asyncAwaitCount,
-        callback_count: func.metrics!.callbackCount,
-        comment_lines: func.metrics!.commentLines,
-        code_to_comment_ratio: func.metrics!.codeToCommentRatio,
-        halstead_volume: func.metrics!.halsteadVolume || null,
-        halstead_difficulty: func.metrics!.halsteadDifficulty || null,
-        maintainability_index: func.metrics!.maintainabilityIndex || null,
-      }));
+      .map(func => [
+        func.id,
+        func.snapshotId,
+        func.metrics!.linesOfCode,
+        func.metrics!.totalLines,
+        func.metrics!.cyclomaticComplexity,
+        func.metrics!.cognitiveComplexity,
+        func.metrics!.maxNestingLevel,
+        func.metrics!.parameterCount,
+        func.metrics!.returnStatementCount,
+        func.metrics!.branchCount,
+        func.metrics!.loopCount,
+        func.metrics!.tryCatchCount,
+        func.metrics!.asyncAwaitCount,
+        func.metrics!.callbackCount,
+        func.metrics!.commentLines,
+        func.metrics!.codeToCommentRatio,
+        func.metrics!.halsteadVolume ?? null,
+        func.metrics!.halsteadDifficulty ?? null,
+        func.metrics!.maintainabilityIndex ?? null,
+      ]);
 
     if (metricsRows.length > 0) {
-      for (const row of metricsRows) {
-        await this.db.query(`
-          INSERT INTO quality_metrics (
-            function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-            max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-            try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-            halstead_volume, halstead_difficulty, maintainability_index
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
-          )
-          ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
+      await executeUnnestBulkInsert(
+        (sql, params) => this.db.query(sql, params),
+        'quality_metrics',
+        [
+          'function_id', 'snapshot_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+          'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+          'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+          'async_await_count', 'callback_count', 'comment_lines', 'code_to_comment_ratio',
+          'halstead_volume', 'halstead_difficulty', 'maintainability_index'
+        ],
+        metricsRows,
+        {
+          idempotent: true,
+          onConflict: `ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
             lines_of_code = EXCLUDED.lines_of_code,
             total_lines = EXCLUDED.total_lines,
             cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
@@ -430,21 +434,15 @@ export class MetricsOperations implements StorageOperationModule {
             loop_count = EXCLUDED.loop_count,
             try_catch_count = EXCLUDED.try_catch_count,
             async_await_count = EXCLUDED.async_await_count,
-            callback_count = EXCLUDED.callback_count,  
+            callback_count = EXCLUDED.callback_count,
             comment_lines = EXCLUDED.comment_lines,
             code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
             halstead_volume = EXCLUDED.halstead_volume,
             halstead_difficulty = EXCLUDED.halstead_difficulty,
-            maintainability_index = EXCLUDED.maintainability_index,
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          row.function_id, row.snapshot_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
-          row.cognitive_complexity, row.max_nesting_level, row.parameter_count,
-          row.return_statement_count, row.branch_count, row.loop_count, row.try_catch_count,
-          row.async_await_count, row.callback_count, row.comment_lines, row.code_to_comment_ratio,
-          row.halstead_volume, row.halstead_difficulty, row.maintainability_index
-        ]);
-      }
+            maintainability_index = EXCLUDED.maintainability_index`,
+          logger: { log: (msg: string) => console.log(msg) }
+        }
+      );
     }
   }
 
@@ -499,27 +497,23 @@ export class MetricsOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO naming_evaluations (
-          function_id, rating, explanation, suggestions, confidence, model, revision_needed, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          function_id, overall_score, suggestions, revision_needed, evaluated_by, evaluated_at, updated_at
+        ) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
         ON CONFLICT (function_id) DO UPDATE SET
-          rating = EXCLUDED.rating,
-          explanation = EXCLUDED.explanation,
+          overall_score = EXCLUDED.overall_score,
           suggestions = EXCLUDED.suggestions,
-          confidence = EXCLUDED.confidence,
-          model = EXCLUDED.model,
           revision_needed = EXCLUDED.revision_needed,
-          updated_at = CURRENT_TIMESTAMP
+          evaluated_by = EXCLUDED.evaluated_by,
+          updated_at = EXCLUDED.updated_at
         `,
         [
           evaluation['functionId'],
-          evaluation['rating'],
-          evaluation['explanation'],
+          evaluation['rating'] || 0,                           // rating → overall_score へマップ
           JSON.stringify(evaluation['suggestions'] || []),
-          evaluation['confidence'],
-          evaluation['model'],
           evaluation['revisionNeeded'] || false,
-          new Date().toISOString(),
-          new Date().toISOString()
+          evaluation['model'] || 'unknown',                    // model → evaluated_by へマップ
+          new Date().toISOString(),                            // evaluated_at
+          new Date().toISOString()                             // updated_at
         ]
       );
     } catch (error) {
@@ -551,22 +545,19 @@ export class MetricsOperations implements StorageOperationModule {
 
       const row = result.rows[0] as {
         function_id: string;
-        rating: number;
-        explanation: string;
+        overall_score: number;
         suggestions: string;
-        confidence: number;
-        model: string;
         revision_needed: boolean;
-        created_at: string;
+        evaluated_by: string;
+        evaluated_at: string;
         updated_at: string;
-        issues?: string;
       };
       return {
         functionId: row.function_id,
-        rating: row.rating,
-        issues: row.issues ? this.context.utilityOps?.parseJsonSafely(row.issues, [row.explanation]) ?? [row.explanation] : [row.explanation],
+        rating: row.overall_score,
+        issues: [], // スキーマに issues がないため空配列で整合
         suggestions: this.context.utilityOps?.parseJsonSafely(row.suggestions, []) ?? [],
-        createdAt: new Date(row.created_at),
+        createdAt: new Date(row.evaluated_at),
         updatedAt: new Date(row.updated_at)
       };
     } catch (error) {
@@ -581,7 +572,8 @@ export class MetricsOperations implements StorageOperationModule {
   async getFunctionsNeedingEvaluation(snapshotId: string, options?: { limit?: number }): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
     try {
       let sql = `
-        SELECT f.id as functionId, f.name as functionName, f.updated_at as lastModified
+        SELECT f.id as functionId, f.name as functionName,
+               COALESCE(ne.updated_at, f.created_at) as lastModified
         FROM functions f
         LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
         WHERE f.snapshot_id = $1
@@ -649,24 +641,21 @@ export class MetricsOperations implements StorageOperationModule {
       return result.rows.map(row => {
         const r = row as {
           function_id: string;
-          rating: number;
-          explanation: string;
+          overall_score: number;
           suggestions: string;
-          confidence: number;
-          model: string;
           revision_needed: boolean;
-          created_at: string;
+          evaluated_by: string;
+          evaluated_at: string;
           updated_at: string;
-          issues: string;
         };
         return {
           functionId: r.function_id,
           evaluation: {
             functionId: r.function_id,
-            rating: r.rating,
-            issues: this.context.utilityOps?.parseJsonSafely(r.issues, []) ?? [],
+            rating: r.overall_score,
+            issues: [], // スキーマに issues がないため空配列で整合
             suggestions: this.context.utilityOps?.parseJsonSafely(r.suggestions, []) ?? [],
-            createdAt: new Date(r.created_at),
+            createdAt: new Date(r.evaluated_at),
             updatedAt: new Date(r.updated_at)
           }
         };
@@ -730,10 +719,10 @@ export class MetricsOperations implements StorageOperationModule {
         COUNT(f.id) as total,
         COUNT(ne.function_id) as with_evaluations,
         COUNT(CASE WHEN ne.function_id IS NULL OR ne.revision_needed = true THEN 1 END) as needing_evaluation,
-        AVG(ne.rating) as average_rating,
-        COUNT(CASE WHEN ne.rating = 1 THEN 1 END) as rating_1,
-        COUNT(CASE WHEN ne.rating = 2 THEN 1 END) as rating_2,
-        COUNT(CASE WHEN ne.rating = 3 THEN 1 END) as rating_3
+        AVG(ne.overall_score) as average_rating,
+        COUNT(CASE WHEN ne.overall_score = 1 THEN 1 END) as rating_1,
+        COUNT(CASE WHEN ne.overall_score = 2 THEN 1 END) as rating_2,
+        COUNT(CASE WHEN ne.overall_score = 3 THEN 1 END) as rating_3
       FROM functions f
       LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
       WHERE f.snapshot_id = $1

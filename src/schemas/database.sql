@@ -236,7 +236,8 @@ CREATE TABLE function_parameters (
   default_value TEXT,                    -- デフォルト値（あれば）
   description TEXT,                      -- JSDocからの説明
   FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  UNIQUE(function_id, snapshot_id, position) -- UPSERT用論理一意制約
 );
 
 CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);
@@ -259,7 +260,7 @@ CREATE INDEX idx_function_documentation_created_at ON function_documentation(cre
 -- Quality Metrics: Content-based quality indicators
 -- -----------------------------------------------------------------------------
 CREATE TABLE quality_metrics (
-  function_id TEXT PRIMARY KEY,          -- 物理ID参照
+  function_id TEXT NOT NULL,             -- 物理ID参照
   snapshot_id TEXT NOT NULL,             -- スナップショット参照
   lines_of_code INTEGER NOT NULL,       -- 実行可能行数
   total_lines INTEGER NOT NULL,         -- コメント込み総行数
@@ -278,8 +279,10 @@ CREATE TABLE quality_metrics (
   halstead_volume REAL,                 -- Halstead Volume（オプション）
   halstead_difficulty REAL,            -- Halstead Difficulty（オプション）
   maintainability_index REAL,          -- 保守性指標（オプション）
+  updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- 最終更新日時
   FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  PRIMARY KEY (function_id, snapshot_id)  -- 複合主キー
 );
 
 -- パフォーマンス最適化インデックス
@@ -417,7 +420,8 @@ CREATE TRIGGER update_naming_evaluations_updated_at BEFORE UPDATE ON naming_eval
 CREATE TRIGGER update_function_descriptions_updated_at BEFORE UPDATE ON function_descriptions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
-
+CREATE TRIGGER update_quality_metrics_updated_at BEFORE UPDATE ON quality_metrics
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 CREATE TRIGGER update_function_documentation_updated_at BEFORE UPDATE ON function_documentation
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
