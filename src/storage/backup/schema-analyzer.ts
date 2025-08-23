@@ -112,7 +112,8 @@ export class SchemaAnalyzer {
    * Extract table names from CREATE TABLE statements
    */
   private extractTableNames(content: string): string[] {
-    const tableRegex = /CREATE\s+TABLE\s+([a-zA-Z_][a-zA-Z0-9_]*)/gi;
+    // CREATE TABLE [IF NOT EXISTS] [schema.]("table" | table)
+    const tableRegex = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:(?:[A-Za-z_][A-Za-z0-9_]*|"[^"]+")\.)*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/gi;
     const matches = [...content.matchAll(tableRegex)];
     
     // Warn if no tables found
@@ -126,7 +127,7 @@ export class SchemaAnalyzer {
     }
     
     const tables = matches
-      .map(match => match[1])
+      .map(match => match[1] ?? match[2])
       .filter((table, index, arr) => arr.indexOf(table) === index) // Remove duplicates
       .sort();
     

@@ -297,21 +297,25 @@ function getColumnTypeAnnotations(tableName: string, columns: string[]): string[
 export function generateUnnestBulkInsertSQL(
   tableName: string,
   columns: string[],
-  options?: { idempotent?: boolean }
+  options?: { idempotent?: boolean; onConflict?: string }
 ): string {
   if (columns.length === 0) return '';
 
   // Create proper type annotations for each column
   const typeAnnotations = getColumnTypeAnnotations(tableName, columns);
-  const paramPlaceholders = typeAnnotations.map((type, index) => `$${index + 1}::${type}`).join(', ');
-  
+  const paramPlaceholders = typeAnnotations
+    .map((type, index) => `$${index + 1}::${type}`)
+    .join(', ');
+
   let sql = `
     INSERT INTO ${tableName} (${columns.join(', ')})
     SELECT * FROM unnest(${paramPlaceholders})
   `;
 
-  // Add idempotent clause if requested
-  if (options?.idempotent) {
+  // Add custom ON CONFLICT clause if provided, otherwise fall back to idempotent defaults
+  if (options?.onConflict) {
+    sql += ` ${options.onConflict}`;
+  } else if (options?.idempotent) {
     if (tableName === 'type_definitions') {
       sql += ` ON CONFLICT (snapshot_id, file_path, name, start_line) DO NOTHING`;
     } else if (columns.includes('id')) {
@@ -359,16 +363,30 @@ export async function executeUnnestBulkInsert(
   rows: unknown[][],
   options?: { 
     idempotent?: boolean;
+    onConflict?: string;
     batchSize?: number;
     logger?: { log: (msg: string) => void };
   }
 ): Promise<void> {
   if (rows.length === 0) return;
 
-  const batchSize = options?.batchSize || calculateOptimalBatchSize(columns.length);
-  const sql = generateUnnestBulkInsertSQL(tableName, columns, options?.idempotent ? { idempotent: options.idempotent } : {});
+  // UNNEST は列ごとに配列を束ねるため、行数に比例してパラメータ数が増えず
+  // 安全な既定バッチサイズをより大きく設定（必要なら options.batchSize で上書き）
+  const DEFAULT_UNNEST_BATCH = 4000;
+  const batchSize = options?.batchSize ?? DEFAULT_UNNEST_BATCH;
+
+  const sql = generateUnnestBulkInsertSQL(
+    tableName,
+    columns,
+    {
+      ...(options?.idempotent !== undefined && { idempotent: options.idempotent }),
+      ...(options?.onConflict !== undefined && { onConflict: options.onConflict })
+    }
+  );
   
-  options?.logger?.log(`Executing UNNEST bulk insert for ${tableName}: ${rows.length} rows in batches of ${batchSize}`);
+  options?.logger?.log(
+    `Executing UNNEST bulk insert for ${tableName}: ${rows.length} rows in batches of ${batchSize}`
+  );
 
   // Process in batches
   for (let i = 0; i < rows.length; i += batchSize) {
@@ -378,7 +396,9 @@ export async function executeUnnestBulkInsert(
     await query(sql, columnArrays);
     
     if (options?.logger && rows.length > 1000 && i % 1000 === 0) {
-      options.logger.log(`UNNEST bulk insert progress: ${i + batch.length}/${rows.length} rows`);
+      options.logger.log(
+        `UNNEST bulk insert progress: ${i + batch.length}/${rows.length} rows`
+      );
     }
   }
 }

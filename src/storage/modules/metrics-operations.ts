@@ -422,6 +422,25 @@ export class MetricsOperations implements StorageOperationModule {
         metricsRows,
         {
           idempotent: true,
+          onConflict: `ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
+            lines_of_code = EXCLUDED.lines_of_code,
+            total_lines = EXCLUDED.total_lines,
+            cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
+            cognitive_complexity = EXCLUDED.cognitive_complexity,
+            max_nesting_level = EXCLUDED.max_nesting_level,
+            parameter_count = EXCLUDED.parameter_count,
+            return_statement_count = EXCLUDED.return_statement_count,
+            branch_count = EXCLUDED.branch_count,
+            loop_count = EXCLUDED.loop_count,
+            try_catch_count = EXCLUDED.try_catch_count,
+            async_await_count = EXCLUDED.async_await_count,
+            callback_count = EXCLUDED.callback_count,
+            comment_lines = EXCLUDED.comment_lines,
+            code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
+            halstead_volume = EXCLUDED.halstead_volume,
+            halstead_difficulty = EXCLUDED.halstead_difficulty,
+            maintainability_index = EXCLUDED.maintainability_index,
+            updated_at = CURRENT_TIMESTAMP`,
           logger: { log: (msg: string) => console.log(msg) }
         }
       );
