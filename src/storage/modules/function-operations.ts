@@ -574,15 +574,88 @@ export class FunctionOperations implements StorageOperationModule {
   ): Promise<void> {
     if (data.length === 0) return;
     
-    // Use UNNEST-based bulk insert for better PGLite performance
+    // Use UNNEST-based bulk insert with table-specific UPSERT support
+    const getConflictClause = (table: string): { idempotent?: boolean; onConflict?: string } => {
+      switch (table) {
+        case 'quality_metrics':
+          return {
+            onConflict: `ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
+              lines_of_code = EXCLUDED.lines_of_code,
+              total_lines = EXCLUDED.total_lines,
+              cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
+              cognitive_complexity = EXCLUDED.cognitive_complexity,
+              max_nesting_level = EXCLUDED.max_nesting_level,
+              parameter_count = EXCLUDED.parameter_count,
+              return_statement_count = EXCLUDED.return_statement_count,
+              branch_count = EXCLUDED.branch_count,
+              loop_count = EXCLUDED.loop_count,
+              try_catch_count = EXCLUDED.try_catch_count,
+              async_await_count = EXCLUDED.async_await_count,
+              callback_count = EXCLUDED.callback_count,
+              comment_lines = EXCLUDED.comment_lines,
+              code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
+              halstead_volume = EXCLUDED.halstead_volume,
+              halstead_difficulty = EXCLUDED.halstead_difficulty,
+              maintainability_index = EXCLUDED.maintainability_index,
+              updated_at = CURRENT_TIMESTAMP`
+          };
+        case 'function_parameters':
+          return {
+            onConflict: `ON CONFLICT (id) DO UPDATE SET
+              function_id = EXCLUDED.function_id,
+              snapshot_id = EXCLUDED.snapshot_id,
+              name = EXCLUDED.name,
+              type = EXCLUDED.type,
+              type_simple = EXCLUDED.type_simple,
+              position = EXCLUDED.position,
+              is_optional = EXCLUDED.is_optional,
+              is_rest = EXCLUDED.is_rest,
+              default_value = EXCLUDED.default_value,
+              description = EXCLUDED.description`
+          };
+        case 'functions':
+          return {
+            onConflict: `ON CONFLICT (id) DO UPDATE SET
+              semantic_id = EXCLUDED.semantic_id,
+              content_id = EXCLUDED.content_id,
+              snapshot_id = EXCLUDED.snapshot_id,
+              name = EXCLUDED.name,
+              display_name = EXCLUDED.display_name,
+              signature = EXCLUDED.signature,
+              signature_hash = EXCLUDED.signature_hash,
+              file_path = EXCLUDED.file_path,
+              file_hash = EXCLUDED.file_hash,
+              start_line = EXCLUDED.start_line,
+              end_line = EXCLUDED.end_line,
+              start_column = EXCLUDED.start_column,
+              end_column = EXCLUDED.end_column,
+              ast_hash = EXCLUDED.ast_hash,
+              context_path = EXCLUDED.context_path,
+              function_type = EXCLUDED.function_type,
+              modifiers = EXCLUDED.modifiers,
+              nesting_level = EXCLUDED.nesting_level,
+              is_exported = EXCLUDED.is_exported,
+              is_async = EXCLUDED.is_async,
+              is_generator = EXCLUDED.is_generator,
+              is_arrow_function = EXCLUDED.is_arrow_function,
+              is_method = EXCLUDED.is_method,
+              is_constructor = EXCLUDED.is_constructor,
+              is_static = EXCLUDED.is_static,
+              access_modifier = EXCLUDED.access_modifier,
+              source_code = EXCLUDED.source_code,
+              source_file_id = EXCLUDED.source_file_id`
+          };
+        default:
+          return { idempotent: true };
+      }
+    };
+
     await executeUnnestBulkInsert(
       (sql, params) => trx.query(sql, params),
       tableName,
       columns,
       data,
-      {
-        idempotent: ['functions', 'function_parameters', 'quality_metrics'].includes(tableName)
-      }
+      getConflictClause(tableName)
     );
   }
 

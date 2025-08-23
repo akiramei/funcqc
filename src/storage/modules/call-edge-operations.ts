@@ -324,7 +324,26 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert call edges individually within a transaction
    */
   private async insertCallEdgesIndividualInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edge of callEdges) {
+    for (const edgeRaw of callEdges) {
+      // NUL byte sanitization to prevent "invalid message format" errors
+      const edge = {
+        ...edgeRaw,
+        calleeName: typeof edgeRaw.calleeName === 'string' ? edgeRaw.calleeName.replaceAll('\u0000', '\uFFFD') : edgeRaw.calleeName,
+        calleeSignature: edgeRaw.calleeSignature ? edgeRaw.calleeSignature.replaceAll('\u0000', '\uFFFD') : null,
+        callerClassName: edgeRaw.callerClassName ? edgeRaw.callerClassName.replaceAll('\u0000', '\uFFFD') : null,
+        calleeClassName: edgeRaw.calleeClassName ? edgeRaw.calleeClassName.replaceAll('\u0000', '\uFFFD') : null,
+        callType: edgeRaw.callType ? edgeRaw.callType.replaceAll('\u0000', '\uFFFD') : 'direct',
+        callContext: this.mapCallContext(edgeRaw.callContext),
+        metadata: (() => {
+          try {
+            const s = JSON.stringify(edgeRaw.metadata || {});
+            return s.includes('\u0000') ? JSON.parse(s.replaceAll('\u0000', '\uFFFD')) : edgeRaw.metadata || {};
+          } catch { 
+            return {}; 
+          }
+        })()
+      };
+
       const params = [
         edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
         snapshotId,
@@ -335,7 +354,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         edge.callerClassName || null,
         edge.calleeClassName || null,
         edge.callType || 'direct',
-        this.mapCallContext(edge.callContext),
+        edge.callContext,
         edge.lineNumber || 0,
         edge.columnNumber || 0,
         edge.isAsync || false,
@@ -350,7 +369,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           id, snapshot_id, caller_function_id, callee_function_id, callee_name,
           callee_signature, caller_class_name, callee_class_name, call_type, call_context,
           line_number, column_number, is_async, is_chained, confidence_score, metadata
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, ($16)::jsonb)
         ON CONFLICT (id) DO NOTHING
         `,
         params
