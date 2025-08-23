@@ -1189,7 +1189,7 @@ export class FunctionOperations implements StorageOperationModule {
     contentId: string;
     needsUpdate: boolean;
     createdAt: Date;
-    updatedAt: string;
+    updatedAt: Date;
   } | null> {
     const result = await this.db.query('SELECT * FROM function_descriptions WHERE semantic_id = $1', [semanticId]);
     
@@ -1217,7 +1217,7 @@ export class FunctionOperations implements StorageOperationModule {
       contentId: row.validated_for_content_id,
       needsUpdate: row.needs_review,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
-      updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
+      updatedAt: row.updated_at ? new Date(row.updated_at) : new Date()
     };
   }
 
@@ -1281,7 +1281,8 @@ export class FunctionOperations implements StorageOperationModule {
       isConstructor: row.is_constructor,
       isStatic: row.is_static || false,
       astHash: row.ast_hash || '',
-      modifiers: this.parseModifiers(row.modifiers)
+      modifiers: this.parseModifiers(row.modifiers),
+      ...this.mapSourceFileId(row.source_file_ref_id)
     };
   }
 

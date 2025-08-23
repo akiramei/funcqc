@@ -402,9 +402,9 @@ export class MetricsOperations implements StorageOperationModule {
         func.metrics!.callbackCount,
         func.metrics!.commentLines,
         func.metrics!.codeToCommentRatio,
-        func.metrics!.halsteadVolume || null,
-        func.metrics!.halsteadDifficulty || null,
-        func.metrics!.maintainabilityIndex || null,
+        func.metrics!.halsteadVolume ?? null,
+        func.metrics!.halsteadDifficulty ?? null,
+        func.metrics!.maintainabilityIndex ?? null,
       ]);
 
     if (metricsRows.length > 0) {
