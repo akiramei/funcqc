@@ -553,7 +553,7 @@ Actions:
 
 program
   .command('show')
-  .description('📄 [DEPRECATED] Show detailed information about a specific function - Use `funcqc inspect --detailed` instead')
+  .description('📄 Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')
   .option('-j, --json', 'output as JSON for jq/script processing')
   .option('--usage', 'show usage information, examples, error handling, side effects')
@@ -561,15 +561,10 @@ program
   .option('--history', 'show historical metrics and changes for this function')
   .option('--source', 'show source code (combinable with other options)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "show" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --detailed" instead for enhanced function inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --name myFunction --detailed\n'));
-  })
   .action(async (_namePattern: string | undefined, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedShowCommand } = await import('./cli/commands/unified-show');
-    return createUnifiedCommandHandler(UnifiedShowCommand)(options, command);
+    const { ShowCommand } = await import('./cli/commands/show-command');
+    return createUnifiedCommandHandler(ShowCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
