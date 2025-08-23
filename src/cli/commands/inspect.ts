@@ -2,6 +2,8 @@ import { InspectCommandOptions, FunctionInfo, QueryOptions, SourceFile } from '.
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import type { DatabaseErrorLike } from '../../utils/error-handler';
+import { TableFormatter } from './utils/table-formatter';
+import { FUNCTION_COLUMNS, FILE_COLUMNS } from './utils/column-definitions';
 
 /**
  * Inspect command - unified search and exploration interface
@@ -259,6 +261,13 @@ function outputTable(
     return;
   }
 
+  // Check for compact/table format request
+  if (options.format === 'table' || options.format === 'compact') {
+    outputFunctionsTableCompact(functions, options);
+    return;
+  }
+
+  // Default card format
   console.log(`🔍 Found ${functions.length} function(s):`);
   console.log();
 
@@ -519,53 +528,26 @@ function outputFilesTable(sourceFiles: SourceFile[], options: InspectCommandOpti
  * Output files as compact table (similar to files command)
  */
 function outputFilesTableCompact(sourceFiles: SourceFile[], options: InspectCommandOptions): void {
-  console.log(`📁 Source Files (${sourceFiles.length})`);
-  console.log('────────────────────────────────────────────────────────────────────────────────');
+  const title = `📁 Source Files (${sourceFiles.length})`;
   
-  // Table header
-  const maxPathLength = 50;
-  const langWidth = 10;
-  const sizeWidth = 10;
-  const linesWidth = 7;
-  const funcsWidth = 6;
+  TableFormatter.format(sourceFiles, FILE_COLUMNS, title);
   
-  console.log(
-    'Path'.padEnd(maxPathLength) + ' ' +
-    'Lang'.padEnd(langWidth) + ' ' +
-    'Size'.padStart(sizeWidth) + ' ' +
-    'Lines'.padStart(linesWidth) + ' ' +
-    'Funcs'.padStart(funcsWidth)
-  );
-  
-  console.log(
-    '─'.repeat(maxPathLength) + ' ' +
-    '─'.repeat(langWidth) + ' ' +
-    '─'.repeat(sizeWidth) + ' ' +
-    '─'.repeat(linesWidth) + ' ' +
-    '─'.repeat(funcsWidth)
-  );
-  
-  // Table rows
-  sourceFiles.forEach(file => {
-    const displayPath = file.filePath.length > maxPathLength 
-      ? '...' + file.filePath.slice(-(maxPathLength - 3))
-      : file.filePath;
-    
-    const formattedSize = formatFileSize(file.fileSizeBytes);
-    const formattedLines = file.lineCount.toLocaleString();
-    const formattedFuncs = file.functionCount.toString();
-    
-    console.log(
-      displayPath.padEnd(maxPathLength) + ' ' +
-      file.language.padEnd(langWidth) + ' ' +
-      formattedSize.padStart(sizeWidth) + ' ' +
-      formattedLines.padStart(linesWidth) + ' ' +
-      formattedFuncs.padStart(funcsWidth)
-    );
-  });
-
   console.log();
   if (options.limit && sourceFiles.length === options.limit) {
+    console.log(`⚠️  Results limited to ${options.limit}. Use --limit to adjust.`);
+  }
+}
+
+/**
+ * Output functions as compact table using unified formatter
+ */
+function outputFunctionsTableCompact(functions: FunctionInfo[], options: InspectCommandOptions): void {
+  const title = `🔍 Functions (${functions.length})`;
+  
+  TableFormatter.format(functions, FUNCTION_COLUMNS, title);
+  
+  console.log();
+  if (options.limit && functions.length === options.limit) {
     console.log(`⚠️  Results limited to ${options.limit}. Use --limit to adjust.`);
   }
 }
