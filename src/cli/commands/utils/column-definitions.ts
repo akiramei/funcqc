@@ -6,15 +6,16 @@
  */
 
 import { ColumnConfig } from './table-formatter';
+import { FunctionInfo, SourceFile } from '../../../types';
 
 /**
  * Column definitions for function data (--type functions)
  */
-export const FUNCTION_COLUMNS: ColumnConfig[] = [
+export const FUNCTION_COLUMNS: ColumnConfig<FunctionInfo>[] = [
   {
     key: 'name',
     header: 'Name',
-    getValue: (func: any) => func.displayName || func.name,
+    getValue: (func: FunctionInfo) => func.displayName || func.name,
     align: 'left',
     minWidth: 8,
     maxWidth: 30
@@ -22,7 +23,7 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
   {
     key: 'file',
     header: 'File',
-    getValue: (func: any) => {
+    getValue: (func: FunctionInfo) => {
       const path = func.filePath;
       // For functions, show relative path from src/
       if (path.startsWith('src/')) {
@@ -37,7 +38,7 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
   {
     key: 'line',
     header: 'Line',
-    getValue: (func: any) => func.startLine,
+    getValue: (func: FunctionInfo) => func.startLine,
     align: 'right',
     minWidth: 4,
     maxWidth: 6
@@ -45,7 +46,7 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
   {
     key: 'cc',
     header: 'CC',
-    getValue: (func: any) => func.metrics?.cyclomaticComplexity || '-',
+    getValue: (func: FunctionInfo) => func.metrics?.cyclomaticComplexity ?? '-',
     align: 'right',
     minWidth: 2,
     maxWidth: 4
@@ -53,7 +54,7 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
   {
     key: 'type',
     header: 'Type',
-    getValue: (func: any) => {
+    getValue: (func: FunctionInfo) => {
       const type = func.functionType || 'function';
       // Abbreviate common types
       const typeMap: Record<string, string> = {
@@ -71,7 +72,7 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
   {
     key: 'export',
     header: 'Export',
-    getValue: (func: any) => func.isExported ? 'Yes' : 'No',
+    getValue: (func: FunctionInfo) => func.isExported ? 'Yes' : 'No',
     align: 'left',
     minWidth: 3,
     maxWidth: 6
@@ -81,11 +82,11 @@ export const FUNCTION_COLUMNS: ColumnConfig[] = [
 /**
  * Column definitions for file data (--type files)
  */
-export const FILE_COLUMNS: ColumnConfig[] = [
+export const FILE_COLUMNS: ColumnConfig<SourceFile>[] = [
   {
     key: 'path',
     header: 'Path',
-    getValue: (file: any) => file.filePath,
+    getValue: (file: SourceFile) => file.filePath,
     align: 'left',
     minWidth: 10,
     maxWidth: 50
@@ -93,7 +94,7 @@ export const FILE_COLUMNS: ColumnConfig[] = [
   {
     key: 'lang',
     header: 'Lang',
-    getValue: (file: any) => file.language || 'unknown',
+    getValue: (file: SourceFile) => file.language || 'unknown',
     align: 'left',
     minWidth: 4,
     maxWidth: 10
@@ -101,7 +102,7 @@ export const FILE_COLUMNS: ColumnConfig[] = [
   {
     key: 'size',
     header: 'Size',
-    getValue: (file: any) => formatFileSize(file.fileSizeBytes),
+    getValue: (file: SourceFile) => formatFileSize(file.fileSizeBytes),
     align: 'right',
     minWidth: 4,
     maxWidth: 10
@@ -109,7 +110,7 @@ export const FILE_COLUMNS: ColumnConfig[] = [
   {
     key: 'lines',
     header: 'Lines',
-    getValue: (file: any) => file.lineCount.toLocaleString(),
+    getValue: (file: SourceFile) => file.lineCount.toLocaleString(),
     align: 'right',
     minWidth: 5,
     maxWidth: 7
@@ -117,7 +118,7 @@ export const FILE_COLUMNS: ColumnConfig[] = [
   {
     key: 'funcs',
     header: 'Funcs',
-    getValue: (file: any) => file.functionCount.toString(),
+    getValue: (file: SourceFile) => file.functionCount.toString(),
     align: 'right',
     minWidth: 5,
     maxWidth: 6

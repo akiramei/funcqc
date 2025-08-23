@@ -5,16 +5,16 @@
  * Supports dynamic column width calculation and type-agnostic formatting
  */
 
-export interface ColumnConfig {
+export interface ColumnConfig<T = unknown> {
   key: string;
   header: string;
-  getValue: (item: any) => string | number;
+  getValue: (item: T) => string | number;
   align?: 'left' | 'right';
   minWidth?: number;
   maxWidth?: number;
 }
 
-interface ColumnWithWidth extends ColumnConfig {
+interface ColumnWithWidth<T = unknown> extends ColumnConfig<T> {
   width: number;
 }
 
@@ -22,7 +22,7 @@ export class TableFormatter {
   /**
    * Format data as a compact table
    */
-  static format(data: any[], columns: ColumnConfig[], title?: string): void {
+  static format<T>(data: T[], columns: ColumnConfig<T>[], title?: string): void {
     if (data.length === 0) {
       console.log('No data to display.');
       return;
@@ -49,7 +49,7 @@ export class TableFormatter {
   /**
    * Calculate optimal column widths based on data and constraints
    */
-  private static calculateColumnWidths(data: any[], columns: ColumnConfig[]): ColumnWithWidth[] {
+  private static calculateColumnWidths<T>(data: T[], columns: ColumnConfig<T>[]): ColumnWithWidth<T>[] {
     return columns.map(col => {
       // Get all values for this column
       const values = data.map(item => {
@@ -81,7 +81,7 @@ export class TableFormatter {
   /**
    * Print table header
    */
-  private static printHeader(columns: ColumnWithWidth[]): void {
+  private static printHeader<T>(columns: ColumnWithWidth<T>[]): void {
     const headerParts = columns.map(col => {
       const align = col.align || 'left';
       return align === 'right' 
@@ -95,7 +95,7 @@ export class TableFormatter {
   /**
    * Print separator line
    */
-  private static printSeparator(columns: ColumnWithWidth[]): void {
+  private static printSeparator<T>(columns: ColumnWithWidth<T>[]): void {
     const separatorParts = columns.map(col => '─'.repeat(col.width));
     console.log(separatorParts.join(' '));
   }
@@ -103,7 +103,7 @@ export class TableFormatter {
   /**
    * Print data rows
    */
-  private static printRows(data: any[], columns: ColumnWithWidth[]): void {
+  private static printRows<T>(data: T[], columns: ColumnWithWidth<T>[]): void {
     data.forEach(item => {
       const rowParts = columns.map(col => {
         const value = col.getValue(item);
@@ -128,7 +128,7 @@ export class TableFormatter {
   /**
    * Get total width of table (for title underline)
    */
-  private static getTotalWidth(columns: ColumnWithWidth[]): number {
+  private static getTotalWidth<T>(columns: ColumnWithWidth<T>[]): number {
     return columns.reduce((total, col) => total + col.width, 0) + 
            Math.max(0, columns.length - 1); // spaces between columns
   }
