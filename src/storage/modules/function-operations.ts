@@ -511,10 +511,14 @@ export class FunctionOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO function_parameters (
-          function_id, snapshot_id, name, type, type_simple, position, is_optional, default_value
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          function_id, snapshot_id, name, type, type_simple, position,
+          is_optional, is_rest, default_value, description
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         `,
-        [func.id, func.snapshotId, param.name, param.type, param.typeSimple, i, param.isOptional, param.defaultValue]
+        [
+          func.id, func.snapshotId, param.name, param.type, param.typeSimple, i,
+          param.isOptional, param.isRest ?? false, param.defaultValue ?? null, param.description ?? null
+        ]
       );
     }
   }
@@ -1109,7 +1113,7 @@ export class FunctionOperations implements StorageOperationModule {
       FROM functions f
       LEFT JOIN quality_metrics q ON f.id = q.function_id
       LEFT JOIN function_descriptions fd ON f.semantic_id = fd.semantic_id
-      WHERE f.snapshot_id = $1 AND (fd.semantic_id IS NULL OR fd.needs_update = true)
+      WHERE f.snapshot_id = $1 AND (fd.semantic_id IS NULL OR fd.needs_review = true)
       ORDER BY f.start_line
     `, [snapshotId]);
     
@@ -1151,21 +1155,27 @@ export class FunctionOperations implements StorageOperationModule {
   }): Promise<void> {
     await this.db.query(`
       INSERT INTO function_descriptions (
-        semantic_id, description, source, model, content_id, needs_update, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        semantic_id, description, source, created_by, ai_model, confidence_score,
+        validated_for_content_id, needs_review, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       ON CONFLICT (semantic_id) DO UPDATE SET
         description = EXCLUDED.description,
         source = EXCLUDED.source,
-        model = EXCLUDED.model,
-        needs_update = EXCLUDED.needs_update,
+        created_by = EXCLUDED.created_by,
+        ai_model = EXCLUDED.ai_model,
+        confidence_score = EXCLUDED.confidence_score,
+        validated_for_content_id = EXCLUDED.validated_for_content_id,
+        needs_review = EXCLUDED.needs_review,
         updated_at = EXCLUDED.updated_at
     `, [
       description.semanticId,
       description.description,
-      description.source || 'manual',
-      description.model,
-      description.contentId,
-      false,
+      description.source ?? 'human',
+      null,                              // created_by
+      description.model ?? null,         // ai_model
+      null,                              // confidence_score  
+      description.contentId ?? null,     // validated_for_content_id
+      description.needsUpdate ?? false,  // needs_review
       new Date().toISOString(),
       new Date().toISOString()
     ]);
@@ -1191,9 +1201,11 @@ export class FunctionOperations implements StorageOperationModule {
       semantic_id: string;
       description: string;
       source: string;
-      model: string;
-      content_id: string;
-      needs_update: boolean;
+      created_by: string;
+      ai_model: string;
+      confidence_score: number;
+      validated_for_content_id: string;
+      needs_review: boolean;
       created_at: string;
       updated_at: string;
     };
@@ -1201,9 +1213,9 @@ export class FunctionOperations implements StorageOperationModule {
       semanticId: row.semantic_id,
       description: row.description,
       source: row.source,
-      model: row.model,
-      contentId: row.content_id,
-      needsUpdate: row.needs_update,
+      model: row.ai_model,
+      contentId: row.validated_for_content_id,
+      needsUpdate: row.needs_review,
       createdAt: row.created_at ? new Date(row.created_at) : new Date(),
       updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString()
     };

@@ -496,27 +496,23 @@ export class MetricsOperations implements StorageOperationModule {
       await this.db.query(
         `
         INSERT INTO naming_evaluations (
-          function_id, rating, explanation, suggestions, confidence, model, revision_needed, created_at, updated_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          function_id, overall_score, suggestions, revision_needed, evaluated_by, evaluated_at, updated_at
+        ) VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
         ON CONFLICT (function_id) DO UPDATE SET
-          rating = EXCLUDED.rating,
-          explanation = EXCLUDED.explanation,
+          overall_score = EXCLUDED.overall_score,
           suggestions = EXCLUDED.suggestions,
-          confidence = EXCLUDED.confidence,
-          model = EXCLUDED.model,
           revision_needed = EXCLUDED.revision_needed,
-          updated_at = CURRENT_TIMESTAMP
+          evaluated_by = EXCLUDED.evaluated_by,
+          updated_at = EXCLUDED.updated_at
         `,
         [
           evaluation['functionId'],
-          evaluation['rating'],
-          evaluation['explanation'],
+          evaluation['rating'] || 0,                           // rating → overall_score へマップ
           JSON.stringify(evaluation['suggestions'] || []),
-          evaluation['confidence'],
-          evaluation['model'],
           evaluation['revisionNeeded'] || false,
-          new Date().toISOString(),
-          new Date().toISOString()
+          evaluation['model'] || 'unknown',                    // model → evaluated_by へマップ
+          new Date().toISOString(),                            // evaluated_at
+          new Date().toISOString()                             // updated_at
         ]
       );
     } catch (error) {
@@ -548,22 +544,19 @@ export class MetricsOperations implements StorageOperationModule {
 
       const row = result.rows[0] as {
         function_id: string;
-        rating: number;
-        explanation: string;
+        overall_score: number;
         suggestions: string;
-        confidence: number;
-        model: string;
         revision_needed: boolean;
-        created_at: string;
+        evaluated_by: string;
+        evaluated_at: string;
         updated_at: string;
-        issues?: string;
       };
       return {
         functionId: row.function_id,
-        rating: row.rating,
-        issues: row.issues ? this.context.utilityOps?.parseJsonSafely(row.issues, [row.explanation]) ?? [row.explanation] : [row.explanation],
+        rating: row.overall_score,
+        issues: [], // スキーマに issues がないため空配列で整合
         suggestions: this.context.utilityOps?.parseJsonSafely(row.suggestions, []) ?? [],
-        createdAt: new Date(row.created_at),
+        createdAt: new Date(row.evaluated_at),
         updatedAt: new Date(row.updated_at)
       };
     } catch (error) {
@@ -578,7 +571,8 @@ export class MetricsOperations implements StorageOperationModule {
   async getFunctionsNeedingEvaluation(snapshotId: string, options?: { limit?: number }): Promise<Array<{ functionId: string; functionName: string; lastModified: number }>> {
     try {
       let sql = `
-        SELECT f.id as functionId, f.name as functionName, f.updated_at as lastModified
+        SELECT f.id as functionId, f.name as functionName,
+               COALESCE(ne.updated_at, f.created_at) as lastModified
         FROM functions f
         LEFT JOIN naming_evaluations ne ON f.id = ne.function_id
         WHERE f.snapshot_id = $1
@@ -646,24 +640,21 @@ export class MetricsOperations implements StorageOperationModule {
       return result.rows.map(row => {
         const r = row as {
           function_id: string;
-          rating: number;
-          explanation: string;
+          overall_score: number;
           suggestions: string;
-          confidence: number;
-          model: string;
           revision_needed: boolean;
-          created_at: string;
+          evaluated_by: string;
+          evaluated_at: string;
           updated_at: string;
-          issues: string;
         };
         return {
           functionId: r.function_id,
           evaluation: {
             functionId: r.function_id,
-            rating: r.rating,
-            issues: this.context.utilityOps?.parseJsonSafely(r.issues, []) ?? [],
+            rating: r.overall_score,
+            issues: [], // スキーマに issues がないため空配列で整合
             suggestions: this.context.utilityOps?.parseJsonSafely(r.suggestions, []) ?? [],
-            createdAt: new Date(r.created_at),
+            createdAt: new Date(r.evaluated_at),
             updatedAt: new Date(r.updated_at)
           }
         };
