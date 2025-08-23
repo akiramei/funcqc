@@ -639,28 +639,20 @@ Features:
 
 program
   .command('health')
-  .description('🏥 [DEPRECATED] Show project health assessment - Use `funcqc assess --type health` instead')
+  .description('🏥 Show project health assessment')
   .option('--trend', 'show trend analysis')
+  .option('--risks', 'show detailed risk assessment')
   .option('--show-config', 'show configuration details')
   .option('--verbose', 'show detailed information')
   .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
-  .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
-  .option('--mode <mode>', 'evaluation mode: static or dynamic (default: static)')
-  .option('--explain-weight <function>', 'explain weight calculation for specific function (ID or name)')
-  .option('--top-n <number>', 'number of top recommendations to show (default: 3, verbose: 10)', '3')
   .option('--ai-optimized', 'deprecated: use --json instead')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "health" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc assess" instead for enhanced quality assessment capabilities.'));
-    console.log(chalk.gray('   Example: funcqc assess (same options work)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedHealthCommand } = await import('./cli/commands/unified-health');
-    return createUnifiedCommandHandler(UnifiedHealthCommand)(options, command);
+    const { HealthCommand } = await import('./cli/commands/health-command');
+    return createUnifiedCommandHandler(HealthCommand)(options, command);
   });
 
 program
