@@ -493,7 +493,7 @@ export class FunctionOperations implements StorageOperationModule {
         func.isStatic,
         func.accessModifier || null,
         func.sourceCode || null,
-        func.sourceFileId || null,
+        func.sourceFileRefId || null,
       ]
     );
   }
@@ -596,8 +596,7 @@ export class FunctionOperations implements StorageOperationModule {
               code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
               halstead_volume = EXCLUDED.halstead_volume,
               halstead_difficulty = EXCLUDED.halstead_difficulty,
-              maintainability_index = EXCLUDED.maintainability_index,
-              updated_at = CURRENT_TIMESTAMP`
+              maintainability_index = EXCLUDED.maintainability_index`
           };
         case 'function_parameters':
           return {
@@ -905,7 +904,7 @@ export class FunctionOperations implements StorageOperationModule {
    */
   private mapSourceFileId(sourceFileRefId: string | undefined): Partial<FunctionInfo> {
     if (sourceFileRefId) {
-      return { sourceFileId: sourceFileRefId };
+      return { sourceFileRefId: sourceFileRefId };
     }
     return {};
   }

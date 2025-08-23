@@ -260,7 +260,7 @@ CREATE INDEX idx_function_documentation_created_at ON function_documentation(cre
 -- Quality Metrics: Content-based quality indicators
 -- -----------------------------------------------------------------------------
 CREATE TABLE quality_metrics (
-  function_id TEXT PRIMARY KEY,          -- 物理ID参照
+  function_id TEXT NOT NULL,             -- 物理ID参照
   snapshot_id TEXT NOT NULL,             -- スナップショット参照
   lines_of_code INTEGER NOT NULL,       -- 実行可能行数
   total_lines INTEGER NOT NULL,         -- コメント込み総行数
@@ -280,7 +280,8 @@ CREATE TABLE quality_metrics (
   halstead_difficulty REAL,            -- Halstead Difficulty（オプション）
   maintainability_index REAL,          -- 保守性指標（オプション）
   FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  PRIMARY KEY (function_id, snapshot_id)  -- 複合主キー
 );
 
 -- パフォーマンス最適化インデックス

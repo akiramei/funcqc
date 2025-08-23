@@ -113,8 +113,7 @@ export class MetricsOperations implements StorageOperationModule {
           code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
           halstead_volume = EXCLUDED.halstead_volume,
           halstead_difficulty = EXCLUDED.halstead_difficulty,
-          maintainability_index = EXCLUDED.maintainability_index,
-          updated_at = CURRENT_TIMESTAMP
+          maintainability_index = EXCLUDED.maintainability_index
         `,
         [
           functionId,
@@ -207,7 +206,7 @@ export class MetricsOperations implements StorageOperationModule {
       values.push(functionId); // Add function_id as last parameter
 
       await this.db.query(
-        `UPDATE quality_metrics SET ${setClauses.join(', ')}, updated_at = CURRENT_TIMESTAMP 
+        `UPDATE quality_metrics SET ${setClauses.join(', ')} 
          WHERE function_id = $${paramIndex}`,
         values
       );
@@ -439,8 +438,7 @@ export class MetricsOperations implements StorageOperationModule {
             code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
             halstead_volume = EXCLUDED.halstead_volume,
             halstead_difficulty = EXCLUDED.halstead_difficulty,
-            maintainability_index = EXCLUDED.maintainability_index,
-            updated_at = CURRENT_TIMESTAMP`,
+            maintainability_index = EXCLUDED.maintainability_index`,
           logger: { log: (msg: string) => console.log(msg) }
         }
       );

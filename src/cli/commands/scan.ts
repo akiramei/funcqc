@@ -700,7 +700,7 @@ async function executePureBasicBatchAnalysis(
           if (!mappedId) {
             throw new Error(`No source_file_ref_id found for ${func.filePath}`);
           }
-          func.sourceFileId = mappedId;
+          func.sourceFileRefId = mappedId;
         }
         
         sourceFile.functionCount = functions.length;
