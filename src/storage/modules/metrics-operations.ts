@@ -133,9 +133,9 @@ export class MetricsOperations implements StorageOperationModule {
           metrics.callbackCount,
           metrics.commentLines,
           metrics.codeToCommentRatio,
-          metrics.halsteadVolume || null,
-          metrics.halsteadDifficulty || null,
-          metrics.maintainabilityIndex || null,
+          metrics.halsteadVolume ?? null,
+          metrics.halsteadDifficulty ?? null,
+          metrics.maintainabilityIndex ?? null,
         ]
       );
     } catch (error) {
