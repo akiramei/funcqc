@@ -193,3 +193,192 @@ export function calculateOptimalBatchSize(columnCount: number): number {
   // Cap at a reasonable batch size to avoid memory issues
   return Math.min(maxRows, MAX_BATCH_SIZE);
 }
+
+/**
+ * Get proper PostgreSQL array type annotations for table columns
+ */
+function getColumnTypeAnnotations(tableName: string, columns: string[]): string[] {
+  // Define column type mappings for major tables
+  const columnTypes: Record<string, Record<string, string>> = {
+    functions: {
+      start_line: 'integer',
+      end_line: 'integer',
+      start_column: 'integer',
+      end_column: 'integer',
+      nesting_level: 'integer',
+      is_exported: 'boolean',
+      is_async: 'boolean',
+      is_generator: 'boolean',
+      is_arrow_function: 'boolean',
+      is_method: 'boolean',
+      is_constructor: 'boolean',
+      is_static: 'boolean',
+      context_path: 'jsonb',
+      modifiers: 'jsonb',
+    },
+    function_parameters: {
+      position: 'integer',
+      is_optional: 'boolean',
+      is_rest: 'boolean',
+    },
+    quality_metrics: {
+      lines_of_code: 'integer',
+      total_lines: 'integer',
+      cyclomatic_complexity: 'integer',
+      cognitive_complexity: 'integer',
+      max_nesting_level: 'integer',
+      parameter_count: 'integer',
+      return_statement_count: 'integer',
+      branch_count: 'integer',
+      loop_count: 'integer',
+      try_catch_count: 'integer',
+      async_await_count: 'integer',
+      callback_count: 'integer',
+      comment_lines: 'integer',
+      code_to_comment_ratio: 'numeric',
+      halstead_volume: 'numeric',
+      halstead_difficulty: 'numeric',
+      maintainability_index: 'numeric',
+    },
+    type_definitions: {
+      start_line: 'integer',
+      end_line: 'integer',
+      start_column: 'integer',
+      end_column: 'integer',
+      is_abstract: 'boolean',
+      is_exported: 'boolean',
+      is_default_export: 'boolean',
+      is_generic: 'boolean',
+      generic_parameters: 'jsonb',
+      resolved_type: 'jsonb',
+      modifiers: 'jsonb',
+      metadata: 'jsonb',
+    },
+    type_relationships: {
+      position: 'integer',
+      is_array: 'boolean',
+      is_optional: 'boolean',
+      generic_arguments: 'jsonb',
+      confidence_score: 'numeric',
+      metadata: 'jsonb',
+    },
+    type_members: {
+      is_optional: 'boolean',
+      is_readonly: 'boolean',
+      is_static: 'boolean',
+      is_abstract: 'boolean',
+      start_line: 'integer',
+      end_line: 'integer',
+      start_column: 'integer',
+      end_column: 'integer',
+      metadata: 'jsonb',
+      jsdoc: 'text',
+    },
+    method_overrides: {
+      is_compatible: 'boolean',
+      compatibility_errors: 'jsonb',
+      confidence_score: 'numeric',
+      metadata: 'jsonb',
+    },
+  };
+
+  const tableTypes = columnTypes[tableName] || {};
+  
+  return columns.map(column => {
+    const pgType = tableTypes[column] || 'text';
+    return `${pgType}[]`;
+  });
+}
+
+/**
+ * Generate UNNEST-based bulk insert SQL for better PGLite performance
+ * Uses column arrays instead of row-by-row parameters to reduce binding overhead
+ */
+export function generateUnnestBulkInsertSQL(
+  tableName: string,
+  columns: string[],
+  options?: { idempotent?: boolean }
+): string {
+  if (columns.length === 0) return '';
+
+  // Create proper type annotations for each column
+  const typeAnnotations = getColumnTypeAnnotations(tableName, columns);
+  const paramPlaceholders = typeAnnotations.map((type, index) => `$${index + 1}::${type}`).join(', ');
+  
+  let sql = `
+    INSERT INTO ${tableName} (${columns.join(', ')})
+    SELECT * FROM unnest(${paramPlaceholders})
+  `;
+
+  // Add idempotent clause if requested
+  if (options?.idempotent) {
+    if (tableName === 'type_definitions') {
+      sql += ` ON CONFLICT (snapshot_id, file_path, name, start_line) DO NOTHING`;
+    } else if (columns.includes('id')) {
+      sql += ` ON CONFLICT (id) DO NOTHING`;
+    }
+  }
+
+  return sql;
+}
+
+/**
+ * Convert row data to column arrays for UNNEST-based bulk insert
+ * Transforms [[row1col1, row1col2], [row2col1, row2col2]] 
+ * to [[row1col1, row2col1], [row1col2, row2col2]]
+ */
+export function prepareUnnestData(rows: unknown[][]): unknown[][] {
+  if (rows.length === 0) return [];
+  
+  const columnCount = rows[0]?.length || 0;
+  const columnArrays: unknown[][] = [];
+  
+  // Initialize column arrays
+  for (let colIndex = 0; colIndex < columnCount; colIndex++) {
+    columnArrays.push([]);
+  }
+  
+  // Transpose row data to column data
+  for (const row of rows) {
+    for (let colIndex = 0; colIndex < columnCount; colIndex++) {
+      columnArrays[colIndex].push(row[colIndex]);
+    }
+  }
+  
+  return columnArrays;
+}
+
+/**
+ * Execute UNNEST-based bulk insert with optimized batching
+ * Provides better performance than VALUES-based approach for PGLite
+ */
+export async function executeUnnestBulkInsert(
+  query: (sql: string, params: unknown[]) => Promise<unknown>,
+  tableName: string,
+  columns: string[],
+  rows: unknown[][],
+  options?: { 
+    idempotent?: boolean;
+    batchSize?: number;
+    logger?: { log: (msg: string) => void };
+  }
+): Promise<void> {
+  if (rows.length === 0) return;
+
+  const batchSize = options?.batchSize || calculateOptimalBatchSize(columns.length);
+  const sql = generateUnnestBulkInsertSQL(tableName, columns, options?.idempotent ? { idempotent: options.idempotent } : {});
+  
+  options?.logger?.log(`Executing UNNEST bulk insert for ${tableName}: ${rows.length} rows in batches of ${batchSize}`);
+
+  // Process in batches
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const columnArrays = prepareUnnestData(batch);
+    
+    await query(sql, columnArrays);
+    
+    if (options?.logger && rows.length > 1000 && i % 1000 === 0) {
+      options.logger.log(`UNNEST bulk insert progress: ${i + batch.length}/${rows.length} rows`);
+    }
+  }
+}

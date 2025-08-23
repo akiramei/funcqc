@@ -396,17 +396,34 @@ export class SourceContentOperations extends BaseStorageOperations implements St
   }
 
   /**
-   * Update function counts for file references
+   * Update function counts for file references using bulk update with CASE/WHEN for better PGLite performance
    */
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
-    for (const [filePath, count] of functionCountByFile.entries()) {
-      await this.kysely
-        .updateTable('source_file_refs')
-        .set({ function_count: count })
-        .where('file_path', '=', filePath)
-        .where('snapshot_id', '=', snapshotId)
-        .execute();
-    }
+    if (functionCountByFile.size === 0) return;
+
+    // Build bulk update query using CASE/WHEN for better performance
+    const filePaths = Array.from(functionCountByFile.keys());
+    const caseWhenClauses = filePaths.map((_, index) => 
+      `WHEN $${index + 2} THEN $${index + 2 + filePaths.length}`
+    ).join(' ');
+    
+    const params = [
+      snapshotId,
+      ...filePaths,
+      ...filePaths.map(path => functionCountByFile.get(path)!)
+    ];
+
+    const sql = `
+      UPDATE source_file_refs 
+      SET function_count = CASE file_path 
+        ${caseWhenClauses}
+        ELSE function_count 
+      END
+      WHERE snapshot_id = $1 
+        AND file_path IN (${filePaths.map((_, i) => `$${i + 2}`).join(', ')})
+    `;
+
+    await this.db.query(sql, params);
   }
 
   /**

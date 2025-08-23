@@ -18,6 +18,7 @@ interface PGTransaction {
   query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }>;
 }
 import { generateStableEdgeId } from '../../utils/edge-id-generator';
+import { calculateOptimalBatchSize } from '../bulk-insert-utils';
 
 export interface CallEdgeStats {
   totalCallEdges: number;
@@ -71,7 +72,12 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     if (callEdges.length === 0) return;
 
     try {
-      await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+      // Use bulk insert for better performance, even in transactions
+      if (callEdges.length >= 5) { // Lower threshold for bulk insert in transactions
+        await this.insertCallEdgesBulkInTransaction(trx, snapshotId, callEdges);
+      } else {
+        await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+      }
       this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId} in transaction`);
     } catch (error) {
       throw new DatabaseError(
@@ -82,15 +88,128 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }
   }
 
+  /**
+   * Insert call edges in bulk within a transaction for maximum performance
+   */
+  private async insertCallEdgesBulkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    // Dynamic chunk sizing based on call_edges table columns (17 columns)
+    const CHUNK_SIZE = calculateOptimalBatchSize(17);
+    
+    if (callEdges.length <= CHUNK_SIZE) {
+      await this.insertCallEdgesChunkInTransaction(trx, snapshotId, callEdges);
+    } else {
+      // Process in chunks sequentially within the same transaction
+      for (let i = 0; i < callEdges.length; i += CHUNK_SIZE) {
+        const chunk = callEdges.slice(i, i + CHUNK_SIZE);
+        await this.insertCallEdgesChunkInTransaction(trx, snapshotId, chunk);
+      }
+    }
+  }
 
+  /**
+   * Insert a single chunk of call edges within a transaction using JSONB bulk insert
+   */
+  private async insertCallEdgesChunkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+    const callEdgeRows = callEdges.map(edge => ({
+      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+      snapshot_id: snapshotId,
+      caller_function_id: edge.callerFunctionId,
+      callee_function_id: edge.calleeFunctionId,
+      callee_name: edge.calleeName,
+      callee_signature: edge.calleeSignature || null,
+      caller_class_name: edge.callerClassName || null,
+      callee_class_name: edge.calleeClassName || null,
+      call_type: edge.callType || 'direct',
+      call_context: this.mapCallContext(edge.callContext),
+      line_number: edge.lineNumber || 0,
+      column_number: edge.columnNumber || 0,
+      is_async: edge.isAsync || false,
+      is_chained: edge.isChained || false,
+      confidence_score: edge.confidenceScore || 1.0,
+      metadata: edge.metadata || {},
+      created_at: new Date().toISOString(),
+    }));
+
+    try {
+      // Sanitize data to remove NUL characters (only if detected for performance)
+      const sanitizedRows = callEdgeRows.map(row => {
+        const sanitizedRow = { ...row };
+        
+        // Check for NUL characters and sanitize only if found
+        const stringFields = ['id', 'callee_name', 'callee_signature', 'caller_class_name', 'callee_class_name', 'call_type', 'call_context'] as const;
+        for (const field of stringFields) {
+          const value = sanitizedRow[field as keyof typeof sanitizedRow];
+          if (typeof value === 'string' && value.includes('\u0000')) {
+            (sanitizedRow as Record<string, unknown>)[field] = value.replaceAll('\u0000', '\uFFFD');
+          }
+        }
+        
+        // Sanitize metadata JSON only if NUL detected
+        if (sanitizedRow.metadata) {
+          const metadataStr = JSON.stringify(sanitizedRow.metadata);
+          if (metadataStr.includes('\u0000')) {
+            const cleanMetadataStr = metadataStr.replaceAll('\u0000', '\uFFFD');
+            sanitizedRow.metadata = JSON.parse(cleanMetadataStr);
+          }
+        }
+        
+        return sanitizedRow;
+      });
+
+      // Use JSONB bulk insert approach for better PGLite compatibility within transaction
+      const payload = JSON.stringify(sanitizedRows);
+      
+      const sql = `
+        WITH payload AS (SELECT $1::jsonb AS data)
+        INSERT INTO call_edges (
+          id, snapshot_id, caller_function_id, callee_function_id,
+          callee_name, callee_signature, caller_class_name, callee_class_name,
+          call_type, call_context, line_number, column_number,
+          is_async, is_chained, confidence_score, metadata, created_at
+        )
+        SELECT
+          t.id, t.snapshot_id, t.caller_function_id, t.callee_function_id,
+          t.callee_name, t.callee_signature, t.caller_class_name, t.callee_class_name,
+          t.call_type, t.call_context, t.line_number::int, t.column_number::int,
+          t.is_async::boolean, t.is_chained::boolean, t.confidence_score::real, 
+          t.metadata::jsonb, t.created_at::timestamptz
+        FROM jsonb_to_recordset((SELECT data FROM payload)) AS t(
+          id text,
+          snapshot_id text,
+          caller_function_id text,
+          callee_function_id text,
+          callee_name text,
+          callee_signature text,
+          caller_class_name text,
+          callee_class_name text,
+          call_type text,
+          call_context text,
+          line_number int,
+          column_number int,
+          is_async boolean,
+          is_chained boolean,
+          confidence_score real,
+          metadata jsonb,
+          created_at timestamptz
+        )
+        ON CONFLICT (id) DO NOTHING
+      `;
+      
+      await trx.query(sql, [payload]);
+    } catch (error) {
+      this.logger?.error(`Failed to bulk insert call edges in transaction: ${error}`);
+      this.logger?.error(`Sample row data: ${JSON.stringify(callEdgeRows[0], null, 2)}`);
+      throw error;
+    }
+  }
 
   /**
    * Insert call edges using bulk insert for better performance
    * Processes large datasets in optimized chunks
    */
   private async insertCallEdgesBulk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    // Conservative chunking - keep existing approach with smaller chunk size
-    const CHUNK_SIZE = 500; // Reduced from 1000 for better PGLite performance
+    // Dynamic chunk sizing based on call_edges table columns (17 columns)
+    const CHUNK_SIZE = calculateOptimalBatchSize(17);
     
     if (callEdges.length <= CHUNK_SIZE) {
       await this.insertCallEdgesChunk(snapshotId, callEdges);

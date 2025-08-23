@@ -11,6 +11,7 @@ import { DatabaseError } from '../errors/database-error';
 import { ErrorCode } from '../../utils/error-handler';
 import { StorageContext, StorageOperationModule } from './types';
 import { BatchProcessor } from '../../utils/batch-processor';
+import { executeUnnestBulkInsert } from '../bulk-insert-utils';
 
 export class MetricsOperations implements StorageOperationModule {
   readonly db;
@@ -380,71 +381,50 @@ export class MetricsOperations implements StorageOperationModule {
   // Private helper methods
 
   /**
-   * Bulk insert metrics using Kysely
+   * Bulk insert metrics using UNNEST for better PGLite performance
    */
   private async bulkInsertMetrics(functions: FunctionInfo[]): Promise<void> {
     const metricsRows = functions
       .filter(func => func.metrics)
-      .map(func => ({
-        function_id: func.id,
-        snapshot_id: func.snapshotId,
-        lines_of_code: func.metrics!.linesOfCode,
-        total_lines: func.metrics!.totalLines,
-        cyclomatic_complexity: func.metrics!.cyclomaticComplexity,
-        cognitive_complexity: func.metrics!.cognitiveComplexity,
-        max_nesting_level: func.metrics!.maxNestingLevel,
-        parameter_count: func.metrics!.parameterCount,
-        return_statement_count: func.metrics!.returnStatementCount,
-        branch_count: func.metrics!.branchCount,
-        loop_count: func.metrics!.loopCount,
-        try_catch_count: func.metrics!.tryCatchCount,
-        async_await_count: func.metrics!.asyncAwaitCount,
-        callback_count: func.metrics!.callbackCount,
-        comment_lines: func.metrics!.commentLines,
-        code_to_comment_ratio: func.metrics!.codeToCommentRatio,
-        halstead_volume: func.metrics!.halsteadVolume || null,
-        halstead_difficulty: func.metrics!.halsteadDifficulty || null,
-        maintainability_index: func.metrics!.maintainabilityIndex || null,
-      }));
+      .map(func => [
+        func.id,
+        func.snapshotId,
+        func.metrics!.linesOfCode,
+        func.metrics!.totalLines,
+        func.metrics!.cyclomaticComplexity,
+        func.metrics!.cognitiveComplexity,
+        func.metrics!.maxNestingLevel,
+        func.metrics!.parameterCount,
+        func.metrics!.returnStatementCount,
+        func.metrics!.branchCount,
+        func.metrics!.loopCount,
+        func.metrics!.tryCatchCount,
+        func.metrics!.asyncAwaitCount,
+        func.metrics!.callbackCount,
+        func.metrics!.commentLines,
+        func.metrics!.codeToCommentRatio,
+        func.metrics!.halsteadVolume || null,
+        func.metrics!.halsteadDifficulty || null,
+        func.metrics!.maintainabilityIndex || null,
+      ]);
 
     if (metricsRows.length > 0) {
-      for (const row of metricsRows) {
-        await this.db.query(`
-          INSERT INTO quality_metrics (
-            function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-            max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-            try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-            halstead_volume, halstead_difficulty, maintainability_index
-          ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
-          )
-          ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
-            lines_of_code = EXCLUDED.lines_of_code,
-            total_lines = EXCLUDED.total_lines,
-            cyclomatic_complexity = EXCLUDED.cyclomatic_complexity,
-            cognitive_complexity = EXCLUDED.cognitive_complexity,
-            max_nesting_level = EXCLUDED.max_nesting_level,
-            parameter_count = EXCLUDED.parameter_count,
-            return_statement_count = EXCLUDED.return_statement_count,
-            branch_count = EXCLUDED.branch_count,
-            loop_count = EXCLUDED.loop_count,
-            try_catch_count = EXCLUDED.try_catch_count,
-            async_await_count = EXCLUDED.async_await_count,
-            callback_count = EXCLUDED.callback_count,  
-            comment_lines = EXCLUDED.comment_lines,
-            code_to_comment_ratio = EXCLUDED.code_to_comment_ratio,
-            halstead_volume = EXCLUDED.halstead_volume,
-            halstead_difficulty = EXCLUDED.halstead_difficulty,
-            maintainability_index = EXCLUDED.maintainability_index,
-            updated_at = CURRENT_TIMESTAMP
-        `, [
-          row.function_id, row.snapshot_id, row.lines_of_code, row.total_lines, row.cyclomatic_complexity,
-          row.cognitive_complexity, row.max_nesting_level, row.parameter_count,
-          row.return_statement_count, row.branch_count, row.loop_count, row.try_catch_count,
-          row.async_await_count, row.callback_count, row.comment_lines, row.code_to_comment_ratio,
-          row.halstead_volume, row.halstead_difficulty, row.maintainability_index
-        ]);
-      }
+      await executeUnnestBulkInsert(
+        (sql, params) => this.db.query(sql, params),
+        'quality_metrics',
+        [
+          'function_id', 'snapshot_id', 'lines_of_code', 'total_lines', 'cyclomatic_complexity',
+          'cognitive_complexity', 'max_nesting_level', 'parameter_count',
+          'return_statement_count', 'branch_count', 'loop_count', 'try_catch_count',
+          'async_await_count', 'callback_count', 'comment_lines', 'code_to_comment_ratio',
+          'halstead_volume', 'halstead_difficulty', 'maintainability_index'
+        ],
+        metricsRows,
+        {
+          idempotent: true,
+          logger: { log: (msg: string) => console.log(msg) }
+        }
+      );
     }
   }
 

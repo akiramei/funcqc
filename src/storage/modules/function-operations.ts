@@ -21,9 +21,7 @@ import {
 } from '../../utils/batch-processor';
 import { 
   prepareBulkInsertData,
-  generateBulkInsertSQL,
-  splitIntoBatches,
-  calculateOptimalBatchSize
+  executeUnnestBulkInsert
 } from '../bulk-insert-utils';
 import { buildScopeWhereClause } from '../../utils/scope-utils';
 import { ConfigManager } from '../../core/config';
@@ -565,7 +563,8 @@ export class FunctionOperations implements StorageOperationModule {
   }
 
   /**
-   * Execute bulk insert within a transaction with optimal batching
+   * Execute bulk insert within a transaction with optimal UNNEST-based batching
+   * Uses UNNEST approach for better PGLite performance vs VALUES approach
    */
   private async executeBulkInsertInTransaction(
     trx: PGTransaction,
@@ -575,16 +574,16 @@ export class FunctionOperations implements StorageOperationModule {
   ): Promise<void> {
     if (data.length === 0) return;
     
-    // Calculate optimal batch size based on column count
-    const batchSize = calculateOptimalBatchSize(columns.length);
-    const batches = splitIntoBatches(data, batchSize);
-    
-    for (const batch of batches) {
-      const sql = generateBulkInsertSQL(tableName, columns, batch.length);
-      const flatParams = batch.flat();
-      
-      await trx.query(sql, flatParams);
-    }
+    // Use UNNEST-based bulk insert for better PGLite performance
+    await executeUnnestBulkInsert(
+      (sql, params) => trx.query(sql, params),
+      tableName,
+      columns,
+      data,
+      {
+        idempotent: ['functions', 'function_parameters', 'quality_metrics'].includes(tableName)
+      }
+    );
   }
 
   /**
