@@ -236,7 +236,8 @@ CREATE TABLE function_parameters (
   default_value TEXT,                    -- デフォルト値（あれば）
   description TEXT,                      -- JSDocからの説明
   FOREIGN KEY (function_id) REFERENCES functions(id) ON DELETE CASCADE,
-  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE
+  FOREIGN KEY (snapshot_id) REFERENCES snapshots(id) ON DELETE CASCADE,
+  UNIQUE(function_id, snapshot_id, position) -- UPSERT用論理一意制約
 );
 
 CREATE INDEX idx_function_parameters_function_id ON function_parameters(function_id);

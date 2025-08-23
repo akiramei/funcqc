@@ -601,13 +601,10 @@ export class FunctionOperations implements StorageOperationModule {
           };
         case 'function_parameters':
           return {
-            onConflict: `ON CONFLICT (id) DO UPDATE SET
-              function_id = EXCLUDED.function_id,
-              snapshot_id = EXCLUDED.snapshot_id,
+            onConflict: `ON CONFLICT (function_id, snapshot_id, position) DO UPDATE SET
               name = EXCLUDED.name,
               type = EXCLUDED.type,
               type_simple = EXCLUDED.type_simple,
-              position = EXCLUDED.position,
               is_optional = EXCLUDED.is_optional,
               is_rest = EXCLUDED.is_rest,
               default_value = EXCLUDED.default_value,
@@ -643,7 +640,7 @@ export class FunctionOperations implements StorageOperationModule {
               is_static = EXCLUDED.is_static,
               access_modifier = EXCLUDED.access_modifier,
               source_code = EXCLUDED.source_code,
-              source_file_id = EXCLUDED.source_file_id`
+              source_file_ref_id = EXCLUDED.source_file_ref_id`
           };
         default:
           return { idempotent: true };
