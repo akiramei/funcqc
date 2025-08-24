@@ -103,7 +103,8 @@ export class BackupManager {
       const tableStats = await this.exportTables(
         schemaAnalysis.tableOrder,
         dataDir,
-        options.format || this.backupConfig.defaults.format
+        options.format || this.backupConfig.defaults.format,
+        options.compress
       );
 
       // Copy schema file
@@ -355,7 +356,8 @@ export class BackupManager {
   private async exportTables(
     tableOrder: string[],
     dataDir: string,
-    format: 'json' | 'sql' | 'avro'
+    format: 'json' | 'sql' | 'avro',
+    compress?: boolean
   ): Promise<Record<string, number>> {
     const tableStats: Record<string, number> = {};
 
@@ -373,7 +375,7 @@ export class BackupManager {
             tableName, 
             Array.isArray(data) ? data.map(row => row as Record<string, unknown>) : [],
             { 
-              compress: this.backupConfig.defaults.compress,
+              compress: compress ?? this.backupConfig.defaults.compress,
               validate: true,
               includeMetadata: true
             }

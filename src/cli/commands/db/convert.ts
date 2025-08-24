@@ -199,7 +199,7 @@ async function convertDataFiles(
         if (!avroSerializer) {
           throw new Error('Avro serializer not initialized');
         }
-        const avroBuffer = await avroSerializer.serializeTable(tableName, data);
+        const avroBuffer = await avroSerializer.serializeTable(tableName, data, { validate: false });
         await fs.writeFile(targetFile, avroBuffer);
       } else if (targetFormat === 'sql') {
         // This would need SQL generation

@@ -242,16 +242,14 @@ describe('Avro Integration Tests', () => {
       const backupManager2 = new BackupManager(testConfig, mockStorage);
       
       // We'll need to create the Avro file manually or use the serializer
-      const avroBuffer = Buffer.concat([
-        Buffer.from([0x46, 0x51, 0x41, 0x56]), // Magic bytes
-        Buffer.from([0x00, 0x00, 0x00, 0x20]), // Metadata length (32 bytes)
-        Buffer.from(JSON.stringify({
-          version: '1.0.0',
-          schemaHash: 'test',
-          metadata: { tableName: 'snapshots', rowCount: 1 }
-        }).padEnd(32)), // Metadata
-        Buffer.from('test-data') // Dummy data for this test
-      ]);
+      // Create proper Avro buffer using AvroSerializer
+      const { AvroSerializer } = await import('../../../../src/storage/backup/avro/avro-serializer');
+      const { AvroSchemaGenerator } = await import('../../../../src/storage/backup/avro/avro-schema-generator');
+      const serializer = new AvroSerializer(new AvroSchemaGenerator());
+      
+      // Create test data that matches snapshots table structure
+      const testData = [{ id: '1', created_at: new Date().toISOString(), label: 'test' }];
+      const avroBuffer = await serializer.serializeTable('snapshots', testData, { compress: false });
 
       await fs.writeFile(path.join(dataDir, 'snapshots.avro'), avroBuffer);
 

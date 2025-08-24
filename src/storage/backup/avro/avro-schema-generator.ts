@@ -97,7 +97,7 @@ export class AvroSchemaGenerator {
       type: 'record',
       name: this.toPascalCase(table.name),
       namespace: 'com.funcqc.backup',
-      fields: fields as any, // Cast to any due to complex avsc field type
+      fields: fields as unknown[], // Cast to unknown[] for avsc field compatibility
       doc: `Avro schema for ${table.name} table`,
     } as AvroSchema;
   }
@@ -123,7 +123,7 @@ export class AvroSchemaGenerator {
         // For Avro union types, defaults must match the first branch's type
         // Since our nullable fields are ["null", <type>], default must be null
         field['default'] = null;
-      } else {
+      } else if (defaultValue !== undefined) {
         field['default'] = defaultValue;
       }
     } else if (column.nullable) {
@@ -140,17 +140,21 @@ export class AvroSchemaGenerator {
     const cleanType = pgType.toLowerCase().split('(')[0].trim();
     
     switch (cleanType) {
-      case 'text':
-      case 'varchar':
-      case 'char':
-      case 'uuid':
-        return 'string';
-        
+      case 'smallint':
+      case 'int2':
+      case 'smallserial':
+      case 'serial2':
       case 'integer':
       case 'int':
       case 'int4':
       case 'serial':
         return 'int';
+        
+      case 'text':
+      case 'varchar':
+      case 'char':
+      case 'uuid':
+        return 'string';
         
       case 'bigint':
       case 'int8':
@@ -171,7 +175,21 @@ export class AvroSchemaGenerator {
         
       case 'timestamptz':
       case 'timestamp':
+      case 'timestamp with time zone':
+      case 'timestamp without time zone':
         return { type: 'long', logicalType: 'timestamp-micros' };
+        
+      case 'date':
+        return { type: 'int', logicalType: 'date' };
+        
+      case 'time':
+      case 'time without time zone':
+      case 'timetz':
+      case 'time with time zone':
+        return { type: 'long', logicalType: 'time-micros' };
+        
+      case 'bytea':
+        return 'bytes';
         
       case 'jsonb':
       case 'json':
@@ -199,7 +217,8 @@ export class AvroSchemaGenerator {
     
     // Handle common PostgreSQL functions
     if (normalized === 'current_timestamp' || normalized.startsWith('now()')) {
-      return Date.now() * 1000; // Avro timestamp-micros
+      // 非リテラルは Avro default にできないため default 未設定を示す
+      return undefined;
     }
     
     if (normalized === 'false') return false;

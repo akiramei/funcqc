@@ -43,6 +43,7 @@ export class AvroSerializer {
   private schemaGenerator: AvroSchemaGenerator;
   private _schemaVersioning: SchemaVersioning; // Reserved for future schema evolution features
   private compiledSchemas: Map<string, AvroType> = new Map();
+  private rawSchemas: Map<string, AvroSchema> = new Map();
   private _avro: AvscModule | null = null;
   
   // Magic bytes to identify our Avro format: "FQAV" (FuncQC AVro)
@@ -92,7 +93,7 @@ export class AvroSerializer {
       const transformedRows = this.transformRowsForAvro(rows, tableName);
       
       // Serialize data
-      const dataBuffer = await this.encodeRows(transformedRows, schema);
+      const dataBuffer = await this.encodeRows(transformedRows, schema, tableName);
       
       // Create complete serialized format
       const serializedData: SerializedData = {
@@ -143,16 +144,17 @@ export class AvroSerializer {
       );
 
       // Deserialize rows
-      const rows = await this.decodeRows(dataBuffer, schema);
+      const tableName = String(serializedData.metadata['tableName']);
+      const rows = await this.decodeRows(dataBuffer, schema, tableName);
       
       // Transform back from Avro format
-      const transformedRows = this.transformRowsFromAvro(rows, String(serializedData.metadata['tableName']));
+      const transformedRows = this.transformRowsFromAvro(rows, tableName);
 
       return {
-        tableName: String(serializedData.metadata['tableName']),
+        tableName: tableName,
         rows: transformedRows,
         rowCount: transformedRows.length,
-        schema: (schema as any).schema,
+        schema: (schema as unknown as { schema: AvroSchema }).schema,
       };
 
     } catch (error) {
@@ -186,6 +188,7 @@ export class AvroSerializer {
     const avro = await this.getAvro();
     const compiledSchema = avro.Type.forSchema(tableSchema);
     this.compiledSchemas.set(tableName, compiledSchema);
+    this.rawSchemas.set(tableName, tableSchema);
     
     return compiledSchema;
   }
@@ -257,7 +260,7 @@ export class AvroSerializer {
     for (const [key, value] of Object.entries(row)) {
       if (value === null) {
         transformed[key] = null;
-      } else if (key.includes('_at') && typeof value === 'number') {
+      } else if (this.isTimestampField(key) && typeof value === 'number') {
         // Convert timestamp-micros back to Date
         transformed[key] = new Date(value / 1000);
       } else if (this.isJsonField(key, tableName) && typeof value === 'string') {
@@ -276,24 +279,52 @@ export class AvroSerializer {
   }
 
   /**
-   * Check if field should be treated as JSON
+   * Check if field is a timestamp field (more specific than _at suffix)
    */
-  private isJsonField(fieldName: string, _tableName: string): boolean {
-    // Known JSONB fields from schema
-    const jsonFields = ['metadata', 'context_path', 'modifiers', 'parameters', 'tags'];
-    return jsonFields.includes(fieldName);
+  private isTimestampField(fieldName: string): boolean {
+    // Known timestamp fields from database schema
+    const timestampFields = [
+      'created_at', 'updated_at', 'deleted_at', 'analyzed_at', 
+      'exported_at', 'imported_at', 'processed_at', 'last_seen_at'
+    ];
+    return timestampFields.includes(fieldName) || 
+           (fieldName.endsWith('_at') && fieldName.length > 3);
+  }
+
+  /**
+   * Check if field should be treated as JSON (more comprehensive than hardcoded list)
+   */
+  private isJsonField(fieldName: string, tableName: string): boolean {
+    // Known JSONB fields from schema by table
+    const jsonFieldsByTable: Record<string, string[]> = {
+      'functions': ['metadata', 'parameters', 'modifiers', 'tags'],
+      'snapshots': ['metadata'],
+      'call_edges': ['context_path'],
+      'internal_call_edges': ['context_path'],
+      // Add other tables as needed
+    };
+    
+    const tableFields = jsonFieldsByTable[tableName] || [];
+    return tableFields.includes(fieldName) || 
+           fieldName === 'metadata' || // Common JSONB field
+           fieldName.includes('_json') || fieldName.includes('_data');
   }
 
   /**
    * Encode rows using Avro schema
    */
-  private async encodeRows(rows: Record<string, unknown>[], schema: AvroType): Promise<Buffer> {
+  private async encodeRows(
+    rows: Record<string, unknown>[], 
+    schema: AvroType, 
+    tableName?: string
+  ): Promise<Buffer> {
     try {
-      // Create array schema
+      // Create array schema, preferring the cached raw JSON schema
       const avro = await this.getAvro();
+      const itemsSchema = tableName ? this.rawSchemas.get(tableName) : undefined;
       const arraySchema = avro.Type.forSchema({
         type: 'array',
-        items: (schema as any).schema
+        items: itemsSchema ?? (schema as unknown as { getSchema?: () => AvroSchema }).getSchema?.() ?? 'string'
       });
       
       // Encode all rows as a single array
@@ -322,13 +353,14 @@ export class AvroSerializer {
   /**
    * Decode rows using Avro schema
    */
-  private async decodeRows(buffer: Buffer, schema: AvroType): Promise<Record<string, unknown>[]> {
+  private async decodeRows(buffer: Buffer, schema: AvroType, tableName?: string): Promise<Record<string, unknown>[]> {
     try {
       // Try to decode as array first
       const avro = await this.getAvro();
+      const itemsSchema = tableName ? this.rawSchemas.get(tableName) : undefined;
       const arraySchema = avro.Type.forSchema({
         type: 'array',
-        items: (schema as any).schema
+        items: itemsSchema ?? (schema as unknown as { getSchema?: () => AvroSchema }).getSchema?.() ?? 'string'
       });
       
       const result = arraySchema.fromBuffer(buffer);
