@@ -180,16 +180,17 @@ export class GracefulShutdown {
 
     // Wait for all transactions with a reasonable timeout
     const transactionTimeout = Math.min(this.shutdownTimeout - 5000, 25000);
-    try {
-      await Promise.race([
-        Promise.all(transactionPromises),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Transaction timeout')), transactionTimeout)
-        )
-      ]);
+    let timeoutId: NodeJS.Timeout | undefined;
+    const allDone = Promise.all(transactionPromises).then(() => 'done' as const);
+    const timedOut = new Promise<'timeout'>(resolve => {
+      timeoutId = setTimeout(() => resolve('timeout'), transactionTimeout);
+    });
+    const result = await Promise.race([allDone, timedOut]);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (result === 'done') {
       console.log('✅ All transactions completed');
-    } catch (error) {
-      console.log(`⚠️ Some transactions did not complete in time: ${error}`);
+    } else {
+      console.log('⚠️ Some transactions did not complete in time');
       // Continue with cleanup anyway
     }
   }
