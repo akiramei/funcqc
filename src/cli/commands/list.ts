@@ -106,13 +106,13 @@ function applyFilters(functions: FunctionInfo[], options: ListCommandOptions): F
 
   // Filter by file pattern
   if (options.file) {
-    const pattern = new RegExp(options.file.replace(/\*/g, '.*'), 'i');
+    const pattern = createSafeWildcardPattern(options.file);
     filtered = filtered.filter(f => pattern.test(f.filePath));
   }
 
   // Filter by function name pattern
   if (options.name) {
-    const pattern = new RegExp(options.name.replace(/\*/g, '.*'), 'i');
+    const pattern = createSafeWildcardPattern(options.name);
     filtered = filtered.filter(f => pattern.test(f.displayName));
   }
 
@@ -255,5 +255,26 @@ function truncateString(str: string, maxLength: number): string {
     return str;
   }
   return str.substring(0, maxLength - 3) + '...';
+}
+
+/**
+ * Create a safe wildcard pattern that prevents ReDoS attacks.
+ * 
+ * Only allows '*' as wildcard character, all other regex metacharacters are escaped.
+ * This prevents malicious users from injecting complex regex patterns that could
+ * cause exponential backtracking and DoS attacks.
+ * 
+ * @param input User input string that may contain wildcards
+ * @returns RegExp Safe compiled regular expression
+ */
+function createSafeWildcardPattern(input: string): RegExp {
+  // Escape all regex metacharacters except '*'
+  // This prevents regex injection attacks while preserving wildcard functionality
+  const escaped = input.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Convert '*' to '.*' for wildcard matching
+  const pattern = escaped.replace(/\*/g, '.*');
+  
+  return new RegExp(pattern, 'i');
 }
 
