@@ -39,8 +39,8 @@ describe('Function ID Generation System', () => {
   });
 
   afterAll(async () => {
-    // Restore mocks to avoid interfering with other tests
-    vi.doMock('@electric-sql/pglite');
+    // Avoid re-enabling a global mock that could affect subsequent test files
+    vi.unmock('@electric-sql/pglite'); // idempotent
     vi.resetModules();
   });
 
