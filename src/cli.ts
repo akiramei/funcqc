@@ -331,52 +331,6 @@ program
     return createUnifiedCommandHandler(SimilarCommand)(options, command);
   });
 
-// Add detect command for code quality issues
-program
-  .command('detect')
-  .description('Detect code quality issues and anti-patterns')
-  .argument('<subcommand>', 'detection type (ineffective-splits)')
-  .option('--json', 'output as JSON')
-  .option('--format <format>', 'output format (table, json)', 'table')
-  .option('--min-severity <level>', 'minimum severity level (High, Medium, Low)')
-  .option('--include-test', 'include test files in analysis')
-  .option('--include-boundaries', 'include boundary functions in analysis')
-  .option('--limit <num>', 'maximum findings to display')
-  .option('--threshold <value>', 'minimum score threshold (0-10)')
-  .option('--min-lines <num>', 'minimum lines of code to analyze (excludes tiny functions)')
-  .option('--score-mode <mode>', 'scoring strategy: sum (legacy) or prob (default)', 'prob')
-  .option('--r2-ast', 'enable AST-based R2 analysis (more precise but slower)')
-  .option('--snapshot <id>', 'analyze specific snapshot')
-  .action(async (_subcommand: string, options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedDetectCommand } = await import('./cli/commands/unified-detect');
-    return createUnifiedCommandHandler(UnifiedDetectCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  # Detect ineffective function splits
-  $ funcqc detect ineffective-splits
-  
-  # High severity only
-  $ funcqc detect ineffective-splits --min-severity High
-  
-  # Include test files
-  $ funcqc detect ineffective-splits --include-test
-  
-  # JSON output for processing
-  $ funcqc detect ineffective-splits --json
-  
-  # Limit results
-  $ funcqc detect ineffective-splits --limit 10
-
-Detection Types:
-  ineffective-splits    Functions that were split but add no value
-                       (thin wrappers, passthrough functions, etc.)
-
-The detect command helps identify code quality issues that automated
-refactoring tools (including AI) might introduce, such as unnecessary
-function splits that don't improve maintainability or reusability.
-`);
 
 // Add real-time code quality evaluation command (Phase 5)
 program
@@ -424,32 +378,36 @@ AI Integration:
 program
   .command('experimental')
   .description('🧪 Experimental and low-frequency commands')
-  .argument('[subcommand]', 'subcommand to execute')
-  .argument('[options...]', 'subcommand options')
-  .action(async (subcommand, options, command) => {
+  .allowUnknownOption()
+  .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { ExperimentalCommand } = await import('./cli/commands/experimental');
-    const handler = createUnifiedCommandHandler(ExperimentalCommand);
-    
-    // Convert arguments to options format
-    const commandOptions = { ...command.opts(), subcommand, options };
-    await handler(commandOptions, command);
+    return createUnifiedCommandHandler(ExperimentalCommand)(options, command);
   })
   .addHelpText('after', `
 Available subcommands:
   evaluate          Function naming quality evaluation
   residue-check     Detect debug code residue in TypeScript projects
-  extract-vo        Extract Value Objects from property clusters
-  canonicalize      Consolidate duplicate DTO types
-  discriminate      Transform types into discriminated unions
+  describe          Add or manage function descriptions (AI features pending)
+  search            Search functions by description keywords (AI features pending)
+  detect            Detect code quality issues and anti-patterns
+  extract-vo        Extract Value Objects from property clusters to improve encapsulation
+  canonicalize      Analyze and consolidate duplicate DTO types into canonical forms
+  discriminate      Analyze and transform types into discriminated unions
   du               Discriminated Union incremental transformation toolkit
-  type-replace     Safe type replacements with compatibility checking
+  type-replace     Analyze and execute safe type replacements with compatibility checking
 
 Examples:
   funcqc experimental evaluate
   funcqc experimental residue-check --auto-remove
+  funcqc experimental describe --text "Helper function"
+  funcqc experimental search "validation"
+  funcqc experimental detect ineffective-splits
   funcqc experimental extract-vo
+  funcqc experimental canonicalize
+  funcqc experimental discriminate
   funcqc experimental du --help
+  funcqc experimental type-replace --from OldType --to NewType
 
 Use 'funcqc experimental <subcommand> --help' for detailed help on each subcommand.
 `);

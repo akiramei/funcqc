@@ -35,6 +35,8 @@ export class ExperimentalCommand implements Command {
       case 'describe':
       case 'search':
         return ['BASIC']; // Need function analysis for descriptions and search
+      case 'detect':
+        return ['BASIC']; // Need function analysis for code quality detection
       case 'extract-vo':
       case 'canonicalize':
       case 'discriminate':
@@ -70,6 +72,9 @@ export class ExperimentalCommand implements Command {
         break;
       case 'search':
         await this.executeSearch(env, subArgs);
+        break;
+      case 'detect':
+        await this.executeDetect(env, subArgs);
         break;
       case 'extract-vo':
         await this.executeExtractVo(env, subArgs);
@@ -107,6 +112,7 @@ Available subcommands:
   residue-check     Detect debug code residue in TypeScript projects
   describe          Add or manage function descriptions (AI features pending)
   search            Search functions by description keywords (AI features pending)
+  detect            Detect code quality issues and anti-patterns
   extract-vo        Extract Value Objects from property clusters to improve encapsulation
   canonicalize      Analyze and consolidate duplicate DTO types into canonical forms
   discriminate      Analyze and transform types into discriminated unions
@@ -118,6 +124,7 @@ Examples:
   funcqc experimental residue-check --auto-remove
   funcqc experimental describe --text "Helper function"
   funcqc experimental search "validation"
+  funcqc experimental detect ineffective-splits
   funcqc experimental extract-vo
   funcqc experimental canonicalize
   funcqc experimental discriminate
@@ -211,6 +218,17 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
     const { UnifiedSearchCommand } = await import('./unified-search');
     const handler = createUnifiedCommandHandler(UnifiedSearchCommand);
     await handler(options, { opts: () => ({}) });
+  }
+
+  /**
+   * Execute detect subcommand
+   */
+  private async executeDetect(_env: CommandEnvironment, args: string[]): Promise<void> {
+    const options = this.parseDetectOptions(args);
+    const { withEnvironment } = await import('../cli-wrapper');
+    const { detectCommand } = await import('./detect');
+    const subcommand = args.length > 0 && !args[0].startsWith('--') ? args[0] : '';
+    await withEnvironment(detectCommand(subcommand))(options);
   }
 
   /**
@@ -372,6 +390,30 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
           break;
         case '--help':
           console.log('Usage: funcqc experimental search <keyword> [options]\n\nSearch functions by description keywords\n\nOptions:\n  --format <type>         Output format (table|json|friendly)\n  --limit <num>           Limit number of results\n  --json                  Output as JSON\n  --semantic              Use semantic search');
+          process.exit(0);
+      }
+    }
+    return options;
+  }
+
+  /**
+   * Parse detect options from command line arguments
+   */
+  private parseDetectOptions(args: string[]): any {
+    const options: any = {};
+    for (let i = 0; i < args.length; i++) {
+      switch (args[i]) {
+        case '--json':
+          options.json = true;
+          break;
+        case '--quiet':
+          options.quiet = true;
+          break;
+        case '--verbose':
+          options.verbose = true;
+          break;
+        case '--help':
+          console.log('Usage: funcqc experimental detect <subcommand> [options]\\n\\nDetect code quality issues and anti-patterns\\n\\nSubcommands:\\n  ineffective-splits    Detect ineffective function splits\\n\\nOptions:\\n  --json                Output as JSON\\n  --quiet               Suppress non-essential output\\n  --verbose             Enable verbose output');
           process.exit(0);
       }
     }
