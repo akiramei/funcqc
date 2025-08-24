@@ -260,6 +260,12 @@ export class GracefulShutdown {
       console.error('❌ Error during force shutdown:', error);
     }
 
+    // Don't exit during tests - let the test runner handle process lifecycle
+    if (this.isTestEnvironment()) {
+      console.log('🧪 Test environment detected: Skipping process.exit()');
+      return;
+    }
+
     process.exit(1);
   }
 
@@ -269,6 +275,12 @@ export class GracefulShutdown {
     if (this.activeTransactions.size > 0) {
       console.log(`💥 Emergency: ${this.activeTransactions.size} transaction(s) terminated unexpectedly`);
       console.log('⚠️ Database may be in inconsistent state - check transaction logs');
+    }
+
+    // Don't exit during tests - let the test runner handle process lifecycle
+    if (this.isTestEnvironment()) {
+      console.log('🧪 Test environment detected: Skipping process.exit()');
+      return;
     }
 
     process.exit(1);
@@ -291,5 +303,15 @@ export class GracefulShutdown {
       cleanupHandlers: this.cleanupHandlers.size,
       storageConnections: this.storageConnections.size
     };
+  }
+
+  /**
+   * Check if running in test environment
+   */
+  private isTestEnvironment(): boolean {
+    return process.env['NODE_ENV'] === 'test' || 
+           process.env['VITEST'] === 'true' ||
+           !!process.env['JEST_WORKER_ID'] ||
+           typeof (globalThis as unknown as { __vitest_runner__?: unknown }).__vitest_runner__ !== 'undefined';
   }
 }

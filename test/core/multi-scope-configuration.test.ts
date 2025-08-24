@@ -18,19 +18,43 @@ describe('Multi-Scope Configuration', () => {
   let configManager: ConfigManager;
   let mockCosmiconfigSearch: ReturnType<typeof vi.fn>;
 
-  beforeEach(async () => {
-    const { cosmiconfigSync } = vi.mocked(await import('cosmiconfig'));
-    mockCosmiconfigSearch = vi.fn();
-    cosmiconfigSync.mockReturnValue({
-      search: mockCosmiconfigSearch,
-      clearCaches: vi.fn(),
-    });
+  // Cleanup after all tests complete to prevent cross-file interference
+  afterAll(async () => {
+    vi.clearAllMocks();
+    vi.resetModules();
+    
+    // Small delay to ensure cleanup completes before other tests
+    await new Promise(resolve => setTimeout(resolve, 5));
+  });
 
+  beforeEach(async () => {
+    // Clear mock calls but preserve structure for performance
+    vi.clearAllMocks();
+    
+    // Get the mocked cosmiconfig (should already be mocked from top-level)
+    const { cosmiconfigSync } = vi.mocked(await import('cosmiconfig'));
+    
+    // Create fresh mock functions
+    mockCosmiconfigSearch = vi.fn();
+    const mockClearCaches = vi.fn();
+    
+    // Reset the mock implementation for clean state
+    cosmiconfigSync.mockImplementation(() => ({
+      search: mockCosmiconfigSearch,
+      clearCaches: mockClearCaches,
+    }));
+    
+    // Create new ConfigManager instance and clear any cached state
     configManager = new ConfigManager();
+    configManager.clearCache(); // This should clear static caches too
   });
 
   afterEach(() => {
-    configManager.clearCache();
+    if (configManager) {
+      configManager.clearCache();
+    }
+    
+    // Only clear mock calls, not the mocks themselves
     vi.clearAllMocks();
   });
 

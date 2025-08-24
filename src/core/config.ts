@@ -243,8 +243,8 @@ export class ConfigManager {
           };
         }
       }
-    } else if (userConfig.roots || userConfig.exclude || userConfig.include) {
-      // User provided legacy configuration but no scopes - remove default scopes to enable fallback
+    } else if (!userConfig.scopes && (userConfig.roots || userConfig.exclude || userConfig.include)) {
+      // User provided legacy configuration but NO scopes - remove default scopes to enable fallback
       delete config.scopes;
     }
     // Otherwise, keep default scopes for backward compatibility

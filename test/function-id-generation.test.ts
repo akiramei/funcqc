@@ -6,13 +6,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// This test needs real PGLite, so we clear any mocks
-vi.unmock('@electric-sql/pglite');
-
 describe('Function ID Generation System', () => {
   let tempDir: string;
   let analyzer: TypeScriptAnalyzer;
   let storage: PGLiteStorageAdapter;
+
+  beforeAll(() => {
+    // This test needs real PGLite, so we clear any mocks
+    vi.unmock('@electric-sql/pglite');
+  });
 
   beforeEach(async () => {
     tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'funcqc-test-'));
@@ -34,6 +36,12 @@ describe('Function ID Generation System', () => {
     }
     // Clean up temporary directory including database files
     await fs.promises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  afterAll(async () => {
+    // Restore mocks to avoid interfering with other tests
+    vi.doMock('@electric-sql/pglite');
+    vi.resetModules();
   });
 
   it('should generate unique physical UUIDs for each function', async () => {
