@@ -388,24 +388,156 @@ export class DependencyManager {
   
   /**
    * 初期スナップショットを作成
-   * scan commandの初期化部分を利用
+   * 他の依存関係初期化メソッドと同じパターンで実装
+   * scan.tsから必要最小限の機能のみを使用
    */
-  private async createInitialSnapshot(env: CommandEnvironment, _options: BaseCommandOptions): Promise<void> {
-    const { scanCommand } = await import('../cli/commands/scan');
-    
-    // 基本的なスキャンオプションを作成
-    const scanOptions = {
-      json: false,
-      // 内部呼び出しのため出力は抑制（DEPRECATED 警告などのノイズ回避）
-      verbose: false,
-      quiet: true,
-      force: false,
-      // 初期スナップショット作成では基本的なスキャンのみ実行
-      quick: true  // 最小限のスキャンで済ませる
+  private async createInitialSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
+    if (!options.quiet) {
+      env.commandLogger.info('📸 Creating initial snapshot...');
+    }
+
+    try {
+      // 1. ファイル発見とソースファイル収集（scan.tsから抽出）
+      const { determineScanPaths, discoverFiles, collectSourceFiles, saveSourceFiles } = await this.importSnapshotUtils();
+      
+      const scanPaths = await determineScanPaths(env.config, undefined);
+      const files = await discoverFiles(scanPaths, env.config);
+      
+      if (files.length === 0) {
+        throw new Error('No TypeScript files found for snapshot creation');
+      }
+
+      const sourceFiles = await collectSourceFiles(files);
+
+      // 2. コンフィグハッシュ生成
+      const configHash = await this.generateConfigHash(env);
+
+      // 3. スナップショット保存
+      await saveSourceFiles(sourceFiles, env.storage, {
+        comment: 'Initial snapshot created by dependency manager',
+        scope: 'src',
+        configHash,
+      });
+
+      if (!options.quiet) {
+        env.commandLogger.info(`✓ Initial snapshot created (${files.length} files processed)`);
+      }
+
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create initial snapshot: ${message}`);
+    }
+  }
+
+  /**
+   * スナップショット作成に必要な関数をscan.tsから動的インポート
+   */
+  private async importSnapshotUtils() {
+    const { globby } = await import('globby');
+    const crypto = await import('crypto');
+    const fs = await import('fs/promises');
+    const path = await import('path');
+
+    // scan.tsから必要な関数を抽出（簡略版）
+    const determineScanPaths = async (config: Record<string, unknown>, scopeName?: string): Promise<string[]> => {
+      const { ConfigManager } = await import('./config');
+      const configManager = new ConfigManager();
+      await configManager.load();
+      
+      const actualScopeName = scopeName || config.defaultScope || 'src';
+      
+      if (config.scopes && config.scopes[actualScopeName]) {
+        const scope = config.scopes[actualScopeName];
+        return scope.include || ['src/**/*.ts', 'src/**/*.tsx'];
+      }
+      
+      return ['src/**/*.ts', 'src/**/*.tsx'];
     };
-    
-    // scanCommandを実行してスナップショットを作成
-    await scanCommand(scanOptions)(env);
+
+    const discoverFiles = async (scanPaths: string[], config: Record<string, unknown>): Promise<string[]> => {
+      const globOptions = {
+        ignore: config.exclude as string[] || ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
+        absolute: true,
+        onlyFiles: true,
+      };
+
+      return await globby(scanPaths, globOptions);
+    };
+
+    const collectSourceFiles = async (files: string[]): Promise<Array<Record<string, unknown>>> => {
+      const sourceFiles: Array<Record<string, unknown>> = [];
+      const exportRegex = /^export\s+/gm;
+      const importRegex = /^import\s+/gm;
+      
+      for (const filePath of files) {
+        try {
+          const [fileContent, fileStats] = await Promise.all([
+            fs.readFile(filePath, 'utf-8'),
+            fs.stat(filePath)
+          ]);
+          
+          const relativePath = path.relative(process.cwd(), filePath);
+          const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+          const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
+          const lineCount = fileContent.split('\n').length;
+          const language = path.extname(filePath).slice(1) || 'typescript';
+          const exportCount = (fileContent.match(exportRegex) || []).length;
+          const importCount = (fileContent.match(importRegex) || []).length;
+          
+          sourceFiles.push({
+            id: '', // 後で設定される
+            snapshotId: '', // 後で設定される
+            filePath: relativePath,
+            fileContent: fileContent,
+            fileHash: fileHash,
+            encoding: 'utf-8',
+            fileSizeBytes: fileSizeBytes,
+            lineCount: lineCount,
+            language: language,
+            functionCount: 0, // 後で分析時に設定
+            exportCount: exportCount,
+            importCount: importCount,
+            fileModifiedTime: fileStats.mtime,
+            createdAt: new Date(),
+          });
+        } catch (error) {
+          console.warn(`Warning: Failed to process ${filePath}: ${error}`);
+        }
+      }
+      
+      return sourceFiles;
+    };
+
+    const saveSourceFiles = async (sourceFiles: Array<Record<string, unknown>>, storage: unknown, options: Record<string, unknown>): Promise<string> => {
+      const createSnapshotOptions = {
+        comment: options.comment || 'Initial snapshot created by dependency manager',
+        analysisLevel: 'NONE',
+        scope: options.scope || 'src',
+        configHash: options.configHash,
+      };
+      
+      const snapshotId = await storage.createSnapshot(createSnapshotOptions);
+      
+      // snapshotIdを設定
+      const fullSourceFiles = sourceFiles.map(file => ({
+        ...file,
+        snapshotId: snapshotId,
+      }));
+      
+      await storage.saveSourceFiles(fullSourceFiles, snapshotId);
+      return snapshotId;
+    };
+
+    return { determineScanPaths, discoverFiles, collectSourceFiles, saveSourceFiles };
+  }
+
+  /**
+   * コンフィグハッシュ生成
+   */
+  private async generateConfigHash(env: CommandEnvironment): Promise<string> {
+    const crypto = await import('crypto');
+    const configString = JSON.stringify(env.config);
+    return crypto.createHash('sha256').update(configString).digest('hex').slice(0, 16);
   }
   
   private async initializeBasicAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {

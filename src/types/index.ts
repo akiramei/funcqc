@@ -1522,67 +1522,6 @@ export interface DependenciesCommandOptions extends CommandOptions {
   sortByImportance?: boolean; // Sort by importance
 }
 
-export interface RefactorCommandOptions extends CommandOptions {
-  action?: 'guard' | 'extract-vo' | 'discriminate' | 'canonicalize' | 'type-replace' | 'overview'; // Refactoring action (default: overview)
-  
-  // Common options across all refactor actions
-  snapshot?: string; // Snapshot ID for analysis
-  json?: boolean; // JSON output for script processing
-  format?: 'table' | 'json' | 'markdown'; // Output format
-  verbose?: boolean; // Detailed output
-  dryRun?: boolean; // Preview changes without applying them
-  output?: string; // Output file path
-  
-  // Refactor Guard action options
-  type?: string; // Target type name for guard analysis
-  operation?: 'replace' | 'merge' | 'split' | 'extract' | 'inline'; // Refactoring operation
-  includeTests?: boolean; // Include test templates
-  includeBehavioral?: boolean; // Include behavioral checks
-  includeCochange?: boolean; // Include co-change analysis
-  riskThreshold?: 'low' | 'medium' | 'high'; // Risk assessment threshold
-  prTemplate?: boolean; // Generate PR template
-  
-  // Extract Value Objects action options
-  minSupport?: number; // Minimum support for patterns
-  minConfidence?: number; // Minimum confidence threshold
-  minCohesion?: number; // Minimum cohesion score
-  includeComputed?: boolean; // Include computed methods
-  generateConstructors?: boolean; // Generate smart constructors
-  inferInvariants?: boolean; // Try to infer business rules
-  preserveOriginal?: boolean; // Keep original types during transition
-  outputCode?: string; // Directory to output generated VO code
-  maxCandidates?: number; // Maximum number of VO candidates
-  showOpportunities?: boolean; // Show extraction opportunities
-  showGenerated?: boolean; // Show generated code samples
-  domainFilter?: string; // Filter by domain context
-  complexityFilter?: 'low' | 'medium' | 'high'; // Filter by extraction complexity
-  
-  // Discriminate action options (discriminated unions)
-  targetTypes?: string; // Comma-separated list of specific types to analyze
-  minCoverage?: string; // Minimum coverage threshold (0-1)
-  maxCases?: string; // Maximum union cases per type
-  includeBooleans?: boolean; // Include boolean discriminants
-  includeEnums?: boolean; // Include enum discriminants
-  allowBreaking?: boolean; // Allow breaking changes during transformation
-  transform?: boolean; // Apply transformations automatically
-  
-  // Canonicalize action options (DTO canonicalization)
-  canonicalizeBehavioral?: boolean; // Include behavioral analysis for canonicalization
-  generateCodemod?: boolean; // Generate codemod actions
-  requireMinimalImpact?: boolean; // Only suggest low-impact changes
-  preserveOptionality?: boolean; // Preserve optional property differences
-  showArtifacts?: boolean; // Show generated artifacts
-  
-  // Type Replace action options
-  from?: string; // Source type name
-  to?: string; // Target type name
-  checkOnly?: boolean; // Only perform compatibility check
-  migrationPlan?: boolean; // Generate migration plan
-  tsConfig?: string; // Path to TypeScript config
-  allowUnsafe?: boolean; // Allow unsafe replacements with warnings
-  teamSize?: number; // Team size for migration planning
-  riskTolerance?: 'conservative' | 'moderate' | 'aggressive'; // Risk tolerance level
-}
 
 
 export interface RiskDistribution {

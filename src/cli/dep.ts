@@ -4,6 +4,7 @@ export { depShowCommand } from './dep/show';
 export { depStatsCommand } from './dep/stats';
 export { depLintCommand } from './dep/lint';
 export { depDeadCommand } from './dep/dead';
+export { depSafeDeleteCommand } from './dep/safe-delete';
 export { depCyclesCommand } from './dep/cycles';
 
 // Re-export shared types

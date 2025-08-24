@@ -524,7 +524,7 @@ dbCommand.command('convert')
 
 // Dep command - Function dependency analysis (DEPRECATED)
 program
-  .command('dep')
+  .command('dep [command]')
   .description('Function dependency analysis')
   .action(() => {
     console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `dep` command will be removed in v2.0'));
@@ -565,10 +565,10 @@ depCommand.command('list')
   .option('--desc', 'sort in descending order')
   .option('--json', 'output as JSON')
   .option('--snapshot <id>', 'use specific snapshot (default: latest)')
-  .action(async (options: OptionValues) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { depListCommand } = await import('./cli/dep');
-    return withEnvironment(depListCommand)(options);
+  .action(async (options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { DepListCommand } = await import('./cli/commands/dep-list-command');
+    return createUnifiedCommandHandler(DepListCommand)(options, command);
   });
 
 depCommand.command('show')
@@ -640,10 +640,10 @@ depCommand.command('dead')
   .option('--layer-entry-points <layers>', 'treat functions in specified layers as entry points (comma-separated)')
   .option('--verbose', 'show verbose output')
   .option('--snapshot <id>', 'analyze specific snapshot')
-  .action(async (options: OptionValues) => {
-    const { withEnvironment } = await import('./cli/cli-wrapper');
-    const { depDeadCommand } = await import('./cli/dep');
-    return withEnvironment(depDeadCommand)(options);
+  .action(async (options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { DepDeadCommand } = await import('./cli/commands/dep-dead-command');
+    return createUnifiedCommandHandler(DepDeadCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -675,6 +675,66 @@ Layer Entry Points:
   When --layer-entry-points is specified, functions in those layers (as defined
   in .funcqc-arch.yaml) are treated as entry points. This is useful for analyzing
   dead code in modular architectures where certain layers serve as public APIs.`);
+
+depCommand.command('delete')
+  .description('🛡️  Safely delete dead code (combines detection + deletion)')
+  .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
+  .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
+  .option('--no-tests', 'skip test execution before deletion')
+  .option('--no-type-check', 'skip TypeScript type checking')
+  .option('--no-backup', 'skip backup creation (faster but less safe)')
+  .option('--execute', 'execute actual deletion (default: preview only)')
+  .option('--force', 'force deletion without confirmation prompts')
+  .option('--dry-run', 'show what would be deleted without making changes')
+  .option('--include-exports', 'include exported functions in analysis')
+  .option('--exclude <patterns>', 'comma-separated patterns to exclude')
+  .option('--format <format>', 'output format (table, json)', 'table')
+  .option('--verbose', 'show detailed analysis information')
+  .option('--restore <path>', 'restore functions from backup directory')
+  .option('--exclude-tests', 'exclude test functions from analysis')
+  .option('--exclude-exports', 'exclude exported functions from entry points')
+  .option('--min-confidence <num>', 'minimum confidence score for dead code detection', '0.8')
+  .option('--layer-entry-points <layers>', 'use layer functions as entry points (comma-separated)')
+  .option('--snapshot <id>', 'analyze specific snapshot')
+  .action(async (options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { DepDeleteCommand } = await import('./cli/commands/dep-delete-command');
+    return createUnifiedCommandHandler(DepDeleteCommand)(options, command);
+  })
+  .addHelpText('after', `
+Examples:
+  # Analyze candidates for safe deletion (default - preview only)
+  $ funcqc dep delete
+
+  # Execute actual deletion with interactive confirmation
+  $ funcqc dep delete --execute
+
+  # Force deletion without confirmation (dangerous!)
+  $ funcqc dep delete --execute --force
+
+  # Analysis with high confidence threshold
+  $ funcqc dep delete --confidence-threshold 0.98
+
+  # Execute deletion without backup (faster but less safe)
+  $ funcqc dep delete --execute --no-backup
+
+  # Execute deletion in smaller batches for safety
+  $ funcqc dep delete --execute --max-batch 5
+
+  # Include exported functions in analysis
+  $ funcqc dep delete --include-exports
+
+  # Exclude specific patterns
+  $ funcqc dep delete --exclude "**/*.test.ts,**/fixtures/**"
+
+  # Restore from backup
+  $ funcqc dep delete --restore ".funcqc/backups/safe-deletion-2024-01-15T10-30-00-000Z"
+
+Note: By default, 'dep delete' only analyzes and previews candidates.
+Use --execute to perform actual deletion with confirmation prompts.
+Use --force to skip confirmation (not recommended).
+This command combines 'dep dead' detection with safe deletion functionality.
+`);
 
 depCommand.command('cycles')
   .description('Detect and analyze circular dependencies with importance classification')
@@ -732,84 +792,21 @@ for backward compatibility with the legacy analyzer.
 `);
 
 
-// Safe deletion command using high-confidence call graph analysis
-program
-  .command('safe-delete')
-  .description('🛡️  Safely analyze and delete dead code')
-  .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
-  .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
-  .option('--no-tests', 'skip test execution before deletion')
-  .option('--no-type-check', 'skip TypeScript type checking')
-  .option('--no-backup', 'skip backup creation')
-  .option('--execute', 'execute actual deletion (default is analysis/preview only)')
-  .option('--force', 'force deletion without interactive confirmation')
-  .option('--dry-run', 'preview what would be deleted (same as default behavior)')
-  .option('--include-exports', 'include exported functions in deletion candidates')
-  .option('--exclude <patterns>', 'exclude file patterns (comma-separated)')
-  .option('--format <format>', 'output format (table, json)', 'table')
-  .option('--verbose', 'show detailed analysis information')
-  .option('--restore <path>', 'restore functions from backup directory')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { SafeDeleteCommand } = await import('./cli/commands/safe-delete-command');
-    return createUnifiedCommandHandler(SafeDeleteCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  # Analyze candidates for safe deletion (default - preview only)
-  $ funcqc safe-delete
-
-  # Execute actual deletion with interactive confirmation
-  $ funcqc safe-delete --execute
-
-  # Force deletion without confirmation (dangerous!)
-  $ funcqc safe-delete --execute --force
-
-  # Analysis with high confidence threshold
-  $ funcqc safe-delete --confidence-threshold 0.98
-
-  # Execute deletion without backup (faster but less safe)
-  $ funcqc safe-delete --execute --no-backup
-
-  # Execute deletion in smaller batches for safety
-  $ funcqc safe-delete --execute --max-batch 5
-
-  # Include exported functions in analysis
-  $ funcqc safe-delete --include-exports
-
-  # Exclude specific patterns
-  $ funcqc safe-delete --exclude "**/*.test.ts,**/fixtures/**"
-
-  # Restore from backup
-  $ funcqc safe-delete --restore ".funcqc/backups/safe-deletion-2024-01-15T10-30-00-000Z"
-
-Note: By default, safe-delete only analyzes and previews candidates.
-Use --execute to perform actual deletion with confirmation prompts.
-Use --force to skip confirmation (not recommended).
-`);
 
 // Debug residue detection command
 
 
-// TypeScript type analysis commands
-import { createTypesCommand } from './cli/commands/types';
-const typesCommand = createTypesCommand();
-program.addCommand(typesCommand);
-
+// TypeScript type analysis commands with Command Protocol
 program
-  .command('refactor-guard')
-  .description('🛡️  Analyze refactoring safety and generate guardrails')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `refactor-guard` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
-    console.log('');
-    console.log('  funcqc refactor --action guard --type "TypeName"      # was: funcqc refactor-guard --type TypeName');
-    console.log('  funcqc refactor --action guard --operation split      # was: funcqc refactor-guard --operation split');
-    console.log('  funcqc refactor --action guard --include-cochange     # was: funcqc refactor-guard --include-cochange');
-    console.log('');
-    console.log('See: funcqc refactor --help');
-    process.exit(0);
+  .command('types [command]')
+  .description('🧩 TypeScript type analysis (database-driven)')
+  .addHelpText('before', '💾 Uses pre-analyzed type data from database')
+  .action(async (options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { TypesCommand } = await import('./cli/commands/types-command');
+    return createUnifiedCommandHandler(TypesCommand)(options, command);
   });
+
 
 
 
