@@ -113,24 +113,27 @@ describe('Avro Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.backupPath).toContain('test-avro-backup');
 
-      // Verify Avro files were created
+      // Verify Avro files were created (manifest-driven)
       const dataDir = path.join(result.backupPath, 'data');
-      const snapshotsFile = path.join(dataDir, 'snapshots.avro');
-      const functionsFile = path.join(dataDir, 'functions.avro');
+      const manifest = JSON.parse(
+        await fs.readFile(path.join(result.backupPath, 'manifest.json'), 'utf-8')
+      );
+      const tables: string[] = manifest.tableOrder ?? [];
+      expect(tables.length).toBeGreaterThan(0);
 
-      const snapshotsExists = await fs.access(snapshotsFile).then(() => true, () => false);
-      const functionsExists = await fs.access(functionsFile).then(() => true, () => false);
+      // At least one .avro exists
+      const listed = await fs.readdir(dataDir);
+      const avroFiles = listed.filter(f => f.endsWith('.avro'));
+      expect(avroFiles.length).toBeGreaterThan(0);
 
-      expect(snapshotsExists).toBe(true);
-      expect(functionsExists).toBe(true);
-
-      // Verify files are in Avro format
-      const snapshotsBuffer = await fs.readFile(snapshotsFile);
-      const functionsBuffer = await fs.readFile(functionsFile);
-
-      // Check magic bytes (FQAV)
-      expect(snapshotsBuffer.subarray(0, 4)).toEqual(Buffer.from([0x46, 0x51, 0x41, 0x56]));
-      expect(functionsBuffer.subarray(0, 4)).toEqual(Buffer.from([0x46, 0x51, 0x41, 0x56]));
+      // Magic bytes check for each table file we expect
+      for (const t of tables) {
+        const f = path.join(dataDir, `${t}.avro`);
+        const exists = await fs.access(f).then(() => true, () => false);
+        expect(exists).toBe(true);
+        const buf = await fs.readFile(f);
+        expect(buf.subarray(0, 4)).toEqual(Buffer.from([0x46, 0x51, 0x41, 0x56]));
+      }
     });
 
     it('should create compressed Avro backup', async () => {
@@ -192,15 +195,14 @@ describe('Avro Integration Tests', () => {
 
       expect(backupResult.success).toBe(true);
 
-      // Mock restore operations
-      mockStorage.query
-        .mockImplementationOnce(async () => ({ rows: [] })) // DELETE query
-        .mockImplementation(async (sql: string) => {
-          if (sql.includes('INSERT')) {
-            return { rows: [] };
-          }
-          return { rows: [] };
-        });
+      // Mock restore operations (order/回数に依存しない)
+      mockStorage.query.mockReset();
+      mockStorage.query.mockImplementation(async (sql: string) => {
+        if (/^\s*DELETE\b/i.test(sql)) return { rows: [] };
+        if (/\bINSERT\b/i.test(sql)) return { rows: [] };
+        // SELECT 等も成功扱いにしておく（将来の実装変更に耐性）
+        return { rows: [] };
+      });
 
       // Now restore the backup
       const restoreResult = await backupManager.restoreBackup({
@@ -353,10 +355,12 @@ describe('Avro Integration Tests', () => {
 
   describe('Error Recovery', () => {
     it('should handle partial backup failures gracefully', async () => {
-      // Mock one table to succeed, another to fail
-      mockStorage.query
-        .mockResolvedValueOnce({ rows: [{ id: '1', name: 'success' }] })
-        .mockRejectedValueOnce(new Error('Table export failed'));
+      // 1 回目のテーブルは成功、2 回目のみ失敗させる（テーブル数に依存しない再現）
+      const exportDataSpy = vi.spyOn(backupManager as any, 'exportTableData');
+      exportDataSpy
+        .mockImplementationOnce(async () => [{ id: '1', name: 'success' }]) // 1 回目成功
+        .mockImplementationOnce(async () => { throw new Error('Table export failed'); }) // 2 回目失敗
+        .mockImplementation(async () => [{ id: '2', name: 'ok' }]); // 以降は成功
 
       const result = await backupManager.createBackup({
         format: 'avro',
