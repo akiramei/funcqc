@@ -119,10 +119,10 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
    * Execute evaluate subcommand
    */
   private async executeEvaluate(_env: CommandEnvironment, args: string[]): Promise<void> {
-    const options = this.parseEvaluateOptions(args);
-    const { evaluateCommand } = await import('./evaluate');
-    const evalFn = evaluateCommand(''); // Empty string for backward compatibility
-    await evalFn(options)(_env);
+    this.parseEvaluateOptions(args); // Parse to validate options
+    const { createEvaluateCommand } = await import('../evaluate-naming');
+    const evaluateCommand = createEvaluateCommand();
+    await evaluateCommand.parseAsync(['evaluate', ...args]);
   }
 
   /**
