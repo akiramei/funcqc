@@ -55,7 +55,7 @@ export class ShowCommand implements Command {
       // スナップショット数を確認
       const snapshots = await env.storage.getSnapshots({ sort: 'created_at', limit: 2 });
       return snapshots.length > 1;
-    } catch (error) {
+    } catch {
       return false;
     }
   }

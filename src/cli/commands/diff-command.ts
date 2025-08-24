@@ -14,11 +14,11 @@ interface DiffCommandOptions {
   function?: string;
   file?: string;
   metric?: string;
-  threshold?: string;
+  threshold?: number;
   json?: boolean;
   noChangeDetection?: boolean;
   insights?: boolean;
-  similarityThreshold?: string;
+  similarityThreshold?: number;
 }
 
 export class DiffCommand implements Command {
@@ -80,12 +80,18 @@ export class DiffCommand implements Command {
 
     const thresholdIndex = subCommand.indexOf('--threshold');
     if (thresholdIndex >= 0 && thresholdIndex < subCommand.length - 1) {
-      options.threshold = subCommand[thresholdIndex + 1] ?? '';
+      const thresholdValue = subCommand[thresholdIndex + 1];
+      if (thresholdValue) {
+        options.threshold = parseFloat(thresholdValue);
+      }
     }
 
     const similarityThresholdIndex = subCommand.indexOf('--similarity-threshold');
     if (similarityThresholdIndex >= 0 && similarityThresholdIndex < subCommand.length - 1) {
-      options.similarityThreshold = subCommand[similarityThresholdIndex + 1] ?? '';
+      const similarityValue = subCommand[similarityThresholdIndex + 1];
+      if (similarityValue) {
+        options.similarityThreshold = parseFloat(similarityValue);
+      }
     }
 
     return { from, to, options };

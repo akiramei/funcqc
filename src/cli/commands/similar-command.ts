@@ -16,7 +16,7 @@ interface SimilarCommandOptions {
   snapshot?: string;
   minLines?: string;
   noCrossFile?: boolean;
-  recall?: string;
+  recall?: 'guaranteed' | 'fast';
   detectors?: string;
   consensus?: string;
   output?: string;
@@ -76,7 +76,10 @@ export class SimilarCommand implements Command {
 
     const recallIndex = subCommand.indexOf('--recall');
     if (recallIndex >= 0 && recallIndex < subCommand.length - 1) {
-      options.recall = subCommand[recallIndex + 1] ?? '';
+      const recallValue = subCommand[recallIndex + 1];
+      if (recallValue === 'guaranteed' || recallValue === 'fast') {
+        options.recall = recallValue;
+      }
     }
 
     const detectorsIndex = subCommand.indexOf('--detectors');

@@ -6,7 +6,7 @@
 
 import { Command, DependencyType } from '../../types/command-protocol';
 import { CommandEnvironment } from '../../types/environment';
-import { safeDeleteCommand } from './safe-delete';
+import { safeDeleteCommand } from '../safe-delete';
 
 // SafeDelete command specific options type
 interface SafeDeleteCommandOptions {
@@ -19,8 +19,8 @@ interface SafeDeleteCommandOptions {
   force?: boolean;
   dryRun?: boolean;
   includeExports?: boolean;
-  exclude?: string;
-  format?: string;
+  exclude?: string[];
+  format?: 'table' | 'json';
   verbose?: boolean;
   restore?: string;
 }
@@ -78,12 +78,16 @@ export class SafeDeleteCommand implements Command {
 
     const excludeIndex = subCommand.indexOf('--exclude');
     if (excludeIndex >= 0 && excludeIndex < subCommand.length - 1) {
-      options.exclude = subCommand[excludeIndex + 1] ?? '';
+      const excludeValue = subCommand[excludeIndex + 1];
+      options.exclude = excludeValue ? excludeValue.split(',') : [];
     }
 
     const formatIndex = subCommand.indexOf('--format');
     if (formatIndex >= 0 && formatIndex < subCommand.length - 1) {
-      options.format = subCommand[formatIndex + 1] ?? '';
+      const formatValue = subCommand[formatIndex + 1];
+      if (formatValue === 'table' || formatValue === 'json') {
+        options.format = formatValue;
+      }
     }
 
     const restoreIndex = subCommand.indexOf('--restore');
