@@ -6,6 +6,7 @@
 
 import { Command, DependencyType } from '../../types/command-protocol';
 import { CommandEnvironment } from '../../types/environment';
+import { TypeDepsOptions } from './types.types';
 
 export class TypesCommand implements Command {
   /**
@@ -147,7 +148,7 @@ Use 'funcqc types <subcommand> --help' for detailed help on each subcommand.
     const typeName = args[0];
     const options = this.parseDepsOptions(args.slice(1));
     // Include typeName in options for compatibility
-    const optionsWithTypeName = { ...options, typeName };
+    const optionsWithTypeName = { ...options, typeName } as TypeDepsOptions;
     const depsCommand = executeTypesDepsDB(optionsWithTypeName);
     await depsCommand(env);
   }
@@ -302,7 +303,7 @@ Use 'funcqc types <subcommand> --help' for detailed help on each subcommand.
   private parseListOptions(args: string[]): Record<string, unknown> {
     const options: Record<string, unknown> = {};
     // Parse common options
-    if (args.includes('--json')) options.json = true;
+    if (args.includes('--json')) options['json'] = true;
     // Add more option parsing as needed
     return options;
   }

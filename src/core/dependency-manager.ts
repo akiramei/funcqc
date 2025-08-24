@@ -400,8 +400,8 @@ export class DependencyManager {
       // 1. ファイル発見とソースファイル収集（scan.tsから抽出）
       const { determineScanPaths, discoverFiles, collectSourceFiles, saveSourceFiles } = await this.importSnapshotUtils();
       
-      const scanPaths = await determineScanPaths(env.config, undefined);
-      const files = await discoverFiles(scanPaths, env.config);
+      const scanPaths = await determineScanPaths(env.config as unknown as Record<string, unknown>, undefined);
+      const files = await discoverFiles(scanPaths, env.config as unknown as Record<string, unknown>);
       
       if (files.length === 0) {
         throw new Error('No TypeScript files found for snapshot creation');
@@ -444,11 +444,11 @@ export class DependencyManager {
       const configManager = new ConfigManager();
       await configManager.load();
       
-      const actualScopeName = scopeName || config.defaultScope || 'src';
+      const actualScopeName = scopeName || config['defaultScope'] || 'src';
       
-      if (config.scopes && config.scopes[actualScopeName]) {
-        const scope = config.scopes[actualScopeName];
-        return scope.include || ['src/**/*.ts', 'src/**/*.tsx'];
+      if (config['scopes'] && (config['scopes'] as Record<string, unknown>)[actualScopeName as string]) {
+        const scope = (config['scopes'] as Record<string, unknown>)[actualScopeName as string];
+        return (scope as Record<string, unknown>).include || ['src/**/*.ts', 'src/**/*.tsx'];
       }
       
       return ['src/**/*.ts', 'src/**/*.tsx'];
@@ -456,7 +456,7 @@ export class DependencyManager {
 
     const discoverFiles = async (scanPaths: string[], config: Record<string, unknown>): Promise<string[]> => {
       const globOptions = {
-        ignore: config.exclude as string[] || ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
+        ignore: config['exclude'] as string[] || ['**/node_modules/**', '**/dist/**', '**/*.d.ts'],
         absolute: true,
         onlyFiles: true,
       };
@@ -510,13 +510,13 @@ export class DependencyManager {
 
     const saveSourceFiles = async (sourceFiles: Array<Record<string, unknown>>, storage: unknown, options: Record<string, unknown>): Promise<string> => {
       const createSnapshotOptions = {
-        comment: options.comment || 'Initial snapshot created by dependency manager',
+        comment: options['comment'] || 'Initial snapshot created by dependency manager',
         analysisLevel: 'NONE',
-        scope: options.scope || 'src',
-        configHash: options.configHash,
+        scope: options['scope'] || 'src',
+        configHash: options['configHash'],
       };
       
-      const snapshotId = await storage.createSnapshot(createSnapshotOptions);
+      const snapshotId = await (storage as Record<string, unknown>).createSnapshot(createSnapshotOptions);
       
       // snapshotIdを設定
       const fullSourceFiles = sourceFiles.map(file => ({
@@ -524,7 +524,7 @@ export class DependencyManager {
         snapshotId: snapshotId,
       }));
       
-      await storage.saveSourceFiles(fullSourceFiles, snapshotId);
+      await (storage as Record<string, unknown>).saveSourceFiles(fullSourceFiles, snapshotId);
       return snapshotId;
     };
 
