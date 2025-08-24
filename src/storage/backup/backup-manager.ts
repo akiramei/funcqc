@@ -7,6 +7,9 @@ import * as path from 'path';
 import { FuncqcConfig, BackupConfig, BackupManifest } from '../../types';
 import { SchemaAnalyzer, SchemaAnalysisResult } from './schema-analyzer';
 import { StorageAdapter } from '../../types';
+import { AvroSerializer } from './avro/avro-serializer';
+import { AvroSchemaGenerator } from './avro/avro-schema-generator';
+import { SchemaVersioning } from './avro/schema-versioning';
 
 // Extended interface for backup operations
 interface BackupStorageAdapter extends StorageAdapter {
@@ -18,7 +21,7 @@ export interface BackupOptions {
   outputDir?: string;
   includeSourceCode?: boolean;
   compress?: boolean;
-  format?: 'json' | 'sql';
+  format?: 'json' | 'sql' | 'avro';
   dryRun?: boolean;
 }
 
@@ -47,6 +50,9 @@ export class BackupManager {
   private backupConfig: BackupConfig;
   private schemaAnalyzer: SchemaAnalyzer;
   private storage: BackupStorageAdapter;
+  private avroSerializer: AvroSerializer;
+  private avroSchemaGenerator: AvroSchemaGenerator;
+  private schemaVersioning: SchemaVersioning;
 
   constructor(config: FuncqcConfig, storage: StorageAdapter) {
     this.backupConfig = config.backup || this.getDefaultBackupConfig();
@@ -55,6 +61,11 @@ export class BackupManager {
       throw new Error('Storage adapter must implement query method for backup operations');
     }
     this.storage = storage as BackupStorageAdapter;
+    
+    // Initialize Avro components
+    this.avroSchemaGenerator = new AvroSchemaGenerator();
+    this.schemaVersioning = new SchemaVersioning();
+    this.avroSerializer = new AvroSerializer(this.avroSchemaGenerator, this.schemaVersioning);
   }
 
   /**
@@ -92,7 +103,8 @@ export class BackupManager {
       const tableStats = await this.exportTables(
         schemaAnalysis.tableOrder,
         dataDir,
-        options.format || this.backupConfig.defaults.format
+        options.format || this.backupConfig.defaults.format,
+        options.compress
       );
 
       // Copy schema file
@@ -339,12 +351,13 @@ export class BackupManager {
   }
 
   /**
-   * Export all tables to JSON files
+   * Export all tables to specified format (JSON, SQL, or Avro)
    */
   private async exportTables(
     tableOrder: string[],
     dataDir: string,
-    format: 'json' | 'sql'
+    format: 'json' | 'sql' | 'avro',
+    compress?: boolean
   ): Promise<Record<string, number>> {
     const tableStats: Record<string, number> = {};
 
@@ -356,7 +369,19 @@ export class BackupManager {
         
         if (format === 'json') {
           await fs.writeFile(filePath, JSON.stringify(data, null, 2));
-        } else {
+        } else if (format === 'avro') {
+          // Serialize using Avro format
+          const avroData = await this.avroSerializer.serializeTable(
+            tableName, 
+            Array.isArray(data) ? data.map(row => row as Record<string, unknown>) : [],
+            { 
+              compress: compress ?? this.backupConfig.defaults.compress,
+              validate: true,
+              includeMetadata: true
+            }
+          );
+          await fs.writeFile(filePath, avroData);
+        } else if (format === 'sql') {
           // SQL format implementation would go here
           throw new Error('SQL format not yet implemented');
         }
@@ -478,12 +503,49 @@ export class BackupManager {
   }
 
   /**
-   * Load table data from backup
+   * Load table data from backup (auto-detect format)
    */
   private async loadTableData(backupPath: string, tableName: string): Promise<unknown[]> {
-    const dataPath = path.join(backupPath, 'data', `${tableName}.json`);
-    const content = await fs.readFile(dataPath, 'utf-8');
-    return JSON.parse(content);
+    const dataDir = path.join(backupPath, 'data');
+    
+    // Try different formats in order of preference
+    const formats = ['avro', 'json', 'sql'];
+    
+    for (const format of formats) {
+      const dataPath = path.join(dataDir, `${tableName}.${format}`);
+      
+      try {
+        await fs.access(dataPath);
+        
+        if (format === 'avro') {
+          // Load Avro file
+          const buffer = await fs.readFile(dataPath);
+          
+          // Verify it's actually Avro format
+          if (AvroSerializer.isAvroFormat(buffer)) {
+            const tableData = await this.avroSerializer.deserializeTable(buffer);
+            return tableData.rows;
+          } else {
+            console.warn(`File ${dataPath} has .avro extension but is not Avro format`);
+            continue;
+          }
+        } else if (format === 'json') {
+          // Load JSON file
+          const content = await fs.readFile(dataPath, 'utf-8');
+          const data = JSON.parse(content);
+          return Array.isArray(data) ? data : [];
+        } else if (format === 'sql') {
+          // SQL format not yet implemented
+          throw new Error('SQL format restoration not yet implemented');
+        }
+      } catch {
+        // File doesn't exist or can't be read, try next format
+        continue;
+      }
+    }
+    
+    // If no format found, throw error
+    throw new Error(`No data file found for table ${tableName} in formats: ${formats.join(', ')}`);
   }
 
   /**

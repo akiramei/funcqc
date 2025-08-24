@@ -5,6 +5,9 @@ import { CommandEnvironment } from '../../../types/environment';
 import { BackupManifest } from '../../../types';
 import { ErrorCode, createErrorHandler } from '../../../utils/error-handler';
 import { SchemaAnalyzer } from '../../../storage/backup/schema-analyzer';
+import { AvroSerializer } from '../../../storage/backup/avro/avro-serializer';
+import { AvroSchemaGenerator } from '../../../storage/backup/avro/avro-schema-generator';
+import { SchemaVersioning } from '../../../storage/backup/avro/schema-versioning';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
@@ -153,6 +156,14 @@ async function convertDataFiles(
   const outputDataDir = path.join(outputPath, 'data');
   await fs.mkdir(outputDataDir, { recursive: true });
 
+  // Initialize Avro components if needed
+  let avroSerializer: AvroSerializer | undefined;
+  if (sourceManifest.metadata.backupFormat === 'avro' || targetFormat === 'avro') {
+    const schemaGenerator = new AvroSchemaGenerator();
+    const schemaVersioning = new SchemaVersioning();
+    avroSerializer = new AvroSerializer(schemaGenerator, schemaVersioning);
+  }
+
   let convertedFiles = 0;
   let totalRows = 0;
 
@@ -162,22 +173,39 @@ async function convertDataFiles(
       const targetFile = path.join(outputDataDir, `${tableName}.${targetFormat}`);
 
       // Read source data
-      const sourceContent = await fs.readFile(sourceFile, 'utf-8');
-      let data;
+      let data: Record<string, unknown>[];
       
       if (sourceManifest.metadata.backupFormat === 'json') {
+        const sourceContent = await fs.readFile(sourceFile, 'utf-8');
         data = JSON.parse(sourceContent);
-      } else {
+      } else if (sourceManifest.metadata.backupFormat === 'avro') {
+        if (!avroSerializer) {
+          throw new Error('Avro serializer not initialized');
+        }
+        const sourceBuffer = await fs.readFile(sourceFile);
+        const deserializedData = await avroSerializer.deserializeTable(sourceBuffer);
+        data = deserializedData.rows;
+      } else if (sourceManifest.metadata.backupFormat === 'sql') {
         // For SQL format, this would need SQL parsing
         throw new Error(`SQL to ${targetFormat} conversion not yet implemented`);
+      } else {
+        throw new Error(`Unsupported source format: ${sourceManifest.metadata.backupFormat}`);
       }
 
       // Write target data
       if (targetFormat === 'json') {
         await fs.writeFile(targetFile, JSON.stringify(data, null, 2));
+      } else if (targetFormat === 'avro') {
+        if (!avroSerializer) {
+          throw new Error('Avro serializer not initialized');
+        }
+        const avroBuffer = await avroSerializer.serializeTable(tableName, data, { validate: false });
+        await fs.writeFile(targetFile, avroBuffer);
       } else if (targetFormat === 'sql') {
         // This would need SQL generation
         throw new Error(`${sourceManifest.metadata.backupFormat} to SQL conversion not yet implemented`);
+      } else {
+        throw new Error(`Unsupported target format: ${targetFormat}`);
       }
 
       convertedFiles++;

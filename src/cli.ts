@@ -646,13 +646,16 @@ Database Query Examples:
   $ funcqc db --table snapshots --json | jq '.rows[0]'
 
 Database Backup Examples:
-  # Create a backup with label
+  # Create a backup with label (JSON format - default)
   $ funcqc db export --label "before-refactor"
+  
+  # Create a backup in Avro format (more compact)
+  $ funcqc db export --label "production-backup" --format avro --compress
   
   # List all available backups
   $ funcqc db list-backups
   
-  # Restore from backup
+  # Restore from backup (auto-detects format)
   $ funcqc db import --backup .funcqc/backups/20241201-143022-before-refactor
   
   # Convert backup format
@@ -674,7 +677,7 @@ dbCommand.command('export')
   .option('--output-dir <path>', 'output directory for backup (overrides config)')
   .option('--include-source-code', 'include source code in backup')
   .option('--compress', 'compress backup files')
-  .option('--format <format>', 'backup format (json, sql)', 'json')
+  .option('--format <format>', 'backup format (json, sql, avro)', 'json')
   .option('--dry-run', 'preview backup without creating files')
   .action(async (options: OptionValues) => {
     const { withEnvironment } = await import('./cli/cli-wrapper');
@@ -707,7 +710,7 @@ dbCommand.command('convert')
   .description('Convert backup between formats and handle schema migrations (Note: SQL format conversion is currently not implemented)')
   .option('--input <path>', 'input backup directory')
   .option('--output <path>', 'output backup directory')
-  .option('--format <format>', 'target format (currently only json is supported)', 'json')
+  .option('--format <format>', 'target format (json, avro)', 'json')
   .option('--allow-schema-mismatch', 'proceed even if schema versions differ')
   .option('--update-schema', 'update backup to current schema version')
   .option('--force', 'force conversion even if formats are the same')
