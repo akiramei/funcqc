@@ -65,7 +65,7 @@ async function findTargetFunction(
     
     // If no exact match, try pattern matching
     if (matches.length === 0) {
-      const pattern = new RegExp(namePattern.replace(/\*/g, '.*'), 'i');
+      const pattern = createSafeWildcardPattern(namePattern);
       matches = functions.filter(f => pattern.test(f.displayName) || pattern.test(f.name));
     }
 
@@ -651,4 +651,25 @@ function getParameterPattern(func: FunctionInfo): string {
     const optional = p.isOptional || p.defaultValue ? '?' : '';
     return `${rest}${p.name}${optional}`;
   }).join(', ');
+}
+
+/**
+ * Create a safe wildcard pattern that prevents ReDoS attacks.
+ * 
+ * Only allows '*' as wildcard character, all other regex metacharacters are escaped.
+ * This prevents malicious users from injecting complex regex patterns that could
+ * cause exponential backtracking and DoS attacks.
+ * 
+ * @param input User input string that may contain wildcards
+ * @returns RegExp Safe compiled regular expression
+ */
+function createSafeWildcardPattern(input: string): RegExp {
+  // Escape all regex metacharacters except '*'
+  // This prevents regex injection attacks while preserving wildcard functionality
+  const escaped = input.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  
+  // Convert '*' to '.*' for wildcard matching
+  const pattern = escaped.replace(/\*/g, '.*');
+  
+  return new RegExp(pattern, 'i');
 }
