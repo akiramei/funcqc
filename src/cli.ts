@@ -37,9 +37,10 @@ program
   .option('--db <path>', 'database path', '.funcqc/funcqc.db')
   .option('--show', 'show current configuration')
   .option('--reset', 'reset configuration to defaults')
-  .action(async (options: OptionValues) => {
-    const { initCommand } = await import('./cli/init');
-    return initCommand(options);
+  .action(async (options: OptionValues, command) => {
+    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
+    const { UnifiedInitCommand } = await import('./cli/commands/unified-init');
+    return createUnifiedCommandHandler(UnifiedInitCommand)(options, command);
   });
 
 program
@@ -146,40 +147,6 @@ program
     return createUnifiedCommandHandler(ListCommand)(options, command);
   });
 
-
-
-
-
-program
-  .command('setup')
-  .description('🛠️ Unified setup and configuration (consolidates init + config)')
-  .option('--action <action>', 'setup action: init, config, check (default: interactive)')
-  .option('--force', 'force initialization even if already exists')
-  .option('--config-path <path>', 'path to configuration file')
-  .option('--show', 'show current configuration')
-  .option('--set <key=value>', 'set configuration value')
-  .option('--get <key>', 'get configuration value by key')
-  .option('--reset', 'reset configuration to defaults')
-  .option('-j, --json', 'output as JSON for script processing')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedSetupCommand } = await import('./cli/commands/unified-setup');
-    return createUnifiedCommandHandler(UnifiedSetupCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  $ funcqc setup                           # Interactive setup (default)
-  $ funcqc setup --action init            # Initialize funcqc in project
-  $ funcqc setup --action config --show   # Show current configuration
-  $ funcqc setup --action check           # Verify setup status
-  $ funcqc setup --action config --set "roots=src,lib"  # Set configuration
-
-Actions:
-  interactive  Interactive guided setup (default)
-  init        Initialize funcqc configuration
-  config      Manage configuration settings
-  check       Check setup and configuration status
-`);
 
 
 
