@@ -32,6 +32,9 @@ export class ExperimentalCommand implements Command {
         return ['BASIC']; // Needs function analysis for naming evaluation
       case 'residue-check':
         return []; // Works on source files directly
+      case 'describe':
+      case 'search':
+        return ['BASIC']; // Need function analysis for descriptions and search
       case 'extract-vo':
       case 'canonicalize':
       case 'discriminate':
@@ -61,6 +64,12 @@ export class ExperimentalCommand implements Command {
         break;
       case 'residue-check':
         await this.executeResidueCheck(env, subArgs);
+        break;
+      case 'describe':
+        await this.executeDescribe(env, subArgs);
+        break;
+      case 'search':
+        await this.executeSearch(env, subArgs);
         break;
       case 'extract-vo':
         await this.executeExtractVo(env, subArgs);
@@ -96,6 +105,8 @@ Usage: funcqc experimental <subcommand> [options]
 Available subcommands:
   evaluate          Function naming quality evaluation
   residue-check     Detect debug code residue in TypeScript projects
+  describe          Add or manage function descriptions (AI features pending)
+  search            Search functions by description keywords (AI features pending)
   extract-vo        Extract Value Objects from property clusters to improve encapsulation
   canonicalize      Analyze and consolidate duplicate DTO types into canonical forms
   discriminate      Analyze and transform types into discriminated unions
@@ -105,6 +116,8 @@ Available subcommands:
 Examples:
   funcqc experimental evaluate
   funcqc experimental residue-check --auto-remove
+  funcqc experimental describe --text "Helper function"
+  funcqc experimental search "validation"
   funcqc experimental extract-vo
   funcqc experimental canonicalize
   funcqc experimental discriminate
@@ -176,6 +189,28 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
     // TODO: Implement du command or import from correct location
     console.log('du command not yet implemented with options:', options);
     await withEnvironment((_options: any) => async (_env: CommandEnvironment) => { /* placeholder */ })(options);
+  }
+
+  /**
+   * Execute describe subcommand
+   */
+  private async executeDescribe(_env: CommandEnvironment, args: string[]): Promise<void> {
+    const options = this.parseDescribeOptions(args);
+    const { createUnifiedCommandHandler } = await import('../../core/unified-command-executor');
+    const { UnifiedDescribeCommand } = await import('./unified-describe');
+    const handler = createUnifiedCommandHandler(UnifiedDescribeCommand);
+    await handler(options, { opts: () => ({}) });
+  }
+
+  /**
+   * Execute search subcommand  
+   */
+  private async executeSearch(_env: CommandEnvironment, args: string[]): Promise<void> {
+    const options = this.parseSearchOptions(args);
+    const { createUnifiedCommandHandler } = await import('../../core/unified-command-executor');
+    const { UnifiedSearchCommand } = await import('./unified-search');
+    const handler = createUnifiedCommandHandler(UnifiedSearchCommand);
+    await handler(options, { opts: () => ({}) });
   }
 
   /**
@@ -278,6 +313,65 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
       switch (args[i]) {
         case '--help':
           console.log('Usage: funcqc experimental du [options]\n\nDiscriminated Union incremental transformation toolkit');
+          process.exit(0);
+      }
+    }
+    return options;
+  }
+
+  /**
+   * Parse describe options from command line arguments
+   */
+  private parseDescribeOptions(args: string[]): any {
+    const options: any = {};
+    for (let i = 0; i < args.length; i++) {
+      switch (args[i]) {
+        case '--text':
+          if (i + 1 < args.length) {
+            options.text = args[++i];
+          }
+          break;
+        case '--source':
+          if (i + 1 < args.length) {
+            options.source = args[++i];
+          }
+          break;
+        case '--json':
+          options.json = true;
+          break;
+        case '--help':
+          console.log('Usage: funcqc experimental describe [function-id] [options]\n\nAdd or manage function descriptions\n\nOptions:\n  --text <description>    Description text\n  --source <type>         Description source (human|ai|jsdoc)\n  --json                  Output as JSON');
+          process.exit(0);
+      }
+    }
+    return options;
+  }
+
+  /**
+   * Parse search options from command line arguments
+   */
+  private parseSearchOptions(args: string[]): any {
+    const options: any = {};
+    for (let i = 0; i < args.length; i++) {
+      switch (args[i]) {
+        case '--format':
+          if (i + 1 < args.length) {
+            options.format = args[++i];
+          }
+          break;
+        case '--limit':
+          if (i + 1 < args.length) {
+            options.limit = args[++i];
+          }
+          break;
+        case '--json':
+          options.json = true;
+          break;
+        case '--semantic':
+          options.semantic = true;
+          break;
+        case '--help':
+          console.log('Usage: funcqc experimental search <keyword> [options]\n\nSearch functions by description keywords\n\nOptions:\n  --format <type>         Output format (table|json|friendly)\n  --limit <num>           Limit number of results\n  --json                  Output as JSON\n  --semantic              Use semantic search');
           process.exit(0);
       }
     }
