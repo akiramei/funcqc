@@ -247,8 +247,7 @@ describe('Avro Integration Tests', () => {
       const { AvroSchemaGenerator } = await import('../../../../src/storage/backup/avro/avro-schema-generator');
       const serializer = new AvroSerializer(new AvroSchemaGenerator());
       
-      // Create test data that matches snapshots table structure
-      const testData = [{ id: '1', created_at: new Date().toISOString(), label: 'test' }];
+      // Create Avro buffer using the previously defined testData
       const avroBuffer = await serializer.serializeTable('snapshots', testData, { compress: false });
 
       await fs.writeFile(path.join(dataDir, 'snapshots.avro'), avroBuffer);
