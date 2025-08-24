@@ -73,15 +73,15 @@ describe('Semantic ID Stability', () => {
       }
     `;
 
-    // Analyze version 1
+    // Analyze version 1 with first snapshot ID
     await fs.promises.writeFile(testFile, contentV1);
-    const functionsV1 = await analyzer.analyzeFile(testFile);
+    const functionsV1 = await analyzer.analyzeFile(testFile, 'snapshot-v1');
     const validateV1 = functionsV1.find(f => f.name === 'validate');
     expect(validateV1).toBeDefined();
 
-    // Analyze version 2
+    // Analyze version 2 with different snapshot ID
     await fs.promises.writeFile(testFile, contentV2);
-    const functionsV2 = await analyzer.analyzeFile(testFile);
+    const functionsV2 = await analyzer.analyzeFile(testFile, 'snapshot-v2');
     const validateV2 = functionsV2.find(f => f.name === 'validate');
     expect(validateV2).toBeDefined();
 

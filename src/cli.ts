@@ -114,8 +114,8 @@ program
   })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedScanCommand } = await import('./cli/commands/unified-scan');
-    return createUnifiedCommandHandler(UnifiedScanCommand)(options, command);
+    const { ScanCommand } = await import('./cli/commands/scan-command');
+    return createUnifiedCommandHandler(ScanCommand)(options, command);
   });
 
 program
@@ -134,7 +134,7 @@ program
 
 program
   .command('list')
-  .description('📋 [DEPRECATED] List all functions - Use `funcqc inspect` instead')
+  .description('📋 List all functions')
   .option('-j, --json', 'output as JSON for jq/script processing')
   .option('--limit <num>', 'limit number of results')
   .option('--sort <field>', 'sort by field (cc, loc, changes, name, file)')
@@ -145,166 +145,15 @@ program
   .option('--name <pattern>', 'filter by function name pattern')
   .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
   .option('--full-id', 'display full UUIDs instead of 8-character short IDs')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "list" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect" instead for enhanced function inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --cc-ge 10 (same options work)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedListCommand } = await import('./cli/commands/unified-list');
-    return createUnifiedCommandHandler(UnifiedListCommand)(options, command);
+    const { ListCommand } = await import('./cli/commands/list-command');
+    return createUnifiedCommandHandler(ListCommand)(options, command);
   });
 
-program
-  .command('inspect')
-  .description('🔍 Unified function and file inspection (consolidates list, search, files, show)')
-  .option('--type <type>', 'inspection type: functions (default), files', 'functions')
-  .option('-j, --json', 'output as JSON for jq/script processing')
-  .option('--limit <num>', 'limit number of results')
-  .option('--sort <field>', 'sort by field (cc, loc, changes, name, file)')
-  .option('--desc', 'sort in descending order')
-  .option('--format <format>', 'output format: table, card (default), compact')
-  .option('--stats', 'show statistics (for files)')
-  
-  // Function filters (from list command)
-  .option('--cc-ge <num>', 'filter functions with complexity >= N')
-  .option('--changes-ge <num>', 'filter functions with change count >= N')
-  .option('--file <pattern>', 'filter by file path pattern')
-  .option('--name <pattern>', 'filter by function name pattern')
-  .option('--scope <name>', 'filter by scope (src, test, all, or custom scope)')
-  
-  // Search-like functionality (simplified for now)
-  // .option('--semantic', 'enable semantic search (local TF-IDF)')
-  // .option('--hybrid', 'enable hybrid search (semantic + keyword + AST)')
-  
-  // Output options
-  .option('--detailed', 'show detailed information for each result (like show command)')
-  
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedInspectCommand } = await import('./cli/commands/unified-inspect');
-    return createUnifiedCommandHandler(UnifiedInspectCommand)(options, command);
-  });
 
-program
-  .command('measure')
-  .description('📊 Unified measurement command (consolidates scan + analyze functionality)')
-  .option('--label <text>', 'label for this measurement snapshot')
-  .option('--comment <text>', 'comment for measurement configuration changes')
-  .option('--scope <name>', 'measurement scope (src, test, all, or custom scope)')
-  .option('-j, --json', 'output measurement results as JSON')
-  
-  // Measurement level (unified approach)
-  .option('--level <level>', 'measurement level: quick, basic, standard, deep, complete')
-  
-  // Specific analysis types
-  .option('--call-graph', 'include call graph analysis')
-  .option('--types', 'include TypeScript type system analysis') 
-  .option('--coupling', 'include coupling analysis')
-  
-  // Quality and performance options
-  .option('--realtime-gate', 'enable real-time quality gate')
-  .option('--async', 'run heavy analyses in background')
-  .option('--force', 'force measurement even if snapshot exists')
-  
-  // Output control
-  .option('--verbose', 'detailed progress output')
-  .option('--quiet', 'minimal output')
-  .option('--history', 'display snapshot history instead of creating new measurements')
-  
-  // Compatibility aliases (for transition)
-  .option('--full', 'alias for --level complete')
-  .option('--with-basic', 'alias for --level basic')
-  .option('--with-graph', 'alias for --call-graph')
-  .option('--with-types', 'alias for --types')
-  .option('--with-coupling', 'alias for --coupling')
-  
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedMeasureCommand } = await import('./cli/commands/unified-measure');
-    return createUnifiedCommandHandler(UnifiedMeasureCommand)(options, command);
-  });
 
-program
-  .command('improve')
-  .description('🔧 Unified code improvement command (consolidates similar, refactor-guard, safe-delete)')
-  .option('--type <type>', 'improvement type: duplicates, safety, dead-code (default: comprehensive)')
-  .option('--scope <name>', 'analyze improvements within specific scope (src, test, all, or custom scope)')
-  .option('-j, --json', 'output results as JSON for script processing')
-  .option('--auto-apply', 'automatically apply safe improvements')
-  .option('--threshold <value>', 'similarity threshold for duplicate detection (0-1, default: 0.85)')
-  .option('--risky', 'include risky improvements in analysis')
-  .option('--preview', 'preview changes before applying')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedImproveCommand } = await import('./cli/commands/unified-improve');
-    return createUnifiedCommandHandler(UnifiedImproveCommand)(options, command);
-  });
 
-program
-  .command('assess')
-  .description('📊 Unified quality assessment command (consolidates health, evaluate, types health)')
-  .option('--type <type>', 'assessment type: health, quality, types (default: comprehensive)')
-  .option('-j, --json', 'output results as JSON for script processing')
-  .option('--trend', 'show trend analysis')
-  .option('--risks', 'show detailed risk assessment')
-  .option('--scope <name>', 'assessment scope (src, test, all, or custom scope)')
-  .option('--baseline <snapshot>', 'baseline snapshot for comparison')
-  .option('--threshold <value>', 'quality threshold for pass/fail determination')
-  
-  // Advanced assessment options
-  .option('--advanced', 'enable advanced analysis with dynamic weights and structural analysis')
-  .option('--mode <mode>', 'evaluation mode: static or dynamic (default: static)')
-  .option('--include-structural', 'include structural analysis (default: true with --advanced)')
-  .option('--include-risk', 'include risk evaluation (default: true with --advanced)')
-  .option('--include-gate', 'include quality gate evaluation (default: true with --advanced)')
-  
-  // Dynamic assessment configuration
-  .option('--team-experience <level>', 'team experience level: Senior, Mixed, Junior (default: Mixed)')
-  .option('--domain-complexity <level>', 'domain complexity: High, Medium, Low (default: Medium)')
-  .option('--architecture-pattern <pattern>', 'architecture pattern: MVC, Microservices, Layered, Unknown (default: Unknown)')
-  
-  // Output and reporting options
-  .option('--export-report <file>', 'export comprehensive report to file (json|html|markdown)')
-  .option('--include-recommendations', 'include improvement recommendations (default: true with --advanced)')
-  .option('--show-weight-breakdown', 'show weight calculation breakdown (for dynamic mode)')
-  .option('--explain-scoring', 'explain scoring methodology')
-  
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedAssessCommand } = await import('./cli/commands/unified-assess');
-    return createUnifiedCommandHandler(UnifiedAssessCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  # Basic assessment (existing functionality)
-  $ funcqc assess --type health                  # Project health assessment
-  $ funcqc assess --type quality                 # Code quality evaluation
-  $ funcqc assess --risks --trend                # Risk assessment with trends
-  
-  # Advanced assessment with dynamic analysis
-  $ funcqc assess --advanced                     # Comprehensive advanced assessment
-  $ funcqc assess --advanced --mode dynamic      # Dynamic weight-based evaluation
-  $ funcqc assess --advanced --team-experience Senior  # Team-specific evaluation
-  
-  # Specialized advanced analysis
-  $ funcqc assess --advanced --include-structural --include-risk
-  $ funcqc assess --advanced --domain-complexity High --architecture-pattern Microservices
-  
-  # Report generation
-  $ funcqc assess --advanced --export-report quality-report.json
-  $ funcqc assess --advanced --export-report report.html --include-recommendations
-  
-  # Dynamic evaluation with detailed insights
-  $ funcqc assess --advanced --mode dynamic --show-weight-breakdown --explain-scoring
-
-Advanced Features:
-  🔬 Dynamic Weights    Adaptive thresholds based on project characteristics
-  🏗️  Structural Analysis  Design pattern violations and architectural anomalies
-  ⚠️  Risk Evaluation   Statistical risk assessment with Z-score analysis
-  🚪 Quality Gate      Real-time quality feedback with improvement suggestions
-`);
 
 program
   .command('setup')
@@ -337,228 +186,12 @@ Actions:
   check       Check setup and configuration status
 `);
 
-program
-  .command('manage')
-  .description('📊 Unified data management (consolidates db, diff, export, import, history)')
-  .option('--action <action>', 'management action: db, diff, export, import, convert, list-backups, history (default: status)')
-  .option('--list', 'list all tables (db action)')
-  .option('--table <name>', 'table name to query (db action)')
-  .option('--where <condition>', 'WHERE clause for database queries (db action)')
-  .option('--columns <cols>', 'columns to select, comma-separated (db action)')
-  .option('--limit <num>', 'limit number of rows/results', parseInt)
-  .option('--count', 'show count instead of data (db action)')
-  .option('--from <snapshot>', 'source snapshot for comparison (diff action)')
-  .option('--to <snapshot>', 'target snapshot for comparison (diff action)')
-  .option('--insights', 'show detailed insights (diff action)')
-  .option('--similarity-threshold <num>', 'similarity threshold for analysis (diff action)', parseFloat)
-  .option('--format <format>', 'export/import format: json, sql, csv')
-  .option('--file <path>', 'file path for export/import operations')
-  .option('--include-source-code', 'include source code in export')
-  .option('--compress', 'compress exported data')
-  .option('--since <date>', 'filter history since date/snapshot (history action)')
-  .option('--until <date>', 'filter history until date/snapshot (history action)')
-  .option('--branch <name>', 'filter by git branch (history action)')
-  .option('--label <text>', 'filter by snapshot label (history action)')
-  .option('--scope <name>', 'filter by scope (history action)')
-  .option('-j, --json', 'output as JSON for script processing')
-  .option('--verbose', 'detailed output')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedManageCommand } = await import('./cli/commands/unified-manage');
-    return createUnifiedCommandHandler(UnifiedManageCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  $ funcqc manage                                    # Show data status (default)
-  $ funcqc manage --action db --table snapshots     # Query snapshots table
-  $ funcqc manage --action diff --from abc --to def # Compare snapshots
-  $ funcqc manage --action export --json            # Export data as JSON
-  $ funcqc manage --action history --limit 10       # Show recent history
-  $ funcqc manage --action list-backups             # List available backups
 
-Actions:
-  status       Show data management status (default)
-  db          Database operations and queries
-  diff        Compare snapshots and analyze changes
-  export      Export data in various formats
-  import      Import data from backup files
-  convert     Convert data between formats
-  list-backups List available backups/snapshots
-  history     Show detailed snapshot history
-`);
 
-program
-  .command('dependencies')
-  .description('🔗 Unified dependency analysis (consolidates dep list, show, stats, lint, dead, cycles)')
-  .option('--action <action>', 'dependency action: list, show, stats, lint, dead, cycles (default: overview)')
-  .option('--snapshot <id>', 'snapshot ID for analysis')
-  .option('--scope <name>', 'analyze dependencies within specific scope (src, test, all, or custom scope)')
-  .option('-j, --json', 'output as JSON for script processing')
-  .option('--format <format>', 'output format: table, json, dot')
-  .option('--verbose', 'detailed output')
-  // List action options
-  .option('--caller <name>', 'filter by caller function (list action)')
-  .option('--callee <name>', 'filter by callee function (list action)')
-  .option('--caller-class <name>', 'filter by caller class (list action)')
-  .option('--callee-class <name>', 'filter by callee class (list action)')
-  .option('--file <path>', 'filter by file path (list action)')
-  .option('--type <type>', 'call type filter: direct, async, conditional, external (list action)')
-  .option('--limit <num>', 'limit number of results')
-  .option('--sort <field>', 'sort by: caller, callee, file, line, fanin, fanout, depth, name, length, complexity, importance')
-  .option('--desc', 'sort in descending order')
-  // Show action options
-  .option('--direction <dir>', 'dependency direction: in, out, both (show action)')
-  .option('--depth <num>', 'analysis depth (show action)')
-  .option('--include-external', 'include external dependencies (show action)')
-  .option('--external-filter <filter>', 'external filter: all, transit, none (show action)')
-  .option('--show-complexity', 'show complexity metrics (show action)')
-  .option('--rank-by-length', 'sort routes by depth (show action)')
-  .option('--max-routes <num>', 'limit number of routes (show action)')
-  // Stats action options
-  .option('--show-hubs', 'show hub functions (stats action)')
-  .option('--show-utility', 'show utility functions (stats action)')
-  .option('--show-isolated', 'show isolated functions (stats action)')
-  .option('--hub-threshold <num>', 'hub threshold value (stats action)')
-  .option('--utility-threshold <num>', 'utility threshold value (stats action)')
-  .option('--max-hub-functions <num>', 'max hub functions to show (stats action)')
-  .option('--max-utility-functions <num>', 'max utility functions to show (stats action)')
-  // Lint action options
-  .option('--config <path>', 'configuration file path (lint action)')
-  .option('--severity <level>', 'severity: error, warning, info (lint action)')
-  .option('--max-violations <num>', 'maximum violations to show (lint action)')
-  .option('--include-metrics', 'include metrics in output (lint action)')
-  .option('--fail-on <level>', 'fail criteria: error, warning, any (lint action)')
-  .option('--show-layers', 'show layer information (lint action)')
-  .option('--show-rules', 'show applied rules (lint action)')
-  .option('--show-config', 'show configuration (lint action)')
-  .option('--show-consolidation', 'show consolidation strategies (lint action)')
-  .option('--dry-run', 'dry run mode (lint action)')
-  // Dead action options
-  .option('--exclude-tests', 'exclude test files (dead action)')
-  .option('--exclude-exports', 'exclude exported functions (dead action)')
-  .option('--exclude-small', 'exclude small functions (dead action)')
-  .option('--threshold <num>', 'size threshold (dead action)')
-  .option('--show-reasons', 'show reasons for dead code (dead action)')
-  .option('--layer-entry-points <list>', 'layer entry points (dead action)')
-  // Cycles action options
-  .option('--min-size <num>', 'minimum cycle size (cycles action)')
-  .option('--max-length <num>', 'maximum cycle length (cycles action)')
-  .option('--include-recursive', 'include recursive cycles (cycles action)')
-  .option('--include-clear', 'include clear cycles (cycles action)')
-  .option('--include-all', 'include all cycles (cycles action)')
-  .option('--exclude-recursive', 'exclude recursive cycles (cycles action)')
-  .option('--exclude-clear', 'exclude clear cycles (cycles action)')
-  .option('--min-complexity <num>', 'minimum complexity (cycles action)')
-  .option('--cross-module-only', 'cross-module cycles only (cycles action)')
-  .option('--cross-layer-only', 'cross-layer cycles only (cycles action)')
-  .option('--recursive-only', 'recursive cycles only (cycles action)')
-  .option('--sort-by-importance', 'sort by importance (cycles action)')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedDependenciesCommand } = await import('./cli/commands/unified-dependencies');
-    return createUnifiedCommandHandler(UnifiedDependenciesCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  $ funcqc dependencies                                 # Dependency overview (default)
-  $ funcqc dependencies --action list --caller "MyClass"  # List dependencies with filter
-  $ funcqc dependencies --action show --direction both --depth 3  # Show detailed dependencies
-  $ funcqc dependencies --action stats --show-hubs     # Show hub analysis
-  $ funcqc dependencies --action lint --severity error # Lint architecture rules
-  $ funcqc dependencies --action dead --exclude-tests  # Find dead code
-  $ funcqc dependencies --action cycles --min-size 2   # Find circular dependencies
-
-Actions:
-  overview     Show dependency analysis overview (default)
-  list        List function dependencies with filtering
-  show        Show detailed dependency information for functions
-  stats       Show dependency statistics and hub analysis
-  lint        Lint architecture dependencies against rules
-  dead        Detect unreachable (dead) code functions
-  cycles      Detect circular dependencies in call graph
-`);
-
-program
-  .command('refactor')
-  .description('🔧 Unified code transformation and refactoring analysis')
-  .option('--action <action>', 'refactor action: guard, extract-vo, discriminate, canonicalize, type-replace (default: overview)')
-  .option('--snapshot <id>', 'snapshot ID for analysis')
-  .option('-j, --json', 'output as JSON for script processing')
-  .option('--format <format>', 'output format: table, json, markdown')
-  .option('--verbose', 'detailed output')
-  .option('--dry-run', 'preview changes without applying them')
-  .option('--output <path>', 'output file path for reports')
-  // Guard action options
-  .option('--type <name>', 'target type name for guard analysis')
-  .option('--operation <op>', 'refactoring operation: replace, merge, split, extract, inline')
-  .option('--include-tests', 'include test templates (guard action)')
-  .option('--include-behavioral', 'include behavioral checks (guard action)')
-  .option('--include-cochange', 'include co-change analysis (guard action)')
-  .option('--risk-threshold <level>', 'risk threshold: low, medium, high')
-  .option('--pr-template', 'generate PR template (guard action)')
-  // Extract VO action options
-  .option('--min-support <num>', 'minimum support for patterns (extract-vo action)')
-  .option('--min-confidence <num>', 'minimum confidence threshold (extract-vo action)')
-  .option('--min-cohesion <num>', 'minimum cohesion score (extract-vo action)')
-  .option('--include-computed', 'include computed methods (extract-vo action)')
-  .option('--generate-constructors', 'generate smart constructors (extract-vo action)')
-  .option('--infer-invariants', 'infer business rules (extract-vo action)')
-  .option('--preserve-original', 'keep original types during transition (extract-vo action)')
-  .option('--output-code <dir>', 'directory to output generated VO code (extract-vo action)')
-  .option('--max-candidates <num>', 'maximum number of candidates')
-  .option('--show-opportunities', 'show extraction opportunities')
-  .option('--show-generated', 'show generated code samples')
-  .option('--domain-filter <domain>', 'filter by domain context')
-  .option('--complexity-filter <level>', 'filter by complexity: low, medium, high')
-  // Discriminate action options
-  .option('--target-types <types>', 'comma-separated list of types (discriminate action)')
-  .option('--min-coverage <num>', 'minimum coverage threshold 0-1 (discriminate action)')
-  .option('--max-cases <num>', 'maximum union cases per type (discriminate action)')
-  .option('--include-booleans', 'include boolean discriminants (discriminate action)')
-  .option('--include-enums', 'include enum discriminants (discriminate action)')
-  .option('--allow-breaking', 'allow breaking changes (discriminate action)')
-  .option('--transform', 'apply transformations automatically (discriminate action)')
-  // Canonicalize action options
-  .option('--include-behavioral2', 'include behavioral analysis (canonicalize action)')
-  .option('--generate-codemod', 'generate codemod actions')
-  .option('--require-minimal-impact', 'only suggest low-impact changes (canonicalize action)')
-  .option('--preserve-optionality', 'preserve optional property differences (canonicalize action)')
-  .option('--show-artifacts', 'show generated artifacts (canonicalize action)')
-  // Type replace action options
-  .option('--from <type>', 'source type name (type-replace action)')
-  .option('--to <type>', 'target type name (type-replace action)')
-  .option('--check-only', 'only perform compatibility check (type-replace action)')
-  .option('--migration-plan', 'generate migration plan (type-replace action)')
-  .option('--ts-config <path>', 'TypeScript config path (type-replace action)')
-  .option('--allow-unsafe', 'allow unsafe replacements with warnings (type-replace action)')
-  .option('--team-size <num>', 'team size for migration planning (type-replace action)')
-  .option('--risk-tolerance <level>', 'risk tolerance: conservative, moderate, aggressive (type-replace action)')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedRefactorCommand } = await import('./cli/commands/unified-refactor');
-    return createUnifiedCommandHandler(UnifiedRefactorCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  $ funcqc refactor                                      # Refactoring overview (default)
-  $ funcqc refactor --action guard --type "MyInterface" --operation split  # Safety analysis
-  $ funcqc refactor --action extract-vo --min-cohesion 0.7 --show-opportunities  # VO extraction
-  $ funcqc refactor --action discriminate --target-types "User,Order" --transform  # Discriminated unions
-  $ funcqc refactor --action canonicalize --generate-codemod --dry-run  # DTO canonicalization
-  $ funcqc refactor --action type-replace --from "OldType" --to "NewType" --check-only  # Type replacement
-
-Actions:
-  overview       Show refactoring capabilities overview (default)
-  guard         Refactoring safety analysis and guardrails
-  extract-vo    Value object extraction from property clusters
-  discriminate  Discriminated union analysis and transformation
-  canonicalize  DTO canonicalization and consolidation
-  type-replace  Safe type replacement with migration planning
-`);
 
 program
   .command('show')
-  .description('📄 [DEPRECATED] Show detailed information about a specific function - Use `funcqc inspect --detailed` instead')
+  .description('📄 Show detailed information about a specific function')
   .option('--id <function-id>', 'function ID to show details for')
   .option('-j, --json', 'output as JSON for jq/script processing')
   .option('--usage', 'show usage information, examples, error handling, side effects')
@@ -566,15 +199,10 @@ program
   .option('--history', 'show historical metrics and changes for this function')
   .option('--source', 'show source code (combinable with other options)')
   .argument('[name-pattern]', 'function name pattern (if ID not provided)')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "show" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --detailed" instead for enhanced function inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --name myFunction --detailed\n'));
-  })
   .action(async (_namePattern: string | undefined, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedShowCommand } = await import('./cli/commands/unified-show');
-    return createUnifiedCommandHandler(UnifiedShowCommand)(options, command);
+    const { ShowCommand } = await import('./cli/commands/show-command');
+    return createUnifiedCommandHandler(ShowCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -602,7 +230,7 @@ How to find function IDs:
 
 program
   .command('files')
-  .description('📁 [DEPRECATED] List and display source files stored in snapshots - Use `funcqc inspect --type files` instead')
+  .description('📁 List and display source files stored in snapshots')
   .option('--snapshot <id>', 'snapshot ID to display files from (default: latest)')
   .option('--language <lang>', 'filter by programming language')
   .option('--path <pattern>', 'filter by file path pattern')
@@ -611,15 +239,10 @@ program
   .option('--limit <num>', 'limit number of results')
   .option('--stats', 'show file statistics')
   .option('--json', 'output as JSON')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "files" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --type files" instead for enhanced file inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --type files --stats\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedFilesCommand } = await import('./cli/commands/unified-files');
-    return createUnifiedCommandHandler(UnifiedFilesCommand)(options, command);
+    const { FilesCommand } = await import('./cli/commands/files-command');
+    return createUnifiedCommandHandler(FilesCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -654,28 +277,20 @@ Features:
 
 program
   .command('health')
-  .description('🏥 [DEPRECATED] Show project health assessment - Use `funcqc assess --type health` instead')
+  .description('🏥 Show project health assessment')
   .option('--trend', 'show trend analysis')
+  .option('--risks', 'show detailed risk assessment')
   .option('--show-config', 'show configuration details')
   .option('--verbose', 'show detailed information')
   .option('--json', 'output as JSON for jq/script processing')
   .option('--period <days>', 'period for trend analysis (default: 7)')
   .option('--snapshot <id>', 'analyze specific snapshot (ID, label, HEAD~N, git ref)')
   .option('--diff [snapshots]', 'compare snapshots: --diff (latest vs prev), --diff <id> (latest vs id), --diff "<id1> <id2>" (id1 vs id2)')
-  .option('--scope <name>', 'analyze specific scope (src, test, all, or custom scope)')
-  .option('--mode <mode>', 'evaluation mode: static or dynamic (default: static)')
-  .option('--explain-weight <function>', 'explain weight calculation for specific function (ID or name)')
-  .option('--top-n <number>', 'number of top recommendations to show (default: 3, verbose: 10)', '3')
   .option('--ai-optimized', 'deprecated: use --json instead')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "health" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc assess" instead for enhanced quality assessment capabilities.'));
-    console.log(chalk.gray('   Example: funcqc assess (same options work)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedHealthCommand } = await import('./cli/commands/unified-health');
-    return createUnifiedCommandHandler(UnifiedHealthCommand)(options, command);
+    const { HealthCommand } = await import('./cli/commands/health-command');
+    return createUnifiedCommandHandler(HealthCommand)(options, command);
   });
 
 program
@@ -712,8 +327,8 @@ program
   .option('--similarity-threshold <num>', 'similarity threshold for function matching (0-1, default: 0.95)', '0.95')
   .action(async (_from: string, _to: string, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedDiffCommand } = await import('./cli/commands/unified-diff');
-    return createUnifiedCommandHandler(UnifiedDiffCommand)(options, command);
+    const { DiffCommand } = await import('./cli/commands/diff-command');
+    return createUnifiedCommandHandler(DiffCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:
@@ -755,8 +370,8 @@ program
   })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedSimilarCommand } = await import('./cli/commands/unified-similar');
-    return createUnifiedCommandHandler(UnifiedSimilarCommand)(options, command);
+    const { SimilarCommand } = await import('./cli/commands/similar-command');
+    return createUnifiedCommandHandler(SimilarCommand)(options, command);
   });
 
 program
@@ -1336,8 +951,8 @@ program
   })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedSafeDeleteCommand } = await import('./cli/commands/unified-safe-delete');
-    return createUnifiedCommandHandler(UnifiedSafeDeleteCommand)(options, command);
+    const { SafeDeleteCommand } = await import('./cli/commands/safe-delete-command');
+    return createUnifiedCommandHandler(SafeDeleteCommand)(options, command);
   })
   .addHelpText('after', `
 Examples:

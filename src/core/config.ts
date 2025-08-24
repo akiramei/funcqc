@@ -243,10 +243,11 @@ export class ConfigManager {
           };
         }
       }
-    } else {
-      // User did not provide scopes configuration - remove default scopes to allow fallback
+    } else if (!userConfig.scopes && (userConfig.roots || userConfig.exclude || userConfig.include)) {
+      // User provided legacy configuration but NO scopes - remove default scopes to enable fallback
       delete config.scopes;
     }
+    // Otherwise, keep default scopes for backward compatibility
   }
 
   private mergeStorageConfig(config: FuncqcConfig, userConfig: UserConfig): void {

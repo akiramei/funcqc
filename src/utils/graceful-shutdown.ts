@@ -180,16 +180,17 @@ export class GracefulShutdown {
 
     // Wait for all transactions with a reasonable timeout
     const transactionTimeout = Math.min(this.shutdownTimeout - 5000, 25000);
-    try {
-      await Promise.race([
-        Promise.all(transactionPromises),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Transaction timeout')), transactionTimeout)
-        )
-      ]);
+    let timeoutId: NodeJS.Timeout | undefined;
+    const allDone = Promise.all(transactionPromises).then(() => 'done' as const);
+    const timedOut = new Promise<'timeout'>(resolve => {
+      timeoutId = setTimeout(() => resolve('timeout'), transactionTimeout);
+    });
+    const result = await Promise.race([allDone, timedOut]);
+    if (timeoutId) clearTimeout(timeoutId);
+    if (result === 'done') {
       console.log('✅ All transactions completed');
-    } catch (error) {
-      console.log(`⚠️ Some transactions did not complete in time: ${error}`);
+    } else {
+      console.log('⚠️ Some transactions did not complete in time');
       // Continue with cleanup anyway
     }
   }
@@ -260,6 +261,12 @@ export class GracefulShutdown {
       console.error('❌ Error during force shutdown:', error);
     }
 
+    // Don't exit during tests - let the test runner handle process lifecycle
+    if (this.isTestEnvironment()) {
+      console.log('🧪 Test environment detected: Skipping process.exit()');
+      return;
+    }
+
     process.exit(1);
   }
 
@@ -269,6 +276,12 @@ export class GracefulShutdown {
     if (this.activeTransactions.size > 0) {
       console.log(`💥 Emergency: ${this.activeTransactions.size} transaction(s) terminated unexpectedly`);
       console.log('⚠️ Database may be in inconsistent state - check transaction logs');
+    }
+
+    // Don't exit during tests - let the test runner handle process lifecycle
+    if (this.isTestEnvironment()) {
+      console.log('🧪 Test environment detected: Skipping process.exit()');
+      return;
     }
 
     process.exit(1);
@@ -291,5 +304,15 @@ export class GracefulShutdown {
       cleanupHandlers: this.cleanupHandlers.size,
       storageConnections: this.storageConnections.size
     };
+  }
+
+  /**
+   * Check if running in test environment
+   */
+  private isTestEnvironment(): boolean {
+    return process.env['NODE_ENV'] === 'test' || 
+           process.env['VITEST'] === 'true' ||
+           !!process.env['JEST_WORKER_ID'] ||
+           typeof (globalThis as unknown as { __vitest_runner__?: unknown }).__vitest_runner__ !== 'undefined';
   }
 }
