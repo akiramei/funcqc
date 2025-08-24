@@ -94,7 +94,7 @@ Examples:
 
 program
   .command('scan')
-  .description('🔄 [DEPRECATED] Scan and analyze functions - Use `funcqc measure` instead')
+  .description('🔄 Scan and analyze functions')
   .option('--label <text>', 'label for this snapshot')
   .option('--comment <text>', 'mandatory comment when scan configuration changes')
   .option('--scope <name>', 'scan specific scope (src, test, all, or custom scope)')
@@ -107,11 +107,6 @@ program
   .option('--with-types', 'extended scan: includes type system analysis')
   .option('--full', 'full scan (50-60s): all analyses')
   .option('--async', 'run heavy analyses in background')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "scan" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc measure" instead for enhanced measurement capabilities.'));
-    console.log(chalk.gray('   Example: funcqc measure --level standard (same options work)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { ScanCommand } = await import('./cli/commands/scan-command');
@@ -351,7 +346,7 @@ Examples:
 
 program
   .command('similar')
-  .description('🔍 [DEPRECATED] Detect similar functions using AST analysis - Use `funcqc improve --type duplicates` instead')
+  .description('🔍 Detect similar functions using AST analysis')
   .option('--threshold <value>', 'similarity threshold (0-1)', '0.95')
   .option('--json', 'output as JSON')
   .option('--jsonl', 'output as JSON Lines (for large datasets)')
@@ -363,11 +358,6 @@ program
   .option('--consensus <strategy>', 'consensus strategy (majority[:threshold], intersection, union, weighted)')
   .option('--output <file>', 'save JSON output to file')
   .option('--limit <num>', 'limit number of results')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "similar" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc improve --type duplicates" instead for enhanced duplicate detection.'));
-    console.log(chalk.gray('   Example: funcqc improve --type duplicates --threshold 0.95\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { SimilarCommand } = await import('./cli/commands/similar-command');
@@ -376,7 +366,7 @@ program
 
 program
   .command('describe')
-  .description('📝 [DEPRECATED] Add or manage function descriptions - Use `funcqc inspect --detailed` instead')
+  .description('📝 Add or manage function descriptions')
   .argument('[function-id]', 'function ID or name pattern')
   .option('--text <description>', 'description text')
   .option('--source <type>', 'description source (human|ai|jsdoc), must match existing source unless --force is used', 'human')
@@ -394,11 +384,6 @@ program
   .option('--error-conditions <conditions>', 'document error conditions and handling')
   .option('--generate-template', 'generate JSON template for the specified function')
   .option('--ai-mode', 'enable AI-optimized batch processing')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "describe" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --detailed" instead for enhanced function inspection.'));
-    console.log(chalk.gray('   Example: funcqc inspect --name myFunction --detailed\n'));
-  })
   .action(async (_functionId: string | undefined, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { UnifiedDescribeCommand } = await import('./cli/commands/unified-describe');
@@ -454,7 +439,7 @@ AI Workflow:
 
 program
   .command('search')
-  .description('🔍 [DEPRECATED] Search functions by description keywords - Use `funcqc inspect --name` instead')
+  .description('🔍 Search functions by description keywords')
   .argument('<keyword>', 'search keyword')
   .option('--format <type>', 'output format (table|json|friendly)', 'table')
   .option('--limit <num>', 'limit number of results', '50')
@@ -469,11 +454,6 @@ program
   .option('--similarity-weights <json>', 'similarity algorithm weights as JSON: {"tfidf":0.5,"ngram":0.3,"jaccard":0.2}')
   .option('--context-functions <ids>', 'comma-separated function IDs for AST context in hybrid search')
   .option('--intermediate', 'output intermediate results for AI analysis')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "search" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc inspect --name" instead for enhanced function search.'));
-    console.log(chalk.gray('   Example: funcqc inspect --name "*auth*" (pattern matching)\n'));
-  })
   .action(async (_keyword: string, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { UnifiedSearchCommand } = await import('./cli/commands/unified-search');
@@ -549,66 +529,40 @@ refactoring tools (including AI) might introduce, such as unnecessary
 function splits that don't improve maintainability or reusability.
 `);
 
-// Add evaluate command (v1.6 enhancement) - loaded dynamically
-program.addCommand(
-  new Command('evaluate')
-    .description('📊 [DEPRECATED] Evaluate function naming quality - Use `funcqc assess --type quality` instead')
-    .hook('preAction', () => {
-      console.log(chalk.yellow('\n⚠️  DEPRECATED: The "evaluate" command is deprecated and will be removed in a future version.'));
-      console.log(chalk.blue('💡 Use "funcqc assess --type quality" instead for enhanced quality evaluation.'));
-      console.log(chalk.gray('   Example: funcqc assess --type quality (same functionality)\n'));
-    })
-    .action(async () => {
-      const { createEvaluateCommand } = await import('./cli/evaluate-naming');
-      const evaluateCommand = createEvaluateCommand();
-      await evaluateCommand.parseAsync(process.argv.slice(2));
-    })
-);
 
-// Add real-time code quality evaluation command (Phase 5)
+
 program
-  .command('eval')
-  .description('Real-time code quality evaluation for AI-generated code')
-  .argument('[input]', 'TypeScript code file to evaluate (or use --stdin)')
-  .option('--stdin', 'read code from stdin')
-  .option('--ai-generated', 'code is AI-generated (affects exit codes)')
-  .option('--strict', 'strict mode for critical violations')
-  .option('-j, --json', 'output as JSON for integration')
-  .option('--evaluate-all', 'evaluate all functions in the file/code')
-  .action(async (_input: string | undefined, options: OptionValues, command) => {
+  .command('experimental')
+  .description('🧪 Experimental and low-frequency commands')
+  .argument('[subcommand]', 'subcommand to execute')
+  .argument('[options...]', 'subcommand options')
+  .action(async (subcommand, options, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedEvaluateCommand } = await import('./cli/commands/unified-evaluate');
-    return createUnifiedCommandHandler(UnifiedEvaluateCommand)(options, command);
+    const { ExperimentalCommand } = await import('./cli/commands/experimental');
+    const handler = createUnifiedCommandHandler(ExperimentalCommand);
+    
+    // Convert arguments to options format
+    const commandOptions = { ...command.opts(), subcommand, options };
+    await handler(commandOptions, command);
   })
   .addHelpText('after', `
+Available subcommands:
+  evaluate          Function naming quality evaluation
+  residue-check     Detect debug code residue in TypeScript projects
+  extract-vo        Extract Value Objects from property clusters
+  canonicalize      Consolidate duplicate DTO types
+  discriminate      Transform types into discriminated unions
+  du               Discriminated Union incremental transformation toolkit
+  type-replace     Safe type replacements with compatibility checking
+
 Examples:
-  # Evaluate a file
-  $ funcqc eval myFunction.ts
-  
-  # Evaluate from stdin (AI workflow)
-  $ echo "function test() { return 42; }" | funcqc eval --stdin --ai-generated
-  
-  # Evaluate all functions in a file
-  $ funcqc eval myModule.ts --evaluate-all
-  
-  # JSON output for integration
-  $ funcqc eval code.ts --json
-  
-  # Evaluate all functions with JSON output
-  $ funcqc eval code.ts --evaluate-all --json
-  
-  # Strict mode (exit 1 on any critical violation)
-  $ funcqc eval code.ts --strict
-  
-AI Integration:
-  - Use --ai-generated for proper exit codes (0=acceptable, 1=needs improvement)
-  - Use --json for structured output with improvement suggestions
-  - Use --evaluate-all to assess all functions in the code
-  - Sub-20ms response time for real-time feedback
-  - Adaptive thresholds based on project baseline
+  funcqc experimental evaluate
+  funcqc experimental residue-check --auto-remove
+  funcqc experimental extract-vo
+  funcqc experimental du --help
+
+Use 'funcqc experimental <subcommand> --help' for detailed help on each subcommand.
 `);
-
-
 
 program
   .command('db')
@@ -933,7 +887,7 @@ for backward compatibility with the legacy analyzer.
 // Safe deletion command using high-confidence call graph analysis
 program
   .command('safe-delete')
-  .description('🛡️  [DEPRECATED] Safely analyze and delete dead code - Use `funcqc improve --type dead-code` instead')
+  .description('🛡️  Safely analyze and delete dead code')
   .option('--confidence-threshold <value>', 'minimum confidence score for deletion (0-1)', '0.95')
   .option('--max-batch <num>', 'maximum functions to delete in one batch', '10')
   .option('--no-tests', 'skip test execution before deletion')
@@ -947,11 +901,6 @@ program
   .option('--format <format>', 'output format (table, json)', 'table')
   .option('--verbose', 'show detailed analysis information')
   .option('--restore <path>', 'restore functions from backup directory')
-  .hook('preAction', () => {
-    console.log(chalk.yellow('\n⚠️  DEPRECATED: The "safe-delete" command is deprecated and will be removed in a future version.'));
-    console.log(chalk.blue('💡 Use "funcqc improve --type dead-code" instead for enhanced dead code detection.'));
-    console.log(chalk.gray('   Example: funcqc improve --type dead-code (same functionality)\n'));
-  })
   .action(async (options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { SafeDeleteCommand } = await import('./cli/commands/safe-delete-command');
@@ -992,67 +941,6 @@ Use --force to skip confirmation (not recommended).
 `);
 
 // Debug residue detection command
-program
-  .command('residue-check')
-  .description('Detect debug code residue in TypeScript projects')
-  .option('-j, --json', 'output as JSON')
-  .option('--verbose', 'show detailed context information')
-  .option('--details', 'show full analysis details')
-  .option('--ai-mode', 'output AI-optimized format')
-  .option('--config <path>', 'path to configuration file')
-  .option('--path <path>', 'specific path to analyze')
-  .option('--fix-mode <mode>', 'fix mode: none, preview, auto, interactive, script', 'none')
-  .option('--quiet', 'suppress non-essential output')
-  .action(async (options: OptionValues, command) => {
-    const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
-    const { UnifiedResidueCheckCommand } = await import('./cli/commands/unified-residue-check');
-    return createUnifiedCommandHandler(UnifiedResidueCheckCommand)(options, command);
-  })
-  .addHelpText('after', `
-Examples:
-  # Basic residue detection
-  $ funcqc residue-check
-  
-  # Verbose mode with context
-  $ funcqc residue-check --verbose
-  
-  # AI-optimized JSON output
-  $ funcqc residue-check --ai-mode --json
-  
-  # Analyze specific directory
-  $ funcqc residue-check --path src/services
-  
-  # Use custom configuration
-  $ funcqc residue-check --config .funcqc-residue.yaml
-  
-  # Fix modes
-  $ funcqc residue-check --fix-mode preview    # Preview fixes
-  $ funcqc residue-check --fix-mode auto       # Auto-fix AutoRemove items
-  $ funcqc residue-check --fix-mode interactive # Interactive fixing
-  $ funcqc residue-check --fix-mode script     # Generate fix script
-
-Classification:
-  - AutoRemove: Definitely debug code (debugger, console.debug, // DEBUG:)
-  - NeedsReview: Ambiguous output (console.log, console.error)
-  - Exempt: Valid user-facing output (notifyUser, printUsage)
-
-Fix Modes:
-  - none: Detection only (default)
-  - preview: Show what would be fixed
-  - auto: Automatically fix AutoRemove items
-  - interactive: Interactive fixing with user confirmation
-  - script: Generate executable fix script
-
-Configuration (.funcqc-residue.yaml):
-  exemptFunctions: [notifyUser, printUsage]
-  autoRemovePatterns: [debugger, console.debug]
-  customMarkers: [// DEBUG:, // TEMP:]
-  exclude: ["**/*.test.ts"]
-
-Exit codes:
-  0: No AutoRemove items found
-  1: AutoRemove items detected (action required)
-`);
 
 // Unified types command (consolidates 14 type analysis subcommands)
 program
@@ -1260,249 +1148,10 @@ program
     process.exit(0);
   });
 
-program
-  .command('type-replace')
-  .description('🔄 Analyze and execute safe type replacements with compatibility checking')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `type-replace` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
-    console.log('');
-    console.log('  funcqc refactor --action type-replace --from "OldType" --to "NewType"  # was: funcqc type-replace --from OldType --to NewType');
-    console.log('  funcqc refactor --action type-replace --check-only                     # was: funcqc type-replace --check-only');
-    console.log('  funcqc refactor --action type-replace --migration-plan                 # was: funcqc type-replace --migration-plan');
-    console.log('');
-    console.log('See: funcqc refactor --help');
-    process.exit(0);
-  })
-  .addHelpText('after', `
-Examples:
-  # Basic safety analysis for type replacement
-  $ funcqc refactor-guard --type UserType
-  
-  # Analyze merge operation with high risk tolerance
-  $ funcqc refactor-guard --type UserType --operation merge --risk-threshold high
-  
-  # Generate comprehensive analysis with all features
-  $ funcqc refactor-guard --type PaymentRequest --include-cochange --format markdown
-  
-  # Export analysis to file for documentation
-  $ funcqc refactor-guard --type ApiResponse --output safety-analysis.md --format markdown
-  
-  # Quick check without behavioral analysis
-  $ funcqc refactor-guard --type ConfigType --no-include-behavioral --format json
 
-Features:
-  🔍 Impact Analysis        - Identifies affected functions and types
-  ⚠️  Risk Assessment      - Calculates overall refactoring risk
-  ✅ Safety Checklist      - Generates actionable safety items  
-  🧪 Test Templates        - Auto-generates test code templates
-  📈 Co-change Analysis    - Uses Git history for temporal coupling
-  📝 PR Template          - Creates comprehensive PR documentation
-  🎯 Smart Recommendations - Provides context-aware guidance
 
-Risk Levels:
-  🟢 low      - Safe refactoring with minimal impact
-  🟡 medium   - Moderate risk, requires careful testing
-  🟠 high     - High risk, extensive validation needed
-  🔴 critical - Major breaking change, consider alternatives
-`);
 
-program
-  .command('canonicalize')
-  .description('🎯 Analyze and consolidate duplicate DTO types into canonical forms')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `canonicalize` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
-    console.log('');
-    console.log('  funcqc refactor --action canonicalize                     # was: funcqc canonicalize');
-    console.log('  funcqc refactor --action canonicalize --generate-codemod  # was: funcqc canonicalize --generate-codemod');
-    console.log('  funcqc refactor --action canonicalize --show-opportunities # was: funcqc canonicalize --show-opportunities');
-    console.log('');
-    console.log('See: funcqc refactor --help');
-    process.exit(0);
-  })
-  .addHelpText('after', `
-Examples:
-  # Basic DTO canonicalization analysis
-  $ funcqc canonicalize
-  
-  # Show consolidation opportunities and generated artifacts
-  $ funcqc canonicalize --show-opportunities --show-artifacts
-  
-  # Generate codemod actions with custom thresholds
-  $ funcqc canonicalize --generate-codemod --min-confidence 0.8
-  
-  # Export detailed analysis to markdown
-  $ funcqc canonicalize --format markdown --output dto-canonicalization.md
-  
-  # Low-impact changes only
-  $ funcqc canonicalize --require-minimal-impact --max-candidates 5
-  
-  # Dry run to preview changes
-  $ funcqc canonicalize --dry-run --show-opportunities
 
-Features:
-  🔍 Pattern Recognition    - Identifies similar DTO structures
-  📊 Relationship Analysis  - Maps structural relationships between types
-  🎯 Canonical Selection   - Recommends optimal canonical types
-  🔧 View Type Generation   - Creates Pick/Omit-based view types
-  🗺️  Migration Planning    - Generates step-by-step migration strategies
-  📦 Artifact Generation   - Creates mappers and conversion utilities
-  📈 Quality Metrics       - Measures duplicate reduction and maintainability
-
-Benefits:
-  • Reduce type duplication by 30-50%
-  • Improve maintainability through centralized types
-  • Generate automatic migration tools
-  • Preserve type safety during consolidation
-`);
-
-program
-  .command('extract-vo')
-  .description('🧩 Extract Value Objects from property clusters to improve encapsulation')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `extract-vo` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
-    console.log('');
-    console.log('  funcqc refactor --action extract-vo                          # was: funcqc extract-vo');
-    console.log('  funcqc refactor --action extract-vo --show-opportunities     # was: funcqc extract-vo --show-opportunities');
-    console.log('  funcqc refactor --action extract-vo --output-code ./vo       # was: funcqc extract-vo --output-code ./vo');
-    console.log('');
-    console.log('See: funcqc refactor --help');
-    process.exit(0);
-  })
-  .addHelpText('after', `
-Examples:
-  # Basic Value Object extraction analysis
-  $ funcqc extract-vo
-  
-  # Filter by domain and show generated code
-  $ funcqc extract-vo --domain-filter Finance --show-generated
-  
-  # Generate VO code files with custom thresholds
-  $ funcqc extract-vo --output-code ./value-objects --min-cohesion 0.8
-  
-  # Low complexity extractions only
-  $ funcqc extract-vo --complexity-filter low --max-candidates 5
-  
-  # Export comprehensive analysis
-  $ funcqc extract-vo --format markdown --output vo-extraction.md --show-opportunities
-  
-  # Generate VOs without smart constructors
-  $ funcqc extract-vo --no-generate-constructors --no-infer-invariants
-
-Features:
-  🔍 Pattern Detection      - Identifies cohesive property clusters
-  🏗️  Domain Analysis       - Groups VOs by business domain
-  💎 Smart Generation      - Creates VOs with methods and invariants
-  🧪 Constructor Creation   - Generates validation and factory functions
-  📊 Impact Assessment     - Measures benefits and risks of extraction
-  🎯 Migration Planning    - Creates step-by-step extraction plan
-  📦 Code Generation       - Outputs ready-to-use VO implementations
-
-Value Object Types:
-  💰 Money          - amount, currency
-  🌍 Coordinate     - lat, lng
-  ⏰ TimeRange      - start, end
-  📐 Dimensions     - width, height
-  📧 ContactInfo    - email, phone
-  🏷️  General        - custom property combinations
-
-Benefits:
-  • Improve type safety through encapsulation
-  • Enforce business rules and invariants
-  • Increase code reusability and testability
-  • Provide domain-specific operations and validation
-`);
-
-program
-  .command('discriminate')
-  .description('🏷️  Analyze and transform types into discriminated unions')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `discriminate` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `refactor` command instead:'));
-    console.log('');
-    console.log('  funcqc refactor --action discriminate                         # was: funcqc discriminate');
-    console.log('  funcqc refactor --action discriminate --transform             # was: funcqc discriminate --transform');
-    console.log('  funcqc refactor --action discriminate --target-types "User,Order"  # was: funcqc discriminate --target-types User,Order');
-    console.log('');
-    console.log('See: funcqc refactor --help');
-    process.exit(0);
-  })
-  .addHelpText('after', `
-
-Examples:
-  funcqc discriminate --target-types UserState,OrderStatus
-  funcqc discriminate --dry-run --transform --verbose
-  funcqc discriminate --min-confidence 0.8 --output detailed
-  funcqc discriminate --transform --allow-breaking
-
-Pattern Detection:
-  🏷️  Boolean flags      - status: boolean
-  🔢 Enum discriminants  - type: 'A' | 'B' | 'C'  
-  ⚡ Mutual exclusion   - (propA && !propB) patterns
-  🔄 Correlated props   - properties that change together
-
-Benefits:
-  • Eliminate runtime type checking and branching logic
-  • Provide exhaustive case analysis with TypeScript
-  • Improve type safety and prevent invalid state combinations
-  • Enable better IDE support and refactoring safety
-`);
-
-// DU (Discriminated Union) incremental command group
-const duCommand = program.command('du');
-duCommand
-  .description('🏷️  Discriminated Union incremental transformation toolkit')
-  .addHelpText('before', `
-The 'du' command group provides step-by-step discriminated union transformation:
-  • detect: Find DU opportunities (Step A: Detection)
-  • plan: Generate transformation plans (Step B: Planning) 
-  • gen: Generate types and helpers (Step C: Generation)
-  • migrate: Create migration utilities (Step D: Migration)
-  • rewrite: Transform call sites (Step E: Transformation)
-`);
-
-// Add detect subcommand
-duCommand.command('detect')
-  .description('🔍 Detect discriminated union opportunities (Step A: Detection)')
-  .option('--snapshot-id <id>', 'use specific snapshot for analysis')
-  .option('--target-types <types>', 'comma-separated list of specific types to analyze')
-  .option('--min-coverage <number>', 'minimum coverage threshold (0-1)', '0.8')
-  .option('--min-mutual-exclusivity <number>', 'minimum mutual exclusivity score (0-1)', '0.1')
-  .option('--min-usage-frequency <number>', 'minimum discriminant usage frequency (0-1)', '0.005')
-  .option('--max-variants <number>', 'maximum union variants per type', '8')
-  .option('--min-variants <number>', 'minimum union variants per type', '2')
-  .option('--exclude-props <props>', 'comma-separated properties to exclude', 'id,createdAt,updatedAt')
-  .option('--output <format>', 'output format: table|json|detailed', 'table')
-  .option('--format <format>', 'alias for --output', 'table')
-  .option('--save-json [path]', 'save detailed results as JSON file', false)
-  .option('--save-html [path]', 'save analysis report as HTML file', false)
-  .option('--verbose', 'enable verbose logging', false)
-  .action(async (options: OptionValues) => {
-    const { executeDetect } = await import('./cli/commands/du/detect');
-    await executeDetect(options);
-  })
-  .addHelpText('after', `
-Examples:
-  funcqc du detect                                    # Detect all DU opportunities
-  funcqc du detect --target-types Payment,OrderStatus # Analyze specific types  
-  funcqc du detect --min-coverage 0.9 --verbose       # High coverage threshold
-  funcqc du detect --save-html report.html --save-json data.json # Save reports
-  funcqc du detect --exclude-props id,timestamp       # Exclude common properties
-  funcqc du detect --output detailed                  # Show detailed analysis
-
-Detection Process:
-  📊 Step A1: Flag correlation analysis (φ coefficient, Jaccard index)
-  🎯 Step A2: Risk classification (coverage, exclusivity, complexity)
-  📈 Step A3: Impact estimation (file references, call sites)
-
-Output:
-  • DU Plan JSON with coverage metrics and variant definitions
-  • Risk assessment (low/medium/high) for each candidate
-  • Implementation priority and effort estimation
-  • HTML report for visualization and sharing
-`);
 
 // Overview command functionality has been integrated into the types command
 
