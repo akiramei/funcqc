@@ -203,10 +203,10 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
    */
   private async executeDescribe(_env: CommandEnvironment, args: string[]): Promise<void> {
     const options = this.parseDescribeOptions(args);
-    const { createUnifiedCommandHandler } = await import('../../core/unified-command-executor');
-    const { UnifiedDescribeCommand } = await import('./unified-describe');
-    const handler = createUnifiedCommandHandler(UnifiedDescribeCommand);
-    await handler(options, { opts: () => ({}) });
+    const { withEnvironment } = await import('../cli-wrapper');
+    const { describeCommand } = await import('./describe');
+    const functionId = args.length > 0 && !args[0].startsWith('--') ? args[0] : '';
+    await withEnvironment(describeCommand(functionId))(options);
   }
 
   /**
@@ -214,10 +214,10 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
    */
   private async executeSearch(_env: CommandEnvironment, args: string[]): Promise<void> {
     const options = this.parseSearchOptions(args);
-    const { createUnifiedCommandHandler } = await import('../../core/unified-command-executor');
-    const { UnifiedSearchCommand } = await import('./unified-search');
-    const handler = createUnifiedCommandHandler(UnifiedSearchCommand);
-    await handler(options, { opts: () => ({}) });
+    const { withEnvironment } = await import('../cli-wrapper');
+    const { searchCommand } = await import('./search');
+    const keyword = args.length > 0 && !args[0].startsWith('--') ? args[0] : '';
+    await withEnvironment(searchCommand(keyword))(options);
   }
 
   /**
