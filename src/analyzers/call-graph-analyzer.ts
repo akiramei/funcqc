@@ -531,7 +531,7 @@ export class CallGraphAnalyzer {
         } else {
           return undefined;
         }
-      } else {
+      } else if (moduleSpecifier.startsWith('/')) {
         // Absolute path (unified format: all paths start with /)
         if (isVirtual) {
           // 先頭のスラッシュを除去してから /virtual を付与（join は使わない）
@@ -540,6 +540,10 @@ export class CallGraphAnalyzer {
         } else {
           resolvedPath = path.resolve(moduleSpecifier);
         }
+      } else {
+        // External module or unsupported pattern - CRITICAL FIX
+        this.profiler.recordDetail('import_resolution', 'external_modules', 1);
+        return undefined;
       }
       
       // Try to find the source file with comprehensive extension support
@@ -553,12 +557,12 @@ export class CallGraphAnalyzer {
             '/index.js', '/index.jsx'
           ];
       
-      const toPosix = (p: string) => p.replace(/\\/g, '/');
       let targetSourceFile;
       for (const ext of extensionCandidates) {
         const tryPathRaw = resolvedPath + ext;
-        // 仮想パスは POSIX のまま、実ファイルは OS 解決
-        const tryPath = isVirtual ? toPosix(tryPathRaw) : path.resolve(tryPathRaw);
+        
+        // 🔧 CRITICAL FIX: パス正規化（ts-morph は登録時の表記差で取りこぼしが出ます）
+        const tryPath = path.resolve(tryPathRaw);
 
         targetSourceFile = this.project.getSourceFile(tryPath);
         
