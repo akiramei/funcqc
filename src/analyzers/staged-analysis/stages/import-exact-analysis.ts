@@ -620,16 +620,13 @@ export class ImportExactAnalysisStage {
       } else {
         return undefined;
       }
-    } else if (moduleSpecifier.startsWith('/')) {
-      // Absolute path with proper handling
+    } else {
+      // Absolute path (unified format: all paths start with /)
       if (isVirtual) {
         resolvedPath = path.join('/virtual', moduleSpecifier);
       } else {
         resolvedPath = path.resolve(moduleSpecifier);
       }
-    } else {
-      // External module or unsupported pattern
-      return undefined;
     }
     
     // Try to find the source file with comprehensive extension support

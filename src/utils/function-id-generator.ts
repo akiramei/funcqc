@@ -68,8 +68,19 @@ export class FunctionIdGenerator {
     startColumn: number,
     snapshotId: string
   ): string {
-    // Normalize file path to ensure cross-environment stability
-    const normalizedPath = getRelativePath(filePath);
+    // DEBUG: Log input parameters to verify consistency
+    if (process.env['DEBUG_FUNCTION_ID'] === 'true') {
+      console.log(`[FUNCTION-ID-DEBUG] Input parameters:
+        filePath: "${filePath}"
+        functionName: "${functionName}"
+        className: "${className}"
+        startLine: ${startLine}
+        startColumn: ${startColumn}
+        snapshotId: "${snapshotId}"`);
+    }
+    
+    // Use absolute path format for consistency (unified path format)
+    const normalizedPath = filePath;
     
     // Combine all identifying information (including snapshotId for uniqueness)
     const cacheKey = [
@@ -80,6 +91,11 @@ export class FunctionIdGenerator {
       startColumn.toString(),
       snapshotId
     ].join(':');
+    
+    if (process.env['DEBUG_FUNCTION_ID'] === 'true') {
+      console.log(`[FUNCTION-ID-DEBUG] normalizedPath: "${normalizedPath}"
+        cacheKey: "${cacheKey}"`);
+    }
     
     // Check cache first
     const cachedResult = functionIdCache.get(cacheKey);
@@ -106,6 +122,10 @@ export class FunctionIdGenerator {
     
     // Store in cache
     functionIdCache.set(cacheKey, uuid);
+    
+    if (process.env['DEBUG_FUNCTION_ID'] === 'true') {
+      console.log(`[FUNCTION-ID-DEBUG] Generated ID: "${uuid}"`);
+    }
     
     return uuid;
   }

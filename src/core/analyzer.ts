@@ -563,11 +563,23 @@ export class FunctionAnalyzer {
       
       // Build path mapping from fileContentMap (normalized paths) to virtual project paths
       for (const [normalizedPath, _content] of fileContentMap) {
-        // Find corresponding source file in virtual project
-        const sourceFile = virtualProject.getSourceFile(normalizedPath);
+        // Try both relative and absolute path formats to find corresponding source file
+        const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : '/' + normalizedPath;
+        const sourceFile = virtualProject.getSourceFile(absolutePath) || virtualProject.getSourceFile(normalizedPath);
+        
         if (sourceFile) {
           const tsmpPath = sourceFile.getFilePath();
           normalizedPathMapping.set(tsmpPath, normalizedPath);
+          
+          // Debug: Log successful mapping
+          if (Math.random() < 0.01) { // Log 1% for visibility
+            console.log(`[PATH-DEBUG] normalizedPathMapping: "${tsmpPath}" -> "${normalizedPath}"`);
+          }
+        } else {
+          // Debug: Log failed mapping
+          if (Math.random() < 0.01) {
+            console.log(`[PATH-DEBUG] FAILED to find sourceFile for normalizedPath: "${normalizedPath}" (tried: "${absolutePath}")`);
+          }
         }
       }
       

@@ -38,23 +38,24 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
         }
       : ora('Analyzing dead code...').start();
 
+    // For JSON format, suppress all logging to avoid output contamination (ensure restoration in finally)
+    let restoreInfo: null | (() => void) = null;
+
+    if (isJsonFormat && typeof env.commandLogger.info === 'function') {
+      const originalInfoFn = env.commandLogger.info;
+      env.commandLogger.info = () => {};
+      restoreInfo = () => {
+        env.commandLogger.info = originalInfoFn;
+      };
+    }
+
     try {
       // Use comprehensive call graph data including internal call edges
-      // For JSON format, suppress all logging to avoid output contamination
-      const originalLogLevel = isJsonFormat ? env.commandLogger.info : undefined;
-      if (isJsonFormat && env.commandLogger.info) {
-        env.commandLogger.info = () => {}; // Temporarily suppress info logs
-      }
       
       const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
       });
-      
-      // Restore original log level
-      if (isJsonFormat && originalLogLevel) {
-        env.commandLogger.info = originalLogLevel;
-      }
 
       // Validate that we have sufficient call graph data
       validateCallGraphRequirements(allEdges, 'dep dead');
@@ -173,6 +174,10 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       if (isJsonFormat && originalConsoleLog && originalConsoleInfo) {
         console.log = originalConsoleLog;
         console.info = originalConsoleInfo;
+      }
+      // Restore original commandLogger.info if suppressed
+      if (restoreInfo) {
+        restoreInfo();
       }
     }
   };

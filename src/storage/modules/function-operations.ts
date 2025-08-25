@@ -837,7 +837,16 @@ export class FunctionOperations implements StorageOperationModule {
       displayName: row.display_name || row.name,
       signature: row.signature,
       signatureHash: row.signature_hash,
-      filePath: row.file_path,
+      filePath: (() => {
+        // Debug: Log path transformation  
+        const originalPath = row.file_path;
+        const transformedPath = originalPath.startsWith('/') ? originalPath : '/' + originalPath;
+        
+        // Force logging to confirm this method is called
+        console.log(`[PATH-DEBUG] mapBasicFunctionInfo CALLED: "${originalPath}" -> "${transformedPath}"`);
+        
+        return transformedPath;
+      })(),
       fileHash: row.file_hash,
       startLine: row.start_line,
       endLine: row.end_line,
@@ -1268,7 +1277,7 @@ export class FunctionOperations implements StorageOperationModule {
       displayName: row.display_name,
       signature: row.signature,
       signatureHash: row.signature_hash,
-      filePath: row.file_path,
+      filePath: row.file_path.startsWith('/') ? row.file_path : '/' + row.file_path,
       fileHash: row.file_hash,
       startLine: row.start_line,
       endLine: row.end_line,

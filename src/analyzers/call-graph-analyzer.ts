@@ -531,17 +531,13 @@ export class CallGraphAnalyzer {
         } else {
           return undefined;
         }
-      } else if (moduleSpecifier.startsWith('/')) {
-        // 🔧 CRITICAL FIX: Absolute path with proper handling
+      } else {
+        // Absolute path (unified format: all paths start with /)
         if (isVirtual) {
           resolvedPath = path.join('/virtual', moduleSpecifier);
         } else {
           resolvedPath = path.resolve(moduleSpecifier);
         }
-      } else {
-        // External module or unsupported pattern
-        this.profiler.recordDetail('import_resolution', 'external_modules', 1);
-        return undefined;
       }
       
       // Try to find the source file with comprehensive extension support

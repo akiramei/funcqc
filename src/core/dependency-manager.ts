@@ -65,7 +65,7 @@ export class DependencyManager {
     const failed: Array<{ dependency: DependencyType; error: Error }> = [];
     
     if (!options.quiet) {
-      console.log(`🔄 Initializing dependencies: [${orderedDependencies.join(', ')}]`);
+      env.commandLogger?.info?.(`🔄 Initializing dependencies: [${orderedDependencies.join(', ')}]`);
     }
     
     // 各依存関係を順次、独立して初期化
@@ -73,7 +73,7 @@ export class DependencyManager {
       try {
         if (!options.quiet) {
           const def = DEPENDENCY_DEFINITIONS[dependency];
-          console.log(`⚡ ${def.name}...`);
+          env.commandLogger?.info?.(`⚡ ${def.name}...`);
         }
         
         // 独立トランザクションで実行
@@ -84,7 +84,7 @@ export class DependencyManager {
         successful.push(dependency);
         
         if (!options.quiet) {
-          console.log(`✅ ${DEPENDENCY_DEFINITIONS[dependency].name} completed`);
+          env.commandLogger?.info?.(`✅ ${DEPENDENCY_DEFINITIONS[dependency].name} completed`);
         }
         
       } catch (error) {
@@ -93,7 +93,7 @@ export class DependencyManager {
         failed.push({ dependency, error: initError });
         
         if (!options.quiet) {
-          console.log(`❌ ${DEPENDENCY_DEFINITIONS[dependency].name} failed: ${initError.message}`);
+          env.commandLogger?.error?.(`❌ ${DEPENDENCY_DEFINITIONS[dependency].name} failed: ${initError.message}`);
         }
         
         // 重要：失敗しても他の初期化は継続する
@@ -104,7 +104,7 @@ export class DependencyManager {
     const partialSuccess = successful.length > 0 && failed.length > 0;
     
     if (!options.quiet && partialSuccess) {
-      console.log(`⚠️  Partial initialization completed: ${successful.length} successful, ${failed.length} failed`);
+      env.commandLogger?.warn?.(`⚠️  Partial initialization completed: ${successful.length} successful, ${failed.length} failed`);
     }
     
     return { successful, failed, partialSuccess };
@@ -252,12 +252,14 @@ export class DependencyManager {
     dependency: DependencyType,
     env: CommandEnvironment
   ): Promise<void> {
+    const snapshot = await env.storage.getLatestSnapshot();
+    if (!snapshot) return;
+    
+    // 現在の状態を取得（rollback用に事前取得）
+    const currentState = await this.getCurrentAnalysisState(env);
+    const prevLevel = (currentState.level as AnalysisLevel) ?? 'NONE';
+    
     try {
-      const snapshot = await env.storage.getLatestSnapshot();
-      if (!snapshot) return;
-      
-      // 現在の状態を取得
-      const currentState = await this.getCurrentAnalysisState(env);
       const newCompleted = [...new Set([...currentState.completedAnalyses, dependency])];
       
       // 新しいレベルを計算
@@ -269,10 +271,29 @@ export class DependencyManager {
       // 新方式の completedAnalyses 配列をメタデータに追加で更新
       await this.updateCompletedAnalysesMetadata(snapshot.id, newCompleted, env);
       
-      console.log(`[DEBUG] Successfully recorded completion of ${dependency}, current completed: [${newCompleted.join(', ')}]`);
+      env.commandLogger?.debug?.(
+        `Successfully recorded completion of ${dependency}, current completed: [${newCompleted.join(', ')}]`
+      );
     } catch (error) {
       // メタデータ更新の失敗は重大な問題として扱う
-      console.error(`CRITICAL: Failed to record analysis completion for ${dependency}:`, error);
+      env.commandLogger?.error?.(
+        `CRITICAL: Failed to record analysis completion for ${dependency}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      // ベストエフォートのロールバックで不整合を緩和
+      try {
+        const snapshot = await env.storage.getLatestSnapshot();
+        if (snapshot) {
+          await env.storage.updateAnalysisLevel(snapshot.id, prevLevel);
+        }
+      } catch (rollbackErr) {
+        env.commandLogger?.warn?.(
+          `Rollback of analysisLevel failed: ${
+            rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
+          }`
+        );
+      }
       throw error; // 失敗を呼び出し元に伝播
     }
   }
@@ -303,7 +324,9 @@ export class DependencyManager {
       };
       
       // メタデータ更新実行（型安全にquery methodを使用）
-      console.log(`[DEBUG] Updating completedAnalyses for snapshot ${snapshotId}: ${completedAnalyses.join(', ')}`);
+      env.commandLogger?.debug?.(
+        `Updating completedAnalyses for snapshot ${snapshotId}: ${completedAnalyses.join(', ')}`
+      );
       
       await env.storage.query(
         'UPDATE snapshots SET metadata = $1 WHERE id = $2',
@@ -316,23 +339,31 @@ export class DependencyManager {
       const storedAnalyses = verifyMetadata?.['completedAnalyses'];
       
       // デバッグ用の詳細ログ
-      console.log(`[DEBUG] Verification details:`, {
-        snapshotExists: !!verifySnapshot,
-        metadataExists: !!verifyMetadata,
-        completedAnalysesRaw: storedAnalyses,
-        completedAnalysesType: typeof storedAnalyses,
-        isArray: Array.isArray(storedAnalyses)
-      });
+      env.commandLogger?.debug?.(
+        `Verification details: ${JSON.stringify({
+          snapshotExists: !!verifySnapshot,
+          metadataExists: !!verifyMetadata,
+          completedAnalysesRaw: storedAnalyses,
+          completedAnalysesType: typeof storedAnalyses,
+          isArray: Array.isArray(storedAnalyses)
+        })}`
+      );
       
       if (!Array.isArray(storedAnalyses) || storedAnalyses.length !== completedAnalyses.length) {
         throw new Error(`Metadata update verification failed. Expected: [${completedAnalyses.join(', ')}], Got: ${Array.isArray(storedAnalyses) ? '[' + storedAnalyses.join(', ') + ']' : 'not an array or undefined'}`);
       }
       
-      console.log(`[DEBUG] Metadata update verified successfully: [${storedAnalyses.join(', ')}]`);
+      env.commandLogger?.debug?.(
+        `Metadata update verified successfully: [${storedAnalyses.join(', ')}]`
+      );
       
     } catch (error) {
       // 失敗時は詳細なエラー情報を出力し、エラーを再throw（隠蔽しない）
-      console.error(`CRITICAL: Failed to update completedAnalyses metadata for snapshot ${snapshotId}:`, error);
+      env.commandLogger?.error?.(
+        `CRITICAL: Failed to update completedAnalyses metadata for snapshot ${snapshotId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
       throw error; // エラーを隠蔽せず、呼び出し元に伝播
     }
   }

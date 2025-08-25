@@ -234,14 +234,15 @@ function showSummaryIfNeeded(
 }
 
 function parseConsensusStrategy(input: string): ConsensusStrategy {
-  const parts = input.split(':');
-  const strategy = parts[0];
+  const idx = input.lastIndexOf(':');
+  const strategy = idx !== -1 ? input.slice(0, idx) : input;
+  const paramPart = idx !== -1 ? input.slice(idx + 1) : undefined;
 
   switch (strategy) {
     case 'majority':
       return {
         strategy: 'majority',
-        threshold: parts[1] ? parseFloat(parts[1]) : 0.5,
+        threshold: paramPart ? parseFloat(paramPart) : 0.5,
       };
 
     case 'intersection':
@@ -253,8 +254,8 @@ function parseConsensusStrategy(input: string): ConsensusStrategy {
     case 'weighted': {
       // Parse weighted format: weighted:detector1=0.5,detector2=0.3
       const weightings: Record<string, number> = {};
-      if (parts[1]) {
-        const weights = parts[1].split(',');
+      if (paramPart) {
+        const weights = paramPart.split(',');
         for (const weight of weights) {
           const [detector, value] = weight.split('=');
           weightings[detector] = parseFloat(value);
