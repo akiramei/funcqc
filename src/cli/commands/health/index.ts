@@ -770,7 +770,7 @@ function generateRiskAnalysisData(
   functions: FunctionInfo[]
 ) {
   // Find highest risk function
-  const highestRiskAssessment = riskAssessments
+  const highestRiskAssessment = [...riskAssessments]
     .sort((a, b) => b.riskScore - a.riskScore)[0];
   
   const highestRiskFunction = highestRiskAssessment && functions.find(f => f.id === highestRiskAssessment.functionId);

@@ -96,14 +96,13 @@ funcqc v2.0は、従来の45個のコマンドを使いやすさを重視して9
 | `funcqc files` | 📁 ファイル管理 | ソースファイル一覧と表示 |
 | `funcqc similar` | 🔍 類似検出 | 類似・重複関数の検出 |
 | `funcqc diff` | 📈 変更比較 | スナップショット間の変更差分 |
-| `funcqc history` | 📚 履歴管理 | スナップショット履歴表示 |
 
 ### 専門的分析コマンド
 
 | コマンド | 説明 | サブコマンド例 |
 |---------|------|---------------|
-| `funcqc dep` | 🔗 依存関係分析 | list, show, dead, delete, cycles |
-| `funcqc types` | 🧩 TypeScript分析 | health, deps, api, members (14種類) |
+| `funcqc dep` | 🔗 依存関係分析 | list, show, stats, lint, dead, delete, cycles |
+| `funcqc types` | 🧩 TypeScript分析 | health, deps, api, members（全14種のサブコマンド） |
 | `funcqc db` | 💾 データベース管理 | export, import, convert |
 | `funcqc experimental` | 🧪 実験的機能 | evaluate, residue-check, describe, search |
 
@@ -176,6 +175,20 @@ funcqc health --verbose
 funcqc similar
 ```
 
+### 旧 `safe-delete` からの移行
+`funcqc safe-delete` は v2.0 で `funcqc dep delete` に統合されました（オプション互換）。
+```bash
+# 旧:
+# funcqc safe-delete --execute
+# 新:
+funcqc dep delete --execute
+```
+代表的なオプション例:
+```bash
+funcqc dep delete --dry-run
+funcqc dep delete --include-tests --verbose
+```
+
 ### 新しいコマンド構造
 
 すべてのコマンドが直接実行可能な形で整理され、より直感的な操作が可能になりました：
@@ -246,31 +259,25 @@ FUNCQC_ENABLE_LAYER_PAGERANK=true funcqc health
 FUNCQC_DEBUG_SIMILARITY=true FUNCQC_DEBUG_TARGET=myFunction funcqc similar
 ```
 
-詳細な環境変数リファレンスは [docs/environment-variables.md](./docs/environment-variables.md) をご覧ください。
+詳細な環境変数リファレンスは [docs/architecture/environment-variables.md](./docs/architecture/environment-variables.md) をご覧ください。
 
 ## ドキュメント
 
 詳細な設計資料は [docs/](./docs/) フォルダをご覧ください：
 
 ### 基本機能
-- [技術アーキテクチャ](./docs/architecture.md)
-- [開発ロードマップ](./docs/roadmap.md)
-- [CLI設計](./docs/cli-design.md)
-- [データモデル](./docs/data-model.md)
-- [実装ガイド](./docs/implementation-guide.md)
-- [ユーザーシナリオ](./docs/user-scenarios.md)
-- [環境変数リファレンス](./docs/environment-variables.md)
+- [データモデル](./docs/architecture/data-model.md) - データベーススキーマと設計
+- [技術詳細](./docs/architecture/technical-details.md) - アーキテクチャ実装詳細
+- [環境変数リファレンス](./docs/architecture/environment-variables.md) - 設定オプション一覧
 
-### 関数系譜追跡（Lineage Tracking）
-- [系譜追跡概要](./docs/lineage-tracking.md) - 機能概要と利用シーン
-- [CLIコマンドリファレンス](./docs/lineage-cli-commands.md) - 全コマンドの詳細説明
-- [GitHub Actions統合](./docs/github-actions-lineage.md) - CI/CD連携ガイド
-- [データベーススキーマ](./docs/lineage-database-schema.md) - スキーマ設計と移行
-- [トラブルシューティング](./docs/lineage-troubleshooting.md) - 問題解決ガイド
+### ユーザーガイド
+- [コマンドチートシート](./docs/user-guide/cheatsheet.md) - 頻用コマンド早見表
+- [GitHub Actions統合](./docs/user-guide/github-actions-integration.md) - CI/CD連携ガイド
+- [コマンド詳細](./docs/user-guide/commands/) - 各コマンドの使用法
 
 ## 📈 開発状況
 
-**Current Version**: v2.0 - 革新的コマンド統合完了
+**Current Version**: v0.1.0 - 革新的コマンド統合完了
 
 ### 完了したフェーズ
 

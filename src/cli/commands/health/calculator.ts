@@ -233,9 +233,9 @@ export async function calculateQualityMetrics(
     criticalViolationRate = totalFunctions > 0 
       ? (riskDistribution.critical / totalFunctions) * 100 
       : 0;
-  } catch (error) {
+  } catch {
     // If risk assessment fails, leave rates as undefined to show N/A
-    console.warn('Risk assessment failed, some metrics will show as N/A:', error);
+    // Error is handled gracefully - metrics will display as N/A
   }
 
   // Calculate individual component scores
