@@ -448,7 +448,7 @@ export class DependencyManager {
       
       if (config['scopes'] && (config['scopes'] as Record<string, unknown>)[actualScopeName as string]) {
         const scope = (config['scopes'] as Record<string, unknown>)[actualScopeName as string];
-        return (scope as Record<string, unknown>).include || ['src/**/*.ts', 'src/**/*.tsx'];
+        return ((scope as Record<string, unknown>)['include'] as string[]) || ['src/**/*.ts', 'src/**/*.tsx'];
       }
       
       return ['src/**/*.ts', 'src/**/*.tsx'];
@@ -516,7 +516,7 @@ export class DependencyManager {
         configHash: options['configHash'],
       };
       
-      const snapshotId = await (storage as Record<string, unknown>).createSnapshot(createSnapshotOptions);
+      const snapshotId = await ((storage as Record<string, unknown>)['createSnapshot'] as (...args: unknown[]) => Promise<string>)(createSnapshotOptions);
       
       // snapshotIdを設定
       const fullSourceFiles = sourceFiles.map(file => ({
@@ -524,7 +524,7 @@ export class DependencyManager {
         snapshotId: snapshotId,
       }));
       
-      await (storage as Record<string, unknown>).saveSourceFiles(fullSourceFiles, snapshotId);
+      await ((storage as Record<string, unknown>)['saveSourceFiles'] as (...args: unknown[]) => Promise<void>)(fullSourceFiles, snapshotId);
       return snapshotId;
     };
 
