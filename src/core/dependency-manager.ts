@@ -302,18 +302,10 @@ export class DependencyManager {
         completedAnalyses: completedAnalyses
       };
       
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const storageAdapter = env.storage as any;
-      
-      if (!storageAdapter.query) {
-        throw new Error('Storage adapter does not support query method for metadata update');
-      }
-      
-      // 更新前の確認用ログ
+      // メタデータ更新実行（型安全にquery methodを使用）
       console.log(`[DEBUG] Updating completedAnalyses for snapshot ${snapshotId}: ${completedAnalyses.join(', ')}`);
       
-      // メタデータ更新実行
-      await storageAdapter.query(
+      await env.storage.query(
         'UPDATE snapshots SET metadata = $1 WHERE id = $2',
         [JSON.stringify(updatedMetadata), snapshotId]
       );

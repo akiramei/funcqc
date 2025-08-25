@@ -9,6 +9,7 @@
  * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  */
 
+import * as path from 'path';
 import { Project, TypeChecker } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
@@ -267,16 +268,24 @@ export class StagedAnalysisEngine {
       }
 
       const rawFilePath = sourceFile.getFilePath();
-      // Use ts-morph absolute path directly (matches buildLookupMaps normalization)
-      const filePath = rawFilePath;
+      // Use absolute OS-native path to match buildLookupMaps normalization
+      const filePath = path.resolve(rawFilePath);
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
 
       // Debug: Log path comparison for first few files
-      if (processedFiles <= 3) {
-        console.log(`[PATH-DEBUG] performCombinedLocalAndImportAnalysis: using absolute path="${filePath}"`);
-        console.log(`[PATH-DEBUG] fileFunctions.length = ${fileFunctions.length}`);
+      if (this._debug && processedFiles <= 3) {
+        this.logger.debug(
+          `[PATH-DEBUG] performCombinedLocalAndImportAnalysis: using absolute path="${filePath}"`
+        );
+        this.logger.debug(
+          `[PATH-DEBUG] fileFunctions.length = ${fileFunctions.length}`
+        );
         if (fileFunctions.length === 0) {
-          console.log(`[PATH-DEBUG] Available keys in fileToFunctionsMap:`, Array.from(this.state.fileToFunctionsMap.keys()).slice(0, 5));
+          this.logger.debug(
+            `[PATH-DEBUG] Available keys in fileToFunctionsMap: ${JSON.stringify(
+              Array.from(this.state.fileToFunctionsMap.keys()).slice(0, 5)
+            )}`
+          );
         }
       }
 
@@ -324,16 +333,18 @@ export class StagedAnalysisEngine {
   private buildLookupMaps(functions: Map<string, FunctionMetadata>): void {
     // Build file to functions map
     for (const [id, func] of functions) {
-      // Normalize path: ensure leading slash for consistency with ts-morph paths
-      const normalizedPath = func.filePath.startsWith('/') ? func.filePath : '/' + func.filePath;
+      // Normalize path: use absolute OS-native path to match ts-morph getFilePath()
+      const normalizedPath = path.resolve(func.filePath);
       
       const existing = this.state.fileToFunctionsMap.get(normalizedPath) || [];
       existing.push(func);
       this.state.fileToFunctionsMap.set(normalizedPath, existing);
       
-      // Debug: Log first few paths to understand format
-      if (this.state.fileToFunctionsMap.size <= 3) {
-        console.log(`[PATH-DEBUG] buildLookupMaps: func.filePath = "${func.filePath}" -> normalized = "${normalizedPath}"`);
+      // Debug: log first few mappings when debug mode is enabled
+      if (this._debug && this.state.fileToFunctionsMap.size <= 3) {
+        this.logger.debug(
+          `[PATH-DEBUG] buildLookupMaps: func.filePath = "${func.filePath}" -> normalized = "${normalizedPath}"`
+        );
       }
 
       // Build function lookup map (per-line for O(1) lookup compatibility)

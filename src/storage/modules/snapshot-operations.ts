@@ -102,7 +102,7 @@ export class SnapshotOperations implements StorageOperationModule {
           process.cwd(),
           options.configHash || '',
           options.scope || 'src',
-          '{}' // Empty metadata initially
+          JSON.stringify(this.createInitialMetadata(options.analysisLevel))
         ]
       );
       
@@ -683,7 +683,7 @@ export class SnapshotOperations implements StorageOperationModule {
       projectRoot: row.project_root || process.cwd(),
       configHash: row.config_hash || 'unknown',
       scope: row.scope || 'src',
-      analysisLevel: (metadata['analysisLevel'] as 'NONE' | 'BASIC' | 'CALL_GRAPH') || 'NONE',
+      analysisLevel: (metadata['analysisLevel'] as import('../../types').AnalysisLevel) || 'NONE',
       metadata: {
         totalFunctions: Number(metadata['totalFunctions'] || 0),
         totalFiles: Number(metadata['totalFiles'] || 0),
@@ -693,7 +693,7 @@ export class SnapshotOperations implements StorageOperationModule {
         asyncFunctions: Number(metadata['asyncFunctions'] || 0),
         complexityDistribution: (metadata['complexityDistribution'] || {}) as Record<number, number>,
         fileExtensions: (metadata['fileExtensions'] || {}) as Record<string, number>,
-        analysisLevel: (metadata['analysisLevel'] as 'NONE' | 'BASIC' | 'CALL_GRAPH') || 'NONE',
+        analysisLevel: (metadata['analysisLevel'] as import('../../types').AnalysisLevel) || 'NONE',
         basicAnalysisCompleted: Boolean(metadata['basicAnalysisCompleted']),
         callGraphAnalysisCompleted: Boolean(metadata['callGraphAnalysisCompleted']),
         // Include completedAnalyses array for new metadata format
