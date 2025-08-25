@@ -516,7 +516,14 @@ dbCommand.command('convert')
 program
   .command('dep [command]')
   .description('Function dependency analysis and cleanup')
-  // no top-level action: show subcommand help when `dep` is invoked without args
+  .action(async (_subcmd: string | undefined, _options: OptionValues, command) => {
+    // Show help when no subcommand is provided
+    if (!_subcmd) {
+      command.outputHelp();
+      process.exit(0);
+    }
+    // Otherwise, let Commander handle the subcommand routing
+  })
   .addHelpText('after', `
 Migration:
   funcqc safe-delete --execute  →  funcqc dep delete --execute
