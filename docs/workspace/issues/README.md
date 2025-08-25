@@ -7,7 +7,7 @@ This directory contains detailed documentation of known issues in funcqc.
 ### [DCD-001: Dead Code Detection Accuracy Problems](./dead-code-detection-accuracy.md)
 **Status**: Identified - Needs Fix  
 **Impact**: High - Critical functions incorrectly marked as dead code  
-**Affected**: `funcqc dead`, `funcqc clean` commands  
+**Affected**: `funcqc dep dead`, `funcqc dep delete` commands  
 
 **Quick Summary**: Dead code detection has false positives. Functions actively used in tests and source files are incorrectly identified as dead code, leading to potential deletion of critical functions.
 
@@ -16,7 +16,7 @@ This directory contains detailed documentation of known issues in funcqc.
 ### [DCD-002: Dead Code Detection Accuracy Improvements Implementation](./dead-code-detection-improvements.md)
 **Status**: In Progress  
 **Impact**: High - Systematic implementation to resolve DCD-001  
-**Affected**: `funcqc dead`, `funcqc clean` commands  
+**Affected**: `funcqc dep dead`, `funcqc dep delete` commands  
 
 **Quick Summary**: Implementation plan for systematic improvements to dead code detection accuracy through 3-phase approach: entry point detection enhancement, same-file call detection, and module resolution enhancement.
 

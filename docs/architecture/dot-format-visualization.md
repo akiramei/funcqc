@@ -20,33 +20,33 @@ Options:
 - `--show-isolated`: Include isolated functions
 - `--limit <num>`: Limit number of functions displayed
 
-### 2. Risk Analysis Visualization
+### 2. Cycle Analysis Visualization
 
 ```bash
-# Generate risk assessment graph in DOT format
-funcqc risk analyze --format dot > risk-graph.dot
+# 重要な循環依存の可視化（DOT）
+funcqc dep cycles --format dot > cycles.dot
 
-# Filter by severity
-funcqc risk analyze --format dot --severity high > high-risk.dot
+# レイヤーを跨ぐ重要な循環のみ
+funcqc dep cycles --format dot --cross-layer-only > cross-layer-cycles.dot
 
-# Filter by pattern type
-funcqc risk analyze --format dot --pattern circular > circular-deps.dot
+# 複雑度の高い循環のみ
+funcqc dep cycles --format dot --min-complexity 6 > complex-cycles.dot
 ```
 
 Options:
-- `--severity <level>`: Filter by risk level (critical, high, medium, low)
-- `--pattern <type>`: Filter by pattern type (wrapper, fake-split, complexity-hotspot, isolated, circular)
-- `--limit <num>`: Limit number of results
-- `--min-score <num>`: Minimum risk score to include (0-100)
+- `--min-complexity <num>`: 循環の複雑度（関数数）の下限
+- `--cross-layer-only`: レイヤー跨ぎの循環のみ表示
+- `--cross-module-only`: モジュール跨ぎの循環のみ表示
+- `--include-all`: 旧互換（再帰や明確チェーンも含む）
 
 ### 3. Dead Code Visualization
 
 ```bash
 # Generate dead code graph in DOT format
-funcqc dead --format dot > dead-code.dot
+funcqc dep dead --format dot > dead-code.dot
 
 # Exclude test functions
-funcqc dead --exclude-tests --format dot > dead-code-no-tests.dot
+funcqc dep dead --exclude-tests --format dot > dead-code-no-tests.dot
 ```
 
 Options:
@@ -107,11 +107,11 @@ The generated DOT files can be visualized using:
 # 1. Generate comprehensive dependency analysis
 funcqc dep stats --format dot --show-hubs --show-utility > deps.dot
 
-# 2. Identify high-risk functions
-funcqc risk analyze --format dot --severity high --limit 20 > high-risk.dot
+# 2. Identify critical cycles
+funcqc dep cycles --format dot --cross-layer-only --limit 20 > high-impact-cycles.dot
 
 # 3. Find dead code
-funcqc dead --format dot --exclude-tests > dead-code.dot
+funcqc dep dead --format dot --exclude-tests > dead-code.dot
 
 # 4. Convert all to PNG
 for f in *.dot; do dot -Tpng "$f" -o "${f%.dot}.png"; done
@@ -126,8 +126,8 @@ The DOT format output can be integrated into CI/CD pipelines for automatic visua
 - name: Generate visualizations
   run: |
     funcqc dep stats --format dot > artifacts/dependencies.dot
-    funcqc risk analyze --format dot --severity high > artifacts/high-risk.dot
-    funcqc dead --format dot > artifacts/dead-code.dot
+    funcqc dep cycles --format dot --cross-layer-only > artifacts/high-impact-cycles.dot
+    funcqc dep dead --format dot > artifacts/dead-code.dot
     
 - name: Convert to images
   run: |

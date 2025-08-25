@@ -177,14 +177,14 @@ describe('Dead Code Detection Accuracy - DCD-002', () => {
 ```bash
 # Before each phase implementation
 npm run dev scan
-npm run dev -- dead --format json > before-phase.json
+npm run dev -- dep dead --format json > before-phase.json
 
 # After implementation
 npm run dev scan
-npm run dev -- dead --format json > after-phase.json
+npm run dev -- dep dead --format json > after-phase.json
 
 # Compare false positive reduction
-npm run dev -- dead --validate-accuracy
+npm run dev -- dep dead --validate-accuracy
 ```
 
 ## 📈 Implementation Branches
