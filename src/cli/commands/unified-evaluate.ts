@@ -27,12 +27,10 @@ export class UnifiedEvaluateCommand implements Command {
     if (subCommand.includes('--json')) options.json = true;
     if (subCommand.includes('--quiet')) options.quiet = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
-    if (subCommand.includes('--ai-optimized')) options.aiOptimized = true;
-    
-    const modeIndex = subCommand.indexOf('--mode');
-    if (modeIndex >= 0 && modeIndex < subCommand.length - 1) {
-      options.mode = subCommand[modeIndex + 1];
-    }
+    if (subCommand.includes('--stdin')) options.stdin = true;
+    if (subCommand.includes('--ai-generated')) options.aiGenerated = true;
+    if (subCommand.includes('--strict')) options.strict = true;
+    if (subCommand.includes('--evaluate-all')) options.evaluateAll = true;
     
     return options;
   }

@@ -3,11 +3,11 @@ import chalk from 'chalk';
 import { Ora } from 'ora';
 import ora from 'ora';
 import * as readline from 'readline';
-import { VoidCommand } from '../types/command';
-import { CommandEnvironment } from '../types/environment';
-import { createErrorHandler } from '../utils/error-handler';
-import { SafeDeletionSystem, SafeDeletionOptions } from '../analyzers/safe-deletion-system';
-import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../utils/lazy-analysis';
+import { VoidCommand } from '../../types/command';
+import { CommandEnvironment } from '../../types/environment';
+import { createErrorHandler } from '../../utils/error-handler';
+import { SafeDeletionSystem, SafeDeletionOptions } from '../../analyzers/safe-deletion-system';
+import { loadCallGraphWithLazyAnalysis, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 
 interface SafeDeleteOptions extends OptionValues {
   confidenceThreshold?: string;
@@ -28,7 +28,7 @@ interface SafeDeleteOptions extends OptionValues {
 /**
  * Safe deletion command using high-confidence call graph analysis
  */
-export const safeDeleteCommand: VoidCommand<SafeDeleteOptions> = (options) =>
+export const depSafeDeleteCommand: VoidCommand<SafeDeleteOptions> = (options) =>
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
     const spinner = ora();
@@ -73,7 +73,7 @@ async function performSafeDeletion(
   const { snapshot, callEdges, functions } = lazyResult;
 
   // Validate that we have sufficient call graph data
-  validateCallGraphRequirements(callEdges, 'safe-delete');
+  validateCallGraphRequirements(callEdges, 'dep delete');
 
   if (!snapshot) {
     throw new Error('Snapshot is required for safe deletion');
@@ -133,13 +133,13 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
  * Perform the actual safe deletion analysis (preview mode)
  */
 async function performAnalysis(
-  functions: import('../types').FunctionInfo[],
-  callEdges: import('../types').CallEdge[],
+  functions: import('../../types').FunctionInfo[],
+  callEdges: import('../../types').CallEdge[],
   safeDeletionOptions: Partial<SafeDeletionOptions>,
   spinner: Ora,
   env?: CommandEnvironment,
   snapshotId?: string
-): Promise<import('../analyzers/safe-deletion-system').SafeDeletionResult> {
+): Promise<import('../../analyzers/safe-deletion-system').SafeDeletionResult> {
   spinner.text = 'Analyzing functions for safe deletion...';
   
   const safeDeletionSystem = new SafeDeletionSystem(env?.commandLogger);
@@ -165,8 +165,8 @@ async function performAnalysis(
  * Execute actual deletion after confirmation
  */
 async function executeActualDeletion(
-  functions: import('../types').FunctionInfo[],
-  callEdges: import('../types').CallEdge[],
+  functions: import('../../types').FunctionInfo[],
+  callEdges: import('../../types').CallEdge[],
   safeDeletionOptions: Partial<SafeDeletionOptions>,
   spinner: Ora,
   env?: CommandEnvironment,
@@ -198,14 +198,14 @@ async function executeActualDeletion(
   outputErrorsAndWarnings(result);
   
   if (result.backupPath) {
-    console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc safe-delete --restore "${result.backupPath}"`));
+    console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc dep delete --restore "${result.backupPath}"`));
   }
 }
 
 /**
  * Prompt user for confirmation before actual deletion
  */
-async function promptForConfirmation(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): Promise<boolean> {
+async function promptForConfirmation(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): Promise<boolean> {
   return new Promise((resolve) => {
     const rl = readline.createInterface({
       input: process.stdin,
@@ -233,7 +233,7 @@ async function promptForConfirmation(result: import('../analyzers/safe-deletion-
  * Output results in the requested format
  */
 function outputResults(
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult,
   options: SafeDeleteOptions
 ): void {
   if (options.format === 'json') {
@@ -262,7 +262,7 @@ async function handleRestoreOperation(backupPath: string, spinner: Ora, env?: Co
 /**
  * Output results as JSON
  */
-function outputSafeDeletionJSON(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputSafeDeletionJSON(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   const output = {
     summary: {
       candidates: result.candidateFunctions.length,
@@ -288,7 +288,7 @@ function outputSafeDeletionJSON(result: import('../analyzers/safe-deletion-syste
  * Output results as formatted table
  */
 function outputSafeDeletionTable(
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult,
   options: SafeDeleteOptions
 ): void {
   console.log(chalk.bold('\n🛡️  Safe Deletion Analysis Results\n'));
@@ -310,7 +310,7 @@ function outputSafeDeletionTable(
 /**
  * Output summary section with counts and backup info
  */
-function outputSummarySection(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputSummarySection(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   const { candidateFunctions, deletedFunctions, skippedFunctions, errors, warnings } = result;
   
   console.log(`Candidates found:     ${chalk.cyan(candidateFunctions.length)}`);
@@ -327,7 +327,7 @@ function outputSummarySection(result: import('../analyzers/safe-deletion-system'
 /**
  * Output validation results section
  */
-function outputValidationResults(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputValidationResults(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   console.log('\n🔍 Validation Results:');
   console.log(`Pre-deletion:  TypeCheck: ${result.preDeleteValidation.typeCheckPassed ? '✅' : '❌'}, Tests: ${result.preDeleteValidation.testsPassed ? '✅' : '❌'}`);
   
@@ -339,7 +339,7 @@ function outputValidationResults(result: import('../analyzers/safe-deletion-syst
 /**
  * Output errors and warnings sections
  */
-function outputErrorsAndWarnings(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputErrorsAndWarnings(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   if (result.errors.length > 0) {
     console.log(chalk.red('\n❌ Errors:'));
     result.errors.forEach(error => console.log(`  • ${error}`));
@@ -355,7 +355,7 @@ function outputErrorsAndWarnings(result: import('../analyzers/safe-deletion-syst
  * Output candidates section grouped by file
  */
 function outputCandidatesSection(
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult,
   options: SafeDeleteOptions
 ): void {
   console.log(chalk.bold('\n🎯 Deletion Candidates\n'));
@@ -376,7 +376,7 @@ function outputCandidatesSection(
 /**
  * Group candidates by file path
  */
-function groupCandidatesByFile(candidates: import('../analyzers/safe-deletion-system').DeletionCandidate[]): Map<string, typeof candidates> {
+function groupCandidatesByFile(candidates: import('../../analyzers/safe-deletion-system').DeletionCandidate[]): Map<string, typeof candidates> {
   const candidatesByFile = new Map<string, typeof candidates>();
   
   for (const candidate of candidates) {
@@ -394,8 +394,8 @@ function groupCandidatesByFile(candidates: import('../analyzers/safe-deletion-sy
  * Output individual candidate function information
  */
 function outputCandidateInfo(
-  candidate: import('../analyzers/safe-deletion-system').DeletionCandidate,
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult,
+  candidate: import('../../analyzers/safe-deletion-system').DeletionCandidate,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult,
   options: SafeDeleteOptions
 ): void {
   const { functionInfo, reason, confidenceScore, estimatedImpact } = candidate;
@@ -441,8 +441,8 @@ function getConfidenceColor(confidenceScore: number, estimatedImpact: string) {
  * Get function status (deleted/skipped)
  */
 function getFunctionStatus(
-  candidate: import('../analyzers/safe-deletion-system').DeletionCandidate,
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult
+  candidate: import('../../analyzers/safe-deletion-system').DeletionCandidate,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult
 ): string {
   if (result.deletedFunctions.some(d => d.functionInfo.id === candidate.functionInfo.id)) {
     return chalk.green(' [DELETED]');
@@ -456,7 +456,7 @@ function getFunctionStatus(
 /**
  * Output verbose information for a candidate
  */
-function outputVerboseInfo(candidate: import('../analyzers/safe-deletion-system').DeletionCandidate): void {
+function outputVerboseInfo(candidate: import('../../analyzers/safe-deletion-system').DeletionCandidate): void {
   console.log(chalk.gray(`     Reason: ${candidate.reason}`));
   console.log(chalk.gray(`     Confidence: ${(candidate.confidenceScore * 100).toFixed(1)}%`));
   console.log(chalk.gray(`     Callers: ${candidate.callersCount}`));
@@ -466,7 +466,7 @@ function outputVerboseInfo(candidate: import('../analyzers/safe-deletion-system'
 /**
  * Output summary statistics section
  */
-function outputSummaryStatistics(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputSummaryStatistics(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   const { candidateFunctions, deletedFunctions } = result;
   
   const totalLines = candidateFunctions.reduce((sum, c) => 
@@ -489,7 +489,7 @@ function outputSummaryStatistics(result: import('../analyzers/safe-deletion-syst
 /**
  * Output information when no functions were deleted despite having candidates
  */
-function outputNoDeletionsInfo(result: import('../analyzers/safe-deletion-system').SafeDeletionResult): void {
+function outputNoDeletionsInfo(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   const skippedCount = result.skippedFunctions.length;
   console.log(chalk.yellow(`No functions deleted (${skippedCount} candidates skipped due to safety constraints)`));
   
@@ -508,26 +508,26 @@ function outputNoDeletionsInfo(result: import('../analyzers/safe-deletion-system
  * Output actionable tips based on the deletion results
  */
 function outputActionableTips(
-  result: import('../analyzers/safe-deletion-system').SafeDeletionResult,
+  result: import('../../analyzers/safe-deletion-system').SafeDeletionResult,
   options: SafeDeleteOptions
 ): void {
   const { candidateFunctions, deletedFunctions } = result;
   
   if (options.dryRun || !options.execute) {
-    console.log(chalk.dim('\n💡 This was a preview. Use `funcqc safe-delete --execute` to perform actual deletions.'));
+    console.log(chalk.dim('\n💡 This was a preview. Use `funcqc dep delete --execute` to perform actual deletions.'));
   } else if (candidateFunctions.length > 0 && deletedFunctions.length === 0) {
     outputImprovementTips(candidateFunctions);
   }
 
   if (result.backupPath) {
-    console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc safe-delete --restore "${result.backupPath}"`));
+    console.log(chalk.dim(`\n🔄 To restore deleted functions: funcqc dep delete --restore "${result.backupPath}"`));
   }
 }
 
 /**
  * Output tips for improving deletion success
  */
-function outputImprovementTips(candidateFunctions: import('../analyzers/safe-deletion-system').DeletionCandidate[]): void {
+function outputImprovementTips(candidateFunctions: import('../../analyzers/safe-deletion-system').DeletionCandidate[]): void {
   console.log(chalk.dim('\n💡 Tips for improving deletion success:'));
   
   if (candidateFunctions.length >= 100) {

@@ -20,7 +20,7 @@ import { executeTypesCochangeDB } from './types/subcommands/cochange';
  * Uses stored type information from scan phase instead of real-time analysis
  */
 export function createTypesCommand(): Command {
-  const typesCmd = new Command('types')
+  const typesCmd = new Command('types [command]')
     .description('🧩 TypeScript type analysis (database-driven)')
     .addHelpText('before', '💾 Uses pre-analyzed type data from database');
 
