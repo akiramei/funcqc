@@ -512,32 +512,15 @@ dbCommand.command('convert')
     return withEnvironment(dbConvertCommand)(options);
   });
 
-// Dep command - Function dependency analysis (DEPRECATED)
+// Dep command - Function dependency analysis and cleanup
 program
   .command('dep [command]')
-  .description('Function dependency analysis')
-  .action(() => {
-    console.log(chalk.yellow('⚠️  DEPRECATION WARNING: The `dep` command will be removed in v2.0'));
-    console.log(chalk.cyan('🔄 Please use the new `dependencies` command instead:'));
-    console.log('');
-    console.log('  funcqc dependencies --action list     # was: funcqc dep list');
-    console.log('  funcqc dependencies --action show     # was: funcqc dep show');
-    console.log('  funcqc dependencies --action stats    # was: funcqc dep stats');
-    console.log('  funcqc dependencies --action lint     # was: funcqc dep lint');
-    console.log('  funcqc dependencies --action dead     # was: funcqc dep dead');
-    console.log('  funcqc dependencies --action cycles   # was: funcqc dep cycles');
-    console.log('');
-    console.log(chalk.yellow('Legacy dep subcommands (will be removed):'));
-    console.log('  list     - List function dependencies');
-    console.log('  show     - Show detailed dependency information');
-    console.log('  stats    - Show dependency statistics and metrics');
-    console.log('  lint     - Lint architecture dependencies against rules');
-    console.log('  dead     - Detect dead code (unreachable functions)');
-    console.log('  cycles   - Detect circular dependencies in the call graph');
-    console.log('');
-    console.log('Example (legacy): funcqc dep list');
-    console.log(chalk.green('Example (new):    funcqc dependencies --action list'));
-  });
+  .description('Function dependency analysis and cleanup')
+  // no top-level action: show subcommand help when `dep` is invoked without args
+  .addHelpText('after', `
+Migration:
+  funcqc safe-delete --execute  →  funcqc dep delete --execute
+`);
 
 // Add dep subcommands
 const depCommand = program.commands.find(cmd => cmd.name() === 'dep')!;
