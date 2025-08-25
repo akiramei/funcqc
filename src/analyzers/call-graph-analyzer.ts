@@ -543,20 +543,22 @@ export class CallGraphAnalyzer {
       }
       
       // Try to find the source file with comprehensive extension support
-      const extensionCandidates = [
-        '.ts', '.tsx',           // TypeScript files
-        '.js', '.jsx',           // JavaScript files  
-        '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
-        '/index.ts', '/index.tsx', // Index files
-        '/index.js', '/index.jsx'
-      ];
+      const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+      const hasKnownExt = knownExts.some(ext => resolvedPath.endsWith(ext));
+      const extensionCandidates = hasKnownExt
+        ? [''] // そのまま試す
+        : [
+            ...knownExts,
+            '/index.ts', '/index.tsx',
+            '/index.js', '/index.jsx'
+          ];
       
+      const toPosix = (p: string) => p.replace(/\\/g, '/');
       let targetSourceFile;
       for (const ext of extensionCandidates) {
         const tryPathRaw = resolvedPath + ext;
-        
-        // 🔧 CRITICAL FIX: パス正規化（ts-morph は登録時の表記差で取りこぼしが出ます）
-        const tryPath = path.resolve(tryPathRaw);
+        // 仮想パスは POSIX のまま、実ファイルは OS 解決
+        const tryPath = isVirtual ? toPosix(tryPathRaw) : path.resolve(tryPathRaw);
 
         targetSourceFile = this.project.getSourceFile(tryPath);
         

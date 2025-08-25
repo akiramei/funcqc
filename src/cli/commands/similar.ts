@@ -263,13 +263,30 @@ function parseConsensusStrategy(input: string): ConsensusStrategy {
     case 'weighted': {
       // Parse weighted format: weighted:detector1=0.5,detector2=0.3
       const weightings: Record<string, number> = {};
-      if (paramPart) {
-        const weights = paramPart.split(',');
-        for (const weight of weights) {
-          const [detector, value] = weight.split('=');
-          weightings[detector] = parseFloat(value);
-        }
+      if (!paramPart || paramPart.trim().length === 0) {
+        throw new Error('Weighted consensus requires at least one "detector=weight" pair.');
       }
+      let sum = 0;
+      for (const entry of paramPart.split(',').filter(Boolean)) {
+        const [detectorRaw, valueRaw] = entry.split('=');
+        if (!detectorRaw || valueRaw == null) {
+          throw new Error(`Invalid weight entry "${entry}". Expected "detector=weight".`);
+        }
+        const detector = detectorRaw.trim();
+        const value = Number(valueRaw.trim());
+        if (!Number.isFinite(value) || value < 0) {
+          throw new Error(`Invalid weight for "${detector}": "${valueRaw}". Must be a non-negative number.`);
+        }
+        weightings[detector] = value;
+        sum += value;
+      }
+      if (sum <= 0) {
+        throw new Error('Sum of weights must be greater than 0.');
+      }
+      // Normalize weights to sum to 1.0 for predictable behavior
+      Object.keys(weightings).forEach(k => {
+        weightings[k] = weightings[k] / sum;
+      });
       return { strategy: 'weighted', weightings };
     }
 
