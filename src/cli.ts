@@ -774,7 +774,7 @@ program
   .command('types [command]')
   .description('🧩 TypeScript type analysis (database-driven)')
   .addHelpText('before', '💾 Uses pre-analyzed type data from database')
-  .action(async (options: OptionValues, command) => {
+  .action(async (_subcmd: string | undefined, options: OptionValues, command) => {
     const { createUnifiedCommandHandler } = await import('./core/unified-command-executor');
     const { TypesCommand } = await import('./cli/commands/types-command');
     return createUnifiedCommandHandler(TypesCommand)(options, command);
