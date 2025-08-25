@@ -623,7 +623,8 @@ export class ImportExactAnalysisStage {
     } else {
       // Absolute path (unified format: all paths start with /)
       if (isVirtual) {
-        resolvedPath = path.join('/virtual', moduleSpecifier);
+        // 注意: path.join('/virtual', '/x') は '/x' になるため未使用
+        resolvedPath = '/virtual' + moduleSpecifier; // moduleSpecifierは先頭'/'付き前提
       } else {
         resolvedPath = path.resolve(moduleSpecifier);
       }

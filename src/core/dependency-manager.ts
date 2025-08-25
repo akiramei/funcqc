@@ -254,6 +254,7 @@ export class DependencyManager {
   ): Promise<void> {
     const snapshot = await env.storage.getLatestSnapshot();
     if (!snapshot) return;
+    const targetSnapshotId = snapshot.id;
     
     // 現在の状態を取得（rollback用に事前取得）
     const currentState = await this.getCurrentAnalysisState(env);
@@ -266,10 +267,10 @@ export class DependencyManager {
       const newLevel = this.calculateAnalysisLevel(newCompleted);
       
       // 直接 updateAnalysisLevel を使用し、その後 completedAnalyses を個別に更新
-      await env.storage.updateAnalysisLevel(snapshot.id, newLevel as AnalysisLevel);
+      await env.storage.updateAnalysisLevel(targetSnapshotId, newLevel as AnalysisLevel);
       
       // 新方式の completedAnalyses 配列をメタデータに追加で更新
-      await this.updateCompletedAnalysesMetadata(snapshot.id, newCompleted, env);
+      await this.updateCompletedAnalysesMetadata(targetSnapshotId, newCompleted, env);
       
       env.commandLogger?.debug?.(
         `Successfully recorded completion of ${dependency}, current completed: [${newCompleted.join(', ')}]`
@@ -283,10 +284,7 @@ export class DependencyManager {
       );
       // ベストエフォートのロールバックで不整合を緩和
       try {
-        const snapshot = await env.storage.getLatestSnapshot();
-        if (snapshot) {
-          await env.storage.updateAnalysisLevel(snapshot.id, prevLevel);
-        }
+        await env.storage.updateAnalysisLevel(targetSnapshotId, prevLevel);
       } catch (rollbackErr) {
         env.commandLogger?.warn?.(
           `Rollback of analysisLevel failed: ${

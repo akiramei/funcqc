@@ -239,11 +239,20 @@ function parseConsensusStrategy(input: string): ConsensusStrategy {
   const paramPart = idx !== -1 ? input.slice(idx + 1) : undefined;
 
   switch (strategy) {
-    case 'majority':
-      return {
-        strategy: 'majority',
-        threshold: paramPart ? parseFloat(paramPart) : 0.5,
-      };
+    case 'majority': {
+      // Validate threshold: default 0.5, must be within [0,1]
+      let threshold = 0.5;
+      if (paramPart && paramPart.length > 0) {
+        const n = Number(paramPart);
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          throw new Error(
+            `Invalid majority threshold: "${paramPart}". Expected a number in [0,1].`
+          );
+        }
+        threshold = n;
+      }
+      return { strategy: 'majority', threshold };
+    }
 
     case 'intersection':
       return { strategy: 'intersection' };

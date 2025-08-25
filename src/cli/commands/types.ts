@@ -445,8 +445,16 @@ function processCouplingQueryResults(
   const result: CouplingInfo['parameterUsage'] = [];
   for (const [key, properties] of paramProps) {
     const idx = key.lastIndexOf(':');
-    const functionId = key.slice(0, idx);
-    const parameterName = key.slice(idx + 1);
+    let functionId: string;
+    let parameterName: string;
+    if (idx === -1) {
+      // 異常系: 区切りが無い場合は安全側に倒す
+      functionId = key;
+      parameterName = '';
+    } else {
+      functionId = key.slice(0, idx);
+      parameterName = key.slice(idx + 1);
+    }
     const usedProperties = Array.from(properties);
     const totalProperties = Math.max(1, paramTotals.get(key) ?? 1); // avoid div/0
     const usageRatio = usedProperties.length / totalProperties;

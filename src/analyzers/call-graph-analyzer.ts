@@ -534,7 +534,9 @@ export class CallGraphAnalyzer {
       } else {
         // Absolute path (unified format: all paths start with /)
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', moduleSpecifier);
+          // 先頭のスラッシュを除去してから /virtual を付与（join は使わない）
+          const mod = moduleSpecifier.replace(/^\/+/, '');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.resolve(moduleSpecifier);
         }
