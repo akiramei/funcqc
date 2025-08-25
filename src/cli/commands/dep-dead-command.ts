@@ -15,6 +15,9 @@ interface DepDeadCommandOptions {
   verbose?: boolean;
   excludeTests?: boolean;
   excludeExports?: boolean;
+  excludeSmall?: boolean;
+  threshold?: string;
+  showReasons?: boolean;
   minConfidence?: string;
   layerEntryPoints?: string;
   snapshot?: string;
@@ -53,6 +56,8 @@ export class DepDeadCommand implements Command {
     if (subCommand.includes('--verbose')) options.verbose = true;
     if (subCommand.includes('--exclude-tests')) options.excludeTests = true;
     if (subCommand.includes('--exclude-exports')) options.excludeExports = true;
+    if (subCommand.includes('--exclude-small')) options.excludeSmall = true;
+    if (subCommand.includes('--show-reasons')) options.showReasons = true;
 
     // String options with values
     const formatIndex = subCommand.indexOf('--format');
@@ -76,6 +81,11 @@ export class DepDeadCommand implements Command {
     const snapshotIndex = subCommand.indexOf('--snapshot');
     if (snapshotIndex >= 0 && snapshotIndex < subCommand.length - 1) {
       options.snapshot = subCommand[snapshotIndex + 1] ?? '';
+    }
+
+    const thresholdIndex = subCommand.indexOf('--threshold');
+    if (thresholdIndex >= 0 && thresholdIndex < subCommand.length - 1) {
+      options.threshold = subCommand[thresholdIndex + 1] ?? '';
     }
 
     return options;

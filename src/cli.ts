@@ -387,27 +387,17 @@ program
   .addHelpText('after', `
 Available subcommands:
   evaluate          Function naming quality evaluation
-  residue-check     Detect debug code residue in TypeScript projects
-  describe          Add or manage function descriptions (AI features pending)
-  search            Search functions by description keywords (AI features pending)
-  detect            Detect code quality issues and anti-patterns
-  extract-vo        Extract Value Objects from property clusters to improve encapsulation
-  canonicalize      Analyze and consolidate duplicate DTO types into canonical forms
-  discriminate      Analyze and transform types into discriminated unions
-  du               Discriminated Union incremental transformation toolkit
-  type-replace     Analyze and execute safe type replacements with compatibility checking
+  residue-check     Debug code residue detection (console.log, TODO, etc.)
+  describe          Get descriptions of functions, types and architecture
+  search            Search functions with semantic and hybrid search
+  detect            Identify potential refactoring opportunities
 
 Examples:
   funcqc experimental evaluate
-  funcqc experimental residue-check --auto-remove
-  funcqc experimental describe --text "Helper function"
-  funcqc experimental search "validation"
-  funcqc experimental detect ineffective-splits
-  funcqc experimental extract-vo
-  funcqc experimental canonicalize
-  funcqc experimental discriminate
-  funcqc experimental du --help
-  funcqc experimental type-replace --from OldType --to NewType
+  funcqc experimental residue-check
+  funcqc experimental describe FunctionName
+  funcqc experimental search "error handling"
+  funcqc experimental detect
 
 Use 'funcqc experimental <subcommand> --help' for detailed help on each subcommand.
 `);

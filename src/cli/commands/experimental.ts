@@ -119,22 +119,20 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
   /**
    * Execute residue-check subcommand
    */
-  private async executeResidueCheck(_env: CommandEnvironment, args: string[]): Promise<void> {
+  private async executeResidueCheck(env: CommandEnvironment, args: string[]): Promise<void> {
     const options = this.parseResidueCheckOptions(args);
-    const { withEnvironment } = await import('../cli-wrapper');
     const { residueCheckCommand } = await import('./residue-check');
-    await withEnvironment(residueCheckCommand)(options);
+    await residueCheckCommand(options)(env);
   }
 
   /**
    * Execute detect subcommand
    */
-  private async executeDetect(_env: CommandEnvironment, args: string[]): Promise<void> {
+  private async executeDetect(env: CommandEnvironment, args: string[]): Promise<void> {
     const options = this.parseDetectOptions(args);
-    const { withEnvironment } = await import('../cli-wrapper');
     const { detectCommand } = await import('./detect');
     const subcommand = args.length > 0 && !args[0].startsWith('--') ? args[0] : '';
-    await withEnvironment(detectCommand(subcommand))(options);
+    await detectCommand(subcommand)(options)(env);
   }
 
   /**
