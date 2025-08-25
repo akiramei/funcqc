@@ -61,9 +61,11 @@ function-index.meta.json
 .backups/
 .history/
 
-# Temporary files
+# Temporary files and folders
 temp/
 tmp/
+temp-*/
+.temp-*/
 *.tmp
 *.temp
 functions_data.txt
