@@ -859,7 +859,8 @@ program.hook('preAction', () => {
   }
   
   // Handle system check before commands
-  if (!options['noCheck']) {
+  // Commander: --no-check → options.check === false
+  if (options['check'] !== false) {
     // Use lightweight system check for read-only commands
     const isReadOnly = isReadOnlyCommand();
     const systemOk = isReadOnly && !options['checkSystem'] 
