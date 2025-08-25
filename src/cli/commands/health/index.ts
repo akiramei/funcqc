@@ -39,11 +39,7 @@ import { ArgumentUsageAggregator, type ArgumentUsageMetrics } from '../../../ana
  */
 export const healthCommand: VoidCommand<HealthCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
-    // 非推奨警告
-    console.warn(chalk.yellow('⚠️  DEPRECATED: The "health" command is deprecated and will be removed in a future version.'));
-    console.warn(chalk.cyan('💡 Use "funcqc assess" instead for enhanced quality assessment capabilities.'));
-    console.warn(chalk.gray('   Example: funcqc assess (same options work)'));
-    console.warn('');
+    // Note: health command is the current recommended approach for quality assessment
 
     const errorHandler = createErrorHandler(env.commandLogger);
 

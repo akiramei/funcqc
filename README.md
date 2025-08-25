@@ -19,11 +19,11 @@ funcqc は TypeScript プロジェクトの関数を自動分析し、品質指�
 ## 🌟 v2.0の特徴
 
 ### 🎯 統合された品質管理体験
-- ✅ **ゼロ設定で開始**: `funcqc setup --action init` で即座に利用開始
-- 📊 **統合された測定**: measure コマンドで包括的分析
-- 🔍 **動的な評価**: assess コマンドで高度品質評価
-- 🔧 **効率的改善**: improve コマンドで重複・デッドコード検出
-- 👁️ **直感的検査**: inspect コマンドで関数・ファイル探索
+- ✅ **ゼロ設定で開始**: `funcqc init` で即座に利用開始
+- 📊 **包括的分析**: `funcqc scan` で全関数の測定と分析
+- 🏥 **品質評価**: `funcqc health` で詳細な品質アセスメント
+- 🔧 **効率的改善**: `funcqc similar` で重複・類似コード検出
+- 👁️ **直感的検査**: `funcqc list` と `funcqc show` で関数・ファイル探索
 
 ### 🚀 高度な分析エンジン
 - 🔄 **関数系譜追跡**: リネーム・分割・統合など関数の進化を自動検出
@@ -47,36 +47,36 @@ funcqc は TypeScript プロジェクトの関数を自動分析し、品質指�
 npm install -g funcqc
 
 # 1. 初期化
-funcqc setup --action init
+funcqc init
 
-# 2. プロジェクト測定
-funcqc measure --level standard
+# 2. プロジェクト分析
+funcqc scan
 
 # 3. 品質評価
-funcqc assess --type health --verbose
+funcqc health --verbose
 
 # 4. 問題のある関数を検査
-funcqc inspect --cc-ge 10 --limit 10
+funcqc list --cc-ge 10 --limit 10
 
-# 5. 改善機会を特定
-funcqc improve --type duplicates
+# 5. 類似関数を検出
+funcqc similar
 ```
 
 ### 高度なワークフロー
 
 ```bash
 # 包括的分析
-funcqc measure --level complete
-funcqc assess --advanced --mode dynamic --team-experience Senior
+funcqc scan --with-types --with-coupling
+funcqc health --verbose
 
 # 専門的分析
-funcqc dependencies --action cycles  # 循環依存分析
-funcqc types --action health         # TypeScript品質分析
-funcqc refactor --action guard       # リファクタリング安全性
+funcqc dep cycles                    # 循環依存分析
+funcqc types health                  # TypeScript品質分析
+funcqc dep dead                      # デッドコード検出
 
-# データ管理
-funcqc manage --action diff --from HEAD~1 --to HEAD
-funcqc manage --action history
+# データ管理と履歴
+funcqc diff HEAD~1 HEAD
+funcqc history
 ```
 
 ## 🎯 新しい9つの統合コマンド
@@ -85,41 +85,41 @@ funcqc v2.0は、従来の45個のコマンドを使いやすさを重視して9
 
 ### Tier 1: 核となる品質管理ワークフロー
 
-| コマンド | 説明 | 統合された機能 |
-|---------|------|----------------|
-| `funcqc inspect` | 🔍 関数・ファイル検査 | list, search, files, show |
-| `funcqc measure` | 📊 プロジェクト測定 | scan, analyze, history |
-| `funcqc assess` | 📊 品質評価 | health, evaluate, types health |
-| `funcqc improve` | 🔧 コード改善 | similar, safe-delete, refactor-guard |
+| コマンド | 説明 | 主な機能 |
+|---------|------|-------------|
+| `funcqc init` | 🛠️ 初期化 | プロジェクト設定の初期化 |
+| `funcqc config` | ⚙️ 設定管理 | 設定プリセットと管理 |
+| `funcqc scan` | 📊 分析実行 | 関数・型システム・依存関係の分析 |
+| `funcqc health` | 🏥 品質評価 | プロジェクト品質評価と推奨事項 |
+| `funcqc list` | 📋 関数一覧 | 関数の検索と一覧表示 |
+| `funcqc show` | 📄 詳細表示 | 関数の詳細情報表示 |
+| `funcqc files` | 📁 ファイル管理 | ソースファイル一覧と表示 |
+| `funcqc similar` | 🔍 類似検出 | 類似・重複関数の検出 |
+| `funcqc diff` | 📈 変更比較 | スナップショット間の変更差分 |
+| `funcqc history` | 📚 履歴管理 | スナップショット履歴表示 |
 
-### Tier 2: 専門的分析
+### 専門的分析コマンド
 
-| コマンド | 説明 | 統合された機能 |
-|---------|------|----------------|
-| `funcqc dependencies` | 🔗 依存関係分析 | dep list/show/stats/lint/dead/cycles |
-| `funcqc types` | 🧩 TypeScript分析 | types * (14サブコマンド) |
-| `funcqc refactor` | 🔧 コード変換 | extract-vo, discriminate, canonicalize等 |
-
-### Tier 3: 管理・支援
-
-| コマンド | 説明 | 統合された機能 |
-|---------|------|----------------|
-| `funcqc setup` | 🛠️ 設定管理 | init, config |
-| `funcqc manage` | 📊 データ管理 | db, diff, export, history |
+| コマンド | 説明 | サブコマンド例 |
+|---------|------|---------------|
+| `funcqc dep` | 🔗 依存関係分析 | list, show, dead, delete, cycles |
+| `funcqc types` | 🧩 TypeScript分析 | health, deps, api, members (14種類) |
+| `funcqc db` | 💾 データベース管理 | export, import, convert |
+| `funcqc experimental` | 🧪 実験的機能 | evaluate, residue-check, describe, search |
 
 ### 強化されたdiff機能
 
-manage コマンドのdiff機能は、単純な追加・削除の表示を超えて、関数の **シグネチャ変更**、**リネーム**、**移動** を自動検出します。
+diff機能は、単純な追加・削除の表示を超えて、関数の **シグネチャ変更**、**リネーム**、**移動** を自動検出します。
 
 ```bash
 # 基本的な差分表示
-funcqc manage --action diff --from HEAD~1 --to HEAD
+funcqc diff HEAD~1 HEAD
 
 # カスタム類似度閾値で変更検出
-funcqc manage --action diff --from HEAD~1 --to HEAD --similarity-threshold 0.85
+funcqc diff HEAD~1 HEAD --similarity-threshold 0.85
 
 # インサイトモードで詳細分析
-funcqc manage --action diff --from HEAD~1 --to HEAD --insights
+funcqc diff HEAD~1 HEAD --insights
 ```
 
 ### 検出される変更の種類
@@ -170,31 +170,32 @@ funcqc health --verbose
 funcqc similar
 
 # v2.0 (新) - より明確なワークフロー
-funcqc measure --level standard
-funcqc inspect --cc-ge 10
-funcqc assess --type health --verbose
-funcqc improve --type duplicates
+funcqc scan
+funcqc list --cc-ge 10
+funcqc health --verbose
+funcqc similar
 ```
 
-### 移行サポート
+### 新しいコマンド構造
 
-- 📖 **詳細移行ガイド**: [MIGRATION_GUIDE.md](./docs/MIGRATION_GUIDE.md)
-- ⚠️ **非推奨警告**: 旧コマンド使用時に新コマンドを案内
-- 🔄 **段階的移行**: 6ヶ月の移行期間を提供
-- 💬 **サポート**: [GitHub Issues](https://github.com/anthropics/funcqc/issues)で質問受付
+すべてのコマンドが直接実行可能な形で整理され、より直感的な操作が可能になりました：
 
-### 主要コマンド変更
+```bash
+# 基本ワークフロー
+funcqc init      # 初期設定
+funcqc scan      # プロジェクト分析
+funcqc health    # 品質評価
+funcqc similar   # 類似関数検出
 
-| 旧コマンド | 新コマンド | 説明 |
-|-----------|-----------|------|
-| `funcqc list` | `funcqc inspect` | 関数一覧・検索 |
-| `funcqc scan` | `funcqc measure` | 関数分析・データ保存 |
-| `funcqc health` | `funcqc assess --type health` | 品質評価 |
-| `funcqc similar` | `funcqc improve --type duplicates` | 類似関数検出 |
-| `funcqc history` | `funcqc measure --history` | スナップショット履歴 |
-| `funcqc diff` | `funcqc manage --action diff` | 変更差分表示 |
-| `funcqc dep *` | `funcqc dependencies --action *` | 依存関係分析 |
-| `funcqc types *` | `funcqc types --action *` | TypeScript分析 |
+# 詳細検査
+funcqc list      # 関数一覧
+funcqc show      # 詳細表示
+funcqc files     # ファイル管理
+
+# 専門分析
+funcqc dep dead  # デッドコード検出
+funcqc types health  # TypeScript品質分析
+```
 
 ## 環境変数
 
