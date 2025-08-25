@@ -34,7 +34,6 @@ export class StagedAnalysisEngine {
   // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
   private logger: Logger;
-  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   // Core analyzers
@@ -267,8 +266,19 @@ export class StagedAnalysisEngine {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 
-      const filePath = sourceFile.getFilePath();
+      const rawFilePath = sourceFile.getFilePath();
+      // Use ts-morph absolute path directly (matches buildLookupMaps normalization)
+      const filePath = rawFilePath;
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
+
+      // Debug: Log path comparison for first few files
+      if (processedFiles <= 3) {
+        console.log(`[PATH-DEBUG] performCombinedLocalAndImportAnalysis: using absolute path="${filePath}"`);
+        console.log(`[PATH-DEBUG] fileFunctions.length = ${fileFunctions.length}`);
+        if (fileFunctions.length === 0) {
+          console.log(`[PATH-DEBUG] Available keys in fileToFunctionsMap:`, Array.from(this.state.fileToFunctionsMap.keys()).slice(0, 5));
+        }
+      }
 
       if (fileFunctions.length === 0) {
         processedFiles++;
@@ -320,6 +330,11 @@ export class StagedAnalysisEngine {
       const existing = this.state.fileToFunctionsMap.get(normalizedPath) || [];
       existing.push(func);
       this.state.fileToFunctionsMap.set(normalizedPath, existing);
+      
+      // Debug: Log first few paths to understand format
+      if (this.state.fileToFunctionsMap.size <= 3) {
+        console.log(`[PATH-DEBUG] buildLookupMaps: func.filePath = "${func.filePath}" -> normalized = "${normalizedPath}"`);
+      }
 
       // Build function lookup map (per-line for O(1) lookup compatibility)
       for (let line = func.startLine; line <= func.endLine; line++) {

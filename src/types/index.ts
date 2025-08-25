@@ -356,6 +356,9 @@ export interface SnapshotMetadata {
   scanDuration?: number; // Time taken for scan in milliseconds
   scanMode?: 'quick' | 'basic' | 'standard' | 'full';
   
+  // New metadata format: track completed analyses as array
+  completedAnalyses?: string[];
+  
   // Statistical metadata
   totalFunctions?: number;
   totalFiles?: number;
