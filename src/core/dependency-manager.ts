@@ -268,9 +268,12 @@ export class DependencyManager {
       
       // 新方式の completedAnalyses 配列をメタデータに追加で更新
       await this.updateCompletedAnalysesMetadata(snapshot.id, newCompleted, env);
+      
+      console.log(`[DEBUG] Successfully recorded completion of ${dependency}, current completed: [${newCompleted.join(', ')}]`);
     } catch (error) {
-      // ログに記録するが、初期化処理は成功扱い
-      console.warn(`Warning: Failed to update analysis completion for ${dependency}:`, error);
+      // メタデータ更新の失敗は重大な問題として扱う
+      console.error(`CRITICAL: Failed to record analysis completion for ${dependency}:`, error);
+      throw error; // 失敗を呼び出し元に伝播
     }
   }
   
@@ -286,7 +289,9 @@ export class DependencyManager {
     try {
       // 既存のスナップショット取得（最新のメタデータを取得）
       const snapshot = await env.storage.getSnapshot(snapshotId);
-      if (!snapshot) return;
+      if (!snapshot) {
+        throw new Error(`Snapshot ${snapshotId} not found for metadata update`);
+      }
       
       // 現在のメタデータを取得
       const currentMetadata = (snapshot.metadata as Record<string, unknown>) || {};
@@ -297,19 +302,46 @@ export class DependencyManager {
         completedAnalyses: completedAnalyses
       };
       
-      // 低レベルのSQLクエリで直接更新（updateAnalysisLevelと同じパターン）
-      // この実装は storage adapter の内部実装に依存するため、将来的には
-      // storage interface に updateSnapshotMetadata メソッドを追加することが理想
-      if ('query' in env.storage && typeof env.storage.query === 'function') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (env.storage as any).query(
-          'UPDATE snapshots SET metadata = $1 WHERE id = $2',
-          [JSON.stringify(updatedMetadata), snapshotId]
-        );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const storageAdapter = env.storage as any;
+      
+      if (!storageAdapter.query) {
+        throw new Error('Storage adapter does not support query method for metadata update');
       }
+      
+      // 更新前の確認用ログ
+      console.log(`[DEBUG] Updating completedAnalyses for snapshot ${snapshotId}: ${completedAnalyses.join(', ')}`);
+      
+      // メタデータ更新実行
+      await storageAdapter.query(
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+        [JSON.stringify(updatedMetadata), snapshotId]
+      );
+      
+      // 更新後の検証
+      const verifySnapshot = await env.storage.getSnapshot(snapshotId);
+      const verifyMetadata = verifySnapshot?.metadata as Record<string, unknown>;
+      const storedAnalyses = verifyMetadata?.['completedAnalyses'];
+      
+      // デバッグ用の詳細ログ
+      console.log(`[DEBUG] Verification details:`, {
+        snapshotExists: !!verifySnapshot,
+        metadataExists: !!verifyMetadata,
+        completedAnalysesRaw: storedAnalyses,
+        completedAnalysesType: typeof storedAnalyses,
+        isArray: Array.isArray(storedAnalyses)
+      });
+      
+      if (!Array.isArray(storedAnalyses) || storedAnalyses.length !== completedAnalyses.length) {
+        throw new Error(`Metadata update verification failed. Expected: [${completedAnalyses.join(', ')}], Got: ${Array.isArray(storedAnalyses) ? '[' + storedAnalyses.join(', ') + ']' : 'not an array or undefined'}`);
+      }
+      
+      console.log(`[DEBUG] Metadata update verified successfully: [${storedAnalyses.join(', ')}]`);
+      
     } catch (error) {
-      // 失敗してもプロセスは継続（ログのみ）
-      console.warn(`Warning: Failed to update completedAnalyses metadata:`, error);
+      // 失敗時は詳細なエラー情報を出力し、エラーを再throw（隠蔽しない）
+      console.error(`CRITICAL: Failed to update completedAnalyses metadata for snapshot ${snapshotId}:`, error);
+      throw error; // エラーを隠蔽せず、呼び出し元に伝播
     }
   }
   

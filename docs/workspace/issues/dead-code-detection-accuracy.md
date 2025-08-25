@@ -8,7 +8,7 @@
 
 ## 🚨 Problem Summary
 
-The dead code detection system incorrectly identifies actively used functions as dead code, leading to potential deletion of critical functions when using `funcqc clean`. This creates a false impression that the deletion tool is flawed, when the actual issue is in the detection accuracy.
+The dead code detection system incorrectly identifies actively used functions as dead code, leading to potential deletion of critical functions when using `funcqc dep delete`. This creates a false impression that the deletion tool is flawed, when the actual issue is in the detection accuracy.
 
 ## 🔍 Investigation Results
 
@@ -103,13 +103,13 @@ callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
 
 1. Run dead code analysis:
    ```bash
-   npm run dev -- dead --format json --threshold 5
+   npm run dev -- dep dead --format json --threshold 5
    ```
 
 2. Check for false positives:
    ```bash
    # Check QualityCalculator.calculate
-   npm run --silent dev -- dead --format json | jq -r '.deadCode[] | select(.functionName == "calculate")'
+   npm run --silent dev -- dep dead --format json | jq -r '.deadCode[] | select(.functionName == "calculate")'
    
    # Verify it's actually used
    grep -r "\.calculate(" src/ test/
@@ -126,8 +126,8 @@ callEdges = await this.callGraphAnalyzer.analyzeFile(filePath, functionMap);
 - **Developer confusion**: Tool appears unreliable
 
 ### Affected Commands
-- `funcqc dead` - Reports false positives
-- `funcqc clean` - Deletes active functions
+- `funcqc dep dead` - Reports false positives
+- `funcqc dep delete` - Deletes active functions
 - Any automation relying on dead code detection
 
 ## 🎯 Solution Requirements

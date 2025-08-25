@@ -9,7 +9,7 @@ npm run dev init
 # 基本ワークフロー
 npm run dev scan                              # 関数分析
 npm run dev -- list --threshold-violations   # 問題関数確認
-npm run dev status                           # プロジェクト概要
+npm run dev -- history                       # プロジェクト概要
 ```
 
 ## 📋 全コマンド一覧
@@ -23,11 +23,9 @@ npm run dev init --reset           # 設定リセット
 
 ### スキャン・分析
 ```bash
-npm run dev scan                    # 全ファイルスキャン
-npm run dev scan --quick           # 高速スキャン（5秒概要）
-npm run dev scan --dry-run         # 実行テスト（保存なし）
-npm run dev scan --label "v1.0"    # ラベル付きスキャン
-npm run dev scan --incremental     # 変更ファイルのみ
+npm run dev -- scan                    # 全ファイルスキャン
+npm run dev -- scan --with-basic      # 高速スキャン（基本解析）
+npm run dev -- scan --label "v1.0"    # ラベル付きスキャン
 ```
 
 ### 関数検索・一覧
@@ -264,14 +262,13 @@ npm run dev -- describe "13b46d5e" --text "Displays informational message with b
 ## ⚡ パフォーマンス最適化
 
 ```bash
-# 大規模プロジェクト用
-npm run dev scan --batch-size 50
+# 大規模プロジェクト用（重い解析をバックグラウンド化）
+npm run dev -- scan --async
 
-# 開発中の高速チェック
-npm run dev scan --quick
+# 開発中の高速チェック（基本解析のみ）
+npm run dev -- scan --with-basic
 
-# 変更分のみ分析
-npm run dev scan --incremental
+# 変更差分のみの専用モードは未対応です
 
 # JSON出力でパイプライン処理
 npm run dev -- list --json | jq '.[] | select(.complexity > 10)'
@@ -284,12 +281,12 @@ npm run dev -- list --json | jq '.[] | select(.complexity > 10)'
 npm run dev -- dep stats --format dot > deps.dot
 dot -Tpng deps.dot -o deps.png
 
-# リスク分析の可視化
-npm run dev -- risk analyze --format dot --severity high > risk.dot
-dot -Tsvg risk.dot -o risk.svg
+# 循環依存の可視化（重要度高）
+npm run dev -- dep cycles --format dot --cross-layer-only > cycles.dot
+dot -Tsvg cycles.dot -o cycles.svg
 
 # デッドコードの可視化
-npm run dev -- dead --format dot --exclude-tests > dead.dot
+npm run dev -- dep dead --format dot --exclude-tests > dead.dot
 
 # オンラインで表示（GraphViz Online）
 npm run dev -- dep stats --format dot | pbcopy  # クリップボードにコピー
@@ -300,7 +297,7 @@ npm run dev -- dep stats --format dot | pbcopy  # クリップボードにコピ
 
 ```bash
 # CI/CDパイプラインでの自動生成
-npm run dev -- risk analyze --format dot --severity critical > critical-risk.dot
+npm run dev -- dep cycles --format dot --cross-layer-only > high-impact-cycles.dot
 npm run dev -- dep stats --format dot --show-hubs > hubs.dot
 
 # バッチ変換

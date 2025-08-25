@@ -45,7 +45,7 @@ Welcome to the funcqc documentation. This documentation is organized into distin
 
 ⚠️ **Note:** Documents in `workspace/` are working documents and may be outdated, incomplete, or superseded by newer implementations.
 
-## 🎯 funcqc v2.0 Command Overview
+## 🎯 funcqc v2.0 Command Overview（構想段階・未実装）
 
 funcqc v2.0 consolidates 45+ legacy commands into 9 intuitive unified commands:
 
@@ -61,27 +61,38 @@ funcqc v2.0 consolidates 45+ legacy commands into 9 intuitive unified commands:
 | `refactor` | Refactoring analysis | Various refactoring tools |
 | `types` | TypeScript analysis | types * (all subcommands) |
 
-## 🚀 Quick Start
+## 🚀 Quick Start（現行CLI）
 
 ```bash
 # Initialize funcqc
-funcqc setup --action init
+funcqc init
 
 # Measure your project
-funcqc measure --level standard
+funcqc scan --with-basic
 
 # Assess quality
-funcqc assess --type health --verbose
+funcqc health --verbose
 
 # Inspect high-complexity functions
-funcqc inspect --cc-ge 10
+funcqc list --cc-ge 10
 
 # Find improvement opportunities
-funcqc improve --type duplicates
+funcqc similar
 ```
 
 For detailed instructions, see the [User Guide](user-guide/README.md).
 
 ## 📄 Version Information
 
-This documentation reflects funcqc v2.0 with the unified command structure. For migration from older versions, see the [Migration Guide](user-guide/migration-guide.md).
+This documentation includes v2.0 unified command proposals. The current CLI supports the commands listed in the mapping above.
+> 重要: このドキュメントには v2.0 の「統合コマンド」（setup/measure/inspect/assess/improve 等）の構想が含まれています。現行の CLI には未実装です。実行時は下記の対応表に従って現行コマンドをご利用ください。
+
+現行コマンドへの対応表（抜粋）:
+- setup → `init`
+- measure → `scan`
+- assess → `health`
+- inspect → `list` / `show` / `files`
+- improve → `similar` または `dep` サブコマンド（`dead`/`delete`/`cycles`/`lint` 等）
+- search → `experimental search`
+- safe-delete → `dep delete`
+- dead → `dep dead`

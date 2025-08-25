@@ -1,5 +1,7 @@
 # funcqc refactor
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。リファクタリング支援は現状、依存分析（`funcqc dep cycles` / `funcqc dep stats`）やデッドコード検出（`funcqc dep dead`）等を併用してください。
+
 🔧 Unified code transformation and refactoring analysis command for safe and intelligent code restructuring.
 
 ## Usage

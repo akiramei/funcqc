@@ -34,7 +34,6 @@ export class StagedAnalysisEngine {
   // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
   private logger: Logger;
-  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   // Core analyzers
@@ -66,6 +65,7 @@ export class StagedAnalysisEngine {
     this._typeChecker = typeChecker;
     this.logger = options.logger ?? new Logger(false);
     this._debug = process.env['DEBUG_STAGED_ANALYSIS'] === 'true';
+    console.log(`[STAGE-DEBUG] Constructor: DEBUG_STAGED_ANALYSIS=${process.env['DEBUG_STAGED_ANALYSIS']}, _debug=${this._debug}`);
     this.storage = options.storage;
 
     // Initialize state and statistics
@@ -155,6 +155,7 @@ export class StagedAnalysisEngine {
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
     const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
+    console.log(`[STAGE-DEBUG] localImportResult: localEdges=${localImportResult.localEdges}, importEdges=${localImportResult.importEdges}`);
     console.log(`  ⏱️  Stage 1&2 (Local/Import): ${((performance.now() - stage1StartTime) / 1000).toFixed(3)}s`);
     this.statistics.localExactCount = localImportResult.localEdges;
     this.statistics.importExactCount = localImportResult.importEdges;
@@ -265,8 +266,19 @@ export class StagedAnalysisEngine {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 
-      const filePath = sourceFile.getFilePath();
+      const rawFilePath = sourceFile.getFilePath();
+      // Use ts-morph absolute path directly (matches buildLookupMaps normalization)
+      const filePath = rawFilePath;
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
+
+      // Debug: Log path comparison for first few files
+      if (processedFiles <= 3) {
+        console.log(`[PATH-DEBUG] performCombinedLocalAndImportAnalysis: using absolute path="${filePath}"`);
+        console.log(`[PATH-DEBUG] fileFunctions.length = ${fileFunctions.length}`);
+        if (fileFunctions.length === 0) {
+          console.log(`[PATH-DEBUG] Available keys in fileToFunctionsMap:`, Array.from(this.state.fileToFunctionsMap.keys()).slice(0, 5));
+        }
+      }
 
       if (fileFunctions.length === 0) {
         processedFiles++;
@@ -312,13 +324,21 @@ export class StagedAnalysisEngine {
   private buildLookupMaps(functions: Map<string, FunctionMetadata>): void {
     // Build file to functions map
     for (const [id, func] of functions) {
-      const existing = this.state.fileToFunctionsMap.get(func.filePath) || [];
+      // Normalize path: ensure leading slash for consistency with ts-morph paths
+      const normalizedPath = func.filePath.startsWith('/') ? func.filePath : '/' + func.filePath;
+      
+      const existing = this.state.fileToFunctionsMap.get(normalizedPath) || [];
       existing.push(func);
-      this.state.fileToFunctionsMap.set(func.filePath, existing);
+      this.state.fileToFunctionsMap.set(normalizedPath, existing);
+      
+      // Debug: Log first few paths to understand format
+      if (this.state.fileToFunctionsMap.size <= 3) {
+        console.log(`[PATH-DEBUG] buildLookupMaps: func.filePath = "${func.filePath}" -> normalized = "${normalizedPath}"`);
+      }
 
       // Build function lookup map (per-line for O(1) lookup compatibility)
       for (let line = func.startLine; line <= func.endLine; line++) {
-        const key = `${func.filePath}:${line}`;
+        const key = `${normalizedPath}:${line}`;
         this.state.functionLookupMap.set(key, id);
       }
     }

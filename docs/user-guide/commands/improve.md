@@ -1,5 +1,7 @@
 # funcqc improve
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の改善系は `funcqc similar`（重複/類似検出）や `funcqc dep` サブコマンド（`dead`/`delete`/`cycles`/`lint` 等）をご利用ください。
+
 🔧 Unified code improvement command that consolidates similar, safe-delete, and refactor-guard functionality.
 
 ## Usage

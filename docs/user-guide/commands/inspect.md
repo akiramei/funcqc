@@ -1,5 +1,7 @@
 # funcqc inspect
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の検査は `funcqc list`（一覧/フィルタ）、`funcqc show`（詳細）、`funcqc files`（ファイル一覧）を組み合わせてご利用ください。
+
 🔍 Unified function and file inspection command that consolidates list, search, files, and show functionality.
 
 ## Usage

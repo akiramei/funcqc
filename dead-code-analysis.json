@@ -1,0 +1,222 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts dep dead --format json --verbose
+
+ℹ️  Info: 🔍 Checking system requirements...
+ℹ️  Info: ✅ Node.js Version: OK
+ℹ️  Info: ✅ Git Availability: OK
+ℹ️  Info: ✅ TypeScript Project: OK
+ℹ️  Info: ✅ Memory Available: OK
+ℹ️  Info: ✅ Write Permissions: OK
+ℹ️  Info: ✅ System check passed!
+🔍 Command requires: [BASIC, CALL_GRAPH]
+✅ All required dependencies already satisfied: [BASIC, CALL_GRAPH]
+- Analyzing dead code...
+🔍 Entry Point Detection Debug:
+📊 Entry Point Detection Summary:
+  Total entry points: 3657
+  Test files detected: 0
+  Test functions as entry points: 0
+  Breakdown by reason: { exported: 2671, cli: 922, main: 34, index: 13, handler: 17 }
+✔ Dead code analysis complete
+{
+  "summary": {
+    "totalFunctions": 3413,
+    "reachableFunctions": 3393,
+    "unreachableFunctions": 20,
+    "unusedExports": 0,
+    "entryPoints": 3304,
+    "deadCodeCount": 20,
+    "coverage": "99.41%"
+  },
+  "deadCode": [
+    {
+      "functionId": "c34e3c4c-90a2-5315-8ec0-e0c17b60399c",
+      "functionName": "resolveImportedSymbolWithCache",
+      "filePath": "src/benchmarks/performance-comparison.ts",
+      "startLine": 25,
+      "endLine": 31,
+      "size": 7,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "c7fb6ea3-9b4d-566f-a5db-c45c38828543",
+      "functionName": "printBaselineSummary",
+      "filePath": "src/benchmarks/performance-comparison.ts",
+      "startLine": 115,
+      "endLine": 117,
+      "size": 3,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "0f1daad6-e957-5eec-97f3-fb597e4922dc",
+      "functionName": "getOrCreateProject",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 27,
+      "endLine": 83,
+      "size": 57,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "17e887fa-cb2d-5ed6-a014-fe88dd46f3f9",
+      "functionName": "isProjectValid",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 88,
+      "endLine": 103,
+      "size": 16,
+      "reason": "unreachable"
+    },
+    {
+      "functionId": "0249f3e4-6c3d-5f5d-832c-1903e61db048",
+      "functionName": "cleanupExpiredProjects",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 108,
+      "endLine": 121,
+      "size": 14,
+      "reason": "unreachable"
+    },
+    {
+      "functionId": "b783dfdc-d2e9-51ae-b885-c36b8ddba62d",
+      "functionName": "disposeProject",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 126,
+      "endLine": 138,
+      "size": 13,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "1feb0c16-0ce6-5143-aafb-81751f98836b",
+      "functionName": "getCachedProject",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 143,
+      "endLine": 149,
+      "size": 7,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "1fdf5de1-f809-531c-b65e-f3fb5fb54e54",
+      "functionName": "getCacheStats",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 154,
+      "endLine": 165,
+      "size": 12,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "29d63661-4252-5d6c-9d41-de8102723482",
+      "functionName": "clearAll",
+      "filePath": "src/core/shared-virtual-project-manager.ts",
+      "startLine": 170,
+      "endLine": 181,
+      "size": 12,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "8a6f8c15-0282-5732-9ed9-46d855bd055d",
+      "functionName": "simpleStem",
+      "filePath": "src/services/local-similarity-service.ts",
+      "startLine": 48,
+      "endLine": 73,
+      "size": 26,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "2482a3d8-4dcb-5ca1-a68c-92d3f0777afc",
+      "functionName": "preload",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 42,
+      "endLine": 44,
+      "size": 3,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "4750e081-6783-51a7-91ca-9862055a9d21",
+      "functionName": "get",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 66,
+      "endLine": 83,
+      "size": 18,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "3e536a41-a6dc-5e3e-943c-20cab745446e",
+      "functionName": "set",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 85,
+      "endLine": 98,
+      "size": 14,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "352f418a-828c-5ad8-ab0f-3634ed4ba435",
+      "functionName": "clear",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 100,
+      "endLine": 103,
+      "size": 4,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "46ad64de-9aa2-5e12-8a08-08693eee789f",
+      "functionName": "preload",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 105,
+      "endLine": 109,
+      "size": 5,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "78ecabe3-7a3d-5efc-a772-efbd392b64d5",
+      "functionName": "getStats",
+      "filePath": "src/utils/distributed-cache-manager.ts",
+      "startLine": 111,
+      "endLine": 119,
+      "size": 9,
+      "reason": "no-callers"
+    },
+    {
+      "functionId": "91b81998-22c2-554d-97e5-a2600c335315",
+      "functionName": "processFile",
+      "filePath": "src/workers/analysis-worker.ts",
+      "startLine": 30,
+      "endLine": 51,
+      "size": 22,
+      "reason": "unreachable"
+    },
+    {
+      "functionId": "f0ef96c4-f7fe-5de1-8f17-45edd9edf16e",
+      "functionName": "createSuccessResponse",
+      "filePath": "src/workers/analysis-worker.ts",
+      "startLine": 56,
+      "endLine": 72,
+      "size": 17,
+      "reason": "unreachable"
+    },
+    {
+      "functionId": "dd6207fd-f165-514e-b158-96af71fb71ca",
+      "functionName": "createErrorResponse",
+      "filePath": "src/workers/analysis-worker.ts",
+      "startLine": 77,
+      "endLine": 89,
+      "size": 13,
+      "reason": "unreachable"
+    },
+    {
+      "functionId": "a60eba09-7c71-515f-9010-cdc9302dd9e0",
+      "functionName": "processFiles",
+      "filePath": "src/workers/analysis-worker.ts",
+      "startLine": 91,
+      "endLine": 119,
+      "size": 29,
+      "reason": "no-callers"
+    }
+  ],
+  "unusedExports": [],
+  "filters": {
+    "excludeTests": false,
+    "excludeExports": false,
+    "excludeSmall": false,
+    "threshold": 3,
+    "layerEntryPoints": []
+  }
+}

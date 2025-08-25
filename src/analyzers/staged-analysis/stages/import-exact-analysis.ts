@@ -11,7 +11,7 @@ import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES, NODE_BUILTIN_MODULES } from '../constants';
 import { AnalysisState } from '../types';
 import { SymbolCache } from '../../../utils/symbol-cache';
-import { buildImportIndex, resolveCallee } from '../../symbol-resolver';
+import { buildImportIndex, resolveCallee, ImportRecord } from '../../symbol-resolver';
 import { addEdge } from '../../shared/graph-utils';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,7 +28,7 @@ export class ImportExactAnalysisStage {
   /** symbol-resolver が external と判定したコール式を保持（CHA への誤送出防止） */
   private externalCallNodes = new WeakSet<Node>();
   /** Import index cache for performance optimization */
-  private importIndexCache = new WeakMap<import('ts-morph').SourceFile, Map<string, { module: string; kind: "namespace" | "default" | "named" | "require" }>>();
+  private importIndexCache = new WeakMap<import('ts-morph').SourceFile, Map<string, ImportRecord>>();
 
   constructor(
     project: Project, 
@@ -83,11 +83,19 @@ export class ImportExactAnalysisStage {
   ): Promise<number> {
     let importEdgesCount = 0;
 
+    console.log(`[IMPORT-DEBUG] Processing ${callExpressions.length} call expressions and ${newExpressions.length} new expressions`);
+
     // Process call expressions
     for (const node of callExpressions) {
-      const calleeId = this.resolveImportCall(node as CallExpression, functions);
+      const callExpr = node as CallExpression;
+      const expressionText = callExpr.getExpression().getText();
+      console.log(`[IMPORT-DEBUG] Processing call expression: ${expressionText}()`);
+      
+      const calleeId = this.resolveImportCall(callExpr, functions);
       const callerFunction = this.findCallerFunction(node, functions);
       
+      console.log(`[IMPORT-DEBUG] resolveImportCall returned: ${calleeId}`);
+      console.log(`[IMPORT-DEBUG] findCallerFunction returned: ${callerFunction ? callerFunction.id : 'null'}`);
       
       if (calleeId && callerFunction) {
         const isOptional = this.isOptionalCallExpression(node);

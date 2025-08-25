@@ -1,5 +1,15 @@
 # funcqc改善実装計画書
 
+> 注意: 本文書は v2.0 統合コマンド（setup/measure/assess/inspect/improve 等）の提案書です。現行CLIには未実装です。実行時は下記対応表で現行コマンドをご利用ください。
+> - setup → init / config
+> - measure → scan
+> - assess → health / types health
+> - inspect → list / show / files
+> - improve → similar / dep サブコマンド（dead/delete/cycles/lint）
+> - search → experimental search
+> - safe-delete → dep delete
+> - dead → dep dead
+
 ## 📋 Executive Summary
 
 funcqcの包括的評価により、技術的に優秀でありながら実用性に課題があることが判明しました。Health Index 17.5/100の主因は95%の誤検知（再帰関数の誤ペナルティ化）であり、45機能の過度な分割が学習コストを押し上げています。
@@ -203,8 +213,8 @@ class InspectCommand {
 #### `search`機能（35点）
 ```bash
 # 問題: list機能で完全代替可能
-# 現状
-funcqc search "keyword"
+# 現状（現行CLI）
+funcqc experimental search "keyword"
 
 # 代替方法
 funcqc inspect --name "keyword"  # 新統合機能
@@ -295,6 +305,7 @@ funcqc scan → funcqc measure
 
 #### Phase 2: 移行ガイド表示（6-9ヶ月）
 ```bash
+# （例: 旧コマンド利用時のエラーメッセージ想定）
 funcqc search "keyword"
 # Error: 'search' has been removed. 
 # Use 'funcqc inspect --name "keyword"' instead.

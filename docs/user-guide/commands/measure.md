@@ -1,5 +1,7 @@
 # funcqc measure
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の測定・分析は `funcqc scan`（`--with-basic`/`--full`/`--with-types` 等）をご利用ください。
+
 📊 Unified measurement command that consolidates scanning and analysis functionality into a comprehensive project measurement system.
 
 ## Usage

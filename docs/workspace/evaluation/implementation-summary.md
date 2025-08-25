@@ -1,5 +1,7 @@
 # funcqc評価結果と実装計画サマリー
 
+> 注意: 本文書は v2.0 の統合コマンド（setup/measure/assess/inspect/improve 等）を前提にしたまとめです。現行CLIには未実装です。実行時は measure→scan, assess→health, inspect→list/show/files, improve→similar/dep 等の対応でご利用ください。
+
 ## 📋 Executive Summary
 
 2025年1月に実施したfuncqcの包括的性能評価により、技術的に優秀でありながら実用性に課題があることが判明しました。主要な問題点を特定し、45機能から9機能への大胆な統合を含む包括的改善計画を策定しました。

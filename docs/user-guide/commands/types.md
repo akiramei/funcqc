@@ -404,12 +404,11 @@ funcqc types --action validate --best-practices --verbose
 
 ```bash
 # Type quality as part of overall quality
-funcqc assess --type health --verbose  # Overall health
-funcqc types --action health --verbose  # Type-specific health
+funcqc health --verbose  # Overall health
+funcqc types health --verbose  # Type-specific health
 
-# Type improvements as part of code improvement
-funcqc improve --type duplicates  # May find duplicate types
-funcqc types --action transform --type consolidate  # Type-specific consolidation
+# Improvement opportunities
+funcqc similar  # Duplicate/near-duplicate functions
 ```
 
 ## Integration Examples

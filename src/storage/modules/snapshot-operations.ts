@@ -596,6 +596,8 @@ export class SnapshotOperations implements StorageOperationModule {
       fileExtensions: {},
       // complexityDistribution uses number keys as per interface
       complexityDistribution: {} as Record<number, number>,
+      // Initialize completedAnalyses to prevent metadata validation failures
+      completedAnalyses: [] as string[],
     };
   }
 
@@ -694,6 +696,8 @@ export class SnapshotOperations implements StorageOperationModule {
         analysisLevel: (metadata['analysisLevel'] as 'NONE' | 'BASIC' | 'CALL_GRAPH') || 'NONE',
         basicAnalysisCompleted: Boolean(metadata['basicAnalysisCompleted']),
         callGraphAnalysisCompleted: Boolean(metadata['callGraphAnalysisCompleted']),
+        // Include completedAnalyses array for new metadata format
+        completedAnalyses: (metadata['completedAnalyses'] as string[]) || [],
       } as SnapshotMetadata,
     };
   }
