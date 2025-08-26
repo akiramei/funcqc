@@ -516,7 +516,8 @@ export class CallGraphAnalyzer {
           // @/ -> src/ mapping (common convention)
           const relativePath = moduleSpecifier.substring(2); // Remove '@/'
           if (isVirtual) {
-            resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+            const mod = [projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/');
+            resolvedPath = `/virtual/${mod}`;
           } else {
             resolvedPath = path.join(projectRoot, 'src', relativePath);
           }
@@ -524,7 +525,8 @@ export class CallGraphAnalyzer {
           // #/ -> project root mapping
           const relativePath = moduleSpecifier.substring(2); // Remove '#/'
           if (isVirtual) {
-            resolvedPath = path.join('/virtual', projectRoot, relativePath);
+            const mod = [projectRoot.replace(/^\/+/, ''), relativePath].join('/');
+            resolvedPath = `/virtual/${mod}`;
           } else {
             resolvedPath = path.join(projectRoot, relativePath);
           }

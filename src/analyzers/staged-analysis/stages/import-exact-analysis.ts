@@ -605,7 +605,8 @@ export class ImportExactAnalysisStage {
         // @/ -> src/ mapping (common convention)
         const relativePath = moduleSpecifier.substring(2); // Remove '@/'
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+          const mod = [projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.join(projectRoot, 'src', relativePath);
         }
@@ -613,7 +614,8 @@ export class ImportExactAnalysisStage {
         // #/ -> project root mapping
         const relativePath = moduleSpecifier.substring(2); // Remove '#/'
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', projectRoot, relativePath);
+          const mod = [projectRoot.replace(/^\/+/, ''), relativePath].join('/');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.join(projectRoot, relativePath);
         }
@@ -623,8 +625,8 @@ export class ImportExactAnalysisStage {
     } else if (moduleSpecifier.startsWith('/')) {
       // Absolute path (unified format: all paths start with /)
       if (isVirtual) {
-        // 注意: path.join('/virtual', '/x') は '/x' になるため未使用
-        resolvedPath = '/virtual' + moduleSpecifier; // moduleSpecifierは先頭'/'付き前提
+        const mod = moduleSpecifier.replace(/^\/+/, '');
+        resolvedPath = `/virtual/${mod}`;
       } else {
         resolvedPath = path.resolve(moduleSpecifier);
       }

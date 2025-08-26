@@ -224,7 +224,7 @@ async function executeScanCommand(
     const snapshotId = latestSnapshot.id;
     const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
     const functionsAnalyzed = functions.length;
-    const analysisLevel = (latestSnapshot.metadata as Record<string, unknown>)?.analysisLevel as string || 'NONE';
+    const analysisLevel = (latestSnapshot.metadata as Record<string, unknown>)?.['analysisLevel'] as string || 'NONE';
     
     // Get source files and call edges from existing snapshot
     const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
