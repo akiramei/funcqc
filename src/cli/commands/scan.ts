@@ -25,7 +25,7 @@ import { CommandEnvironment } from '../../types/environment';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, TypeChecker, ts, Node } from 'ts-morph';
-import { SnapshotMetadata } from '../../types';
+// import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
 
 /**
@@ -118,21 +118,10 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
 }
 
 /**
- * Update snapshot metadata after scan
+ * REMOVED: Command Protocol violation - metadata updates should be handled by dependency manager
+ * This function violated Command Protocol by updating snapshots in scan command
  */
-async function updateSnapshotMetadata(
-  _storage: CliComponents['storage'],
-  _snapshotId: string,
-  metadata: Partial<SnapshotMetadata>
-): Promise<void> {
-  try {
-    // TODO: Implement storage method to update snapshot metadata
-    // await storage.updateSnapshotMetadata(snapshotId, metadata);
-    console.log(chalk.gray(`  Scan metadata: mode=${metadata.scanMode}, duration=${metadata.scanDuration}ms`));
-  } catch (error) {
-    console.warn(`Warning: Failed to update snapshot metadata: ${error}`);
-  }
-}
+// async function updateSnapshotMetadata - REMOVED
 
 /**
  * Parameter property usage data for coupling analysis
@@ -210,105 +199,41 @@ async function executeScanCommand(
       console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode} (target: ${scanLevel.targetTime})}`));
     }
 
-    // Check for configuration changes and enforce comment requirement
-    const configHash = await checkConfigurationChanges(env, options, spinner);
-
-    const scanPaths = await determineScanPaths(env.config, options.scope);
-    const files = await discoverFiles(scanPaths, env.config, spinner, options.scope);
-
-    if (files.length === 0) {
+    // COMMAND PROTOCOL COMPLIANCE: All actual processing (snapshot creation, analysis) 
+    // is already completed by CLI wrapper + dependency manager
+    // Scan command should only display results
+    
+    // Get latest snapshot created by dependency manager
+    const latestSnapshot = await env.storage.getLatestSnapshot();
+    if (!latestSnapshot) {
       if (options.json) {
         console.log(JSON.stringify({
           success: false,
-          message: 'No TypeScript files found to analyze',
+          message: 'No snapshot found. Analysis not completed by dependency manager.',
           filesAnalyzed: 0,
           functionsAnalyzed: 0,
           snapshotId: null,
           timestamp: new Date().toISOString()
         }, null, 2));
       } else {
-        console.log(chalk.yellow('No TypeScript files found to analyze.'));
+        console.log(chalk.red('❌ No snapshot found. This suggests dependency manager failed.'));
       }
       return;
     }
-
-    // Step 1: Collect and store source files (fast)
-    const sourceFiles = await collectSourceFiles(files, spinner);
-    const { snapshotId, sourceFileIdMap } = await saveSourceFilesWithDeduplication(sourceFiles, env.storage, options, spinner, configHash);
     
-    // Step 2: Perform basic analysis (always for quick scan)
-    let functionsAnalyzed = 0;
-    let analysisLevel: import('../../types').AnalysisLevel = 'NONE';
+    const snapshotId = latestSnapshot.id;
+    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    const functionsAnalyzed = functions.length;
+    const analysisLevel = (latestSnapshot.metadata as Record<string, unknown>)?.['analysisLevel'] as string || 'NONE';
     
-    if (scanLevel.includes.includes('BASIC')) {
-      const basicResult = await performBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
-      functionsAnalyzed = basicResult?.functionsAnalyzed || 0;
-      analysisLevel = 'BASIC';
-      await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-    }
+    // Get source files and call edges from existing snapshot
+    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+    const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
     
-    // Step 3: Coupling analysis (independent from basic analysis)
-    if (scanLevel.includes.includes('COUPLING')) {
-      if (!options.json) {
-        console.log(chalk.blue('📊 Performing coupling analysis...'));
-      }
-      
-      const couplingResult = await performDeferredCouplingAnalysis(snapshotId, env, spinner);
-      if (!options.json) {
-        console.log(chalk.green(`✓ Coupling analysis completed (${couplingResult.couplingDataStored} data points)`));
-      }
-      
-      analysisLevel = 'COUPLING';
-    }
-    
-    // Step 4: Call graph analysis (for standard scan and above)
-    let callGraphResult: { callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] } | undefined;
-    if (scanLevel.includes.includes('CALL_GRAPH')) {
-      if (options.async) {
-        // Schedule for background execution
-        if (!options.json) {
-          console.log(chalk.blue('📊 Call graph analysis scheduled for background execution'));
-        }
-        // TODO: Implement background scheduling
-      } else {
-        if (!options.json) {
-          console.log(chalk.blue('📊 Performing call graph analysis...'));
-        }
-        callGraphResult = await performCallGraphAnalysis(snapshotId, env, spinner);
-        analysisLevel = 'CALL_GRAPH';
-      }
-    }
-    
-    // Step 5: Type system analysis (for full scan)
-    let typeSystemResult: { typesAnalyzed: number } | undefined;
-    if (scanLevel.includes.includes('TYPE_SYSTEM')) {
-      if (options.async) {
-        // Schedule for background execution
-        if (!options.json) {
-          console.log(chalk.blue('🧩 Type system analysis scheduled for background execution'));
-        }
-        // TODO: Implement background scheduling
-      } else {
-        if (!options.json) {
-          console.log(chalk.blue('🧩 Performing type system analysis...'));
-        }
-        typeSystemResult = await performDeferredTypeSystemAnalysis(snapshotId, env, !options.json);
-        if (!options.json) {
-          console.log(chalk.green(`✓ Type system analysis completed (${typeSystemResult.typesAnalyzed} types analyzed)`));
-        }
-        analysisLevel = 'TYPE_SYSTEM';
-      }
-    }
-    
-    // Record scan duration
+    // Record scan duration for display only
     const endTime = performance.now();
     const scanDuration = Math.round(endTime - startTime);
-    
-    // Update snapshot metadata with scan details
-    await updateSnapshotMetadata(env.storage, snapshotId, {
-      scanMode: scanLevel.mode,
-      scanDuration
-    });
     
     // Output results
     if (options.json) {
@@ -317,8 +242,8 @@ async function executeScanCommand(
         snapshotId,
         filesAnalyzed: sourceFiles.length,
         functionsAnalyzed,
-        callEdges: callGraphResult?.callEdges?.length || 0,
-        internalCallEdges: callGraphResult?.internalCallEdges?.length || 0,
+        callEdges: callEdges.length,
+        internalCallEdges: internalCallEdges.length,
         scope: options.scope || 'src',
         ...(options.label && { label: options.label }),
         ...(options.comment && { comment: options.comment }),
@@ -330,9 +255,14 @@ async function executeScanCommand(
       const durationSec = (scanDuration / 1000).toFixed(1);
       console.log(chalk.green(`✓ ${scanLevel.mode} scan completed in ${durationSec}s`));
       
+      // Show analysis results
+      console.log(chalk.blue(`📊 Results: ${functionsAnalyzed} functions, ${callEdges.length} call edges`));
+      console.log(chalk.blue(`📁 Files analyzed: ${sourceFiles.length}`));
+      console.log(chalk.blue(`🎯 Analysis level: ${analysisLevel}`));
+      
       // Show next steps based on scan level
       if (scanLevel.mode === 'quick') {
-        console.log(chalk.gray('  Run `funcqc scan --with-basic` for function analysis'));
+        console.log(chalk.gray('  Run `funcqc measure --with-basic` for function analysis'));
         console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
       } else if (scanLevel.mode === 'basic') {
         console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
@@ -348,27 +278,10 @@ async function executeScanCommand(
 }
 
 /**
- * Save source files with proper deduplication and create initial snapshot
+ * REMOVED: Command Protocol violation - snapshot creation should be handled by dependency manager
+ * This function violated Command Protocol by creating snapshots in scan command
  */
-async function saveSourceFilesWithDeduplication(
-  sourceFiles: import('../../types').SourceFile[],
-  storage: CliComponents['storage'],
-  options: ScanCommandOptions,
-  spinner: SpinnerInterface,
-  configHash: string
-): Promise<{ snapshotId: string; sourceFileIdMap: Map<string, string> }> {
-  spinner.start('Checking for existing source files...');
-  
-  // All files are saved as new records for each snapshot (correct behavior)
-  spinner.succeed(`Processing ${sourceFiles.length} files for snapshot`);
-  
-  const snapshotId = await saveSourceFiles(sourceFiles, storage, options, spinner, configHash);
-  
-  // Get source file IDs for all files
-  const sourceFileIdMap = await getSourceFileIdMapping(storage, snapshotId);
-  
-  return { snapshotId, sourceFileIdMap };
-}
+// async function saveSourceFilesWithDeduplication - REMOVED
 
 /**
  * Get source file ID mapping: filePath -> source_file_refs.id
@@ -393,42 +306,11 @@ async function getSourceFileIdMapping(
 /**
  * Save source files and create initial snapshot (fast operation)
  */
-async function saveSourceFiles(
-  sourceFiles: import('../../types').SourceFile[],
-  storage: CliComponents['storage'],
-  options: ScanCommandOptions,
-  spinner: SpinnerInterface,
-  configHash: string
-): Promise<string> {
-  spinner.start('Saving source files...');
-  
-  // Create snapshot with minimal metadata
-  const createSnapshotOptions: { label?: string; comment?: string; analysisLevel?: string; scope?: string; configHash?: string } = {
-    comment: options.comment || 'Source files stored (analysis pending)',
-    analysisLevel: 'NONE', // Will be added to snapshot type
-    scope: options.scope || 'src', // Use specified scope or default to 'src'
-    configHash: configHash, // Store the current configuration hash
-  };
-  
-  if (options.label) {
-    createSnapshotOptions.label = options.label;
-  }
-  
-  const snapshotId = await storage.createSnapshot(createSnapshotOptions);
-  
-  // Update source files with snapshot ID and save
-  sourceFiles.forEach(file => {
-    file.snapshotId = snapshotId;
-  });
-  
-  // Only save new source files that don't already exist
-  if (sourceFiles.length > 0) {
-    await storage.saveSourceFiles(sourceFiles, snapshotId);
-  }
-  
-  spinner.succeed(`Saved ${sourceFiles.length} new source files to snapshot: ${snapshotId}`);
-  return snapshotId;
-}
+/**
+ * REMOVED: Command Protocol violation - snapshot creation should be handled by dependency manager  
+ * This function violated Command Protocol by creating snapshots and saving files in scan command
+ */
+// async function saveSourceFiles - REMOVED
 
 /**
  * Perform basic analysis on stored files (can be called later)
@@ -1483,6 +1365,8 @@ export async function performDeferredTypeSystemAnalysis(
   }
 }
 
+/*
+// REMOVED: Command Protocol violation
 async function checkConfigurationChanges(
   env: CommandEnvironment,
   options: ScanCommandOptions,
@@ -1531,6 +1415,7 @@ async function checkConfigurationChanges(
   // Return the current config hash to be stored with the snapshot
   return currentConfigHash;
 }
+*/
 
 async function determineScanPaths(config: FuncqcConfig, scopeName?: string): Promise<string[]> {
   const configManager = new ConfigManager();
@@ -1921,6 +1806,8 @@ async function performStreamingAnalysis(
   await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
 }
 
+/*
+// REMOVED: Command Protocol violation  
 async function collectSourceFiles(
   files: string[],
   spinner: SpinnerInterface
@@ -2011,6 +1898,7 @@ async function collectSourceFiles(
   spinner.succeed(`Collected ${sourceFiles.length} source files`);
   return sourceFiles;
 }
+*/
 
 // Legacy save function - replaced by staged save
 // @ts-expect-error - Legacy function kept for reference  

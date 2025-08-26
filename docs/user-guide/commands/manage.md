@@ -1,5 +1,7 @@
 # funcqc manage
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の管理系は `funcqc diff` / `funcqc db` / `funcqc history` をご利用ください。
+
 📊 Unified data management command that consolidates database, diff, export, import, and history functionality.
 
 ## Usage

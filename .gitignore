@@ -70,6 +70,7 @@ temp-*/
 *.temp
 functions_data.txt
 high_complexity_functions.json
+test-output.json
 
 # PGLite database files (prevent filesystem pollution)
 :memory:/

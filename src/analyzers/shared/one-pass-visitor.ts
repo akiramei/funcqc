@@ -442,14 +442,12 @@ export class OnePassASTVisitor {
     // Extract function information for deterministic ID generation
     const rawFilePath = func.getSourceFile().getFilePath();
     
-    // CRITICAL FIX: Use same file path normalization as DB storage
-    // This ensures OnePassASTVisitor generates same IDs as unified-ast-analyzer
-    const filePath = rawFilePath.startsWith('/') ? rawFilePath.slice(1) : rawFilePath;
+    // Use filePath directly (unified path format)
+    const filePath = rawFilePath;
     
     // DEBUG: Log filePath used by OnePassASTVisitor
     if (process.env['FUNCQC_DEBUG_COUPLING'] === '1') {
-      console.log(`    🗂️  OnePassASTVisitor rawFilePath: ${rawFilePath}`);
-      console.log(`    🗂️  OnePassASTVisitor normalized filePath: ${filePath}`);
+      console.log(`    🗂️  OnePassASTVisitor filePath: ${filePath}`);
     }
     
     // Extract class name from parent context using same method as unified-ast-analyzer

@@ -59,8 +59,10 @@ class NoCacheCallGraphAnalyzer extends CallGraphAnalyzer {
         return undefined;
       }
     } else if (moduleSpecifier.startsWith('/')) {
+      // Absolute path (unified format: all paths start with /)
       resolvedPath = moduleSpecifier;
     } else {
+      // External module or unsupported pattern
       this.baselineProfiler.recordDetail('import_resolution', 'external_modules', 1);
       return undefined;
     }

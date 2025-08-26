@@ -516,7 +516,8 @@ export class CallGraphAnalyzer {
           // @/ -> src/ mapping (common convention)
           const relativePath = moduleSpecifier.substring(2); // Remove '@/'
           if (isVirtual) {
-            resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+            const mod = [projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/');
+            resolvedPath = `/virtual/${mod}`;
           } else {
             resolvedPath = path.join(projectRoot, 'src', relativePath);
           }
@@ -524,7 +525,8 @@ export class CallGraphAnalyzer {
           // #/ -> project root mapping
           const relativePath = moduleSpecifier.substring(2); // Remove '#/'
           if (isVirtual) {
-            resolvedPath = path.join('/virtual', projectRoot, relativePath);
+            const mod = [projectRoot.replace(/^\/+/, ''), relativePath].join('/');
+            resolvedPath = `/virtual/${mod}`;
           } else {
             resolvedPath = path.join(projectRoot, relativePath);
           }
@@ -532,33 +534,39 @@ export class CallGraphAnalyzer {
           return undefined;
         }
       } else if (moduleSpecifier.startsWith('/')) {
-        // 🔧 CRITICAL FIX: Absolute path with proper handling
+        // Absolute path (unified format: all paths start with /)
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', moduleSpecifier);
+          // 先頭のスラッシュを除去してから /virtual を付与（join は使わない）
+          const mod = moduleSpecifier.replace(/^\/+/, '');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.resolve(moduleSpecifier);
         }
       } else {
-        // External module or unsupported pattern
+        // External module or unsupported pattern - CRITICAL FIX
         this.profiler.recordDetail('import_resolution', 'external_modules', 1);
         return undefined;
       }
       
       // Try to find the source file with comprehensive extension support
-      const extensionCandidates = [
-        '.ts', '.tsx',           // TypeScript files
-        '.js', '.jsx',           // JavaScript files  
-        '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
-        '/index.ts', '/index.tsx', // Index files
-        '/index.js', '/index.jsx'
-      ];
+      const knownExts = ['.ts', '.tsx', '.js', '.jsx', '.mts', '.cts'];
+      const hasKnownExt = knownExts.some(ext => resolvedPath.endsWith(ext));
+      const extensionCandidates = hasKnownExt
+        ? [''] // そのまま試す
+        : [
+            ...knownExts,
+            '/index.ts', '/index.tsx',
+            '/index.js', '/index.jsx'
+          ];
       
       let targetSourceFile;
       for (const ext of extensionCandidates) {
         const tryPathRaw = resolvedPath + ext;
-        
-        // 🔧 CRITICAL FIX: パス正規化（ts-morph は登録時の表記差で取りこぼしが出ます）
-        const tryPath = path.resolve(tryPathRaw);
+        // 🔧 CRITICAL FIX: virtual パスは resolve すると /virtual が落ちるため、そのまま POSIX 形で扱う
+        const tryPath =
+          resolvedPath.startsWith('/virtual/')
+            ? tryPathRaw.replace(/\\/g, '/')
+            : path.resolve(tryPathRaw);
 
         targetSourceFile = this.project.getSourceFile(tryPath);
         

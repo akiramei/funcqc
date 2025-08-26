@@ -111,7 +111,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertCallEdgesChunkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+      id: edge.id || generateStableEdgeId(
+        edge.callerFunctionId,
+        edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+        snapshotId
+      ),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
@@ -131,8 +135,28 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // Validate function IDs within the same snapshot (transaction path)
+      const functionIdsResult = await trx.query(
+        'SELECT id FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const validFunctionIds = new Set(
+        (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
+      );
+      const validCallEdgeRows = callEdgeRows.filter(row =>
+        validFunctionIds.has(row.caller_function_id) &&
+        (row.callee_function_id == null ||
+          validFunctionIds.has(row.callee_function_id))
+      );
+      if (validCallEdgeRows.length < callEdgeRows.length) {
+        const skipped = callEdgeRows.length - validCallEdgeRows.length;
+        this.logger?.debug(
+          `Skipped ${skipped} call edges with invalid function IDs (transaction path)`
+        );
+      }
+
       // Sanitize data to remove NUL characters (only if detected for performance)
-      const sanitizedRows = callEdgeRows.map(row => {
+      const sanitizedRows = validCallEdgeRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Check for NUL characters and sanitize only if found
@@ -227,7 +251,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertCallEdgesChunk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+      id: edge.id || generateStableEdgeId(
+        edge.callerFunctionId,
+        edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+        snapshotId
+      ),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
@@ -247,8 +275,23 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // Get valid function IDs from functions table to filter call edges
+      const functionIdsResult = await this.db.query('SELECT id FROM functions WHERE snapshot_id = $1', [snapshotId]);
+      const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(row => row.id));
+      
+      // Filter call edges to only include those with valid caller_function_id and callee_function_id
+      const validCallEdgeRows = callEdgeRows.filter(row => 
+        validFunctionIds.has(row.caller_function_id) && 
+        (row.callee_function_id === null || row.callee_function_id === undefined || validFunctionIds.has(row.callee_function_id))
+      );
+      
+      if (validCallEdgeRows.length < callEdgeRows.length) {
+        const skipped = callEdgeRows.length - validCallEdgeRows.length;
+        this.logger?.debug(`Skipped ${skipped} call edges with invalid function IDs (arrow functions, external functions, etc.)`);
+      }
+
       // Sanitize data to remove NUL characters that cause "invalid message format" error
-      const sanitizedRows = callEdgeRows.map(row => {
+      const sanitizedRows = validCallEdgeRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields
@@ -324,7 +367,26 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert call edges individually within a transaction
    */
   private async insertCallEdgesIndividualInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edgeRaw of callEdges) {
+    // 1) 同スナップショット内の有効な function_id を取得
+    const functionIdsResult = await trx.query(
+      'SELECT id FROM functions WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+    const validFunctionIds = new Set(
+      (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
+    );
+
+    // 2) 事前フィルタ
+    const filtered = callEdges.filter(e =>
+      validFunctionIds.has(e.callerFunctionId) &&
+      (e.calleeFunctionId == null || validFunctionIds.has(e.calleeFunctionId))
+    );
+    if (filtered.length < callEdges.length) {
+      const skipped = callEdges.length - filtered.length;
+      this.logger?.debug(`Skipped ${skipped} call edges with invalid function IDs (individual tx path)`);
+    }
+
+    for (const edgeRaw of filtered) {
       // NUL byte sanitization to prevent "invalid message format" errors
       const edge = {
         ...edgeRaw,
@@ -345,7 +407,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       };
 
       const params = [
-        edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+        edge.id || generateStableEdgeId(
+          edge.callerFunctionId,
+          edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+          snapshotId
+        ),
         snapshotId,
         edge.callerFunctionId,
         edge.calleeFunctionId,
@@ -428,8 +494,22 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // 同スナップショット内の有効な function_id のみ許可
+      const functionIdsResult = await this.db.query(
+        'SELECT id FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(r => r.id));
+      const validRows = internalCallEdgeRows.filter(row =>
+        validFunctionIds.has(row.caller_function_id) && validFunctionIds.has(row.callee_function_id)
+      );
+      if (validRows.length < internalCallEdgeRows.length) {
+        const skipped = internalCallEdgeRows.length - validRows.length;
+        this.logger?.debug(`Skipped ${skipped} internal call edges with invalid function IDs`);
+      }
+
       // Sanitize data to remove NUL characters
-      const sanitizedRows = internalCallEdgeRows.map(row => {
+      const sanitizedRows = validRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields
@@ -476,6 +556,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           confidence_score real,
           detected_by text
         )
+        ON CONFLICT (id) DO NOTHING
       `;
       
       await this.db.query(sql, [payload]);
@@ -490,7 +571,23 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert internal call edges individually
    */
   private async insertInternalCallEdgesIndividual(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edge of callEdges) {
+    // 1) 有効な function_id を同スナップショットから取得
+    const functionIdsResult = await this.db.query(
+      'SELECT id FROM functions WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+    const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(r => r.id));
+
+    // 2) 事前フィルタ
+    const filtered = callEdges.filter(e =>
+      validFunctionIds.has(e.callerFunctionId) && validFunctionIds.has(e.calleeFunctionId!)
+    );
+    if (filtered.length < callEdges.length) {
+      const skipped = callEdges.length - filtered.length;
+      this.logger?.debug(`Skipped ${skipped} internal call edges with invalid function IDs (individual path)`);
+    }
+
+    for (const edge of filtered) {
       await this.db.query(
         `
         INSERT INTO internal_call_edges (
@@ -498,6 +595,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           caller_name, callee_name, caller_class_name, callee_class_name,
           line_number, column_number, call_type, call_context, confidence_score, detected_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ON CONFLICT (id) DO NOTHING
         `,
         [
           edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId!, snapshotId),
@@ -595,15 +693,16 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Get internal callees by function
    */
-  async getInternalCalleesByFunction(callerFunctionId: string): Promise<string[]> {
+  async getInternalCalleesByFunction(callerFunctionId: string, snapshotId: string): Promise<string[]> {
     try {
       const result = await this.db.query(
         `
         SELECT DISTINCT callee_function_id 
         FROM internal_call_edges 
-        WHERE caller_function_id = $1
+        WHERE snapshot_id = $1
+          AND caller_function_id = $2
         `,
-        [callerFunctionId]
+        [snapshotId, callerFunctionId]
       );
 
       return result.rows.map(row => (row as { callee_function_id: string }).callee_function_id);
@@ -619,15 +718,16 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Check if an internal function is called
    */
-  async isInternalFunctionCalled(functionId: string): Promise<boolean> {
+  async isInternalFunctionCalled(functionId: string, snapshotId: string): Promise<boolean> {
     try {
       const result = await this.db.query(
         `
         SELECT COUNT(*) as count 
         FROM internal_call_edges 
         WHERE callee_function_id = $1
+          AND snapshot_id = $2
         `,
-        [functionId]
+        [functionId, snapshotId]
       );
 
       return parseInt((result.rows[0] as { count: string }).count) > 0;
@@ -877,31 +977,32 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     limit?: number;
     offset?: number;
   }): Promise<CallEdge[]> {
-    const query = this.kysely.selectFrom('call_edges').selectAll();
+    let qb = this.kysely.selectFrom('call_edges').selectAll();
 
     if (options?.snapshotId) {
-      query.where('snapshot_id', '=', options.snapshotId);
+      qb = qb.where('snapshot_id', '=', options.snapshotId);
     }
     if (options?.callerFunctionId) {
-      query.where('caller_function_id', '=', options.callerFunctionId);
+      qb = qb.where('caller_function_id', '=', options.callerFunctionId);
     }
     if (options?.calleeFunctionId) {
-      query.where('callee_function_id', '=', options.calleeFunctionId);
+      qb = qb.where('callee_function_id', '=', options.calleeFunctionId);
     }
     if (options?.calleeName) {
-      query.where('callee_name', '=', options.calleeName);
+      qb = qb.where('callee_name', '=', options.calleeName);
     }
     if (options?.callType) {
-      query.where('call_type', '=', options.callType);
+      qb = qb.where('call_type', '=', options.callType);
     }
     if (options?.limit) {
-      query.limit(options.limit);
+      qb = qb.limit(options.limit);
     }
     if (options?.offset) {
-      query.offset(options.offset);
+      qb = qb.offset(options.offset);
     }
 
-    const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
+    const compiled = qb.compile();
+    const result = await this.db.query(compiled.sql, compiled.parameters as unknown[]);
     
     return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
   }

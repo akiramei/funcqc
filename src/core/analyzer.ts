@@ -152,7 +152,8 @@ export class FunctionAnalyzer {
       
       // Initialize ideal call graph analyzer with unified virtual project
       this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
-        logger: this.logger 
+        logger: this.logger,
+        ...(snapshotId && { snapshotId })
       });
       
       // TEMPORARY: Force fallback for debugging
@@ -164,7 +165,7 @@ export class FunctionAnalyzer {
       const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
       
       // Convert to legacy format for compatibility
-      const functions = await this.convertToLegacyFormat(callGraphResult.functions);
+      const functions = await this.convertToLegacyFormat(callGraphResult.functions, snapshotId);
       
       // Use unified conversion without ID mapping (paths are already unified)
       const callEdges = this.convertCallEdgesToLegacy(callGraphResult.edges);
@@ -350,7 +351,10 @@ export class FunctionAnalyzer {
   /**
    * Convert ideal function metadata to legacy FunctionInfo format
    */
-  private async convertToLegacyFormat(functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>): Promise<FunctionInfo[]> {
+  private async convertToLegacyFormat(
+    functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>,
+    snapshotId?: string
+  ): Promise<FunctionInfo[]> {
     const legacyFunctions: FunctionInfo[] = [];
     
     // Group functions by file path for efficient source code extraction
@@ -372,6 +376,10 @@ export class FunctionAnalyzer {
       }
       
       for (const func of fileFunctions) {
+        // 署名とファイル内容に基づくハッシュを計算
+        const signatureHash = simpleHash(func.signature || func.name || '');
+        const fileHashComputed = fileContent ? simpleHash(fileContent) : undefined;
+        
         // Extract source code from file content
         let sourceCode = '';
         if (fileContent) {
@@ -383,14 +391,15 @@ export class FunctionAnalyzer {
         
         const legacyFunc: FunctionInfo = {
           id: func.id,
-          snapshotId: 'unknown',  // Legacy adapter - TODO: pass actual snapshot ID
+          snapshotId: snapshotId || 'unknown',
           name: func.name,
           filePath: func.filePath,
           startLine: func.startLine,
           endLine: func.endLine,
           startColumn: 0, // Not available in ideal system
           endColumn: 0, // Not available in ideal system
-          semanticId: func.contentHash,
+          // 意味ベース（署名など）で安定化
+          semanticId: signatureHash,
           displayName: func.name,
           signature: func.signature,
           contextPath: func.className ? [func.className] : [],
@@ -407,8 +416,9 @@ export class FunctionAnalyzer {
           contentId: func.contentHash,
           
           // Additional required fields
-          signatureHash: func.contentHash,
-          fileHash: func.contentHash,
+          signatureHash,
+          // ファイル内容が読めた場合のみ計算。なければ後段での再計算に委ねる
+          fileHash: fileHashComputed ?? '',
           isGenerator: false,
           isConstructor: func.nodeKind === 'ConstructorDeclaration',
           isStatic: false
@@ -556,34 +566,14 @@ export class FunctionAnalyzer {
       
       this.logger.debug(`Using virtual project with ${virtualProject.getSourceFiles().length} files`);
       
-      // CRITICAL FIX: Create comprehensive mappings to ensure Function ID consistency
-      const existingFunctionIds = new Map<string, string>();
-      // Create normalized path mapping: ts-morph path -> database normalized path
-      const normalizedPathMapping = new Map<string, string>();
+      // No need to create lookup mappings since deterministic UUID generation handles consistency
       
-      // Build path mapping from fileContentMap (normalized paths) to virtual project paths
-      for (const [normalizedPath, _content] of fileContentMap) {
-        // Find corresponding source file in virtual project
-        const sourceFile = virtualProject.getSourceFile(normalizedPath);
-        if (sourceFile) {
-          const tsmpPath = sourceFile.getFilePath();
-          normalizedPathMapping.set(tsmpPath, normalizedPath);
-        }
-      }
       
-      for (const func of functions) {
-        // Create lookup key that matches the one used in function-registry
-        const lookupKey = `${func.filePath}:${func.startLine}:${func.startColumn}:${func.name}`;
-        existingFunctionIds.set(lookupKey, func.id);
-      }
-      
-      // Initialize ideal call graph analyzer with virtual project and mappings
+      // Initialize ideal call graph analyzer with virtual project
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
         logger: this.logger,
         ...(snapshotId && { snapshotId }),
-        ...(storage && { storage }),
-        existingFunctionIds,
-        normalizedPathMapping
+        ...(storage && { storage })
       });
       
       try {
@@ -611,6 +601,7 @@ export class FunctionAnalyzer {
         
         const totalTime = performance.now() - startTime;
         console.log(chalk.yellow(`⏱️  Total call graph analysis time: ${(totalTime / 1000).toFixed(2)}s`));
+        
         
         this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
         

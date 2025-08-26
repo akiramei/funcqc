@@ -32,7 +32,7 @@ export interface ResolverContext {
   /** 関数ノード(宣言) → 内部IDの逆引き。既存 FunctionIndex から供給してください。*/
   getFunctionIdByDeclaration: (decl: Node) => string | undefined;
   /** import alias → module specifier の索引 */
-  importIndex?: Map<string, { module: string; kind: "namespace" | "named" | "default" | "require" }>;
+  importIndex?: Map<string, ImportRecord>;
   /** 内部モジュールとみなすパス接頭辞（例: ["src/", "@/"]）。相対("./", "../")は常に内部扱い。*/
   internalModulePrefixes?: string[];
   /** Optional: Resolve imported symbol from module specifier and exported name */
@@ -254,8 +254,27 @@ function resolveLeftModuleFromImports(
  */
 function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverContext):
   { functionId?: string; decl?: Node } {
-  if (!sym) return {};
-  for (const d of sym.getDeclarations() ?? []) {
+  if (!sym) {
+    return {};
+  }
+  
+  const declarations = sym.getDeclarations() ?? [];
+  
+  for (let i = 0; i < declarations.length; i++) {
+    const d = declarations[i];
+    
+    // Check if this is an import-related declaration
+    if (Node.isImportSpecifier(d) || Node.isImportClause(d) || Node.isNamespaceImport(d)) {
+      // For import declarations, try to resolve to the actual imported symbol
+      const aliasedSymbol = ctx.typeChecker.getAliasedSymbol(sym);
+      if (aliasedSymbol && aliasedSymbol !== sym) {
+        const result = tryResolveInternalBySymbol(aliasedSymbol, ctx);
+        if (result.functionId) {
+          return result;
+        }
+      }
+    }
+    
     // 関数/メソッド/コンストラクタ/関数式・アロー関数に対応
     if (
       Node.isFunctionDeclaration(d) ||
@@ -269,6 +288,15 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       if (id) return { functionId: id, decl: d };
     }
   }
+  // If we still haven't found anything, try getting the aliased symbol as a fallback
+  const aliasedSymbol = ctx.typeChecker.getAliasedSymbol(sym);
+  if (aliasedSymbol && aliasedSymbol !== sym) {
+    const result = tryResolveInternalBySymbol(aliasedSymbol, ctx);
+    if (result.functionId) {
+      return result;
+    }
+  }
+  
   return {};
 }
 
@@ -348,7 +376,12 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
 
   // 素の識別子 foo(...)
   if (Node.isIdentifier(expr)) {
+    
     const sym = ctx.typeChecker.getSymbolAtLocation(expr);
+    if (sym) {
+    } else {
+    }
+    
     const { functionId } = tryResolveInternalBySymbol(sym, ctx);
     if (functionId) {
       return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.DIRECT_SYMBOL, via: "symbol" };
@@ -380,7 +413,9 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
     
     // import default/named による関数呼び出し判定
     const alias = ctx.importIndex?.get(expr.getText());
+    
     if (alias) {
+      
       if (isExternalModule(alias.module, internalPrefixes)) {
         // 外部モジュールの場合
         const id = `external:${alias.module}:${expr.getText()}`;
@@ -393,18 +428,24 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
           const exportedName = alias.kind === "named" || alias.kind === "default" 
             ? ('imported' in alias ? alias.imported : expr.getText())  // Use imported name if available
             : expr.getText(); // For namespace/require, use local name
+          
           const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
+          
           if (declNode) {
             const functionId = ctx.getFunctionIdByDeclaration(declNode);
+            
             if (functionId) {
               return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
             }
+          } else {
           }
+        } else {
         }
         // 解決できない場合はunknownとして扱う
         return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
       }
     }
+    
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
   }
 

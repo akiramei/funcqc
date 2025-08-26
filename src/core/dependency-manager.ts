@@ -11,7 +11,7 @@
 import { CommandEnvironment } from '../types/environment';
 import { BaseCommandOptions } from '../types/command';
 import { DependencyType, InitializationResult } from '../types/command-protocol';
-import { DEPENDENCY_DEFINITIONS, DependencyOrderResolver } from '../config/dependencies';
+import { DEPENDENCY_DEFINITIONS } from '../config/dependencies';
 import type { AnalysisLevel } from '../types';
 
 interface AnalysisState {
@@ -30,17 +30,17 @@ export class DependencyManager {
   ): Promise<DependencyType[]> {
     if (required.length === 0) return [];
     
-    // 現在のDB状態を確認
-    const currentState = await this.getCurrentAnalysisState(env);
-    
-    // CRITICAL FIX: SNAPSHOTが要求されている場合、全ての依存関係を無効化
+    // CRITICAL FIX: SNAPSHOTが要求されている場合、既存状態をチェックせずに全て実行
     if (required.includes('SNAPSHOT')) {
       // 新しいスナップショットが作成される場合、全ての分析が無効になる
-      // prerequisites関係に関係なく、要求された全ての依存関係が必要
+      // 既存スナップショットの読み込みは不要
       return required;
     }
     
-    // SNAPSHOTが要求されていない場合は、個別に依存関係をチェック
+    // 現在のDB状態を確認（SNAPSHOTが不要な場合のみ）
+    const currentState = await this.getCurrentAnalysisState(env);
+    
+    // 個別に依存関係をチェック
     const missing = required.filter(dep => !this.isDependencyMet(dep, currentState));
     
     return missing;
@@ -58,14 +58,16 @@ export class DependencyManager {
       return { successful: [], failed: [], partialSuccess: false };
     }
     
-    // 実行順序を決定（優先順位 + 前提条件）
-    const orderedDependencies = DependencyOrderResolver.resolveDependencyOrder(dependencies);
+    // 実行順序を決定（優先順位のみ、前提条件は既にcalculateMissingDependenciesで処理済み）
+    const orderedDependencies = dependencies.sort((a, b) => 
+      DEPENDENCY_DEFINITIONS[a].priority - DEPENDENCY_DEFINITIONS[b].priority
+    );
     
     const successful: DependencyType[] = [];
     const failed: Array<{ dependency: DependencyType; error: Error }> = [];
     
     if (!options.quiet) {
-      console.log(`🔄 Initializing dependencies: [${orderedDependencies.join(', ')}]`);
+      env.commandLogger?.info?.(`🔄 Initializing dependencies: [${orderedDependencies.join(', ')}]`);
     }
     
     // 各依存関係を順次、独立して初期化
@@ -73,7 +75,7 @@ export class DependencyManager {
       try {
         if (!options.quiet) {
           const def = DEPENDENCY_DEFINITIONS[dependency];
-          console.log(`⚡ ${def.name}...`);
+          env.commandLogger?.info?.(`⚡ ${def.name}...`);
         }
         
         // 独立トランザクションで実行
@@ -84,7 +86,7 @@ export class DependencyManager {
         successful.push(dependency);
         
         if (!options.quiet) {
-          console.log(`✅ ${DEPENDENCY_DEFINITIONS[dependency].name} completed`);
+          env.commandLogger?.info?.(`✅ ${DEPENDENCY_DEFINITIONS[dependency].name} completed`);
         }
         
       } catch (error) {
@@ -93,7 +95,7 @@ export class DependencyManager {
         failed.push({ dependency, error: initError });
         
         if (!options.quiet) {
-          console.log(`❌ ${DEPENDENCY_DEFINITIONS[dependency].name} failed: ${initError.message}`);
+          env.commandLogger?.error?.(`❌ ${DEPENDENCY_DEFINITIONS[dependency].name} failed: ${initError.message}`);
         }
         
         // 重要：失敗しても他の初期化は継続する
@@ -104,7 +106,7 @@ export class DependencyManager {
     const partialSuccess = successful.length > 0 && failed.length > 0;
     
     if (!options.quiet && partialSuccess) {
-      console.log(`⚠️  Partial initialization completed: ${successful.length} successful, ${failed.length} failed`);
+      env.commandLogger?.warn?.(`⚠️  Partial initialization completed: ${successful.length} successful, ${failed.length} failed`);
     }
     
     return { successful, failed, partialSuccess };
@@ -149,10 +151,12 @@ export class DependencyManager {
       
       const metadata = snapshot.metadata as Record<string, unknown>;
       const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      const completedAnalyses = this.getCompletedAnalysesFromMetadata(metadata);
+      
       
       return {
         level: analysisLevel,
-        completedAnalyses: this.getCompletedAnalysesFromMetadata(metadata),
+        completedAnalyses,
         timestamp: new Date(snapshot.createdAt)
       };
     } catch {
@@ -203,10 +207,6 @@ export class DependencyManager {
    * 依存関係が満たされているかチェック
    */
   private isDependencyMet(dependency: DependencyType, state: AnalysisState): boolean {
-    // SNAPSHOTは常に新規作成なので、既存状態に関係なく必要
-    if (dependency === 'SNAPSHOT') {
-      return false;
-    }
     return state.completedAnalyses.includes(dependency);
   }
   
@@ -252,25 +252,47 @@ export class DependencyManager {
     dependency: DependencyType,
     env: CommandEnvironment
   ): Promise<void> {
+    const snapshot = await env.storage.getLatestSnapshot();
+    if (!snapshot) return;
+    const targetSnapshotId = snapshot.id;
+    
+    // 現在の状態を取得（rollback用に事前取得）
+    const currentState = await this.getCurrentAnalysisState(env);
+    const prevLevel = (currentState.level as AnalysisLevel) ?? 'NONE';
+    
     try {
-      const snapshot = await env.storage.getLatestSnapshot();
-      if (!snapshot) return;
-      
-      // 現在の状態を取得
-      const currentState = await this.getCurrentAnalysisState(env);
       const newCompleted = [...new Set([...currentState.completedAnalyses, dependency])];
       
       // 新しいレベルを計算
       const newLevel = this.calculateAnalysisLevel(newCompleted);
       
       // 直接 updateAnalysisLevel を使用し、その後 completedAnalyses を個別に更新
-      await env.storage.updateAnalysisLevel(snapshot.id, newLevel as AnalysisLevel);
+      await env.storage.updateAnalysisLevel(targetSnapshotId, newLevel as AnalysisLevel);
       
       // 新方式の completedAnalyses 配列をメタデータに追加で更新
-      await this.updateCompletedAnalysesMetadata(snapshot.id, newCompleted, env);
+      await this.updateCompletedAnalysesMetadata(targetSnapshotId, newCompleted, env);
+      
+      env.commandLogger?.debug?.(
+        `Successfully recorded completion of ${dependency}, current completed: [${newCompleted.join(', ')}]`
+      );
     } catch (error) {
-      // ログに記録するが、初期化処理は成功扱い
-      console.warn(`Warning: Failed to update analysis completion for ${dependency}:`, error);
+      // メタデータ更新の失敗は重大な問題として扱う
+      env.commandLogger?.error?.(
+        `CRITICAL: Failed to record analysis completion for ${dependency}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      // ベストエフォートのロールバックで不整合を緩和
+      try {
+        await env.storage.updateAnalysisLevel(targetSnapshotId, prevLevel);
+      } catch (rollbackErr) {
+        env.commandLogger?.warn?.(
+          `Rollback of analysisLevel failed: ${
+            rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)
+          }`
+        );
+      }
+      throw error; // 失敗を呼び出し元に伝播
     }
   }
   
@@ -286,7 +308,9 @@ export class DependencyManager {
     try {
       // 既存のスナップショット取得（最新のメタデータを取得）
       const snapshot = await env.storage.getSnapshot(snapshotId);
-      if (!snapshot) return;
+      if (!snapshot) {
+        throw new Error(`Snapshot ${snapshotId} not found for metadata update`);
+      }
       
       // 現在のメタデータを取得
       const currentMetadata = (snapshot.metadata as Record<string, unknown>) || {};
@@ -297,19 +321,45 @@ export class DependencyManager {
         completedAnalyses: completedAnalyses
       };
       
-      // 低レベルのSQLクエリで直接更新（updateAnalysisLevelと同じパターン）
-      // この実装は storage adapter の内部実装に依存するため、将来的には
-      // storage interface に updateSnapshotMetadata メソッドを追加することが理想
-      if ('query' in env.storage && typeof env.storage.query === 'function') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (env.storage as any).query(
-          'UPDATE snapshots SET metadata = $1 WHERE id = $2',
-          [JSON.stringify(updatedMetadata), snapshotId]
-        );
+      // メタデータ更新実行（型安全にquery methodを使用）
+      
+      await env.storage.query(
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+        [JSON.stringify(updatedMetadata), snapshotId]
+      );
+      
+      // 更新後の検証
+      const verifySnapshot = await env.storage.getSnapshot(snapshotId);
+      const verifyMetadata = verifySnapshot?.metadata as Record<string, unknown>;
+      const storedAnalyses = verifyMetadata?.['completedAnalyses'];
+      
+      // デバッグ用の詳細ログ
+      env.commandLogger?.debug?.(
+        `Verification details: ${JSON.stringify({
+          snapshotExists: !!verifySnapshot,
+          metadataExists: !!verifyMetadata,
+          completedAnalysesRaw: storedAnalyses,
+          completedAnalysesType: typeof storedAnalyses,
+          isArray: Array.isArray(storedAnalyses)
+        })}`
+      );
+      
+      if (!Array.isArray(storedAnalyses) || storedAnalyses.length !== completedAnalyses.length) {
+        throw new Error(`Metadata update verification failed. Expected: [${completedAnalyses.join(', ')}], Got: ${Array.isArray(storedAnalyses) ? '[' + storedAnalyses.join(', ') + ']' : 'not an array or undefined'}`);
       }
+      
+      env.commandLogger?.debug?.(
+        `Metadata update verified successfully: [${storedAnalyses.join(', ')}]`
+      );
+      
     } catch (error) {
-      // 失敗してもプロセスは継続（ログのみ）
-      console.warn(`Warning: Failed to update completedAnalyses metadata:`, error);
+      // 失敗時は詳細なエラー情報を出力し、エラーを再throw（隠蔽しない）
+      env.commandLogger?.error?.(
+        `CRITICAL: Failed to update completedAnalyses metadata for snapshot ${snapshotId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      throw error; // エラーを隠蔽せず、呼び出し元に伝播
     }
   }
   
@@ -556,6 +606,9 @@ export class DependencyManager {
     
     const { performDeferredBasicAnalysis } = await import('../cli/commands/scan');
     await performDeferredBasicAnalysis(snapshotId, env, true);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after BASIC analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
   }
   
   /**
@@ -575,7 +628,7 @@ export class DependencyManager {
    */
   private async ensureAnalysisLevelUpdated(
     snapshotId: string,
-    expectedLevel: AnalysisLevel,
+    completedDependency: DependencyType,
     env: CommandEnvironment,
   ): Promise<void> {
     try {
@@ -583,14 +636,18 @@ export class DependencyManager {
       if (!snapshot) return;
       
       const metadata = snapshot.metadata as Record<string, unknown>;
-      const currentLevel = (metadata?.['analysisLevel'] as AnalysisLevel) ?? 'NONE';
+      const currentCompleted = this.getCompletedAnalysesFromMetadata(metadata);
       
-      const currentRank = this.analysisLevelRank[currentLevel] ?? 0;
-      const expectedRank = this.analysisLevelRank[expectedLevel];
+      // 指定された依存関係を completedAnalyses に追加（前提条件も含める）
+      const prerequisites = DEPENDENCY_DEFINITIONS[completedDependency].prerequisites;
+      const newCompleted = [...new Set([...currentCompleted, ...prerequisites, completedDependency])];
       
-      if (currentRank < expectedRank) {
-        await env.storage.updateAnalysisLevel(snapshotId, expectedLevel);
-      }
+      // analysisLevel を新しいレベルに更新
+      const newLevel = this.calculateAnalysisLevel(newCompleted);
+      
+      await env.storage.updateAnalysisLevel(snapshotId, newLevel as AnalysisLevel);
+      await this.updateCompletedAnalysesMetadata(snapshotId, newCompleted, env);
+      
     } catch (error) {
       env.commandLogger.warn(`Warning: Failed to update analysis level: ${error}`);
     }
@@ -608,6 +665,9 @@ export class DependencyManager {
     }
     const { performCallGraphAnalysis } = await import('../cli/commands/scan');
     await performCallGraphAnalysis(snapshotId, env, undefined);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after CALL_GRAPH analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'CALL_GRAPH', env);
   }
   
   private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
@@ -622,6 +682,9 @@ export class DependencyManager {
     }
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
     await performDeferredTypeSystemAnalysis(snapshotId, env, true);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after TYPE_SYSTEM analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'TYPE_SYSTEM', env);
   }
   
   private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
@@ -636,5 +699,8 @@ export class DependencyManager {
     }
     const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
     await performDeferredCouplingAnalysis(snapshotId, env, undefined);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after COUPLING analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'COUPLING', env);
   }
 }

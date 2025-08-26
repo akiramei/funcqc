@@ -1,6 +1,16 @@
 # funcqc User Guide
 
-Welcome to funcqc v2.0 - a revolutionary TypeScript quality management platform that consolidates 45+ commands into 9 intuitive unified commands.
+> 注意: 本ガイドの一部は v2.0 の「統合コマンド」（setup/measure/inspect/assess/improve 等）の構想に基づく記述を含みます。現行CLIでは未実装のため、下記マッピングに従って現行コマンドをご利用ください。
+
+現行コマンドへの対応表（抜粋）:
+- setup → `init`
+- measure → `scan`
+- assess → `health`
+- inspect → `list` / `show` / `files`
+- improve → `similar` または `dep` サブコマンド（`dead`/`delete`/`cycles`/`lint` 等）
+- search → `experimental search`
+- safe-delete → `dep delete`
+- dead → `dep dead`
 
 ## 🚀 Quick Start
 
@@ -14,19 +24,19 @@ npm install -g funcqc
 
 ```bash
 # 1. Initialize funcqc in your project
-funcqc setup --action init
+funcqc init
 
 # 2. Measure your project
-funcqc measure --level standard
+funcqc scan --with-basic
 
 # 3. Assess quality
-funcqc assess --type health --verbose
+funcqc health --verbose
 
 # 4. Inspect problematic functions
-funcqc inspect --cc-ge 10 --limit 10
+funcqc list --cc-ge 10 --limit 10
 
 # 5. Find improvement opportunities
-funcqc improve --type duplicates
+funcqc similar
 ```
 
 ## 📊 The 9 Unified Commands
@@ -35,25 +45,25 @@ funcqc improve --type duplicates
 
 | Command | Purpose | Quick Example |
 |---------|---------|---------------|
-| [`setup`](commands/setup.md) | 🛠️ Configuration | `funcqc setup --action init` |
-| [`measure`](commands/measure.md) | 📊 Project measurement | `funcqc measure --level standard` |
-| [`inspect`](commands/inspect.md) | 🔍 Function/file inspection | `funcqc inspect --cc-ge 10` |
-| [`assess`](commands/assess.md) | 📊 Quality assessment | `funcqc assess --type health` |
+| [`init`](../README.md) | 🛠️ Configuration | `funcqc init` |
+| `scan` | 📊 Project measurement | `funcqc scan --with-basic` |
+| `list`/`show`/`files` | 🔍 Function/file inspection | `funcqc list --cc-ge 10` |
+| `health` | 📊 Quality assessment | `funcqc health` |
 
 ### Tier 2: Code Improvement
 
 | Command | Purpose | Quick Example |
 |---------|---------|---------------|
-| [`improve`](commands/improve.md) | 🔧 Code improvement | `funcqc improve --type duplicates` |
-| [`manage`](commands/manage.md) | 📊 Data management | `funcqc manage --action diff` |
+| `similar` | 🔧 Code improvement | `funcqc similar` |
+| `diff`/`db`/`history` | 📊 Data management | `funcqc diff HEAD~1 HEAD` |
 
 ### Tier 3: Specialized Analysis
 
 | Command | Purpose | Quick Example |
 |---------|---------|---------------|
-| [`dependencies`](commands/dependencies.md) | 🔗 Dependency analysis | `funcqc dependencies --action cycles` |
-| [`refactor`](commands/refactor.md) | 🔧 Refactoring analysis | `funcqc refactor --action guard` |
-| [`types`](commands/types.md) | 🧩 TypeScript analysis | `funcqc types --action health` |
+| `dep` | 🔗 Dependency analysis | `funcqc dep cycles` |
+| `experimental` | 🔧 Experimental features | `funcqc experimental evaluate` |
+| `types` | 🧩 TypeScript analysis | `funcqc types health` |
 
 ## 💡 Common Workflows
 
@@ -61,43 +71,45 @@ funcqc improve --type duplicates
 
 ```bash
 # Quick quality assessment
-funcqc measure --level quick
-funcqc assess --type health
+funcqc scan --with-basic
+funcqc health
 
 # Find immediate improvement opportunities
-funcqc improve --type duplicates
-funcqc improve --type dead-code
+funcqc similar
+funcqc dep dead --format table
 ```
 
 ### Pre-commit Quality Gate
 
 ```bash
 # Comprehensive analysis
-funcqc measure --level standard
-funcqc assess --advanced
-funcqc dependencies --action cycles
+funcqc scan --full
+funcqc health --verbose
+funcqc dep cycles
 ```
 
 ### Code Review Preparation
 
 ```bash
 # Generate comparison between commits
-funcqc manage --action diff --from HEAD~1 --to HEAD
+funcqc diff HEAD~1 HEAD
 
-# Identify refactoring safety
-funcqc refactor --action guard
+# Identify refactoring safety（未実装: refactor/guard）
+# 代替: 循環やデッドコードの網羅
+funcqc dep cycles
+funcqc dep dead
 
 # Check for type issues
-funcqc types --action health
+funcqc types health
 ```
 
 ### Large-scale Refactoring
 
 ```bash
 # Deep analysis for refactoring planning
-funcqc measure --level complete
-funcqc assess --advanced --mode dynamic
-funcqc dependencies --action stats --show-hubs
+funcqc scan --full
+funcqc health --verbose
+funcqc dep stats --show-hubs
 ```
 
 ## 🎯 Key Benefits of v2.0

@@ -1,5 +1,7 @@
 # funcqc assess
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の品質評価は `funcqc health`、型品質は `funcqc types health` を使用してください。
+
 📊 Unified quality assessment command that consolidates health, evaluate, and type health functionality.
 
 ## Usage

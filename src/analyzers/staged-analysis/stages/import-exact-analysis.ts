@@ -11,7 +11,7 @@ import { generateStableEdgeId } from '../../../utils/edge-id-generator';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES, NODE_BUILTIN_MODULES } from '../constants';
 import { AnalysisState } from '../types';
 import { SymbolCache } from '../../../utils/symbol-cache';
-import { buildImportIndex, resolveCallee } from '../../symbol-resolver';
+import { buildImportIndex, resolveCallee, ImportRecord } from '../../symbol-resolver';
 import { addEdge } from '../../shared/graph-utils';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -28,7 +28,7 @@ export class ImportExactAnalysisStage {
   /** symbol-resolver が external と判定したコール式を保持（CHA への誤送出防止） */
   private externalCallNodes = new WeakSet<Node>();
   /** Import index cache for performance optimization */
-  private importIndexCache = new WeakMap<import('ts-morph').SourceFile, Map<string, { module: string; kind: "namespace" | "default" | "named" | "require" }>>();
+  private importIndexCache = new WeakMap<import('ts-morph').SourceFile, Map<string, ImportRecord>>();
 
   constructor(
     project: Project, 
@@ -83,9 +83,12 @@ export class ImportExactAnalysisStage {
   ): Promise<number> {
     let importEdgesCount = 0;
 
+
     // Process call expressions
     for (const node of callExpressions) {
-      const calleeId = this.resolveImportCall(node as CallExpression, functions);
+      const callExpr = node as CallExpression;
+      
+      const calleeId = this.resolveImportCall(callExpr, functions);
       const callerFunction = this.findCallerFunction(node, functions);
       
       
@@ -597,7 +600,8 @@ export class ImportExactAnalysisStage {
         // @/ -> src/ mapping (common convention)
         const relativePath = moduleSpecifier.substring(2); // Remove '@/'
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', projectRoot, 'src', relativePath);
+          const mod = [projectRoot.replace(/^\/+/, ''), 'src', relativePath].join('/');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.join(projectRoot, 'src', relativePath);
         }
@@ -605,7 +609,8 @@ export class ImportExactAnalysisStage {
         // #/ -> project root mapping
         const relativePath = moduleSpecifier.substring(2); // Remove '#/'
         if (isVirtual) {
-          resolvedPath = path.join('/virtual', projectRoot, relativePath);
+          const mod = [projectRoot.replace(/^\/+/, ''), relativePath].join('/');
+          resolvedPath = `/virtual/${mod}`;
         } else {
           resolvedPath = path.join(projectRoot, relativePath);
         }
@@ -613,9 +618,10 @@ export class ImportExactAnalysisStage {
         return undefined;
       }
     } else if (moduleSpecifier.startsWith('/')) {
-      // Absolute path with proper handling
+      // Absolute path (unified format: all paths start with /)
       if (isVirtual) {
-        resolvedPath = path.join('/virtual', moduleSpecifier);
+        const mod = moduleSpecifier.replace(/^\/+/, '');
+        resolvedPath = `/virtual/${mod}`;
       } else {
         resolvedPath = path.resolve(moduleSpecifier);
       }
@@ -628,17 +634,37 @@ export class ImportExactAnalysisStage {
     const extensionCandidates = [
       '.ts', '.tsx',           // TypeScript files
       '.js', '.jsx',           // JavaScript files  
-      '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
-      '/index.ts', '/index.tsx', // Index files
-      '/index.js', '/index.jsx'
+      '.mts', '.cts', '.mjs', '.cjs', // TS/JS ESM/CJS variants
+      '/index.ts', '/index.tsx',
+      '/index.js', '/index.jsx',
+      '/index.mts', '/index.cts', '/index.mjs', '/index.cjs' // Index variants
     ];
     
     let targetSourceFile;
+    // 1) まず生のパスを試す（拡張子付き・ディレクトリ直指定対応）
+    const primaryTryPath =
+      resolvedPath.startsWith('/virtual/')
+        ? resolvedPath.replace(/\\/g, '/')
+        : path.resolve(resolvedPath);
+    targetSourceFile = this._project.getSourceFile(primaryTryPath);
+    if (!targetSourceFile && fs.existsSync(primaryTryPath)) {
+      try {
+        targetSourceFile = this._project.addSourceFileAtPath(primaryTryPath);
+        this.logger.debug(`Added missing source file: ${primaryTryPath}`);
+      } catch (e) {
+        this.logger.debug(`Failed to add source file: ${primaryTryPath}: ${String(e)}`);
+      }
+    }
+
+    // 2) 見つからなければ拡張子候補を順次試す
     for (const ext of extensionCandidates) {
       const tryPathRaw = resolvedPath + ext;
       
-      // Path normalization (ts-morph has issues with path format differences)
-      const tryPath = path.resolve(tryPathRaw);
+      // 🔧 CRITICAL FIX: virtual パスは resolve すると /virtual が落ちるため、そのまま POSIX 形で扱う
+      const tryPath =
+        resolvedPath.startsWith('/virtual/')
+          ? tryPathRaw.replace(/\\/g, '/')
+          : path.resolve(tryPathRaw);
 
       targetSourceFile = this._project.getSourceFile(tryPath);
       

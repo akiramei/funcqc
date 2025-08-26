@@ -16,10 +16,42 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
   async (env: CommandEnvironment): Promise<void> => {
     const errorHandler = createErrorHandler(env.commandLogger);
     
-    const spinner = ora('Analyzing dead code...').start();
+    // For JSON format, redirect console.log to stderr to avoid JSON contamination
+    const isJsonFormat = options.format === 'json';
+    let originalConsoleLog: typeof console.log | undefined;
+    let originalConsoleInfo: typeof console.info | undefined;
+    
+    if (isJsonFormat) {
+      // Redirect all console output to stderr during JSON analysis
+      originalConsoleLog = console.log;
+      originalConsoleInfo = console.info;
+      console.log = console.error;
+      console.info = console.error;
+    }
+    
+    const spinner = isJsonFormat 
+      ? { 
+          start: () => ({ text: '', succeed: () => {}, fail: (msg: string) => console.error(msg) }),
+          text: '',
+          succeed: () => {},
+          fail: (msg: string) => console.error(msg)
+        }
+      : ora('Analyzing dead code...').start();
+
+    // For JSON format, suppress all logging to avoid output contamination (ensure restoration in finally)
+    let restoreInfo: null | (() => void) = null;
+
+    if (isJsonFormat && typeof env.commandLogger.info === 'function') {
+      const originalInfoFn = env.commandLogger.info;
+      env.commandLogger.info = () => {};
+      restoreInfo = () => {
+        env.commandLogger.info = originalInfoFn;
+      };
+    }
 
     try {
       // Use comprehensive call graph data including internal call edges
+      
       const { allEdges, functions } = await loadComprehensiveCallGraphData(env, {
         showProgress: false, // We manage progress with our own spinner
         snapshotId: options.snapshot
@@ -31,7 +63,12 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       spinner.text = 'Loading functions and call graph...';
 
       if (functions.length === 0) {
-        spinner.fail(chalk.yellow('No functions found in the latest snapshot.'));
+        const message = 'No functions found in the latest snapshot.';
+        if (isJsonFormat) {
+          console.error(chalk.yellow(message));
+        } else {
+          spinner.fail(chalk.yellow(message));
+        }
         return;
       }
 
@@ -42,10 +79,10 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
         ? options.layerEntryPoints.split(',').map(s => s.trim()).filter(s => s.length > 0)
         : undefined;
       
-      // Detect entry points
+      // Detect entry points (suppress verbose output for JSON format)
       const entryPointDetector = new EntryPointDetector({
-        ...(options.verbose !== undefined && { verbose: options.verbose }),
-        ...(options.verbose !== undefined && { debug: options.verbose }),
+        ...(options.verbose !== undefined && !isJsonFormat && { verbose: options.verbose }),
+        ...(options.verbose !== undefined && !isJsonFormat && { debug: options.verbose }),
         ...(layerEntryPoints && { layerEntryPoints })
       });
       let entryPoints = entryPointDetector.detectEntryPoints(functions);
@@ -123,8 +160,25 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
         );
       }
     } catch (error) {
-      spinner.fail('Failed to analyze dead code');
-      errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
+      const message = 'Failed to analyze dead code';
+      if (isJsonFormat) {
+        console.error(message);
+        // For JSON format, output error to stderr without using errorHandler to avoid stdout contamination
+        console.error(error instanceof Error ? error.message : String(error));
+      } else {
+        spinner.fail(message);
+        errorHandler.handleError(error instanceof Error ? error : new Error(String(error)));
+      }
+    } finally {
+      // Restore original console methods for JSON format
+      if (isJsonFormat && originalConsoleLog && originalConsoleInfo) {
+        console.log = originalConsoleLog;
+        console.info = originalConsoleInfo;
+      }
+      // Restore original commandLogger.info if suppressed
+      if (restoreInfo) {
+        restoreInfo();
+      }
     }
   };
 
@@ -159,7 +213,8 @@ function outputDepDeadJSON(
     },
   };
 
-  console.log(JSON.stringify(result, null, 2));
+  // Use process.stdout.write instead of console.log to ensure it goes to stdout
+  process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 }
 
 /**

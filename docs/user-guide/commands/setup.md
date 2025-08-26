@@ -1,5 +1,7 @@
 # funcqc setup
 
+> 注意: 本コマンドは統合コマンド構想の一部であり、現行CLIには未実装です。現行の初期化は `funcqc init` を使用してください（詳細設定は `funcqc config`）。
+
 🛠️ Unified setup and configuration command for funcqc initialization and management.
 
 ## Usage

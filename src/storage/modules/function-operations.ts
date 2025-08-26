@@ -2,6 +2,7 @@
  * Function operations module for PGLite storage
  */
 
+import * as path from 'path';
 import { 
   FunctionInfo, 
   QueryOptions, 
@@ -86,6 +87,20 @@ export class FunctionOperations implements StorageOperationModule {
     this.db = context.db;
     this.context = context;
     this.logger = context.logger;
+  }
+
+  /**
+   * Normalize file path to unified format (Unix-style with leading slash)
+   * Handles Windows paths correctly by converting separators and adding leading slash
+   */
+  private normalizeUnifiedPath(filePath: string): string {
+    if (!filePath) return '/';
+    
+    // Convert to normalized path and ensure Unix-style separators
+    const normalized = path.resolve(filePath).replace(/\\/g, '/');
+    
+    // Ensure it starts with slash
+    return normalized.startsWith('/') ? normalized : '/' + normalized;
   }
 
   get kysely() {
@@ -837,7 +852,10 @@ export class FunctionOperations implements StorageOperationModule {
       displayName: row.display_name || row.name,
       signature: row.signature,
       signatureHash: row.signature_hash,
-      filePath: row.file_path,
+      filePath: (() => {
+        const originalPath = row.file_path;
+        return originalPath.startsWith('/') ? originalPath : '/' + originalPath;
+      })(),
       fileHash: row.file_hash,
       startLine: row.start_line,
       endLine: row.end_line,
@@ -1268,7 +1286,7 @@ export class FunctionOperations implements StorageOperationModule {
       displayName: row.display_name,
       signature: row.signature,
       signatureHash: row.signature_hash,
-      filePath: row.file_path,
+      filePath: this.normalizeUnifiedPath(row.file_path),
       fileHash: row.file_hash,
       startLine: row.start_line,
       endLine: row.end_line,

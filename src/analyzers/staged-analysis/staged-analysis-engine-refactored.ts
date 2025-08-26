@@ -9,6 +9,7 @@
  * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  */
 
+import * as path from 'path';
 import { Project, TypeChecker } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
@@ -34,7 +35,6 @@ export class StagedAnalysisEngine {
   // @ts-expect-error - Reserved for future use
   private _typeChecker: TypeChecker;
   private logger: Logger;
-  // @ts-expect-error - Reserved for future use
   private _debug: boolean;
 
   // Core analyzers
@@ -265,8 +265,14 @@ export class StagedAnalysisEngine {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 
-      const filePath = sourceFile.getFilePath();
+      const rawFilePath = sourceFile.getFilePath();
+      // Use absolute OS-native path to match buildLookupMaps normalization
+      const filePath = path.resolve(rawFilePath);
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
+
+      // Debug: Log path comparison for first few files
+      if (this._debug && processedFiles <= 3) {
+      }
 
       if (fileFunctions.length === 0) {
         processedFiles++;
@@ -312,13 +318,20 @@ export class StagedAnalysisEngine {
   private buildLookupMaps(functions: Map<string, FunctionMetadata>): void {
     // Build file to functions map
     for (const [id, func] of functions) {
-      const existing = this.state.fileToFunctionsMap.get(func.filePath) || [];
+      // Normalize path: use absolute OS-native path to match ts-morph getFilePath()
+      const normalizedPath = path.resolve(func.filePath);
+      
+      const existing = this.state.fileToFunctionsMap.get(normalizedPath) || [];
       existing.push(func);
-      this.state.fileToFunctionsMap.set(func.filePath, existing);
+      this.state.fileToFunctionsMap.set(normalizedPath, existing);
+      
+      // Debug: log first few mappings when debug mode is enabled
+      if (this._debug && this.state.fileToFunctionsMap.size <= 3) {
+      }
 
       // Build function lookup map (per-line for O(1) lookup compatibility)
       for (let line = func.startLine; line <= func.endLine; line++) {
-        const key = `${func.filePath}:${line}`;
+        const key = `${normalizedPath}:${line}`;
         this.state.functionLookupMap.set(key, id);
       }
     }

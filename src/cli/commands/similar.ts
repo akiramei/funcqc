@@ -234,15 +234,25 @@ function showSummaryIfNeeded(
 }
 
 function parseConsensusStrategy(input: string): ConsensusStrategy {
-  const parts = input.split(':');
-  const strategy = parts[0];
+  const idx = input.lastIndexOf(':');
+  const strategy = idx !== -1 ? input.slice(0, idx) : input;
+  const paramPart = idx !== -1 ? input.slice(idx + 1) : undefined;
 
   switch (strategy) {
-    case 'majority':
-      return {
-        strategy: 'majority',
-        threshold: parts[1] ? parseFloat(parts[1]) : 0.5,
-      };
+    case 'majority': {
+      // Validate threshold: default 0.5, must be within [0,1]
+      let threshold = 0.5;
+      if (paramPart && paramPart.length > 0) {
+        const n = Number(paramPart);
+        if (!Number.isFinite(n) || n < 0 || n > 1) {
+          throw new Error(
+            `Invalid majority threshold: "${paramPart}". Expected a number in [0,1].`
+          );
+        }
+        threshold = n;
+      }
+      return { strategy: 'majority', threshold };
+    }
 
     case 'intersection':
       return { strategy: 'intersection' };
@@ -253,13 +263,30 @@ function parseConsensusStrategy(input: string): ConsensusStrategy {
     case 'weighted': {
       // Parse weighted format: weighted:detector1=0.5,detector2=0.3
       const weightings: Record<string, number> = {};
-      if (parts[1]) {
-        const weights = parts[1].split(',');
-        for (const weight of weights) {
-          const [detector, value] = weight.split('=');
-          weightings[detector] = parseFloat(value);
-        }
+      if (!paramPart || paramPart.trim().length === 0) {
+        throw new Error('Weighted consensus requires at least one "detector=weight" pair.');
       }
+      let sum = 0;
+      for (const entry of paramPart.split(',').filter(Boolean)) {
+        const [detectorRaw, valueRaw] = entry.split('=');
+        if (!detectorRaw || valueRaw == null) {
+          throw new Error(`Invalid weight entry "${entry}". Expected "detector=weight".`);
+        }
+        const detector = detectorRaw.trim();
+        const value = Number(valueRaw.trim());
+        if (!Number.isFinite(value) || value < 0) {
+          throw new Error(`Invalid weight for "${detector}": "${valueRaw}". Must be a non-negative number.`);
+        }
+        weightings[detector] = value;
+        sum += value;
+      }
+      if (sum <= 0) {
+        throw new Error('Sum of weights must be greater than 0.');
+      }
+      // Normalize weights to sum to 1.0 for predictable behavior
+      Object.keys(weightings).forEach(k => {
+        weightings[k] = weightings[k] / sum;
+      });
       return { strategy: 'weighted', weightings };
     }
 
