@@ -385,15 +385,8 @@ export class FunctionOperations implements StorageOperationModule {
    * Save a batch of functions
    */
   private async saveFunctionsBatch(snapshotId: string, functions: FunctionInfo[]): Promise<void> {
-    // Use bulk insert for better performance when batch size is large enough
-    if (functions.length >= 10) {
-      await this.saveFunctionsBulk(snapshotId, functions);
-    } else {
-      // For small batches, use individual inserts
-      for (const func of functions) {
-        await this.saveSingleFunction(func, snapshotId);
-      }
-    }
+    // Always use true bulk insert even for small batches to reduce per-row overhead
+    await this.saveFunctionsBulk(snapshotId, functions);
   }
 
   /**
@@ -452,134 +445,7 @@ export class FunctionOperations implements StorageOperationModule {
     });
   }
 
-  /**
-   * Save a single function
-   */
-  private async saveSingleFunction(func: FunctionInfo, snapshotId: string): Promise<void> {
-    await this.insertFunctionRecord(func, snapshotId);
-    await this.insertFunctionParameters(func);
-    await this.insertFunctionMetrics(func);
-  }
-
-  /**
-   * Insert function record
-   */
-  private async insertFunctionRecord(func: FunctionInfo, snapshotId: string): Promise<void> {
-    await this.db.query(
-      `
-      INSERT INTO functions (
-        id, semantic_id, content_id, snapshot_id, name, display_name, signature, signature_hash,
-        file_path, file_hash, start_line, end_line, start_column, end_column,
-        ast_hash, context_path, function_type, modifiers, nesting_level,
-        is_exported, is_async, is_generator, is_arrow_function,
-        is_method, is_constructor, is_static, access_modifier,
-        source_code, source_file_ref_id
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-        $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29
-      )
-      `,
-      [
-        func.id,
-        func.semanticId,
-        func.contentId,
-        snapshotId,
-        func.name,
-        func.displayName,
-        func.signature,
-        func.signatureHash,
-        func.filePath,
-        func.fileHash,
-        func.startLine,
-        func.endLine,
-        func.startColumn,
-        func.endColumn,
-        func.astHash,
-        func.contextPath ? JSON.stringify(func.contextPath) : '[]',
-        func.functionType || null,
-        func.modifiers ? JSON.stringify(func.modifiers) : '[]',
-        func.nestingLevel || 0,
-        func.isExported,
-        func.isAsync,
-        func.isGenerator,
-        func.isArrowFunction,
-        func.isMethod,
-        func.isConstructor,
-        func.isStatic,
-        func.accessModifier || null,
-        func.sourceCode || null,
-        func.sourceFileRefId || null,
-      ]
-    );
-  }
-
-  /**
-   * Insert function parameters
-   */
-  private async insertFunctionParameters(func: FunctionInfo): Promise<void> {
-    if (!func.parameters || func.parameters.length === 0) {
-      return;
-    }
-
-    for (let i = 0; i < func.parameters.length; i++) {
-      const param = func.parameters[i];
-      await this.db.query(
-        `
-        INSERT INTO function_parameters (
-          function_id, snapshot_id, name, type, type_simple, position,
-          is_optional, is_rest, default_value, description
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-        `,
-        [
-          func.id, func.snapshotId, param.name, param.type, param.typeSimple, i,
-          param.isOptional, param.isRest ?? false, param.defaultValue ?? null, param.description ?? null
-        ]
-      );
-    }
-  }
-
-  /**
-   * Insert function metrics
-   */
-  private async insertFunctionMetrics(func: FunctionInfo): Promise<void> {
-    if (!func.metrics) {
-      return;
-    }
-
-    await this.db.query(
-      `
-      INSERT INTO quality_metrics (
-        function_id, snapshot_id, lines_of_code, total_lines, cyclomatic_complexity, cognitive_complexity,
-        max_nesting_level, parameter_count, return_statement_count, branch_count, loop_count,
-        try_catch_count, async_await_count, callback_count, comment_lines, code_to_comment_ratio,
-        halstead_volume, halstead_difficulty, maintainability_index
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
-      )
-      `,
-      [
-        func.id,
-        func.snapshotId,
-        func.metrics.linesOfCode,
-        func.metrics.totalLines,
-        func.metrics.cyclomaticComplexity,
-        func.metrics.cognitiveComplexity,
-        func.metrics.maxNestingLevel,
-        func.metrics.parameterCount,
-        func.metrics.returnStatementCount,
-        func.metrics.branchCount,
-        func.metrics.loopCount,
-        func.metrics.tryCatchCount,
-        func.metrics.asyncAwaitCount,
-        func.metrics.callbackCount,
-        func.metrics.commentLines,
-        func.metrics.codeToCommentRatio,
-        func.metrics.halsteadVolume || null,
-        func.metrics.halsteadDifficulty || null,
-        func.metrics.maintainabilityIndex || null,
-      ]
-    );
-  }
+  // Note: single-function insert path was removed in favor of always-bulk strategy
 
   /**
    * Execute bulk insert within a transaction with optimal UNNEST-based batching
@@ -594,10 +460,12 @@ export class FunctionOperations implements StorageOperationModule {
     if (data.length === 0) return;
     
     // Use UNNEST-based bulk insert with table-specific UPSERT support
+    const upsertMode = (process.env['FUNCQC_DB_UPSERT_MODE'] || '').toLowerCase();
+    const insertOnly = upsertMode === 'insert_only';
     const getConflictClause = (table: string): { idempotent?: boolean; onConflict?: string } => {
       switch (table) {
         case 'quality_metrics':
-          return {
+          return insertOnly ? { onConflict: 'ON CONFLICT DO NOTHING' } : {
             onConflict: `ON CONFLICT (function_id, snapshot_id) DO UPDATE SET
               lines_of_code = EXCLUDED.lines_of_code,
               total_lines = EXCLUDED.total_lines,
@@ -619,7 +487,7 @@ export class FunctionOperations implements StorageOperationModule {
               updated_at = CURRENT_TIMESTAMP`
           };
         case 'function_parameters':
-          return {
+          return insertOnly ? { onConflict: 'ON CONFLICT DO NOTHING' } : {
             onConflict: `ON CONFLICT (function_id, snapshot_id, position) DO UPDATE SET
               name = EXCLUDED.name,
               type = EXCLUDED.type,
@@ -630,7 +498,7 @@ export class FunctionOperations implements StorageOperationModule {
               description = EXCLUDED.description`
           };
         case 'functions':
-          return {
+          return insertOnly ? { onConflict: 'ON CONFLICT DO NOTHING' } : {
             onConflict: `ON CONFLICT (id) DO UPDATE SET
               semantic_id = EXCLUDED.semantic_id,
               content_id = EXCLUDED.content_id,

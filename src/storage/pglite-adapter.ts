@@ -418,7 +418,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void> {
     await this.ensureInitialized();
-    return this.functionOps.storeFunctions(functions, snapshotId);
+    // Persist all functions in a single transaction to minimize commit overhead
+    await this.db.transaction(async (trx: PGTransaction) => {
+      await this.functionOps.saveFunctionsInTransaction(trx, snapshotId, functions);
+    });
   }
 
   async getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {

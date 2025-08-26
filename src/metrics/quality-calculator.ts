@@ -186,31 +186,13 @@ export class QualityCalculator {
     const asyncAwaitCount = this.countAsyncAwaitFromTsMorph(node);
     const callbackCount = this.countCallbacksFromTsMorph(node);
     
-    // Calculate Halstead metrics and other advanced metrics
-    // For these metrics, we need to parse the source code as TypeScript AST
-    // because they require detailed token analysis
-    const sourceFile = ts.createSourceFile(
-      'temp.ts',
-      functionInfo.sourceCode || node.getFullText(),
-      ts.ScriptTarget.Latest,
-      true
-    );
-    
-    // Find the function node in the parsed AST
-    let tsNode: ts.FunctionLikeDeclaration | null = null;
-    const findFunction = (node: ts.Node) => {
-      if (this.isFunctionLike(node)) {
-        tsNode = node as ts.FunctionLikeDeclaration;
-        return;
-      }
-      ts.forEachChild(node, findFunction);
-    };
-    findFunction(sourceFile);
-    
+    // Calculate Halstead metrics and comment metrics using existing TypeScript AST
+    // Avoid re-parsing by leveraging the underlying compiler node
+    const tsNode = (node.compilerNode as unknown) as ts.FunctionLikeDeclaration | undefined;
     const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
     const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
     const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
-    const codeToCommentRatio = linesOfCode > 0 && commentLines > 0 ? linesOfCode / commentLines : 0;
+    const codeToCommentRatio = linesOfCode > 0 ? Math.round(((commentLines / linesOfCode) * 100)) / 100 : 0;
     
     // Calculate maintainability index
     const maintainabilityIndex = this.calculateMaintainabilityIndex({
