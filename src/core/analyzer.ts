@@ -4,7 +4,6 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { VirtualProjectFactory } from './virtual-project-factory';
 import { SharedVirtualProjectManager } from './shared-virtual-project-manager';
-import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
@@ -557,57 +556,18 @@ export class FunctionAnalyzer {
       
       this.logger.debug(`Using virtual project with ${virtualProject.getSourceFiles().length} files`);
       
-      // CRITICAL FIX: Create comprehensive mappings to ensure Function ID consistency
-      const existingFunctionIds = new Map<string, string>();
-      // Create normalized path mapping: ts-morph path -> database normalized path
-      const normalizedPathMapping = new Map<string, string>();
-      
-      // Build path mapping from fileContentMap (normalized paths) to virtual project paths
-      for (const [normalizedPath, _content] of fileContentMap) {
-        // Try both relative and absolute path formats to find corresponding source file
-        const absolutePath = normalizedPath.startsWith('/') ? normalizedPath : '/' + normalizedPath;
-        const sourceFile = virtualProject.getSourceFile(absolutePath) || virtualProject.getSourceFile(normalizedPath);
-        
-        if (sourceFile) {
-          const tsmpPath = sourceFile.getFilePath();
-          // CRITICAL FIX: Ensure normalized path has leading slash for consistency
-          const consistentPath = normalizedPath.startsWith('/') ? normalizedPath : '/' + normalizedPath;
-          normalizedPathMapping.set(tsmpPath, consistentPath);
-          
-        }
-      }
+      // No need to create lookup mappings since deterministic UUID generation handles consistency
       
       
-      for (const func of functions) {
-        // Generate function ID using same rules as function-id-generator
-        const functionId = FunctionIdGenerator.generateDeterministicUUID(
-          func.filePath,
-          func.name,
-          func.className || null,
-          func.startLine,
-          func.startColumn,
-          snapshotId
-        );
-        existingFunctionIds.set(functionId, func.id);
-        
-        // Debug: Log first 3 function ID generations
-        if (existingFunctionIds.size <= 3) {
-        }
-      }
-      
-      
-      // Initialize ideal call graph analyzer with virtual project and mappings
+      // Initialize ideal call graph analyzer with virtual project
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
         logger: this.logger,
         ...(snapshotId && { snapshotId }),
-        ...(storage && { storage }),
-        existingFunctionIds,
-        normalizedPathMapping
+        ...(storage && { storage })
       });
       
       try {
         // Perform call graph analysis on virtual project
-        console.log(`[CALL-GRAPH-DEBUG] Starting idealCallGraphAnalyzer.analyzeProject()`);
         const analysisStartTime = performance.now();
         const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
         const analysisEndTime = performance.now();

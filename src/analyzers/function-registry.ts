@@ -20,14 +20,9 @@ export class FunctionRegistry {
   private functionMap = new Map<string, FunctionMetadata>();
   private declToIdMap = new WeakMap<Node, string>(); // 宣言ノード → functionId 逆引き
   private snapshotId: string;
-  private existingFunctionIds: Map<string, string> | undefined; // filePath:line:column -> existing function ID mapping
-  private normalizedPathMapping: Map<string, string> | undefined; // ts-morph path -> normalized path
-
-  constructor(project: Project, snapshotId?: string, existingFunctionIds?: Map<string, string>, normalizedPathMapping?: Map<string, string>) {
+  constructor(project: Project, snapshotId?: string) {
     this.project = project;
     this.snapshotId = snapshotId || 'unknown';
-    this.existingFunctionIds = existingFunctionIds;
-    this.normalizedPathMapping = normalizedPathMapping;
   }
 
   /**
@@ -53,9 +48,8 @@ export class FunctionRegistry {
     let functionCount = 0;
     const rawFilePath = sourceFile.getFilePath();
     
-    // CRITICAL FIX: Use normalized path if available to ensure consistency with BASIC analysis
-    const normalizedPath = this.normalizedPathMapping?.get(rawFilePath);
-    const filePath = normalizedPath || rawFilePath;
+    // Use source file path directly - normalization handled in ID generation
+    const filePath = rawFilePath;
     
     
     // Use forEachDescendant to visit every node
@@ -102,38 +96,16 @@ export class FunctionRegistry {
     const startLine = node.getStartLineNumber();
     const startColumn = node.getStart() - node.getStartLinePos();
     
-    // CRITICAL FIX: Use existing Function ID if available to maintain consistency with BASIC analysis
-    let uniqueId: string;
-    
-    if (this.existingFunctionIds) {
-      // Create lookup key for existing ID mapping
-      const lookupKey = `${filePath}:${startLine}:${startColumn}:${name}`;
-      const existingId = this.existingFunctionIds.get(lookupKey);
-      
-      if (existingId) {
-        uniqueId = existingId;
-      } else {
-        // Generate new ID if not found in existing mappings
-        uniqueId = FunctionIdGenerator.generateDeterministicUUID(
-          filePath, // Will be normalized internally
-          name,
-          className || null,
-          startLine,
-          startColumn,
-          this.snapshotId
-        );
-      }
-    } else {
-      // Generate snapshot-specific physical ID to avoid duplicate key violations
-      uniqueId = FunctionIdGenerator.generateDeterministicUUID(
-        filePath, // Will be normalized internally
-        name,
-        className || null,
-        startLine,
-        startColumn,
-        this.snapshotId
-      );
-    }
+    // Generate deterministic UUID - same inputs always produce same ID
+    const normalizedPath = filePath.startsWith('/') ? filePath : '/' + filePath;
+    const uniqueId = FunctionIdGenerator.generateDeterministicUUID(
+      normalizedPath, // Use normalized path to match functions table
+      name,
+      className || null,
+      startLine,
+      startColumn,
+      this.snapshotId
+    );
     
     return {
       id: uniqueId,

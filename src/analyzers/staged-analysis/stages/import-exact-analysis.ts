@@ -83,19 +83,14 @@ export class ImportExactAnalysisStage {
   ): Promise<number> {
     let importEdgesCount = 0;
 
-    console.log(`[IMPORT-DEBUG] Processing ${callExpressions.length} call expressions and ${newExpressions.length} new expressions`);
 
     // Process call expressions
     for (const node of callExpressions) {
       const callExpr = node as CallExpression;
-      const expressionText = callExpr.getExpression().getText();
-      console.log(`[IMPORT-DEBUG] Processing call expression: ${expressionText}()`);
       
       const calleeId = this.resolveImportCall(callExpr, functions);
       const callerFunction = this.findCallerFunction(node, functions);
       
-      console.log(`[IMPORT-DEBUG] resolveImportCall returned: ${calleeId}`);
-      console.log(`[IMPORT-DEBUG] findCallerFunction returned: ${callerFunction ? callerFunction.id : 'null'}`);
       
       if (calleeId && callerFunction) {
         const isOptional = this.isOptionalCallExpression(node);

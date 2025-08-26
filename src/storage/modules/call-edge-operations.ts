@@ -247,8 +247,23 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // Get valid function IDs from functions table to filter call edges
+      const functionIdsResult = await this.db.query('SELECT id FROM functions WHERE snapshot_id = $1', [snapshotId]);
+      const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(row => row.id));
+      
+      // Filter call edges to only include those with valid caller_function_id and callee_function_id
+      const validCallEdgeRows = callEdgeRows.filter(row => 
+        validFunctionIds.has(row.caller_function_id) && 
+        (row.callee_function_id === null || row.callee_function_id === undefined || validFunctionIds.has(row.callee_function_id))
+      );
+      
+      if (validCallEdgeRows.length < callEdgeRows.length) {
+        const skipped = callEdgeRows.length - validCallEdgeRows.length;
+        this.logger?.debug(`Skipped ${skipped} call edges with invalid function IDs (arrow functions, external functions, etc.)`);
+      }
+
       // Sanitize data to remove NUL characters that cause "invalid message format" error
-      const sanitizedRows = callEdgeRows.map(row => {
+      const sanitizedRows = validCallEdgeRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields

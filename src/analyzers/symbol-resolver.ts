@@ -255,28 +255,21 @@ function resolveLeftModuleFromImports(
 function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverContext):
   { functionId?: string; decl?: Node } {
   if (!sym) {
-    console.log('[SYMBOL-DEBUG] No symbol provided');
     return {};
   }
   
   const declarations = sym.getDeclarations() ?? [];
-  console.log(`[SYMBOL-DEBUG] Symbol has ${declarations.length} declarations`);
   
   for (let i = 0; i < declarations.length; i++) {
     const d = declarations[i];
-    const kindName = d.getKindName();
-    console.log(`[SYMBOL-DEBUG] Declaration ${i}: ${kindName} at ${d.getSourceFile().getBaseName()}:${d.getStartLineNumber()}`);
     
     // Check if this is an import-related declaration
     if (Node.isImportSpecifier(d) || Node.isImportClause(d) || Node.isNamespaceImport(d)) {
-      console.log(`[SYMBOL-DEBUG] Found import declaration: ${kindName}`);
       // For import declarations, try to resolve to the actual imported symbol
       const aliasedSymbol = ctx.typeChecker.getAliasedSymbol(sym);
       if (aliasedSymbol && aliasedSymbol !== sym) {
-        console.log('[SYMBOL-DEBUG] Found aliased symbol, recursively resolving...');
         const result = tryResolveInternalBySymbol(aliasedSymbol, ctx);
         if (result.functionId) {
-          console.log(`[SYMBOL-DEBUG] Resolved aliased symbol to: ${result.functionId}`);
           return result;
         }
       }
@@ -291,7 +284,6 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
       Node.isArrowFunction(d)
     ) {
       const id = ctx.getFunctionIdByDeclaration(d);
-      console.log(`[SYMBOL-DEBUG] Found function declaration, getFunctionIdByDeclaration returned: ${id}`);
       
       if (id) return { functionId: id, decl: d };
     }
@@ -299,15 +291,12 @@ function tryResolveInternalBySymbol(sym: TsSymbol | undefined, ctx: ResolverCont
   // If we still haven't found anything, try getting the aliased symbol as a fallback
   const aliasedSymbol = ctx.typeChecker.getAliasedSymbol(sym);
   if (aliasedSymbol && aliasedSymbol !== sym) {
-    console.log('[SYMBOL-DEBUG] Trying aliased symbol as fallback...');
     const result = tryResolveInternalBySymbol(aliasedSymbol, ctx);
     if (result.functionId) {
-      console.log(`[SYMBOL-DEBUG] Resolved via aliased symbol fallback: ${result.functionId}`);
       return result;
     }
   }
   
-  console.log('[SYMBOL-DEBUG] No matching function declarations found');
   return {};
 }
 
@@ -387,19 +376,14 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
 
   // 素の識別子 foo(...)
   if (Node.isIdentifier(expr)) {
-    const identifierName = expr.getText();
-    console.log(`[SYMBOL-DEBUG] Resolving identifier call: ${identifierName}`);
     
     const sym = ctx.typeChecker.getSymbolAtLocation(expr);
     if (sym) {
-      console.log(`[SYMBOL-DEBUG] Found symbol for ${identifierName}, flags: ${sym.getFlags()}`);
     } else {
-      console.log(`[SYMBOL-DEBUG] No symbol found for ${identifierName}`);
     }
     
     const { functionId } = tryResolveInternalBySymbol(sym, ctx);
     if (functionId) {
-      console.log(`[SYMBOL-DEBUG] Resolved ${identifierName} to internal function: ${functionId}`);
       return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.DIRECT_SYMBOL, via: "symbol" };
     }
     
@@ -429,18 +413,14 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
     
     // import default/named による関数呼び出し判定
     const alias = ctx.importIndex?.get(expr.getText());
-    console.log(`[SYMBOL-DEBUG] Checking importIndex for ${expr.getText()}: ${alias ? 'found' : 'not found'}`);
     
     if (alias) {
-      console.log(`[SYMBOL-DEBUG] Import alias found: module=${alias.module}, kind=${alias.kind}, local=${alias.local}, imported=${'imported' in alias ? alias.imported : 'N/A'}`);
       
       if (isExternalModule(alias.module, internalPrefixes)) {
         // 外部モジュールの場合
-        console.log(`[SYMBOL-DEBUG] ${alias.module} is external module`);
         const id = `external:${alias.module}:${expr.getText()}`;
         return { kind: "external", module: alias.module, member: expr.getText(), id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
       } else {
-        console.log(`[SYMBOL-DEBUG] ${alias.module} is internal module`);
         // 内部モジュール（相対インポート）の場合
         // resolveImportedSymbolで宣言ノードを取得を試みる
         if (ctx.resolveImportedSymbol) {
@@ -449,30 +429,23 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
             ? ('imported' in alias ? alias.imported : expr.getText())  // Use imported name if available
             : expr.getText(); // For namespace/require, use local name
           
-          console.log(`[SYMBOL-DEBUG] Trying to resolve import: module=${alias.module}, exportedName=${exportedName}`);
           const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
           
           if (declNode) {
-            console.log(`[SYMBOL-DEBUG] resolveImportedSymbol returned node: ${declNode.getKindName()}`);
             const functionId = ctx.getFunctionIdByDeclaration(declNode);
-            console.log(`[SYMBOL-DEBUG] getFunctionIdByDeclaration returned: ${functionId}`);
             
             if (functionId) {
               return { kind: "internal", functionId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
             }
           } else {
-            console.log(`[SYMBOL-DEBUG] resolveImportedSymbol returned null/undefined`);
           }
         } else {
-          console.log(`[SYMBOL-DEBUG] resolveImportedSymbol callback not provided`);
         }
         // 解決できない場合はunknownとして扱う
-        console.log(`[SYMBOL-DEBUG] Could not resolve internal import ${expr.getText()}, returning unknown`);
         return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
       }
     }
     
-    console.log(`[SYMBOL-DEBUG] No resolution found for ${expr.getText()}, returning unknown`);
     return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
   }
 
