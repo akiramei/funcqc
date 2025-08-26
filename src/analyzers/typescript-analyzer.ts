@@ -1,23 +1,8 @@
-import {
-  Project,
-  SourceFile,
-  FunctionDeclaration,
-  MethodDeclaration,
-  ArrowFunction,
-  FunctionExpression,
-  SyntaxKind,
-  ClassDeclaration,
-  ConstructorDeclaration,
-  Node,
-  ModuleDeclaration,
-  VariableStatement,
-} from 'ts-morph';
+import { Project, Node } from 'ts-morph';
 import * as path from 'path';
 import { StorageAdapter } from '../types';
-import { determineFunctionType } from './shared/function-type-utils';
-import * as crypto from 'crypto';
 import * as fs from 'fs/promises';
-import { FunctionInfo, ParameterInfo, ReturnTypeInfo, CallEdge, TypeDefinition, TypeRelationship } from '../types';
+import { FunctionInfo, CallEdge, TypeDefinition, TypeRelationship } from '../types';
 import { BatchProcessor } from '../utils/batch-processor';
 import { AnalysisCache, CacheStats } from '../utils/analysis-cache';
 import { FunctionCacheProvider } from '../utils/cache-interfaces';
@@ -31,21 +16,7 @@ import { TypeSystemAnalyzer } from './type-system-analyzer';
 import { SharedVirtualProjectManager } from '../core/shared-virtual-project-manager';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
-import type { QualityCalculator as QualityCalculatorType } from '../metrics/quality-calculator';
 
-interface FunctionMetadata {
-  signature: string;
-  sourceCodeText: string;
-  astHash: string;
-  signatureHash: string;
-  returnType: ReturnTypeInfo | undefined;
-  contextPath: string[];
-  modifiers: string[];
-  functionType: 'function' | 'method' | 'arrow' | 'local';
-  nestingLevel: number;
-  startLine: number;
-  startColumn: number;
-}
 
 /**
  * Configuration constants for TypeScript analyzer
@@ -74,36 +45,12 @@ export class TypeScriptAnalyzer extends CacheAware {
   private functionCacheProvider: FunctionCacheProvider;
   private callGraphAnalyzer: CallGraphAnalyzer;
   private logger: Logger;
-  // Note: Physical IDs are snapshot-specific to ensure uniqueness across snapshots
   
-  // Static cache for QualityCalculator module to avoid repeated dynamic imports
-  private static qualityCalculatorPromise: Promise<typeof import('../metrics/quality-calculator')> | null = null;
   
-  /**
-   * Get cached QualityCalculator module to avoid repeated dynamic imports
-   */
-  private static async getQualityCalculator(): Promise<typeof import('../metrics/quality-calculator')> {
-    if (!TypeScriptAnalyzer.qualityCalculatorPromise) {
-      TypeScriptAnalyzer.qualityCalculatorPromise = import('../metrics/quality-calculator');
-    }
-    return TypeScriptAnalyzer.qualityCalculatorPromise;
-  }
-  
-  /**
-   * Lazily create and cache a single QualityCalculator instance per analyzer
-   */
-  private async getOrCreateQualityCalculator() {
-    if (!this.qualityCalculatorInstance) {
-      const mod = await TypeScriptAnalyzer.getQualityCalculator();
-      this.qualityCalculatorInstance = new mod.QualityCalculator();
-    }
-    return this.qualityCalculatorInstance;
-  }
   
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
   private typeSystemAnalyzer: TypeSystemAnalyzer;
-  private qualityCalculatorInstance: QualityCalculatorType | null = null;
   private includeSourceCode: boolean;
 
   constructor(
@@ -209,17 +156,10 @@ export class TypeScriptAnalyzer extends CacheAware {
           // Check if the cached result is still valid by comparing file hashes
           const cachedFileHash = cachedResult[0].fileHash;
           if (cachedFileHash === currentFileHash) {
-            // Generate new physical IDs for cached functions to ensure uniqueness
+            // Update cached functions with current snapshot info
+            // IDs remain stable based on function signature, only update snapshot/hash
             return cachedResult.map(func => ({
               ...func,
-              id: this.generatePhysicalId(
-                filePath,
-                func.name,
-                func.contextPath || null,
-                func.startLine,
-                func.startColumn,
-                snapshotId
-              ),
               snapshotId,
               fileHash: currentFileHash,
             }));
@@ -239,19 +179,13 @@ export class TypeScriptAnalyzer extends CacheAware {
       const unifiedResults = await this.unifiedAnalyzer.analyzeFile(filePath, fileContent);
       
       // Convert to FunctionInfo format and add missing fields
+      // UnifiedASTAnalyzer already generates IDs, so we just complete the info
       const functions: FunctionInfo[] = unifiedResults.map(result => {
         const f = result.functionInfo;
         const qm = result.qualityMetrics ?? f.metrics;
         return {
           ...f,
-          id: this.generatePhysicalId(
-            filePath,
-            f.name,
-            f.contextPath || null,
-            f.startLine,
-            f.startColumn,
-            snapshotId
-          ),
+          // Use ID from UnifiedASTAnalyzer (already generated)
           snapshotId,
           fileHash: currentFileHash,
           metrics: qm,
@@ -305,22 +239,15 @@ export class TypeScriptAnalyzer extends CacheAware {
       const unifiedResults = await this.unifiedAnalyzer.analyzeFile(virtualPath, content, snapshotId);
       
       // Map to complete FunctionInfo (ID/metrics/fileHash/snapshot補完)
+      // UnifiedASTAnalyzer already generates IDs, so we just need to add missing fields
       const fileHash = this.calculateFileHash(content);
       const sid = snapshotId ?? 'unknown';
       const functions: FunctionInfo[] = unifiedResults.map(result => {
         const f = result.functionInfo;
-        const id = this.generatePhysicalId(
-          virtualPath,
-          f.name,
-          f.contextPath || null,
-          f.startLine,
-          f.startColumn,
-          sid
-        );
         const withMetrics = result.qualityMetrics ?? f.metrics;
         return {
           ...f,
-          id,
+          // Use ID from UnifiedASTAnalyzer (already generated with correct snapshotId)
           snapshotId: sid,
           fileHash,
           metrics: withMetrics,
@@ -431,418 +358,6 @@ export class TypeScriptAnalyzer extends CacheAware {
 
 
 
-  private async extractConstructorInfo(
-    ctor: ConstructorDeclaration,
-    relativePath: string,
-    fileHash: string,
-    _sourceFile: SourceFile,
-    snapshotId: string = 'unknown'
-  ): Promise<FunctionInfo | null> {
-    const className = (ctor.getParent() as ClassDeclaration)?.getName() || 'Unknown';
-    const fullName = `${className}.constructor`;
-    const signature = this.getConstructorSignature(ctor, className);
-    const sourceCodeText = ctor.getFullText().trim();
-    const startLine = ctor.getStartLineNumber();
-    const startColumn = ctor.getStart() - ctor.getStartLinePos();
-    
-    // Use optimized hash cache for all hash calculations
-    const hashes = globalHashCache.getOrCalculateHashes(
-      relativePath,
-      sourceCodeText,
-      undefined, // No modification time available
-      signature
-    );
-    const astHash = hashes.astHash;
-    const signatureHash = hashes.signatureHash;
-
-    const parent = ctor.getParent();
-    let isClassExported = false;
-    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
-      isClassExported = (parent as ClassDeclaration).isExported();
-    }
-
-    // Extract comprehensive function context
-    const contextPath = this.extractConstructorContextPath(ctor);
-    const modifiers: string[] = [];
-    if (isClassExported) modifiers.push('exported');
-
-    const functionType = 'method'; // Constructors are a type of method
-    const nestingLevel = this.calculateConstructorNestingLevel(ctor);
-
-    // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
-    const semanticId = this.generateSemanticId(
-      relativePath,
-      fullName,
-      signature,
-      contextPath,
-      modifiers
-    );
-    const contentId = this.generateContentId(astHash, sourceCodeText);
-
-    const functionInfo: FunctionInfo = {
-      id: physicalId,
-      snapshotId,
-      semanticId,
-      contentId,
-      name: 'constructor',
-      displayName: fullName,
-      signature,
-      signatureHash,
-      filePath: relativePath,
-      fileHash,
-      startLine: ctor.getStartLineNumber(),
-      endLine: ctor.getEndLineNumber(),
-      startColumn: ctor.getStart() - ctor.getStartLinePos(),
-      endColumn: ctor.getEnd() - ctor.getStartLinePos(),
-      positionId: this.generatePositionId(relativePath, ctor.getStart(), ctor.getEnd()),
-      astHash,
-
-      // Enhanced function identification
-      contextPath,
-      functionType,
-      modifiers,
-      nestingLevel,
-      className,
-
-      // Existing function attributes
-      isExported: isClassExported,
-      isAsync: false,
-      isGenerator: false,
-      isArrowFunction: false,
-      isMethod: false,
-      isConstructor: true,
-      isStatic: false,
-      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
-      parameters: this.extractParameters(ctor),
-    };
-
-    const scope = ctor.getScope();
-    if (scope && scope !== 'public') {
-      functionInfo.accessModifier = scope;
-    }
-
-    // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = await this.getOrCreateQualityCalculator();
-    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(ctor, functionInfo);
-
-    return functionInfo;
-  }
-
-  /**
-   * Extracts function node from variable declaration initializer
-   */
-  private extractFunctionNodeFromVariable(initializer: Node): ArrowFunction | FunctionExpression | null {
-    if (initializer.getKind() === SyntaxKind.ArrowFunction) {
-      return initializer as ArrowFunction;
-    } else if (initializer.getKind() === SyntaxKind.FunctionExpression) {
-      return initializer as FunctionExpression;
-    }
-    return null;
-  }
-
-  /**
-   * Extracts metadata for a function node
-   */
-  private extractFunctionMetadata(
-    functionNode: ArrowFunction | FunctionExpression,
-    name: string,
-    stmt: VariableStatement
-  ): FunctionMetadata {
-    const signature = this.getArrowFunctionSignature(name, functionNode);
-    const sourceCodeText = functionNode.getFullText().trim();
-    
-    // Use optimized hash cache for all hash calculations
-    const hashes = globalHashCache.getOrCalculateHashes(
-      'temp', // No file path available in this context
-      sourceCodeText,
-      undefined, // No modification time available
-      signature
-    );
-    const astHash = hashes.astHash;
-    const signatureHash = hashes.signatureHash;
-    const returnType = this.extractArrowFunctionReturnType(functionNode);
-
-    const contextPath = this.extractContextPath(functionNode as ArrowFunction);
-    const modifiers: string[] = [];
-    if (functionNode.isAsync()) modifiers.push('async');
-    if (stmt.isExported()) modifiers.push('exported');
-
-    const functionType = determineFunctionType(functionNode as ArrowFunction) as 'function' | 'method' | 'arrow' | 'local';
-    const nestingLevel = this.calculateNestingLevel(functionNode as ArrowFunction);
-
-    const startLine = functionNode.getStartLineNumber();
-    const startColumn = functionNode.getStart() - functionNode.getStartLinePos();
-    
-    return {
-      signature,
-      sourceCodeText,
-      astHash,
-      signatureHash,
-      returnType,
-      contextPath,
-      modifiers,
-      functionType,
-      nestingLevel,
-      startLine,
-      startColumn,
-    };
-  }
-
-  /**
-   * Creates FunctionInfo object from extracted metadata
-   */
-  private async createVariableFunctionInfo(
-    functionNode: ArrowFunction | FunctionExpression,
-    name: string,
-    metadata: FunctionMetadata,
-    relativePath: string,
-    fileHash: string,
-    stmt: VariableStatement,
-    snapshotId: string = 'unknown'
-  ): Promise<FunctionInfo> {
-    const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn, snapshotId);
-    const semanticId = this.generateSemanticId(
-      relativePath,
-      name,
-      metadata.signature,
-      metadata.contextPath,
-      metadata.modifiers
-    );
-    const contentId = this.generateContentId(metadata.astHash, metadata.sourceCodeText);
-
-    const functionInfo: FunctionInfo = {
-      id: physicalId,
-      snapshotId,
-      semanticId,
-      contentId,
-      name,
-      displayName: name,
-      signature: metadata.signature,
-      signatureHash: metadata.signatureHash,
-      filePath: relativePath,
-      fileHash,
-      startLine: functionNode.getStartLineNumber(),
-      endLine: functionNode.getEndLineNumber(),
-      startColumn: functionNode.getStart() - functionNode.getStartLinePos(),
-      endColumn: functionNode.getEnd() - functionNode.getStartLinePos(),
-      positionId: this.generatePositionId(relativePath, functionNode.getStart(), functionNode.getEnd()),
-      astHash: metadata.astHash,
-      contextPath: metadata.contextPath,
-      functionType: metadata.functionType,
-      modifiers: metadata.modifiers,
-      nestingLevel: metadata.nestingLevel,
-      isExported: stmt.isExported(),
-      isAsync: functionNode.isAsync(),
-      isGenerator:
-        functionNode.getKind() === SyntaxKind.FunctionExpression
-          ? !!(functionNode as FunctionExpression).getAsteriskToken()
-          : false,
-      isArrowFunction: functionNode.getKind() === SyntaxKind.ArrowFunction,
-      isMethod: false,
-      isConstructor: false,
-      isStatic: false,
-      ...(this.includeSourceCode ? { sourceCode: metadata.sourceCodeText } : {}),
-      parameters: this.extractParameters(functionNode),
-    };
-
-    if (metadata.returnType) {
-      functionInfo.returnType = metadata.returnType;
-    }
-
-    // Calculate metrics directly from ts-morph node while we have it
-    // キャッシュされた QualityCalculator を再利用
-    const qualityCalculator = await this.getOrCreateQualityCalculator();
-    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(functionNode, functionInfo);
-
-    return functionInfo;
-  }
-
-  private async extractVariableFunctions(
-    sourceFile: SourceFile,
-    relativePath: string,
-    fileHash: string,
-    _fileContent: string,
-    snapshotId: string = 'unknown'
-  ): Promise<FunctionInfo[]> {
-    const functions: FunctionInfo[] = [];
-
-    for (const stmt of sourceFile.getVariableStatements()) {
-      for (const decl of stmt.getDeclarations()) {
-        const initializer = decl.getInitializer();
-        if (!initializer) continue;
-
-        const name = decl.getName();
-        const functionNode = this.extractFunctionNodeFromVariable(initializer);
-
-        if (functionNode) {
-          const metadata = this.extractFunctionMetadata(functionNode, name, stmt);
-          const functionInfo = await this.createVariableFunctionInfo(functionNode, name, metadata, relativePath, fileHash, stmt, snapshotId);
-          functions.push(functionInfo);
-        }
-      }
-    }
-
-    return functions;
-  }
-
-  private getFunctionSignature(func: FunctionDeclaration): string {
-    const name = func.getName() || 'anonymous';
-    const params = func
-      .getParameters()
-      .map(p => p.getText())
-      .join(', ');
-    const returnType = func.getReturnTypeNode()?.getText() || 'void';
-    const asyncModifier = func.isAsync() ? 'async ' : '';
-
-    return `${asyncModifier}${name}(${params}): ${returnType}`;
-  }
-
-  private getMethodSignature(method: MethodDeclaration, className: string): string {
-    const name = method.getName();
-    const params = method
-      .getParameters()
-      .map(p => p.getText())
-      .join(', ');
-    const returnType = method.getReturnTypeNode()?.getText() || 'void';
-    const asyncModifier = method.isAsync() ? 'async ' : '';
-    const accessibility = method.getScope() || 'public';
-
-    return `${accessibility} ${asyncModifier}${className}.${name}(${params}): ${returnType}`;
-  }
-
-  private getArrowFunctionSignature(
-    name: string,
-    func: ArrowFunction | FunctionExpression
-  ): string {
-    const params = func
-      .getParameters()
-      .map(p => p.getText())
-      .join(', ');
-    const returnType = func.getReturnTypeNode()?.getText() || 'unknown';
-    const asyncModifier = func.isAsync() ? 'async ' : '';
-
-    return `${asyncModifier}${name} = (${params}): ${returnType} => {...}`;
-  }
-
-  private getConstructorSignature(ctor: ConstructorDeclaration, className: string): string {
-    const params = ctor
-      .getParameters()
-      .map(p => p.getText())
-      .join(', ');
-    const accessibility = ctor.getScope() || 'public';
-
-    return `${accessibility} ${className}(${params})`;
-  }
-
-  /**
-   * Extract parameters from any function-like node
-   * Unified method to handle all function types consistently
-   */
-  private extractParameters(
-    node:
-      | FunctionDeclaration
-      | MethodDeclaration
-      | ArrowFunction
-      | FunctionExpression
-      | ConstructorDeclaration
-  ): ParameterInfo[] {
-    return node.getParameters().map((param, index) => {
-      const paramInfo: ParameterInfo = {
-        name: param.getName(),
-        type: param.getTypeNode()?.getText() || 'any',
-        typeSimple: this.simplifyType(param.getTypeNode()?.getText() || 'any'),
-        position: index,
-        isOptional: param.hasQuestionToken(),
-        isRest: param.isRestParameter(),
-      };
-
-      const defaultValue = param.getInitializer()?.getText();
-      if (defaultValue) {
-        paramInfo.defaultValue = defaultValue;
-      }
-
-      return paramInfo;
-    });
-  }
-
-
-  private extractFunctionReturnType(func: FunctionDeclaration): ReturnTypeInfo | undefined {
-    const returnTypeNode = func.getReturnTypeNode();
-    if (!returnTypeNode) return undefined;
-
-    const typeText = returnTypeNode.getText();
-    const returnInfo: ReturnTypeInfo = {
-      type: typeText,
-      typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<'),
-    };
-
-    const promiseType = this.extractPromiseType(typeText);
-    if (promiseType) {
-      returnInfo.promiseType = promiseType;
-    }
-
-    return returnInfo;
-  }
-
-  private extractMethodReturnType(method: MethodDeclaration): ReturnTypeInfo | undefined {
-    const returnTypeNode = method.getReturnTypeNode();
-    if (!returnTypeNode) return undefined;
-
-    const typeText = returnTypeNode.getText();
-    const returnInfo: ReturnTypeInfo = {
-      type: typeText,
-      typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<'),
-    };
-
-    const promiseType = this.extractPromiseType(typeText);
-    if (promiseType) {
-      returnInfo.promiseType = promiseType;
-    }
-
-    return returnInfo;
-  }
-
-  private extractArrowFunctionReturnType(
-    func: ArrowFunction | FunctionExpression
-  ): ReturnTypeInfo | undefined {
-    const returnTypeNode = func.getReturnTypeNode();
-    if (!returnTypeNode) return undefined;
-
-    const typeText = returnTypeNode.getText();
-    const returnInfo: ReturnTypeInfo = {
-      type: typeText,
-      typeSimple: this.simplifyType(typeText),
-      isPromise: typeText.startsWith('Promise<'),
-    };
-
-    const promiseType = this.extractPromiseType(typeText);
-    if (promiseType) {
-      returnInfo.promiseType = promiseType;
-    }
-
-    return returnInfo;
-  }
-
-
-  private simplifyType(typeText: string): string {
-    if (typeText.includes('string')) return 'string';
-    if (typeText.includes('number')) return 'number';
-    if (typeText.includes('boolean')) return 'boolean';
-    if (typeText.includes('Promise<')) return 'Promise';
-    if (typeText.includes('[]')) return 'array';
-    if (typeText.includes('{}') || typeText.includes('object')) return 'object';
-    return typeText;
-  }
-
-  private extractPromiseType(typeText: string): string | undefined {
-    const match = typeText.match(/Promise<(.+)>/);
-    return match?.[1];
-  }
-
   private calculateFileHash(content: string, modifiedTime?: Date): string {
     const hashes = globalHashCache.getOrCalculateHashes('temp', content, modifiedTime);
     return hashes.fileHash;
@@ -887,253 +402,6 @@ export class TypeScriptAnalyzer extends CacheAware {
     );
   }
 
-  /**
-   * Generate a semantic ID that identifies the same function role across versions
-   * Excludes position information for stability during refactoring
-   */
-  private generateSemanticId(
-    filePath: string,
-    name: string,
-    signature: string,
-    contextPath: string[],
-    modifiers: string[]
-  ): string {
-    const components = [
-      filePath,
-      ...contextPath,
-      name || '<anonymous>',
-      signature,
-      ...modifiers.sort(),
-      // Position information deliberately excluded for stability
-    ];
-
-    return crypto.createHash('sha256').update(components.join('|')).digest('hex');
-  }
-
-  /**
-   * Generate a content ID that identifies the same implementation
-   * Changes when function body or AST structure changes
-   * Uses raw source code instead of AST hash to ensure implementation differences are captured
-   */
-  private generateContentId(astHash: string, sourceCode: string): string {
-    // Primary component: the actual source code (trimmed but preserving structure)
-    const normalizedSource = sourceCode.trim()
-      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//g, '') // Remove multiline comments
-      .replace(/\/\/.*$/gm, '') // Remove single-line comments
-      .replace(/^\s+/gm, '') // Remove leading whitespace
-      .replace(/\s+$/gm, ''); // Remove trailing whitespace
-    
-    // Secondary component: AST hash for additional structural information
-    const contentComponents = [normalizedSource, astHash];
-
-    return crypto.createHash('sha256').update(contentComponents.join('|')).digest('hex');
-  }
-
-  /**
-   * Generate position-based ID for precise function identification
-   * Uses character offset for maximum accuracy regardless of formatting changes
-   */
-  private generatePositionId(filePath: string, startPos: number, endPos: number): string {
-    return crypto.createHash('sha256')
-      .update(`${filePath}:${startPos}-${endPos}`)
-      .digest('hex')
-      .slice(0, 16); // Shorter hash for position-based IDs
-  }
-
-  /**
-   * Extract hierarchical context path for a function
-   */
-  private extractContextPath(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
-  ): string[] {
-    return this.traverseParents(node, (parent) => {
-      if (parent.getKind() === SyntaxKind.ClassDeclaration) {
-        return (parent as ClassDeclaration).getName();
-      } else if (parent.getKind() === SyntaxKind.ModuleDeclaration) {
-        return (parent as ModuleDeclaration).getName();
-      } else if (parent.getKind() === SyntaxKind.FunctionDeclaration) {
-        return (parent as FunctionDeclaration).getName();
-      }
-      return undefined;
-    });
-  }
-
-  /**
-   * Extract function modifiers as string array
-   */
-  private extractModifiers(node: FunctionDeclaration | MethodDeclaration): string[] {
-    if (Node.isFunctionDeclaration(node)) {
-      return this.extractFunctionModifiers(node);
-    }
-    
-    if (Node.isMethodDeclaration(node)) {
-      return this.extractMethodModifiers(node);
-    }
-    
-    return [];
-  }
-
-  /**
-   * Extract modifiers specific to function declarations
-   */
-  private extractFunctionModifiers(node: FunctionDeclaration): string[] {
-    const modifiers: string[] = [];
-    
-    if (node.isAsync()) modifiers.push('async');
-    if (node.isExported()) modifiers.push('exported');
-    if (node.getAsteriskToken()) modifiers.push('generator');
-    
-    return modifiers;
-  }
-
-  /**
-   * Extract modifiers specific to method declarations
-   */
-  private extractMethodModifiers(node: MethodDeclaration): string[] {
-    const modifiers: string[] = [];
-    
-    if (node.isAsync()) modifiers.push('async');
-    if (node.isStatic()) modifiers.push('static');
-    if (node.getAsteriskToken()) modifiers.push('generator');
-
-    // Extract access modifier (public, private, protected)
-    const accessModifier = node
-      .getModifiers()
-      .find(m =>
-        [
-          SyntaxKind.PublicKeyword,
-          SyntaxKind.PrivateKeyword,
-          SyntaxKind.ProtectedKeyword,
-        ].includes(m.getKind())
-      );
-    
-    if (accessModifier) {
-      modifiers.push(accessModifier.getText());
-    } else {
-      modifiers.push('public'); // Default access modifier in TypeScript
-    }
-    
-    return modifiers;
-  }
-
-  // Removed: determineFunctionType - now using shared implementation
-
-  /**
-   * Calculate nesting level for the function
-   */
-  private calculateNestingLevel(
-    node: FunctionDeclaration | MethodDeclaration | ArrowFunction | ConstructorDeclaration | FunctionExpression
-  ): number {
-    return this.countParents(node, (parent) => {
-      return (
-        Node.isFunctionDeclaration(parent) ||
-        Node.isMethodDeclaration(parent) ||
-        Node.isArrowFunction(parent) ||
-        Node.isFunctionExpression(parent) ||
-        Node.isConstructorDeclaration(parent)
-      );
-    });
-  }
-
-  /**
-   * Extract hierarchical context path for a constructor
-   */
-  private extractConstructorContextPath(ctor: ConstructorDeclaration): string[] {
-    const path: string[] = [];
-
-    // For constructors, we know the immediate parent is a class
-    const parent = ctor.getParent();
-    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
-      const className = (parent as ClassDeclaration).getName();
-      if (className) path.push(className);
-    }
-
-    return path;
-  }
-
-  /**
-   * Calculate nesting level for a constructor
-   */
-  private calculateConstructorNestingLevel(_ctor: ConstructorDeclaration): number {
-    // Constructors are not typically nested, but we can check for nested classes
-    return 0;
-  }
-
-  /**
-   * Generic utility to traverse parent nodes and extract values
-   */
-  private traverseParents(
-    node: Node,
-    extractor: (parent: Node) => string | undefined
-  ): string[] {
-    const results: string[] = [];
-    let current = node.getParent();
-
-    while (current && !Node.isSourceFile(current)) {
-      const extracted = extractor(current);
-      if (extracted) {
-        results.unshift(extracted);
-      }
-      const nextParent = current.getParent();
-      if (!nextParent) break;
-      current = nextParent;
-    }
-
-    return results;
-  }
-
-  /**
-   * Generic utility to count parent nodes matching a condition
-   */
-  private countParents(
-    node: Node,
-    condition: (parent: Node) => boolean
-  ): number {
-    let count = 0;
-    let current = node.getParent();
-
-    while (current && !Node.isSourceFile(current)) {
-      if (condition(current)) {
-        count++;
-      }
-      const nextParent = current.getParent();
-      if (!nextParent) break;
-      current = nextParent;
-    }
-
-    return count;
-  }
-
-  /**
-   * Manage memory by cleaning up project if too many source files are loaded
-   */
-  private manageMemory(): void {
-    const sourceFiles = this.project.getSourceFiles();
-    const warningThreshold = this.maxSourceFilesInMemory * ANALYZER_CONSTANTS.MEMORY_WARNING_THRESHOLD_FACTOR;
-    
-    if (sourceFiles.length > warningThreshold) {
-      this.logger.warn(`Warning: ${sourceFiles.length} SourceFiles in memory (threshold: ${warningThreshold})`);
-      
-      // Force garbage collection if available (Node.js with --expose-gc)
-      if (global.gc && sourceFiles.length > this.maxSourceFilesInMemory * 2) {
-        this.logger.debug('Forcing garbage collection due to high memory usage');
-        global.gc();
-      }
-      
-      // Remove oldest virtual source files if memory usage is critical
-      if (sourceFiles.length > this.maxSourceFilesInMemory * 3) {
-        const virtualFiles = sourceFiles.filter(sf => sf.getFilePath().includes('virtual-'));
-        if (virtualFiles.length > 0) {
-          // Remove oldest 20% of virtual files
-          const toRemove = Math.floor(virtualFiles.length * 0.2);
-          for (let i = 0; i < toRemove; i++) {
-            this.project.removeSourceFile(virtualFiles[i]);
-          }
-          this.logger.debug(`Removed ${toRemove} virtual source files to manage memory`);
-        }
-      }
-    }
-  }
 
   /**
    * Clean up all source files from memory
