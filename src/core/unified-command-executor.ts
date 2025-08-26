@@ -83,7 +83,7 @@ export class UnifiedCommandExecutor {
         // 2. 依存関係を問い合わせ
         const requiredDependencies = await command.getRequires(subCommand);
         
-        if (!mergedOptions.quiet) {
+        if (!mergedOptions.quiet && mergedOptions.verbose) {
           console.log(`🔍 Command requires: [${requiredDependencies.join(', ') || 'none'}]`);
         }
         
@@ -177,7 +177,7 @@ export class UnifiedCommandExecutor {
       return;
     }
     
-    if (!options.quiet) {
+    if (!options.quiet && options.verbose) {
       console.log(`⚡ Missing dependencies: [${missing.join(', ')}], initializing...`);
     }
     

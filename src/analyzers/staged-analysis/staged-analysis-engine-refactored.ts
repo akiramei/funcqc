@@ -149,13 +149,13 @@ export class StagedAnalysisEngine {
     // Prepare data structures
     const prepStartTime = performance.now();
     this.buildLookupMaps(functions);
-    console.log(`  ⏱️  Build lookup maps: ${((performance.now() - prepStartTime) / 1000).toFixed(3)}s`);
+    // Building lookup maps
 
     // Stage 1 & 2: Combined Local and Import Analysis
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
     const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
-    console.log(`  ⏱️  Stage 1&2 (Local/Import): ${((performance.now() - stage1StartTime) / 1000).toFixed(3)}s`);
+    // Stage 1&2: Local and import analysis completed
     this.statistics.localExactCount = localImportResult.localEdges;
     this.statistics.importExactCount = localImportResult.importEdges;
 
@@ -168,7 +168,7 @@ export class StagedAnalysisEngine {
       this.state,
       snapshotId || 'unknown'
     );
-    console.log(`  ⏱️  Stage 3 (CHA): ${((performance.now() - stage3StartTime) / 1000).toFixed(3)}s`);
+    // Stage 3: Class hierarchy analysis completed
     this.statistics.chaResolvedCount = chaResult.resolvedEdges;
     this.state.chaCandidates = chaResult.chaCandidates;
     this.state.unresolvedMethodCallsForRTA = chaResult.unresolvedMethodCallsForRTA;
@@ -202,7 +202,7 @@ export class StagedAnalysisEngine {
       classToInterfacesMap,
       this.state
     );
-    console.log(`  ⏱️  Stage 4 (RTA): ${((performance.now() - stage4StartTime) / 1000).toFixed(3)}s`);
+    // Stage 4: Rapid type analysis completed
     this.statistics.rtaResolvedCount = rtaResult;
 
     // Stage 5: Runtime Trace Integration
@@ -212,7 +212,7 @@ export class StagedAnalysisEngine {
       this.state.edges,
       functions
     );
-    console.log(`  ⏱️  Stage 5 (Runtime): ${((performance.now() - stage5StartTime) / 1000).toFixed(3)}s`);
+    // Stage 5: Runtime analysis completed
     this.state.edges = runtimeResult.integratedEdges;
     this.statistics.runtimeConfirmedCount = runtimeResult.enhancedEdgesCount;
 
@@ -220,14 +220,14 @@ export class StagedAnalysisEngine {
     this.logger.debug('Stage 6: External function call analysis...');
     const stage6StartTime = performance.now();
     const externalResult = await this.performExternalCallAnalysis(functions);
-    console.log(`  ⏱️  Stage 6 (External): ${((performance.now() - stage6StartTime) / 1000).toFixed(3)}s`);
+    // Stage 6: External call analysis completed
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Stage 7: Callback Registration Analysis
     this.logger.debug('Stage 7: Callback registration analysis...');
     const stage7StartTime = performance.now();
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
-    console.log(`  ⏱️  Stage 7 (Callbacks): ${((performance.now() - stage7StartTime) / 1000).toFixed(3)}s`);
+    // Stage 7: Callback analysis completed
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;
     this.statistics.virtualEdgesCount = callbackResult.totalVirtualEdges;
     

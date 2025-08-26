@@ -70,7 +70,7 @@ export class VirtualProjectFactory {
     const endTime = performance.now();
     const creationTimeMs = endTime - startTime;
     
-    console.log(chalk.gray(`⏱️  Virtual project creation: ${(creationTimeMs / 1000).toFixed(2)}s for ${project.getSourceFiles().length} files`));
+    // Virtual project creation completed
     
     return {
       project,

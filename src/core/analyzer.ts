@@ -603,7 +603,7 @@ export class FunctionAnalyzer {
         console.log(chalk.yellow(`⏱️  Total call graph analysis time: ${(totalTime / 1000).toFixed(2)}s`));
         
         
-        this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
+        // Call graph analysis completed successfully
         
         return {
           callEdges,

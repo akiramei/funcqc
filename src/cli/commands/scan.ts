@@ -54,7 +54,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'full',
       includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
-      targetTime: '50-60s'
+      targetTime: 'variable'
     };
   }
   
@@ -62,7 +62,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'full',
       includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
-      targetTime: '50-60s'
+      targetTime: 'variable'
     };
   }
   
@@ -70,7 +70,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'standard',
       includes: ['BASIC', 'COUPLING', 'CALL_GRAPH'],
-      targetTime: '30-40s'
+      targetTime: 'variable'
     };
   }
   
@@ -79,7 +79,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'basic',
       includes: ['BASIC'],
-      targetTime: '15-20s'
+      targetTime: 'variable'
     };
   }
   
@@ -88,7 +88,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'basic',
       includes: ['BASIC', 'COUPLING'],
-      targetTime: '40-50s'
+      targetTime: 'variable'
     };
   }
   
@@ -96,7 +96,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'quick',
       includes: [],  // No analysis, just snapshot
-      targetTime: '5-10s'
+      targetTime: 'variable'
     };
   }
   
@@ -105,7 +105,7 @@ function determineScanLevel(options: ScanCommandOptions): ScanLevel {
     return {
       mode: 'basic',
       includes: ['BASIC'],  // Basic analysis by default
-      targetTime: '15-20s'
+      targetTime: 'variable'
     };
   }
   
@@ -193,7 +193,7 @@ async function executeScanCommand(
     // Determine scan level based on options
     const scanLevel = determineScanLevel(options);
     if (!options.json) {
-      console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode} (target: ${scanLevel.targetTime})}`));
+      console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode}`));
     }
 
     // COMMAND PROTOCOL COMPLIANCE: All actual processing (snapshot creation, analysis) 
@@ -2009,9 +2009,7 @@ function showCompletionMessage(): void {
   console.log(chalk.gray('  • Run `funcqc health` to see overall quality analysis'));
   console.log(chalk.gray('  • Run `funcqc dep show <function>` to analyze dependencies'));
   console.log();
-  console.log(chalk.blue('💡 Tips:'));
-  console.log(chalk.gray('  • Use `funcqc db` to ensure complete analysis for AI collaboration'));
-  console.log(chalk.gray('  • Set NODE_OPTIONS="--max-old-space-size=4096" for very large projects'));
+  // Additional analysis options available
 }
 
 function handleScanError(
