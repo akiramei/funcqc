@@ -553,7 +553,7 @@ export class FunctionAnalyzer {
       // Use shared virtual project for true integration (reuse from BASIC analysis)
       this.logger.debug('[PATH] CONTENT-UNIFIED - Attempting to reuse shared virtual project...');
       
-      const { project: virtualProject, isNewlyCreated } = await SharedVirtualProjectManager.getOrCreateProject(
+      const { project: virtualProject } = await SharedVirtualProjectManager.getOrCreateProject(
         snapshotId,
         fileContentMap
       );

@@ -6,7 +6,6 @@
  */
 
 import { Project, ProjectOptions } from 'ts-morph';
-import chalk from 'chalk';
 
 export interface VirtualProjectConfig {
   /**

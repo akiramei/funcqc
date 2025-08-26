@@ -147,13 +147,11 @@ export class StagedAnalysisEngine {
     this.logger.debug(`Functions to analyze: ${functions.size}`);
 
     // Prepare data structures
-    const prepStartTime = performance.now();
     this.buildLookupMaps(functions);
     // Building lookup maps
 
     // Stage 1 & 2: Combined Local and Import Analysis
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
-    const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
     // Stage 1&2: Local and import analysis completed
     this.statistics.localExactCount = localImportResult.localEdges;
@@ -161,7 +159,6 @@ export class StagedAnalysisEngine {
 
     // Stage 3: CHA Analysis
     this.logger.debug('Stage 3: CHA analysis...');
-    const stage3StartTime = performance.now();
     const chaResult = await this.chaStage.performCHAAnalysis(
       functions,
       this.state.unresolvedMethodCalls,
@@ -191,7 +188,6 @@ export class StagedAnalysisEngine {
 
     // Stage 4: RTA Analysis
     this.logger.debug('Stage 4: RTA analysis...');
-    const stage4StartTime = performance.now();
     // Note: Type information is now extracted and stored during CHA stage
     const classToInterfacesMap = new Map<string, string[]>(); // Placeholder for RTA compatibility
     const rtaResult = await this.rtaStage.performRTAAnalysis(
@@ -207,7 +203,6 @@ export class StagedAnalysisEngine {
 
     // Stage 5: Runtime Trace Integration
     this.logger.debug('Stage 5: Runtime trace integration...');
-    const stage5StartTime = performance.now();
     const runtimeResult = await this.runtimeStage.performRuntimeTraceIntegration(
       this.state.edges,
       functions
@@ -218,14 +213,12 @@ export class StagedAnalysisEngine {
 
     // Stage 6: External Function Call Analysis
     this.logger.debug('Stage 6: External function call analysis...');
-    const stage6StartTime = performance.now();
     const externalResult = await this.performExternalCallAnalysis(functions);
     // Stage 6: External call analysis completed
     this.statistics.externalCallsCount = externalResult.externalCallsCount;
 
     // Stage 7: Callback Registration Analysis
     this.logger.debug('Stage 7: Callback registration analysis...');
-    const stage7StartTime = performance.now();
     const callbackResult = await this.performCallbackRegistrationAnalysis(functions);
     // Stage 7: Callback analysis completed
     this.statistics.callbackRegistrationsCount = callbackResult.totalRegistrations;

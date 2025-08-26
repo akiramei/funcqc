@@ -7,7 +7,6 @@
 
 import { Project } from 'ts-morph';
 import { VirtualProjectFactory } from './virtual-project-factory';
-import chalk from 'chalk';
 
 interface CachedProject {
   project: Project;
@@ -61,7 +60,7 @@ class SharedVirtualProjectManager {
     // Creating virtual project for snapshot analysis
     
     const config = VirtualProjectFactory.getRecommendedConfig('call-graph');
-    const { project, creationTimeMs } = await VirtualProjectFactory.createFromContent(
+    const { project } = await VirtualProjectFactory.createFromContent(
       fileContentMap,
       config
     );
