@@ -152,7 +152,8 @@ export class FunctionAnalyzer {
       
       // Initialize ideal call graph analyzer with unified virtual project
       this.idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
-        logger: this.logger 
+        logger: this.logger,
+        ...(snapshotId && { snapshotId })
       });
       
       // TEMPORARY: Force fallback for debugging
@@ -164,7 +165,7 @@ export class FunctionAnalyzer {
       const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
       
       // Convert to legacy format for compatibility
-      const functions = await this.convertToLegacyFormat(callGraphResult.functions);
+      const functions = await this.convertToLegacyFormat(callGraphResult.functions, snapshotId);
       
       // Use unified conversion without ID mapping (paths are already unified)
       const callEdges = this.convertCallEdgesToLegacy(callGraphResult.edges);
@@ -350,7 +351,10 @@ export class FunctionAnalyzer {
   /**
    * Convert ideal function metadata to legacy FunctionInfo format
    */
-  private async convertToLegacyFormat(functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>): Promise<FunctionInfo[]> {
+  private async convertToLegacyFormat(
+    functions: Map<string, import('../analyzers/ideal-call-graph-analyzer').FunctionMetadata>,
+    snapshotId?: string
+  ): Promise<FunctionInfo[]> {
     const legacyFunctions: FunctionInfo[] = [];
     
     // Group functions by file path for efficient source code extraction
@@ -383,7 +387,7 @@ export class FunctionAnalyzer {
         
         const legacyFunc: FunctionInfo = {
           id: func.id,
-          snapshotId: 'unknown',  // Legacy adapter - TODO: pass actual snapshot ID
+          snapshotId: snapshotId || 'unknown',
           name: func.name,
           filePath: func.filePath,
           startLine: func.startLine,

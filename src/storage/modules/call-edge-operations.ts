@@ -511,6 +511,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           confidence_score real,
           detected_by text
         )
+        ON CONFLICT (id) DO NOTHING
       `;
       
       await this.db.query(sql, [payload]);
@@ -533,6 +534,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
           caller_name, callee_name, caller_class_name, callee_class_name,
           line_number, column_number, call_type, call_context, confidence_score, detected_by
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        ON CONFLICT (id) DO NOTHING
         `,
         [
           edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId!, snapshotId),
@@ -630,15 +632,16 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Get internal callees by function
    */
-  async getInternalCalleesByFunction(callerFunctionId: string): Promise<string[]> {
+  async getInternalCalleesByFunction(callerFunctionId: string, snapshotId: string): Promise<string[]> {
     try {
       const result = await this.db.query(
         `
         SELECT DISTINCT callee_function_id 
         FROM internal_call_edges 
-        WHERE caller_function_id = $1
+        WHERE snapshot_id = $1
+          AND caller_function_id = $2
         `,
-        [callerFunctionId]
+        [snapshotId, callerFunctionId]
       );
 
       return result.rows.map(row => (row as { callee_function_id: string }).callee_function_id);
@@ -912,31 +915,32 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     limit?: number;
     offset?: number;
   }): Promise<CallEdge[]> {
-    const query = this.kysely.selectFrom('call_edges').selectAll();
+    let qb = this.kysely.selectFrom('call_edges').selectAll();
 
     if (options?.snapshotId) {
-      query.where('snapshot_id', '=', options.snapshotId);
+      qb = qb.where('snapshot_id', '=', options.snapshotId);
     }
     if (options?.callerFunctionId) {
-      query.where('caller_function_id', '=', options.callerFunctionId);
+      qb = qb.where('caller_function_id', '=', options.callerFunctionId);
     }
     if (options?.calleeFunctionId) {
-      query.where('callee_function_id', '=', options.calleeFunctionId);
+      qb = qb.where('callee_function_id', '=', options.calleeFunctionId);
     }
     if (options?.calleeName) {
-      query.where('callee_name', '=', options.calleeName);
+      qb = qb.where('callee_name', '=', options.calleeName);
     }
     if (options?.callType) {
-      query.where('call_type', '=', options.callType);
+      qb = qb.where('call_type', '=', options.callType);
     }
     if (options?.limit) {
-      query.limit(options.limit);
+      qb = qb.limit(options.limit);
     }
     if (options?.offset) {
-      query.offset(options.offset);
+      qb = qb.offset(options.offset);
     }
 
-    const result = await this.db.query(query.compile().sql, query.compile().parameters as unknown[]);
+    const compiled = qb.compile();
+    const result = await this.db.query(compiled.sql, compiled.parameters as unknown[]);
     
     return result.rows.map(row => this.mapRowToCallEdge(row as CallEdgeRow));
   }
