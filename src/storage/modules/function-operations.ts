@@ -847,7 +847,9 @@ export class FunctionOperations implements StorageOperationModule {
       asyncAwaitCount: row.async_await_count || 0,
       callbackCount: row.callback_count || 0,
       commentLines: row.comment_lines || 0,
-      codeToCommentRatio: row.code_to_comment_ratio || 0,
+      codeToCommentRatio: row.code_to_comment_ratio == null
+        ? Infinity
+        : row.code_to_comment_ratio,
     };
     
     // Only add optional properties if they have values
@@ -1234,7 +1236,9 @@ export class FunctionOperations implements StorageOperationModule {
       asyncAwaitCount: row.async_await_count || 0,
       callbackCount: row.callback_count || 0,
       commentLines: row.comment_lines || 0,
-      codeToCommentRatio: row.code_to_comment_ratio || 0,
+      codeToCommentRatio: row.code_to_comment_ratio == null
+        ? Infinity
+        : row.code_to_comment_ratio,
       cognitiveComplexity: row.cognitive_complexity || 0,
     };
   }
