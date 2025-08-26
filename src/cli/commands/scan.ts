@@ -144,11 +144,6 @@ interface ParameterPropertyUsage {
  */
 export const scanCommand: VoidCommand<ScanCommandOptions> = (options) => 
   async (env: CommandEnvironment): Promise<void> => {
-    // 非推奨警告
-    console.warn(chalk.yellow('⚠️  DEPRECATED: The "scan" command is deprecated and will be removed in a future version.'));
-    console.warn(chalk.cyan('💡 Use "funcqc measure" instead for enhanced measurement capabilities.'));
-    console.warn(chalk.gray('   Example: funcqc measure (same options work)'));
-    console.warn('');
 
     const errorHandler = createErrorHandler(env.commandLogger);
     const spinner = ora();
