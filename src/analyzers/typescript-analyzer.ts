@@ -287,8 +287,29 @@ export class TypeScriptAnalyzer extends CacheAware {
       // Use UnifiedASTAnalyzer for optimized single-pass analysis
       const unifiedResults = await this.unifiedAnalyzer.analyzeFile(virtualPath, content, snapshotId);
       
-      // Extract FunctionInfo from UnifiedAnalysisResult
-      const functions: FunctionInfo[] = unifiedResults.map(result => result.functionInfo);
+      // Map to complete FunctionInfo (ID/metrics/fileHash/snapshot補完)
+      const fileHash = this.calculateFileHash(content);
+      const sid = snapshotId ?? 'unknown';
+      const functions: FunctionInfo[] = unifiedResults.map(result => {
+        const f = result.functionInfo;
+        const id = this.generatePhysicalId(
+          virtualPath,
+          f.name,
+          f.contextPath || null,
+          f.startLine,
+          f.startColumn,
+          sid
+        );
+        const withMetrics = result.qualityMetrics ?? f.metrics;
+        return {
+          ...f,
+          id,
+          snapshotId: sid,
+          fileHash,
+          metrics: withMetrics,
+          ...(this.includeSourceCode && !f.sourceCode ? { sourceCode: content } : {}),
+        };
+      });
 
       return functions;
     } catch (error) {
@@ -1527,6 +1548,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     this.project = sharedProject;
     // CRITICAL FIX: Recreate CallGraphAnalyzer with shared project to avoid inconsistency
     this.callGraphAnalyzer = new CallGraphAnalyzer(sharedProject, true, this.logger);
+    // Keep type analysis consistent with the shared project
+    this.typeSystemAnalyzer = new TypeSystemAnalyzer(sharedProject, this.logger);
   }
 
   /**

@@ -102,7 +102,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       
       // Use bulk insert for better performance, even in transactions
       if (callEdges.length >= 5) { // Lower threshold for bulk insert in transactions
-        await this.insertCallEdgesBulkInTransaction(trx, snapshotId, callEdges);
+        await this.insertCallEdgesBulkInTransaction(trx, snapshotId, callEdges, functionIds);
       } else {
         await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges, functionIds);
       }
@@ -119,20 +119,20 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Insert call edges in bulk within a transaction for maximum performance
    */
-  private async insertCallEdgesBulkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+  private async insertCallEdgesBulkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[], validFunctionIds?: Set<string>): Promise<void> {
     // Dynamic chunk sizing based on call_edges table columns (17 columns)
     const CHUNK_SIZE = calculateOptimalBatchSize(17);
     
-    // Get function IDs once at the start to avoid repeated queries in chunks
-    const validFunctionIds = await this.getValidFunctionIdsInTransaction(trx, snapshotId);
+    // Use provided cache if available; otherwise fetch once for this txn
+    const cachedFunctionIds = validFunctionIds ?? await this.getValidFunctionIdsInTransaction(trx, snapshotId);
     
     if (callEdges.length <= CHUNK_SIZE) {
-      await this.insertCallEdgesChunkInTransaction(trx, snapshotId, callEdges, validFunctionIds);
+      await this.insertCallEdgesChunkInTransaction(trx, snapshotId, callEdges, cachedFunctionIds);
     } else {
       // Process in chunks sequentially within the same transaction
       for (let i = 0; i < callEdges.length; i += CHUNK_SIZE) {
         const chunk = callEdges.slice(i, i + CHUNK_SIZE);
-        await this.insertCallEdgesChunkInTransaction(trx, snapshotId, chunk, validFunctionIds);
+        await this.insertCallEdgesChunkInTransaction(trx, snapshotId, chunk, cachedFunctionIds);
       }
     }
   }
