@@ -280,76 +280,16 @@ export class TypeScriptAnalyzer extends CacheAware {
   /**
    * Analyze TypeScript content from string instead of file
    * Used for analyzing stored file content with shared virtual project
+   * Now uses UnifiedASTAnalyzer for single-pass analysis
    */
   async analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]> {
-    const functions: FunctionInfo[] = [];
-    
     try {
-      // Use shared project if available for this snapshot, otherwise use default project
-      let targetProject = this.project;
-      let isUsingSharedProject = false;
+      // Use UnifiedASTAnalyzer for optimized single-pass analysis
+      const unifiedResults = await this.unifiedAnalyzer.analyzeFile(virtualPath, content, snapshotId);
       
-      if (snapshotId) {
-        // CRITICAL FIX: For single file analysis, prioritize cache lookup without creating new project
-        const cachedProject = SharedVirtualProjectManager.getCachedProject(snapshotId);
-        if (cachedProject) {
-          targetProject = cachedProject;
-          isUsingSharedProject = true;
-        } else {
-          // Fallback: only create if no cache exists (should rarely happen)
-          const fileContentMap = new Map([[virtualPath, content]]);
-          const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-          targetProject = sharedProject;
-          isUsingSharedProject = true;
-        }
-      }
-      
-      // Create virtual source file from content
-      const sourceFile = targetProject.createSourceFile(virtualPath, content, {
-        overwrite: true,
-      });
-      
-      // Use virtualPath directly as it's already normalized when stored in DB
-      const relativePath = virtualPath;
-      const fileHash = this.calculateFileHash(content);
-      
-      // Extract all function types
-      for (const func of sourceFile.getDescendantsOfKind(SyntaxKind.FunctionDeclaration)) {
-        const info = await this.extractFunctionInfo(func, relativePath, fileHash, sourceFile, snapshotId || 'unknown');
-        if (info) functions.push(info);
-      }
-      
-      for (const method of sourceFile.getDescendantsOfKind(SyntaxKind.MethodDeclaration)) {
-        const info = await this.extractMethodInfo(method, relativePath, fileHash, sourceFile, snapshotId || 'unknown');
-        if (info) functions.push(info);
-      }
-      
-      for (const classDecl of sourceFile.getClasses()) {
-        for (const constructor of classDecl.getConstructors()) {
-          const info = await this.extractConstructorInfo(
-            constructor,
-            relativePath,
-            fileHash,
-            sourceFile,
-            snapshotId || 'unknown'
-          );
-          if (info) functions.push(info);
-        }
-      }
-      
-      // Arrow functions and function expressions
-      const variableFunctions = await this.extractVariableFunctions(sourceFile, relativePath, fileHash, content, snapshotId || 'unknown');
-      for (const info of variableFunctions) {
-        functions.push(info);
-      }
-      
-      // CRITICAL FIX: Only clean up if not using shared project
-      // Shared projects should preserve files for reuse across analyses
-      if (!isUsingSharedProject) {
-        targetProject.removeSourceFile(sourceFile);
-        this.manageMemory();
-      }
-      
+      // Extract FunctionInfo from UnifiedAnalysisResult
+      const functions: FunctionInfo[] = unifiedResults.map(result => result.functionInfo);
+
       return functions;
     } catch (error) {
       throw new Error(
@@ -1581,6 +1521,13 @@ export class TypeScriptAnalyzer extends CacheAware {
   }
 
   /**
+   * Set shared project for performance optimization
+   */
+  setSharedProject(sharedProject: Project): void {
+    this.project = sharedProject;
+  }
+
+  /**
    * Extract type information from file contents (for virtual files)
    */
   async extractTypeInformationFromContents(
@@ -1596,6 +1543,16 @@ export class TypeScriptAnalyzer extends CacheAware {
       }
     }).filter((sf): sf is NonNullable<typeof sf> => sf !== null);
 
+    return this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
+  }
+
+  /**
+   * Extract type information from shared project (performance optimized)
+   */
+  async extractTypeInformationFromSharedProject(
+    snapshotId: string
+  ): Promise<TypeExtractionResult> {
+    const sourceFiles = this.project.getSourceFiles();
     return this.typeSystemAnalyzer.extractTypeInformation(snapshotId, sourceFiles);
   }
 

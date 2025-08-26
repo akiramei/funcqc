@@ -24,9 +24,10 @@ import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
-import { Project, TypeChecker, ts, Node } from 'ts-morph';
+import { Project, TypeChecker, Node } from 'ts-morph';
 // import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
+import { SharedVirtualProjectManager } from '../../core/shared-virtual-project-manager';
 
 /**
  * Result type for batch processing operations
@@ -149,6 +150,14 @@ export const scanCommand: VoidCommand<ScanCommandOptions> = (options) =>
     const spinner = ora();
 
     try {
+      // Automatically disable source code storage for full scans to optimize performance
+      if (options.full && !process.env['FUNCQC_STORE_SOURCECODE']) {
+        process.env['FUNCQC_STORE_SOURCECODE'] = '0';
+        if (options.verbose) {
+          env.commandLogger.info('🚀 Performance optimization: disabled source code storage for full scan');
+        }
+      }
+
       if (options.verbose) {
         env.commandLogger.info('🔍 Starting function analysis...');
       }
@@ -563,7 +572,9 @@ async function executePureBasicBatchAnalysis(
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
     
-    console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+    if (options?.verbose) {
+      console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+    }
     
     for (const sourceFile of batch) {
       try {
@@ -742,23 +753,23 @@ export async function performDeferredCouplingAnalysis(
       spinner.text = `Performing coupling analysis on ${sourceFiles.length} files...`;
     }
     
-    // Create shared Project/TypeChecker for coupling analysis to reduce memory usage
-    const project = new Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: {
-        target: ts.ScriptTarget.Latest,
-        allowJs: true,
-        skipLibCheck: true,
-      }
+    // Create file content map for shared project manager
+    const fileContentMap = new Map<string, string>();
+    sourceFiles.forEach(file => {
+      fileContentMap.set(file.filePath, file.fileContent);
     });
     
-    // Load all source files into the project for complete type resolution
-    // This ensures that imported types and interfaces are available for coupling analysis
-    console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
-    for (const sourceFile of sourceFiles) {
-      project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+    // Use SharedVirtualProjectManager instead of creating new Project
+    console.log(chalk.blue(`📚 Getting shared project for ${sourceFiles.length} files...`));
+    const { project, isNewlyCreated } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
+    
+    if (process.env['DEBUG'] === '1') {
+      if (isNewlyCreated) {
+        console.log(`📁 Created new shared project with ${project.getSourceFiles().length} files`);
+      } else {
+        console.log(`📁 Reusing existing shared project with ${project.getSourceFiles().length} files`);
+      }
     }
-    console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
     
     const typeChecker = project.getTypeChecker();
     
@@ -1216,12 +1227,24 @@ export async function performDeferredTypeSystemAnalysis(
       throw new Error(`No source files found for snapshot ${snapshotId}`);
     }
     
+    // Create file path to content mapping for shared project
+    const fileContentsMap = new Map<string, string>();
+    sourceFiles.forEach(sourceFile => {
+      fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
+    });
+    
+    // Use SharedVirtualProjectManager to get or reuse existing project
+    const { project: sharedProject, isNewlyCreated } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentsMap);
+    
     // Create TypeScript analyzer
     const analyzer = new TypeScriptAnalyzer(
       100, // maxSourceFilesInMemory
       true, // enableCache
       env.commandLogger // logger
     );
+    
+    // Set shared project for performance optimization
+    analyzer.setSharedProject(sharedProject);
     
     // Set storage for function ID lookup in type members
     analyzer.setStorage(env.storage);
@@ -1233,17 +1256,10 @@ export async function performDeferredTypeSystemAnalysis(
     const methodOverrides: import('../../types').MethodOverride[] = [];
     
     try {
-      // Create file path to content mapping for batch processing
-      const fileContentsMap = new Map<string, string>();
-      sourceFiles.forEach(sourceFile => {
-        fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
-      });
+      // Use optimized shared project extraction
+      const result = await analyzer.extractTypeInformationFromSharedProject(snapshotId);
       
-      // Batch analyze all files at once instead of one by one
-      const result = await analyzer.extractTypeInformationFromContents(
-        fileContentsMap,
-        snapshotId
-      );
+      console.log(`🔄 ${isNewlyCreated ? 'Created new' : 'Reused existing'} shared project for type analysis`);
       
       // Add snapshotId to each type definition (should already be included but ensure consistency)
       const typesWithSnapshot = result.typeDefinitions.map(type => ({
@@ -1301,27 +1317,17 @@ export async function performDeferredTypeSystemAnalysis(
       }
     }
     
-    // Store types in database
+    // Store types in database using batched transaction
     if (typeDefinitions.length > 0) {
-      console.log(`🔧 Saving ${typeDefinitions.length} type definitions and ${typeRelationships.length} relationships...`);
+      console.log(`🔧 Saving ${typeDefinitions.length} type definitions, ${typeRelationships.length} relationships, ${typeMembers.length} members, and ${methodOverrides.length} overrides in single transaction...`);
       try {
-        await env.storage.saveTypeDefinitions(typeDefinitions);
-        console.log(`✅ Type definitions saved successfully`);
-        
-        await env.storage.saveTypeRelationships(typeRelationships);
-        console.log(`✅ Type relationships saved successfully`);
-        
-        if (typeMembers.length > 0) {
-          await env.storage.saveTypeMembers(typeMembers);
-          console.log(`✅ Type members saved successfully (${typeMembers.length} members)`);
-        }
-        
-        if (methodOverrides.length > 0) {
-          await env.storage.saveMethodOverrides(methodOverrides);
-          console.log(`✅ Method overrides saved successfully (${methodOverrides.length} overrides)`);
-        }
-        
-        console.log(`✅ All type data saved successfully`);
+        await env.storage.saveAllTypeInformation({
+          typeDefinitions,
+          typeRelationships,
+          typeMembers,
+          methodOverrides
+        });
+        console.log(`✅ All type data saved successfully in single transaction`);
       } catch (error) {
         env.commandLogger.error(`Failed to save type data: ${error instanceof Error ? error.message : String(error)}`);
         if (env.commandLogger.isVerbose || process.env['DEBUG'] === 'true') {
