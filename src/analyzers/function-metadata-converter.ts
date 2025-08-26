@@ -40,7 +40,7 @@ export class FunctionMetadataConverter {
         signature: func.signature,
         startLine: func.startLine,
         endLine: func.endLine,
-        contentHash: func.astHash || func.semanticId.substring(0, 16),
+        contentHash: func.contentId || func.astHash || func.signatureHash || func.semanticId,
         ...(func.className && { className: func.className })
       };
       
