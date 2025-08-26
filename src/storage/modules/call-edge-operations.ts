@@ -120,13 +120,16 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     // Dynamic chunk sizing based on call_edges table columns (17 columns)
     const CHUNK_SIZE = calculateOptimalBatchSize(17);
     
+    // Get function IDs once at the start to avoid repeated queries in chunks
+    const validFunctionIds = await this.getValidFunctionIdsInTransaction(trx, snapshotId);
+    
     if (callEdges.length <= CHUNK_SIZE) {
-      await this.insertCallEdgesChunkInTransaction(trx, snapshotId, callEdges);
+      await this.insertCallEdgesChunkInTransaction(trx, snapshotId, callEdges, validFunctionIds);
     } else {
       // Process in chunks sequentially within the same transaction
       for (let i = 0; i < callEdges.length; i += CHUNK_SIZE) {
         const chunk = callEdges.slice(i, i + CHUNK_SIZE);
-        await this.insertCallEdgesChunkInTransaction(trx, snapshotId, chunk);
+        await this.insertCallEdgesChunkInTransaction(trx, snapshotId, chunk, validFunctionIds);
       }
     }
   }
@@ -134,7 +137,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Insert a single chunk of call edges within a transaction using JSONB bulk insert
    */
-  private async insertCallEdgesChunkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+  private async insertCallEdgesChunkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[], validFunctionIds?: Set<string>): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
       id: edge.id || generateStableEdgeId(
         edge.callerFunctionId,
@@ -160,18 +163,23 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
-      // Validate function IDs within the same snapshot (transaction path)
-      const functionIdsResult = await trx.query(
-        'SELECT id FROM functions WHERE snapshot_id = $1',
-        [snapshotId]
-      );
-      const validFunctionIds = new Set(
-        (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
-      );
+      // Use cached function IDs if provided, otherwise query database
+      let functionIds: Set<string>;
+      if (validFunctionIds) {
+        functionIds = validFunctionIds;
+      } else {
+        const functionIdsResult = await trx.query(
+          'SELECT id FROM functions WHERE snapshot_id = $1',
+          [snapshotId]
+        );
+        functionIds = new Set(
+          (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
+        );
+      }
       const validCallEdgeRows = callEdgeRows.filter(row =>
-        validFunctionIds.has(row.caller_function_id) &&
+        functionIds.has(row.caller_function_id) &&
         (row.callee_function_id == null ||
-          validFunctionIds.has(row.callee_function_id))
+          functionIds.has(row.callee_function_id))
       );
       if (validCallEdgeRows.length < callEdgeRows.length) {
         const skipped = callEdgeRows.length - validCallEdgeRows.length;

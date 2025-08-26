@@ -759,8 +759,10 @@ export async function performDeferredCouplingAnalysis(
       fileContentMap.set(file.filePath, file.fileContent);
     });
     
-    // Use SharedVirtualProjectManager instead of creating new Project
-    console.log(chalk.blue(`📚 Getting shared project for ${sourceFiles.length} files...`));
+    // Use SharedVirtualProjectManager instead of creating new Project  
+    if (process.env['DEBUG'] === '1') {
+      console.log(chalk.blue(`📚 Getting shared project for ${sourceFiles.length} files...`));
+    }
     const { project, isNewlyCreated } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
     
     if (process.env['DEBUG'] === '1') {
@@ -779,7 +781,9 @@ export async function performDeferredCouplingAnalysis(
       const batch = batches[batchIndex];
       const batchCouplingData: ParameterPropertyUsage[] = [];
       
-      console.log(chalk.blue(`📊 Coupling batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+      if (process.env['DEBUG'] === '1') {
+        console.log(chalk.blue(`📊 Coupling batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
+      }
       
       for (const sourceFile of batch) {
         try {
@@ -797,7 +801,9 @@ export async function performDeferredCouplingAnalysis(
       // Store coupling analysis data
       if (batchCouplingData.length > 0) {
         await storeParameterPropertyUsage(env.storage, batchCouplingData, snapshotId);
-        console.log(`📊 Stored ${batchCouplingData.length} coupling analysis records`);
+        if (process.env['DEBUG'] === '1') {
+          console.log(`📊 Stored ${batchCouplingData.length} coupling analysis records`);
+        }
       }
       
       batchResults.push(batchCouplingData.length);
@@ -1436,6 +1442,14 @@ async function initializeComponents(
   projectSize?: number
 ): Promise<CliComponents> {
   spinner.start('Initializing funcqc scan...');
+
+  // Performance optimization: Disable source code storage for large projects
+  if (projectSize && projectSize > 200 && !process.env['FUNCQC_STORE_SOURCECODE']) {
+    process.env['FUNCQC_STORE_SOURCECODE'] = '0';
+    if (process.env['DEBUG'] === '1') {
+      env.commandLogger.info(`🚀 Performance optimization: disabled source code storage for large project (${projectSize} files)`);
+    }
+  }
 
   // Get optimal configuration based on system resources
   const resourceManager = SystemResourceManager.getInstance();

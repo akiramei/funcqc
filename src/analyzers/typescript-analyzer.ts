@@ -1525,6 +1525,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    */
   setSharedProject(sharedProject: Project): void {
     this.project = sharedProject;
+    // CRITICAL FIX: Recreate CallGraphAnalyzer with shared project to avoid inconsistency
+    this.callGraphAnalyzer = new CallGraphAnalyzer(sharedProject, true, this.logger);
   }
 
   /**
