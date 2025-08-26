@@ -93,15 +93,18 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Insert call edges within a transaction for atomic operations
    */
-  async insertCallEdgesInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
+  async insertCallEdgesInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[], validFunctionIds?: Set<string>): Promise<void> {
     if (callEdges.length === 0) return;
 
     try {
+      // Get function IDs once if not provided
+      const functionIds = validFunctionIds || await this.getValidFunctionIdsInTransaction(trx, snapshotId);
+      
       // Use bulk insert for better performance, even in transactions
       if (callEdges.length >= 5) { // Lower threshold for bulk insert in transactions
         await this.insertCallEdgesBulkInTransaction(trx, snapshotId, callEdges);
       } else {
-        await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
+        await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges, functionIds);
       }
       // Call edges inserted in transaction
     } catch (error) {

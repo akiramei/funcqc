@@ -648,7 +648,9 @@ async function executePureBasicBatchAnalysis(
         await env.storage.updateSourceFileFunctionCounts(allFunctionCounts, snapshotId);
       }
       
-      console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
+      if (process.env['DEBUG'] === '1') {
+        console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
+      }
     } catch (error) {
       console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
       
@@ -1224,7 +1226,9 @@ export async function performDeferredTypeSystemAnalysis(
       return { typesAnalyzed: typeCount };
     }
     
-    console.log(`🚀 No existing types found - proceeding with type system analysis`);
+    if (process.env['DEBUG'] === '1') {
+      console.log(`🚀 No existing types found - proceeding with type system analysis`);
+    }
     
     // Get source files for the snapshot
     const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
@@ -1265,7 +1269,9 @@ export async function performDeferredTypeSystemAnalysis(
       // Use optimized shared project extraction
       const result = await analyzer.extractTypeInformationFromSharedProject(snapshotId);
       
-      console.log(`🔄 ${isNewlyCreated ? 'Created new' : 'Reused existing'} shared project for type analysis`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`🔄 ${isNewlyCreated ? 'Created new' : 'Reused existing'} shared project for type analysis`);
+      }
       
       // Add snapshotId to each type definition (should already be included but ensure consistency)
       const typesWithSnapshot = result.typeDefinitions.map(type => ({
@@ -1325,7 +1331,9 @@ export async function performDeferredTypeSystemAnalysis(
     
     // Store types in database using batched transaction
     if (typeDefinitions.length > 0) {
-      console.log(`🔧 Saving ${typeDefinitions.length} type definitions, ${typeRelationships.length} relationships, ${typeMembers.length} members, and ${methodOverrides.length} overrides in single transaction...`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`🔧 Saving ${typeDefinitions.length} type definitions, ${typeRelationships.length} relationships, ${typeMembers.length} members, and ${methodOverrides.length} overrides in single transaction...`);
+      }
       try {
         await env.storage.saveAllTypeInformation({
           typeDefinitions,
@@ -1333,7 +1341,9 @@ export async function performDeferredTypeSystemAnalysis(
           typeMembers,
           methodOverrides
         });
-        console.log(`✅ All type data saved successfully in single transaction`);
+        if (process.env['DEBUG'] === '1') {
+          console.log(`✅ All type data saved successfully in single transaction`);
+        }
       } catch (error) {
         env.commandLogger.error(`Failed to save type data: ${error instanceof Error ? error.message : String(error)}`);
         if (env.commandLogger.isVerbose || process.env['DEBUG'] === 'true') {
@@ -1348,14 +1358,22 @@ export async function performDeferredTypeSystemAnalysis(
     
     // Update analysis level
     try {
-      console.log(`🔧 Updating analysis level to TYPE_SYSTEM for snapshot ${snapshotId}`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`🔧 Updating analysis level to TYPE_SYSTEM for snapshot ${snapshotId}`);
+      }
       await env.storage.updateAnalysisLevel(snapshotId, 'TYPE_SYSTEM');
-      console.log(`✅ Analysis level updated successfully`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`✅ Analysis level updated successfully`);
+      }
       
       // Force database sync
-      console.log(`🔧 Forcing database sync...`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`🔧 Forcing database sync...`);
+      }
       await new Promise(resolve => setTimeout(resolve, 500));
-      console.log(`✅ Database sync completed`);
+      if (process.env['DEBUG'] === '1') {
+        console.log(`✅ Database sync completed`);
+      }
     } catch (error) {
       console.error(`❌ Failed to update analysis level: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
