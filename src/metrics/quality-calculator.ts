@@ -86,7 +86,9 @@ export class QualityCalculator {
       callbackCount: this.countCallbacks(tsNode),
       commentLines,
       codeToCommentRatio:
-        linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,
+        commentLines > 0
+          ? Math.round(((linesOfCode / commentLines) * 100)) / 100
+          : (linesOfCode > 0 ? Infinity : 0),
       halsteadVolume,
       halsteadDifficulty,
       maintainabilityIndex: this.calculateMaintainabilityIndex({
@@ -130,7 +132,7 @@ export class QualityCalculator {
       asyncAwaitCount: 0,
       callbackCount: 0,
       commentLines: 0,
-      codeToCommentRatio: 0,
+      codeToCommentRatio: codeLines.length > 0 ? Infinity : 0,
       halsteadVolume: 0,
       halsteadDifficulty: 0,
       maintainabilityIndex: 100, // Default high maintainability for simple functions
@@ -188,10 +190,10 @@ export class QualityCalculator {
     
     // Calculate Halstead metrics and comment metrics using existing TypeScript AST
     // Avoid re-parsing by leveraging the underlying compiler node
-    const tsNode = (node.compilerNode as unknown) as ts.FunctionLikeDeclaration | undefined;
-    const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
-    const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
-    const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
+    const tsNode = node.compilerNode as ts.FunctionLikeDeclaration;
+    const halsteadVolume = this.calculateHalsteadVolume(tsNode);
+    const halsteadDifficulty = this.calculateHalsteadDifficulty(tsNode);
+    const commentLines = this.calculateCommentLines(tsNode);
     const codeToCommentRatio = commentLines > 0
       ? Math.round(((linesOfCode / commentLines) * 100)) / 100
       : (linesOfCode > 0 ? Infinity : 0);
