@@ -111,7 +111,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertCallEdgesChunkInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+      id: edge.id || generateStableEdgeId(
+        edge.callerFunctionId,
+        edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+        snapshotId
+      ),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
@@ -247,7 +251,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    */
   private async insertCallEdgesChunk(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
     const callEdgeRows = callEdges.map(edge => ({
-      id: edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+      id: edge.id || generateStableEdgeId(
+        edge.callerFunctionId,
+        edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+        snapshotId
+      ),
       snapshot_id: snapshotId,
       caller_function_id: edge.callerFunctionId,
       callee_function_id: edge.calleeFunctionId,
@@ -399,7 +407,11 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       };
 
       const params = [
-        edge.id || generateStableEdgeId(edge.callerFunctionId, edge.calleeFunctionId || 'external', snapshotId),
+        edge.id || generateStableEdgeId(
+          edge.callerFunctionId,
+          edge.calleeFunctionId ?? `external:${edge.calleeName ?? edge.calleeSignature ?? 'unknown'}`,
+          snapshotId
+        ),
         snapshotId,
         edge.callerFunctionId,
         edge.calleeFunctionId,
@@ -482,8 +494,22 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // 同スナップショット内の有効な function_id のみ許可
+      const functionIdsResult = await this.db.query(
+        'SELECT id FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(r => r.id));
+      const validRows = internalCallEdgeRows.filter(row =>
+        validFunctionIds.has(row.caller_function_id) && validFunctionIds.has(row.callee_function_id)
+      );
+      if (validRows.length < internalCallEdgeRows.length) {
+        const skipped = internalCallEdgeRows.length - validRows.length;
+        this.logger?.debug(`Skipped ${skipped} internal call edges with invalid function IDs`);
+      }
+
       // Sanitize data to remove NUL characters
-      const sanitizedRows = internalCallEdgeRows.map(row => {
+      const sanitizedRows = validRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Remove NUL characters from string fields
@@ -545,7 +571,23 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert internal call edges individually
    */
   private async insertInternalCallEdgesIndividual(snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edge of callEdges) {
+    // 1) 有効な function_id を同スナップショットから取得
+    const functionIdsResult = await this.db.query(
+      'SELECT id FROM functions WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+    const validFunctionIds = new Set((functionIdsResult.rows as Array<{ id: string }>).map(r => r.id));
+
+    // 2) 事前フィルタ
+    const filtered = callEdges.filter(e =>
+      validFunctionIds.has(e.callerFunctionId) && validFunctionIds.has(e.calleeFunctionId!)
+    );
+    if (filtered.length < callEdges.length) {
+      const skipped = callEdges.length - filtered.length;
+      this.logger?.debug(`Skipped ${skipped} internal call edges with invalid function IDs (individual path)`);
+    }
+
+    for (const edge of filtered) {
       await this.db.query(
         `
         INSERT INTO internal_call_edges (
