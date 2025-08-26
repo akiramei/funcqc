@@ -877,8 +877,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
 
     // Calculate metrics directly from ts-morph node while we have it
-    const { QualityCalculator } = await TypeScriptAnalyzer.getQualityCalculator();
-    const qualityCalculator = new QualityCalculator();
+    // キャッシュされた QualityCalculator を再利用
+    const qualityCalculator = await this.getOrCreateQualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(functionNode, functionInfo);
 
     return functionInfo;
