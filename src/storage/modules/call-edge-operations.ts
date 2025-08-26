@@ -359,7 +359,26 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
    * Insert call edges individually within a transaction
    */
   private async insertCallEdgesIndividualInTransaction(trx: PGTransaction, snapshotId: string, callEdges: CallEdge[]): Promise<void> {
-    for (const edgeRaw of callEdges) {
+    // 1) 同スナップショット内の有効な function_id を取得
+    const functionIdsResult = await trx.query(
+      'SELECT id FROM functions WHERE snapshot_id = $1',
+      [snapshotId]
+    );
+    const validFunctionIds = new Set(
+      (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
+    );
+
+    // 2) 事前フィルタ
+    const filtered = callEdges.filter(e =>
+      validFunctionIds.has(e.callerFunctionId) &&
+      (e.calleeFunctionId == null || validFunctionIds.has(e.calleeFunctionId))
+    );
+    if (filtered.length < callEdges.length) {
+      const skipped = callEdges.length - filtered.length;
+      this.logger?.debug(`Skipped ${skipped} call edges with invalid function IDs (individual tx path)`);
+    }
+
+    for (const edgeRaw of filtered) {
       // NUL byte sanitization to prevent "invalid message format" errors
       const edge = {
         ...edgeRaw,
