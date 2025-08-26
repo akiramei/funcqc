@@ -149,7 +149,9 @@ export const scanCommand: VoidCommand<ScanCommandOptions> = (options) =>
     const spinner = ora();
 
     try {
-      env.commandLogger.info('🔍 Starting function analysis...');
+      if (options.verbose) {
+        env.commandLogger.info('🔍 Starting function analysis...');
+      }
       
       await executeScanCommand(env, options, spinner);
     } catch (error) {
@@ -473,7 +475,7 @@ export async function performPureBasicAnalysis(
     const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
     
     // Use a simpler batch processing for BASIC only
-    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
+    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, { verbose: false }, sourceFileIdMap);
     
     const allErrors: string[] = [];
     for (const batchResult of batchResults) {
@@ -515,10 +517,13 @@ async function executePureBasicBatchAnalysis(
   components: Awaited<ReturnType<typeof initializeComponents>>,
   snapshotId: string,
   env: CommandEnvironment,
+  options?: { verbose?: boolean },
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionCount: number; errors: string[] }[]> {
   // Prepare shared virtual project for true integration
-  env.commandLogger.info('🔧 Preparing shared virtual project for BASIC analysis...');
+  if (options?.verbose) {
+    env.commandLogger.info('🔧 Preparing shared virtual project for BASIC analysis...');
+  }
 
   // Collect all file contents for shared project creation
   const allFileContentMap = new Map<string, string>();
@@ -546,9 +551,13 @@ async function executePureBasicBatchAnalysis(
   }
 
   if (isNewlyCreated) {
-    env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
+    if (options?.verbose) {
+      env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
+    }
   } else {
-    env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
+    if (options?.verbose) {
+      env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
+    }
   }
 
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
@@ -668,7 +677,7 @@ export async function performBasicAnalysis(
     const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
     
     // Execute BASIC batch analysis (no coupling)
-    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, sourceFileIdMap);
+    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, { verbose: false }, sourceFileIdMap);
     
     // Collect summary results
     const allErrors: string[] = [];

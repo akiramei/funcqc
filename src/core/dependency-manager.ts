@@ -66,14 +66,14 @@ export class DependencyManager {
     const successful: DependencyType[] = [];
     const failed: Array<{ dependency: DependencyType; error: Error }> = [];
     
-    if (!options.quiet) {
+    if (!options.quiet && options.verbose) {
       env.commandLogger?.info?.(`🔄 Initializing dependencies: [${orderedDependencies.join(', ')}]`);
     }
     
     // 各依存関係を順次、独立して初期化
     for (const dependency of orderedDependencies) {
       try {
-        if (!options.quiet) {
+        if (!options.quiet && options.verbose) {
           const def = DEPENDENCY_DEFINITIONS[dependency];
           env.commandLogger?.info?.(`⚡ ${def.name}...`);
         }
@@ -85,7 +85,7 @@ export class DependencyManager {
         await this.commitDependencyCompletion(dependency, env);
         successful.push(dependency);
         
-        if (!options.quiet) {
+        if (!options.quiet && options.verbose) {
           env.commandLogger?.info?.(`✅ ${DEPENDENCY_DEFINITIONS[dependency].name} completed`);
         }
         
@@ -416,7 +416,7 @@ export class DependencyManager {
    * SNAPSHOT依存関係で使用
    */
   private async initializeSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
-    if (!options.quiet) {
+    if (!options.quiet && options.verbose) {
       env.commandLogger.info('📸 Creating new snapshot...');
     }
     
@@ -431,7 +431,7 @@ export class DependencyManager {
       throw new Error('Failed to create initial snapshot');
     }
     
-    if (!options.quiet) {
+    if (!options.quiet && options.verbose) {
       env.commandLogger.info(`📸 New snapshot created: ${snapshot.id.substring(0, 8)}`);
     }
   }
@@ -442,7 +442,7 @@ export class DependencyManager {
    * scan.tsから必要最小限の機能のみを使用
    */
   private async createInitialSnapshot(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
-    if (!options.quiet) {
+    if (!options.quiet && options.verbose) {
       env.commandLogger.info('📸 Creating initial snapshot...');
     }
 
@@ -596,7 +596,7 @@ export class DependencyManager {
     // 既存の関数をチェックして重複実行を防ぐ
     const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
     if (existingFunctions.length > 0) {
-      if (!options.quiet) {
+      if (!options.quiet && options.verbose) {
         env.commandLogger.info(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
       }
       // 分析レベルを確認・更新
@@ -658,7 +658,7 @@ export class DependencyManager {
     const state = await this.getCurrentAnalysisState(env);
     const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
     if (currentRank >= this.analysisLevelRank['CALL_GRAPH']) {
-      if (!options.quiet) {
+      if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed - skipping duplicate analysis');
       }
       return;
@@ -675,7 +675,7 @@ export class DependencyManager {
     const state = await this.getCurrentAnalysisState(env);
     const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
     if (currentRank >= this.analysisLevelRank['TYPE_SYSTEM']) {
-      if (!options.quiet) {
+      if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  TYPE_SYSTEM analysis already completed - skipping duplicate analysis');
       }
       return;
@@ -692,7 +692,7 @@ export class DependencyManager {
     const state = await this.getCurrentAnalysisState(env);
     const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
     if (currentRank >= this.analysisLevelRank['COUPLING']) {
-      if (!options.quiet) {
+      if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  COUPLING analysis already completed - skipping duplicate analysis');
       }
       return;
