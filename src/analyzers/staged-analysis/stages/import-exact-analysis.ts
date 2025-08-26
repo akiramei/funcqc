@@ -648,8 +648,11 @@ export class ImportExactAnalysisStage {
     for (const ext of extensionCandidates) {
       const tryPathRaw = resolvedPath + ext;
       
-      // Path normalization (ts-morph has issues with path format differences)
-      const tryPath = path.resolve(tryPathRaw);
+      // 🔧 CRITICAL FIX: virtual パスは resolve すると /virtual が落ちるため、そのまま POSIX 形で扱う
+      const tryPath =
+        resolvedPath.startsWith('/virtual/')
+          ? tryPathRaw.replace(/\\/g, '/')
+          : path.resolve(tryPathRaw);
 
       targetSourceFile = this._project.getSourceFile(tryPath);
       

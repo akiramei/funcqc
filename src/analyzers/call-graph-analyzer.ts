@@ -562,9 +562,11 @@ export class CallGraphAnalyzer {
       let targetSourceFile;
       for (const ext of extensionCandidates) {
         const tryPathRaw = resolvedPath + ext;
-        
-        // 🔧 CRITICAL FIX: パス正規化（ts-morph は登録時の表記差で取りこぼしが出ます）
-        const tryPath = path.resolve(tryPathRaw);
+        // 🔧 CRITICAL FIX: virtual パスは resolve すると /virtual が落ちるため、そのまま POSIX 形で扱う
+        const tryPath =
+          resolvedPath.startsWith('/virtual/')
+            ? tryPathRaw.replace(/\\/g, '/')
+            : path.resolve(tryPathRaw);
 
         targetSourceFile = this.project.getSourceFile(tryPath);
         
