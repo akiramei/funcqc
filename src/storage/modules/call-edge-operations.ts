@@ -131,8 +131,28 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
     }));
 
     try {
+      // Validate function IDs within the same snapshot (transaction path)
+      const functionIdsResult = await trx.query(
+        'SELECT id FROM functions WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      const validFunctionIds = new Set(
+        (functionIdsResult.rows as Array<{ id: string }>).map(r => r.id)
+      );
+      const validCallEdgeRows = callEdgeRows.filter(row =>
+        validFunctionIds.has(row.caller_function_id) &&
+        (row.callee_function_id == null ||
+          validFunctionIds.has(row.callee_function_id))
+      );
+      if (validCallEdgeRows.length < callEdgeRows.length) {
+        const skipped = callEdgeRows.length - validCallEdgeRows.length;
+        this.logger?.debug(
+          `Skipped ${skipped} call edges with invalid function IDs (transaction path)`
+        );
+      }
+
       // Sanitize data to remove NUL characters (only if detected for performance)
-      const sanitizedRows = callEdgeRows.map(row => {
+      const sanitizedRows = validCallEdgeRows.map(row => {
         const sanitizedRow = { ...row };
         
         // Check for NUL characters and sanitize only if found

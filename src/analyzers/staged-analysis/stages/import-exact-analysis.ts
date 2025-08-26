@@ -634,12 +634,29 @@ export class ImportExactAnalysisStage {
     const extensionCandidates = [
       '.ts', '.tsx',           // TypeScript files
       '.js', '.jsx',           // JavaScript files  
-      '.mts', '.cts',          // TS 4.7+ ESM/CJS modules
-      '/index.ts', '/index.tsx', // Index files
-      '/index.js', '/index.jsx'
+      '.mts', '.cts', '.mjs', '.cjs', // TS/JS ESM/CJS variants
+      '/index.ts', '/index.tsx',
+      '/index.js', '/index.jsx',
+      '/index.mts', '/index.cts', '/index.mjs', '/index.cjs' // Index variants
     ];
     
     let targetSourceFile;
+    // 1) まず生のパスを試す（拡張子付き・ディレクトリ直指定対応）
+    const primaryTryPath =
+      resolvedPath.startsWith('/virtual/')
+        ? resolvedPath.replace(/\\/g, '/')
+        : path.resolve(resolvedPath);
+    targetSourceFile = this._project.getSourceFile(primaryTryPath);
+    if (!targetSourceFile && fs.existsSync(primaryTryPath)) {
+      try {
+        targetSourceFile = this._project.addSourceFileAtPath(primaryTryPath);
+        this.logger.debug(`Added missing source file: ${primaryTryPath}`);
+      } catch (e) {
+        this.logger.debug(`Failed to add source file: ${primaryTryPath}: ${String(e)}`);
+      }
+    }
+
+    // 2) 見つからなければ拡張子候補を順次試す
     for (const ext of extensionCandidates) {
       const tryPathRaw = resolvedPath + ext;
       

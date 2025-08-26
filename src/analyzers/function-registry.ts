@@ -1,4 +1,5 @@
 import { Project, Node, SourceFile } from 'ts-morph';
+import path from 'path';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as crypto from 'crypto';
 import { getRelativePath } from '../utils/path-utils';
@@ -97,9 +98,20 @@ export class FunctionRegistry {
     const startColumn = node.getStart() - node.getStartLinePos();
     
     // Generate deterministic UUID - same inputs always produce same ID
-    const normalizedPath = filePath.startsWith('/') ? filePath : '/' + filePath;
+    // Normalize path to POSIX style to avoid Windows/backslash/case pitfalls
+    const normalizedPath = (() => {
+      // 1) バックスラッシュ → スラッシュ
+      // 2) ドライブレター（C:など）を除去
+      // 3) POSIX 正規化（'.'や'..'を解決）
+      // 4) 先頭スラッシュ保証
+      const slashified = filePath.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '');
+      const posixPath = path.posix.normalize(slashified);
+      return posixPath.startsWith('/')
+        ? posixPath
+        : '/' + posixPath;
+    })();
     const uniqueId = FunctionIdGenerator.generateDeterministicUUID(
-      normalizedPath, // Use normalized path to match functions table
+      normalizedPath, // POSIX 正規化済パスを使用
       name,
       className || null,
       startLine,
