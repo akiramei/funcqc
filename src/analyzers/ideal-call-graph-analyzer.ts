@@ -3,8 +3,9 @@ import { FunctionRegistry } from './function-registry';
 import { StagedAnalysisEngine } from './staged-analysis/staged-analysis-engine-refactored';
 import { ConfidenceCalculator } from './confidence-calculator';
 import { RuntimeTraceIntegrator } from './runtime-trace-integrator';
-import { CallEdge, StorageAdapter } from '../types';
+import { CallEdge, StorageAdapter, FunctionInfo } from '../types';
 import { Logger } from '../utils/cli-utils';
+import { FunctionMetadataConverter } from './function-metadata-converter';
 
 export interface IdealCallEdge extends CallEdge {
   // Enhanced fields for ideal system
@@ -103,14 +104,33 @@ export class IdealCallGraphAnalyzer {
 
   /**
    * Perform complete call graph analysis with maximum precision
+   * @param existingFunctions Optional array of existing functions from BASIC analysis
    */
-  async analyzeProject(): Promise<CallGraphResult> {
+  async analyzeProject(existingFunctions?: FunctionInfo[]): Promise<CallGraphResult> {
     this.logger.debug('Starting ideal call graph analysis...');
     
-    // Phase 1: Comprehensive Function Collection
-    this.logger.debug('Phase 1: Collecting all function-like nodes...');
-    const functions = await this.functionRegistry.collectAllFunctions();
-    this.logger.debug(`Found ${functions.size} functions`);
+    let functions: Map<string, FunctionMetadata>;
+
+    if (existingFunctions && existingFunctions.length > 0) {
+      // Phase 1a: Convert existing functions (performance optimization)
+      this.logger.debug(`Phase 1a: Converting ${existingFunctions.length} existing functions (avoiding duplicate ID generation)...`);
+      const conversionResult = FunctionMetadataConverter.convert(existingFunctions);
+      
+      // Validate conversion
+      const validation = FunctionMetadataConverter.validateConversion(existingFunctions, conversionResult);
+      if (!validation.isValid) {
+        validation.errors.forEach(error => this.logger.error(error));
+        throw new Error('Function metadata conversion failed validation');
+      }
+      
+      functions = conversionResult.metadataMap;
+      this.logger.debug(`Converted ${functions.size} functions using semantic ID mapping`);
+    } else {
+      // Phase 1b: Traditional function collection (fallback)
+      this.logger.debug('Phase 1b: Collecting all function-like nodes (fallback mode)...');
+      functions = await this.functionRegistry.collectAllFunctions();
+      this.logger.debug(`Found ${functions.size} functions`);
+    }
 
     // Phase 2: Staged Analysis (Local → Import → CHA → RTA)
     this.logger.debug('Phase 2: Performing staged analysis...');
@@ -170,6 +190,11 @@ export class IdealCallGraphAnalyzer {
     this.logger.debug('Analysis Statistics:');
     this.logger.debug(`Total Functions: ${analysisStats.totalFunctions}`);
     this.logger.debug(`Total Edges: ${analysisStats.totalEdges}`);
+    
+    if (analysisStats.totalEdges === 0) {
+      this.logger.debug('No edges found - skipping percentage calculations');
+      return;
+    }
     
     this.logger.debug('Resolution Breakdown:');
     for (const [level, count] of analysisStats.resolutionBreakdown) {

@@ -573,9 +573,9 @@ export class FunctionAnalyzer {
       });
       
       try {
-        // Perform call graph analysis on virtual project
+        // Perform call graph analysis on virtual project using existing functions
         const analysisStartTime = performance.now();
-        const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
+        const callGraphResult = await idealCallGraphAnalyzer.analyzeProject(functions);
         const analysisEndTime = performance.now();
         console.log(chalk.gray(`⏱️  Call graph analysis: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
         

@@ -866,6 +866,11 @@ async function performCouplingAnalysisForFile(
         snapshotId
       );
       functionLookupMap.set(couplingHashId, func.id);
+      
+      // Strategy 5: Use semanticId as lightweight lookup key (performance optimization)
+      if (func.semanticId) {
+        functionLookupMap.set(func.semanticId, func.id);
+      }
     }
 
     // Convert coupling data to parameter property usage format
