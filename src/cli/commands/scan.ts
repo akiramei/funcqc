@@ -250,7 +250,7 @@ async function executeScanCommand(
       });
     } else {
       const durationSec = (scanDuration / 1000).toFixed(1);
-      console.log(chalk.green(`✓ ${scanLevel.mode} scan completed in ${durationSec}s`));
+      console.log(chalk.green(`✓ ${scanLevel.mode} scan completed`));
       
       // Show analysis results
       console.log(chalk.blue(`📊 Results: ${functionsAnalyzed} functions, ${callEdges.length} call edges`));
