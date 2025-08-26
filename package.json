@@ -47,7 +47,6 @@
     "test:lineage": "bash ./scripts/test-lineage.sh",
     "prepare": "husky install",
     "prepublishOnly": "npm run build && npm run test",
-    "release": "semantic-release",
     "profile": "node --cpu-prof src/cli.ts",
     "profile:memory": "node --heap-prof src/cli.ts",
     "benchmark": "tsx scripts/benchmark.ts",
@@ -89,7 +88,6 @@
     "husky": "^8.0.3",
     "lint-staged": "^15.2.0",
     "prettier": "^3.1.0",
-    "semantic-release": "^22.0.0",
     "tsup": "^8.0.0",
     "tsx": "^4.6.0",
     "vitest": "^3.2.4"

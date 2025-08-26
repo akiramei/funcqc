@@ -107,6 +107,17 @@ export class FunctionMetadataConverter {
   } {
     const errors: string[] = [];
 
+    // Check for duplicate IDs in input
+    const seen = new Set<string>();
+    const dupIds: string[] = [];
+    for (const f of originalFunctions) {
+      if (seen.has(f.id)) dupIds.push(f.id);
+      else seen.add(f.id);
+    }
+    if (dupIds.length > 0) {
+      errors.push(`Duplicate FunctionInfo IDs detected: ${Array.from(new Set(dupIds)).slice(0,5).join(', ')}${dupIds.length>5?'...':''}`);
+    }
+
     if (originalFunctions.length !== result.metadataMap.size) {
       errors.push(`Conversion size mismatch: ${originalFunctions.length} → ${result.metadataMap.size}`);
     }

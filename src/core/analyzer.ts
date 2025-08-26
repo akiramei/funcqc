@@ -161,8 +161,19 @@ export class FunctionAnalyzer {
         throw new Error('Forced fallback for debugging');
       }
       
-      this.logger.debug('[PATH] IDEAL-UNIFIED - Starting analysis');
-      const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject();
+      this.logger.debug('[PATH] IDEAL-UNIFIED - Starting BASIC analysis first...');
+      
+      // First, perform BASIC analysis to get existing functions
+      const basicFunctions: FunctionInfo[] = [];
+      for (const filePath of filePaths) {
+        const result = await this.analyzeFile(filePath);
+        if (result.success && result.data) {
+          basicFunctions.push(...result.data);
+        }
+      }
+      
+      this.logger.debug(`[PATH] IDEAL-UNIFIED - Starting call graph analysis with ${basicFunctions.length} existing functions...`);
+      const callGraphResult = await this.idealCallGraphAnalyzer.analyzeProject(basicFunctions);
       
       // Convert to legacy format for compatibility
       const functions = await this.convertToLegacyFormat(callGraphResult.functions, snapshotId);

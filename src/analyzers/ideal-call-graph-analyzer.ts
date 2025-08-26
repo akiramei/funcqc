@@ -120,11 +120,13 @@ export class IdealCallGraphAnalyzer {
       const validation = FunctionMetadataConverter.validateConversion(existingFunctions, conversionResult);
       if (!validation.isValid) {
         validation.errors.forEach(error => this.logger.error(error));
-        throw new Error('Function metadata conversion failed validation');
+        this.logger.warn('Conversion failed validation — falling back to registry collection (Phase 1b)');
+        functions = await this.functionRegistry.collectAllFunctions();
+        this.logger.debug(`Fallback: Collected ${functions.size} functions using traditional registry`);
+      } else {
+        functions = conversionResult.metadataMap;
+        this.logger.debug(`Converted ${functions.size} functions using semantic ID mapping`);
       }
-      
-      functions = conversionResult.metadataMap;
-      this.logger.debug(`Converted ${functions.size} functions using semantic ID mapping`);
     } else {
       // Phase 1b: Traditional function collection (fallback)
       this.logger.debug('Phase 1b: Collecting all function-like nodes (fallback mode)...');

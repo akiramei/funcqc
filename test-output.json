@@ -1,5 +1,0 @@
-
-> funcqc@0.1.0 dev
-> tsx src/cli.ts dep dead --format json --exclude-tests --exclude-small --threshold 20
-
-🔍 Command requires: [BASIC, CALL_GRAPH]

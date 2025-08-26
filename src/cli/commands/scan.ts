@@ -867,10 +867,8 @@ async function performCouplingAnalysisForFile(
       );
       functionLookupMap.set(couplingHashId, func.id);
       
-      // Strategy 5: Use semanticId as lightweight lookup key (performance optimization)
-      if (func.semanticId) {
-        functionLookupMap.set(func.semanticId, func.id);
-      }
+      // Note: semanticId mapping was removed as it was not being used in lookup chains
+      // Future enhancement: Implement semanticId-based lookup if fallback routing is needed
     }
 
     // Convert coupling data to parameter property usage format
