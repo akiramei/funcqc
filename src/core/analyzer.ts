@@ -558,11 +558,7 @@ export class FunctionAnalyzer {
         fileContentMap
       );
       
-      if (isNewlyCreated) {
-        this.logger.warn('⚠️  Created new virtual project for Call Graph (BASIC project should have been reused)');
-      } else {
-        this.logger.info('⚡ Successfully reusing virtual project from BASIC analysis');
-      }
+      // Virtual project ready for call graph analysis
       
       this.logger.debug(`Using virtual project with ${virtualProject.getSourceFiles().length} files`);
       

@@ -55,7 +55,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         });
       }
       
-      this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId}`);
+      // Call edges inserted successfully
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_WRITE_ERROR,
@@ -78,7 +78,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
       } else {
         await this.insertCallEdgesIndividualInTransaction(trx, snapshotId, callEdges);
       }
-      this.logger?.log(`Inserted ${callEdges.length} call edges for snapshot ${snapshotId} in transaction`);
+      // Call edges inserted in transaction
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_WRITE_ERROR,
@@ -461,7 +461,7 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
         await this.insertInternalCallEdgesIndividual(snapshotId, internalEdges);
       }
       
-      this.logger?.log(`Inserted ${internalEdges.length} internal call edges for snapshot ${snapshotId}`);
+      // Internal call edges inserted successfully
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_WRITE_ERROR,

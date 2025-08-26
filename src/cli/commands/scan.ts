@@ -1131,7 +1131,7 @@ export async function performCallGraphAnalysis(
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
   const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
   const fetchEndTime = performance.now();
-  console.log(chalk.gray(`⏱️  Fetching data from DB: ${((fetchEndTime - fetchStartTime) / 1000).toFixed(2)}s (${sourceFiles.length} files, ${functions.length} functions)`));
+  // Data fetched from database
   
   // Reconstruct file map for analyzer (include all files for proper type resolution)
   const fileContentMap = new Map<string, string>();
@@ -1147,13 +1147,13 @@ export async function performCallGraphAnalysis(
     const analysisStartTime = performance.now();
     const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
     const analysisEndTime = performance.now();
-    console.log(chalk.blue(`⏱️  analyzeCallGraphFromContent: ${((analysisEndTime - analysisStartTime) / 1000).toFixed(2)}s`));
+    // Call graph analysis completed
     
     // Save call edges
     const insertStartTime = performance.now();
     await env.storage.insertCallEdges(result.callEdges, snapshotId);
     const insertEndTime = performance.now();
-    console.log(chalk.blue(`⏱️  insertCallEdges: ${((insertEndTime - insertStartTime) / 1000).toFixed(2)}s for ${result.callEdges.length} edges`));
+    // Call edges saved to database
     
     // Update snapshotId for internal call edges and save
     const internalCallEdgesWithSnapshotId = result.internalCallEdges.map(edge => ({
@@ -1163,12 +1163,12 @@ export async function performCallGraphAnalysis(
     const internalInsertStartTime = performance.now();
     await env.storage.insertInternalCallEdges(internalCallEdgesWithSnapshotId);
     const internalInsertEndTime = performance.now();
-    console.log(chalk.blue(`⏱️  insertInternalCallEdges: ${((internalInsertEndTime - internalInsertStartTime) / 1000).toFixed(2)}s for ${internalCallEdgesWithSnapshotId.length} edges`));
+    // Internal call edges saved to database
     
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
     
     const totalEndTime = performance.now();
-    console.log(chalk.cyan(`⏱️  Total performCallGraphAnalysis time: ${((totalEndTime - totalStartTime) / 1000).toFixed(2)}s`));
+    // Call graph analysis completed
     
     if (showSpinner) {
       spinner!.succeed(`Call graph analysis completed: ${result.callEdges.length} edges found`);
@@ -1199,7 +1199,7 @@ export async function performDeferredTypeSystemAnalysis(
   
   try {
     // Check if type system analysis has already been performed for this snapshot
-    console.log(`🔍 Checking existing types for snapshot ${snapshotId}`);
+    // Checking for existing type analysis
     const existingTypes = await env.storage.query(
       'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
       [snapshotId]
@@ -1207,7 +1207,7 @@ export async function performDeferredTypeSystemAnalysis(
     const typeCount = (existingTypes.rows[0] as { count?: number })?.count || 0;
     
     if (typeCount > 0) {
-      console.log(`⏭️  Type system analysis already completed for snapshot ${snapshotId} (${typeCount} types found) - skipping duplicate analysis`);
+      // Type system analysis already completed
       if (spinner) {
         spinner.succeed(`Type system analysis already completed (${typeCount} types found)`);
       }
