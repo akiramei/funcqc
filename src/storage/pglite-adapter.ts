@@ -809,10 +809,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.callEdgeOps.getInternalCalleesByFunction(callerFunctionId, snapshotId);
   }
 
-  async isInternalFunctionCalled(calleeFunctionId: string, _snapshotId: string): Promise<boolean> {
+  async isInternalFunctionCalled(calleeFunctionId: string, snapshotId: string): Promise<boolean> {
     await this.ensureInitialized();
-    // The module method doesn't take snapshotId
-    return this.callEdgeOps.isInternalFunctionCalled(calleeFunctionId);
+    return this.callEdgeOps.isInternalFunctionCalled(calleeFunctionId, snapshotId);
   }
 
   // ========================================

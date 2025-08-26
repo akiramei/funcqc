@@ -676,15 +676,16 @@ export class CallEdgeOperations extends BaseStorageOperations implements Storage
   /**
    * Check if an internal function is called
    */
-  async isInternalFunctionCalled(functionId: string): Promise<boolean> {
+  async isInternalFunctionCalled(functionId: string, snapshotId: string): Promise<boolean> {
     try {
       const result = await this.db.query(
         `
         SELECT COUNT(*) as count 
         FROM internal_call_edges 
         WHERE callee_function_id = $1
+          AND snapshot_id = $2
         `,
-        [functionId]
+        [functionId, snapshotId]
       );
 
       return parseInt((result.rows[0] as { count: string }).count) > 0;
