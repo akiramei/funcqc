@@ -212,7 +212,16 @@ export class TypeScriptAnalyzer extends CacheAware {
             // Generate new physical IDs for cached functions to ensure uniqueness
             return cachedResult.map(func => ({
               ...func,
-              id: this.generatePhysicalId(filePath, func.name, func.contextPath || null, func.startLine, func.startColumn, snapshotId),
+              id: this.generatePhysicalId(
+                filePath,
+                func.name,
+                func.contextPath || null,
+                func.startLine,
+                func.startColumn,
+                snapshotId
+              ),
+              snapshotId,
+              fileHash: currentFileHash,
             }));
           } else {
             // File has changed, cache is invalid - proceed with fresh analysis
@@ -231,14 +240,22 @@ export class TypeScriptAnalyzer extends CacheAware {
       
       // Convert to FunctionInfo format and add missing fields
       const functions: FunctionInfo[] = unifiedResults.map(result => {
-        const functionInfo = result.functionInfo;
-        const qualityMetrics = result.qualityMetrics;
-        
+        const f = result.functionInfo;
+        const qm = result.qualityMetrics ?? f.metrics;
         return {
-          ...functionInfo,
-          id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn, snapshotId), // Generate deterministic ID
-          metrics: qualityMetrics,
-          complexity: qualityMetrics.cyclomaticComplexity || 1
+          ...f,
+          id: this.generatePhysicalId(
+            filePath,
+            f.name,
+            f.contextPath || null,
+            f.startLine,
+            f.startColumn,
+            snapshotId
+          ),
+          snapshotId,
+          fileHash: currentFileHash,
+          metrics: qm,
+          ...(this.includeSourceCode && !f.sourceCode ? { sourceCode: fileContent } : {}),
         };
       });
 
@@ -412,210 +429,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
   }
 
-  private async extractFunctionInfo(
-    func: FunctionDeclaration,
-    relativePath: string,
-    fileHash: string,
-    _sourceFile: SourceFile,
-    snapshotId: string = 'unknown'
-  ): Promise<FunctionInfo | null> {
-    const name = func.getName();
-    if (!name) return null;
 
-    const signature = this.getFunctionSignature(func);
-    const sourceCodeText = func.getFullText().trim();
-    const startLine = func.getStartLineNumber();
-    const startColumn = func.getStart() - func.getStartLinePos();
-    
-    // Use optimized hash cache for all hash calculations
-    const hashes = globalHashCache.getOrCalculateHashes(
-      relativePath,
-      sourceCodeText,
-      undefined, // No modification time available
-      signature
-    );
-    const astHash = hashes.astHash;
-    const signatureHash = hashes.signatureHash;
-    const returnType = this.extractFunctionReturnType(func);
-
-    // Extract comprehensive function context
-    const contextPath = this.extractContextPath(func);
-    const modifiers = this.extractModifiers(func);
-    const functionType = determineFunctionType(func);
-    const nestingLevel = this.calculateNestingLevel(func);
-
-    // Generate 3D identification system
-    const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn, snapshotId);
-    const semanticId = this.generateSemanticId(
-      relativePath,
-      name,
-      signature,
-      contextPath,
-      modifiers
-    );
-    const contentId = this.generateContentId(astHash, sourceCodeText);
-
-    const functionInfo: FunctionInfo = {
-      id: physicalId,
-      snapshotId,
-      semanticId,
-      contentId,
-      name,
-      displayName: name,
-      signature,
-      signatureHash,
-      filePath: relativePath,
-      fileHash,
-      startLine: func.getStartLineNumber(),
-      endLine: func.getEndLineNumber(),
-      startColumn: func.getStart() - func.getStartLinePos(),
-      endColumn: func.getEnd() - func.getStartLinePos(),
-      positionId: this.generatePositionId(relativePath, func.getStart(), func.getEnd()),
-      astHash,
-
-      // Enhanced function identification
-      contextPath,
-      functionType,
-      modifiers,
-      nestingLevel,
-
-      // Existing function attributes
-      isExported: func.isExported(),
-      isAsync: func.isAsync(),
-      isGenerator: !!func.getAsteriskToken(),
-      isArrowFunction: false,
-      isMethod: false,
-      isConstructor: false,
-      isStatic: false,
-      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
-      parameters: this.extractParameters(func),
-    };
-
-    if (returnType) {
-      functionInfo.returnType = returnType;
-    }
-
-    // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = await this.getOrCreateQualityCalculator();
-    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(func, functionInfo);
-
-    return functionInfo;
-  }
-
-  private async extractMethodInfo(
-    method: MethodDeclaration,
-    relativePath: string,
-    fileHash: string,
-    _sourceFile: SourceFile,
-    snapshotId: string = 'unknown'
-  ): Promise<FunctionInfo | null> {
-    const name = method.getName();
-    if (!name) return null;
-
-    // Safely get the parent class name
-    const parent = method.getParent();
-    let className = 'Unknown';
-    
-    // Check if the parent is a ClassDeclaration
-    if (parent && parent.getKind() === SyntaxKind.ClassDeclaration) {
-      const classDecl = parent as ClassDeclaration;
-      const parentName = classDecl.getName();
-      if (parentName) {
-        className = parentName;
-      }
-    }
-    
-    const fullName = name === 'constructor' ? `${className}.constructor` : `${className}.${name}`;
-    const signature = this.getMethodSignature(method, className);
-    const sourceCodeText = method.getFullText().trim();
-    const startLine = method.getStartLineNumber();
-    const startColumn = method.getStart() - method.getStartLinePos();
-    
-    // Use optimized hash cache for all hash calculations
-    const hashes = globalHashCache.getOrCalculateHashes(
-      relativePath,
-      sourceCodeText,
-      undefined, // No modification time available
-      signature
-    );
-    const astHash = hashes.astHash;
-    const signatureHash = hashes.signatureHash;
-
-    const methodParent = method.getParent();
-    let isClassExported = false;
-    if (methodParent && methodParent.getKind() === SyntaxKind.ClassDeclaration) {
-      isClassExported = (methodParent as ClassDeclaration).isExported();
-    }
-
-    const returnType = this.extractMethodReturnType(method);
-
-    // Extract comprehensive function context
-    const contextPath = this.extractContextPath(method);
-    const modifiers = this.extractModifiers(method);
-    const functionType = determineFunctionType(method);
-    const nestingLevel = this.calculateNestingLevel(method);
-
-    // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
-    const semanticId = this.generateSemanticId(
-      relativePath,
-      fullName,
-      signature,
-      contextPath,
-      modifiers
-    );
-    const contentId = this.generateContentId(astHash, sourceCodeText);
-
-    const functionInfo: FunctionInfo = {
-      id: physicalId,
-      snapshotId,
-      semanticId,
-      contentId,
-      name: name,
-      displayName: fullName,
-      signature,
-      signatureHash,
-      filePath: relativePath,
-      fileHash,
-      startLine: method.getStartLineNumber(),
-      endLine: method.getEndLineNumber(),
-      startColumn: method.getStart() - method.getStartLinePos(),
-      endColumn: method.getEnd() - method.getStartLinePos(),
-      positionId: this.generatePositionId(relativePath, method.getStart(), method.getEnd()),
-      astHash,
-
-      // Enhanced function identification
-      contextPath,
-      functionType,
-      modifiers,
-      nestingLevel,
-      className,
-
-      // Existing function attributes
-      isExported: isClassExported,
-      isAsync: method.isAsync(),
-      isGenerator: !!method.getAsteriskToken(),
-      isArrowFunction: false,
-      isMethod: true,
-      isConstructor: false,
-      isStatic: method.isStatic(),
-      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
-      parameters: this.extractParameters(method),
-    };
-
-    if (returnType) {
-      functionInfo.returnType = returnType;
-    }
-
-    // Note: accessModifier and contextPath are now handled by UnifiedASTAnalyzer
-
-    // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = await this.getOrCreateQualityCalculator();
-    functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(method, functionInfo);
-
-    return functionInfo;
-  }
 
   private async extractConstructorInfo(
     ctor: ConstructorDeclaration,

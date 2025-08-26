@@ -591,6 +591,18 @@ async function executePureBasicBatchAnalysis(
             func.metrics = components.qualityCalculator.calculate(func);
           }
           
+          // Ensure physical ID is present for storage/coupling consistency
+          if (!func.id) {
+            func.id = FunctionIdGenerator.generateDeterministicUUID(
+              func.filePath,
+              func.name,
+              func.className || null,
+              func.startLine,
+              func.startColumn || 0,
+              snapshotId
+            );
+          }
+          
           // Use sourceFileIdMap from N:1 design (must exist)
           const mappedId = sourceFileIdMap?.get(func.filePath);
           if (!mappedId) {
