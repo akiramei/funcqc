@@ -121,9 +121,9 @@ function buildMetricsRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.metrics!.callbackCount,
     func.metrics!.commentLines,
     Number.isFinite(func.metrics!.codeToCommentRatio) ? func.metrics!.codeToCommentRatio : null,
-    func.metrics!.halsteadVolume || null,
-    func.metrics!.halsteadDifficulty || null,
-    func.metrics!.maintainabilityIndex || null,
+    func.metrics!.halsteadVolume ?? null,
+    func.metrics!.halsteadDifficulty ?? null,
+    func.metrics!.maintainabilityIndex ?? null,
   ];
 }
 
