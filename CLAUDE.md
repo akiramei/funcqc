@@ -164,241 +164,295 @@ fi
 
 ## funcqc使い方ガイド（開発時の品質管理ツール）
 
-### 🔍 基本的なワークフロー（新コマンド体系）
+### 🔍 基本的なワークフロー
 
 ```bash
-# 1. 作業開始時にスナップショットを作成（ブランチ名でラベル付け）
-npm run dev -- measure --label feature/my-branch
+# 1. 作業開始時にスキャンを実行（ブランチ名でラベル付け）
+npm run dev -- scan --label feature/my-branch
 
-# 2. 関数の状況を確認
-npm run dev -- assess
+# 2. プロジェクトの品質状況を確認
+npm run dev -- health
 
 # 3. 作業後に再度スキャンして比較
-npm run dev -- measure --label feature/my-branch-after
-npm run dev -- manage --action diff --from HEAD~1 --to HEAD  # 変更内容の確認
+npm run dev -- scan --label feature/my-branch-after
+npm run dev -- diff feature/my-branch feature/my-branch-after
 ```
 
 ### 📊 主要コマンド一覧
 
-#### measure - 関数測定と分析（scanの進化版）
+#### scan - 関数スキャンと分析
 ```bash
-# 基本測定（scanの後継）
-npm run dev -- measure
+# 基本スキャン
+npm run dev -- scan
 
-# ラベル付き測定（推奨）
-npm run dev -- measure --label <label-name>
+# ラベル付きスキャン（推奨）
+npm run dev -- scan --label <label-name>
 
-# 高度な分析付き測定
-npm run dev -- measure --level complete --call-graph --types --coupling
+# 詳細分析付きスキャン
+npm run dev -- scan --with-basic --with-coupling --with-graph --with-types
 
-# 広範囲分析（旧scanの完全代替）
-npm run dev -- measure --full --with-graph --with-types --with-coupling
+# フルスキャン（全解析を含む）
+npm run dev -- scan --full
+
+# 非同期実行（重い解析をバックグラウンドで）
+npm run dev -- scan --async
+
+# スコープ指定スキャン
+npm run dev -- scan --scope src
 ```
 
-#### inspect - 統合検査コマンド（list、files、show、searchの統合）
+#### list - 関数一覧表示
 ```bash
-# 全関数表示（旧listの代替）
-npm run dev -- inspect
+# 全関数表示
+npm run dev -- list
 
-# 関数一覧の表示
-npm run dev -- inspect
+# 複雑度でフィルタ
+npm run dev -- list --cc-ge 10
 
 # ファイルでフィルタ
-npm run dev -- inspect --file src/storage/pglite-adapter.ts
+npm run dev -- list --file src/storage/pglite-adapter.ts
 
-# 関数名でフィルタ（旧searchの代替）
-npm run dev -- inspect --name analyze
+# 関数名でフィルタ
+npm run dev -- list --name analyze
 
-# 詳細情報表示（旧showの代替）
-npm run dev -- inspect --detailed --name <function-name>
+# ソートと制限
+npm run dev -- list --sort cc --desc --limit 10
 
-# ファイル一覧（旧filesの代替）
-npm run dev -- inspect --type files --sort lines --desc --limit 10
+# JSON出力
+npm run dev -- list --json
 ```
 
-#### assess - 統合品質評価コマンド（高度なAI分析機能付き）
+#### show - 関数詳細表示
 ```bash
-# 基本品質レポート（旧healthの代替）
-npm run dev -- assess --type health
+# 関数IDで詳細表示
+npm run dev -- show --id 2f1cfe1d
 
-# 詳細レポート（従来のhealth --verboseの代替）
-npm run dev -- assess --type health --verbose
+# 関数名パターンで検索
+npm run dev -- show "functionName"
 
-# 分析
-npm run dev -- assess
+# 使用情報を含む詳細表示
+npm run dev -- show --id 2f1cfe1d --usage
 
-# コード品質評価（旧evaluateの代替）
-npm run dev -- assess --type quality
+# 履歴を含む表示
+npm run dev -- show --id 2f1cfe1d --history
 
-# 型システム品質評価
-npm run dev -- assess --type types
+# ソースコード付き表示
+npm run dev -- show --id 2f1cfe1d --source
 ```
 
-#### 履歴管理
+#### files - ファイル情報表示
 ```bash
-# スナップショット履歴を表示（旧historyの代替）
-npm run dev -- manage --action history
+# ファイル一覧
+npm run dev -- files
 
-# 測定履歴を表示
-npm run dev -- measure --history
+# 統計情報付き
+npm run dev -- files --stats
+
+# ソート（サイズ順）
+npm run dev -- files --sort size --desc
+
+# 言語フィルタ
+npm run dev -- files --language typescript
+
+# パスパターンフィルタ
+npm run dev -- files --path "src/cli/*"
 ```
 
-#### diff - 変更差分
+#### health - プロジェクト品質評価
 ```bash
-# スナップショット間の差分
-npm run dev -- manage --action diff --from <from> --to <to>
+# 基本品質レポート
+npm run dev -- health
 
-# 指定可能な値：
-# - スナップショットID: fd526278
-# - ラベル: main
-# - HEAD記法: HEAD, HEAD~1, HEAD~3
+# 詳細レポート
+npm run dev -- health --verbose
 
-# 類似関数の洞察付き
-npm run dev -- manage --action diff --from <from> --to <to> --insights
+# トレンド分析
+npm run dev -- health --trend
 
-# カスタム類似度閾値（デフォルト: 0.95）
-npm run dev -- manage --action diff --from <from> --to <to> --similarity-threshold 0.8
+# リスク評価
+npm run dev -- health --risks
+
+# 差分比較
+npm run dev -- health --diff
 ```
 
-#### ファイル分析（inspectに統合）
+#### history - スナップショット履歴
 ```bash
-# 行数の多いファイルTOP10（旧filesの代替）
-npm run dev -- inspect --type files --sort lines --desc --limit 10
+# 履歴表示
+npm run dev -- history
 
-# 関数数の多いファイル
-npm run dev -- inspect --type files --sort funcs --desc --limit 10
+# 詳細履歴
+npm run dev -- history --verbose
 
-# ファイル統計情報表示
-npm run dev -- inspect --type files --stats
+# 期間指定
+npm run dev -- history --since "2024-01-01" --until "2024-12-31"
+
+# ラベルフィルタ
+npm run dev -- history --label feature/my-branch
 ```
 
-#### improve - コード改善（similar、safe-delete、refactor-guardの統合）
+#### diff - スナップショット比較
 ```bash
-# 重複・類似コードの検出（旧similarの代替）
-npm run dev -- improve --type duplicates
+# 基本比較
+npm run dev -- diff HEAD~1 HEAD
 
-# カスタム類似度闾値
-npm run dev -- improve --type duplicates --threshold 0.8
+# サマリーのみ
+npm run dev -- diff abc123 def456 --summary
 
-# デッドコード検出（旧safe-deleteの代替）
-npm run dev -- improve --type dead-code
+# 関数名フィルタ
+npm run dev -- diff v1.0 v2.0 --function "handle*"
 
-# リファクタリング安全性分析（旧refactor-guardの代替）
-npm run dev -- improve --type safety
-
-# 包括的改善分析
-npm run dev -- improve
+# 類似度分析付き
+npm run dev -- diff HEAD~1 HEAD --insights --similarity-threshold 0.95
 ```
 
-#### manage - データ管理（db、diff、export、import、historyの統合）
+#### similar - 類似コード検出
+```bash
+# 類似関数検出
+npm run dev -- similar
+
+# 類似度閾値指定
+npm run dev -- similar --threshold 0.95
+
+# 最小行数指定
+npm run dev -- similar --min-lines 10
+
+# 複数検出アルゴリズム使用
+npm run dev -- similar --detectors hash-duplicate,ast-similarity
+```
+
+#### dep - 依存関係分析
+```bash
+# 依存関係一覧
+npm run dev -- dep list
+
+# 特定関数の依存関係詳細
+npm run dev -- dep show <function-name>
+
+# 依存関係統計
+npm run dev -- dep stats
+
+# 依存関係リント
+npm run dev -- dep lint
+
+# デッドコード検出
+npm run dev -- dep dead
+
+# デッドコード削除
+npm run dev -- dep delete --execute
+
+# 循環依存検出
+npm run dev -- dep cycles
+```
+
+#### db - データベース操作
 ```bash
 # テーブル一覧
-npm run dev -- manage --action db --list
+npm run dev -- db --list
 
 # テーブル内容確認
-npm run dev -- manage --action db --table snapshots --limit 5
-npm run dev -- manage --action db --table functions --where "cyclomatic_complexity > 10" --limit 10
+npm run dev -- db --table snapshots --limit 5
 
-# JSON出力（他ツールとの連携用）
-npm run dev -- manage --action db --table functions --json | jq '.rows[0]'
+# WHERE句付きクエリ
+npm run dev -- db --table functions --where "cyclomatic_complexity > 10"
 
-# データエクスポート
-npm run dev -- manage --action export --format json
+# JSON出力
+npm run dev -- db --table functions --json
 
-# バックアップ一覧
-npm run dev -- manage --action list-backups
+# バックアップ作成
+npm run dev -- db export --label "before-refactor"
+
+# バックアップ復元
+npm run dev -- db import --backup .funcqc/backups/20241201-143022-before-refactor
 ```
 
-#### dependencies - 依存関係分析（depの進化版）
+#### experimental - 実験的機能
 ```bash
-# 依存関係概要（depコマンドの後継）
-npm run dev -- dependencies
+# 関数品質評価
+npm run dev -- experimental evaluate
 
-# 基本的な依存関係分析
-npm run dev -- dependencies --action lint
+# デバッグ残留物検出
+npm run dev -- experimental residue-check
+
+# 関数説明生成
+npm run dev -- experimental describe <FunctionName>
+
+# セマンティック検索
+npm run dev -- experimental search "error handling"
+
+# リファクタリング機会検出
+npm run dev -- experimental detect
 ```
-
-
-
 
 ### 💡 開発時の活用例
 
 #### 1. リファクタリング対象の特定
-
-**🎯 リファクタリング対象の特定方法**:
 ```bash
-# 品質問題を把握
-npm run dev -- assess
-```
+# 品質問題のある関数を特定
+npm run dev -- health --verbose
 
-**⚠️ 特定ファイルの確認**:
-```bash
-# 新規作成したファイル/関数の確認
-npm run dev -- inspect --file src/new-feature.ts
-npm run dev -- inspect --name newFunction
+# 複雑度の高い関数を確認
+npm run dev -- list --cc-ge 10 --sort cc --desc
+
+# 特定ファイル内の関数確認
+npm run dev -- list --file src/problem-file.ts
 ```
 
 #### 2. 変更の影響確認
 ```bash
-# 変更前後の差分と類似関数
-npm run dev -- manage --action diff --from HEAD~1 --to HEAD --insights
+# 変更前後の差分確認
+npm run dev -- diff HEAD~1 HEAD --insights
 
-# 新規追加された関数の確認
-npm run dev -- manage --action diff --from <ブランチ開始時のラベル> --to HEAD
+# 類似コードへの影響確認
+npm run dev -- similar --threshold 0.8
 ```
 
-#### 3. 重複コードの発見
+#### 3. デッドコードの削除
 ```bash
-# 類似関数のグループを表示（旧similarの代替）
-npm run dev -- improve --type duplicates
+# デッドコード検出
+npm run dev -- dep dead
 
-# カスタム類似度闾値で検出
-npm run dev -- improve --type duplicates --threshold 0.8
+# 安全な削除実行
+npm run dev -- dep delete --execute
 ```
 
-### 🎯 diffコマンドによる品質チェック手法
-
-**開発ワークフロー**: ブランチ作業開始時にスナップショットを取得し、作業完了後にdiffコマンドで品質変化を確認
+### 🎯 品質チェックワークフロー
 
 #### 基本的な手順
 ```bash
-# 1. ブランチ開始時にベースラインスナップショット作成
+# 1. ブランチ開始時にベースラインスキャン
 git checkout -b feature/my-feature
-npm run dev -- measure --label feature/my-feature
+npm run dev -- scan --label feature/my-feature
 
-# 2. 開発作業を実施
+# 2. 開発作業実施
 # [コーディング作業]
 
-# 3. 作業完了後にスナップショット作成
-npm run dev -- measure --label feature/my-feature-final
+# 3. 作業完了後にスキャン
+npm run dev -- scan --label feature/my-feature-final
 
-# 4. 品質変化の確認（重要）
-npm run dev -- manage --action diff --from feature/my-feature --to HEAD
+# 4. 品質変化の確認
+npm run dev -- diff feature/my-feature feature/my-feature-final
+npm run dev -- health --verbose
 ```
-
 
 #### 品質問題発見時の対応
 ```bash
-# 品質問題を特定
-npm run dev -- assess
+# 問題関数の特定
+npm run dev -- list --cc-ge 15
 
-# 依存関係の詳細確認
-npm run dev -- dependencies --action lint
+# 依存関係確認
+npm run dev -- dep show <問題関数名>
 
-# リファクタリング実施後に再確認
-npm run dev -- manage --action diff --from <before-label> --to HEAD
+# リファクタリング後の再確認
+npm run dev -- scan --label after-refactor
+npm run dev -- diff feature/my-feature after-refactor
 ```
-
-#### メリット
-1. **客観的な品質評価**: 数値による定量的な品質変化の把握
-2. **リファクタリング効果の可視化**: 改善の証拠を残せる
-3. **品質劣化の早期発見**: 品質問題を検出
-4. **レビュー時の情報提供**: PRレビューで品質変化を明示可能
 
 ### ⚠️ 注意事項
 
-- スナップショットはDBに保存されるが、現在の実装では一部のデータが永続化されない場合がある
-- `--label`オプションを使用してスナップショットに意味のある名前を付けることを推奨
-- PGLiteはWebAssemblyベースのPostgreSQLなので、通常のPostgreSQLクライアントは使用不可
+- スナップショットはPGLiteデータベースに保存される
+- `--label`オプションでスナップショットに意味のある名前を付けることを推奨
+- `scan --full`は時間がかかるため、通常は基本スキャンで十分
+- `--async`オプションで重い解析をバックグラウンド実行可能
 
 
