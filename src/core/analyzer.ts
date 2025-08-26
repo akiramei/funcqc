@@ -376,6 +376,10 @@ export class FunctionAnalyzer {
       }
       
       for (const func of fileFunctions) {
+        // 署名とファイル内容に基づくハッシュを計算
+        const signatureHash = simpleHash(func.signature || func.name || '');
+        const fileHashComputed = fileContent ? simpleHash(fileContent) : undefined;
+        
         // Extract source code from file content
         let sourceCode = '';
         if (fileContent) {
@@ -394,7 +398,8 @@ export class FunctionAnalyzer {
           endLine: func.endLine,
           startColumn: 0, // Not available in ideal system
           endColumn: 0, // Not available in ideal system
-          semanticId: func.contentHash,
+          // 意味ベース（署名など）で安定化
+          semanticId: signatureHash,
           displayName: func.name,
           signature: func.signature,
           contextPath: func.className ? [func.className] : [],
@@ -411,8 +416,9 @@ export class FunctionAnalyzer {
           contentId: func.contentHash,
           
           // Additional required fields
-          signatureHash: func.contentHash,
-          fileHash: func.contentHash,
+          signatureHash,
+          // ファイル内容が読めた場合のみ計算。なければ後段での再計算に委ねる
+          fileHash: fileHashComputed ?? '',
           isGenerator: false,
           isConstructor: func.nodeKind === 'ConstructorDeclaration',
           isStatic: false
