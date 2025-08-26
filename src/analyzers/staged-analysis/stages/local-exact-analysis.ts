@@ -36,10 +36,7 @@ export class LocalExactAnalysisStage {
     const unresolvedCallNodes: Node[] = [];
     const unresolvedNewNodes: Node[] = [];
 
-    console.log(`[LOCAL-DEBUG] Analyzing file ${filePath} with ${fileFunctions.length} functions`);
-    
     if (fileFunctions.length === 0) {
-      console.log(`[LOCAL-DEBUG] File ${filePath}: No functions, returning empty result`);
       return { localEdges: 0, instantiationEvents: [], unresolvedCallNodes: [], unresolvedNewNodes: [] };
     }
 

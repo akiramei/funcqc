@@ -11,7 +11,7 @@
 import { CommandEnvironment } from '../types/environment';
 import { BaseCommandOptions } from '../types/command';
 import { DependencyType, InitializationResult } from '../types/command-protocol';
-import { DEPENDENCY_DEFINITIONS, DependencyOrderResolver } from '../config/dependencies';
+import { DEPENDENCY_DEFINITIONS } from '../config/dependencies';
 import type { AnalysisLevel } from '../types';
 
 interface AnalysisState {
@@ -30,17 +30,17 @@ export class DependencyManager {
   ): Promise<DependencyType[]> {
     if (required.length === 0) return [];
     
-    // 現在のDB状態を確認
-    const currentState = await this.getCurrentAnalysisState(env);
-    
-    // CRITICAL FIX: SNAPSHOTが要求されている場合、全ての依存関係を無効化
+    // CRITICAL FIX: SNAPSHOTが要求されている場合、既存状態をチェックせずに全て実行
     if (required.includes('SNAPSHOT')) {
       // 新しいスナップショットが作成される場合、全ての分析が無効になる
-      // prerequisites関係に関係なく、要求された全ての依存関係が必要
+      // 既存スナップショットの読み込みは不要
       return required;
     }
     
-    // SNAPSHOTが要求されていない場合は、個別に依存関係をチェック
+    // 現在のDB状態を確認（SNAPSHOTが不要な場合のみ）
+    const currentState = await this.getCurrentAnalysisState(env);
+    
+    // 個別に依存関係をチェック
     const missing = required.filter(dep => !this.isDependencyMet(dep, currentState));
     
     return missing;
@@ -58,8 +58,10 @@ export class DependencyManager {
       return { successful: [], failed: [], partialSuccess: false };
     }
     
-    // 実行順序を決定（優先順位 + 前提条件）
-    const orderedDependencies = DependencyOrderResolver.resolveDependencyOrder(dependencies);
+    // 実行順序を決定（優先順位のみ、前提条件は既にcalculateMissingDependenciesで処理済み）
+    const orderedDependencies = dependencies.sort((a, b) => 
+      DEPENDENCY_DEFINITIONS[a].priority - DEPENDENCY_DEFINITIONS[b].priority
+    );
     
     const successful: DependencyType[] = [];
     const failed: Array<{ dependency: DependencyType; error: Error }> = [];
@@ -149,10 +151,12 @@ export class DependencyManager {
       
       const metadata = snapshot.metadata as Record<string, unknown>;
       const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
+      const completedAnalyses = this.getCompletedAnalysesFromMetadata(metadata);
+      
       
       return {
         level: analysisLevel,
-        completedAnalyses: this.getCompletedAnalysesFromMetadata(metadata),
+        completedAnalyses,
         timestamp: new Date(snapshot.createdAt)
       };
     } catch {
@@ -203,10 +207,6 @@ export class DependencyManager {
    * 依存関係が満たされているかチェック
    */
   private isDependencyMet(dependency: DependencyType, state: AnalysisState): boolean {
-    // SNAPSHOTは常に新規作成なので、既存状態に関係なく必要
-    if (dependency === 'SNAPSHOT') {
-      return false;
-    }
     return state.completedAnalyses.includes(dependency);
   }
   
@@ -322,9 +322,6 @@ export class DependencyManager {
       };
       
       // メタデータ更新実行（型安全にquery methodを使用）
-      env.commandLogger?.debug?.(
-        `Updating completedAnalyses for snapshot ${snapshotId}: ${completedAnalyses.join(', ')}`
-      );
       
       await env.storage.query(
         'UPDATE snapshots SET metadata = $1 WHERE id = $2',
@@ -609,6 +606,9 @@ export class DependencyManager {
     
     const { performDeferredBasicAnalysis } = await import('../cli/commands/scan');
     await performDeferredBasicAnalysis(snapshotId, env, true);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after BASIC analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
   }
   
   /**
@@ -628,7 +628,7 @@ export class DependencyManager {
    */
   private async ensureAnalysisLevelUpdated(
     snapshotId: string,
-    expectedLevel: AnalysisLevel,
+    completedDependency: DependencyType,
     env: CommandEnvironment,
   ): Promise<void> {
     try {
@@ -636,14 +636,18 @@ export class DependencyManager {
       if (!snapshot) return;
       
       const metadata = snapshot.metadata as Record<string, unknown>;
-      const currentLevel = (metadata?.['analysisLevel'] as AnalysisLevel) ?? 'NONE';
+      const currentCompleted = this.getCompletedAnalysesFromMetadata(metadata);
       
-      const currentRank = this.analysisLevelRank[currentLevel] ?? 0;
-      const expectedRank = this.analysisLevelRank[expectedLevel];
+      // 指定された依存関係を completedAnalyses に追加（前提条件も含める）
+      const prerequisites = DEPENDENCY_DEFINITIONS[completedDependency].prerequisites;
+      const newCompleted = [...new Set([...currentCompleted, ...prerequisites, completedDependency])];
       
-      if (currentRank < expectedRank) {
-        await env.storage.updateAnalysisLevel(snapshotId, expectedLevel);
-      }
+      // analysisLevel を新しいレベルに更新
+      const newLevel = this.calculateAnalysisLevel(newCompleted);
+      
+      await env.storage.updateAnalysisLevel(snapshotId, newLevel as AnalysisLevel);
+      await this.updateCompletedAnalysesMetadata(snapshotId, newCompleted, env);
+      
     } catch (error) {
       env.commandLogger.warn(`Warning: Failed to update analysis level: ${error}`);
     }
@@ -661,6 +665,9 @@ export class DependencyManager {
     }
     const { performCallGraphAnalysis } = await import('../cli/commands/scan');
     await performCallGraphAnalysis(snapshotId, env, undefined);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after CALL_GRAPH analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'CALL_GRAPH', env);
   }
   
   private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
@@ -675,6 +682,9 @@ export class DependencyManager {
     }
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
     await performDeferredTypeSystemAnalysis(snapshotId, env, true);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after TYPE_SYSTEM analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'TYPE_SYSTEM', env);
   }
   
   private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
@@ -689,5 +699,8 @@ export class DependencyManager {
     }
     const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
     await performDeferredCouplingAnalysis(snapshotId, env, undefined);
+    
+    // CRITICAL FIX: Update completedAnalyses metadata after COUPLING analysis completion
+    await this.ensureAnalysisLevelUpdated(snapshotId, 'COUPLING', env);
   }
 }

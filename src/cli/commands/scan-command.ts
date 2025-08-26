@@ -28,42 +28,37 @@ export class ScanCommand implements Command {
   /**
    * subCommandに基づいて必要な依存関係を返す
    * 
-   * scanコマンドの依存関係は指定されたオプションによって決まる：
+   * scanコマンドは常に新しいスナップショット作成が目的なので、
+   * 既存分析に依存せず、オプション指定時のみ分析を実行：
    * - --full, --with-types: BASIC + COUPLING + CALL_GRAPH + TYPE_SYSTEM
    * - --with-graph: BASIC + COUPLING + CALL_GRAPH  
    * - --with-basic: BASIC のみ
    * - --with-coupling: BASIC + COUPLING
-   * - --quick: 依存関係なし（スナップショットのみ）
-   * - デフォルト: BASIC
+   * - デフォルト: 依存関係なし（新しいスナップショットのみ作成）
    */
   async getRequires(subCommand: string[]): Promise<DependencyType[]> {
     // --full または --with-types が指定された場合
     if (subCommand.includes('--full') || subCommand.includes('--with-types')) {
-      return ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'];
+      return ['SNAPSHOT', 'BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'];
     }
     
     // --with-graph が指定された場合
     if (subCommand.includes('--with-graph')) {
-      return ['BASIC', 'COUPLING', 'CALL_GRAPH'];
+      return ['SNAPSHOT', 'BASIC', 'COUPLING', 'CALL_GRAPH'];
     }
     
     // --with-basic が指定された場合
     if (subCommand.includes('--with-basic')) {
-      return ['BASIC'];
+      return ['SNAPSHOT', 'BASIC'];
     }
     
     // --with-coupling が指定された場合
     if (subCommand.includes('--with-coupling')) {
-      return ['BASIC', 'COUPLING'];
+      return ['SNAPSHOT', 'BASIC', 'COUPLING'];
     }
     
-    // --quick が指定された場合（依存関係なし）
-    if (subCommand.includes('--quick')) {
-      return [];
-    }
-    
-    // デフォルト: BASIC分析
-    return ['BASIC'];
+    // デフォルト: 新しいスナップショット作成 + BASIC分析
+    return ['SNAPSHOT', 'BASIC'];
   }
   
   /**

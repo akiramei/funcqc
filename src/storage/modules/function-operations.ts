@@ -853,14 +853,8 @@ export class FunctionOperations implements StorageOperationModule {
       signature: row.signature,
       signatureHash: row.signature_hash,
       filePath: (() => {
-        // Debug: Log path transformation  
         const originalPath = row.file_path;
-        const transformedPath = originalPath.startsWith('/') ? originalPath : '/' + originalPath;
-        
-        // Force logging to confirm this method is called
-        console.log(`[PATH-DEBUG] mapBasicFunctionInfo CALLED: "${originalPath}" -> "${transformedPath}"`);
-        
-        return transformedPath;
+        return originalPath.startsWith('/') ? originalPath : '/' + originalPath;
       })(),
       fileHash: row.file_hash,
       startLine: row.start_line,

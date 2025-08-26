@@ -4,6 +4,7 @@ import { QualityCalculator } from '../metrics/quality-calculator';
 import { IdealCallGraphAnalyzer } from '../analyzers/ideal-call-graph-analyzer';
 import { VirtualProjectFactory } from './virtual-project-factory';
 import { SharedVirtualProjectManager } from './shared-virtual-project-manager';
+import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { Project, Node } from 'ts-morph';
 import { Logger } from '../utils/cli-utils';
 import { simpleHash } from '../utils/hash-utils';
@@ -569,25 +570,31 @@ export class FunctionAnalyzer {
         
         if (sourceFile) {
           const tsmpPath = sourceFile.getFilePath();
-          normalizedPathMapping.set(tsmpPath, normalizedPath);
+          // CRITICAL FIX: Ensure normalized path has leading slash for consistency
+          const consistentPath = normalizedPath.startsWith('/') ? normalizedPath : '/' + normalizedPath;
+          normalizedPathMapping.set(tsmpPath, consistentPath);
           
-          // Debug: Log successful mapping
-          if (Math.random() < 0.01) { // Log 1% for visibility
-            console.log(`[PATH-DEBUG] normalizedPathMapping: "${tsmpPath}" -> "${normalizedPath}"`);
-          }
-        } else {
-          // Debug: Log failed mapping
-          if (Math.random() < 0.01) {
-            console.log(`[PATH-DEBUG] FAILED to find sourceFile for normalizedPath: "${normalizedPath}" (tried: "${absolutePath}")`);
-          }
         }
       }
       
+      
       for (const func of functions) {
-        // Create lookup key that matches the one used in function-registry
-        const lookupKey = `${func.filePath}:${func.startLine}:${func.startColumn}:${func.name}`;
-        existingFunctionIds.set(lookupKey, func.id);
+        // Generate function ID using same rules as function-id-generator
+        const functionId = FunctionIdGenerator.generateDeterministicUUID(
+          func.filePath,
+          func.name,
+          func.className || null,
+          func.startLine,
+          func.startColumn,
+          snapshotId
+        );
+        existingFunctionIds.set(functionId, func.id);
+        
+        // Debug: Log first 3 function ID generations
+        if (existingFunctionIds.size <= 3) {
+        }
       }
+      
       
       // Initialize ideal call graph analyzer with virtual project and mappings
       const idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(virtualProject, { 
@@ -600,6 +607,7 @@ export class FunctionAnalyzer {
       
       try {
         // Perform call graph analysis on virtual project
+        console.log(`[CALL-GRAPH-DEBUG] Starting idealCallGraphAnalyzer.analyzeProject()`);
         const analysisStartTime = performance.now();
         const callGraphResult = await idealCallGraphAnalyzer.analyzeProject();
         const analysisEndTime = performance.now();
@@ -623,6 +631,7 @@ export class FunctionAnalyzer {
         
         const totalTime = performance.now() - startTime;
         console.log(chalk.yellow(`⏱️  Total call graph analysis time: ${(totalTime / 1000).toFixed(2)}s`));
+        
         
         this.logger.info(`[PATH] CONTENT SUCCESS - Created ${callEdges.length} call edges (unified paths), ${internalCallEdges.length} internal edges`);
         

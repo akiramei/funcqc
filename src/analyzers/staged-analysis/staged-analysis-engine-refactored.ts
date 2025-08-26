@@ -66,7 +66,6 @@ export class StagedAnalysisEngine {
     this._typeChecker = typeChecker;
     this.logger = options.logger ?? new Logger(false);
     this._debug = process.env['DEBUG_STAGED_ANALYSIS'] === 'true';
-    console.log(`[STAGE-DEBUG] Constructor: DEBUG_STAGED_ANALYSIS=${process.env['DEBUG_STAGED_ANALYSIS']}, _debug=${this._debug}`);
     this.storage = options.storage;
 
     // Initialize state and statistics
@@ -156,7 +155,6 @@ export class StagedAnalysisEngine {
     this.logger.debug('Stage 1 & 2: Combined local and import analysis...');
     const stage1StartTime = performance.now();
     const localImportResult = await this.performCombinedLocalAndImportAnalysis(functions);
-    console.log(`[STAGE-DEBUG] localImportResult: localEdges=${localImportResult.localEdges}, importEdges=${localImportResult.importEdges}`);
     console.log(`  ⏱️  Stage 1&2 (Local/Import): ${((performance.now() - stage1StartTime) / 1000).toFixed(3)}s`);
     this.statistics.localExactCount = localImportResult.localEdges;
     this.statistics.importExactCount = localImportResult.importEdges;
@@ -274,19 +272,6 @@ export class StagedAnalysisEngine {
 
       // Debug: Log path comparison for first few files
       if (this._debug && processedFiles <= 3) {
-        this.logger.debug(
-          `[PATH-DEBUG] performCombinedLocalAndImportAnalysis: using absolute path="${filePath}"`
-        );
-        this.logger.debug(
-          `[PATH-DEBUG] fileFunctions.length = ${fileFunctions.length}`
-        );
-        if (fileFunctions.length === 0) {
-          this.logger.debug(
-            `[PATH-DEBUG] Available keys in fileToFunctionsMap: ${JSON.stringify(
-              Array.from(this.state.fileToFunctionsMap.keys()).slice(0, 5)
-            )}`
-          );
-        }
       }
 
       if (fileFunctions.length === 0) {
@@ -342,9 +327,6 @@ export class StagedAnalysisEngine {
       
       // Debug: log first few mappings when debug mode is enabled
       if (this._debug && this.state.fileToFunctionsMap.size <= 3) {
-        this.logger.debug(
-          `[PATH-DEBUG] buildLookupMaps: func.filePath = "${func.filePath}" -> normalized = "${normalizedPath}"`
-        );
       }
 
       // Build function lookup map (per-line for O(1) lookup compatibility)

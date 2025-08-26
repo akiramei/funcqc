@@ -57,13 +57,6 @@ export class FunctionRegistry {
     const normalizedPath = this.normalizedPathMapping?.get(rawFilePath);
     const filePath = normalizedPath || rawFilePath;
     
-    // Debug: Log path mapping for first few files
-    if (Math.random() < 0.01 || functionCount === 0) { // Log 1% + first function for clear visibility
-      console.log(`[PATH-DEBUG] FunctionRegistry.collectFunctionsFromFile: rawFilePath="${rawFilePath}" -> normalizedPath="${normalizedPath}" -> filePath="${filePath}"`);
-      if (!normalizedPath && this.normalizedPathMapping) {
-        console.log(`[PATH-DEBUG] Available mappings:`, Array.from(this.normalizedPathMapping.keys()).slice(0, 5));
-      }
-    }
     
     // Use forEachDescendant to visit every node
     sourceFile.forEachDescendant((node, _traversal) => {

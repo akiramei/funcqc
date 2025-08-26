@@ -620,7 +620,7 @@ export class ImportExactAnalysisStage {
       } else {
         return undefined;
       }
-    } else {
+    } else if (moduleSpecifier.startsWith('/')) {
       // Absolute path (unified format: all paths start with /)
       if (isVirtual) {
         // 注意: path.join('/virtual', '/x') は '/x' になるため未使用
@@ -628,6 +628,9 @@ export class ImportExactAnalysisStage {
       } else {
         resolvedPath = path.resolve(moduleSpecifier);
       }
+    } else {
+      // External module or unsupported pattern
+      return undefined;
     }
     
     // Try to find the source file with comprehensive extension support
