@@ -866,6 +866,9 @@ async function performCouplingAnalysisForFile(
         snapshotId
       );
       functionLookupMap.set(couplingHashId, func.id);
+      
+      // Note: semanticId mapping was removed as it was not being used in lookup chains
+      // Future enhancement: Implement semanticId-based lookup if fallback routing is needed
     }
 
     // Convert coupling data to parameter property usage format

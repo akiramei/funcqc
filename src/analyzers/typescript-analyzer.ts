@@ -31,6 +31,7 @@ import { TypeSystemAnalyzer } from './type-system-analyzer';
 import { SharedVirtualProjectManager } from '../core/shared-virtual-project-manager';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
+import type { QualityCalculator as QualityCalculatorType } from '../metrics/quality-calculator';
 
 interface FunctionMetadata {
   signature: string;
@@ -88,9 +89,22 @@ export class TypeScriptAnalyzer extends CacheAware {
     return TypeScriptAnalyzer.qualityCalculatorPromise;
   }
   
+  /**
+   * Lazily create and cache a single QualityCalculator instance per analyzer
+   */
+  private async getOrCreateQualityCalculator() {
+    if (!this.qualityCalculatorInstance) {
+      const mod = await TypeScriptAnalyzer.getQualityCalculator();
+      this.qualityCalculatorInstance = new mod.QualityCalculator();
+    }
+    return this.qualityCalculatorInstance;
+  }
+  
   private unifiedAnalyzer: UnifiedASTAnalyzer;
   private batchFileReader: BatchFileReader;
   private typeSystemAnalyzer: TypeSystemAnalyzer;
+  private qualityCalculatorInstance: QualityCalculatorType | null = null;
+  private includeSourceCode: boolean;
 
   constructor(
     maxSourceFilesInMemory: number = ANALYZER_CONSTANTS.DEFAULT_MAX_SOURCE_FILES, 
@@ -103,6 +117,9 @@ export class TypeScriptAnalyzer extends CacheAware {
     this.logger = logger || new Logger(false, false);
     this.functionCacheProvider = functionCacheProvider || this.functionCache;
     this.unifiedAnalyzer = new UnifiedASTAnalyzer(maxSourceFilesInMemory);
+    const storeEnv = process.env['FUNCQC_STORE_SOURCECODE'];
+    // デフォルトは保存（スナップショット再現性重視）。明示的に 'false' または '0' の場合のみ無効化。
+    this.includeSourceCode = storeEnv ? !(storeEnv.toLowerCase() === 'false' || storeEnv === '0') : true;
     this.project = new Project({
       skipAddingFilesFromTsConfig: true,
       skipFileDependencyResolution: true,
@@ -134,8 +151,13 @@ export class TypeScriptAnalyzer extends CacheAware {
     this.callGraphAnalyzer = new CallGraphAnalyzer(this.project, enableCache);
     
     // Initialize batch file reader for optimized I/O
+    // Allow environment override for I/O concurrency (defaults to 10)
+    const ioConcEnv = Number.parseInt(process.env['FUNCQC_IO_CONCURRENCY'] || '', 10);
+    const ioConcurrency = !Number.isNaN(ioConcEnv) && ioConcEnv > 0
+      ? Math.min(ioConcEnv, 64)
+      : Math.min(maxSourceFilesInMemory, 10);
     this.batchFileReader = new BatchFileReader({
-      concurrency: Math.min(maxSourceFilesInMemory, 10),
+      concurrency: ioConcurrency,
       encoding: 'utf-8',
       maxFileSize: 10 * 1024 * 1024, // 10MB limit
       timeout: 30000 // 30 second timeout per file
@@ -505,7 +527,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: false,
       isConstructor: false,
       isStatic: false,
-      sourceCode: sourceCodeText,
+      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
       parameters: this.extractParameters(func),
     };
 
@@ -514,7 +536,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
 
     // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    const qualityCalculator = await this.getOrCreateQualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(func, functionInfo);
 
     return functionInfo;
@@ -617,7 +639,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: true,
       isConstructor: false,
       isStatic: method.isStatic(),
-      sourceCode: sourceCodeText,
+      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
       parameters: this.extractParameters(method),
     };
 
@@ -628,7 +650,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     // Note: accessModifier and contextPath are now handled by UnifiedASTAnalyzer
 
     // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    const qualityCalculator = await this.getOrCreateQualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(method, functionInfo);
 
     return functionInfo;
@@ -716,7 +738,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: false,
       isConstructor: true,
       isStatic: false,
-      sourceCode: sourceCodeText,
+      ...(this.includeSourceCode ? { sourceCode: sourceCodeText } : {}),
       parameters: this.extractParameters(ctor),
     };
 
@@ -726,7 +748,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
 
     // Calculate metrics directly from ts-morph node while we have it
-    const qualityCalculator = new (await import('../metrics/quality-calculator')).QualityCalculator();
+    const qualityCalculator = await this.getOrCreateQualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(ctor, functionInfo);
 
     return functionInfo;
@@ -846,7 +868,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       isMethod: false,
       isConstructor: false,
       isStatic: false,
-      sourceCode: metadata.sourceCodeText,
+      ...(this.includeSourceCode ? { sourceCode: metadata.sourceCodeText } : {}),
       parameters: this.extractParameters(functionNode),
     };
 
@@ -855,8 +877,8 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
 
     // Calculate metrics directly from ts-morph node while we have it
-    const { QualityCalculator } = await TypeScriptAnalyzer.getQualityCalculator();
-    const qualityCalculator = new QualityCalculator();
+    // キャッシュされた QualityCalculator を再利用
+    const qualityCalculator = await this.getOrCreateQualityCalculator();
     functionInfo.metrics = qualityCalculator.calculateFromTsMorphNode(functionNode, functionInfo);
 
     return functionInfo;

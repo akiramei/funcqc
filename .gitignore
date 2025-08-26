@@ -89,6 +89,9 @@ D:\\*
 .claude/
 .mcp.json
 
+# Serena project files
+.serena/
+
 # FuncQC database files
 data/
 

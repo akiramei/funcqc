@@ -120,10 +120,10 @@ function buildMetricsRow(func: FunctionInfo, snapshotId: string): unknown[] {
     func.metrics!.asyncAwaitCount,
     func.metrics!.callbackCount,
     func.metrics!.commentLines,
-    func.metrics!.codeToCommentRatio,
-    func.metrics!.halsteadVolume || null,
-    func.metrics!.halsteadDifficulty || null,
-    func.metrics!.maintainabilityIndex || null,
+    Number.isFinite(func.metrics!.codeToCommentRatio) ? func.metrics!.codeToCommentRatio : null,
+    func.metrics!.halsteadVolume ?? null,
+    func.metrics!.halsteadDifficulty ?? null,
+    func.metrics!.maintainabilityIndex ?? null,
   ];
 }
 

@@ -282,7 +282,11 @@ function displayQualityMetrics(func: FunctionInfo): void {
   // Code quality metrics
   console.log('  Code Quality:');
   console.log(`    Comment Lines: ${metrics.commentLines}`);
-  console.log(`    Code-to-Comment Ratio: ${metrics.codeToCommentRatio.toFixed(2)}`);
+  console.log(`    Code-to-Comment Ratio: ${
+    Number.isFinite(metrics.codeToCommentRatio) 
+      ? metrics.codeToCommentRatio.toFixed(2) 
+      : '∞'
+  }`);
   
   console.log();
 }

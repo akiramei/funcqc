@@ -418,7 +418,10 @@ export class PGLiteStorageAdapter implements StorageAdapter {
 
   async storeFunctions(functions: FunctionInfo[], snapshotId: string): Promise<void> {
     await this.ensureInitialized();
-    return this.functionOps.storeFunctions(functions, snapshotId);
+    // Persist all functions in a single transaction to minimize commit overhead
+    await this.db.transaction(async (trx: PGTransaction) => {
+      await this.functionOps.saveFunctionsInTransaction(trx, snapshotId, functions);
+    });
   }
 
   async getFunctionsWithDescriptions(snapshotId: string, options?: QueryOptions): Promise<FunctionInfo[]> {
@@ -1204,7 +1207,9 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         asyncAwaitCount: row['async_await_count'] as number || 0,
         callbackCount: row['callback_count'] as number || 0,
         commentLines: row['comment_lines'] as number || 0,
-        codeToCommentRatio: row['code_to_comment_ratio'] as number || 0,
+        codeToCommentRatio: (row['code_to_comment_ratio'] as number | null) == null
+          ? Infinity
+          : (row['code_to_comment_ratio'] as number),
         halsteadVolume: row['halstead_volume'] as number || 0,
         halsteadDifficulty: row['halstead_difficulty'] as number || 0,
         maintainabilityIndex: row['maintainability_index'] as number || 0

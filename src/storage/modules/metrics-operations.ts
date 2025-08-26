@@ -132,7 +132,7 @@ export class MetricsOperations implements StorageOperationModule {
           metrics.asyncAwaitCount,
           metrics.callbackCount,
           metrics.commentLines,
-          metrics.codeToCommentRatio,
+          Number.isFinite(metrics.codeToCommentRatio) ? metrics.codeToCommentRatio : null,
           metrics.halsteadVolume ?? null,
           metrics.halsteadDifficulty ?? null,
           metrics.maintainabilityIndex ?? null,
@@ -402,7 +402,7 @@ export class MetricsOperations implements StorageOperationModule {
         func.metrics!.asyncAwaitCount,
         func.metrics!.callbackCount,
         func.metrics!.commentLines,
-        func.metrics!.codeToCommentRatio,
+        Number.isFinite(func.metrics!.codeToCommentRatio) ? func.metrics!.codeToCommentRatio : null,
         func.metrics!.halsteadVolume ?? null,
         func.metrics!.halsteadDifficulty ?? null,
         func.metrics!.maintainabilityIndex ?? null,
@@ -464,7 +464,9 @@ export class MetricsOperations implements StorageOperationModule {
       asyncAwaitCount: row.async_await_count || 0,
       callbackCount: row.callback_count || 0,
       commentLines: row.comment_lines || 0,
-      codeToCommentRatio: row.code_to_comment_ratio || 0,
+      codeToCommentRatio: row.code_to_comment_ratio == null
+        ? Infinity
+        : row.code_to_comment_ratio,
     };
     
     // Only add optional properties if they have values

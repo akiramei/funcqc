@@ -85,8 +85,7 @@ export class QualityCalculator {
       asyncAwaitCount: this.countAsyncAwait(tsNode),
       callbackCount: this.countCallbacks(tsNode),
       commentLines,
-      codeToCommentRatio:
-        linesOfCode > 0 ? Math.round((commentLines / linesOfCode) * 100) / 100 : 0,
+      codeToCommentRatio: this.computeCodeToCommentRatio(linesOfCode, commentLines),
       halsteadVolume,
       halsteadDifficulty,
       maintainabilityIndex: this.calculateMaintainabilityIndex({
@@ -130,7 +129,7 @@ export class QualityCalculator {
       asyncAwaitCount: 0,
       callbackCount: 0,
       commentLines: 0,
-      codeToCommentRatio: 0,
+      codeToCommentRatio: this.computeCodeToCommentRatio(codeLines.length, 0),
       halsteadVolume: 0,
       halsteadDifficulty: 0,
       maintainabilityIndex: 100, // Default high maintainability for simple functions
@@ -186,31 +185,13 @@ export class QualityCalculator {
     const asyncAwaitCount = this.countAsyncAwaitFromTsMorph(node);
     const callbackCount = this.countCallbacksFromTsMorph(node);
     
-    // Calculate Halstead metrics and other advanced metrics
-    // For these metrics, we need to parse the source code as TypeScript AST
-    // because they require detailed token analysis
-    const sourceFile = ts.createSourceFile(
-      'temp.ts',
-      functionInfo.sourceCode || node.getFullText(),
-      ts.ScriptTarget.Latest,
-      true
-    );
-    
-    // Find the function node in the parsed AST
-    let tsNode: ts.FunctionLikeDeclaration | null = null;
-    const findFunction = (node: ts.Node) => {
-      if (this.isFunctionLike(node)) {
-        tsNode = node as ts.FunctionLikeDeclaration;
-        return;
-      }
-      ts.forEachChild(node, findFunction);
-    };
-    findFunction(sourceFile);
-    
-    const halsteadVolume = tsNode ? this.calculateHalsteadVolume(tsNode) : 0;
-    const halsteadDifficulty = tsNode ? this.calculateHalsteadDifficulty(tsNode) : 0;
-    const commentLines = tsNode ? this.calculateCommentLines(tsNode) : 0;
-    const codeToCommentRatio = linesOfCode > 0 && commentLines > 0 ? linesOfCode / commentLines : 0;
+    // Calculate Halstead metrics and comment metrics using existing TypeScript AST
+    // Avoid re-parsing by leveraging the underlying compiler node
+    const tsNode = node.compilerNode as ts.FunctionLikeDeclaration;
+    const halsteadVolume = this.calculateHalsteadVolume(tsNode);
+    const halsteadDifficulty = this.calculateHalsteadDifficulty(tsNode);
+    const commentLines = this.calculateCommentLines(tsNode);
+    const codeToCommentRatio = this.computeCodeToCommentRatio(linesOfCode, commentLines);
     
     // Calculate maintainability index
     const maintainabilityIndex = this.calculateMaintainabilityIndex({
@@ -238,6 +219,16 @@ export class QualityCalculator {
       halsteadDifficulty,
       maintainabilityIndex,
     };
+  }
+
+  /**
+   * Compute code-to-comment ratio with consistent handling of edge cases
+   */
+  private computeCodeToCommentRatio(linesOfCode: number, commentLines: number): number {
+    if (commentLines > 0) {
+      return Math.round((linesOfCode / commentLines) * 100) / 100;
+    }
+    return linesOfCode > 0 ? Number.POSITIVE_INFINITY : 0;
   }
 
   /**
