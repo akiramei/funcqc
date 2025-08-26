@@ -85,10 +85,7 @@ export class QualityCalculator {
       asyncAwaitCount: this.countAsyncAwait(tsNode),
       callbackCount: this.countCallbacks(tsNode),
       commentLines,
-      codeToCommentRatio:
-        commentLines > 0
-          ? Math.round(((linesOfCode / commentLines) * 100)) / 100
-          : (linesOfCode > 0 ? Infinity : 0),
+      codeToCommentRatio: this.computeCodeToCommentRatio(linesOfCode, commentLines),
       halsteadVolume,
       halsteadDifficulty,
       maintainabilityIndex: this.calculateMaintainabilityIndex({
@@ -132,7 +129,7 @@ export class QualityCalculator {
       asyncAwaitCount: 0,
       callbackCount: 0,
       commentLines: 0,
-      codeToCommentRatio: codeLines.length > 0 ? Infinity : 0,
+      codeToCommentRatio: this.computeCodeToCommentRatio(codeLines.length, 0),
       halsteadVolume: 0,
       halsteadDifficulty: 0,
       maintainabilityIndex: 100, // Default high maintainability for simple functions
@@ -194,9 +191,7 @@ export class QualityCalculator {
     const halsteadVolume = this.calculateHalsteadVolume(tsNode);
     const halsteadDifficulty = this.calculateHalsteadDifficulty(tsNode);
     const commentLines = this.calculateCommentLines(tsNode);
-    const codeToCommentRatio = commentLines > 0
-      ? Math.round(((linesOfCode / commentLines) * 100)) / 100
-      : (linesOfCode > 0 ? Infinity : 0);
+    const codeToCommentRatio = this.computeCodeToCommentRatio(linesOfCode, commentLines);
     
     // Calculate maintainability index
     const maintainabilityIndex = this.calculateMaintainabilityIndex({
@@ -224,6 +219,16 @@ export class QualityCalculator {
       halsteadDifficulty,
       maintainabilityIndex,
     };
+  }
+
+  /**
+   * Compute code-to-comment ratio with consistent handling of edge cases
+   */
+  private computeCodeToCommentRatio(linesOfCode: number, commentLines: number): number {
+    if (commentLines > 0) {
+      return Math.round((linesOfCode / commentLines) * 100) / 100;
+    }
+    return linesOfCode > 0 ? Number.POSITIVE_INFINITY : 0;
   }
 
   /**

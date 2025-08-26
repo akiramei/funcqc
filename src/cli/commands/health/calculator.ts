@@ -344,6 +344,11 @@ function calculateDocumentationScore(codeToCommentRatio: number): number {
     return 0; // No documentation at all
   }
   
+  // Handle infinite ratios (no comments) - give minimum documentation score
+  if (!Number.isFinite(codeToCommentRatio)) {
+    return 0;
+  }
+  
   // Logarithmic scale: log(1 + ratio * k) * multiplier
   // This prevents saturation and provides diminishing returns for extreme values
   const k = 4; // Scale factor to adjust sensitivity
