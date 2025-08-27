@@ -627,6 +627,27 @@ async function executePureBasicBatchAnalysis(
       }
       
       console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
+
+      // Prime env with functions to avoid reloading from DB in subsequent analyses within the same process
+      try {
+        const snapshot = await env.storage.getSnapshot(snapshotId);
+        if (snapshot) {
+          const existing = env.callGraphData;
+          env.callGraphData = {
+            snapshot,
+            functions: allFunctions,
+            callEdges: existing?.callEdges || [],
+            internalCallEdges: existing?.internalCallEdges || [],
+            allEdges: existing?.allEdges || [],
+            lazyAnalysisPerformed: existing?.lazyAnalysisPerformed,
+          } as unknown as import('../../types/environment').CallGraphData;
+          if (options?.verbose) {
+            env.commandLogger.info(`⚡ Primed env with ${allFunctions.length} functions for snapshot ${snapshotId.substring(0,8)}`);
+          }
+        }
+      } catch (primeErr) {
+        env.commandLogger?.debug?.(`Skipping env functions priming: ${primeErr instanceof Error ? primeErr.message : String(primeErr)}`);
+      }
     } catch (error) {
       console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
       
