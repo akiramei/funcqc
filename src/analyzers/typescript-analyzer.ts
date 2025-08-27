@@ -304,10 +304,11 @@ export class TypeScriptAnalyzer extends CacheAware {
         }
       }
       
-      // Create virtual source file from content
-      const sourceFile = targetProject.createSourceFile(virtualPath, content, {
-        overwrite: true,
-      });
+      // Prefer reusing existing SourceFile when using shared project to avoid reparsing
+      let sourceFile = targetProject.getSourceFile(virtualPath);
+      if (!sourceFile) {
+        sourceFile = targetProject.createSourceFile(virtualPath, content, { overwrite: true });
+      }
       
       // Use virtualPath directly as it's already normalized when stored in DB
       const relativePath = virtualPath;

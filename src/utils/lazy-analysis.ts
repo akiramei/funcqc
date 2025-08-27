@@ -133,7 +133,7 @@ async function performLazyCallGraphAnalysis(
 
     // Create analyzer instance and get existing functions
     const analyzer = new FunctionAnalyzer(env.config);
-    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    const { functions } = await (await import('./functions-cache')).getOrLoadFunctions(env, snapshotId);
     
     // Create file content map
     const fileContentMap = new Map<string, string>();
@@ -207,8 +207,8 @@ export async function loadCallGraphWithLazyAnalysis(
     throw new Error('No snapshots found. Run `funcqc scan` first.');
   }
 
-  // Get functions first
-  const functions = await env.storage.findFunctionsInSnapshot(snapshot.id);
+  // Get functions (use env cache when available)
+  const { functions } = await (await import('./functions-cache')).getOrLoadFunctions(env, snapshot.id);
 
   // First check if call graph data already exists
   const existingCallEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);

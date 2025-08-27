@@ -712,9 +712,9 @@ export async function performDeferredCouplingAnalysis(
     spinner.start('Performing coupling analysis...');
   }
   
-  // Get source files and functions for the snapshot
+  // Get source files and functions for the snapshot (functions are cached in env when possible)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const { functions } = await (await import('../../utils/functions-cache')).getOrLoadFunctions(env, snapshotId);
   
   if (sourceFiles.length === 0 || functions.length === 0) {
     throw new Error(`No source files or functions found for snapshot ${snapshotId}`);
@@ -1126,9 +1126,9 @@ export async function performCallGraphAnalysis(
     spinner.start('Performing call graph analysis...');
   }
   
-  // Get stored files and functions
+  // Get stored files and functions (functions cached in env when available)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const { functions } = await (await import('../../utils/functions-cache')).getOrLoadFunctions(env, snapshotId);
   // Data fetched from database
   
   // Reconstruct file map for analyzer (include all files for proper type resolution)
