@@ -463,7 +463,7 @@ export class DependencyManager {
       const configHash = await this.generateConfigHash(env);
 
       // 3. スナップショット保存
-      await saveSourceFiles(sourceFiles, env.storage, {
+      const snapshotId = await saveSourceFiles(sourceFiles, env.storage, {
         comment: 'Initial snapshot created by dependency manager',
         scope: 'src',
         configHash,
@@ -471,6 +471,28 @@ export class DependencyManager {
 
       if (!options.quiet) {
         env.commandLogger.info(`✓ Initial snapshot created (${files.length} files processed)`);
+      }
+
+      // Initialize shared ts-morph Project once per snapshot, registering all files in advance
+      try {
+        if (env.projectManager) {
+          const fileContentMap = new Map<string, string>();
+          for (const f of sourceFiles) {
+            const filePath = (f as Record<string, unknown>)['filePath'] as string;
+            const content = (f as Record<string, unknown>)['fileContent'] as string;
+            if (filePath && typeof content === 'string') {
+              fileContentMap.set(filePath, content);
+            }
+          }
+          if (fileContentMap.size > 0) {
+            await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+            if (!options.quiet && options.verbose) {
+              env.commandLogger.info(`📚 Shared project initialized with ${fileContentMap.size} files`);
+            }
+          }
+        }
+      } catch (projErr) {
+        env.commandLogger.warn(`Warning: Failed to pre-initialize shared project: ${projErr}`);
       }
 
     } catch (error) {

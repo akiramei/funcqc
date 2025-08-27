@@ -532,31 +532,20 @@ async function executePureBasicBatchAnalysis(
     }
   }
 
-  // Create shared project once for all analysis using TypeScript analyzer
-  const maybePrepare =
-    (components.analyzer as unknown as {
-      prepareSharedProject?: (
-        sid: string,
-        map: Map<string, string>
-      ) => Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }>;
-    }).prepareSharedProject;
-  let isNewlyCreated = false;
-  if (typeof maybePrepare === 'function') {
-    ({ isNewlyCreated } = await maybePrepare(snapshotId, allFileContentMap));
-  } else {
-    env.commandLogger.debug?.(
-      'Shared project not supported by analyzer — skipping prepareSharedProject'
-    );
-  }
-
-  if (isNewlyCreated) {
-    if (options?.verbose) {
-      env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
+  // Ensure shared project is created once for all analysis via env.projectManager
+  if (env.projectManager) {
+    const { isNewlyCreated } = await env.projectManager.getOrCreateProject(snapshotId, allFileContentMap);
+    if (isNewlyCreated) {
+      if (options?.verbose) {
+        env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
+      }
+    } else {
+      if (options?.verbose) {
+        env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
+      }
     }
   } else {
-    if (options?.verbose) {
-      env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
-    }
+    env.commandLogger.debug?.('No projectManager available in env — proceeding without shared project');
   }
 
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
@@ -742,23 +731,32 @@ export async function performDeferredCouplingAnalysis(
       spinner.text = `Performing coupling analysis on ${sourceFiles.length} files...`;
     }
     
-    // Create shared Project/TypeChecker for coupling analysis to reduce memory usage
-    const project = new Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: {
-        target: ts.ScriptTarget.Latest,
-        allowJs: true,
-        skipLibCheck: true,
-      }
-    });
-    
-    // Load all source files into the project for complete type resolution
-    // This ensures that imported types and interfaces are available for coupling analysis
-    console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
-    for (const sourceFile of sourceFiles) {
-      project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+    // Obtain shared Project/TypeChecker via environment's projectManager
+    const fileContentMap = new Map<string, string>();
+    for (const sf of sourceFiles) {
+      fileContentMap.set(sf.filePath, sf.fileContent);
     }
-    console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
+    let project: Project;
+    if (env.projectManager) {
+      const result = await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+      project = result.project;
+      console.log(`📁 Using shared project with ${project.getSourceFiles().length} files`);
+    } else {
+      // Fallback for environments/tests that don't provide projectManager yet
+      project = new Project({
+        useInMemoryFileSystem: true,
+        compilerOptions: {
+          target: ts.ScriptTarget.Latest,
+          allowJs: true,
+          skipLibCheck: true,
+        }
+      });
+      console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
+      for (const sourceFile of sourceFiles) {
+        project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+      }
+      console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
+    }
     
     const typeChecker = project.getTypeChecker();
     
@@ -1143,6 +1141,10 @@ export async function performCallGraphAnalysis(
   const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
   
   try {
+    // Ensure shared project is initialized with all files
+    if (env.projectManager) {
+      await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+    }
     // Analyze call graph from stored content
     const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
     // Call graph analysis completed
@@ -1216,16 +1218,39 @@ export async function performDeferredTypeSystemAnalysis(
       throw new Error(`No source files found for snapshot ${snapshotId}`);
     }
     
-    // Create TypeScript analyzer
+    // Create TypeScript analyzer (for utilities) and TypeSystemAnalyzer bound to shared Project
     const analyzer = new TypeScriptAnalyzer(
       100, // maxSourceFilesInMemory
       true, // enableCache
       env.commandLogger // logger
     );
-    
-    // Set storage for function ID lookup in type members
     analyzer.setStorage(env.storage);
-    
+
+    // Obtain shared Project via environment's projectManager and reuse across analyses
+    const fileContentsMap = new Map<string, string>();
+    sourceFiles.forEach(sourceFile => {
+      fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
+    });
+    let typeProject: Project;
+    if (env.projectManager) {
+      const { project } = await env.projectManager.getOrCreateProject(snapshotId, fileContentsMap);
+      typeProject = project;
+      console.log(`📁 Using shared project for type analysis with ${typeProject.getSourceFiles().length} files`);
+    } else {
+      // Fallback for test environments without projectManager
+      typeProject = new Project({ useInMemoryFileSystem: true });
+      for (const [fp, content] of fileContentsMap) {
+        typeProject.createSourceFile(fp, content, { overwrite: true });
+      }
+    }
+
+    // Initialize TypeSystemAnalyzer directly with shared project
+    const typeSystemAnalyzer = new (await import('../../analyzers/type-system-analyzer')).TypeSystemAnalyzer(
+      typeProject,
+      env.commandLogger
+    );
+    typeSystemAnalyzer.setStorage(env.storage);
+
     // Analyze types from all source files in batch for better performance
     const typeDefinitions: import('../../types').TypeDefinition[] = [];
     const typeRelationships: import('../../types').TypeRelationship[] = [];
@@ -1233,16 +1258,10 @@ export async function performDeferredTypeSystemAnalysis(
     const methodOverrides: import('../../types').MethodOverride[] = [];
     
     try {
-      // Create file path to content mapping for batch processing
-      const fileContentsMap = new Map<string, string>();
-      sourceFiles.forEach(sourceFile => {
-        fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
-      });
-      
-      // Batch analyze all files at once instead of one by one
-      const result = await analyzer.extractTypeInformationFromContents(
-        fileContentsMap,
-        snapshotId
+      // Batch analyze all files from shared project at once
+      const result = await typeSystemAnalyzer.extractTypeInformation(
+        snapshotId,
+        typeProject.getSourceFiles()
       );
       
       // Add snapshotId to each type definition (should already be included but ensure consistency)
@@ -1278,23 +1297,31 @@ export async function performDeferredTypeSystemAnalysis(
       // Fallback to individual file processing if batch fails
       for (const sourceFile of sourceFiles) {
         try {
-          const result = await analyzer.analyzeTypesFromContent(
-            sourceFile.filePath,
-            sourceFile.fileContent
-          );
+          // Ensure file exists in shared project (create if missing in fallback)
+          let sf = typeProject.getSourceFile(sourceFile.filePath);
+          if (!sf) {
+            sf = typeProject.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+          }
+          const result = await typeSystemAnalyzer.extractTypeInformation(snapshotId, [sf]);
           
-          const typesWithSnapshot = result.types.map(type => ({
+          const typesWithSnapshot = result.typeDefinitions.map(type => ({
             ...type,
             snapshotId
           }));
           
-          const relationshipsWithSnapshot = result.relationships.map(rel => ({
+          const relationshipsWithSnapshot = result.typeRelationships.map(rel => ({
             ...rel,
             snapshotId
           }));
           
           typeDefinitions.push(...typesWithSnapshot);
           typeRelationships.push(...relationshipsWithSnapshot);
+          if (result.typeMembers?.length) {
+            typeMembers.push(...result.typeMembers.map(m => ({ ...m, snapshotId })));
+          }
+          if (result.methodOverrides?.length) {
+            methodOverrides.push(...result.methodOverrides.map(m => ({ ...m, snapshotId })));
+          }
         } catch (error) {
           env.commandLogger.warn(`Failed to analyze types for ${sourceFile.filePath}: ${error}`);
         }
