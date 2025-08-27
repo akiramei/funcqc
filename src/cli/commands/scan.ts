@@ -25,6 +25,7 @@ import { CommandEnvironment } from '../../types/environment';
 import { FunctionAnalyzer } from '../../core/analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, TypeChecker, ts, Node } from 'ts-morph';
+import { getOrLoadFunctions, ensureSharedProject, primeFunctionsAfterBasic } from '../../core/env-facade';
 // import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
 
@@ -628,26 +629,7 @@ async function executePureBasicBatchAnalysis(
       
       console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
 
-      // Prime env with functions to avoid reloading from DB in subsequent analyses within the same process
-      try {
-        const snapshot = await env.storage.getSnapshot(snapshotId);
-        if (snapshot) {
-          const existing = env.callGraphData;
-          env.callGraphData = {
-            snapshot,
-            functions: allFunctions,
-            callEdges: existing?.callEdges || [],
-            internalCallEdges: existing?.internalCallEdges || [],
-            allEdges: existing?.allEdges || [],
-            lazyAnalysisPerformed: existing?.lazyAnalysisPerformed,
-          } as unknown as import('../../types/environment').CallGraphData;
-          if (options?.verbose) {
-            env.commandLogger.info(`⚡ Primed env with ${allFunctions.length} functions for snapshot ${snapshotId.substring(0,8)}`);
-          }
-        }
-      } catch (primeErr) {
-        env.commandLogger?.debug?.(`Skipping env functions priming: ${primeErr instanceof Error ? primeErr.message : String(primeErr)}`);
-      }
+      await primeFunctionsAfterBasic(env, snapshotId, allFunctions, options?.verbose);
     } catch (error) {
       console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
       
@@ -735,7 +717,7 @@ export async function performDeferredCouplingAnalysis(
   
   // Get source files and functions for the snapshot (functions are cached in env when possible)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const { functions } = await (await import('../../utils/functions-cache')).getOrLoadFunctions(env, snapshotId);
+  const { functions } = await getOrLoadFunctions(env, snapshotId);
   
   if (sourceFiles.length === 0 || functions.length === 0) {
     throw new Error(`No source files or functions found for snapshot ${snapshotId}`);
@@ -1149,7 +1131,7 @@ export async function performCallGraphAnalysis(
   
   // Get stored files and functions (functions cached in env when available)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const { functions } = await (await import('../../utils/functions-cache')).getOrLoadFunctions(env, snapshotId);
+  const { functions } = await getOrLoadFunctions(env, snapshotId);
   // Data fetched from database
   
   // Reconstruct file map for analyzer (include all files for proper type resolution)
@@ -1163,9 +1145,7 @@ export async function performCallGraphAnalysis(
   
   try {
     // Ensure shared project is initialized with all files
-    if (env.projectManager) {
-      await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
-    }
+    await ensureSharedProject(env, snapshotId, fileContentMap);
     // Analyze call graph from stored content
     const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
     // Call graph analysis completed

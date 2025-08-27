@@ -3,6 +3,7 @@ import ora, { Ora } from 'ora';
 import { StorageAdapter } from '../types';
 import { CommandEnvironment } from '../types/environment';
 import { FunctionAnalyzer } from '../core/analyzer';
+import { getOrLoadFunctions } from '../core/env-facade';
 
 /**
  * Lazy analysis utility for ensuring call graph data is available
@@ -133,7 +134,7 @@ async function performLazyCallGraphAnalysis(
 
     // Create analyzer instance and get existing functions
     const analyzer = new FunctionAnalyzer(env.config);
-    const { functions } = await (await import('./functions-cache')).getOrLoadFunctions(env, snapshotId);
+    const { functions } = await getOrLoadFunctions(env, snapshotId);
     
     // Create file content map
     const fileContentMap = new Map<string, string>();
@@ -208,7 +209,7 @@ export async function loadCallGraphWithLazyAnalysis(
   }
 
   // Get functions (use env cache when available)
-  const { functions } = await (await import('./functions-cache')).getOrLoadFunctions(env, snapshot.id);
+  const { functions } = await getOrLoadFunctions(env, snapshot.id);
 
   // First check if call graph data already exists
   const existingCallEdges = await env.storage.getCallEdgesBySnapshot(snapshot.id);
