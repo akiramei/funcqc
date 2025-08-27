@@ -652,53 +652,8 @@ export async function performBasicAnalysis(
   spinner: SpinnerInterface,
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionsAnalyzed: number }> {
-  spinner.start('Performing basic function analysis...');
-  
-  const components = await initializeComponents(env, spinner, sourceFiles.length);
-  let totalFunctions = 0; // Track total instead of accumulating all in memory
-  
-  // Determine optimal concurrency based on system resources
-  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
-  const maxConcurrency = components.optimalConfig.maxWorkers;
-  
-  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
-  
-  try {
-    // Prepare batches for parallel processing
-    const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
-    
-    // Execute BASIC batch analysis (no coupling)
-    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, { verbose: false }, sourceFileIdMap);
-    
-    // Collect summary results
-    const allErrors: string[] = [];
-    for (const batchResult of batchResults) {
-      totalFunctions += batchResult.functionCount;
-      allErrors.push(...batchResult.errors);
-    }
-    
-    if (allErrors.length > 0) {
-      console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
-    } else {
-      console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
-    }
-    
-    // Update analysis level after all batches complete
-    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-    
-    spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
-    
-    // Skip heavy summary calculation for performance unless explicitly requested
-    if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
-      // Summary requires function array but we optimized it away for memory efficiency
-      console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
-    }
-    
-    return { functionsAnalyzed: totalFunctions };
-  } finally {
-    // Always perform cleanup
-    await performAnalysisCleanup(components, env);
-  }
+  // DRY: Delegate to performPureBasicAnalysis (no behavior change)
+  return performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
 }
 
 /**
