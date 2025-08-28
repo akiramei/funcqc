@@ -582,7 +582,7 @@ export interface CliComponents {
   analyzer: { 
     analyzeFile(file: string): Promise<FunctionInfo[]>;
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
-    analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]>;
+    analyzeContent(content: string, virtualPath: string, snapshotId?: string, env?: import('./environment').CommandEnvironment): Promise<FunctionInfo[]>;
     cleanup?(): Promise<void>;
   };
   storage: StorageAdapter;

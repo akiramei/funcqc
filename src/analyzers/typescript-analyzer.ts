@@ -29,7 +29,6 @@ import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
 import { TypeSystemAnalyzer } from './type-system-analyzer';
-import { SharedVirtualProjectManager } from '../core/shared-virtual-project-manager';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
 import type { QualityCalculator as QualityCalculatorType } from '../metrics/quality-calculator';
@@ -267,22 +266,12 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
   }
 
-  /**
-   * Prepare shared virtual project for batch analysis
-   * Creates or reuses cached project for optimal performance
-   */
-  async prepareSharedProject(
-    snapshotId: string,
-    fileContentMap: Map<string, string>
-  ): Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }> {
-    return SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-  }
 
   /**
    * Analyze TypeScript content from string instead of file
    * Used for analyzing stored file content with shared virtual project
    */
-  async analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]> {
+  async analyzeContent(content: string, virtualPath: string, snapshotId?: string, env?: import('../types/environment').CommandEnvironment): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
     
     try {
@@ -292,16 +281,16 @@ export class TypeScriptAnalyzer extends CacheAware {
       
       if (snapshotId) {
         // CRITICAL FIX: For single file analysis, prioritize cache lookup without creating new project
-        const cachedProject = SharedVirtualProjectManager.getCachedProject(snapshotId);
-        if (cachedProject) {
-          targetProject = cachedProject;
-          isUsingSharedProject = true;
+        if (env?.projectManager) {
+          const cachedProject = env.projectManager.getCachedProject(snapshotId);
+          if (cachedProject) {
+            targetProject = cachedProject;
+            isUsingSharedProject = true;
+          } else {
+            throw new Error(`No cached shared project found for snapshot ${snapshotId}. This indicates a design problem - project should be created by dependency manager before analysis begins.`);
+          }
         } else {
-          // Fallback: only create if no cache exists (should rarely happen)
-          const fileContentMap = new Map([[virtualPath, content]]);
-          const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-          targetProject = sharedProject;
-          isUsingSharedProject = true;
+          throw new Error(`No project manager available in env for snapshot ${snapshotId}. Project should be created by dependency manager before analysis begins.`);
         }
       }
       

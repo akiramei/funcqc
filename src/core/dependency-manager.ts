@@ -615,14 +615,15 @@ export class DependencyManager {
   private async initializeBasicAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
     
-    // 既存の関数をチェックして重複実行を防ぐ
-    const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
-    if (existingFunctions.length > 0) {
+    // メタデータのフラグをチェックして重複実行を防ぐ
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    const basicCompleted = snapshot?.metadata && 'basicAnalysisCompleted' in snapshot.metadata ? 
+      snapshot.metadata.basicAnalysisCompleted : false;
+      
+    if (basicCompleted) {
       if (!options.quiet && options.verbose) {
-        env.commandLogger.info(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
+        env.commandLogger.info(`📋 BASIC analysis already completed (flag check)`);
       }
-      // 分析レベルを確認・更新
-      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
       return;
     }
     
@@ -633,17 +634,6 @@ export class DependencyManager {
     await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
   }
   
-  /**
-   * AnalysisLevel の序数ランク（dependency-manager内で統一）
-   */
-  private readonly analysisLevelRank: Record<AnalysisLevel, number> = {
-    NONE: 0,
-    BASIC: 1,
-    COUPLING: 2,
-    CALL_GRAPH: 3,
-    TYPE_SYSTEM: 4,
-    COMPLETE: 5,
-  };
 
   /**
    * 分析レベルが正しく設定されているかチェックし、必要に応じて更新
@@ -677,11 +667,15 @@ export class DependencyManager {
   
   private async initializeCallGraphAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['CALL_GRAPH']) {
+    
+    // メタデータのフラグをチェックして重複実行を防ぐ
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    const callGraphCompleted = snapshot?.metadata && 'callGraphAnalysisCompleted' in snapshot.metadata ? 
+      snapshot.metadata.callGraphAnalysisCompleted : false;
+      
+    if (callGraphCompleted) {
       if (!options.quiet && options.verbose) {
-        env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed - skipping duplicate analysis');
+        env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed (flag check)');
       }
       return;
     }
@@ -694,14 +688,23 @@ export class DependencyManager {
   
   private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['TYPE_SYSTEM']) {
+    
+    // Check metadata flags instead of analysisLevel
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Snapshot ${snapshotId} not found`);
+    }
+    
+    const typeSystemCompleted = snapshot?.metadata && 'typeSystemAnalysisCompleted' in snapshot.metadata ? 
+      snapshot.metadata.typeSystemAnalysisCompleted : false;
+      
+    if (typeSystemCompleted) {
       if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  TYPE_SYSTEM analysis already completed - skipping duplicate analysis');
       }
       return;
     }
+    
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
     await performDeferredTypeSystemAnalysis(snapshotId, env, true);
     
@@ -711,14 +714,23 @@ export class DependencyManager {
   
   private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['COUPLING']) {
+    
+    // Check metadata flags instead of analysisLevel
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Snapshot ${snapshotId} not found`);
+    }
+    
+    const couplingCompleted = snapshot?.metadata && 'couplingAnalysisCompleted' in snapshot.metadata ? 
+      snapshot.metadata.couplingAnalysisCompleted : false;
+      
+    if (couplingCompleted) {
       if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  COUPLING analysis already completed - skipping duplicate analysis');
       }
       return;
     }
+    
     const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
     await performDeferredCouplingAnalysis(snapshotId, env, undefined);
     

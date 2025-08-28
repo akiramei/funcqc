@@ -11,6 +11,7 @@ export interface ProjectManager {
     snapshotId: string,
     fileContentMap: Map<string, string>
   ): Promise<{ project: Project; isNewlyCreated: boolean }>;
+  getProject(snapshotId: string): Project;
   getCachedProject(snapshotId: string): Project | null;
   disposeProject(snapshotId: string): void;
   clearAll(): void;

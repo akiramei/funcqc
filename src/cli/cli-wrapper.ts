@@ -549,9 +549,6 @@ async function ensureBasicAnalysis(commandEnv: CommandEnvironment, mergedOptions
             const { performDeferredBasicAnalysis } = await import('./commands/scan');
             await performDeferredBasicAnalysis(snapshot.id, commandEnv, !isJsonMode);
             
-            if (!isJsonMode) {
-              console.log(`✓ Basic analysis completed`);
-            }
           }
         }
       );
