@@ -8,6 +8,7 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import { GitProvider, GitCommitInfo } from './cochange-analyzer';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface GitCochangeOptions {
   monthsBack: number;
@@ -161,9 +162,7 @@ export class GitCochangeProvider implements GitProvider {
    */
   private normalizeFilePath(filePath: string): string {
     // Unify to '/src/...' then drop leading slash for git-style comparisons
-    // Avoid circular import by requiring at runtime
-    const { toUnifiedProjectPath } = require('../../utils/path-normalizer');
-    const unified = toUnifiedProjectPath(filePath) as string;
+    const unified = toUnifiedProjectPath(filePath);
     return unified.startsWith('/') ? unified.slice(1) : unified;
   }
 

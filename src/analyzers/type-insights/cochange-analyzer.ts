@@ -10,6 +10,7 @@
 
 import { CrossTypeAnalyzer, CrossTypeAnalysisOptions, CrossTypePattern } from './cross-type-analyzer';
 import type { StorageQueryInterface } from './types';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface CochangeAnalysisOptions extends CrossTypeAnalysisOptions {
   monthsBack: number;             // How far back to analyze (default: 6 months)
@@ -198,7 +199,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    */
   private normalizePath(p: string): string {
     // Use unified project-root path then strip leading slash for git-style comparison
-    const unified = require('../../utils/path-normalizer').toUnifiedProjectPath(p) as string;
+    const unified = toUnifiedProjectPath(p);
     return unified.startsWith('/') ? unified.slice(1) : unified;
   }
 
