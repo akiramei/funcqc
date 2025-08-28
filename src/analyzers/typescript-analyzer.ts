@@ -12,6 +12,7 @@ import {
   ModuleDeclaration,
   VariableStatement,
 } from 'ts-morph';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 import * as path from 'path';
 import { StorageAdapter } from '../types';
 import { determineFunctionType } from './shared/function-type-utils';
@@ -310,7 +311,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         sourceFile = targetProject.createSourceFile(virtualPath, content, { overwrite: true });
       }
       
-      // Use virtualPath directly as it's already normalized when stored in DB
+      // Use virtualPath as-is (consistent with snapshot storage and ID generation)
       const relativePath = virtualPath;
       const fileHash = this.calculateFileHash(content);
       
@@ -486,7 +487,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     // Generate 3D identification system
     const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(func.getSourceFile().getFilePath()), name, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -597,7 +598,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(method.getSourceFile().getFilePath()), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -696,7 +697,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(ctor.getSourceFile().getFilePath()), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -828,7 +829,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     snapshotId: string = 'unknown'
   ): Promise<FunctionInfo> {
     const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(stmt.getSourceFile().getFilePath()), name, className, metadata.startLine, metadata.startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,

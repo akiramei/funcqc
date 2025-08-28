@@ -629,7 +629,15 @@ async function executePureBasicBatchAnalysis(
       
       console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
 
-      await primeFunctionsAfterBasic(env, snapshotId, allFunctions, options?.verbose);
+      // Root-fix: prime env with DB-normalized functions rather than in-memory array
+      // to guarantee path/id/lines consistency for downstream analyzers.
+      try {
+        const dbFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+        await primeFunctionsAfterBasic(env, snapshotId, dbFunctions, options?.verbose);
+      } catch {
+        // Fallback to in-memory priming if DB fetch fails (should be rare)
+        await primeFunctionsAfterBasic(env, snapshotId, allFunctions, options?.verbose);
+      }
     } catch (error) {
       console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
       
@@ -1101,8 +1109,36 @@ export async function performCallGraphAnalysis(
   try {
     // Ensure shared project is initialized with all files
     await ensureSharedProject(env, snapshotId, fileContentMap);
-    // Analyze call graph from stored content
-    const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
+    // Analyze call graph from stored content (first pass)
+    let result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
+
+    // Diagnostics: optional debug on empty first pass
+    if (result.callEdges.length === 0 && process.env['FUNCQC_DEBUG_PATHS'] === 'true') {
+      env.commandLogger.debug?.(`DEBUG(call-graph): first pass yielded 0 edges; functions=${functions.length}, files=${sourceFiles.length}`);
+    }
+
+    // Optional fallback (disabled by default) to avoid masking design issues
+    const enableFallback = /^(1|true|yes)$/i.test(process.env['FUNCQC_ENABLE_DB_FUNCTIONS_FALLBACK'] || '');
+    if (enableFallback && result.callEdges.length === 0 && functions.length > 100 && sourceFiles.length > 50) {
+      env.commandLogger.warn('⚠️  No call edges found on first pass. Retrying with functions loaded from DB (fallback enabled)...');
+      const freshFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+      result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, freshFunctions, snapshotId, env.storage);
+      if (result.callEdges.length > 0) {
+        const snapshot = await env.storage.getSnapshot(snapshotId);
+        if (snapshot) {
+          env.callGraphData = {
+            snapshot,
+            functions: freshFunctions,
+            callEdges: env.callGraphData?.callEdges || [],
+            internalCallEdges: env.callGraphData?.internalCallEdges || [],
+            allEdges: env.callGraphData?.allEdges || [],
+            ...(env.callGraphData?.lazyAnalysisPerformed !== undefined
+              ? { lazyAnalysisPerformed: env.callGraphData.lazyAnalysisPerformed }
+              : {}),
+          } as import('../../types/environment').CallGraphData;
+        }
+      }
+    }
     // Call graph analysis completed
     
     // Save call edges

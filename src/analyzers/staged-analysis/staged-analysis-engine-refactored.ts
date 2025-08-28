@@ -9,7 +9,7 @@
  * 5. Runtime Confirmed - V8 Coverage integration (confidence: 1.0)
  */
 
-import * as path from 'path';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 import { Project, TypeChecker } from 'ts-morph';
 import { IdealCallEdge, FunctionMetadata } from '../ideal-call-graph-analyzer';
 import { RTAAnalyzer } from '../rta-analyzer';
@@ -258,9 +258,7 @@ export class StagedAnalysisEngine {
         this.logger.debug(`      Progress: ${processedFiles}/${sourceFiles.length} files processed...`);
       }
 
-      const rawFilePath = sourceFile.getFilePath();
-      // Use absolute OS-native path to match buildLookupMaps normalization
-      const filePath = path.resolve(rawFilePath);
+      const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
 
       // Debug: Log path comparison for first few files
@@ -309,22 +307,15 @@ export class StagedAnalysisEngine {
    * Build lookup maps for efficient analysis
    */
   private buildLookupMaps(functions: Map<string, FunctionMetadata>): void {
-    // Build file to functions map
+    // Build file to functions map using unified project-root paths: '/src/...'
     for (const [id, func] of functions) {
-      // Normalize path: use absolute OS-native path to match ts-morph getFilePath()
-      const normalizedPath = path.resolve(func.filePath);
-      
-      const existing = this.state.fileToFunctionsMap.get(normalizedPath) || [];
+      const fileKey = toUnifiedProjectPath(func.filePath);
+      const existing = this.state.fileToFunctionsMap.get(fileKey) || [];
       existing.push(func);
-      this.state.fileToFunctionsMap.set(normalizedPath, existing);
-      
-      // Debug: log first few mappings when debug mode is enabled
-      if (this._debug && this.state.fileToFunctionsMap.size <= 3) {
-      }
+      this.state.fileToFunctionsMap.set(fileKey, existing);
 
-      // Build function lookup map (per-line for O(1) lookup compatibility)
       for (let line = func.startLine; line <= func.endLine; line++) {
-        const key = `${normalizedPath}:${line}`;
+        const key = `${fileKey}:${line}`;
         this.state.functionLookupMap.set(key, id);
       }
     }
@@ -343,7 +334,7 @@ export class StagedAnalysisEngine {
     let totalExternalCalls = 0;
 
     for (const sourceFile of sourceFiles) {
-      const filePath = sourceFile.getFilePath();
+      const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
       const fileFunctions = this.state.fileToFunctionsMap.get(filePath) || [];
       
       if (fileFunctions.length === 0) {

@@ -1,4 +1,5 @@
 import { Project, Node, SyntaxKind, ts, SourceFile } from 'ts-morph';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 import { LRUCache } from 'lru-cache';
 import pLimit from 'p-limit';
 import os from 'os';
@@ -636,7 +637,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
 
   private async ensureFilesLoaded(functions: FunctionInfo[]): Promise<void> {
     const uniqueFiles = new Set(functions.map(f => f.filePath));
-    const loadedFilePaths = this.project!.getSourceFiles().map(sf => sf.getFilePath().toString());
+    const loadedFilePaths = this.project!.getSourceFiles().map(sf => toUnifiedProjectPath(sf.getFilePath().toString()));
     const loadedFiles = new Set(loadedFilePaths);
 
     let _newCount = 0;
@@ -866,7 +867,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    * AST Canonicalization - normalize identifiers, literals, types
    */
   private canonicalizeAST(node: Node): string {
-    const cacheKey = `${node.getSourceFile().getFilePath()}:${node.getStart()}`;
+    const cacheKey = `${toUnifiedProjectPath(node.getSourceFile().getFilePath())}:${node.getStart()}`;
     if (this.canonicalCache.has(cacheKey)) {
       return this.canonicalCache.get(cacheKey)!;
     }
@@ -962,7 +963,7 @@ export class AdvancedSimilarityDetector implements SimilarityDetector {
    * Merkle Hash - structural hashing for exact matches
    */
   private computeMerkleHash(node: Node): bigint {
-    const cacheKey = `${node.getSourceFile().getFilePath()}:${node.getStart()}`;
+    const cacheKey = `${toUnifiedProjectPath(node.getSourceFile().getFilePath())}:${node.getStart()}`;
     if (this.merkleCache.has(cacheKey)) {
       return this.merkleCache.get(cacheKey)!;
     }

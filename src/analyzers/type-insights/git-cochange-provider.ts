@@ -160,11 +160,11 @@ export class GitCochangeProvider implements GitProvider {
    * Normalize file path for consistent comparison
    */
   private normalizeFilePath(filePath: string): string {
-    // Convert backslashes to forward slashes and remove redundant separators
-    const normalized = filePath.replace(/\\/g, '/').replace(/\/+/g, '/');
-    
-    // Remove leading ./ if present
-    return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+    // Unify to '/src/...' then drop leading slash for git-style comparisons
+    // Avoid circular import by requiring at runtime
+    const { toUnifiedProjectPath } = require('../../utils/path-normalizer');
+    const unified = toUnifiedProjectPath(filePath) as string;
+    return unified.startsWith('/') ? unified.slice(1) : unified;
   }
 
   /**

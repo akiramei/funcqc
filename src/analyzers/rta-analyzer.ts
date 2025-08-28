@@ -2,7 +2,7 @@ import { Project, Node, TypeChecker, CallExpression, NewExpression } from 'ts-mo
 import { FunctionMetadata, IdealCallEdge, ResolutionLevel } from './ideal-call-graph-analyzer';
 import { MethodInfo, UnresolvedMethodCall } from './cha-analyzer';
 import { generateStableEdgeId } from '../utils/edge-id-generator';
-import { PathNormalizer } from '../utils/path-normalizer';
+import { PathNormalizer, toUnifiedProjectPath } from '../utils/path-normalizer';
 import { FunctionIndex } from './function-index';
 import { getRelativePath } from '../utils/path-utils';
 
@@ -201,7 +201,7 @@ export class RTAAnalyzer {
             // Record interface instantiation info
             const instantiationInfo: InstantiationInfo = {
               typeName: interfaceName,
-              filePath: node.getSourceFile().getFilePath(),
+              filePath: toUnifiedProjectPath(node.getSourceFile().getFilePath()),
               lineNumber: node.getStartLineNumber(),
               instantiationType: 'interface'
             };
@@ -219,7 +219,7 @@ export class RTAAnalyzer {
         // Record instantiation location for debugging
         const instantiationInfo: InstantiationInfo = {
           typeName,
-          filePath: node.getSourceFile().getFilePath(),
+          filePath: toUnifiedProjectPath(node.getSourceFile().getFilePath()),
           lineNumber: node.getStartLineNumber(),
           instantiationType: 'constructor'
         };
@@ -260,7 +260,7 @@ export class RTAAnalyzer {
               
               const instantiationInfo: InstantiationInfo = {
                 typeName,
-                filePath: node.getSourceFile().getFilePath(),
+                filePath: toUnifiedProjectPath(node.getSourceFile().getFilePath()),
                 lineNumber: node.getStartLineNumber(),
                 instantiationType: 'factory'
               };
@@ -698,7 +698,7 @@ export class RTAAnalyzer {
                   // Record interface instantiation info
                   const instantiationInfo: InstantiationInfo = {
                     typeName: interfaceName,
-                    filePath: node.getSourceFile().getFilePath(),
+                    filePath: toUnifiedProjectPath(node.getSourceFile().getFilePath()),
                     lineNumber: node.getStartLineNumber(),
                     instantiationType: 'interface'
                   };

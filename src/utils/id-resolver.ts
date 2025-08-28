@@ -255,15 +255,23 @@ export class IDResolver {
    */
   private async resolveByFilePath(input: string): Promise<IDResolutionResult | null> {
     const matches: IDResolutionResult['matches'] = [];
-    
+    // Normalize input path to POSIX and unified project-root path
+    const posixInput = input.replace(/\\/g, '/');
+    const { toUnifiedProjectPath } = await import('./path-normalizer');
+    const unifiedInput = toUnifiedProjectPath(posixInput);
+    const unifiedNoSlash = unifiedInput.startsWith('/') ? unifiedInput.slice(1) : unifiedInput;
+
     // Check for file:line pattern
-    const fileLineMatch = input.match(/^(.+):(\d+)$/);
+    const fileLineMatch = posixInput.match(/^(.+):(\d+)$/);
     if (fileLineMatch) {
-      const [, filePath, lineStr] = fileLineMatch;
+      const [, filePathRaw, lineStr] = fileLineMatch;
+      const filePathUnified = toUnifiedProjectPath(filePathRaw);
+      const filePathUnifiedNoSlash = filePathUnified.startsWith('/') ? filePathUnified.slice(1) : filePathUnified;
       const line = parseInt(lineStr, 10);
       
       for (const func of this.functionCache!.values()) {
-        if (func.filePath.includes(filePath) && func.startLine === line) {
+        const fp = func.filePath;
+        if ((fp.includes(filePathUnified) || fp.includes(filePathUnifiedNoSlash)) && func.startLine === line) {
           matches.push({
             id: func.id,
             name: func.name,
@@ -276,7 +284,8 @@ export class IDResolver {
     } else {
       // Just file path
       for (const func of this.functionCache!.values()) {
-        if (func.filePath.includes(input)) {
+        const fp = func.filePath;
+        if (fp.includes(unifiedInput) || fp.includes(unifiedNoSlash)) {
           matches.push({
             id: func.id,
             name: func.name,
@@ -342,12 +351,15 @@ export class IDResolver {
    */
   private async resolveByPartialPath(input: string): Promise<IDResolutionResult | null> {
     const matches: IDResolutionResult['matches'] = [];
-    const lowerInput = input.toLowerCase();
+    const posixInput = input.replace(/\\/g, '/');
+    const { toUnifiedProjectPath } = await import('./path-normalizer');
+    const unifiedInput = toUnifiedProjectPath(posixInput);
+    const lowerInputFull = unifiedInput.toLowerCase();
+    const lowerInputShort = (unifiedInput.startsWith('/') ? unifiedInput.slice(1) : unifiedInput).toLowerCase();
     
     for (const func of this.functionCache!.values()) {
       const lowerPath = func.filePath.toLowerCase();
-      
-      if (lowerPath.includes(lowerInput)) {
+      if (lowerPath.includes(lowerInputFull) || lowerPath.includes(lowerInputShort)) {
         matches.push({
           id: func.id,
           name: func.name,

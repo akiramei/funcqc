@@ -2,7 +2,7 @@ import { Project, SourceFile, ClassDeclaration, InterfaceDeclaration, TypeAliasD
 import { TypeExtractionResult, TypeDefinition, TypeRelationship, TypeMember, MethodOverride } from '../types/type-system';
 import { StorageAdapter } from '../types';
 import { Logger } from '../utils/cli-utils';
-import { PathNormalizer } from '../utils/path-normalizer';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 import { generateDeterministicTypeId } from '../utils/type-id-generator.js';
 import { randomUUID } from 'crypto';
 
@@ -48,13 +48,13 @@ export class TypeSystemAnalyzer {
     // Keep track of source files by file path for member extraction
     const sourceFileMap = new Map<string, SourceFile>();
     for (const sourceFile of sourceFiles) {
-      const normalizedPath = PathNormalizer.normalize(sourceFile.getFilePath());
-      sourceFileMap.set(normalizedPath, sourceFile);
+      const unifiedPath = toUnifiedProjectPath(sourceFile.getFilePath());
+      sourceFileMap.set(unifiedPath, sourceFile);
     }
 
     // Phase 1: Extract all type definitions
     for (const sourceFile of sourceFiles) {
-      const filePath = PathNormalizer.normalize(sourceFile.getFilePath());
+      const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
       
       // Extract classes
       const classes = sourceFile.getClasses();

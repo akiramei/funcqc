@@ -152,7 +152,8 @@ export class DependencyRiskAnalyzer {
     for (const row of usageResult.rows) {
       const rowData = row as FunctionInfoRow;
       // Extract a simple identifier from file path
-      const fileName = rowData.file_path.split('/').pop()?.replace(/\.(ts|js)$/, '') || rowData.file_path;
+      const filePathUnified = (rowData.file_path as string)?.replace(/\\/g, '/');
+      const fileName = filePathUnified.split('/').pop()?.replace(/\.(ts|js)$/, '') || filePathUnified;
       usageDependents.add(fileName);
     }
 

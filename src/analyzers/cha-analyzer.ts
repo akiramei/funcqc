@@ -148,7 +148,7 @@ export class CHAAnalyzer {
     const className = classDecl.getName();
     if (!className) return;
     
-    const filePath = classDecl.getSourceFile().getFilePath();
+    const filePath = require('../utils/path-normalizer').toUnifiedProjectPath(classDecl.getSourceFile().getFilePath());
     const node: ClassHierarchyNode = {
       name: className,
       type: 'class',
@@ -227,7 +227,7 @@ export class CHAAnalyzer {
     const interfaceName = interfaceDecl.getName();
     if (!interfaceName) return;
     
-    const filePath = interfaceDecl.getSourceFile().getFilePath();
+    const filePath = require('../utils/path-normalizer').toUnifiedProjectPath(interfaceDecl.getSourceFile().getFilePath());
     const node: ClassHierarchyNode = {
       name: interfaceName,
       type: 'interface',
@@ -268,7 +268,7 @@ export class CHAAnalyzer {
   ): MethodInfo | undefined {
     const methodName = node.getName();
     const parameters = node.getParameters();
-    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber(), methodName, interfaceName);
+      const parameterTypes = this.getParameterTypesOptimized(parameters, require('../utils/path-normalizer').toUnifiedProjectPath(node.getSourceFile().getFilePath()), node.getStartLineNumber(), methodName, interfaceName);
     
     return {
       name: methodName,
@@ -310,7 +310,7 @@ export class CHAAnalyzer {
     }
     
     const parameters = node.getParameters();
-    const parameterTypes = this.getParameterTypesOptimized(parameters, node.getSourceFile().getFilePath(), node.getStartLineNumber(), methodName, className);
+      const parameterTypes = this.getParameterTypesOptimized(parameters, require('../utils/path-normalizer').toUnifiedProjectPath(node.getSourceFile().getFilePath()), node.getStartLineNumber(), methodName, className);
     
     return {
       name: methodName,

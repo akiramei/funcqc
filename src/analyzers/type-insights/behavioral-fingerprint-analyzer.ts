@@ -129,7 +129,7 @@ export class BehavioralFingerprintAnalyzer extends CrossTypeAnalyzer {
         const functionInfo: FunctionBehavioralInfo = {
           functionId: r['id'] as string,
           functionName: r['name'] as string,
-          file: r['file_path'] as string,
+          file: (r['file_path'] as string)?.replace(/\\/g, '/'),
           callsOut: [],
           callsIn: [],
           callFrequencies: new Map(),

@@ -110,7 +110,7 @@ export class LocalExactAnalysisStage {
           analysisMetadata: {
             timestamp: Date.now(),
             analysisVersion: '1.0',
-            sourceHash: sourceFile.getFilePath()
+            sourceHash: filePath
           }
         };
 

@@ -193,7 +193,7 @@ export class ConverterNetworkAnalyzer extends CrossTypeAnalyzer {
         targetType,
         converterType,
         usageCount: Number(r['usage_count']) || 0,
-        file: r['file_path'] as string,
+        file: (r['file_path'] as string)?.replace(/\\/g, '/'),
         line: Number(r['line_number']) || 0
       });
     }

@@ -197,15 +197,9 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    * Normalize file paths to handle various path formats consistently
    */
   private normalizePath(p: string): string {
-    // 1) バックスラッシュ → スラッシュ
-    // 2) 先頭の ./ を除去
-    // 3) 先頭の /virtualsrc/ または virtualsrc/、/virtualsrc/src/ → src/
-    // 4) 先頭のスラッシュを除去（/src/... → src/...）
-    let np = (p ?? '').replace(/\\/g, '/');
-    np = np.replace(/^\.\//, '');
-    np = np.replace(/^\/?virtualsrc\/(?:src\/)?/, 'src/');
-    np = np.replace(/^\/+/, '');
-    return np;
+    // Use unified project-root path then strip leading slash for git-style comparison
+    const unified = require('../../utils/path-normalizer').toUnifiedProjectPath(p) as string;
+    return unified.startsWith('/') ? unified.slice(1) : unified;
   }
 
   /**

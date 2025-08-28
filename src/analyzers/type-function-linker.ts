@@ -251,7 +251,7 @@ export class TypeFunctionLinker {
    * Get nodes of specific kinds from source file with caching
    */
   private getCachedNodesOfKind(sourceFile: SourceFile, cacheKey: string, syntaxKinds: SyntaxKind[]): Node[] {
-    const filePath = sourceFile.getFilePath();
+    const filePath = require('../utils/path-normalizer').toUnifiedProjectPath(sourceFile.getFilePath());
     
     if (!this.sourceFileNodeCache.has(filePath)) {
       this.sourceFileNodeCache.set(filePath, new Map());

@@ -129,3 +129,32 @@ npm run dev -- health --verbose
 - Short ID resolution failures
 - WHERE clause parsing issues
 - Parameter binding problems
+#### `FUNCQC_DEBUG_PATHS=true`
+Enables diagnostics when first-pass call graph yields zero edges:
+- Prints function count, file count and related hints to ease investigation
+
+**Usage:**
+```bash
+FUNCQC_DEBUG_PATHS=true npm run dev -- scan --full
+```
+
+#### `FUNCQC_ENABLE_DB_FUNCTIONS_FALLBACK=1`
+Enables a one-time fallback on call graph if first pass yields zero edges:
+- Re-reads functions from DB and retries call graph analysis
+- Disabled by default to avoid masking design issues
+
+**Usage:**
+```bash
+FUNCQC_ENABLE_DB_FUNCTIONS_FALLBACK=1 npm run dev -- scan --full
+```
+
+### Performance Overrides
+
+#### `FUNCQC_MAX_SOURCE_FILES_IN_MEMORY`
+Caps number of source files kept in memory for shared project.
+
+#### `FUNCQC_MAX_WORKERS` / `FUNCQC_MIN_WORKERS`
+Upper/lower bounds for worker count.
+
+#### `FUNCQC_FILES_PER_WORKER`
+Overrides files-per-worker distribution.
