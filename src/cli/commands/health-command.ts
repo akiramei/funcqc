@@ -20,7 +20,7 @@ export class HealthCommand implements Command {
    */
   async getRequires(_subCommand: string[]): Promise<DependencyType[]> {
     // healthコマンドは包括的な品質評価のため全分析が必要
-    return ['BASIC', 'CALL_GRAPH', 'COUPLING'];
+    return ['BASIC', 'CALL_GRAPH', 'TYPE_SYSTEM', 'COUPLING'];
   }
   
   /**

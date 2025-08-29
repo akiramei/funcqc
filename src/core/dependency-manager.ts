@@ -737,6 +737,149 @@ export class DependencyManager {
     
     env.commandLogger.debug(`✅ CALL_GRAPH restored: ${callEdges.length} call edges, ${internalCallEdges.length} internal edges`);
   }
+
+  /**
+   * Restore TYPE_SYSTEM analysis results from database to scanSharedData
+   */
+  private async restoreTypeSystemAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring TYPE_SYSTEM analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
+    }
+    
+    // Load type definitions from database
+    const typeDefinitionsQuery = `
+      SELECT id, name, kind, file_path, start_line, end_line, 
+             is_exported, is_generic, generic_parameters, 
+             type_text, resolved_type, modifiers, jsdoc, 
+             is_abstract, is_default_export, snapshot_id
+      FROM type_definitions 
+      WHERE snapshot_id = $1
+    `;
+    const result = await env.storage.query(typeDefinitionsQuery, [snapshotId]);
+    
+    const typeDefinitions = result.rows.map(row => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: r['id'] as string,
+        name: r['name'] as string,
+        kind: r['kind'] as string,
+        filePath: r['file_path'] as string,
+        startLine: r['start_line'] as number,
+        endLine: r['end_line'] as number,
+        isExported: r['is_exported'] as boolean,
+        isGeneric: r['is_generic'] as boolean,
+        genericParameters: r['generic_parameters'] as string || '',
+        typeText: r['type_text'] as string || '',
+        resolvedType: r['resolved_type'] || {},
+        modifiers: r['modifiers'] as string || '',
+        jsdoc: r['jsdoc'] as string || '',
+        isAbstract: r['is_abstract'] as boolean,
+        isDefaultExport: r['is_default_export'] as boolean,
+        snapshotId: r['snapshot_id'] as string
+      };
+    });
+    
+    // Build basic type dependency and safety maps (placeholders for now)
+    const typeDependencyMap = new Map<string, {
+      usedTypes: string[];
+      exposedTypes: string[];
+      typeComplexity: number;
+    }>();
+    
+    const typeSafetyMap = new Map<string, {
+      hasAnyTypes: boolean;
+      hasUnknownTypes: boolean;
+      typeAnnotationRatio: number;
+    }>();
+    
+    // Calculate type statistics
+    const interfaces = typeDefinitions.filter(t => t.kind === 'interface').length;
+    const classes = typeDefinitions.filter(t => t.kind === 'class').length;
+    const enums = typeDefinitions.filter(t => t.kind === 'enum').length;
+    const typeAliases = typeDefinitions.filter(t => t.kind === 'type_alias').length;
+
+    const typeSystemResult = {
+      typesAnalyzed: typeDefinitions.length,
+      completed: true,
+      typeDefinitions,
+      typeDependencyMap,
+      typeSafetyMap,
+      typeCouplingData: {
+        stronglyTypedPairs: [],
+        typeInconsistencies: []
+      },
+      stats: {
+        interfaces,
+        classes,
+        enums,
+        typeAliases,
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setTypeSystemAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setTypeSystemAnalysisResults(env, typeSystemResult);
+    
+    env.commandLogger.debug(`✅ TYPE_SYSTEM restored: ${typeDefinitions.length} type definitions`);
+  }
+
+  /**
+   * Restore COUPLING analysis results from database to scanSharedData
+   */
+  private async restoreCouplingAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring COUPLING analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
+    }
+    
+    // Load coupling data from database
+    const couplingDataQuery = `
+      SELECT COUNT(*) as total_coupling_points
+      FROM parameter_property_usage 
+      WHERE snapshot_id = $1
+    `;
+    const result = await env.storage.query(couplingDataQuery, [snapshotId]);
+    const totalCouplingPoints = (result.rows[0] as { total_coupling_points: string }).total_coupling_points;
+    
+    // For now, create basic coupling structure - in future iterations,
+    // we would build more sophisticated matrices from parameter_property_usage data
+    const functionCouplingMatrix = new Map<string, Map<string, number>>();
+    const fileCouplingData = new Map<string, {
+      incomingCoupling: number;
+      outgoingCoupling: number;
+      totalCoupling: number;
+    }>();
+    const highCouplingFunctions: Array<{
+      functionId: string;
+      couplingScore: number;
+      reasons: string[];
+    }> = [];
+
+    const couplingResult = {
+      functionCouplingMatrix,
+      fileCouplingData,
+      highCouplingFunctions,
+      stats: {
+        filesCoupled: parseInt(totalCouplingPoints), // Use coupling points as proxy for files
+        couplingRelationships: parseInt(totalCouplingPoints),
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setCouplingAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setCouplingAnalysisResults(env, couplingResult);
+    
+    env.commandLogger.debug(`✅ COUPLING restored: ${totalCouplingPoints} coupling data points`);
+  }
   
   /**
    * Ensure scanSharedData is populated for already satisfied dependencies
@@ -763,13 +906,15 @@ export class DependencyManager {
       await this.restoreCallGraphAnalysisToSharedData(snapshotId, env);
     }
     
-    // if (satisfied.includes('COUPLING') && currentState.completedAnalyses.includes('COUPLING')) {
-    //   await this.restoreCouplingAnalysisToSharedData(snapshotId, env);
-    // }
+    // Restore TYPE_SYSTEM if satisfied
+    if (satisfied.includes('TYPE_SYSTEM') && currentState.completedAnalyses.includes('TYPE_SYSTEM')) {
+      await this.restoreTypeSystemAnalysisToSharedData(snapshotId, env);
+    }
     
-    // if (satisfied.includes('TYPE_SYSTEM') && currentState.completedAnalyses.includes('TYPE_SYSTEM')) {
-    //   await this.restoreTypeSystemAnalysisToSharedData(snapshotId, env);
-    // }
+    // Restore COUPLING if satisfied
+    if (satisfied.includes('COUPLING') && currentState.completedAnalyses.includes('COUPLING')) {
+      await this.restoreCouplingAnalysisToSharedData(snapshotId, env);
+    }
   }
 
   /**
