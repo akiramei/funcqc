@@ -27,6 +27,12 @@ import { Project, TypeChecker, ts, Node } from 'ts-morph';
 import { getOrLoadFunctions, ensureSharedProject } from '../../core/env-facade';
 // import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
+import { 
+  ensureScanSharedData, 
+  setBasicAnalysisResults, 
+  setCallGraphAnalysisResults
+} from '../../utils/scan-shared-data-helpers';
+import type { BasicAnalysisResult, CallGraphAnalysisResult } from '../../types/scan-shared-data';
 
 /**
  * Result type for batch processing operations
@@ -285,6 +291,9 @@ export async function performDeferredBasicAnalysis(
   env: CommandEnvironment,
   showProgress: boolean = true
 ): Promise<void> {
+  // Initialize shared data for parallel tracking
+  await ensureScanSharedData(env, snapshotId);
+
   // Get snapshot contents optimized for virtual project analysis
   const snapshotContents = await env.storage.getSnapshotContentsForAnalysis(snapshotId);
   
@@ -310,6 +319,14 @@ export async function performDeferredBasicAnalysis(
     createdAt: new Date()
   }));
 
+  // Update shared data with source files
+  if (env.scanSharedData) {
+    env.scanSharedData.sourceFiles = sourceFiles;
+    // Update file content map
+    for (const file of sourceFiles) {
+      env.scanSharedData.fileContentMap.set(file.filePath, file.fileContent);
+    }
+  }
 
   const ora = (await import('ora')).default;
   const spinner = ora();
@@ -322,8 +339,31 @@ export async function performDeferredBasicAnalysis(
     // Get source file ID mapping
     const sourceFileIdMap = await getSourceFileIdMapping(env.storage, snapshotId);
     
+    // Update shared data with file ID mapping
+    if (env.scanSharedData) {
+      env.scanSharedData.sourceFileIdMap = sourceFileIdMap;
+    }
+    
     // Perform the PURE basic analysis (no coupling)
-    await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    const batchResults = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    
+    // Create BasicAnalysisResult for shared data (parallel data population)
+    const allFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    
+    const basicResult: BasicAnalysisResult = {
+      functions: allFunctions,
+      functionsAnalyzed: allFunctions.length,
+      errors: [], // Will be populated if needed
+      batchStats: {
+        totalBatches: 1,
+        functionsPerBatch: [batchResults.functionsAnalyzed],
+        processingTimes: [] // TODO: Add timing info if needed
+      }
+    };
+    
+    // Set results in shared data (NEW - parallel data population)
+    setBasicAnalysisResults(env, basicResult);
+    
   } catch (error) {
     if (showProgress) {
       spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -904,6 +944,9 @@ export async function performCallGraphAnalysis(
   env: CommandEnvironment,
   spinner?: SpinnerInterface
 ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] }> {
+  // Ensure shared data is initialized for parallel tracking
+  await ensureScanSharedData(env, snapshotId);
+
   // Call graph analysis starting
   const showSpinner = spinner !== undefined;
   if (showSpinner) {
@@ -1004,6 +1047,45 @@ export async function performCallGraphAnalysis(
     // Internal call edges saved to database
     
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
+    
+    // Create CallGraphAnalysisResult for shared data (parallel data population)
+    const highConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95).length;
+    const mediumConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
+    const lowConfidenceEdges = result.callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
+    
+    // Build dependency map
+    const dependencyMap = new Map<string, {callers: string[], callees: string[], depth: number}>();
+    for (const edge of result.callEdges) {
+      if (edge.callerFunctionId && edge.calleeFunctionId) {
+        // Add to callee's callers
+        if (!dependencyMap.has(edge.calleeFunctionId)) {
+          dependencyMap.set(edge.calleeFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.calleeFunctionId)!.callers.push(edge.callerFunctionId);
+        
+        // Add to caller's callees
+        if (!dependencyMap.has(edge.callerFunctionId)) {
+          dependencyMap.set(edge.callerFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.callerFunctionId)!.callees.push(edge.calleeFunctionId);
+      }
+    }
+    
+    const callGraphSharedResult: CallGraphAnalysisResult = {
+      callEdges: result.callEdges,
+      internalCallEdges: result.internalCallEdges,
+      dependencyMap,
+      stats: {
+        totalEdges: result.callEdges.length,
+        highConfidenceEdges,
+        mediumConfidenceEdges,
+        lowConfidenceEdges,
+        analysisTime: endTime - startTime
+      }
+    };
+    
+    // Set results in shared data (NEW - parallel data population)
+    setCallGraphAnalysisResults(env, callGraphSharedResult);
     
     // Call graph analysis completed
     

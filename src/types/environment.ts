@@ -48,4 +48,5 @@ export interface CommandEnvironment extends AppEnvironment {
   commandLogger: Logger;
   advancedAssessmentResult?: unknown; // For storing assessment results between commands (decoupled to avoid circular deps)
   callGraphData?: CallGraphData; // Available for commands that require call graph analysis
+  scanSharedData?: import('./scan-shared-data').ScanSharedData; // Shared analysis data across scan phases
 }
