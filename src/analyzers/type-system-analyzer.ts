@@ -18,8 +18,6 @@ import { randomUUID } from 'crypto';
 export class TypeSystemAnalyzer {
   private logger: Logger;
   private storage: StorageAdapter | null = null;
-  private static readonly VIRTUAL_PATH_PREFIX = '/virtualsrc/';
-  private static readonly PHYSICAL_PATH_PREFIX = 'src/';
 
   constructor(_project: Project, logger: Logger = new Logger(false, false)) {
     this.logger = logger;
@@ -907,11 +905,8 @@ export class TypeSystemAnalyzer {
     }
     
     try {
-      // Handle virtual path to physical path conversion
-      // Type analysis uses virtual paths (/virtualsrc/...) but functions are stored with physical paths (src/...)
-      const physicalPath = filePath.startsWith(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX) 
-        ? filePath.replace(TypeSystemAnalyzer.VIRTUAL_PATH_PREFIX, TypeSystemAnalyzer.PHYSICAL_PATH_PREFIX) 
-        : filePath;
+      // Use unified project path format
+      const physicalPath = filePath;
       
       // Query database for functions in this file
       const result = await this.storage.query(

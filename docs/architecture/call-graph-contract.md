@@ -9,9 +9,9 @@
 ## 前提条件（入力契約）
 コールグラフ解析の入力（FunctionMetadata／FunctionInfo 由来）では、以下を満たすこと:
 
-- filePath: Project.getSourceFile().getFilePath() と照合可能な形式であること。
-  - 基本は「絶対パス」。
-  - Converter 側で `path.resolve()` により絶対化済み。
+- filePath: 解析系で採用する統一表現（`toUnifiedProjectPath()` の結果）であること。
+  - 形式は先頭スラッシュ付きのプロジェクト相対 POSIX パス（例: `/src/...`）。
+  - 変換は Converter 層および各 Analyzer で `toUnifiedProjectPath()` により実施。
 - 位置情報: startLine / endLine / startColumn / endColumn が正しく、関数の包含判定に使えること。
 - ID/識別情報: id（物理 UUID）と semanticId が一貫していること。
 

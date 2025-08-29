@@ -582,10 +582,11 @@ export class SourceContentOperations extends BaseStorageOperations implements St
    */
   async getFunctionCountsByFile(snapshotId: string): Promise<Map<string, number>> {
     const functionCountQuery = `
-      SELECT file_path, COUNT(*) as function_count
-      FROM functions 
-      WHERE snapshot_id = $1 
-      GROUP BY file_path
+      SELECT sfr.file_path, COUNT(*) AS function_count
+      FROM functions f
+      INNER JOIN source_file_refs sfr ON f.source_file_ref_id = sfr.id
+      WHERE sfr.snapshot_id = $1
+      GROUP BY sfr.file_path
     `;
     
     const result = await this.db.query(functionCountQuery, [snapshotId]);

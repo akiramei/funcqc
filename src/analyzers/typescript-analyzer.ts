@@ -287,10 +287,10 @@ export class TypeScriptAnalyzer extends CacheAware {
             targetProject = cachedProject;
             isUsingSharedProject = true;
           } else {
-            throw new Error(`No cached shared project found for snapshot ${snapshotId}. This indicates a design problem - project should be created by dependency manager before analysis begins.`);
+            this.logger.warn(`No cached shared project for snapshot ${snapshotId}. Falling back to local project.`);
           }
         } else {
-          throw new Error(`No project manager available in env for snapshot ${snapshotId}. Project should be created by dependency manager before analysis begins.`);
+          this.logger.warn(`Project manager not available in env. Falling back to local project.`);
         }
       }
       

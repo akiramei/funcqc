@@ -40,6 +40,11 @@ describe('Path Unification', () => {
     expect(toUnifiedProjectPath('C:\\repo\\src\\cli.ts').endsWith('/src/cli.ts')).toBe(true);
   });
 
+  it('toUnifiedProjectPath strips CWD for POSIX absolute paths under project root', () => {
+    const abs = `${process.cwd().replace(/\\\\/g, '/')}/src/cli.ts`;
+    expect(toUnifiedProjectPath(abs)).toBe('/src/cli.ts');
+  });
+
   it('FunctionMetadataConverter.convert produces unified /src/... paths', () => {
     const variants = [
       'src/cli.ts',

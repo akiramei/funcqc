@@ -718,10 +718,11 @@ export class DependencyManager {
     const mediumConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
     const lowConfidenceEdges = callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
 
+    const { mapToRecord } = await import('../types/scan-shared-data');
     const callGraphResult = {
       callEdges,
       internalCallEdges,
-      dependencyMap,
+      dependencyMap: mapToRecord(dependencyMap),
       stats: {
         totalEdges: callEdges.length,
         highConfidenceEdges,
@@ -802,12 +803,12 @@ export class DependencyManager {
     const enums = typeDefinitions.filter(t => t.kind === 'enum').length;
     const typeAliases = typeDefinitions.filter(t => t.kind === 'type_alias').length;
 
+    const { mapToRecord: mapToRecord2 } = await import('../types/scan-shared-data');
     const typeSystemResult = {
       typesAnalyzed: typeDefinitions.length,
       completed: true,
-      typeDefinitions,
-      typeDependencyMap,
-      typeSafetyMap,
+      typeDependencyMap: mapToRecord2(typeDependencyMap),
+      typeSafetyMap: mapToRecord2(typeSafetyMap),
       typeCouplingData: {
         stronglyTypedPairs: [],
         typeInconsistencies: []
@@ -863,9 +864,10 @@ export class DependencyManager {
       reasons: string[];
     }> = [];
 
+    const { nestedMapToRecord, mapToRecord: mapToRecord3 } = await import('../types/scan-shared-data');
     const couplingResult = {
-      functionCouplingMatrix,
-      fileCouplingData,
+      functionCouplingMatrix: nestedMapToRecord(functionCouplingMatrix),
+      fileCouplingData: mapToRecord3(fileCouplingData),
       highCouplingFunctions,
       stats: {
         filesCoupled: parseInt(totalCouplingPoints), // Use coupling points as proxy for files

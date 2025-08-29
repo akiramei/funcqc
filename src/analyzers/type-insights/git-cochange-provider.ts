@@ -161,8 +161,10 @@ export class GitCochangeProvider implements GitProvider {
    * Normalize file path for consistent comparison
    */
   private normalizeFilePath(filePath: string): string {
-    // Unify to '/src/...' then drop leading slash for git-style comparisons
-    const unified = toUnifiedProjectPath(filePath);
+    // repo root相対へ明示（相対で来た場合はそのまま、絶対ならrepo rootからの相対に変換）
+    const abs = path.isAbsolute(filePath) ? filePath : path.join(this.repositoryRoot, filePath);
+    const relFromRepo = path.relative(this.repositoryRoot, abs).replace(/\\/g, '/');
+    const unified = toUnifiedProjectPath(relFromRepo);
     return unified.startsWith('/') ? unified.slice(1) : unified;
   }
 

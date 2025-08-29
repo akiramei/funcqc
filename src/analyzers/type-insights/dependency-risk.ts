@@ -13,6 +13,7 @@ import type {
   CountRow,
   FunctionInfoRow 
 } from './types.js';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface TypeDependencyInfo {
   typeId: string;
@@ -151,10 +152,12 @@ export class DependencyRiskAnalyzer {
     const usageDependents = new Set<string>();
     for (const row of usageResult.rows) {
       const rowData = row as FunctionInfoRow;
-      // Extract a simple identifier from file path
-      const filePathUnified = (rowData.file_path as string)?.replace(/\\/g, '/');
-      const fileName = filePathUnified.split('/').pop()?.replace(/\.(ts|js)$/, '') || filePathUnified;
-      usageDependents.add(fileName);
+      const unified = toUnifiedProjectPath(rowData.file_path as string);
+      // .ts/.tsx/.js/.jsx/.mjs/.cjs を削除
+      const base = unified.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '');
+      // 衝突回避のため最下位2階層をキーに（例: src/cli → cli/index）
+      const short = base.split('/').slice(-2).join('/');
+      usageDependents.add(short);
     }
 
     const allDependents = [...new Set([...dependents, ...Array.from(usageDependents)])];

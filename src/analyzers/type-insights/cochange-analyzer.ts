@@ -198,9 +198,8 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    * Normalize file paths to handle various path formats consistently
    */
   private normalizePath(p: string): string {
-    // Use unified project-root path then strip leading slash for git-style comparison
-    const unified = toUnifiedProjectPath(p);
-    return unified.startsWith('/') ? unified.slice(1) : unified;
+    // Use unified project-root path consistent with other components
+    return toUnifiedProjectPath(p);
   }
 
   /**

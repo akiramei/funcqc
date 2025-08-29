@@ -9,6 +9,8 @@
  * - Role-based grouping (functions serving similar purposes)
  */
 
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
+
 import type { 
   StorageQueryInterface
 } from './types';
@@ -129,7 +131,7 @@ export class BehavioralFingerprintAnalyzer extends CrossTypeAnalyzer {
         const functionInfo: FunctionBehavioralInfo = {
           functionId: r['id'] as string,
           functionName: r['name'] as string,
-          file: (r['file_path'] as string)?.replace(/\\/g, '/'),
+          file: toUnifiedProjectPath(String(r['file_path'] ?? '')),
           callsOut: [],
           callsIn: [],
           callFrequencies: new Map(),

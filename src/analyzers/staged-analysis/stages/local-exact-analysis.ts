@@ -8,6 +8,7 @@ import { IdealCallEdge, FunctionMetadata, ResolutionLevel } from '../../ideal-ca
 import { UnresolvedMethodCall } from '../../cha-analyzer';
 import { Logger } from '../../../utils/cli-utils';
 import { generateStableEdgeId } from '../../../utils/edge-id-generator';
+import { toUnifiedProjectPath } from '../../../utils/path-normalizer';
 import { CONFIDENCE_SCORES, RESOLUTION_LEVELS, RESOLUTION_SOURCES } from '../constants';
 import { AnalysisState, InstantiationEvent } from '../types';
 import { addEdge } from '../../shared/graph-utils';
@@ -30,7 +31,7 @@ export class LocalExactAnalysisStage {
     functions: Map<string, FunctionMetadata>,
     state: AnalysisState
   ): Promise<{ localEdges: number, instantiationEvents: InstantiationEvent[], unresolvedCallNodes: Node[], unresolvedNewNodes: Node[] }> {
-    const filePath = sourceFile.getFilePath();
+    const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
     let localEdgesCount = 0;
     const instantiationEvents: InstantiationEvent[] = [];
     const unresolvedCallNodes: Node[] = [];
@@ -184,7 +185,7 @@ export class LocalExactAnalysisStage {
     instantiationEvents: InstantiationEvent[]
   ): void {
     const stack: Node[] = [sourceFile];
-    const filePath = sourceFile.getFilePath();
+    const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
 
     while (stack.length > 0) {
       const current = stack.pop()!;

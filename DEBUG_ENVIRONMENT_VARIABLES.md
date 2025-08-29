@@ -130,8 +130,8 @@ npm run dev -- health --verbose
 - WHERE clause parsing issues
 - Parameter binding problems
 #### `FUNCQC_DEBUG_PATHS=true`
-Enables diagnostics when first-pass call graph yields zero edges:
-- Prints function count, file count and related hints to ease investigation
+Enables diagnostics when the first-pass call graph yields zero edges:
+- Prints function count, file count, and related hints to support investigation
 
 **Usage:**
 ```bash
@@ -139,9 +139,9 @@ FUNCQC_DEBUG_PATHS=true npm run dev -- scan --full
 ```
 
 #### `FUNCQC_ENABLE_DB_FUNCTIONS_FALLBACK=1`
-Enables a one-time fallback on call graph if first pass yields zero edges:
-- Re-reads functions from DB and retries call graph analysis
-- Disabled by default to avoid masking design issues
+Enables a one-time fallback for call graph construction if the first pass yields zero edges:
+- Re-reads functions from the DB and retries call graph analysis
+- Disabled by default to avoid masking underlying design issues
 
 **Usage:**
 ```bash

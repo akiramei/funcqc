@@ -45,9 +45,9 @@ export async function analyzeCallPatternsWithDepMetrics(
   const callAnalysisMap = new Map<string, CallAnalysis>();
   
   // Phase 2: Use shared data for call edges when available
-  let callEdges;
+  let callEdges: import('../../../types').CallEdge[];
   if (env.scanSharedData?.snapshotId === snapshotId && env.scanSharedData.callGraphResults?.callEdges) {
-    callEdges = env.scanSharedData.callGraphResults.callEdges;
+    callEdges = env.scanSharedData.callGraphResults.callEdges as import('../../../types').CallEdge[];
   } else {
     callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
   }

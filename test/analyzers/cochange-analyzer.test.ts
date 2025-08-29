@@ -378,15 +378,15 @@ describe('CochangeAnalyzer', () => {
       expect(names).toEqual(expect.arrayContaining(['TypeA', 'TypeB']));
     });
 
-    it('should normalize /virtualsrc/ paths correctly', async () => {
+    it('should normalize /src/ paths correctly', async () => {
       const storage = createMockStorage();
       const gitProvider = new MockGitProvider();
       
       // Mock type definitions with /virtualsrc/ prefix
       storage.query = vi.fn().mockResolvedValue({
         rows: [
-          { id: 'type1', name: 'TypeA', file_path: '/virtualsrc/types.ts' },
-          { id: 'type2', name: 'TypeB', file_path: '/virtualsrc/components.ts' }
+          { id: 'type1', name: 'TypeA', file_path: '/src/types.ts' },
+          { id: 'type2', name: 'TypeB', file_path: '/src/components.ts' }
         ]
       });
 
@@ -396,7 +396,7 @@ describe('CochangeAnalyzer', () => {
           hash: 'hash1',
           date: new Date('2024-01-01'),
           message: 'Update types',
-          changedFiles: ['src/types.ts']  // Note: no /virtualsrc/ prefix
+          changedFiles: ['src/types.ts']  // Note: git style path
         }
       ]);
 
@@ -421,10 +421,10 @@ describe('CochangeAnalyzer', () => {
       
       // Test different path formats that should all normalize to 'src/types.ts'
       const pathVariations = [
-        '/virtualsrc/types.ts',
-        '/virtualsrc/src/types.ts', 
-        'virtualsrc/types.ts',
-        'virtualsrc/src/types.ts',
+        '/src/types.ts',
+        '/src/src/types.ts', 
+        'src/types.ts',
+        'src/src/types.ts',
         './src/types.ts',
         '/src/types.ts',
         'src/types.ts'

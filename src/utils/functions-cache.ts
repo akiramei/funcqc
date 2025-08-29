@@ -11,7 +11,7 @@ export async function getOrLoadFunctions(
 ): Promise<{ snapshot: SnapshotInfo; functions: FunctionInfo[] }> {
   // Reuse if env already holds the functions for this snapshot
   const cached = env.callGraphData;
-  if (cached && cached.snapshot && cached.snapshot.id === snapshotId && cached.functions?.length) {
+  if (cached && cached.snapshot && cached.snapshot.id === snapshotId && Array.isArray(cached.functions)) {
     return { snapshot: cached.snapshot, functions: cached.functions };
   }
 

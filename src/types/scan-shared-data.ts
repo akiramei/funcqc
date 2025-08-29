@@ -7,11 +7,16 @@ import { FunctionInfo, CallEdge, InternalCallEdge, SourceFile } from './index';
 import type { Project } from 'ts-morph';
 
 /**
+ * Unified project path type - ensures paths follow /src/... convention
+ */
+export type UnifiedPath = `/src/${string}`;
+
+/**
  * Results from BASIC analysis phase
  */
 export interface BasicAnalysisResult {
-  /** Functions discovered and analyzed */
-  functions: FunctionInfo[];
+  /** Functions are exposed via ScanSharedData.functions */
+  // functions: FunctionInfo[]; // removed - use ScanSharedData.functions
   
   /** Number of functions successfully analyzed */
   functionsAnalyzed: number;
@@ -28,6 +33,64 @@ export interface BasicAnalysisResult {
 }
 
 /**
+ * Function dependency information (JSON-safe)
+ */
+export type DependencyInfo = {
+  callers: string[];
+  callees: string[];
+  depth: number;
+};
+
+/**
+ * Type dependency information (JSON-safe)
+ */
+export type TypeDependencyInfo = {
+  usedTypes: string[];
+  exposedTypes: string[];
+  typeComplexity: number;
+};
+
+/**
+ * Type safety information (JSON-safe)
+ */
+export type TypeSafetyInfo = {
+  hasAnyTypes: boolean;
+  hasUnknownTypes: boolean;
+  typeAnnotationRatio: number;
+};
+
+/**
+ * File coupling information (JSON-safe)
+ */
+export type FileCouplingInfo = {
+  incomingCoupling: number;
+  outgoingCoupling: number;
+  totalCoupling: number;
+};
+
+/**
+ * Convert Map to Record for JSON serialization
+ */
+export function mapToRecord<T>(map: Map<string, T>): Record<string, T> {
+  const record: Record<string, T> = {};
+  for (const [key, value] of map.entries()) {
+    record[key] = value;
+  }
+  return record;
+}
+
+/**
+ * Convert nested Map structure to nested Record for JSON serialization
+ */
+export function nestedMapToRecord<T>(map: Map<string, Map<string, T>>): Record<string, Record<string, T>> {
+  const record: Record<string, Record<string, T>> = {};
+  for (const [key, innerMap] of map.entries()) {
+    record[key] = mapToRecord(innerMap);
+  }
+  return record;
+}
+
+/**
  * Results from CALL_GRAPH analysis phase
  */
 export interface CallGraphAnalysisResult {
@@ -37,12 +100,8 @@ export interface CallGraphAnalysisResult {
   /** Internal call edges within files */
   internalCallEdges: InternalCallEdge[];
   
-  /** Function dependency mapping */
-  dependencyMap: Map<string, {
-    callers: string[];
-    callees: string[];
-    depth: number;
-  }>;
+  /** Function dependency mapping (JSON-safe) */
+  dependencyMap: Readonly<Record<string, DependencyInfo>>;
   
   /** Call graph analysis statistics */
   stats: {
@@ -64,19 +123,11 @@ export interface TypeSystemAnalysisResult {
   /** Type analysis completion status */
   completed: boolean;
   
-  /** Type dependency mapping */
-  typeDependencyMap: Map<string, {
-    usedTypes: string[];
-    exposedTypes: string[];
-    typeComplexity: number;
-  }>;
+  /** Type dependency mapping (JSON-safe) */
+  typeDependencyMap: Readonly<Record<string, TypeDependencyInfo>>;
   
-  /** Type safety assessment */
-  typeSafetyMap: Map<string, {
-    hasAnyTypes: boolean;
-    hasUnknownTypes: boolean;
-    typeAnnotationRatio: number;
-  }>;
+  /** Type safety assessment (JSON-safe) */
+  typeSafetyMap: Readonly<Record<string, TypeSafetyInfo>>;
   
   /** Type coupling data */
   typeCouplingData: {
@@ -98,15 +149,11 @@ export interface TypeSystemAnalysisResult {
  * Results from COUPLING analysis phase
  */
 export interface CouplingAnalysisResult {
-  /** Function coupling matrix */
-  functionCouplingMatrix: Map<string, Map<string, number>>;
+  /** Function coupling matrix (JSON-safe) */
+  functionCouplingMatrix: Readonly<Record<string, Record<string, number>>>;
   
-  /** File coupling data */
-  fileCouplingData: Map<string, {
-    incomingCoupling: number;
-    outgoingCoupling: number;
-    totalCoupling: number;
-  }>;
+  /** File coupling data (JSON-safe) */
+  fileCouplingData: Readonly<Record<string, FileCouplingInfo>>;
   
   /** High coupling functions */
   highCouplingFunctions: Array<{
@@ -139,10 +186,10 @@ export interface ScanSharedData {
   /** Functions extracted in BASIC phase - used by all subsequent phases */
   functions: FunctionInfo[];
   
-  /** Source file ID mapping for efficient lookups */
+  /** Source file ID mapping for efficient lookups (internal memory structure - not serialized) */
   sourceFileIdMap: Map<string, string>;
   
-  /** File content map for quick access */
+  /** File content map for quick access (internal memory structure - not serialized) */
   fileContentMap: Map<string, string>;
   
   /** BASIC analysis results */
@@ -211,6 +258,7 @@ export interface ScanPipelineConfig {
   /** Batch processing configuration */
   batch: {
     size: number;
-    parallel: boolean;
+    /** 1 = sequential, >=2 = parallel */
+    maxConcurrency: number;
   };
 }

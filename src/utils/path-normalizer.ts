@@ -59,20 +59,22 @@ export function groupByPath<T extends { filePath: string }>(functions: T[]): Map
  * - Preserves existing leading slash if present
  */
 export function toUnifiedProjectPath(filePath: string): string {
-  const posix = (filePath || '').replace(/\\/g, '/');
-  // Already unified
-  if (posix.startsWith('/')) return posix;
-  // Compute CWD (POSIX)
+  if (!filePath) return '';
+  const posix = filePath.replace(/\\/g, '/');
+  // 既に統一済み（仮想プロジェクトパス）
+  if (posix.startsWith('/src/')) return posix;
   const cwdPosix = process.cwd().replace(/\\/g, '/');
   let rel = posix;
-  // If absolute-like with drive or root, try to strip cwd prefix
+  // 絶対パス（POSIX/Windows）なら CWD 基準に相対へ
   if (/^[A-Za-z]:\//.test(posix) || posix.startsWith('/')) {
     if (posix.startsWith(cwdPosix + '/')) {
       rel = posix.slice(cwdPosix.length + 1);
+    } else {
+      rel = path.posix.relative(cwdPosix, posix);
     }
   }
-  // Remove leading './'
-  if (rel.startsWith('./')) rel = rel.slice(2);
+  // 先頭の './' を除去
+  rel = rel.replace(/^\.\/+/, '');
   return `/${rel}`;
 }
 

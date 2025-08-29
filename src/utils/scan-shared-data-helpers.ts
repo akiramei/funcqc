@@ -75,7 +75,7 @@ export async function loadExistingAnalysisResults(
     if (sharedData.functions.length > 0) {
       // Create basic analysis result from loaded functions
       sharedData.basicResults = {
-        functions: sharedData.functions,
+        // functions now stored in ScanSharedData.functions
         functionsAnalyzed: sharedData.functions.length,
         errors: [],
         batchStats: {
@@ -119,7 +119,7 @@ export async function loadExistingAnalysisResults(
       sharedData.callGraphResults = {
         callEdges,
         internalCallEdges,
-        dependencyMap,
+        dependencyMap: Object.fromEntries(dependencyMap),
         stats: {
           totalEdges: callEdges.length,
           highConfidenceEdges,
@@ -149,7 +149,7 @@ export function setBasicAnalysisResults(
     throw new Error('ScanSharedData not initialized');
   }
   
-  env.scanSharedData.functions = result.functions;
+  // Functions are now managed directly in scanSharedData.functions
   env.scanSharedData.basicResults = result;
 }
 

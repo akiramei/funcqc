@@ -117,7 +117,8 @@ async function performArgumentUsageAnalysis(
     
     // Phase 2: Use shared data for source files - Command Protocol must provide this
     if (!env.scanSharedData?.sourceFiles || env.scanSharedData.snapshotId !== targetSnapshot.id) {
-      throw new Error('Shared source files not available. Command Protocol must initialize scanSharedData before health command execution.');
+      env.commandLogger.warn('Shared source files not available. Skipping argument usage analysis (Phase 2 data not initialized).');
+      return [];
     }
     
     const allSourceFiles = env.scanSharedData.sourceFiles;
@@ -129,7 +130,8 @@ async function performArgumentUsageAnalysis(
     
     // Phase 2: Use shared ts-morph project - Command Protocol must provide this
     if (!env.scanSharedData?.project || env.scanSharedData.snapshotId !== targetSnapshot.id) {
-      throw new Error('Shared ts-morph project not available. Command Protocol must initialize scanSharedData before health command execution.');
+      env.commandLogger.warn('Shared ts-morph project not available. Skipping argument usage analysis.');
+      return [];
     }
     
     const project = env.scanSharedData.project;
@@ -184,11 +186,11 @@ async function performArgumentUsageAnalysis(
     }
     
     // Phase 2: Use shared data for call edges - Command Protocol must provide this
-    if (!env.scanSharedData?.callGraphResults?.callEdges || env.scanSharedData.snapshotId !== targetSnapshot.id) {
-      throw new Error('Shared call graph results not available. Command Protocol must initialize all required dependencies before health command execution.');
+    let callEdges = env.scanSharedData?.callGraphResults?.callEdges;
+    if (!callEdges || env.scanSharedData?.snapshotId !== targetSnapshot.id) {
+      env.commandLogger.warn('Shared call graph results not available. Proceeding with 0 edges.');
+      callEdges = [];
     }
-    
-    const callEdges = env.scanSharedData.callGraphResults.callEdges;
     env.commandLogger.debug(`Using shared data call edges: ${callEdges.length} edges`);
     
     // Create aggregator and process data
@@ -638,7 +640,8 @@ async function displayPhase2Analysis(env: CommandEnvironment, snapshotId: string
   
   // Phase 2: Use shared data for source files - Command Protocol must provide this
   if (!env.scanSharedData?.sourceFiles || env.scanSharedData.snapshotId !== snapshotId) {
-    throw new Error('Shared source files not available. Command Protocol must initialize scanSharedData before health command execution.');
+    console.log('⚠️  Phase 2: shared source files not available. Skipping structure analysis section.');
+    return;
   }
   
   const sourceFiles = env.scanSharedData.sourceFiles;
@@ -910,11 +913,11 @@ async function calculateDependencyMetrics(
   env: CommandEnvironment
 ): Promise<{ fanIn: number; fanOut: number }> {
   // Phase 2: Use shared data for call edges - Command Protocol must provide this
-  if (!env.scanSharedData?.callGraphResults?.callEdges || env.scanSharedData.snapshotId !== snapshotId) {
-    throw new Error('Shared call graph results not available. Command Protocol must initialize all required dependencies before health command execution.');
+  let callEdges = env.scanSharedData?.callGraphResults?.callEdges;
+  if (!callEdges || env.scanSharedData?.snapshotId !== snapshotId) {
+    env.commandLogger.warn('Shared call graph results not available. Using 0 edges for dependency metrics.');
+    callEdges = [];
   }
-  
-  const callEdges = env.scanSharedData.callGraphResults.callEdges;
   const dependencyCalculator = new (await import('../../../analyzers/dependency-metrics')).DependencyMetricsCalculator();
   const entryPoints = new Set<string>();
   const cyclicFunctions = new Set<string>();

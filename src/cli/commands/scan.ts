@@ -351,7 +351,7 @@ export async function performDeferredBasicAnalysis(
     const allFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
     
     const basicResult: BasicAnalysisResult = {
-      functions: allFunctions,
+      // functions moved to ScanSharedData.functions
       functionsAnalyzed: allFunctions.length,
       errors: [], // Will be populated if needed
       batchStats: {
@@ -639,9 +639,10 @@ export async function performDeferredCouplingAnalysis(
       reasons: string[];
     }> = [];
 
+    const { nestedMapToRecord, mapToRecord } = await import('../../types/scan-shared-data');
     const couplingResult: import('../../types/scan-shared-data').CouplingAnalysisResult = {
-      functionCouplingMatrix,
-      fileCouplingData,
+      functionCouplingMatrix: nestedMapToRecord(functionCouplingMatrix),
+      fileCouplingData: mapToRecord(fileCouplingData),
       highCouplingFunctions,
       stats: {
         filesCoupled: totalCouplingData, // Use coupling data as proxy for files
@@ -1107,10 +1108,11 @@ export async function performCallGraphAnalysis(
       }
     }
     
+    const { mapToRecord: mapToRecord2 } = await import('../../types/scan-shared-data');
     const callGraphSharedResult: CallGraphAnalysisResult = {
       callEdges: result.callEdges,
       internalCallEdges: result.internalCallEdges,
-      dependencyMap,
+      dependencyMap: mapToRecord2(dependencyMap),
       stats: {
         totalEdges: result.callEdges.length,
         highConfidenceEdges,
@@ -1358,11 +1360,12 @@ export async function performDeferredTypeSystemAnalysis(
     const enums = typeDefinitions.filter(t => t.kind === 'enum').length;
     const typeAliases = typeDefinitions.filter(t => t.kind === 'type_alias').length;
     
+    const { mapToRecord: mapToRecord3 } = await import('../../types/scan-shared-data');
     const typeSystemResult: import('../../types/scan-shared-data').TypeSystemAnalysisResult = {
       typesAnalyzed: typeDefinitions.length,
       completed: true,
-      typeDependencyMap,
-      typeSafetyMap,
+      typeDependencyMap: mapToRecord3(typeDependencyMap),
+      typeSafetyMap: mapToRecord3(typeSafetyMap),
       typeCouplingData: {
         stronglyTypedPairs: [],
         typeInconsistencies: []

@@ -271,7 +271,9 @@ export class IDResolver {
       
       for (const func of this.functionCache!.values()) {
         const fp = func.filePath;
-        if ((fp.includes(filePathUnified) || fp.includes(filePathUnifiedNoSlash)) && func.startLine === line) {
+        const exactMatch = fp === filePathUnified || fp === filePathUnifiedNoSlash;
+        const includesMatch = exactMatch || fp.includes(filePathUnified) || fp.includes(filePathUnifiedNoSlash);
+        if (includesMatch && func.startLine === line) {
           matches.push({
             id: func.id,
             name: func.name,
@@ -285,7 +287,7 @@ export class IDResolver {
       // Just file path
       for (const func of this.functionCache!.values()) {
         const fp = func.filePath;
-        if (fp.includes(unifiedInput) || fp.includes(unifiedNoSlash)) {
+        if (fp === unifiedInput || fp === unifiedNoSlash || fp.includes(unifiedInput) || fp.includes(unifiedNoSlash)) {
           matches.push({
             id: func.id,
             name: func.name,
