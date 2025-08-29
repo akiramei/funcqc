@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { StorageOperationModule } from './types';
 import { BaseStorageOperations } from '../shared/base-storage-operations';
 import type { StorageContext } from './types';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 // Type for PGLite transaction object
 interface PGTransaction {
@@ -229,7 +230,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         .values({
           id: refId,
           snapshot_id: snapshotId,
-          file_path: file.filePath,
+          file_path: toUnifiedProjectPath(file.filePath),
           content_id: contentId,
           file_modified_time: file.fileModifiedTime?.toISOString() || null,
           function_count: file.functionCount || 0,
@@ -244,7 +245,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         [
           refId,
           snapshotId,
-          file.filePath,
+          toUnifiedProjectPath(file.filePath),
           contentId,
           file.fileModifiedTime?.toISOString() || null,
           file.functionCount || 0,
@@ -302,7 +303,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         trx
       );
 
-      resultMap.set(file.filePath, refId);
+      resultMap.set(toUnifiedProjectPath(file.filePath), refId);
     }
 
     return resultMap;
