@@ -18,16 +18,21 @@ export async function initializeScanSharedData(
     throw new Error('ProjectManager not available in environment');
   }
 
-  const project = env.projectManager.getProject(snapshotId);
+  // Get or create project for the snapshot
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  
-  // Build file mappings
-  const sourceFileIdMap = new Map<string, string>();
   const fileContentMap = new Map<string, string>();
   
   for (const sourceFile of sourceFiles) {
-    sourceFileIdMap.set(sourceFile.filePath, sourceFile.id);
     fileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
+  }
+
+  const { project } = await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+  
+  // Build file mappings
+  const sourceFileIdMap = new Map<string, string>();
+  
+  for (const sourceFile of sourceFiles) {
+    sourceFileIdMap.set(sourceFile.filePath, sourceFile.id);
   }
 
   return {

@@ -615,25 +615,201 @@ export class DependencyManager {
   private async initializeBasicAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
     
+    // CRITICAL FIX: Always ensure virtual project is available for commands that need it
+    await this.ensureVirtualProject(snapshotId, env);
+    
     // メタデータのフラグをチェックして重複実行を防ぐ
     const snapshot = await env.storage.getSnapshot(snapshotId);
-    const basicCompleted = snapshot?.metadata && 'basicAnalysisCompleted' in snapshot.metadata ? 
-      snapshot.metadata.basicAnalysisCompleted : false;
+    const completedAnalyses = snapshot?.metadata?.completedAnalyses || [];
+    const basicCompleted = completedAnalyses.includes('BASIC');
       
     if (basicCompleted) {
       if (!options.quiet && options.verbose) {
-        env.commandLogger.info(`📋 BASIC analysis already completed (flag check)`);
+        env.commandLogger.info(`📋 BASIC analysis already completed - restoring to shared data`);
       }
+      
+      // CRITICAL: Restore BASIC analysis results from DB to scanSharedData
+      await this.restoreBasicAnalysisToSharedData(snapshotId, env);
       return;
     }
     
     const { performDeferredBasicAnalysis } = await import('../cli/commands/scan');
     await performDeferredBasicAnalysis(snapshotId, env, true);
     
+    // Note: performDeferredBasicAnalysis now sets shared data internally and returns the result
+    
     // CRITICAL FIX: Update completedAnalyses metadata after BASIC analysis completion
     await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
   }
   
+  /**
+   * Restore BASIC analysis results from database to scanSharedData
+   * Ensures that "completed dependency" and "fresh analysis" have identical scanSharedData state
+   */
+  private async restoreBasicAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring BASIC analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is properly initialized with source files and project
+    const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+    await ensureScanSharedData(env, snapshotId);
+    
+    env.commandLogger.debug(`✅ scanSharedData initialized: sourceFiles=${env.scanSharedData?.sourceFiles?.length || 0}, snapshotId=${env.scanSharedData?.snapshotId}`);
+    
+    
+    // Load functions and create BasicAnalysisResult from DB
+    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    
+    const basicResult = {
+      functions,
+      functionsAnalyzed: functions.length,
+      errors: [], // Historical data doesn't track errors
+      batchStats: {
+        totalBatches: 1,
+        functionsPerBatch: [functions.length],
+        processingTimes: [0] // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setBasicAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setBasicAnalysisResults(env, basicResult);
+    
+    // Update source file function counts using efficient SQL grouping
+    await this.updateSourceFileFunctionCountsFromDB(snapshotId, env);
+  }
+
+  /**
+   * Restore CALL_GRAPH analysis results from database to scanSharedData
+   */
+  private async restoreCallGraphAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring CALL_GRAPH analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
+    }
+    
+    // Load call edges from database
+    const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+    
+    // Build dependency map
+    const dependencyMap = new Map<string, {callers: string[], callees: string[], depth: number}>();
+    
+    for (const edge of callEdges) {
+      if (edge.callerFunctionId && edge.calleeFunctionId) {
+        // Add to callee's callers
+        if (!dependencyMap.has(edge.calleeFunctionId)) {
+          dependencyMap.set(edge.calleeFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.calleeFunctionId)!.callers.push(edge.callerFunctionId);
+        
+        // Add to caller's callees
+        if (!dependencyMap.has(edge.callerFunctionId)) {
+          dependencyMap.set(edge.callerFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.callerFunctionId)!.callees.push(edge.calleeFunctionId);
+      }
+    }
+    
+    // Calculate confidence statistics
+    const highConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95).length;
+    const mediumConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
+    const lowConfidenceEdges = callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
+
+    const callGraphResult = {
+      callEdges,
+      internalCallEdges,
+      dependencyMap,
+      stats: {
+        totalEdges: callEdges.length,
+        highConfidenceEdges,
+        mediumConfidenceEdges,
+        lowConfidenceEdges,
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setCallGraphAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setCallGraphAnalysisResults(env, callGraphResult);
+    
+    env.commandLogger.debug(`✅ CALL_GRAPH restored: ${callEdges.length} call edges, ${internalCallEdges.length} internal edges`);
+  }
+  
+  /**
+   * Ensure scanSharedData is populated for already satisfied dependencies
+   * This maintains consistency between fresh analysis and DB restoration
+   */
+  async ensureScanSharedDataForSatisfiedDependencies(
+    satisfied: DependencyType[], 
+    env: CommandEnvironment
+  ): Promise<void> {
+    const currentState = await this.getCurrentAnalysisState(env);
+    const snapshotId = (await env.storage.getLatestSnapshot())?.id;
+    
+    if (!snapshotId) {
+      return;
+    }
+    
+    // Always restore BASIC if satisfied (most commands need functions data)
+    if (satisfied.includes('BASIC') && currentState.completedAnalyses.includes('BASIC')) {
+      await this.restoreBasicAnalysisToSharedData(snapshotId, env);
+    }
+    
+    // Restore CALL_GRAPH if satisfied
+    if (satisfied.includes('CALL_GRAPH') && currentState.completedAnalyses.includes('CALL_GRAPH')) {
+      await this.restoreCallGraphAnalysisToSharedData(snapshotId, env);
+    }
+    
+    // if (satisfied.includes('COUPLING') && currentState.completedAnalyses.includes('COUPLING')) {
+    //   await this.restoreCouplingAnalysisToSharedData(snapshotId, env);
+    // }
+    
+    // if (satisfied.includes('TYPE_SYSTEM') && currentState.completedAnalyses.includes('TYPE_SYSTEM')) {
+    //   await this.restoreTypeSystemAnalysisToSharedData(snapshotId, env);
+    // }
+  }
+
+  /**
+   * Update source file function counts using efficient SQL grouping
+   * Uses already registered functions data to avoid re-analysis
+   */
+  private async updateSourceFileFunctionCountsFromDB(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    // Use storage layer method for SQL operation
+    const functionCountByFile = await env.storage.getFunctionCountsByFile(snapshotId);
+    
+    // Update source files with function counts
+    await env.storage.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+  }
+  
+  /**
+   * Virtual projectが利用可能であることを保証
+   * BASIC dependency を持つコマンドが正常に動作するために必要
+   */
+  private async ensureVirtualProject(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    if (!env.projectManager) {
+      throw new Error('ProjectManager not available in environment');
+    }
+    
+    // Check if project already exists
+    const existingProject = env.projectManager.getCachedProject(snapshotId);
+    if (existingProject) {
+      // Project already available
+      return;
+    }
+    
+    // Create virtual project for the snapshot
+    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+    const fileContentMap = new Map<string, string>();
+    
+    for (const sourceFile of sourceFiles) {
+      fileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
+    }
+    
+    await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+  }
 
   /**
    * 分析レベルが正しく設定されているかチェックし、必要に応じて更新

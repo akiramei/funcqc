@@ -625,6 +625,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.sourceContentOps.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
   }
 
+  async getFunctionCountsByFile(snapshotId: string): Promise<Map<string, number>> {
+    await this.ensureInitialized();
+    return this.sourceContentOps.getFunctionCountsByFile(snapshotId);
+  }
+
   // ========================================
   // CALL EDGE OPERATIONS
   // ========================================

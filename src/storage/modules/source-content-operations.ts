@@ -573,4 +573,29 @@ export class SourceContentOperations extends BaseStorageOperations implements St
       };
     });
   }
+
+  /**
+   * Get function count by file path for a snapshot using efficient SQL grouping
+   * @param snapshotId snapshot ID to get function counts for
+   * @returns Map of file path to function count
+   */
+  async getFunctionCountsByFile(snapshotId: string): Promise<Map<string, number>> {
+    const functionCountQuery = `
+      SELECT file_path, COUNT(*) as function_count
+      FROM functions 
+      WHERE snapshot_id = $1 
+      GROUP BY file_path
+    `;
+    
+    const result = await this.db.query(functionCountQuery, [snapshotId]);
+    
+    // Convert to Map format
+    const functionCountByFile = new Map<string, number>();
+    for (const row of result.rows) {
+      const rowData = row as { file_path: string; function_count: string };
+      functionCountByFile.set(rowData.file_path, parseInt(rowData.function_count));
+    }
+    
+    return functionCountByFile;
+  }
 }

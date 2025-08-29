@@ -290,7 +290,7 @@ export async function performDeferredBasicAnalysis(
   snapshotId: string,
   env: CommandEnvironment,
   showProgress: boolean = true
-): Promise<void> {
+): Promise<import('../../types/scan-shared-data').BasicAnalysisResult> {
   // Initialize shared data for parallel tracking
   await ensureScanSharedData(env, snapshotId);
 
@@ -361,8 +361,14 @@ export async function performDeferredBasicAnalysis(
       }
     };
     
-    // Set results in shared data (NEW - parallel data population)
+    // Set results in shared data (backward compatibility for existing callers)
     setBasicAnalysisResults(env, basicResult);
+    
+    if (showProgress) {
+      spinner.succeed('Basic analysis completed');
+    }
+    
+    return basicResult;
     
   } catch (error) {
     if (showProgress) {

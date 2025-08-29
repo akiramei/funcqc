@@ -13,6 +13,7 @@ import { SnapshotInfo, FunctionInfo, EvaluationMode, DynamicWeightConfig } from 
 import { analyzeStructuralMetrics, getSCCCacheStats } from './structural-analyzer';
 import { calculateMaxDirectoryDepth } from '../../../utils/file-utils';
 import { displayHealthOverview, displayStructuralHealth, formatDateTime } from './display';
+import { getFunctions } from '../../../utils/scan-shared-data-helpers';
 import { defaultLayerDetector } from '../../../analyzers/architecture-layer-detector';
 import { createDynamicWeightCalculator } from '../../../analyzers/dynamic-weight-calculator';
 import { 
@@ -113,30 +114,27 @@ async function performArgumentUsageAnalysis(
 ): Promise<ArgumentUsageMetrics[]> {
   try {
     const analyzer = new ArgumentUsageAnalyzer();
-    const allSourceFiles = await env.storage.getSourceFilesBySnapshot(targetSnapshot.id);
+    
+    // Phase 2: Use shared data for source files - Command Protocol must provide this
+    if (!env.scanSharedData?.sourceFiles || env.scanSharedData.snapshotId !== targetSnapshot.id) {
+      throw new Error('Shared source files not available. Command Protocol must initialize scanSharedData before health command execution.');
+    }
+    
+    const allSourceFiles = env.scanSharedData.sourceFiles;
+    env.commandLogger.debug(`Using shared data source files: ${allSourceFiles.length} files`);
     
     // Full scan for complete accuracy (performance optimized)
     const sampleFiles = allSourceFiles; // Full scan - performance optimized
     env.commandLogger.debug(`Analyzing argument usage for ${sampleFiles.length} files (FULL SCAN - 4.1x improvement achieved!)`);
     
-    // Get ts-morph project from source files
-    const { Project } = await import('ts-morph');
-    const project = new Project({
-      skipAddingFilesFromTsConfig: true,
-      skipFileDependencyResolution: true,
-      skipLoadingLibFiles: true
-    });
-    
-    // First, add all source files to project for better type resolution
-    const tsMorphSourceFiles: import('ts-morph').SourceFile[] = [];
-    for (const sourceFile of sampleFiles) {
-      try {
-        const tsMorphSourceFile = project.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
-        tsMorphSourceFiles.push(tsMorphSourceFile);
-      } catch (error) {
-        env.commandLogger.debug(`Failed to create source file for ${sourceFile.filePath}: ${error}`);
-      }
+    // Phase 2: Use shared ts-morph project - Command Protocol must provide this
+    if (!env.scanSharedData?.project || env.scanSharedData.snapshotId !== targetSnapshot.id) {
+      throw new Error('Shared ts-morph project not available. Command Protocol must initialize scanSharedData before health command execution.');
     }
+    
+    const project = env.scanSharedData.project;
+    const tsMorphSourceFiles = project.getSourceFiles();
+    env.commandLogger.debug(`Using shared ts-morph project with ${tsMorphSourceFiles.length} source files`);
     
     // PRECISION FIX #4: Create TypePropertyAnalyzer after all files are added (better type resolution)
     const { TypePropertyAnalyzer } = await import('../../../analyzers/type-property-analyzer');
@@ -185,8 +183,13 @@ async function performArgumentUsageAnalysis(
       return [];
     }
     
-    // Load call edges for transitive analysis
-    const callEdges = await env.storage.getCallEdgesBySnapshot(targetSnapshot.id);
+    // Phase 2: Use shared data for call edges - Command Protocol must provide this
+    if (!env.scanSharedData?.callGraphResults?.callEdges || env.scanSharedData.snapshotId !== targetSnapshot.id) {
+      throw new Error('Shared call graph results not available. Command Protocol must initialize all required dependencies before health command execution.');
+    }
+    
+    const callEdges = env.scanSharedData.callGraphResults.callEdges;
+    env.commandLogger.debug(`Using shared data call edges: ${callEdges.length} edges`);
     
     // Create aggregator and process data
     const aggregator = new ArgumentUsageAggregator({}, callEdges);
@@ -202,12 +205,10 @@ async function performArgumentUsageAnalysis(
       env.commandLogger.debug(`Argument usage summary - overFetch: ${totalOverFetch.toFixed(1)}, passThrough: ${totalPassThrough.toFixed(1)}, demeter: ${totalDemeter.toFixed(1)}`);
     }
     
-    // Cleanup: Clear type cache and project to free memory
+    // Cleanup: Clear type cache only - shared project managed by Command Protocol
     sharedTypeAnalyzer.clearCache();
     
-    // Clear all AST nodes from memory to prevent memory leaks in large projects
-    // Forget all source files to release AST nodes
-    project.getSourceFiles().forEach(sf => sf.forget());
+    // Note: Shared project cleanup is managed by Command Protocol, not health command
     
     return argumentUsageMetrics;
   } catch (error) {
@@ -629,12 +630,18 @@ async function displayOriginalHealthFormat(
 
 /**
  * Phase 2: Display project structure analysis
+ * Phase 2: Uses shared data when available for better performance
  */
 async function displayPhase2Analysis(env: CommandEnvironment, snapshotId: string, functions: FunctionInfo[]): Promise<void> {
   console.log(chalk.blue('\n📊 Phase 2: Project Structure Analysis'));
   console.log('━'.repeat(50));
   
-  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  // Phase 2: Use shared data for source files - Command Protocol must provide this
+  if (!env.scanSharedData?.sourceFiles || env.scanSharedData.snapshotId !== snapshotId) {
+    throw new Error('Shared source files not available. Command Protocol must initialize scanSharedData before health command execution.');
+  }
+  
+  const sourceFiles = env.scanSharedData.sourceFiles;
   const fileCount = sourceFiles.length;
   const avgFunctionsPerFile = fileCount > 0 ? functions.length / fileCount : 0;
   const maxDirectoryDepth = calculateMaxDirectoryDepth(sourceFiles);
@@ -844,6 +851,7 @@ async function generateHealthData(env: CommandEnvironment, options: HealthComman
 
 /**
  * Get target snapshot and functions
+ * Phase 2: Uses shared data when available for better performance
  */
 async function getTargetSnapshotAndFunctions(env: CommandEnvironment, options: HealthCommandOptions): Promise<{ targetSnapshot: SnapshotInfo; functions: FunctionInfo[] }> {
   const targetSnapshotId = options.snapshot || 'latest';
@@ -858,7 +866,8 @@ async function getTargetSnapshotAndFunctions(env: CommandEnvironment, options: H
     throw new Error('Snapshot not found');
   }
 
-  const functions = await env.storage.findFunctionsInSnapshot(resolvedSnapshotId);
+  // Phase 2: Use shared data helper to get functions (with fallback to DB)
+  const functions = await getFunctions(env, resolvedSnapshotId);
   
   if (functions.length === 0) {
     throw new Error('No functions found in the latest snapshot');
@@ -892,6 +901,7 @@ function displayFunctionNotFound(functionIdOrName: string, functions: FunctionIn
 
 /**
  * Calculate dependency metrics for a specific function
+ * Phase 2: Uses shared data when available for better performance
  */
 async function calculateDependencyMetrics(
   functions: FunctionInfo[],
@@ -899,7 +909,12 @@ async function calculateDependencyMetrics(
   targetFunction: FunctionInfo,
   env: CommandEnvironment
 ): Promise<{ fanIn: number; fanOut: number }> {
-  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+  // Phase 2: Use shared data for call edges - Command Protocol must provide this
+  if (!env.scanSharedData?.callGraphResults?.callEdges || env.scanSharedData.snapshotId !== snapshotId) {
+    throw new Error('Shared call graph results not available. Command Protocol must initialize all required dependencies before health command execution.');
+  }
+  
+  const callEdges = env.scanSharedData.callGraphResults.callEdges;
   const dependencyCalculator = new (await import('../../../analyzers/dependency-metrics')).DependencyMetricsCalculator();
   const entryPoints = new Set<string>();
   const cyclicFunctions = new Set<string>();

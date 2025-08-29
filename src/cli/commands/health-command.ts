@@ -13,13 +13,14 @@ export class HealthCommand implements Command {
   /**
    * subCommandに基づいて必要な依存関係を返す
    * 
-   * healthコマンドは常にBASIC分析が必要：
-   * - 関数の品質メトリクス（複雑度、行数など）を評価するため
-   * - リスク分析や傾向分析にメトリクスデータが必要
+   * healthコマンドは包括的な健全性評価のため全ての分析結果が必要：
+   * - BASIC: 関数の品質メトリクス（複雑度、行数など）
+   * - CALL_GRAPH: 構造的依存関係、Hub/Cyclic function分析
+   * - COUPLING: 結合度分析、構造リスク評価
    */
   async getRequires(_subCommand: string[]): Promise<DependencyType[]> {
-    // healthコマンドは常にBASIC分析が必要
-    return ['BASIC'];
+    // healthコマンドは包括的な品質評価のため全分析が必要
+    return ['BASIC', 'CALL_GRAPH', 'COUPLING'];
   }
   
   /**

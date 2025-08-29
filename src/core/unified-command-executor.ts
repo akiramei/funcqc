@@ -174,6 +174,10 @@ export class UnifiedCommandExecutor {
       if (!options.quiet) {
         console.log(`✅ All required dependencies already satisfied: [${required.join(', ')}]`);
       }
+      
+      // CRITICAL: Even when dependencies are satisfied, we must ensure scanSharedData is populated
+      // This ensures consistency between "fresh analysis" and "DB restoration" states
+      await this.dependencyManager.ensureScanSharedDataForSatisfiedDependencies(required, env);
       return;
     }
     
