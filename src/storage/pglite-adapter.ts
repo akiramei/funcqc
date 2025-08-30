@@ -1350,6 +1350,25 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     }
   }
 
+  async getCouplingPointCount(snapshotId: string): Promise<number> {
+    await this.ensureInitialized();
+    
+    try {
+      const result = await this.db.query<{ count: string }>(
+        'SELECT COUNT(*) as count FROM parameter_property_usage WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      
+      return parseInt(result.rows[0].count, 10);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get coupling point count: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   // Utility method for snapshot ID generation (if needed in future)
   // private generateSnapshotId(): string {
   //   return uuidv4();

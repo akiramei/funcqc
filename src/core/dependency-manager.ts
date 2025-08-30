@@ -817,14 +817,8 @@ export class DependencyManager {
       await ensureScanSharedData(env, snapshotId);
     }
     
-    // Load coupling data from database
-    const couplingDataQuery = `
-      SELECT COUNT(*) as total_coupling_points
-      FROM parameter_property_usage 
-      WHERE snapshot_id = $1
-    `;
-    const result = await env.storage.query(couplingDataQuery, [snapshotId]);
-    const totalCouplingPoints = (result.rows[0] as { total_coupling_points: string }).total_coupling_points;
+    // Load coupling data from database using storage API
+    const totalCouplingPoints = await env.storage.getCouplingPointCount(snapshotId);
     
     // For now, create basic coupling structure - in future iterations,
     // we would build more sophisticated matrices from parameter_property_usage data
@@ -846,8 +840,8 @@ export class DependencyManager {
       fileCouplingData: mapToRecord3(fileCouplingData),
       highCouplingFunctions,
       stats: {
-        filesCoupled: parseInt(totalCouplingPoints), // Use coupling points as proxy for files
-        couplingRelationships: parseInt(totalCouplingPoints),
+        filesCoupled: totalCouplingPoints, // Use coupling points as proxy for files
+        couplingRelationships: totalCouplingPoints,
         analysisTime: 0 // Historical data doesn't have timing info
       }
     };

@@ -777,6 +777,7 @@ export interface StorageAdapter {
   
   // Coupling analysis operations
   storeParameterPropertyUsage(couplingData: ParameterPropertyUsageData[], snapshotId: string): Promise<void>;
+  getCouplingPointCount(snapshotId: string): Promise<number>;
 }
 
 export interface BackupOptions {
