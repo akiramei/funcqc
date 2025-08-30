@@ -145,11 +145,11 @@ async function executeScanCommand(
     const metadata = (latestSnapshot.metadata as Record<string, unknown>) || {};
     
     // Get information from snapshot metadata (no DB queries needed)
-    const functionsAnalyzed = metadata['functionCount'] as number || 0;
-    const filesAnalyzed = metadata['sourceFileCount'] as number || 0;
+    const functionsAnalyzed = metadata['totalFunctions'] as number || 0;
+    const filesAnalyzed = metadata['totalFiles'] as number || 0;
     const analysisLevel = metadata['analysisLevel'] as string || 'NONE';
-    const callEdgesCount = metadata['callEdgeCount'] as number || 0;
-    const internalCallEdgesCount = metadata['internalCallEdgeCount'] as number || 0;
+    const callEdgesCount = metadata['totalCallEdges'] as number || 0;
+    const internalCallEdgesCount = metadata['totalInternalCallEdges'] as number || 0;
     
     // Record scan duration for display only
     const endTime = performance.now();
@@ -568,9 +568,14 @@ export async function performDeferredCouplingAnalysis(
     // Reuse existing shared project (should already be created by cli-wrapper)
     let project: Project;
     if (env.projectManager) {
-      // Use existing cached project - no need to create or update
+      // Ensure the shared project is (re)hydrated with the current files
+      const fileContentMap = new Map<string, string>();
+      for (const sf of sourceFiles) {
+        fileContentMap.set(sf.filePath, sf.fileContent);
+      }
+      await ensureSharedProject(env, snapshotId, fileContentMap);
       project = env.projectManager.getProject(snapshotId);
-      console.log(`📁 Reusing shared project with ${project.getSourceFiles().length} files for call graph analysis`);
+      console.log(`📁 Reusing shared project with ${project.getSourceFiles().length} files for coupling analysis`);
     } else {
       // Fallback for environments/tests that don't provide projectManager yet
       project = new Project({

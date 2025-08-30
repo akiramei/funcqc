@@ -294,14 +294,18 @@ export class TypeScriptAnalyzer extends CacheAware {
         }
       }
       
+      // Normalize once and use as the single key for the virtual file
+      const unifiedPath = toUnifiedProjectPath(virtualPath);
       // Prefer reusing existing SourceFile when using shared project to avoid reparsing
-      let sourceFile = targetProject.getSourceFile(virtualPath);
+      let sourceFile = targetProject.getSourceFile(unifiedPath);
       if (!sourceFile) {
-        sourceFile = targetProject.createSourceFile(virtualPath, content, { overwrite: true });
+        sourceFile = targetProject.createSourceFile(unifiedPath, content, { overwrite: true });
+      } else if (isUsingSharedProject && sourceFile.getFullText() !== content) {
+        // Keep AST identity but refresh text when content differs
+        sourceFile.replaceWithText(content);
       }
-      
-      // Normalize to unified project path (/src/...)
-      const relativePath = toUnifiedProjectPath(virtualPath);
+      // Use unified path consistently downstream
+      const relativePath = unifiedPath;
       const fileHash = this.calculateFileHash(content);
       
       // Extract all function types

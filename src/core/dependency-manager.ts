@@ -757,38 +757,8 @@ export class DependencyManager {
       await ensureScanSharedData(env, snapshotId);
     }
     
-    // Load type definitions from database
-    const typeDefinitionsQuery = `
-      SELECT id, name, kind, file_path, start_line, end_line, 
-             is_exported, is_generic, generic_parameters, 
-             type_text, resolved_type, modifiers, jsdoc, 
-             is_abstract, is_default_export, snapshot_id
-      FROM type_definitions 
-      WHERE snapshot_id = $1
-    `;
-    const result = await env.storage.query(typeDefinitionsQuery, [snapshotId]);
-    
-    const typeDefinitions = result.rows.map(row => {
-      const r = row as Record<string, unknown>;
-      return {
-        id: r['id'] as string,
-        name: r['name'] as string,
-        kind: r['kind'] as string,
-        filePath: r['file_path'] as string,
-        startLine: r['start_line'] as number,
-        endLine: r['end_line'] as number,
-        isExported: r['is_exported'] as boolean,
-        isGeneric: r['is_generic'] as boolean,
-        genericParameters: r['generic_parameters'] as string || '',
-        typeText: r['type_text'] as string || '',
-        resolvedType: r['resolved_type'] || {},
-        modifiers: r['modifiers'] as string || '',
-        jsdoc: r['jsdoc'] as string || '',
-        isAbstract: r['is_abstract'] as boolean,
-        isDefaultExport: r['is_default_export'] as boolean,
-        snapshotId: r['snapshot_id'] as string
-      };
-    });
+    // Load type definitions from database using storage API
+    const typeDefinitions = await env.storage.getTypeDefinitions(snapshotId);
     
     // Build basic type dependency and safety maps (placeholders for now)
     const typeDependencyMap = new Map<string, {
@@ -1000,8 +970,8 @@ export class DependencyManager {
     
     // メタデータのフラグをチェックして重複実行を防ぐ
     const snapshot = await env.storage.getSnapshot(snapshotId);
-    const callGraphCompleted = snapshot?.metadata && 'callGraphAnalysisCompleted' in snapshot.metadata ? 
-      snapshot.metadata.callGraphAnalysisCompleted : false;
+    const completedAnalyses = (snapshot?.metadata?.completedAnalyses as string[]) || [];
+    const callGraphCompleted = completedAnalyses.includes('CALL_GRAPH');
       
     if (callGraphCompleted) {
       if (!options.quiet && options.verbose) {
@@ -1025,8 +995,8 @@ export class DependencyManager {
       throw new Error(`Snapshot ${snapshotId} not found`);
     }
     
-    const typeSystemCompleted = snapshot?.metadata && 'typeSystemAnalysisCompleted' in snapshot.metadata ? 
-      snapshot.metadata.typeSystemAnalysisCompleted : false;
+    const completedAnalyses = (snapshot.metadata?.completedAnalyses as string[]) || [];
+    const typeSystemCompleted = completedAnalyses.includes('TYPE_SYSTEM');
       
     if (typeSystemCompleted) {
       if (!options.quiet && options.verbose) {
@@ -1051,8 +1021,8 @@ export class DependencyManager {
       throw new Error(`Snapshot ${snapshotId} not found`);
     }
     
-    const couplingCompleted = snapshot?.metadata && 'couplingAnalysisCompleted' in snapshot.metadata ? 
-      snapshot.metadata.couplingAnalysisCompleted : false;
+    const completedAnalyses = (snapshot.metadata?.completedAnalyses as string[]) || [];
+    const couplingCompleted = completedAnalyses.includes('COUPLING');
       
     if (couplingCompleted) {
       if (!options.quiet && options.verbose) {

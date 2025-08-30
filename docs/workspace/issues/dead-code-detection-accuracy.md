@@ -91,7 +91,7 @@ private createCallEdge(
   // ...
 }
 
-// In TypeScriptAnalyzer.analyzeFileWithCallGraph() - line 1067-1075
+// In TypeScriptAnalyzer.analyzeFileWithCallGraph(filePath: string, snapshotId?: string) - line 1067-1075
 const functionMap = new Map(); // ❌ Only includes functions from current file
 for (const func of functions) {
   functionMap.set(func.id, { /* ... */ });
