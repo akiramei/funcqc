@@ -350,6 +350,11 @@ export async function performDeferredBasicAnalysis(
     // Create BasicAnalysisResult for shared data (parallel data population)
     const allFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
     
+    // Mirror functions into shared data for downstream consumers
+    if (env.scanSharedData) {
+      env.scanSharedData.functions = allFunctions;
+    }
+    
     const basicResult: BasicAnalysisResult = {
       // functions moved to ScanSharedData.functions
       functionsAnalyzed: allFunctions.length,
@@ -1200,14 +1205,29 @@ export async function performDeferredTypeSystemAnalysis(
     // Reuse existing shared project for type analysis (should already be created by cli-wrapper)
     let typeProject: Project;
     if (env.projectManager) {
-      // Use existing cached project - no need to create or update
-      typeProject = env.projectManager.getProject(snapshotId);
-      console.log(`📁 Reusing shared project for type analysis with ${typeProject.getSourceFiles().length} files`);
+      // Ensure the shared project is hydrated with current files
+      const fileContentMap = new Map<string, string>();
+      for (const sf of sourceFiles) {
+        fileContentMap.set(sf.filePath, sf.fileContent);
+      }
+      await ensureSharedProject(env, snapshotId, fileContentMap);
+      const p = env.projectManager.getProject(snapshotId);
+      if (!p) {
+        throw new Error(`No shared project found for snapshot ${snapshotId}`);
+      }
+      typeProject = p;
+      console.log(
+        `📁 Reusing shared project for type analysis with ${typeProject.getSourceFiles().length} files`
+      );
     } else {
       // Fallback for test environments without projectManager
       typeProject = new Project({ useInMemoryFileSystem: true });
       sourceFiles.forEach(sourceFile => {
-        typeProject.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+        typeProject.createSourceFile(
+          sourceFile.filePath,
+          sourceFile.fileContent,
+          { overwrite: true }
+        );
       });
     }
 

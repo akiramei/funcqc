@@ -623,7 +623,9 @@ export class DependencyManager {
     
     // メタデータのフラグをチェックして重複実行を防ぐ
     const snapshot = await env.storage.getSnapshot(snapshotId);
-    const completedAnalyses = snapshot?.metadata?.completedAnalyses || [];
+    const completedAnalyses = this.getCompletedAnalysesFromMetadata(
+      (snapshot?.metadata as Record<string, unknown>) || {}
+    );
     const basicCompleted = completedAnalyses.includes('BASIC');
       
     if (basicCompleted) {
