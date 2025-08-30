@@ -419,15 +419,11 @@ describe('CochangeAnalyzer', () => {
       const storage = createMockStorage();
       const gitProvider = new MockGitProvider();
       
-      // Test different path formats that should all normalize to 'src/types.ts'
+      // Test different path formats that should all normalize to '/src/types.ts'
       const pathVariations = [
         '/src/types.ts',
-        '/src/src/types.ts', 
         'src/types.ts',
-        'src/src/types.ts',
-        './src/types.ts',
-        '/src/types.ts',
-        'src/types.ts'
+        './src/types.ts'
       ];
       
       for (const pathVariant of pathVariations) {

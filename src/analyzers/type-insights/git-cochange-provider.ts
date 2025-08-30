@@ -8,7 +8,6 @@
 import { execFileSync } from 'child_process';
 import path from 'path';
 import { GitProvider, GitCommitInfo } from './cochange-analyzer';
-import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface GitCochangeOptions {
   monthsBack: number;
@@ -164,8 +163,13 @@ export class GitCochangeProvider implements GitProvider {
     // repo root相対へ明示（相対で来た場合はそのまま、絶対ならrepo rootからの相対に変換）
     const abs = path.isAbsolute(filePath) ? filePath : path.join(this.repositoryRoot, filePath);
     const relFromRepo = path.relative(this.repositoryRoot, abs).replace(/\\/g, '/');
-    const unified = toUnifiedProjectPath(relFromRepo);
-    return unified.startsWith('/') ? unified.slice(1) : unified;
+    
+    // Remove ./ prefix and normalize to simple relative path
+    const cleaned = relFromRepo.replace(/^\.\//, '');
+    // Normalize multiple slashes to single slashes
+    const normalized = cleaned.replace(/\/+/g, '/');
+    
+    return normalized;
   }
 
   /**

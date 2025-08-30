@@ -248,7 +248,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     // Count changes for each type
     for (const commit of commits) {
       const normalizedChangedFiles = Array.from(
-        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+        new Set(commit.changedFiles.map(p => toUnifiedProjectPath(p)))
       );
       for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);
@@ -327,7 +327,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     for (const commit of commits) {
       const changedTypes: string[] = [];
       const normalizedChangedFiles = Array.from(
-        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+        new Set(commit.changedFiles.map(p => toUnifiedProjectPath(p)))
       );
       for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);
