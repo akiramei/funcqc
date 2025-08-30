@@ -237,8 +237,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         return {
           ...functionInfo,
           id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn, snapshotId), // Generate deterministic ID
-          metrics: qualityMetrics,
-          complexity: qualityMetrics.cyclomaticComplexity || 1
+          metrics: qualityMetrics
         };
       });
 

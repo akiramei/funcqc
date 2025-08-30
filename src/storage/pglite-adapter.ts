@@ -271,6 +271,23 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.snapshotOps.deleteSnapshot(id);
   }
 
+  async updateSnapshotMetadata(snapshotId: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.ensureInitialized();
+    
+    try {
+      await this.db.query(
+        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
+        [JSON.stringify(metadata), snapshotId]
+      );
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to update snapshot metadata: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async getLatestSnapshot(): Promise<SnapshotInfo | null> {
     await this.ensureInitialized();
     return this.snapshotOps.getLatestSnapshot();

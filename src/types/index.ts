@@ -644,6 +644,7 @@ export interface StorageAdapter {
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   getLatestSnapshot(scope?: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
+  updateSnapshotMetadata(snapshotId: string, metadata: Record<string, unknown>): Promise<void>;
   getLastConfigHash?(): Promise<string | null>;
 
   // Function operations - new find methods with consistent naming
