@@ -27,6 +27,7 @@ import { Project, TypeChecker, ts, Node } from 'ts-morph';
 import { getOrLoadFunctions, ensureSharedProject } from '../../core/env-facade';
 // import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 import { 
   ensureScanSharedData, 
   setBasicAnalysisResults, 
@@ -723,21 +724,22 @@ async function performCouplingAnalysisForFile(
     // Build lookup map with multiple key strategies for robust matching
     for (const func of fileFunctions) {
       // Strategy 1: Composite key (most reliable)
-      const compositeKey = generateFunctionCompositeKey(func.filePath, func.startLine, func.name);
+      const unifiedFilePath = toUnifiedProjectPath(func.filePath);
+      const compositeKey = generateFunctionCompositeKey(unifiedFilePath, func.startLine, func.name);
       functionLookupMap.set(compositeKey, func.id);
       
       // Strategy 2: Direct ID mapping (if IDs match)
       functionLookupMap.set(func.id, func.id);
       
       // Strategy 3: Alternative composite without full path (for path mismatches)
-      const fileName = path.basename(func.filePath);
+      const fileName = path.basename(unifiedFilePath);
       const altCompositeKey = generateFunctionCompositeKey(fileName, func.startLine, func.name);
       functionLookupMap.set(altCompositeKey, func.id);
       
       // Strategy 4: CRITICAL FIX - Use the same ID generation as OnePassASTVisitor
       // This generates the exact same hash ID that coupling analysis uses
       const couplingHashId = FunctionIdGenerator.generateDeterministicUUID(
-        func.filePath,
+        unifiedFilePath,
         func.name,
         func.className || null, // Use className when available for better matching
         func.startLine,
@@ -802,7 +804,7 @@ async function performCouplingAnalysisForFile(
             const nameForKey = info.name || '<anonymous>';
             
             // Try multiple composite key strategies
-            const directKey = generateFunctionCompositeKey(sourceFile.filePath, startLine, nameForKey);
+            const directKey = generateFunctionCompositeKey(toUnifiedProjectPath(sourceFile.filePath), startLine, nameForKey);
             const altKey = generateFunctionCompositeKey(path.basename(sourceFile.filePath), startLine, nameForKey);
             
             const mappedId = functionLookupMap.get(directKey) || functionLookupMap.get(altKey);
