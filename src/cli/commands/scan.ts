@@ -355,7 +355,7 @@ export async function performDeferredBasicAnalysis(
     }
     
     // Perform the PURE basic analysis (no coupling)
-    const batchResults = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    const basicSummary = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
     
     // Create BasicAnalysisResult for shared data (parallel data population)
     const allFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
@@ -366,12 +366,12 @@ export async function performDeferredBasicAnalysis(
     }
     
     const basicResult: BasicAnalysisResult = {
-      // functions moved to ScanSharedData.functions
+      // functions は ScanSharedData.functions へ
       functionsAnalyzed: allFunctions.length,
       errors: [], // Will be populated if needed
       batchStats: {
-        totalBatches: 1,
-        functionsPerBatch: [batchResults.functionsAnalyzed],
+        totalBatches: basicSummary.totalBatches,
+        functionsPerBatch: basicSummary.functionsPerBatch,
         processingTimes: [] // TODO: Add timing info if needed
       }
     };
@@ -403,7 +403,7 @@ export async function performPureBasicAnalysis(
   env: CommandEnvironment,
   spinner: SpinnerInterface,
   sourceFileIdMap?: Map<string, string>
-): Promise<{ functionsAnalyzed: number }> {
+): Promise<{ functionsAnalyzed: number; totalBatches: number; functionsPerBatch: number[] }> {
   spinner.start('Performing basic function analysis (no coupling)...');
   
   const components = await initializeComponents(env, spinner, sourceFiles.length);
@@ -435,7 +435,8 @@ export async function performPureBasicAnalysis(
       throw new Error('No functions were successfully analyzed');
     }
     
-    return { functionsAnalyzed: totalFunctions };
+    const functionsPerBatch = batchResults.map(b => b.functionCount);
+    return { functionsAnalyzed: totalFunctions, totalBatches: batchResults.length, functionsPerBatch };
   } catch (error) {
     spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     // Don't update analysis level on error to prevent incomplete state
@@ -446,8 +447,8 @@ export async function performPureBasicAnalysis(
 }
 
 /**
- * Execute PURE BASIC batch analysis (no coupling) 
- * Modified to use single transaction for all batches to prevent duplicate key violations
+ * Execute PURE BASIC batch analysis (no coupling)
+ * 各バッチごとに保存（並列）。重複キーはストレージ側の UPSERT/PK で保護される前提。
  */
 async function executePureBasicBatchAnalysis(
   batches: import('../../types').SourceFile[][],
@@ -470,7 +471,6 @@ async function executePureBasicBatchAnalysis(
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
     const batchFunctions: FunctionInfo[] = [];
     const batchErrors: string[] = [];
-    const batchFunctionCounts = new Map<string, number>();
     
     console.log(chalk.blue(`📦 Processing batch ${batchIndex + 1}/${batches.length} (${batch.length} files)`));
     
@@ -500,10 +500,6 @@ async function executePureBasicBatchAnalysis(
         
         sourceFile.functionCount = functions.length;
         batchFunctions.push(...functions);
-        
-        // Track function counts for this batch
-        const count = batchFunctionCounts.get(sourceFile.filePath) || 0;
-        batchFunctionCounts.set(sourceFile.filePath, count + functions.length);
       } catch (error) {
         const errorMessage = `Error analyzing file ${sourceFile.filePath}: ${error instanceof Error ? error.message : String(error)}`;
         batchErrors.push(errorMessage);
