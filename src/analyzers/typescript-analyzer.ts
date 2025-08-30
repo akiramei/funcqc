@@ -300,8 +300,8 @@ export class TypeScriptAnalyzer extends CacheAware {
         sourceFile = targetProject.createSourceFile(virtualPath, content, { overwrite: true });
       }
       
-      // Use virtualPath as-is (consistent with snapshot storage and ID generation)
-      const relativePath = virtualPath;
+      // Normalize to unified project path (/src/...)
+      const relativePath = toUnifiedProjectPath(virtualPath);
       const fileHash = this.calculateFileHash(content);
       
       // Extract all function types

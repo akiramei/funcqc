@@ -476,12 +476,13 @@ export class DependencyManager {
       // Initialize shared ts-morph Project once per snapshot, registering all files in advance
       try {
         if (env.projectManager) {
+          const { toUnifiedProjectPath } = await import('../utils/path-normalizer');
           const fileContentMap = new Map<string, string>();
           for (const f of sourceFiles) {
             const filePath = (f as Record<string, unknown>)['filePath'] as string;
             const content = (f as Record<string, unknown>)['fileContent'] as string;
             if (filePath && typeof content === 'string') {
-              fileContentMap.set(filePath, content);
+              fileContentMap.set(toUnifiedProjectPath(filePath), content);
             }
           }
           if (fileContentMap.size > 0) {
@@ -659,14 +660,17 @@ export class DependencyManager {
     // Load functions and create BasicAnalysisResult from DB
     const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
     
+    // 共有データへ関数一覧を反映
+    if (env.scanSharedData) {
+      env.scanSharedData.functions = functions;
+    }
     const basicResult = {
-      functions,
       functionsAnalyzed: functions.length,
-      errors: [], // Historical data doesn't track errors
+      errors: [],
       batchStats: {
         totalBatches: 1,
         functionsPerBatch: [functions.length],
-        processingTimes: [0] // Historical data doesn't have timing info
+        processingTimes: [0]
       }
     };
     
@@ -937,7 +941,8 @@ export class DependencyManager {
    */
   private async ensureVirtualProject(snapshotId: string, env: CommandEnvironment): Promise<void> {
     if (!env.projectManager) {
-      throw new Error('ProjectManager not available in environment');
+      env.commandLogger?.warn?.('ProjectManager not available. Skipping virtual project initialization.');
+      return;
     }
     
     // Check if project already exists
