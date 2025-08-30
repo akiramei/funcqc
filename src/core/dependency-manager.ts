@@ -45,8 +45,9 @@ export class DependencyManager {
     };
     const expanded = expandWithPrereqs(required);
 
-    // CRITICAL FIX: SNAPSHOTが要求されている場合、既存状態をチェックせずに全て実行
-    if (expanded.includes('SNAPSHOT')) {
+    // ユーザーが明示的に SNAPSHOT を要求した場合のみ、既存状態を無視
+    const snapshotExplicitlyRequested = required.includes('SNAPSHOT');
+    if (snapshotExplicitlyRequested) {
       // 新しいスナップショットが作成される場合、全ての分析が無効になる
       // 既存スナップショットの読み込みは不要
       return expanded;

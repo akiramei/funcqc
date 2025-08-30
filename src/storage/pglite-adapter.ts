@@ -275,10 +275,17 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     await this.ensureInitialized();
     
     try {
-      await this.db.query(
-        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(metadata), snapshotId]
+      const payload = JSON.stringify(metadata ?? {});
+      const res = await this.db.query(
+        'UPDATE snapshots SET metadata = $1::jsonb WHERE id = $2 RETURNING id',
+        [payload, snapshotId]
       );
+      if (!res.rows || (res.rows as unknown[]).length === 0) {
+        throw new DatabaseError(
+          ErrorCode.STORAGE_WRITE_ERROR,
+          `Snapshot not found for id=${snapshotId}`
+        );
+      }
     } catch (error) {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,

@@ -145,11 +145,21 @@ async function executeScanCommand(
     const metadata = (latestSnapshot.metadata as Record<string, unknown>) || {};
     
     // Get information from snapshot metadata (no DB queries needed)
-    const functionsAnalyzed = metadata['totalFunctions'] as number || 0;
-    const filesAnalyzed = metadata['totalFiles'] as number || 0;
-    const analysisLevel = metadata['analysisLevel'] as string || 'NONE';
-    const callEdgesCount = metadata['totalCallEdges'] as number || 0;
-    const internalCallEdgesCount = metadata['totalInternalCallEdges'] as number || 0;
+    const functionsAnalyzed = typeof metadata['totalFunctions'] === 'number'
+      ? (metadata['totalFunctions'] as number)
+      : (Number(metadata['totalFunctions']) || 0);
+    const filesAnalyzed = typeof metadata['totalFiles'] === 'number'
+      ? (metadata['totalFiles'] as number)
+      : (Number(metadata['totalFiles']) || 0);
+    const analysisLevel = typeof metadata['analysisLevel'] === 'string'
+      ? (metadata['analysisLevel'] as string)
+      : 'NONE';
+    const callEdgesCount = typeof metadata['totalCallEdges'] === 'number'
+      ? (metadata['totalCallEdges'] as number)
+      : (Number(metadata['totalCallEdges']) || 0);
+    const internalCallEdgesCount = typeof metadata['totalInternalCallEdges'] === 'number'
+      ? (metadata['totalInternalCallEdges'] as number)
+      : (Number(metadata['totalInternalCallEdges']) || 0);
     
     // Record scan duration for display only
     const endTime = performance.now();
@@ -579,7 +589,11 @@ export async function performDeferredCouplingAnalysis(
         fileContentMap.set(sf.filePath, sf.fileContent);
       }
       await ensureSharedProject(env, snapshotId, fileContentMap);
-      project = env.projectManager.getProject(snapshotId);
+      const p = env.projectManager.getProject(snapshotId);
+      if (!p) {
+        throw new Error(`No shared project found for snapshot ${snapshotId}`);
+      }
+      project = p;
       console.log(`📁 Reusing shared project with ${project.getSourceFiles().length} files for coupling analysis`);
     } else {
       // Fallback for environments/tests that don't provide projectManager yet
