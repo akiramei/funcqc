@@ -1164,7 +1164,8 @@ export async function performDeferredTypeSystemAnalysis(
       'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
       [snapshotId]
     );
-    const typeCount = (existingTypes.rows[0] as { count?: number })?.count || 0;
+    const rawCount = (existingTypes.rows[0] as { count?: unknown })?.count ?? 0;
+    const typeCount = typeof rawCount === 'number' ? rawCount : Number(rawCount) || 0;
     
     if (typeCount > 0) {
       // Type system analysis already completed

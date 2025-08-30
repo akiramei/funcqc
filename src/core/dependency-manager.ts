@@ -541,6 +541,7 @@ export class DependencyManager {
       const sourceFiles: Array<Record<string, unknown>> = [];
       const exportRegex = /^export\s+/gm;
       const importRegex = /^import\s+/gm;
+      const { toUnifiedProjectPath } = await import('../utils/path-normalizer');
       
       for (const filePath of files) {
         try {
@@ -550,6 +551,7 @@ export class DependencyManager {
           ]);
           
           const relativePath = path.relative(process.cwd(), filePath);
+          const unifiedPath = toUnifiedProjectPath(relativePath);
           const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
           const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
           const lineCount = fileContent.split('\n').length;
@@ -560,7 +562,7 @@ export class DependencyManager {
           sourceFiles.push({
             id: '', // 後で設定される
             snapshotId: '', // 後で設定される
-            filePath: relativePath,
+            filePath: unifiedPath,
             fileContent: fileContent,
             fileHash: fileHash,
             encoding: 'utf-8',

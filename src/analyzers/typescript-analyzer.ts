@@ -1409,7 +1409,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Returns comprehensive analysis including call graph relationships
    */
   async analyzeFileWithCallGraph(
-    filePath: string
+    filePath: string,
+    snapshotId?: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     // Read file content asynchronously
     let fileContent: string;
@@ -1422,7 +1423,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       throw error;
     }
 
-    return this.analyzeFileContentWithCallGraph(filePath, fileContent);
+    return this.analyzeFileContentWithCallGraph(filePath, fileContent, snapshotId || 'unknown');
   }
 
   /**
@@ -1492,7 +1493,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    */
   async analyzeFilesBatchWithCallGraph(
     filePaths: string[],
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    snapshotId?: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     const batchSize = Math.min(this.maxSourceFilesInMemory, 20);
     const allFunctions: FunctionInfo[] = [];
@@ -1519,7 +1521,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       validFiles,
       async (fileData: { filePath: string; content: string }) => {
         try {
-          return await this.analyzeFileContentWithCallGraph(fileData.filePath, fileData.content);
+          return await this.analyzeFileContentWithCallGraph(fileData.filePath, fileData.content, snapshotId || 'unknown');
         } catch (error) {
           this.logger.warn(
             `Failed to analyze ${fileData.filePath}`,
