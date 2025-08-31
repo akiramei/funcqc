@@ -76,18 +76,74 @@ export class MaintenanceOperations {
             }
           }
 
-          // For PGLite, we can't get accurate dead tuple information
-          // We'll show basic stats and indicate maintenance is recommended for tables with data
-          const needsMaintenance = rowCount > 0; // Any table with data could benefit from maintenance
+          // Try to get more sophisticated maintenance recommendations
+          let needsMaintenance = false;
+          let deadTuples = 0;
+          let deadTuplesPercent = 0;
+          let lastVacuum: string | null = null;
+          let lastAnalyze: string | null = null;
+
+          try {
+            // Try to use PostgreSQL statistics if available
+            const pgStatQuery = `
+              SELECT 
+                n_dead_tup,
+                n_live_tup,
+                last_autovacuum,
+                last_vacuum,
+                last_autoanalyze,
+                last_analyze
+              FROM pg_stat_user_tables 
+              WHERE relname = $1
+            `;
+            const pgStatResult = await this.context.db.query(pgStatQuery, [tableName]);
+            
+            if (pgStatResult.rows.length > 0) {
+              const row = pgStatResult.rows[0] as {
+                n_dead_tup: number;
+                n_live_tup: number;
+                last_autovacuum: string | null;
+                last_vacuum: string | null;
+                last_autoanalyze: string | null;
+                last_analyze: string | null;
+              };
+
+              deadTuples = row.n_dead_tup || 0;
+              const liveTuples = row.n_live_tup || 0;
+              const totalTuples = deadTuples + liveTuples;
+              
+              if (totalTuples > 0) {
+                deadTuplesPercent = Math.round((deadTuples / totalTuples) * 100);
+              }
+
+              // Set last vacuum/analyze timestamps
+              lastVacuum = row.last_vacuum || row.last_autovacuum;
+              lastAnalyze = row.last_analyze || row.last_autoanalyze;
+
+              // Sophisticated maintenance decision logic
+              const deadTupleThreshold = 20; // 20% dead tuples
+              const oldVacuumThreshold = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+              const oldAnalyzeThreshold = 7 * 24 * 60 * 60 * 1000; // 7 days in ms
+
+              const highDeadTuples = deadTuplesPercent >= deadTupleThreshold;
+              const oldVacuum = !lastVacuum || (Date.now() - new Date(lastVacuum).getTime() > oldVacuumThreshold);
+              const oldAnalyze = !lastAnalyze || (Date.now() - new Date(lastAnalyze).getTime() > oldAnalyzeThreshold);
+
+              needsMaintenance = highDeadTuples || (oldVacuum && rowCount > 1000) || (oldAnalyze && rowCount > 1000);
+            }
+          } catch {
+            // Fall back to PGLite simple logic if pg_stat_user_tables is not available
+            needsMaintenance = rowCount > 10000; // Only recommend maintenance for larger tables in PGLite
+          }
 
           stats.push({
             tableName,
             rowCount,
             tableSize,
-            deadTuples: 0, // PGLite doesn't track this accurately
-            deadTuplesPercent: 0, // PGLite doesn't track this accurately
-            lastVacuum: null, // PGLite doesn't track vacuum history
-            lastAnalyze: null, // PGLite doesn't track analyze history
+            deadTuples,
+            deadTuplesPercent,
+            lastVacuum,
+            lastAnalyze,
             needsMaintenance
           });
         } catch (tableError) {
@@ -259,9 +315,10 @@ export class MaintenanceOperations {
    */
   private async getAllUserTables(): Promise<string[]> {
     const query = `
-      SELECT table_name as tablename 
-      FROM information_schema.tables 
-      WHERE table_schema = 'public' 
+      SELECT table_name as tablename
+      FROM information_schema.tables
+      WHERE table_schema = 'public'
+        AND table_type = 'BASE TABLE'
       ORDER BY table_name
     `;
     

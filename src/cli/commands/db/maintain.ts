@@ -98,14 +98,16 @@ function displayMaintenanceResults(results: MaintenanceResult[], isFullMaintenan
 
   let totalDuration = 0;
   let allSuccessful = true;
-  let totalTablesProcessed = 0;
+  const distinctTables = new Set<string>();
   const allErrors: string[] = [];
 
   // Summary for each operation
   for (const result of results) {
     totalDuration += result.duration;
     allSuccessful = allSuccessful && result.success;
-    totalTablesProcessed = Math.max(totalTablesProcessed, result.tablesProcessed.length);
+    for (const table of result.tablesProcessed) {
+      distinctTables.add(table);
+    }
 
     if (result.errors) {
       allErrors.push(...result.errors);
@@ -130,8 +132,9 @@ function displayMaintenanceResults(results: MaintenanceResult[], isFullMaintenan
   console.log();
   console.log(chalk.cyan('📊 Summary:'));
   console.log(`  • Total duration: ${formatDuration(totalDuration)}`);
-  console.log(`  • Tables processed: ${totalTablesProcessed}`);
-  console.log(`  • Operations: ${results.length}/${results.length}`);
+  console.log(`  • Tables processed: ${distinctTables.size}`);
+  const successCount = results.filter(r => r.success).length;
+  console.log(`  • Operations: ${successCount}/${results.length}`);
   
   if (allErrors.length > 0) {
     console.log(`  • Errors: ${allErrors.length}`);
