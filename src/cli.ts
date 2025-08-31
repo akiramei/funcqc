@@ -404,7 +404,7 @@ Use 'funcqc experimental <subcommand> --help' for detailed help on each subcomma
 
 program
   .command('db')
-  .description('Database management and backup operations')
+  .description('Database management, maintenance, and backup operations')
   .option('--list', 'list all available tables')
   .option('--table <name>', 'table name to query')
   .option('--limit <num>', 'limit number of rows (default: 10, max: 10000)')
@@ -453,11 +453,29 @@ Database Backup Examples:
   # Convert backup format
   $ funcqc db convert --input backup1 --output backup2 --format json
 
+Database Maintenance Examples:
+  # Check database health and statistics
+  $ funcqc db stats
+  
+  # Show maintenance recommendations in JSON format
+  $ funcqc db stats --json
+  
+  # Run standard maintenance (VACUUM + ANALYZE)
+  $ funcqc db maintain
+  
+  # Run full maintenance with space reclamation (requires brief locks)
+  $ funcqc db maintain --full
+  
+  # Run maintenance with detailed progress information
+  $ funcqc db maintain --verbose
+
 Safety Features:
-  - Read-only access (SELECT statements only)
+  - Read-only access for queries (SELECT statements only)
+  - Maintenance operations with user confirmation for destructive actions
   - Input validation and sanitization
   - Row limits to prevent overwhelming output
   - Comprehensive backup and restore capabilities
+  - Database health monitoring and optimization recommendations
 `);
 
 // Add db subcommands for backup operations
@@ -510,6 +528,25 @@ dbCommand.command('convert')
     const { withEnvironment } = await import('./cli/cli-wrapper');
     const { dbConvertCommand } = await import('./cli/commands/db/convert');
     return withEnvironment(dbConvertCommand)(options);
+  });
+
+dbCommand.command('stats')
+  .description('Show database statistics and health information')
+  .option('--json', 'output as JSON')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbStatsCommand } = await import('./cli/commands/db/stats');
+    return withEnvironment(dbStatsCommand)(options);
+  });
+
+dbCommand.command('maintain')
+  .description('Run database maintenance operations (VACUUM, ANALYZE, REINDEX)')
+  .option('--full', 'run full maintenance with VACUUM FULL and REINDEX (requires table locks)')
+  .option('--verbose', 'show detailed progress information')
+  .action(async (options: OptionValues) => {
+    const { withEnvironment } = await import('./cli/cli-wrapper');
+    const { dbMaintainCommand } = await import('./cli/commands/db/maintain');
+    return withEnvironment(dbMaintainCommand)(options);
   });
 
 // Dep command - Function dependency analysis and cleanup
