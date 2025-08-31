@@ -271,7 +271,13 @@ async function calculateProjectStructureMetrics(
 ): Promise<{ dynamicConfig: DynamicWeightConfig; hubThreshold: number }> {
   const architecturePattern = defaultLayerDetector.analyzeArchitecturePattern(functions);
   
-  const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  // Phase 2: Use shared data for source files when available
+  let sourceFiles;
+  if (env.scanSharedData?.snapshotId === snapshotId && env.scanSharedData.sourceFiles.length > 0) {
+    sourceFiles = env.scanSharedData.sourceFiles;
+  } else {
+    sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+  }
   const fileCount = sourceFiles.length;
   const avgFunctionsPerFile = fileCount > 0 ? functions.length / fileCount : 0;
   const maxDirectoryDepth = calculateMaxDirectoryDepth(sourceFiles);
@@ -559,7 +565,15 @@ export async function analyzeStructuralMetrics(
   try {
     env.commandLogger.debug(`Starting structural analysis for ${functions.length} functions`);
     
-    const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+    // Phase 2: Use shared data for call edges when available
+    let callEdges;
+    if (env.scanSharedData?.snapshotId === snapshotId && env.scanSharedData.callGraphResults?.callEdges) {
+      callEdges = env.scanSharedData.callGraphResults.callEdges;
+      env.commandLogger.debug(`Using shared data call edges: ${callEdges.length} edges`);
+    } else {
+      callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+      env.commandLogger.debug(`Loaded call edges from DB: ${callEdges.length} edges`);
+    }
     
     // Calculate hash once and reuse throughout the analysis
     const callEdgesHash = createCallEdgesHash(callEdges);
@@ -578,7 +592,14 @@ export async function analyzeStructuralMetrics(
     
     
     if (excludeIntraFileCalls) {
-      internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+      // Phase 2: Use shared data for internal call edges when available
+      if (env.scanSharedData?.snapshotId === snapshotId && env.scanSharedData.callGraphResults?.internalCallEdges) {
+        internalCallEdges = env.scanSharedData.callGraphResults.internalCallEdges;
+        env.commandLogger.debug(`Using shared data internal call edges: ${internalCallEdges.length} edges`);
+      } else {
+        internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+        env.commandLogger.debug(`Loaded internal call edges from DB: ${internalCallEdges.length} edges`);
+      }
       
       if (internalCallEdges.length > 0) {
         // Use nested Map to avoid string concatenation for better memory efficiency

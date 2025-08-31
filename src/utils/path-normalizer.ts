@@ -53,6 +53,32 @@ export function groupByPath<T extends { filePath: string }>(functions: T[]): Map
 }
 
 /**
+ * Convert arbitrary path to unified project-root path used across analyzers: '/src/...'
+ * - Converts to POSIX separators
+ * - Ensures a leading slash
+ * - Preserves existing leading slash if present
+ */
+export function toUnifiedProjectPath(filePath: string): string {
+  if (!filePath) return '';
+  const posix = filePath.replace(/\\/g, '/');
+  // 既に統一済み（仮想プロジェクトパス）
+  if (posix.startsWith('/src/')) return posix;
+  const cwdPosix = process.cwd().replace(/\\/g, '/');
+  let rel = posix;
+  // 絶対パス（POSIX/Windows）なら CWD 基準に相対へ
+  if (/^[A-Za-z]:\//.test(posix) || posix.startsWith('/')) {
+    if (posix.startsWith(cwdPosix + '/')) {
+      rel = posix.slice(cwdPosix.length + 1);
+    } else {
+      rel = path.posix.relative(cwdPosix, posix);
+    }
+  }
+  // 先頭の './' を除去
+  rel = rel.replace(/^\.\/+/, '');
+  return `/${rel}`;
+}
+
+/**
  * @deprecated Use individual exported functions instead
  * Utility object for backward compatibility with class-based interface
  */
@@ -61,4 +87,5 @@ export const PathNormalizer = {
   areEqual: arePathsEqual,
   filterByPath,
   groupByPath,
+  toUnified: toUnifiedProjectPath,
 };

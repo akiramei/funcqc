@@ -43,7 +43,14 @@ export async function analyzeCallPatternsWithDepMetrics(
   env: CommandEnvironment
 ): Promise<Map<string, CallAnalysis>> {
   const callAnalysisMap = new Map<string, CallAnalysis>();
-  const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+  
+  // Phase 2: Use shared data for call edges when available
+  let callEdges: import('../../../types').CallEdge[];
+  if (env.scanSharedData?.snapshotId === snapshotId && env.scanSharedData.callGraphResults?.callEdges) {
+    callEdges = env.scanSharedData.callGraphResults.callEdges as import('../../../types').CallEdge[];
+  } else {
+    callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+  }
   
   // Create function lookup map
   const functionMap = new Map<string, FunctionInfo>();

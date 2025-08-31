@@ -7,6 +7,7 @@ import { randomUUID } from 'crypto';
 import { StorageOperationModule } from './types';
 import { BaseStorageOperations } from '../shared/base-storage-operations';
 import type { StorageContext } from './types';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 // Type for PGLite transaction object
 interface PGTransaction {
@@ -229,7 +230,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         .values({
           id: refId,
           snapshot_id: snapshotId,
-          file_path: file.filePath,
+          file_path: toUnifiedProjectPath(file.filePath),
           content_id: contentId,
           file_modified_time: file.fileModifiedTime?.toISOString() || null,
           function_count: file.functionCount || 0,
@@ -244,7 +245,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         [
           refId,
           snapshotId,
-          file.filePath,
+          toUnifiedProjectPath(file.filePath),
           contentId,
           file.fileModifiedTime?.toISOString() || null,
           file.functionCount || 0,
@@ -302,7 +303,7 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         trx
       );
 
-      resultMap.set(file.filePath, refId);
+      resultMap.set(toUnifiedProjectPath(file.filePath), refId);
     }
 
     return resultMap;
@@ -572,5 +573,31 @@ export class SourceContentOperations extends BaseStorageOperations implements St
         encoding: r.encoding
       };
     });
+  }
+
+  /**
+   * Get function count by file path for a snapshot using efficient SQL grouping
+   * @param snapshotId snapshot ID to get function counts for
+   * @returns Map of file path to function count
+   */
+  async getFunctionCountsByFile(snapshotId: string): Promise<Map<string, number>> {
+    const functionCountQuery = `
+      SELECT sfr.file_path, COUNT(*) AS function_count
+      FROM functions f
+      INNER JOIN source_file_refs sfr ON f.source_file_ref_id = sfr.id
+      WHERE sfr.snapshot_id = $1
+      GROUP BY sfr.file_path
+    `;
+    
+    const result = await this.db.query(functionCountQuery, [snapshotId]);
+    
+    // Convert to Map format
+    const functionCountByFile = new Map<string, number>();
+    for (const row of result.rows) {
+      const rowData = row as { file_path: string; function_count: string };
+      functionCountByFile.set(rowData.file_path, parseInt(rowData.function_count));
+    }
+    
+    return functionCountByFile;
   }
 }

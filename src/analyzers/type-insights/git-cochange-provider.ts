@@ -160,11 +160,16 @@ export class GitCochangeProvider implements GitProvider {
    * Normalize file path for consistent comparison
    */
   private normalizeFilePath(filePath: string): string {
-    // Convert backslashes to forward slashes and remove redundant separators
-    const normalized = filePath.replace(/\\/g, '/').replace(/\/+/g, '/');
+    // repo root相対へ明示（相対で来た場合はそのまま、絶対ならrepo rootからの相対に変換）
+    const abs = path.isAbsolute(filePath) ? filePath : path.join(this.repositoryRoot, filePath);
+    const relFromRepo = path.relative(this.repositoryRoot, abs).replace(/\\/g, '/');
     
-    // Remove leading ./ if present
-    return normalized.startsWith('./') ? normalized.slice(2) : normalized;
+    // Remove ./ prefix and normalize to simple relative path
+    const cleaned = relFromRepo.replace(/^\.\//, '');
+    // Normalize multiple slashes to single slashes
+    const normalized = cleaned.replace(/\/+/g, '/');
+    
+    return normalized;
   }
 
   /**

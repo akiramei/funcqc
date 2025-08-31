@@ -62,14 +62,35 @@ export class SystemResourceManager {
     const resources = this.detectSystemResources(); // Refresh for current state
     
     // Calculate optimal maxSourceFilesInMemory based on available memory
-    const maxSourceFilesInMemory = this.calculateOptimalSourceFilesInMemory(resources.totalMemoryGB);
+    let maxSourceFilesInMemory = this.calculateOptimalSourceFilesInMemory(resources.totalMemoryGB);
+    const envMaxSF = Number.parseInt(process.env['FUNCQC_MAX_SOURCE_FILES_IN_MEMORY'] || '', 10);
+    if (!Number.isNaN(envMaxSF) && envMaxSF > 0) {
+      const auto = maxSourceFilesInMemory;
+      const hardCap = Math.max(50, auto * 4);
+      maxSourceFilesInMemory = Math.min(envMaxSF, hardCap);
+    }
     
     // Calculate optimal worker configuration
-    const { maxWorkers, filesPerWorker } = this.calculateOptimalWorkerConfig(
+    let { maxWorkers, filesPerWorker } = this.calculateOptimalWorkerConfig(
       resources.cpuCount, 
       resources.totalMemoryGB,
       projectSize
     );
+
+    // Apply environment overrides for workers
+    const cpuCap = Math.max(1, resources.cpuCount);
+    const envMaxWorkers = Number.parseInt(process.env['FUNCQC_MAX_WORKERS'] || '', 10);
+    const envMinWorkers = Number.parseInt(process.env['FUNCQC_MIN_WORKERS'] || '', 10);
+    if (!Number.isNaN(envMaxWorkers) && envMaxWorkers > 0) {
+      maxWorkers = Math.min(envMaxWorkers, cpuCap);
+    }
+    if (!Number.isNaN(envMinWorkers) && envMinWorkers > 0) {
+      maxWorkers = Math.min(cpuCap, Math.max(envMinWorkers, maxWorkers));
+    }
+    const envFilesPerWorker = Number.parseInt(process.env['FUNCQC_FILES_PER_WORKER'] || '', 10);
+    if (!Number.isNaN(envFilesPerWorker) && envFilesPerWorker > 0) {
+      filesPerWorker = envFilesPerWorker;
+    }
     
     // Calculate batch size based on memory and CPU
     const batchSize = this.calculateOptimalBatchSize(resources.totalMemoryGB, maxWorkers);

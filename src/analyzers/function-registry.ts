@@ -3,6 +3,7 @@ import path from 'path';
 import { FunctionMetadata } from './ideal-call-graph-analyzer';
 import * as crypto from 'crypto';
 import { getRelativePath } from '../utils/path-utils';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 
 /**
@@ -49,8 +50,8 @@ export class FunctionRegistry {
     let functionCount = 0;
     const rawFilePath = sourceFile.getFilePath();
     
-    // Use source file path directly - normalization handled in ID generation
-    const filePath = rawFilePath;
+    // Use unified project-root path for downstream lookups and metadata
+    const filePath = toUnifiedProjectPath(rawFilePath);
     
     
     // Use forEachDescendant to visit every node

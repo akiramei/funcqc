@@ -10,6 +10,7 @@
 
 import { CrossTypeAnalyzer, CrossTypeAnalysisOptions, CrossTypePattern } from './cross-type-analyzer';
 import type { StorageQueryInterface } from './types';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface ConverterNetworkOptions extends CrossTypeAnalysisOptions {
   minConverters: number;           // Minimum converters to form a network
@@ -193,7 +194,7 @@ export class ConverterNetworkAnalyzer extends CrossTypeAnalyzer {
         targetType,
         converterType,
         usageCount: Number(r['usage_count']) || 0,
-        file: r['file_path'] as string,
+        file: toUnifiedProjectPath(String(r['file_path'] ?? '')),
         line: Number(r['line_number']) || 0
       });
     }

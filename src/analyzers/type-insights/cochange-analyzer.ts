@@ -10,6 +10,7 @@
 
 import { CrossTypeAnalyzer, CrossTypeAnalysisOptions, CrossTypePattern } from './cross-type-analyzer';
 import type { StorageQueryInterface } from './types';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
 
 export interface CochangeAnalysisOptions extends CrossTypeAnalysisOptions {
   monthsBack: number;             // How far back to analyze (default: 6 months)
@@ -197,15 +198,8 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
    * Normalize file paths to handle various path formats consistently
    */
   private normalizePath(p: string): string {
-    // 1) バックスラッシュ → スラッシュ
-    // 2) 先頭の ./ を除去
-    // 3) 先頭の /virtualsrc/ または virtualsrc/、/virtualsrc/src/ → src/
-    // 4) 先頭のスラッシュを除去（/src/... → src/...）
-    let np = (p ?? '').replace(/\\/g, '/');
-    np = np.replace(/^\.\//, '');
-    np = np.replace(/^\/?virtualsrc\/(?:src\/)?/, 'src/');
-    np = np.replace(/^\/+/, '');
-    return np;
+    // Use unified project-root path consistent with other components
+    return toUnifiedProjectPath(p);
   }
 
   /**
@@ -254,7 +248,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     // Count changes for each type
     for (const commit of commits) {
       const normalizedChangedFiles = Array.from(
-        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+        new Set(commit.changedFiles.map(p => toUnifiedProjectPath(p)))
       );
       for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);
@@ -333,7 +327,7 @@ export class CochangeAnalyzer extends CrossTypeAnalyzer {
     for (const commit of commits) {
       const changedTypes: string[] = [];
       const normalizedChangedFiles = Array.from(
-        new Set(commit.changedFiles.map(p => this.normalizePath(p)))
+        new Set(commit.changedFiles.map(p => toUnifiedProjectPath(p)))
       );
       for (const normalizedPath of normalizedChangedFiles) {
         const typeInfos = typeFileMap.get(normalizedPath);

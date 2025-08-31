@@ -137,6 +137,18 @@ class SharedVirtualProjectManager {
   }
   
   /**
+   * Get project for snapshot (throws if not found)
+   * For analysis side - assumes project is already created by cli-wrapper
+   */
+  getProject(snapshotId: string): Project {
+    const cached = this.projectCache.get(snapshotId);
+    if (cached && this.isProjectValid(cached)) {
+      return cached.project;
+    }
+    throw new Error(`No project found for snapshot ${snapshotId}. Project should be created by cli-wrapper before analysis begins.`);
+  }
+
+  /**
    * Get cached project for snapshot if available
    */
   getCachedProject(snapshotId: string): Project | null {

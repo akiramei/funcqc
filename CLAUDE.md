@@ -2,6 +2,41 @@
 
 @~/.claude/CLAUDE.md  # ユーザー設定を明示的にインポート
 
+## ⚠️ CRITICAL: funcqcデータ保護ルール（最重要）
+
+**🚨 ABSOLUTE PROHIBITION**:
+- ❌ **`.funcqc` ディレクトリの削除は原則禁止** - 品質履歴の完全消失
+- ❌ **データベースファイルの削除は原則禁止** - スナップショット履歴の完全消失  
+- ❌ **バックアップなしでの履歴データ削除は絶対禁止** - 復旧不可能
+- ❌ **スナップショット履歴の軽視は禁止** - funcqcの存在意義を否定
+
+**🎯 funcqcの核心価値**:
+- **スナップショット履歴 = 品質管理の生命線**
+- **時系列品質トレンド = 開発プロセス改善の基盤**
+- **過去との比較 = 品質回帰検知の要**
+- **履歴データ = 貴重な開発資産**
+
+**✅ MANDATORY PROCEDURE**:
+```bash
+# データに関わる操作前に必ずバックアップ
+npm run dev -- db export --label "backup-$(date +%Y%m%d-%H%M%S)-reason"
+
+# 履歴確認を最優先
+npm run dev -- history --verbose
+
+# 比較分析でデータ価値を活用
+npm run dev -- diff <baseline> <current> --insights
+```
+
+**🛡️ 代替手段の優先**:
+- 新環境での測定 → 別ディレクトリでテスト
+- データリセット → `export/import` でデータ移行
+- 比較測定 → 履歴を保持したまま適切なベースラインと比較
+
+**⚠️ ユーザー確認必須**:
+データ削除を提案する場合、必ず以下を確認：
+「品質履歴データを失いますが、本当に削除してよろしいですか？バックアップは取りましたか？」
+
 ## Database Schema - Single Source of Truth
 
 **⚠️ CRITICAL: Database Schema Management**

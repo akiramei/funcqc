@@ -15,6 +15,7 @@ import { buildImportIndex, resolveCallee, ImportRecord } from '../../symbol-reso
 import { addEdge } from '../../shared/graph-utils';
 import * as fs from 'fs';
 import * as path from 'path';
+import { toUnifiedProjectPath } from '../../../utils/path-normalizer';
 
 export class ImportExactAnalysisStage {
   private logger: Logger;
@@ -55,7 +56,7 @@ export class ImportExactAnalysisStage {
     for (const [id, func] of sorted) {
       // Map all lines within the function range to the function ID
       for (let line = func.startLine; line <= func.endLine; line++) {
-        const key = `${func.filePath}:${line}`;
+        const key = `${toUnifiedProjectPath(func.filePath)}:${line}`;
         this.functionLookupMap.set(key, id); // Later functions overwrite for nested containment
       }
     }
@@ -120,7 +121,7 @@ export class ImportExactAnalysisStage {
           analysisMetadata: {
             timestamp: Date.now(),
             analysisVersion: '1.0',
-            sourceHash: node.getSourceFile().getFilePath()
+            sourceHash: toUnifiedProjectPath(node.getSourceFile().getFilePath())
           }
         };
 
@@ -171,7 +172,7 @@ export class ImportExactAnalysisStage {
             analysisMetadata: {
               timestamp: Date.now(),
               analysisVersion: '1.0',
-              sourceHash: node.getSourceFile().getFilePath()
+              sourceHash: toUnifiedProjectPath(node.getSourceFile().getFilePath())
             }
           };
 
@@ -236,7 +237,7 @@ export class ImportExactAnalysisStage {
       
       // Create a getFunctionIdByDeclaration callback
       const getFunctionIdByDeclaration = (decl: Node): string | undefined => {
-        const filePath = decl.getSourceFile().getFilePath();
+        const filePath = toUnifiedProjectPath(decl.getSourceFile().getFilePath());
         const startLine = decl.getStartLineNumber();
         
         // Search for matching function in our metadata
@@ -309,7 +310,7 @@ export class ImportExactAnalysisStage {
         }
 
         const sourceFile = declaration.getSourceFile();
-        const filePath = sourceFile.getFilePath();
+        const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
         
         // Try to find function by position (line-only for consistency)
         const startLine = declaration.getStartLineNumber();
@@ -383,7 +384,7 @@ export class ImportExactAnalysisStage {
 
       for (const declaration of declarations) {
         const sourceFile = declaration.getSourceFile();
-        const filePath = sourceFile.getFilePath();
+        const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
         
         const startLine = declaration.getStartLineNumber();
         
@@ -474,7 +475,7 @@ export class ImportExactAnalysisStage {
     functions: Map<string, FunctionMetadata>
   ): FunctionMetadata | undefined {
     const sourceFile = node.getSourceFile();
-    const filePath = sourceFile.getFilePath();
+    const filePath = toUnifiedProjectPath(sourceFile.getFilePath());
     const nodeStartLine = node.getStartLineNumber();
     
     // O(1) lookup using function lookup map

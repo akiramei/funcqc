@@ -62,7 +62,7 @@ Based on the comprehensive investigation in DCD-001, implement systematic improv
 ### Phase 1: Cross-File Call Resolution
 ```typescript
 // Current problem - local function map only
-async analyzeFileWithCallGraph(filePath: string) {
+async analyzeFileWithCallGraph(filePath: string, snapshotId?: string) {
   const functions = await this.analyzeFile(filePath);
   const functionMap = new Map(); // ❌ Only current file!
   for (const func of functions) {

@@ -30,18 +30,34 @@ export class DependencyManager {
   ): Promise<DependencyType[]> {
     if (required.length === 0) return [];
     
-    // CRITICAL FIX: SNAPSHOTが要求されている場合、既存状態をチェックせずに全て実行
-    if (required.includes('SNAPSHOT')) {
+    // 前提条件を含めて展開（重複はSetで排除）
+    const expandWithPrereqs = (deps: DependencyType[]): DependencyType[] => {
+      const acc = new Set<DependencyType>();
+      const visit = (d: DependencyType) => {
+        if (acc.has(d)) return;
+        acc.add(d);
+        for (const p of (DEPENDENCY_DEFINITIONS[d]?.prerequisites ?? []) as DependencyType[]) {
+          visit(p);
+        }
+      };
+      deps.forEach(visit);
+      return [...acc];
+    };
+    const expanded = expandWithPrereqs(required);
+
+    // ユーザーが明示的に SNAPSHOT を要求した場合のみ、既存状態を無視
+    const snapshotExplicitlyRequested = required.includes('SNAPSHOT');
+    if (snapshotExplicitlyRequested) {
       // 新しいスナップショットが作成される場合、全ての分析が無効になる
       // 既存スナップショットの読み込みは不要
-      return required;
+      return expanded;
     }
     
     // 現在のDB状態を確認（SNAPSHOTが不要な場合のみ）
     const currentState = await this.getCurrentAnalysisState(env);
     
     // 個別に依存関係をチェック
-    const missing = required.filter(dep => !this.isDependencyMet(dep, currentState));
+    const missing = expanded.filter(dep => !this.isDependencyMet(dep, currentState));
     
     return missing;
   }
@@ -321,12 +337,8 @@ export class DependencyManager {
         completedAnalyses: completedAnalyses
       };
       
-      // メタデータ更新実行（型安全にquery methodを使用）
-      
-      await env.storage.query(
-        'UPDATE snapshots SET metadata = $1 WHERE id = $2',
-        [JSON.stringify(updatedMetadata), snapshotId]
-      );
+      // メタデータ更新実行（ストレージ層APIを使用）
+      await env.storage.updateSnapshotMetadata(snapshotId, updatedMetadata);
       
       // 更新後の検証
       const verifySnapshot = await env.storage.getSnapshot(snapshotId);
@@ -463,7 +475,7 @@ export class DependencyManager {
       const configHash = await this.generateConfigHash(env);
 
       // 3. スナップショット保存
-      await saveSourceFiles(sourceFiles, env.storage, {
+      const snapshotId = await saveSourceFiles(sourceFiles, env.storage, {
         comment: 'Initial snapshot created by dependency manager',
         scope: 'src',
         configHash,
@@ -471,6 +483,29 @@ export class DependencyManager {
 
       if (!options.quiet) {
         env.commandLogger.info(`✓ Initial snapshot created (${files.length} files processed)`);
+      }
+
+      // Initialize shared ts-morph Project once per snapshot, registering all files in advance
+      try {
+        if (env.projectManager) {
+          const { toUnifiedProjectPath } = await import('../utils/path-normalizer');
+          const fileContentMap = new Map<string, string>();
+          for (const f of sourceFiles) {
+            const filePath = (f as Record<string, unknown>)['filePath'] as string;
+            const content = (f as Record<string, unknown>)['fileContent'] as string;
+            if (filePath && typeof content === 'string') {
+              fileContentMap.set(toUnifiedProjectPath(filePath), content);
+            }
+          }
+          if (fileContentMap.size > 0) {
+            await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+            if (!options.quiet && options.verbose) {
+              env.commandLogger.info(`📚 Shared project initialized with ${fileContentMap.size} files`);
+            }
+          }
+        }
+      } catch (projErr) {
+        env.commandLogger.warn(`Warning: Failed to pre-initialize shared project: ${projErr}`);
       }
 
     } catch (error) {
@@ -518,6 +553,7 @@ export class DependencyManager {
       const sourceFiles: Array<Record<string, unknown>> = [];
       const exportRegex = /^export\s+/gm;
       const importRegex = /^import\s+/gm;
+      const { toUnifiedProjectPath } = await import('../utils/path-normalizer');
       
       for (const filePath of files) {
         try {
@@ -527,6 +563,7 @@ export class DependencyManager {
           ]);
           
           const relativePath = path.relative(process.cwd(), filePath);
+          const unifiedPath = toUnifiedProjectPath(relativePath);
           const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
           const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
           const lineCount = fileContent.split('\n').length;
@@ -537,7 +574,7 @@ export class DependencyManager {
           sourceFiles.push({
             id: '', // 後で設定される
             snapshotId: '', // 後で設定される
-            filePath: relativePath,
+            filePath: unifiedPath,
             fileContent: fileContent,
             fileHash: fileHash,
             encoding: 'utf-8',
@@ -593,114 +630,385 @@ export class DependencyManager {
   private async initializeBasicAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
     
-    // 既存の関数をチェックして重複実行を防ぐ
-    const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
-    if (existingFunctions.length > 0) {
+    // CRITICAL FIX: Always ensure virtual project is available for commands that need it
+    await this.ensureVirtualProject(snapshotId, env);
+    
+    // メタデータのフラグをチェックして重複実行を防ぐ
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    const completedAnalyses = this.getCompletedAnalysesFromMetadata(
+      (snapshot?.metadata as Record<string, unknown>) || {}
+    );
+    const basicCompleted = completedAnalyses.includes('BASIC');
+      
+    if (basicCompleted) {
       if (!options.quiet && options.verbose) {
-        env.commandLogger.info(`📋 BASIC analysis already completed (${existingFunctions.length} functions found)`);
+        env.commandLogger.info(`📋 BASIC analysis already completed - restoring to shared data`);
       }
-      // 分析レベルを確認・更新
-      await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
+      
+      // CRITICAL: Restore BASIC analysis results from DB to scanSharedData
+      await this.restoreBasicAnalysisToSharedData(snapshotId, env);
       return;
     }
     
     const { performDeferredBasicAnalysis } = await import('../cli/commands/scan');
     await performDeferredBasicAnalysis(snapshotId, env, true);
     
-    // CRITICAL FIX: Update completedAnalyses metadata after BASIC analysis completion
-    await this.ensureAnalysisLevelUpdated(snapshotId, 'BASIC', env);
+    // Note: performDeferredBasicAnalysis now sets shared data internally and returns the result
+    
+    // 完了記録は上位の commitDependencyCompletion に集約
   }
   
   /**
-   * AnalysisLevel の序数ランク（dependency-manager内で統一）
+   * Restore BASIC analysis results from database to scanSharedData
+   * Ensures that "completed dependency" and "fresh analysis" have identical scanSharedData state
    */
-  private readonly analysisLevelRank: Record<AnalysisLevel, number> = {
-    NONE: 0,
-    BASIC: 1,
-    COUPLING: 2,
-    CALL_GRAPH: 3,
-    TYPE_SYSTEM: 4,
-    COMPLETE: 5,
-  };
+  private async restoreBasicAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring BASIC analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is properly initialized with source files and project
+    const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+    await ensureScanSharedData(env, snapshotId);
+    
+    env.commandLogger.debug(`✅ scanSharedData initialized: sourceFiles=${env.scanSharedData?.sourceFiles?.length || 0}, snapshotId=${env.scanSharedData?.snapshotId}`);
+    
+    
+    // Load functions and create BasicAnalysisResult from DB
+    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    
+    // 共有データへ関数一覧を反映
+    if (env.scanSharedData) {
+      env.scanSharedData.functions = functions;
+    }
+    const basicResult = {
+      functionsAnalyzed: functions.length,
+      errors: [],
+      batchStats: {
+        totalBatches: 1,
+        functionsPerBatch: [functions.length],
+        processingTimes: [0]
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setBasicAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setBasicAnalysisResults(env, basicResult);
+    
+    // Update source file function counts using efficient SQL grouping
+    await this.updateSourceFileFunctionCountsFromDB(snapshotId, env);
+  }
 
   /**
-   * 分析レベルが正しく設定されているかチェックし、必要に応じて更新
+   * Restore CALL_GRAPH analysis results from database to scanSharedData
    */
-  private async ensureAnalysisLevelUpdated(
-    snapshotId: string,
-    completedDependency: DependencyType,
-    env: CommandEnvironment,
-  ): Promise<void> {
-    try {
-      const snapshot = await env.storage.getSnapshot(snapshotId);
-      if (!snapshot) return;
-      
-      const metadata = snapshot.metadata as Record<string, unknown>;
-      const currentCompleted = this.getCompletedAnalysesFromMetadata(metadata);
-      
-      // 指定された依存関係を completedAnalyses に追加（前提条件も含める）
-      const prerequisites = DEPENDENCY_DEFINITIONS[completedDependency].prerequisites;
-      const newCompleted = [...new Set([...currentCompleted, ...prerequisites, completedDependency])];
-      
-      // analysisLevel を新しいレベルに更新
-      const newLevel = this.calculateAnalysisLevel(newCompleted);
-      
-      await env.storage.updateAnalysisLevel(snapshotId, newLevel as AnalysisLevel);
-      await this.updateCompletedAnalysesMetadata(snapshotId, newCompleted, env);
-      
-    } catch (error) {
-      env.commandLogger.warn(`Warning: Failed to update analysis level: ${error}`);
+  private async restoreCallGraphAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring CALL_GRAPH analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
     }
+    
+    // Load call edges from database
+    const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
+    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+    
+    // Build dependency map
+    const dependencyMap = new Map<string, {callers: string[], callees: string[], depth: number}>();
+    
+    for (const edge of callEdges) {
+      if (edge.callerFunctionId && edge.calleeFunctionId) {
+        // Add to callee's callers
+        if (!dependencyMap.has(edge.calleeFunctionId)) {
+          dependencyMap.set(edge.calleeFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.calleeFunctionId)!.callers.push(edge.callerFunctionId);
+        
+        // Add to caller's callees
+        if (!dependencyMap.has(edge.callerFunctionId)) {
+          dependencyMap.set(edge.callerFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.callerFunctionId)!.callees.push(edge.calleeFunctionId);
+      }
+    }
+    
+    // Calculate confidence statistics
+    const highConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95).length;
+    const mediumConfidenceEdges = callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
+    const lowConfidenceEdges = callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
+
+    const { mapToRecord } = await import('../types/scan-shared-data');
+    const callGraphResult = {
+      callEdges,
+      internalCallEdges,
+      dependencyMap: mapToRecord(dependencyMap),
+      stats: {
+        totalEdges: callEdges.length,
+        highConfidenceEdges,
+        mediumConfidenceEdges,
+        lowConfidenceEdges,
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setCallGraphAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setCallGraphAnalysisResults(env, callGraphResult);
+    
+    env.commandLogger.debug(`✅ CALL_GRAPH restored: ${callEdges.length} call edges, ${internalCallEdges.length} internal edges`);
+  }
+
+  /**
+   * Restore TYPE_SYSTEM analysis results from database to scanSharedData
+   */
+  private async restoreTypeSystemAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring TYPE_SYSTEM analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
+    }
+    
+    // Load type definitions from database using storage API
+    const typeDefinitions = await env.storage.getTypeDefinitions(snapshotId);
+    
+    // Build basic type dependency and safety maps (placeholders for now)
+    const typeDependencyMap = new Map<string, {
+      usedTypes: string[];
+      exposedTypes: string[];
+      typeComplexity: number;
+    }>();
+    
+    const typeSafetyMap = new Map<string, {
+      hasAnyTypes: boolean;
+      hasUnknownTypes: boolean;
+      typeAnnotationRatio: number;
+    }>();
+    
+    // Calculate type statistics
+    const interfaces = typeDefinitions.filter(t => t.kind === 'interface').length;
+    const classes = typeDefinitions.filter(t => t.kind === 'class').length;
+    const enums = typeDefinitions.filter(t => t.kind === 'enum').length;
+    const typeAliases = typeDefinitions.filter(t => t.kind === 'type_alias').length;
+
+    const { mapToRecord: mapToRecord2 } = await import('../types/scan-shared-data');
+    const typeSystemResult = {
+      typesAnalyzed: typeDefinitions.length,
+      completed: true,
+      typeDependencyMap: mapToRecord2(typeDependencyMap),
+      typeSafetyMap: mapToRecord2(typeSafetyMap),
+      typeCouplingData: {
+        stronglyTypedPairs: [],
+        typeInconsistencies: []
+      },
+      stats: {
+        interfaces,
+        classes,
+        enums,
+        typeAliases,
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setTypeSystemAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setTypeSystemAnalysisResults(env, typeSystemResult);
+    
+    env.commandLogger.debug(`✅ TYPE_SYSTEM restored: ${typeDefinitions.length} type definitions`);
+  }
+
+  /**
+   * Restore COUPLING analysis results from database to scanSharedData
+   */
+  private async restoreCouplingAnalysisToSharedData(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    env.commandLogger.debug(`🔧 Restoring COUPLING analysis to scanSharedData for snapshot ${snapshotId}`);
+    
+    // Ensure scanSharedData is initialized (should already be done by BASIC)
+    if (!env.scanSharedData) {
+      const { ensureScanSharedData } = await import('../utils/scan-shared-data-helpers');
+      await ensureScanSharedData(env, snapshotId);
+    }
+    
+    // Load coupling data from database using storage API
+    const totalCouplingPoints = await env.storage.getCouplingPointCount(snapshotId);
+    
+    // For now, create basic coupling structure - in future iterations,
+    // we would build more sophisticated matrices from parameter_property_usage data
+    const functionCouplingMatrix = new Map<string, Map<string, number>>();
+    const fileCouplingData = new Map<string, {
+      incomingCoupling: number;
+      outgoingCoupling: number;
+      totalCoupling: number;
+    }>();
+    const highCouplingFunctions: Array<{
+      functionId: string;
+      couplingScore: number;
+      reasons: string[];
+    }> = [];
+
+    const { nestedMapToRecord, mapToRecord: mapToRecord3 } = await import('../types/scan-shared-data');
+    const couplingResult = {
+      functionCouplingMatrix: nestedMapToRecord(functionCouplingMatrix),
+      fileCouplingData: mapToRecord3(fileCouplingData),
+      highCouplingFunctions,
+      stats: {
+        filesCoupled: totalCouplingPoints, // Use coupling points as proxy for files
+        couplingRelationships: totalCouplingPoints,
+        analysisTime: 0 // Historical data doesn't have timing info
+      }
+    };
+    
+    // Set results in shared data using helper function
+    const { setCouplingAnalysisResults } = await import('../utils/scan-shared-data-helpers');
+    setCouplingAnalysisResults(env, couplingResult);
+    
+    env.commandLogger.debug(`✅ COUPLING restored: ${totalCouplingPoints} coupling data points`);
   }
   
+  /**
+   * Ensure scanSharedData is populated for already satisfied dependencies
+   * This maintains consistency between fresh analysis and DB restoration
+   */
+  async ensureScanSharedDataForSatisfiedDependencies(
+    satisfied: DependencyType[], 
+    env: CommandEnvironment
+  ): Promise<void> {
+    const currentState = await this.getCurrentAnalysisState(env);
+    const snapshotId = (await env.storage.getLatestSnapshot())?.id;
+    
+    if (!snapshotId) {
+      return;
+    }
+    
+    // Always restore BASIC if satisfied (most commands need functions data)
+    if (satisfied.includes('BASIC') && currentState.completedAnalyses.includes('BASIC')) {
+      await this.restoreBasicAnalysisToSharedData(snapshotId, env);
+    }
+    
+    // Restore CALL_GRAPH if satisfied
+    if (satisfied.includes('CALL_GRAPH') && currentState.completedAnalyses.includes('CALL_GRAPH')) {
+      await this.restoreCallGraphAnalysisToSharedData(snapshotId, env);
+    }
+    
+    // Restore TYPE_SYSTEM if satisfied
+    if (satisfied.includes('TYPE_SYSTEM') && currentState.completedAnalyses.includes('TYPE_SYSTEM')) {
+      await this.restoreTypeSystemAnalysisToSharedData(snapshotId, env);
+    }
+    
+    // Restore COUPLING if satisfied
+    if (satisfied.includes('COUPLING') && currentState.completedAnalyses.includes('COUPLING')) {
+      await this.restoreCouplingAnalysisToSharedData(snapshotId, env);
+    }
+  }
+
+  /**
+   * Update source file function counts using efficient SQL grouping
+   * Uses already registered functions data to avoid re-analysis
+   */
+  private async updateSourceFileFunctionCountsFromDB(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    // Use storage layer method for SQL operation
+    const functionCountByFile = await env.storage.getFunctionCountsByFile(snapshotId);
+    
+    // Update source files with function counts
+    await env.storage.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+  }
+  
+  /**
+   * Virtual projectが利用可能であることを保証
+   * BASIC dependency を持つコマンドが正常に動作するために必要
+   */
+  private async ensureVirtualProject(snapshotId: string, env: CommandEnvironment): Promise<void> {
+    if (!env.projectManager) {
+      env.commandLogger?.warn?.('ProjectManager not available. Skipping virtual project initialization.');
+      return;
+    }
+    
+    // Check if project already exists
+    const existingProject = env.projectManager.getCachedProject(snapshotId);
+    if (existingProject) {
+      // Project already available
+      return;
+    }
+    
+    // Create virtual project for the snapshot
+    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
+    const fileContentMap = new Map<string, string>();
+    
+    for (const sourceFile of sourceFiles) {
+      fileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
+    }
+    
+    await env.projectManager.getOrCreateProject(snapshotId, fileContentMap);
+  }
+
   private async initializeCallGraphAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['CALL_GRAPH']) {
+    
+    // メタデータのフラグをチェックして重複実行を防ぐ
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    const completedAnalyses = (snapshot?.metadata?.completedAnalyses as string[]) || [];
+    const callGraphCompleted = completedAnalyses.includes('CALL_GRAPH');
+      
+    if (callGraphCompleted) {
       if (!options.quiet && options.verbose) {
-        env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed - skipping duplicate analysis');
+        env.commandLogger.info('⏭️  CALL_GRAPH analysis already completed (flag check)');
       }
       return;
     }
     const { performCallGraphAnalysis } = await import('../cli/commands/scan');
     await performCallGraphAnalysis(snapshotId, env, undefined);
     
-    // CRITICAL FIX: Update completedAnalyses metadata after CALL_GRAPH analysis completion
-    await this.ensureAnalysisLevelUpdated(snapshotId, 'CALL_GRAPH', env);
+    // 完了記録は上位の commitDependencyCompletion に集約
   }
   
   private async initializeTypeSystemAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['TYPE_SYSTEM']) {
+    
+    // Check metadata flags instead of analysisLevel
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Snapshot ${snapshotId} not found`);
+    }
+    
+    const completedAnalyses = (snapshot.metadata?.completedAnalyses as string[]) || [];
+    const typeSystemCompleted = completedAnalyses.includes('TYPE_SYSTEM');
+      
+    if (typeSystemCompleted) {
       if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  TYPE_SYSTEM analysis already completed - skipping duplicate analysis');
       }
       return;
     }
+    
     const { performDeferredTypeSystemAnalysis } = await import('../cli/commands/scan');
     await performDeferredTypeSystemAnalysis(snapshotId, env, true);
     
-    // CRITICAL FIX: Update completedAnalyses metadata after TYPE_SYSTEM analysis completion
-    await this.ensureAnalysisLevelUpdated(snapshotId, 'TYPE_SYSTEM', env);
+    // 完了記録は上位の commitDependencyCompletion に集約
   }
   
   private async initializeCouplingAnalysis(env: CommandEnvironment, options: BaseCommandOptions): Promise<void> {
     const snapshotId = await this.ensureSnapshot(env, options);
-    const state = await this.getCurrentAnalysisState(env);
-    const currentRank = this.analysisLevelRank[(state.level as AnalysisLevel)] ?? 0;
-    if (currentRank >= this.analysisLevelRank['COUPLING']) {
+    
+    // Check metadata flags instead of analysisLevel
+    const snapshot = await env.storage.getSnapshot(snapshotId);
+    if (!snapshot) {
+      throw new Error(`Snapshot ${snapshotId} not found`);
+    }
+    
+    const completedAnalyses = (snapshot.metadata?.completedAnalyses as string[]) || [];
+    const couplingCompleted = completedAnalyses.includes('COUPLING');
+      
+    if (couplingCompleted) {
       if (!options.quiet && options.verbose) {
         env.commandLogger.info('⏭️  COUPLING analysis already completed - skipping duplicate analysis');
       }
       return;
     }
+    
     const { performDeferredCouplingAnalysis } = await import('../cli/commands/scan');
     await performDeferredCouplingAnalysis(snapshotId, env, undefined);
     
-    // CRITICAL FIX: Update completedAnalyses metadata after COUPLING analysis completion
-    await this.ensureAnalysisLevelUpdated(snapshotId, 'COUPLING', env);
+    // 完了記録は上位の commitDependencyCompletion に集約
   }
 }

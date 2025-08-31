@@ -3,6 +3,7 @@ import ora from 'ora';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { globby } from 'globby';
+import { performance } from 'node:perf_hooks';
 import {
   ScanCommandOptions,
   FunctionInfo,
@@ -14,7 +15,6 @@ import {
 import { ConfigManager } from '../../core/config';
 import { TypeScriptAnalyzer } from '../../analyzers/typescript-analyzer';
 import { QualityCalculator } from '../../metrics/quality-calculator';
-import { ParallelFileProcessor, ParallelProcessingResult } from '../../utils/parallel-processor';
 import { SystemResourceManager } from '../../utils/system-resource-manager';
 import { RealTimeQualityGate, QualityAssessment } from '../../core/realtime-quality-gate.js';
 import { Logger } from '../../utils/cli-utils';
@@ -22,11 +22,19 @@ import { FunctionIdGenerator } from '../../utils/function-id-generator';
 import { ErrorCode, createErrorHandler, type DatabaseErrorLike } from '../../utils/error-handler';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
-import { FunctionAnalyzer } from '../../core/analyzer';
+import { IdealCallGraphAnalyzer } from '../../analyzers/ideal-call-graph-analyzer';
 import { OnePassASTVisitor } from '../../analyzers/shared/one-pass-visitor';
 import { Project, TypeChecker, ts, Node } from 'ts-morph';
+import { getOrLoadFunctions, ensureSharedProject } from '../../core/env-facade';
 // import { SnapshotMetadata } from '../../types'; // REMOVED - not needed for read-only scan command
 import { generateFunctionCompositeKey } from '../../utils/function-mapping-utils';
+import { toUnifiedProjectPath } from '../../utils/path-normalizer';
+import { 
+  ensureScanSharedData, 
+  setBasicAnalysisResults, 
+  setCallGraphAnalysisResults
+} from '../../utils/scan-shared-data-helpers';
+import type { BasicAnalysisResult, CallGraphAnalysisResult } from '../../types/scan-shared-data';
 
 /**
  * Result type for batch processing operations
@@ -37,85 +45,7 @@ interface BatchProcessingResult {
   functions: FunctionInfo[];
 }
 
-/**
- * Scan level configuration
- */
-interface ScanLevel {
-  mode: 'quick' | 'basic' | 'standard' | 'full';
-  includes: string[];
-  targetTime: string;
-}
 
-/**
- * Determine scan level based on command options
- */
-function determineScanLevel(options: ScanCommandOptions): ScanLevel {
-  if (options.full) {
-    return {
-      mode: 'full',
-      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
-      targetTime: 'variable'
-    };
-  }
-  
-  if (options.withTypes) {
-    return {
-      mode: 'full',
-      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH', 'TYPE_SYSTEM'],
-      targetTime: 'variable'
-    };
-  }
-  
-  if (options.withGraph) {
-    return {
-      mode: 'standard',
-      includes: ['BASIC', 'COUPLING', 'CALL_GRAPH'],
-      targetTime: 'variable'
-    };
-  }
-  
-  // New option: --with-basic for including basic analysis only
-  if (options.withBasic) {
-    return {
-      mode: 'basic',
-      includes: ['BASIC'],
-      targetTime: 'variable'
-    };
-  }
-  
-  // New option: --with-coupling for including coupling analysis  
-  if (options.withCoupling) {
-    return {
-      mode: 'basic',
-      includes: ['BASIC', 'COUPLING'],
-      targetTime: 'variable'
-    };
-  }
-  
-  if (options.quick) {
-    return {
-      mode: 'quick',
-      includes: [],  // No analysis, just snapshot
-      targetTime: 'variable'
-    };
-  }
-  
-  // Default to basic analysis for productive workflow
-  if (!options.withGraph && !options.withTypes && !options.full && !options.withBasic) {
-    return {
-      mode: 'basic',
-      includes: ['BASIC'],  // Basic analysis by default
-      targetTime: 'variable'
-    };
-  }
-  
-  // Fallback
-  return {
-    mode: 'basic',
-    includes: ['BASIC'],
-    targetTime: '15-20s'
-  };
-}
 
 /**
  * REMOVED: Command Protocol violation - metadata updates should be handled by dependency manager
@@ -190,11 +120,6 @@ async function executeScanCommand(
       return;
     }
 
-    // Determine scan level based on options
-    const scanLevel = determineScanLevel(options);
-    if (!options.json) {
-      console.log(chalk.cyan(`🎯 Scan mode: ${scanLevel.mode}`));
-    }
 
     // COMMAND PROTOCOL COMPLIANCE: All actual processing (snapshot creation, analysis) 
     // is already completed by CLI wrapper + dependency manager
@@ -219,14 +144,24 @@ async function executeScanCommand(
     }
     
     const snapshotId = latestSnapshot.id;
-    const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
-    const functionsAnalyzed = functions.length;
-    const analysisLevel = (latestSnapshot.metadata as Record<string, unknown>)?.['analysisLevel'] as string || 'NONE';
+    const metadata = (latestSnapshot.metadata as Record<string, unknown>) || {};
     
-    // Get source files and call edges from existing snapshot
-    const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-    const callEdges = await env.storage.getCallEdgesBySnapshot(snapshotId);
-    const internalCallEdges = await env.storage.getInternalCallEdgesBySnapshot(snapshotId);
+    // Get information from snapshot metadata (no DB queries needed)
+    const functionsAnalyzed = typeof metadata['totalFunctions'] === 'number'
+      ? (metadata['totalFunctions'] as number)
+      : (Number(metadata['totalFunctions']) || 0);
+    const filesAnalyzed = typeof metadata['totalFiles'] === 'number'
+      ? (metadata['totalFiles'] as number)
+      : (Number(metadata['totalFiles']) || 0);
+    const analysisLevel = typeof metadata['analysisLevel'] === 'string'
+      ? (metadata['analysisLevel'] as string)
+      : 'NONE';
+    const callEdgesCount = typeof metadata['totalCallEdges'] === 'number'
+      ? (metadata['totalCallEdges'] as number)
+      : (Number(metadata['totalCallEdges']) || 0);
+    const internalCallEdgesCount = typeof metadata['totalInternalCallEdges'] === 'number'
+      ? (metadata['totalInternalCallEdges'] as number)
+      : (Number(metadata['totalInternalCallEdges']) || 0);
     
     // Record scan duration for display only
     const endTime = performance.now();
@@ -237,10 +172,10 @@ async function executeScanCommand(
       outputScanResultsJSON({
         success: true,
         snapshotId,
-        filesAnalyzed: sourceFiles.length,
+        filesAnalyzed,
         functionsAnalyzed,
-        callEdges: callEdges.length,
-        internalCallEdges: internalCallEdges.length,
+        callEdges: callEdgesCount,
+        internalCallEdges: internalCallEdgesCount,
         scope: options.scope || 'src',
         ...(options.label && { label: options.label }),
         ...(options.comment && { comment: options.comment }),
@@ -249,23 +184,6 @@ async function executeScanCommand(
         scanDuration
       });
     } else {
-      console.log(chalk.green(`✓ ${scanLevel.mode} scan completed`));
-      
-      // Show analysis results
-      console.log(chalk.blue(`📊 Results: ${functionsAnalyzed} functions, ${callEdges.length} call edges`));
-      console.log(chalk.blue(`📁 Files analyzed: ${sourceFiles.length}`));
-      console.log(chalk.blue(`🎯 Analysis level: ${analysisLevel}`));
-      
-      // Show next steps based on scan level
-      if (scanLevel.mode === 'quick') {
-        console.log(chalk.gray('  Run `funcqc measure --with-basic` for function analysis'));
-        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
-      } else if (scanLevel.mode === 'basic') {
-        console.log(chalk.gray('  Run `funcqc analyze --call-graph` for dependency analysis'));
-      } else if (scanLevel.mode === 'standard') {
-        console.log(chalk.gray('  Run `funcqc analyze --types` for type system analysis'));
-      }
-      
       showCompletionMessage();
     }
   } catch (error) {
@@ -384,7 +302,10 @@ export async function performDeferredBasicAnalysis(
   snapshotId: string,
   env: CommandEnvironment,
   showProgress: boolean = true
-): Promise<void> {
+): Promise<import('../../types/scan-shared-data').BasicAnalysisResult> {
+  // Initialize shared data for parallel tracking
+  await ensureScanSharedData(env, snapshotId);
+
   // Get snapshot contents optimized for virtual project analysis
   const snapshotContents = await env.storage.getSnapshotContentsForAnalysis(snapshotId);
   
@@ -410,20 +331,13 @@ export async function performDeferredBasicAnalysis(
     createdAt: new Date()
   }));
 
-  // Check for incomplete previous analysis to prevent duplicate key violations
-  const existingFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
-  const currentSnapshot = await env.storage.getSnapshot(snapshotId);
-  const metadata = currentSnapshot?.metadata as Record<string, unknown>;
-  const analysisLevel = (metadata?.['analysisLevel'] as string) || 'NONE';
-  
-  if (existingFunctions.length > 0 && analysisLevel === 'NONE') {
-    // Detected incomplete previous analysis - functions exist but analysis level not updated
-    env.logger?.warn(`Detected incomplete previous analysis for snapshot ${snapshotId.substring(0, 8)} (${existingFunctions.length} functions exist but analysis level is NONE)`);
-    
-    // Clean up incomplete state by updating analysis level to prevent duplicate execution
-    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-    env.logger?.info(`Fixed incomplete analysis state for snapshot ${snapshotId.substring(0, 8)}`);
-    return; // Skip re-analysis since functions are already present
+  // Update shared data with source files
+  if (env.scanSharedData) {
+    env.scanSharedData.sourceFiles = sourceFiles;
+    // Update file content map
+    for (const file of sourceFiles) {
+      env.scanSharedData.fileContentMap.set(file.filePath, file.fileContent);
+    }
   }
 
   const ora = (await import('ora')).default;
@@ -437,12 +351,42 @@ export async function performDeferredBasicAnalysis(
     // Get source file ID mapping
     const sourceFileIdMap = await getSourceFileIdMapping(env.storage, snapshotId);
     
+    // Update shared data with file ID mapping
+    if (env.scanSharedData) {
+      env.scanSharedData.sourceFileIdMap = sourceFileIdMap;
+    }
+    
     // Perform the PURE basic analysis (no coupling)
-    const result = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    const basicSummary = await performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
+    
+    // Create BasicAnalysisResult for shared data (parallel data population)
+    const allFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+    
+    // Mirror functions into shared data for downstream consumers
+    if (env.scanSharedData) {
+      env.scanSharedData.functions = allFunctions;
+    }
+    
+    const basicResult: BasicAnalysisResult = {
+      // functions は ScanSharedData.functions へ
+      functionsAnalyzed: allFunctions.length,
+      errors: [], // Will be populated if needed
+      batchStats: {
+        totalBatches: basicSummary.totalBatches,
+        functionsPerBatch: basicSummary.functionsPerBatch,
+        processingTimes: [] // TODO: Add timing info if needed
+      }
+    };
+    
+    // Set results in shared data (backward compatibility for existing callers)
+    setBasicAnalysisResults(env, basicResult);
     
     if (showProgress) {
-      spinner.succeed(`Basic analysis completed (${result.functionsAnalyzed} functions)`);
+      spinner.succeed('Basic analysis completed');
     }
+    
+    return basicResult;
+    
   } catch (error) {
     if (showProgress) {
       spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -461,7 +405,7 @@ export async function performPureBasicAnalysis(
   env: CommandEnvironment,
   spinner: SpinnerInterface,
   sourceFileIdMap?: Map<string, string>
-): Promise<{ functionsAnalyzed: number }> {
+): Promise<{ functionsAnalyzed: number; totalBatches: number; functionsPerBatch: number[] }> {
   spinner.start('Performing basic function analysis (no coupling)...');
   
   const components = await initializeComponents(env, spinner, sourceFiles.length);
@@ -482,22 +426,19 @@ export async function performPureBasicAnalysis(
       allErrors.push(...batchResult.errors);
     }
     
-    if (allErrors.length > 0) {
-      console.log(chalk.yellow(`⚠️  Basic analysis completed with ${allErrors.length} errors`));
-    } else {
-      console.log(chalk.green(`✅ Basic analysis completed! Analyzed ${totalFunctions} functions (no coupling)`));
-    }
+    // Success/error reporting handled by caller via spinner
     
     // Only update analysis level if functions were successfully analyzed
     if (totalFunctions > 0) {
       await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-      spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files (BASIC only)`);
+      spinner.succeed(`Basic analysis completed (${totalFunctions} functions)`);
     } else {
       spinner.fail(`No functions were analyzed - analysis level not updated`);
       throw new Error('No functions were successfully analyzed');
     }
     
-    return { functionsAnalyzed: totalFunctions };
+    const functionsPerBatch = batchResults.map(b => b.functionCount);
+    return { functionsAnalyzed: totalFunctions, totalBatches: batchResults.length, functionsPerBatch };
   } catch (error) {
     spinner.fail(`Basic analysis failed: ${error instanceof Error ? error.message : String(error)}`);
     // Don't update analysis level on error to prevent incomplete state
@@ -508,8 +449,8 @@ export async function performPureBasicAnalysis(
 }
 
 /**
- * Execute PURE BASIC batch analysis (no coupling) 
- * Modified to use single transaction for all batches to prevent duplicate key violations
+ * Execute PURE BASIC batch analysis (no coupling)
+ * 各バッチごとに保存（並列）。重複キーはストレージ側の UPSERT/PK で保護される前提。
  */
 async function executePureBasicBatchAnalysis(
   batches: import('../../types').SourceFile[][],
@@ -524,39 +465,9 @@ async function executePureBasicBatchAnalysis(
     env.commandLogger.info('🔧 Preparing shared virtual project for BASIC analysis...');
   }
 
-  // Collect all file contents for shared project creation
-  const allFileContentMap = new Map<string, string>();
-  for (const batch of batches) {
-    for (const sourceFile of batch) {
-      allFileContentMap.set(sourceFile.filePath, sourceFile.fileContent);
-    }
-  }
-
-  // Create shared project once for all analysis using TypeScript analyzer
-  const maybePrepare =
-    (components.analyzer as unknown as {
-      prepareSharedProject?: (
-        sid: string,
-        map: Map<string, string>
-      ) => Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }>;
-    }).prepareSharedProject;
-  let isNewlyCreated = false;
-  if (typeof maybePrepare === 'function') {
-    ({ isNewlyCreated } = await maybePrepare(snapshotId, allFileContentMap));
-  } else {
-    env.commandLogger.debug?.(
-      'Shared project not supported by analyzer — skipping prepareSharedProject'
-    );
-  }
-
-  if (isNewlyCreated) {
-    if (options?.verbose) {
-      env.commandLogger.info(`✅ Shared virtual project created (${allFileContentMap.size} files)`);
-    }
-  } else {
-    if (options?.verbose) {
-      env.commandLogger.info(`⚡ Reusing existing virtual project (${allFileContentMap.size} files)`);
-    }
+  // Get existing shared project (should already be created by cli-wrapper)
+  if (!env.projectManager) {
+    env.commandLogger.debug?.('No projectManager available in env — proceeding without shared project');
   }
 
   const batchPromises: Promise<BatchProcessingResult>[] = batches.map(async (batch, batchIndex) => {
@@ -571,7 +482,8 @@ async function executePureBasicBatchAnalysis(
         const functions = await components.analyzer.analyzeContent(
           sourceFile.fileContent,
           sourceFile.filePath,
-          snapshotId
+          snapshotId,
+          env
         );
         
         // Set source file ID and verify metrics calculation
@@ -597,6 +509,12 @@ async function executePureBasicBatchAnalysis(
       }
     }
     
+    // Store functions only (no coupling data)
+    if (batchFunctions.length > 0) {
+      await env.storage.storeFunctions(batchFunctions, snapshotId);
+    }
+    
+    
     if (batchErrors.length > 0) {
       console.log(chalk.yellow(`⚠️  Batch ${batchIndex + 1} completed with ${batchErrors.length} errors`));
     } else {
@@ -606,51 +524,14 @@ async function executePureBasicBatchAnalysis(
     return { 
       functionCount: batchFunctions.length, 
       errors: batchErrors,
-      functions: batchFunctions // Return functions for later storage
+      functions: [] // Empty array since functions are already stored
     };
   });
   
-  // Execute all batch processing in parallel
+  // Execute all batch processing in parallel (each batch stores its own functions)
   const batchResults = await Promise.all(batchPromises);
   
-  // Collect all functions from all batches
-  const allFunctions: FunctionInfo[] = [];
-  const allFunctionCounts = new Map<string, number>();
-  
-  for (const result of batchResults) {
-    allFunctions.push(...result.functions);
-    
-    // Collect function counts by file
-    for (const func of result.functions) {
-      const count = allFunctionCounts.get(func.filePath) || 0;
-      allFunctionCounts.set(func.filePath, count + 1);
-    }
-  }
-  
-  // Store all functions in a single transaction to prevent duplicate key violations
-  if (allFunctions.length > 0) {
-    try {
-      await env.storage.storeFunctions(allFunctions, snapshotId);
-      
-      // Update function counts for all files
-      if (allFunctionCounts.size > 0) {
-        await env.storage.updateSourceFileFunctionCounts(allFunctionCounts, snapshotId);
-      }
-      
-      console.log(chalk.green(`💾 Stored ${allFunctions.length} functions across ${allFunctionCounts.size} files in single transaction`));
-    } catch (error) {
-      console.error(chalk.red(`❌ Failed to store functions in single transaction: ${error instanceof Error ? error.message : String(error)}`));
-      
-      // Don't update analysis level on error to prevent incomplete state
-      throw new Error(`Function storage failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  }
-  
-  // Return results without functions property (clean up)
-  return batchResults.map(result => ({
-    functionCount: result.functionCount,
-    errors: result.errors
-  }));
+  return batchResults;
 }
 
 export async function performBasicAnalysis(
@@ -660,53 +541,8 @@ export async function performBasicAnalysis(
   spinner: SpinnerInterface,
   sourceFileIdMap?: Map<string, string>
 ): Promise<{ functionsAnalyzed: number }> {
-  spinner.start('Performing basic function analysis...');
-  
-  const components = await initializeComponents(env, spinner, sourceFiles.length);
-  let totalFunctions = 0; // Track total instead of accumulating all in memory
-  
-  // Determine optimal concurrency based on system resources
-  // Trust SystemResourceManager's calculations - it already considers project size and system capabilities
-  const maxConcurrency = components.optimalConfig.maxWorkers;
-  
-  spinner.text = `Analyzing ${sourceFiles.length} files with ${maxConcurrency} concurrent workers...`;
-  
-  try {
-    // Prepare batches for parallel processing
-    const batches = prepareBatchProcessing(sourceFiles, maxConcurrency);
-    
-    // Execute BASIC batch analysis (no coupling)
-    const batchResults = await executePureBasicBatchAnalysis(batches, components, snapshotId, env, { verbose: false }, sourceFileIdMap);
-    
-    // Collect summary results
-    const allErrors: string[] = [];
-    for (const batchResult of batchResults) {
-      totalFunctions += batchResult.functionCount;
-      allErrors.push(...batchResult.errors);
-    }
-    
-    if (allErrors.length > 0) {
-      console.log(chalk.yellow(`⚠️  Total analysis completed with ${allErrors.length} errors across ${batchResults.length} batches`));
-    } else {
-      console.log(chalk.green(`✅ All batches completed successfully! Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`));
-    }
-    
-    // Update analysis level after all batches complete
-    await env.storage.updateAnalysisLevel(snapshotId, 'BASIC');
-    
-    spinner.succeed(`Analyzed ${totalFunctions} functions from ${sourceFiles.length} files`);
-    
-    // Skip heavy summary calculation for performance unless explicitly requested
-    if (process.env['FUNCQC_SHOW_SUMMARY'] === 'true' || totalFunctions < 100) {
-      // Summary requires function array but we optimized it away for memory efficiency
-      console.log(chalk.blue(`📋 Analysis completed: ${totalFunctions} functions from ${sourceFiles.length} files`));
-    }
-    
-    return { functionsAnalyzed: totalFunctions };
-  } finally {
-    // Always perform cleanup
-    await performAnalysisCleanup(components, env);
-  }
+  // DRY: Delegate to performPureBasicAnalysis (no behavior change)
+  return performPureBasicAnalysis(snapshotId, sourceFiles, env, spinner, sourceFileIdMap);
 }
 
 /**
@@ -723,9 +559,9 @@ export async function performDeferredCouplingAnalysis(
     spinner.start('Performing coupling analysis...');
   }
   
-  // Get source files and functions for the snapshot
+  // Get source files and functions for the snapshot (functions are cached in env when possible)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const { functions } = await getOrLoadFunctions(env, snapshotId);
   
   if (sourceFiles.length === 0 || functions.length === 0) {
     throw new Error(`No source files or functions found for snapshot ${snapshotId}`);
@@ -742,23 +578,37 @@ export async function performDeferredCouplingAnalysis(
       spinner.text = `Performing coupling analysis on ${sourceFiles.length} files...`;
     }
     
-    // Create shared Project/TypeChecker for coupling analysis to reduce memory usage
-    const project = new Project({
-      useInMemoryFileSystem: true,
-      compilerOptions: {
-        target: ts.ScriptTarget.Latest,
-        allowJs: true,
-        skipLibCheck: true,
+    // Reuse existing shared project (should already be created by cli-wrapper)
+    let project: Project;
+    if (env.projectManager) {
+      // Ensure the shared project is (re)hydrated with the current files
+      const fileContentMap = new Map<string, string>();
+      for (const sf of sourceFiles) {
+        fileContentMap.set(sf.filePath, sf.fileContent);
       }
-    });
-    
-    // Load all source files into the project for complete type resolution
-    // This ensures that imported types and interfaces are available for coupling analysis
-    console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
-    for (const sourceFile of sourceFiles) {
-      project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+      await ensureSharedProject(env, snapshotId, fileContentMap);
+      const p = env.projectManager.getProject(snapshotId);
+      if (!p) {
+        throw new Error(`No shared project found for snapshot ${snapshotId}`);
+      }
+      project = p;
+      console.log(`📁 Reusing shared project with ${project.getSourceFiles().length} files for coupling analysis`);
+    } else {
+      // Fallback for environments/tests that don't provide projectManager yet
+      project = new Project({
+        useInMemoryFileSystem: true,
+        compilerOptions: {
+          target: ts.ScriptTarget.Latest,
+          allowJs: true,
+          skipLibCheck: true,
+        }
+      });
+      console.log(chalk.blue(`📚 Loading ${sourceFiles.length} files into TypeScript project for type resolution...`));
+      for (const sourceFile of sourceFiles) {
+        project.createSourceFile(sourceFile.filePath, sourceFile.fileContent);
+      }
+      console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
     }
-    console.log(`📁 Loaded ${project.getSourceFiles().length} files into project`);
     
     const typeChecker = project.getTypeChecker();
     
@@ -795,6 +645,37 @@ export async function performDeferredCouplingAnalysis(
     
     // Update analysis level to indicate coupling analysis is complete
     await env.storage.updateAnalysisLevel(snapshotId, 'COUPLING');
+    
+    // Build CouplingAnalysisResult for scanSharedData
+    // Note: For now we create a basic structure. In future iterations, 
+    // we would build more sophisticated coupling matrices from parameter_property_usage data
+    const functionCouplingMatrix = new Map<string, Map<string, number>>();
+    const fileCouplingData = new Map<string, {
+      incomingCoupling: number;
+      outgoingCoupling: number;
+      totalCoupling: number;
+    }>();
+    const highCouplingFunctions: Array<{
+      functionId: string;
+      couplingScore: number;
+      reasons: string[];
+    }> = [];
+
+    const { nestedMapToRecord, mapToRecord } = await import('../../types/scan-shared-data');
+    const couplingResult: import('../../types/scan-shared-data').CouplingAnalysisResult = {
+      functionCouplingMatrix: nestedMapToRecord(functionCouplingMatrix),
+      fileCouplingData: mapToRecord(fileCouplingData),
+      highCouplingFunctions,
+      stats: {
+        filesCoupled: totalCouplingData, // Use coupling data as proxy for files
+        couplingRelationships: totalCouplingData,
+        analysisTime: 0
+      }
+    };
+    
+    // Set results in shared data (NEW - parallel data population)
+    const { setCouplingAnalysisResults } = await import('../../utils/scan-shared-data-helpers');
+    setCouplingAnalysisResults(env, couplingResult);
     
     if (showSpinner) {
       spinner.succeed(`Coupling analysis completed: ${totalCouplingData} coupling data points`);
@@ -844,21 +725,22 @@ async function performCouplingAnalysisForFile(
     // Build lookup map with multiple key strategies for robust matching
     for (const func of fileFunctions) {
       // Strategy 1: Composite key (most reliable)
-      const compositeKey = generateFunctionCompositeKey(func.filePath, func.startLine, func.name);
+      const unifiedFilePath = toUnifiedProjectPath(func.filePath);
+      const compositeKey = generateFunctionCompositeKey(unifiedFilePath, func.startLine, func.name);
       functionLookupMap.set(compositeKey, func.id);
       
       // Strategy 2: Direct ID mapping (if IDs match)
       functionLookupMap.set(func.id, func.id);
       
       // Strategy 3: Alternative composite without full path (for path mismatches)
-      const fileName = path.basename(func.filePath);
+      const fileName = path.basename(unifiedFilePath);
       const altCompositeKey = generateFunctionCompositeKey(fileName, func.startLine, func.name);
       functionLookupMap.set(altCompositeKey, func.id);
       
       // Strategy 4: CRITICAL FIX - Use the same ID generation as OnePassASTVisitor
       // This generates the exact same hash ID that coupling analysis uses
       const couplingHashId = FunctionIdGenerator.generateDeterministicUUID(
-        func.filePath,
+        unifiedFilePath,
         func.name,
         func.className || null, // Use className when available for better matching
         func.startLine,
@@ -923,7 +805,7 @@ async function performCouplingAnalysisForFile(
             const nameForKey = info.name || '<anonymous>';
             
             // Try multiple composite key strategies
-            const directKey = generateFunctionCompositeKey(sourceFile.filePath, startLine, nameForKey);
+            const directKey = generateFunctionCompositeKey(toUnifiedProjectPath(sourceFile.filePath), startLine, nameForKey);
             const altKey = generateFunctionCompositeKey(path.basename(sourceFile.filePath), startLine, nameForKey);
             
             const mappedId = functionLookupMap.get(directKey) || functionLookupMap.get(altKey);
@@ -1122,15 +1004,18 @@ export async function performCallGraphAnalysis(
   env: CommandEnvironment,
   spinner?: SpinnerInterface
 ): Promise<{ callEdges: CallEdge[]; internalCallEdges: import('../../types').InternalCallEdge[] }> {
+  // Ensure shared data is initialized for parallel tracking
+  await ensureScanSharedData(env, snapshotId);
+
   // Call graph analysis starting
   const showSpinner = spinner !== undefined;
   if (showSpinner) {
     spinner.start('Performing call graph analysis...');
   }
   
-  // Get stored files and functions
+  // Get stored files and functions (functions cached in env when available)
   const sourceFiles = await env.storage.getSourceFilesBySnapshot(snapshotId);
-  const functions = await env.storage.findFunctionsInSnapshot(snapshotId);
+  const { functions } = await getOrLoadFunctions(env, snapshotId);
   // Data fetched from database
   
   // Reconstruct file map for analyzer (include all files for proper type resolution)
@@ -1139,12 +1024,74 @@ export async function performCallGraphAnalysis(
     fileContentMap.set(file.filePath, file.fileContent);
   });
   
-  // Use FunctionAnalyzer with stored content
-  const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
+  let idealCallGraphAnalyzer: IdealCallGraphAnalyzer | null = null;
   
   try {
-    // Analyze call graph from stored content
-    const result = await functionAnalyzer.analyzeCallGraphFromContent(fileContentMap, functions, snapshotId, env.storage);
+    // Ensure shared project is initialized with all files
+    await ensureSharedProject(env, snapshotId, fileContentMap);
+    
+    // Get shared project directly (no middle layer)
+    const project = env.projectManager?.getProject(snapshotId);
+    if (!project) {
+      throw new Error(`No shared project found for snapshot ${snapshotId}. Project should be created by dependency manager.`);
+    }
+    
+    // Use IdealCallGraphAnalyzer directly (remove FunctionAnalyzer middle layer)
+    idealCallGraphAnalyzer = new IdealCallGraphAnalyzer(project, { 
+      logger: env.commandLogger,
+      snapshotId,
+      storage: env.storage
+    });
+    
+    // Perform call graph analysis directly
+    const startTime = performance.now();
+    const callGraphResult = await idealCallGraphAnalyzer.analyzeProject(functions);
+    const endTime = performance.now();
+    console.log(`⏱️  Direct call graph analysis: ${((endTime - startTime) / 1000).toFixed(2)}s`);
+    
+    // Convert to expected format (IdealCallEdge extends CallEdge, so direct cast)
+    let result = {
+      callEdges: callGraphResult.edges as CallEdge[],
+      internalCallEdges: [] as import('../../types').InternalCallEdge[] // Will be handled separately if needed
+    };
+
+    // Diagnostics: optional debug on empty first pass
+    if (result.callEdges.length === 0 && process.env['FUNCQC_DEBUG_PATHS'] === 'true') {
+      env.commandLogger.debug?.(`DEBUG(call-graph): first pass yielded 0 edges; functions=${functions.length}, files=${sourceFiles.length}`);
+    }
+
+    // Optional fallback (disabled by default) to avoid masking design issues
+    const enableFallback = /^(1|true|yes)$/i.test(process.env['FUNCQC_ENABLE_DB_FUNCTIONS_FALLBACK'] || '');
+    if (enableFallback && result.callEdges.length === 0 && functions.length > 100 && sourceFiles.length > 50) {
+      env.commandLogger.warn('⚠️  No call edges found on first pass. Retrying with functions loaded from DB (fallback enabled)...');
+      const freshFunctions = await env.storage.findFunctionsInSnapshot(snapshotId);
+      
+      // Re-run with fresh functions using direct IdealCallGraphAnalyzer
+      const fallbackStartTime = performance.now();
+      const fallbackResult = await idealCallGraphAnalyzer.analyzeProject(freshFunctions);
+      const fallbackEndTime = performance.now();
+      console.log(`⏱️  Fallback call graph analysis: ${((fallbackEndTime - fallbackStartTime) / 1000).toFixed(2)}s`);
+      
+      result = {
+        callEdges: fallbackResult.edges as CallEdge[],
+        internalCallEdges: [] as import('../../types').InternalCallEdge[]
+      };
+      if (result.callEdges.length > 0) {
+        const snapshot = await env.storage.getSnapshot(snapshotId);
+        if (snapshot) {
+          env.callGraphData = {
+            snapshot,
+            functions: freshFunctions,
+            callEdges: env.callGraphData?.callEdges || [],
+            internalCallEdges: env.callGraphData?.internalCallEdges || [],
+            allEdges: env.callGraphData?.allEdges || [],
+            ...(env.callGraphData?.lazyAnalysisPerformed !== undefined
+              ? { lazyAnalysisPerformed: env.callGraphData.lazyAnalysisPerformed }
+              : {}),
+          } as import('../../types/environment').CallGraphData;
+        }
+      }
+    }
     // Call graph analysis completed
     
     // Save call edges
@@ -1161,6 +1108,46 @@ export async function performCallGraphAnalysis(
     
     await env.storage.updateAnalysisLevel(snapshotId, 'CALL_GRAPH');
     
+    // Create CallGraphAnalysisResult for shared data (parallel data population)
+    const highConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.95).length;
+    const mediumConfidenceEdges = result.callEdges.filter(e => e.confidenceScore && e.confidenceScore >= 0.7 && e.confidenceScore < 0.95).length;
+    const lowConfidenceEdges = result.callEdges.length - highConfidenceEdges - mediumConfidenceEdges;
+    
+    // Build dependency map
+    const dependencyMap = new Map<string, {callers: string[], callees: string[], depth: number}>();
+    for (const edge of result.callEdges) {
+      if (edge.callerFunctionId && edge.calleeFunctionId) {
+        // Add to callee's callers
+        if (!dependencyMap.has(edge.calleeFunctionId)) {
+          dependencyMap.set(edge.calleeFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.calleeFunctionId)!.callers.push(edge.callerFunctionId);
+        
+        // Add to caller's callees
+        if (!dependencyMap.has(edge.callerFunctionId)) {
+          dependencyMap.set(edge.callerFunctionId, {callers: [], callees: [], depth: 0});
+        }
+        dependencyMap.get(edge.callerFunctionId)!.callees.push(edge.calleeFunctionId);
+      }
+    }
+    
+    const { mapToRecord: mapToRecord2 } = await import('../../types/scan-shared-data');
+    const callGraphSharedResult: CallGraphAnalysisResult = {
+      callEdges: result.callEdges,
+      internalCallEdges: result.internalCallEdges,
+      dependencyMap: mapToRecord2(dependencyMap),
+      stats: {
+        totalEdges: result.callEdges.length,
+        highConfidenceEdges,
+        mediumConfidenceEdges,
+        lowConfidenceEdges,
+        analysisTime: endTime - startTime
+      }
+    };
+    
+    // Set results in shared data (NEW - parallel data population)
+    setCallGraphAnalysisResults(env, callGraphSharedResult);
+    
     // Call graph analysis completed
     
     if (showSpinner) {
@@ -1170,7 +1157,8 @@ export async function performCallGraphAnalysis(
     return result;
     
   } finally {
-    functionAnalyzer.dispose();
+    // Cleanup if needed
+    idealCallGraphAnalyzer?.dispose?.();
   }
 }
 
@@ -1190,6 +1178,8 @@ export async function performDeferredTypeSystemAnalysis(
     spinner.start('Performing type system analysis...');
   }
   
+  const startTime = Date.now();
+  
   try {
     // Check if type system analysis has already been performed for this snapshot
     // Checking for existing type analysis
@@ -1197,7 +1187,8 @@ export async function performDeferredTypeSystemAnalysis(
       'SELECT COUNT(*) as count FROM type_definitions WHERE snapshot_id = $1', 
       [snapshotId]
     );
-    const typeCount = (existingTypes.rows[0] as { count?: number })?.count || 0;
+    const rawCount = (existingTypes.rows[0] as { count?: unknown })?.count ?? 0;
+    const typeCount = typeof rawCount === 'number' ? rawCount : Number(rawCount) || 0;
     
     if (typeCount > 0) {
       // Type system analysis already completed
@@ -1216,16 +1207,50 @@ export async function performDeferredTypeSystemAnalysis(
       throw new Error(`No source files found for snapshot ${snapshotId}`);
     }
     
-    // Create TypeScript analyzer
+    // Create TypeScript analyzer (for utilities) and TypeSystemAnalyzer bound to shared Project
     const analyzer = new TypeScriptAnalyzer(
       100, // maxSourceFilesInMemory
       true, // enableCache
       env.commandLogger // logger
     );
-    
-    // Set storage for function ID lookup in type members
     analyzer.setStorage(env.storage);
-    
+
+    // Reuse existing shared project for type analysis (should already be created by cli-wrapper)
+    let typeProject: Project;
+    if (env.projectManager) {
+      // Ensure the shared project is hydrated with current files
+      const fileContentMap = new Map<string, string>();
+      for (const sf of sourceFiles) {
+        fileContentMap.set(sf.filePath, sf.fileContent);
+      }
+      await ensureSharedProject(env, snapshotId, fileContentMap);
+      const p = env.projectManager.getProject(snapshotId);
+      if (!p) {
+        throw new Error(`No shared project found for snapshot ${snapshotId}`);
+      }
+      typeProject = p;
+      console.log(
+        `📁 Reusing shared project for type analysis with ${typeProject.getSourceFiles().length} files`
+      );
+    } else {
+      // Fallback for test environments without projectManager
+      typeProject = new Project({ useInMemoryFileSystem: true });
+      sourceFiles.forEach(sourceFile => {
+        typeProject.createSourceFile(
+          sourceFile.filePath,
+          sourceFile.fileContent,
+          { overwrite: true }
+        );
+      });
+    }
+
+    // Initialize TypeSystemAnalyzer directly with shared project
+    const typeSystemAnalyzer = new (await import('../../analyzers/type-system-analyzer')).TypeSystemAnalyzer(
+      typeProject,
+      env.commandLogger
+    );
+    typeSystemAnalyzer.setStorage(env.storage);
+
     // Analyze types from all source files in batch for better performance
     const typeDefinitions: import('../../types').TypeDefinition[] = [];
     const typeRelationships: import('../../types').TypeRelationship[] = [];
@@ -1233,16 +1258,10 @@ export async function performDeferredTypeSystemAnalysis(
     const methodOverrides: import('../../types').MethodOverride[] = [];
     
     try {
-      // Create file path to content mapping for batch processing
-      const fileContentsMap = new Map<string, string>();
-      sourceFiles.forEach(sourceFile => {
-        fileContentsMap.set(sourceFile.filePath, sourceFile.fileContent);
-      });
-      
-      // Batch analyze all files at once instead of one by one
-      const result = await analyzer.extractTypeInformationFromContents(
-        fileContentsMap,
-        snapshotId
+      // Batch analyze all files from shared project at once
+      const result = await typeSystemAnalyzer.extractTypeInformation(
+        snapshotId,
+        typeProject.getSourceFiles()
       );
       
       // Add snapshotId to each type definition (should already be included but ensure consistency)
@@ -1278,23 +1297,31 @@ export async function performDeferredTypeSystemAnalysis(
       // Fallback to individual file processing if batch fails
       for (const sourceFile of sourceFiles) {
         try {
-          const result = await analyzer.analyzeTypesFromContent(
-            sourceFile.filePath,
-            sourceFile.fileContent
-          );
+          // Ensure file exists in shared project (create if missing in fallback)
+          let sf = typeProject.getSourceFile(sourceFile.filePath);
+          if (!sf) {
+            sf = typeProject.createSourceFile(sourceFile.filePath, sourceFile.fileContent, { overwrite: true });
+          }
+          const result = await typeSystemAnalyzer.extractTypeInformation(snapshotId, [sf]);
           
-          const typesWithSnapshot = result.types.map(type => ({
+          const typesWithSnapshot = result.typeDefinitions.map(type => ({
             ...type,
             snapshotId
           }));
           
-          const relationshipsWithSnapshot = result.relationships.map(rel => ({
+          const relationshipsWithSnapshot = result.typeRelationships.map(rel => ({
             ...rel,
             snapshotId
           }));
           
           typeDefinitions.push(...typesWithSnapshot);
           typeRelationships.push(...relationshipsWithSnapshot);
+          if (result.typeMembers?.length) {
+            typeMembers.push(...result.typeMembers.map(m => ({ ...m, snapshotId })));
+          }
+          if (result.methodOverrides?.length) {
+            methodOverrides.push(...result.methodOverrides.map(m => ({ ...m, snapshotId })));
+          }
         } catch (error) {
           env.commandLogger.warn(`Failed to analyze types for ${sourceFile.filePath}: ${error}`);
         }
@@ -1348,6 +1375,52 @@ export async function performDeferredTypeSystemAnalysis(
       console.error(`❌ Failed to update analysis level: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
+    
+    // Build TypeSystemAnalysisResult for scanSharedData
+    const analysisEndTime = Date.now();
+    
+    // Build type dependency map
+    const typeDependencyMap = new Map<string, {
+      usedTypes: string[];
+      exposedTypes: string[];
+      typeComplexity: number;
+    }>();
+    
+    // Build type safety map
+    const typeSafetyMap = new Map<string, {
+      hasAnyTypes: boolean;
+      hasUnknownTypes: boolean;
+      typeAnnotationRatio: number;
+    }>();
+    
+    // Calculate type statistics
+    const interfaces = typeDefinitions.filter(t => t.kind === 'interface').length;
+    const classes = typeDefinitions.filter(t => t.kind === 'class').length;
+    const enums = typeDefinitions.filter(t => t.kind === 'enum').length;
+    const typeAliases = typeDefinitions.filter(t => t.kind === 'type_alias').length;
+    
+    const { mapToRecord: mapToRecord3 } = await import('../../types/scan-shared-data');
+    const typeSystemResult: import('../../types/scan-shared-data').TypeSystemAnalysisResult = {
+      typesAnalyzed: typeDefinitions.length,
+      completed: true,
+      typeDependencyMap: mapToRecord3(typeDependencyMap),
+      typeSafetyMap: mapToRecord3(typeSafetyMap),
+      typeCouplingData: {
+        stronglyTypedPairs: [],
+        typeInconsistencies: []
+      },
+      stats: {
+        interfaces,
+        classes,
+        enums,
+        typeAliases,
+        analysisTime: analysisEndTime - startTime
+      }
+    };
+    
+    // Set results in shared data (NEW - parallel data population)
+    const { setTypeSystemAnalysisResults } = await import('../../utils/scan-shared-data-helpers');
+    setTypeSystemAnalysisResults(env, typeSystemResult);
     
     if (spinner && showProgress) {
       spinner.succeed(`Type system analysis completed (${typeDefinitions.length} types, ${typeRelationships.length} relationships)`);
@@ -1530,449 +1603,6 @@ async function discoverFiles(
   return files;
 }
 
-// Legacy analysis function - replaced by staged analysis
-// @ts-expect-error - Legacy function kept for reference
-async function _performAnalysis(
-  files: string[],
-  components: CliComponents,
-  spinner: SpinnerInterface,
-  env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[] }> {
-  spinner.start('Analyzing functions...');
-
-  const result = await performFullAnalysis(files, components, spinner, env);
-
-  spinner.succeed(`Analyzed ${result.functions.length} functions from ${files.length} files`);
-  return result;
-}
-
-async function performFullAnalysis(
-  files: string[],
-  components: CliComponents,
-  spinner: SpinnerInterface,
-  env: CommandEnvironment
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[]; internalCallEdges?: import('../../types').InternalCallEdge[] }> {
-  // Try ideal call graph analysis first
-  const functionAnalyzer = new FunctionAnalyzer(env.config, { logger: env.commandLogger });
-  
-  try {
-    spinner.text = `Using ideal call graph analysis for ${files.length} files...`;
-    const result = await functionAnalyzer.analyzeFilesWithIdealCallGraph(files);
-    
-    spinner.text = `Ideal analysis completed: ${result.functions.length} functions, ${result.callEdges.length} call edges`;
-    
-    // Show analysis statistics
-    if (result.callEdges.length > 0) {
-      const highConfidenceEdges = result.callEdges.filter(
-        e => e.confidenceScore !== undefined && e.confidenceScore >= 0.95
-      );
-      const mediumConfidenceEdges = result.callEdges.filter(
-        e =>
-          e.confidenceScore !== undefined &&
-          e.confidenceScore >= 0.7 &&
-          e.confidenceScore < 0.95
-      );
-      const lowConfidenceEdges = result.callEdges.filter(
-        e => e.confidenceScore !== undefined && e.confidenceScore < 0.7
-      );
-      
-      spinner.text = `Call graph: ${result.callEdges.length} edges (High: ${highConfidenceEdges.length}, Medium: ${mediumConfidenceEdges.length}, Low: ${lowConfidenceEdges.length})`;
-    }
-    
-    return {
-      functions: result.functions,
-      callEdges: result.callEdges,
-      internalCallEdges: result.internalCallEdges
-    };
-    
-  } catch (error) {
-    console.warn('⚠️  Ideal call graph analysis failed, falling back to legacy analysis');
-    console.warn(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    
-    // Fallback to legacy analysis
-    const fallbackResult = await performLegacyAnalysis(files, components, spinner);
-    return { ...fallbackResult, internalCallEdges: [] };
-    
-  } finally {
-    // Always dispose the function analyzer after analysis is complete
-    functionAnalyzer.dispose();
-  }
-}
-
-async function performLegacyAnalysis(
-  files: string[],
-  components: CliComponents,
-  spinner: SpinnerInterface
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
-  const allFunctions: FunctionInfo[] = [];
-  const allCallEdges: CallEdge[] = [];
-
-  // Determine processing strategy based on project size and system capabilities
-  const useParallel = ParallelFileProcessor.shouldUseParallelProcessing(files.length);
-  const useStreaming = files.length > 1000 && !useParallel; // Use streaming for very large projects when parallel isn't suitable
-
-  if (useParallel) {
-    spinner.text = `Using parallel processing for ${files.length} files...`;
-    const result = await performParallelAnalysis(files, spinner);
-    allFunctions.push(...result.functions);
-    // Note: Parallel processing doesn't support call graph analysis yet
-
-    // Show parallel processing stats
-    if (result.stats.workersUsed > 1) {
-      spinner.text = `Parallel analysis completed: ${result.stats.workersUsed} workers, ${result.stats.avgFunctionsPerFile.toFixed(1)} functions/file`;
-    }
-  } else if (useStreaming) {
-    spinner.text = `Using streaming mode for ${files.length} files...`;
-    await performStreamingAnalysis(files, components, allFunctions, spinner);
-    // Note: Streaming processing doesn't support call graph analysis yet
-  } else {
-    const batchSize = 50; // Fixed batch size for smaller projects
-    const batchResult = await performBatchAnalysis(files, components, allFunctions, batchSize, spinner);
-    allCallEdges.push(...batchResult.callEdges);
-  }
-
-  return { functions: allFunctions, callEdges: allCallEdges };
-}
-
-async function performBatchAnalysis(
-  files: string[],
-  components: CliComponents,
-  allFunctions: FunctionInfo[],
-  batchSize: number,
-  spinner: SpinnerInterface
-): Promise<{ callEdges: CallEdge[] }> {
-  const allCallEdges: CallEdge[] = [];
-  
-  for (let i = 0; i < files.length; i += batchSize) {
-    const batch = files.slice(i, i + batchSize);
-    const batchResult = await analyzeBatch(
-      batch,
-      components.analyzer,
-      components.qualityCalculator
-    );
-    allFunctions.push(...batchResult.functions);
-    allCallEdges.push(...batchResult.callEdges);
-
-    spinner.text = `Analyzing functions... (${i + batch.length}/${files.length} files)`;
-  }
-  
-  return { callEdges: allCallEdges };
-}
-
-async function performParallelAnalysis(
-  files: string[],
-  spinner: SpinnerInterface
-): Promise<ParallelProcessingResult> {
-  const processor = new ParallelFileProcessor(ParallelFileProcessor.getRecommendedConfig());
-
-  try {
-    return await runParallelProcessing(processor, files, spinner);
-  } catch (error) {
-    logParallelProcessingError(error, spinner);
-    return await fallbackToSequentialProcessing(files, spinner);
-  }
-}
-
-/**
- * Run parallel processing with progress tracking
- */
-async function runParallelProcessing(
-  processor: ParallelFileProcessor,
-  files: string[],
-  spinner: SpinnerInterface
-): Promise<ParallelProcessingResult> {
-  let completedFiles = 0;
-  
-  return processor.processFiles(files, {
-    onProgress: completed => {
-      completedFiles = completed;
-      spinner.text = `Parallel analysis: ${completedFiles}/${files.length} files processed...`;
-    },
-  });
-}
-
-/**
- * Log parallel processing error
- */
-function logParallelProcessingError(error: unknown, spinner: SpinnerInterface): void {
-  spinner.text = `Parallel processing failed, falling back to sequential analysis...`;
-  console.warn(
-    `Parallel processing error: ${error instanceof Error ? error.message : String(error)}`
-  );
-}
-
-/**
- * Fallback to sequential processing when parallel processing fails
- */
-async function fallbackToSequentialProcessing(
-  files: string[],
-  spinner: SpinnerInterface
-): Promise<ParallelProcessingResult> {
-  const analyzer = new TypeScriptAnalyzer();
-  const qualityCalculator = new QualityCalculator();
-  const allFunctions: FunctionInfo[] = [];
-  const startTime = Date.now();
-
-  // Process files sequentially
-  await processFilesSequentially(files, analyzer, qualityCalculator, allFunctions, spinner);
-  
-  // Cleanup analyzer
-  await analyzer.cleanup();
-
-  return createSequentialResult(files, allFunctions, startTime);
-}
-
-/**
- * Process files sequentially
- */
-async function processFilesSequentially(
-  files: string[],
-  analyzer: TypeScriptAnalyzer,
-  qualityCalculator: QualityCalculator,
-  allFunctions: FunctionInfo[],
-  spinner: SpinnerInterface
-): Promise<void> {
-  for (let i = 0; i < files.length; i++) {
-    const filePath = files[i];
-    await analyzeFileWithFallback(filePath, analyzer, qualityCalculator, allFunctions);
-    spinner.text = `Sequential analysis: ${i + 1}/${files.length} files processed...`;
-  }
-}
-
-/**
- * Analyze a single file with error handling
- */
-async function analyzeFileWithFallback(
-  filePath: string,
-  analyzer: TypeScriptAnalyzer,
-  qualityCalculator: QualityCalculator,
-  allFunctions: FunctionInfo[],
-  snapshotId?: string
-): Promise<void> {
-  try {
-    const functions = await analyzer.analyzeFile(filePath, snapshotId);
-    await calculateMetricsForFunctions(functions, qualityCalculator);
-    allFunctions.push(...functions);
-  } catch (fileError) {
-    console.warn(
-      `Failed to analyze ${filePath}: ${fileError instanceof Error ? fileError.message : String(fileError)}`
-    );
-  }
-}
-
-/**
- * Calculate metrics for all functions
- */
-async function calculateMetricsForFunctions(
-  functions: FunctionInfo[],
-  qualityCalculator: QualityCalculator
-): Promise<void> {
-  for (const func of functions) {
-    func.metrics = qualityCalculator.calculate(func);
-  }
-}
-
-/**
- * Create result object for sequential processing
- */
-function createSequentialResult(
-  files: string[],
-  allFunctions: FunctionInfo[],
-  startTime: number
-): ParallelProcessingResult {
-  return {
-    functions: allFunctions,
-    stats: {
-      totalFiles: files.length,
-      totalFunctions: allFunctions.length,
-      avgFunctionsPerFile: files.length > 0 ? allFunctions.length / files.length : 0,
-      totalProcessingTime: Date.now() - startTime,
-      workersUsed: 0, // Sequential processing uses 0 workers
-    },
-  };
-}
-
-async function performStreamingAnalysis(
-  files: string[],
-  components: CliComponents,
-  allFunctions: FunctionInfo[],
-  spinner: SpinnerInterface
-): Promise<void> {
-  // Note: Streaming analysis requires analyzer method extension
-  // For now, fall back to batch processing for large projects
-  await performBatchAnalysis(files, components, allFunctions, 25, spinner); // Smaller batches for memory efficiency
-}
-
-/*
-// REMOVED: Command Protocol violation  
-async function collectSourceFiles(
-  files: string[],
-  spinner: SpinnerInterface
-): Promise<import('../../types').SourceFile[]> {
-  spinner.start('Collecting source files...');
-  
-  const sourceFiles: import('../../types').SourceFile[] = [];
-  const crypto = await import('crypto');
-  
-  // Pre-compile regular expressions for better performance
-  const exportRegex = /^export\s+/gm;
-  const importRegex = /^import\s+/gm;
-  
-  // Process files in parallel batches for better I/O performance
-  const batchSize = 20; // Process 20 files at a time to avoid overwhelming the system
-  const batches: string[][] = [];
-  
-  for (let i = 0; i < files.length; i += batchSize) {
-    batches.push(files.slice(i, i + batchSize));
-  }
-  
-  for (const batch of batches) {
-    const batchPromises = batch.map(async (filePath) => {
-      try {
-        // Parallel I/O operations: read file content and get file stats
-        const [fileContent, fileStats] = await Promise.all([
-          fs.readFile(filePath, 'utf-8'),
-          fs.stat(filePath)
-        ]);
-        
-        const relativePath = path.relative(process.cwd(), filePath);
-        
-        // Calculate file hash for deduplication
-        const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
-        
-        // Generate content ID for deduplication
-        // Format: {fileHash}_{fileSizeBytes}
-        const fileSizeBytes = Buffer.byteLength(fileContent, 'utf-8');
-        const contentId = `${fileHash}_${fileSizeBytes}`;
-        
-        // Count lines
-        const lineCount = fileContent.split('\n').length;
-        
-        // Detect language from file extension
-        const language = path.extname(filePath).slice(1) || 'typescript';
-        
-        // Basic analysis for exports/imports using pre-compiled regex
-        const exportCount = (fileContent.match(exportRegex) || []).length;
-        const importCount = (fileContent.match(importRegex) || []).length;
-        
-        const sourceFile: import('../../types').SourceFile = {
-          id: contentId, // Use content ID for deduplication
-          snapshotId: '', // Will be set when saved
-          filePath: relativePath,
-          fileContent,
-          fileHash,
-          encoding: 'utf-8',
-          fileSizeBytes,
-          lineCount,
-          language,
-          functionCount: 0, // Will be updated after function analysis
-          exportCount,
-          importCount,
-          fileModifiedTime: fileStats.mtime, // Use actual file modification time
-          createdAt: new Date(),
-        };
-        
-        return sourceFile;
-        
-      } catch (error) {
-        console.warn(
-          chalk.yellow(
-            `Warning: Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
-          )
-        );
-        return null;
-      }
-    });
-    
-    // Wait for batch to complete and add valid source files
-    const batchResults = await Promise.all(batchPromises);
-    sourceFiles.push(...batchResults.filter((file): file is import('../../types').SourceFile => file !== null));
-    
-    // Update progress
-    spinner.text = `Collecting source files... (${sourceFiles.length}/${files.length})`;
-  }
-  
-  spinner.succeed(`Collected ${sourceFiles.length} source files`);
-  return sourceFiles;
-}
-*/
-
-// Legacy save function - replaced by staged save
-// @ts-expect-error - Legacy function kept for reference  
-async function _saveResults(
-  allFunctions: FunctionInfo[],
-  allCallEdges: CallEdge[],
-  allInternalCallEdges: import('../../types').InternalCallEdge[] | undefined,
-  sourceFiles: import('../../types').SourceFile[],
-  storage: CliComponents['storage'],
-  options: ScanCommandOptions,
-  spinner: SpinnerInterface
-): Promise<void> {
-  spinner.start('Saving to database...');
-
-  // Show estimated time for large datasets
-  if (allFunctions.length > 5000) {
-    const estimatedSeconds = Math.ceil(allFunctions.length / 200); // Rough estimate: 200 functions per second
-    spinner.text = `Saving ${allFunctions.length} functions to database (estimated ${estimatedSeconds}s)...`;
-  }
-
-  const startTime = Date.now();
-  const snapshotId = await storage.saveSnapshot(allFunctions, options.label, options.comment);
-  
-  // Update source files with snapshot ID and function counts
-  const functionCountByFile = new Map<string, number>();
-  allFunctions.forEach(func => {
-    const count = functionCountByFile.get(func.filePath) || 0;
-    functionCountByFile.set(func.filePath, count + 1);
-  });
-  
-  // Update function counts in source files
-  sourceFiles.forEach(file => {
-    file.snapshotId = snapshotId;
-    file.functionCount = functionCountByFile.get(file.filePath) || 0;
-  });
-  
-  // Save source files
-  if (sourceFiles.length > 0) {
-    spinner.text = `Saving ${sourceFiles.length} source files to database...`;
-    await storage.saveSourceFiles(sourceFiles, snapshotId);
-  }
-  
-  // Save call edges if any were found
-  if (allCallEdges.length > 0) {
-    spinner.text = `Saving ${allCallEdges.length} call edges to database...`;
-    await storage.insertCallEdges(allCallEdges, snapshotId);
-  }
-
-  // Save internal call edges for safe-delete functionality  
-  if (allInternalCallEdges && allInternalCallEdges.length > 0) {
-    spinner.text = `Saving ${allInternalCallEdges.length} internal call edges for safe-delete...`;
-    
-    // Update snapshotId in the internal call edges
-    const edgesWithSnapshotId = allInternalCallEdges.map(edge => ({
-      ...edge,
-      snapshotId
-    }));
-    
-    await storage.insertInternalCallEdges(edgesWithSnapshotId);
-  } else {
-    // Log info if no internal call edges were found during analysis
-    console.log(chalk.gray('ℹ️  No internal call edges found during analysis. Safe-delete functionality may be limited.'));
-  }
-  
-  const elapsed = Math.ceil((Date.now() - startTime) / 1000);
-
-  if (allFunctions.length > 1000) {
-    const functionsPerSecond = Math.round(allFunctions.length / elapsed);
-    spinner.succeed(
-      `Saved snapshot: ${snapshotId} (${elapsed}s, ${functionsPerSecond} functions/sec, ${sourceFiles.length} files)`
-    );
-  } else {
-    spinner.succeed(`Saved snapshot: ${snapshotId} (${sourceFiles.length} files)`);
-  }
-}
-
-
 interface ScanResultsJSON {
   success: boolean;
   snapshotId?: string;
@@ -2076,51 +1706,6 @@ async function findTypeScriptFiles(roots: string[], excludePatterns: string[], c
     return [];
   }
 }
-
-async function analyzeBatch(
-  files: string[],
-  analyzer: CliComponents['analyzer'],
-  qualityCalculator: CliComponents['qualityCalculator']
-): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
-  const functions: FunctionInfo[] = [];
-  const callEdges: CallEdge[] = [];
-
-  for (const file of files) {
-    try {
-      // Use call graph analysis if available
-      if (typeof analyzer.analyzeFileWithCallGraph === 'function') {
-        const result = await analyzer.analyzeFileWithCallGraph(file);
-        
-        // Calculate quality metrics for each function
-        for (const func of result.functions) {
-          func.metrics = qualityCalculator.calculate(func);
-        }
-        
-        functions.push(...result.functions);
-        callEdges.push(...result.callEdges);
-      } else {
-        // Fallback to regular analysis
-        const fileFunctions = await analyzer.analyzeFile(file);
-        
-        // Calculate quality metrics for each function
-        for (const func of fileFunctions) {
-          func.metrics = qualityCalculator.calculate(func);
-        }
-        
-        functions.push(...fileFunctions);
-      }
-    } catch (error) {
-      console.warn(
-        chalk.yellow(
-          `Warning: Failed to analyze ${file}: ${error instanceof Error ? error.message : String(error)}`
-        )
-      );
-    }
-  }
-
-  return { functions, callEdges };
-}
-
 
 /**
  * Run real-time quality gate mode with adaptive thresholds

@@ -582,7 +582,7 @@ export interface CliComponents {
   analyzer: { 
     analyzeFile(file: string): Promise<FunctionInfo[]>;
     analyzeFileWithCallGraph?(file: string): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }>;
-    analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]>;
+    analyzeContent(content: string, virtualPath: string, snapshotId?: string, env?: import('./environment').CommandEnvironment): Promise<FunctionInfo[]>;
     cleanup?(): Promise<void>;
   };
   storage: StorageAdapter;
@@ -644,6 +644,7 @@ export interface StorageAdapter {
   getSnapshot(id: string): Promise<SnapshotInfo | null>;
   getLatestSnapshot(scope?: string): Promise<SnapshotInfo | null>;
   deleteSnapshot(id: string): Promise<boolean>;
+  updateSnapshotMetadata(snapshotId: string, metadata: Record<string, unknown>): Promise<void>;
   getLastConfigHash?(): Promise<string | null>;
 
   // Function operations - new find methods with consistent naming
@@ -777,6 +778,7 @@ export interface StorageAdapter {
   
   // Coupling analysis operations
   storeParameterPropertyUsage(couplingData: ParameterPropertyUsageData[], snapshotId: string): Promise<void>;
+  getCouplingPointCount(snapshotId: string): Promise<number>;
 }
 
 export interface BackupOptions {

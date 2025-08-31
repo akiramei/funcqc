@@ -2,6 +2,7 @@ import { PGLiteStorageAdapter } from '../storage/pglite-adapter';
 import { ConfigManager } from './config';
 import { Logger } from '../utils/cli-utils';
 import { AppEnvironment, CommandEnvironment } from '../types/environment';
+import { SharedVirtualProjectManager } from './shared-virtual-project-manager';
 
 /**
  * Initialize the application environment
@@ -37,6 +38,7 @@ export async function createAppEnvironment(options?: {
     storage,
     config,
     logger,
+    projectManager: SharedVirtualProjectManager,
   };
 }
 
@@ -75,6 +77,7 @@ export async function createLightweightAppEnvironment(options?: {
     storage,
     config,
     logger,
+    projectManager: SharedVirtualProjectManager,
   };
 }
 

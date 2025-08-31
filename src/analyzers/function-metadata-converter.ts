@@ -8,6 +8,7 @@
 import { FunctionInfo } from '../types';
 import type { FunctionMetadata } from './ideal-call-graph-analyzer';
 import { getRelativePath } from '../utils/path-utils';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 
 export interface ConversionResult {
   metadataMap: Map<string, FunctionMetadata>;
@@ -28,10 +29,14 @@ export class FunctionMetadataConverter {
       semanticIdMap.set(func.semanticId, func.id);
       
       // Convert FunctionInfo to FunctionMetadata
+      // Normalize file path to unified project-root path: '/src/...' (POSIX separators, leading slash)
+      // If already unified-like (starts with '/'), keep as-is (after POSIX slash conversion)
+      const normalizedFilePath = toUnifiedProjectPath(func.filePath);
+
       const metadata: FunctionMetadata = {
         id: func.id, // Reuse existing UUID (no recalculation)
         name: func.name,
-        filePath: func.filePath,
+        filePath: normalizedFilePath,
         lexicalPath: this.buildLexicalPath(func),
         nodeKind: func.functionType || 'function',
         isExported: func.isExported,

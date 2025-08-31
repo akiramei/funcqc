@@ -271,6 +271,30 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     return this.snapshotOps.deleteSnapshot(id);
   }
 
+  async updateSnapshotMetadata(snapshotId: string, metadata: Record<string, unknown>): Promise<void> {
+    await this.ensureInitialized();
+    
+    try {
+      const payload = JSON.stringify(metadata ?? {});
+      const res = await this.db.query(
+        'UPDATE snapshots SET metadata = $1::jsonb WHERE id = $2 RETURNING id',
+        [payload, snapshotId]
+      );
+      if (!res.rows || (res.rows as unknown[]).length === 0) {
+        throw new DatabaseError(
+          ErrorCode.STORAGE_WRITE_ERROR,
+          `Snapshot not found for id=${snapshotId}`
+        );
+      }
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to update snapshot metadata: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
   async getLatestSnapshot(): Promise<SnapshotInfo | null> {
     await this.ensureInitialized();
     return this.snapshotOps.getLatestSnapshot();
@@ -623,6 +647,11 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   async updateSourceFileFunctionCounts(functionCountByFile: Map<string, number>, snapshotId: string): Promise<void> {
     await this.ensureInitialized();
     return this.sourceContentOps.updateSourceFileFunctionCounts(functionCountByFile, snapshotId);
+  }
+
+  async getFunctionCountsByFile(snapshotId: string): Promise<Map<string, number>> {
+    await this.ensureInitialized();
+    return this.sourceContentOps.getFunctionCountsByFile(snapshotId);
   }
 
   // ========================================
@@ -1340,6 +1369,25 @@ export class PGLiteStorageAdapter implements StorageAdapter {
       throw new DatabaseError(
         ErrorCode.STORAGE_ERROR,
         `Failed to store parameter property usage data: ${error instanceof Error ? error.message : String(error)}`,
+        error instanceof Error ? error : undefined
+      );
+    }
+  }
+
+  async getCouplingPointCount(snapshotId: string): Promise<number> {
+    await this.ensureInitialized();
+    
+    try {
+      const result = await this.db.query<{ count: string }>(
+        'SELECT COUNT(*) as count FROM parameter_property_usage WHERE snapshot_id = $1',
+        [snapshotId]
+      );
+      
+      return parseInt(result.rows[0].count, 10);
+    } catch (error) {
+      throw new DatabaseError(
+        ErrorCode.STORAGE_ERROR,
+        `Failed to get coupling point count: ${error instanceof Error ? error.message : String(error)}`,
         error instanceof Error ? error : undefined
       );
     }

@@ -12,6 +12,7 @@ import {
   ModuleDeclaration,
   VariableStatement,
 } from 'ts-morph';
+import { toUnifiedProjectPath } from '../utils/path-normalizer';
 import * as path from 'path';
 import { StorageAdapter } from '../types';
 import { determineFunctionType } from './shared/function-type-utils';
@@ -28,7 +29,6 @@ import { UnifiedASTAnalyzer } from './unified-ast-analyzer';
 import { BatchFileReader } from '../utils/batch-file-reader';
 import { globalHashCache } from '../utils/hash-cache';
 import { TypeSystemAnalyzer } from './type-system-analyzer';
-import { SharedVirtualProjectManager } from '../core/shared-virtual-project-manager';
 import { FunctionIdGenerator } from '../utils/function-id-generator';
 import { TypeExtractionResult } from '../types/type-system';
 import type { QualityCalculator as QualityCalculatorType } from '../metrics/quality-calculator';
@@ -237,8 +237,7 @@ export class TypeScriptAnalyzer extends CacheAware {
         return {
           ...functionInfo,
           id: this.generatePhysicalId(filePath, functionInfo.name, functionInfo.contextPath || null, functionInfo.startLine, functionInfo.startColumn, snapshotId), // Generate deterministic ID
-          metrics: qualityMetrics,
-          complexity: qualityMetrics.cyclomaticComplexity || 1
+          metrics: qualityMetrics
         };
       });
 
@@ -266,22 +265,12 @@ export class TypeScriptAnalyzer extends CacheAware {
     }
   }
 
-  /**
-   * Prepare shared virtual project for batch analysis
-   * Creates or reuses cached project for optimal performance
-   */
-  async prepareSharedProject(
-    snapshotId: string,
-    fileContentMap: Map<string, string>
-  ): Promise<{ project: import('ts-morph').Project; isNewlyCreated: boolean }> {
-    return SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-  }
 
   /**
    * Analyze TypeScript content from string instead of file
    * Used for analyzing stored file content with shared virtual project
    */
-  async analyzeContent(content: string, virtualPath: string, snapshotId?: string): Promise<FunctionInfo[]> {
+  async analyzeContent(content: string, virtualPath: string, snapshotId?: string, env?: import('../types/environment').CommandEnvironment): Promise<FunctionInfo[]> {
     const functions: FunctionInfo[] = [];
     
     try {
@@ -291,26 +280,31 @@ export class TypeScriptAnalyzer extends CacheAware {
       
       if (snapshotId) {
         // CRITICAL FIX: For single file analysis, prioritize cache lookup without creating new project
-        const cachedProject = SharedVirtualProjectManager.getCachedProject(snapshotId);
-        if (cachedProject) {
-          targetProject = cachedProject;
-          isUsingSharedProject = true;
+        if (env?.projectManager) {
+          const cachedProject = env.projectManager.getCachedProject(snapshotId);
+          if (cachedProject) {
+            targetProject = cachedProject;
+            isUsingSharedProject = true;
+          } else {
+            this.logger.warn(`No cached shared project for snapshot ${snapshotId}. Falling back to local project.`);
+          }
         } else {
-          // Fallback: only create if no cache exists (should rarely happen)
-          const fileContentMap = new Map([[virtualPath, content]]);
-          const { project: sharedProject } = await SharedVirtualProjectManager.getOrCreateProject(snapshotId, fileContentMap);
-          targetProject = sharedProject;
-          isUsingSharedProject = true;
+          this.logger.warn(`Project manager not available in env. Falling back to local project.`);
         }
       }
       
-      // Create virtual source file from content
-      const sourceFile = targetProject.createSourceFile(virtualPath, content, {
-        overwrite: true,
-      });
-      
-      // Use virtualPath directly as it's already normalized when stored in DB
-      const relativePath = virtualPath;
+      // Normalize once and use as the single key for the virtual file
+      const unifiedPath = toUnifiedProjectPath(virtualPath);
+      // Prefer reusing existing SourceFile when using shared project to avoid reparsing
+      let sourceFile = targetProject.getSourceFile(unifiedPath);
+      if (!sourceFile) {
+        sourceFile = targetProject.createSourceFile(unifiedPath, content, { overwrite: true });
+      } else if (isUsingSharedProject && sourceFile.getFullText() !== content) {
+        // Keep AST identity but refresh text when content differs
+        sourceFile.replaceWithText(content);
+      }
+      // Use unified path consistently downstream
+      const relativePath = unifiedPath;
       const fileHash = this.calculateFileHash(content);
       
       // Extract all function types
@@ -485,7 +479,7 @@ export class TypeScriptAnalyzer extends CacheAware {
 
     // Generate 3D identification system
     const className = contextPath.length > 0 ? contextPath[contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(func.getSourceFile().getFilePath(), name, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(func.getSourceFile().getFilePath()), name, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -596,7 +590,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateNestingLevel(method);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(method.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(method.getSourceFile().getFilePath()), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -695,7 +689,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     const nestingLevel = this.calculateConstructorNestingLevel(ctor);
 
     // Generate 3D identification system
-    const physicalId = this.generatePhysicalId(ctor.getSourceFile().getFilePath(), fullName, className, startLine, startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(ctor.getSourceFile().getFilePath()), fullName, className, startLine, startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       fullName,
@@ -827,7 +821,7 @@ export class TypeScriptAnalyzer extends CacheAware {
     snapshotId: string = 'unknown'
   ): Promise<FunctionInfo> {
     const className = metadata.contextPath.length > 0 ? metadata.contextPath[metadata.contextPath.length - 1] : null;
-    const physicalId = this.generatePhysicalId(stmt.getSourceFile().getFilePath(), name, className, metadata.startLine, metadata.startColumn, snapshotId);
+    const physicalId = this.generatePhysicalId(toUnifiedProjectPath(stmt.getSourceFile().getFilePath()), name, className, metadata.startLine, metadata.startColumn, snapshotId);
     const semanticId = this.generateSemanticId(
       relativePath,
       name,
@@ -1418,7 +1412,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    * Returns comprehensive analysis including call graph relationships
    */
   async analyzeFileWithCallGraph(
-    filePath: string
+    filePath: string,
+    snapshotId?: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     // Read file content asynchronously
     let fileContent: string;
@@ -1431,7 +1426,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       throw error;
     }
 
-    return this.analyzeFileContentWithCallGraph(filePath, fileContent);
+    return this.analyzeFileContentWithCallGraph(filePath, fileContent, snapshotId || 'unknown');
   }
 
   /**
@@ -1501,7 +1496,8 @@ export class TypeScriptAnalyzer extends CacheAware {
    */
   async analyzeFilesBatchWithCallGraph(
     filePaths: string[],
-    onProgress?: (completed: number, total: number) => void
+    onProgress?: (completed: number, total: number) => void,
+    snapshotId?: string
   ): Promise<{ functions: FunctionInfo[]; callEdges: CallEdge[] }> {
     const batchSize = Math.min(this.maxSourceFilesInMemory, 20);
     const allFunctions: FunctionInfo[] = [];
@@ -1528,7 +1524,7 @@ export class TypeScriptAnalyzer extends CacheAware {
       validFiles,
       async (fileData: { filePath: string; content: string }) => {
         try {
-          return await this.analyzeFileContentWithCallGraph(fileData.filePath, fileData.content);
+          return await this.analyzeFileContentWithCallGraph(fileData.filePath, fileData.content, snapshotId || 'unknown');
         } catch (error) {
           this.logger.warn(
             `Failed to analyze ${fileData.filePath}`,
