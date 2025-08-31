@@ -43,6 +43,7 @@ import { CallEdgeOperations } from './modules/call-edge-operations';
 import { UtilityOperations } from './modules/utility-operations';
 import { SourceContentOperations } from './modules/source-content-operations';
 import { TypeSystemOperations } from './modules/type-system-operations';
+import { MaintenanceOperations } from './modules/maintenance-operations';
 import { GracefulShutdown } from '../utils/graceful-shutdown';
 import { randomUUID } from 'crypto';
 
@@ -76,6 +77,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
   private utilityOps: UtilityOperations;
   private sourceContentOps: SourceContentOperations;
   private typeSystemOps: TypeSystemOperations;
+  private maintenanceOps: MaintenanceOperations;
   
   // Storage context shared by all modules
   private context: StorageContext;
@@ -117,6 +119,7 @@ export class PGLiteStorageAdapter implements StorageAdapter {
     this.callEdgeOps = new CallEdgeOperations(this.context);
     this.sourceContentOps = new SourceContentOperations(this.context);
     this.typeSystemOps = new TypeSystemOperations(this.context);
+    this.maintenanceOps = new MaintenanceOperations(this.context);
   }
 
   /**
@@ -1391,6 +1394,32 @@ export class PGLiteStorageAdapter implements StorageAdapter {
         error instanceof Error ? error : undefined
       );
     }
+  }
+
+  // Maintenance operations
+  async getTableStats() {
+    await this.ensureInitialized();
+    return this.maintenanceOps.getTableStats();
+  }
+
+  async vacuumDatabase(options = {}) {
+    await this.ensureInitialized();
+    return this.maintenanceOps.vacuum(options);
+  }
+
+  async analyzeDatabase(options = {}) {
+    await this.ensureInitialized();
+    return this.maintenanceOps.analyze(options);
+  }
+
+  async reindexDatabase(options = {}) {
+    await this.ensureInitialized();
+    return this.maintenanceOps.reindex(options);
+  }
+
+  async maintainDatabase(options = {}) {
+    await this.ensureInitialized();
+    return this.maintenanceOps.maintain(options);
   }
 
   // Utility method for snapshot ID generation (if needed in future)
