@@ -3,6 +3,7 @@ import ora from 'ora';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { globby } from 'globby';
+import { performance } from 'node:perf_hooks';
 import {
   ScanCommandOptions,
   FunctionInfo,
