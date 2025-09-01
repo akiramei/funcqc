@@ -1,0 +1,47 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts dep dead
+
+✅ All required dependencies already satisfied: [BASIC, CALL_GRAPH]
+
+📊 Dead Code Analysis Summary
+
+Total functions:      3436
+Entry points:         3326
+Reachable functions:  3406 (99.1%)
+Dead code functions:  30
+Unused exports:       0
+
+🪦 Dead Code Functions:
+
+1. constructor (/src/analyzers/argument-usage-analyzer.ts:135)
+2. constructor (/src/benchmarks/performance-comparison.ts:17)
+3. resolveImportedSymbolWithCache (/src/benchmarks/performance-comparison.ts:25)
+4. resolveImportedSymbolBaseline (/src/benchmarks/performance-comparison.ts:33)
+5. printBaselineSummary (/src/benchmarks/performance-comparison.ts:117)
+6. getOrCreateProject (/src/core/shared-virtual-project-manager.ts:26)
+7. isProjectValid (/src/core/shared-virtual-project-manager.ts:87)
+8. cleanupExpiredProjects (/src/core/shared-virtual-project-manager.ts:107)
+9. disposeProject (/src/core/shared-virtual-project-manager.ts:125)
+10. getProject (/src/core/shared-virtual-project-manager.ts:143)
+11. getCachedProject (/src/core/shared-virtual-project-manager.ts:154)
+12. getCacheStats (/src/core/shared-virtual-project-manager.ts:165)
+13. clearAll (/src/core/shared-virtual-project-manager.ts:181)
+14. simpleStem (/src/services/local-similarity-service.ts:48)
+15. constructor (/src/utils/distributed-cache-manager.ts:28)
+16. get (/src/utils/distributed-cache-manager.ts:30)
+17. set (/src/utils/distributed-cache-manager.ts:34)
+18. clear (/src/utils/distributed-cache-manager.ts:38)
+19. preload (/src/utils/distributed-cache-manager.ts:42)
+20. getStats (/src/utils/distributed-cache-manager.ts:46)
+21. constructor (/src/utils/distributed-cache-manager.ts:61)
+22. get (/src/utils/distributed-cache-manager.ts:66)
+23. set (/src/utils/distributed-cache-manager.ts:85)
+24. clear (/src/utils/distributed-cache-manager.ts:100)
+25. preload (/src/utils/distributed-cache-manager.ts:105)
+26. getStats (/src/utils/distributed-cache-manager.ts:111)
+27. processFile (/src/workers/analysis-worker.ts:30)
+28. createSuccessResponse (/src/workers/analysis-worker.ts:56)
+29. createErrorResponse (/src/workers/analysis-worker.ts:77)
+30. processFiles (/src/workers/analysis-worker.ts:91)
+
