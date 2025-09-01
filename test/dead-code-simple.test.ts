@@ -70,7 +70,9 @@ describe('Dead Code Detection - Simple Tests', () => {
         isConstructor: false,
         isStatic: true,
         parameters: [],
-        contextPath: ['StorageManager'], // This indicates it's a static method
+        className: 'StorageManager',
+        contextPath: ['StorageManager'],
+        modifiers: ['static']
       };
 
       const entryPoints = detector.detectEntryPoints([staticMethod]);
@@ -106,7 +108,9 @@ describe('Dead Code Detection - Simple Tests', () => {
         isConstructor: false,
         isStatic: true,
         parameters: [],
+        className: 'StorageManager',
         contextPath: ['StorageManager'],
+        modifiers: ['static']
       };
 
       const entryPoints = detector.detectEntryPoints([staticMethod]);

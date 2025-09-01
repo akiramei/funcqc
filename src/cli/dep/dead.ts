@@ -335,10 +335,12 @@ function getStaticMethodsInfo(
 
   for (const deadInfo of deadCodeInfo) {
     const func = functions.find(f => f.id === deadInfo.functionId);
-    if (func && func.contextPath && func.contextPath.length > 0) {
+    // Check if this is actually a static method using proper flags
+    if (func && func.isMethod === true && (func.isStatic === true || func.modifiers?.includes('static') === true)) {
       staticMethods.push(deadInfo);
       
-      const className = func.contextPath[func.contextPath.length - 1]; // Use the last element as class name
+      const className = func.className ?? 
+        (func.contextPath && func.contextPath.length > 0 ? func.contextPath[0] : 'Unknown');
       if (!byClass.has(className)) {
         byClass.set(className, []);
       }

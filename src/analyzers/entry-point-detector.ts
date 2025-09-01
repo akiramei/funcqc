@@ -143,8 +143,12 @@ export class EntryPointDetector {
         }
 
         // Add class name if this is a static method entry point
-        if (reason === 'static-method' && func.contextPath && func.contextPath.length > 0) {
-          entryPoint.className = func.contextPath[func.contextPath.length - 1]; // Use the last element (class name)
+        if (reason === 'static-method') {
+          const className = func.className ??
+            (func.contextPath && func.contextPath.length > 0 ? func.contextPath[0] : undefined);
+          if (className) {
+            entryPoint.className = className;
+          }
         }
         
         entryPoints.push(entryPoint);
@@ -282,7 +286,11 @@ export class EntryPointDetector {
    * Check if a function is a static method
    */
   private isStaticMethod(func: FunctionInfo): boolean {
-    return func.contextPath !== null && func.contextPath !== undefined && func.contextPath.length > 0;
+    // Only class methods explicitly marked as static
+    return (
+      func.isMethod === true &&
+      (func.isStatic === true || func.modifiers?.includes('static') === true)
+    );
   }
 
   /**
