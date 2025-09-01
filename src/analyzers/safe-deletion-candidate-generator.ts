@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyUtils } from '../utils/dependency-utils';
 import { Logger } from '../utils/cli-utils';
@@ -274,15 +273,14 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
    * Factory methods are often called via property access which is hard to track statically
    * @deprecated Temporarily disabled to allow more aggressive deletion detection
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  private async isFactoryMethod(func: FunctionInfo): Promise<boolean> {
+  private async isFactoryMethod(_func: FunctionInfo): Promise<boolean> {
     // Skip if function is exported (exported functions can be safely analyzed)
-    if (func.isExported) {
+    if (_func.isExported) {
       return false;
     }
 
     // Check if this function could be part of an object factory pattern
-    return (await this.hasFactoryFunctionInFile(func.filePath)) && this.isCommonObjectMethod(func.name);
+    return (await this.hasFactoryFunctionInFile(_func.filePath)) && this.isCommonObjectMethod(_func.name);
   }
 
   /**

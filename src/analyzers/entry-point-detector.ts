@@ -1,4 +1,3 @@
-// @ts-nocheck
 import { FunctionInfo } from '../types';
 import { Node, SourceFile } from 'ts-morph';
 import { PathNormalizer } from '../utils/path-normalizer';

@@ -121,7 +121,7 @@ export class CallGraphAnalyzer {
             const calls = functionCallsMap.get(node);
             if (calls) {
               // Treat NewExpression as CallExpression for unified processing
-              calls.push(innerNode as any);
+              calls.push(innerNode as CallExpression);
             }
           }
           // Skip nested function declarations

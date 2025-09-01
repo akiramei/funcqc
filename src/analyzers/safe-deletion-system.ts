@@ -325,7 +325,7 @@ export class SafeDeletionSystem {
       createBackup: true,
       dryRun: false,
       maxFunctionsPerBatch: 10,
-      excludeExports: true,
+      includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options
     };

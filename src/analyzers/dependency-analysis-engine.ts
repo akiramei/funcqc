@@ -296,7 +296,7 @@ export class DependencyAnalysisEngine {
     for (const candidate of batch) {
       try {
         // Apply exclusion filters (inherited from safe-delete logic)
-        if (config.excludeExports && candidate.functionInfo.isExported) {
+        if (!config.includeExports && candidate.functionInfo.isExported) {
           continue;
         }
 
