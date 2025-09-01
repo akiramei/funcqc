@@ -1,6 +1,7 @@
 import { FunctionInfo, CallEdge } from '../types';
 import { DependencyUtils } from '../utils/dependency-utils';
 import { Logger } from '../utils/cli-utils';
+import { FunctionClassifier } from '../utils/function-classifier';
 import { 
   AnalysisCandidate, 
   CandidateGenerator, 
@@ -50,7 +51,9 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     const stats = { 
       skippedAnonymous: 0, 
       skippedInternal: 0, 
-      skippedTypeProtected: 0 
+      skippedTypeProtected: 0,
+      skippedStaticMethod: 0,
+      skippedTestFunction: 0
     };
 
     // Set up type-aware safety analysis
@@ -808,9 +811,13 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) return null;
     if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return null;
 
+    // Use shared function classification logic
+    if (FunctionClassifier.isStaticMethod(func) && !config.includeStaticMethods) return 'static-method';
+    if (FunctionClassifier.isConstructor(func)) return 'internal';
+    if (FunctionClassifier.isTestFunction(func) && config.excludeTests) return 'test-function';
+
     // Check all safety conditions
     if (this.isInlineAnonymousFunction(func)) return 'anonymous';
-    if (func.name === 'constructor') return 'internal';
     if (await this.isFactoryMethod(func)) return 'internal';
     if (await this.isInstantiatedClassMethod(func)) return 'internal';
     if (this.isCallbackFunction(func)) return 'internal';
@@ -826,11 +833,29 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Update skip statistics based on skip reason
    */
-  private updateSkipStats(stats: { skippedAnonymous: number; skippedInternal: number; skippedTypeProtected: number }, reason: string): void {
-    if (reason === 'anonymous') {
-      stats.skippedAnonymous++;
-    } else if (reason === 'internal') {
-      stats.skippedInternal++;
+  private updateSkipStats(stats: { 
+    skippedAnonymous: number; 
+    skippedInternal: number; 
+    skippedTypeProtected: number;
+    skippedStaticMethod: number;
+    skippedTestFunction: number;
+  }, reason: string): void {
+    switch (reason) {
+      case 'anonymous':
+        stats.skippedAnonymous++;
+        break;
+      case 'internal':
+        stats.skippedInternal++;
+        break;
+      case 'static-method':
+        stats.skippedStaticMethod++;
+        break;
+      case 'test-function':
+        stats.skippedTestFunction++;
+        break;
+      default:
+        // Unknown reason, could log or handle specially
+        break;
     }
   }
 

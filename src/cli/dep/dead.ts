@@ -3,8 +3,8 @@ import ora from 'ora';
 import { VoidCommand } from '../../types/command';
 import { CommandEnvironment } from '../../types/environment';
 import { createErrorHandler } from '../../utils/error-handler';
-import { ReachabilityAnalyzer, DeadCodeInfo, ReachabilityResult } from '../../analyzers/reachability-analyzer';
-import { EntryPointDetector } from '../../analyzers/entry-point-detector';
+import { ReachabilityResult, DeadCodeInfo } from '../../analyzers/reachability-analyzer';
+import { DeadCodeAnalyzer, DeadCodeAnalysisOptions } from '../../analyzers/dead-code-analyzer';
 import { DotGenerator } from '../../visualization/dot-generator';
 import { loadComprehensiveCallGraphData, validateCallGraphRequirements } from '../../utils/lazy-analysis';
 import { DepDeadOptions } from './types';
@@ -72,74 +72,46 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
         return;
       }
 
-      spinner.text = 'Detecting entry points...';
+      spinner.text = 'Performing dead code analysis...';
 
       // Parse layer entry points if specified
       const layerEntryPoints = options.layerEntryPoints
         ? options.layerEntryPoints.split(',').map(s => s.trim()).filter(s => s.length > 0)
         : undefined;
-      
-      // Detect entry points (suppress verbose output for JSON format)
-      const entryPointDetector = new EntryPointDetector({
-        ...(options.verbose !== undefined && !isJsonFormat && { verbose: options.verbose }),
-        ...(options.verbose !== undefined && !isJsonFormat && { debug: options.verbose }),
-        ...(layerEntryPoints && { layerEntryPoints }),
-        ...(options.excludeStaticMethods && { excludeStaticMethods: options.excludeStaticMethods })
-      });
-      let entryPoints = entryPointDetector.detectEntryPoints(functions);
 
-      // Apply entry point filters
-      if (options.excludeExports) {
-        // Remove exported functions from entry points
-        entryPoints = entryPoints.filter(ep => ep.reason !== 'exported');
+      // Configure analysis options using shared interface
+      const analysisOptions: DeadCodeAnalysisOptions = {
+        excludeTests: options.excludeTests ?? false,
+        excludeExports: options.excludeExports ?? false,
+        excludeSmall: options.excludeSmall ?? false,
+        threshold: options.threshold ? parseInt(options.threshold) : 3,
+      };
+
+      // Add optional properties only if they are defined
+      if (options.verbose !== undefined && !isJsonFormat) {
+        analysisOptions.verbose = options.verbose;
+        analysisOptions.debug = options.verbose;
+      }
+      if (layerEntryPoints !== undefined) {
+        analysisOptions.layerEntryPoints = layerEntryPoints;
+      }
+      if (options.excludeStaticMethods !== undefined) {
+        analysisOptions.excludeStaticMethods = options.excludeStaticMethods;
       }
 
-      if (options.excludeTests) {
-        // Remove test functions from entry points
-        entryPoints = entryPoints.filter(ep => ep.reason !== 'test');
-      }
-
-      if (options.excludeStaticMethods) {
-        // Remove static method functions from entry points
-        entryPoints = entryPoints.filter(ep => ep.reason !== 'static-method');
-      }
-
-      spinner.text = 'Analyzing reachability...';
-
-      // Analyze reachability
-      const reachabilityAnalyzer = new ReachabilityAnalyzer();
-      const reachabilityResult = reachabilityAnalyzer.analyzeReachability(
+      // Use unified dead code analyzer
+      const deadCodeAnalyzer = new DeadCodeAnalyzer(analysisOptions);
+      const analysisResult = deadCodeAnalyzer.analyzeDeadCode(
         functions,
         allEdges,
-        entryPoints
+        analysisOptions
       );
 
-      // Get detailed dead code information
-      const deadCodeInfo = reachabilityAnalyzer.getDeadCodeInfo(
-        reachabilityResult.unreachable,
-        functions,
-        allEdges,
-        {
-          excludeTests: options.excludeTests ?? false,
-          excludeSmallFunctions: options.excludeSmall ?? false,
-          minFunctionSize: options.threshold ? parseInt(options.threshold) : 3,
-        }
-      );
-
-      // Get unused export functions information
-      const unusedExportInfo = reachabilityAnalyzer.getDeadCodeInfo(
-        reachabilityResult.unusedExports,
-        functions,
-        allEdges,
-        {
-          excludeTests: false,
-          excludeSmallFunctions: false,
-          minFunctionSize: 1,
-        }
-      );
-
-      // Get static methods information (for enhanced reporting)
-      const staticMethodsInfo = getStaticMethodsInfo(deadCodeInfo, functions);
+      // Extract results for compatibility with existing output functions
+      const reachabilityResult = analysisResult.reachabilityResult;
+      const deadCodeInfo = analysisResult.deadCodeInfo;
+      const unusedExportInfo = analysisResult.unusedExportInfo;
+      const staticMethodsInfo = analysisResult.staticMethodsInfo;
 
       spinner.succeed('Dead code analysis complete');
 
@@ -320,33 +292,4 @@ function displayDeadCodeSummary(
   console.log();
 }
 
-/**
- * Get information about static methods in dead code
- */
-function getStaticMethodsInfo(
-  deadCodeInfo: DeadCodeInfo[],
-  functions: import('../../types').FunctionInfo[]
-): {
-  staticMethods: DeadCodeInfo[];
-  byClass: Map<string, DeadCodeInfo[]>;
-} {
-  const staticMethods: DeadCodeInfo[] = [];
-  const byClass = new Map<string, DeadCodeInfo[]>();
-
-  for (const deadInfo of deadCodeInfo) {
-    const func = functions.find(f => f.id === deadInfo.functionId);
-    // Check if this is actually a static method using proper flags
-    if (func && func.isMethod === true && (func.isStatic === true || func.modifiers?.includes('static') === true)) {
-      staticMethods.push(deadInfo);
-      
-      const className = func.className ?? 
-        (func.contextPath && func.contextPath.length > 0 ? func.contextPath[0] : 'Unknown');
-      if (!byClass.has(className)) {
-        byClass.set(className, []);
-      }
-      byClass.get(className)!.push(deadInfo);
-    }
-  }
-
-  return { staticMethods, byClass };
-}
+// getStaticMethodsInfo function removed - now handled by DeadCodeAnalyzer.getStaticMethodsInfo()
