@@ -16,6 +16,10 @@ export interface DependencyAnalysisOptions {
   dryRun: boolean;               // Only analyze without making changes (default: true)
   storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
   snapshotId?: string;           // Snapshot ID for consistent data access
+  
+  // Additional filtering options for enhanced analysis
+  includeStaticMethods?: boolean;  // Include static methods in analysis (default: false)
+  excludeTests?: boolean;         // Exclude test functions from analysis (default: false)
 }
 
 /**
