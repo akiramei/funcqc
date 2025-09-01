@@ -108,12 +108,20 @@ export class CallGraphAnalyzer {
         functionNodes.push(node);
         functionCallsMap.set(node, []);
         
-        // Collect call expressions within this function
+        // Collect call expressions and new expressions within this function
         node.forEachDescendant((innerNode, innerTraversal) => {
           if (Node.isCallExpression(innerNode)) {
             const calls = functionCallsMap.get(node);
             if (calls) {
               calls.push(innerNode);
+            }
+          }
+          // Handle constructor calls (new expressions)
+          if (Node.isNewExpression(innerNode)) {
+            const calls = functionCallsMap.get(node);
+            if (calls) {
+              // Treat NewExpression as CallExpression for unified processing
+              calls.push(innerNode as any);
             }
           }
           // Skip nested function declarations

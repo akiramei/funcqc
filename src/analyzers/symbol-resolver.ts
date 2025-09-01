@@ -1,5 +1,5 @@
 import {
-  Node, SourceFile, CallExpression, PropertyAccessExpression,
+  Node, SourceFile, CallExpression, NewExpression, PropertyAccessExpression,
   TypeChecker, Symbol as TsSymbol
 } from "ts-morph";
 
@@ -323,8 +323,13 @@ function tryResolveThisMethod(pa: PropertyAccessExpression, ctx: ResolverContext
  * - 素の identifier → 直接シンボル解決
  * - 解決不可は unknown（低信頼）
  */
-export function resolveCallee(call: CallExpression, ctx: ResolverContext): CalleeResolution {
+export function resolveCallee(call: CallExpression | NewExpression, ctx: ResolverContext): CalleeResolution {
   const expr = call.getExpression();
+  
+  // Handle constructor calls (new expressions)
+  if (Node.isNewExpression(call)) {
+    return resolveNewExpression(call, ctx);
+  }
   const internalPrefixes = ctx.internalModulePrefixes ?? ["src/", "@/", "#/"];
 
   // console.log / process.env 等の明示的グローバル
@@ -451,4 +456,100 @@ export function resolveCallee(call: CallExpression, ctx: ResolverContext): Calle
 
   // その他（ElementAccessExpression 等）は保守的に unknown
   return { kind: "unknown", raw: expr.getText(), confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
+}
+
+/**
+ * Resolve constructor calls (new expressions)
+ * Maps new ClassName() to the constructor function
+ */
+function resolveNewExpression(newExpr: NewExpression, ctx: ResolverContext): CalleeResolution {
+  const expr = newExpr.getExpression();
+  const internalPrefixes = ctx.internalModulePrefixes ?? ["src/", "@/", "#/"];
+
+  // Handle simple constructor calls: new ClassName()
+  if (Node.isIdentifier(expr)) {
+    const className = expr.getText();
+    
+    // Try to resolve via TypeChecker first
+    const symbol = ctx.typeChecker.getSymbolAtLocation(expr);
+    if (symbol) {
+      const declaration = symbol.getDeclarations()?.[0];
+      if (declaration && Node.isClassDeclaration(declaration)) {
+        // Look for constructor method in the class
+        const constructor = declaration.getConstructors()?.[0];
+        if (constructor) {
+          const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+          if (constructorId) {
+            return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.DIRECT_SYMBOL, via: "symbol" };
+          }
+        }
+      }
+    }
+
+    // Check if this is an imported class
+    const alias = ctx.importIndex?.get(className);
+    if (alias) {
+      if (isExternalModule(alias.module, internalPrefixes)) {
+        // External constructor call
+        const id = `external:${alias.module}:${className}:constructor`;
+        return { kind: "external", module: alias.module, member: `${className}:constructor`, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+      } else {
+        // Internal imported class - try to resolve constructor
+        if (ctx.resolveImportedSymbol) {
+          const exportedName = alias.kind === "named" || alias.kind === "default" 
+            ? ('imported' in alias ? alias.imported : className)
+            : className;
+          
+          const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
+          if (declNode && Node.isClassDeclaration(declNode)) {
+            const constructor = declNode.getConstructors()?.[0];
+            if (constructor) {
+              const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+              if (constructorId) {
+                return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
+              }
+            }
+          }
+        }
+      }
+    }
+
+    // Look for local class declarations in the same file
+    const sourceFile = newExpr.getSourceFile();
+    const matchingClasses: Node[] = [];
+    sourceFile.forEachDescendant(node => {
+      if (Node.isClassDeclaration(node) && node.getName() === className) {
+        matchingClasses.push(node);
+      }
+    });
+
+    for (const classNode of matchingClasses) {
+      if (Node.isClassDeclaration(classNode)) {
+        const constructor = classNode.getConstructors()?.[0];
+        if (constructor) {
+          const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+          if (constructorId) {
+            return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.FALLBACK_DECLARATION, via: "fallback" };
+          }
+        }
+      }
+    }
+  }
+
+  // Handle property access constructor calls: new namespace.ClassName()
+  if (Node.isPropertyAccessExpression(expr)) {
+    const left = expr.getExpression();
+    const className = expr.getNameNode().getText();
+
+    const modViaImport = resolveLeftModuleFromImports(left, ctx);
+    if (modViaImport) {
+      if (isExternalModule(modViaImport.module, internalPrefixes)) {
+        const id = `external:${modViaImport.module}:${className}:constructor`;
+        return { kind: "external", module: modViaImport.module, member: `${className}:constructor`, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+      }
+    }
+  }
+
+  // Unknown constructor call
+  return { kind: "unknown", raw: `new ${expr.getText()}()`, confidence: CONFIDENCE_SCORES.UNKNOWN_IDENTIFIER };
 }

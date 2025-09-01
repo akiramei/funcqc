@@ -49,6 +49,7 @@ export class ReachabilityAnalyzer {
     for (const entryPointId of entryPointIds) {
       if (functionMap.has(entryPointId)) {
         reachable.add(entryPointId);
+        
       }
     }
 

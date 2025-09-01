@@ -1,0 +1,181 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts dep delete --dry-run --include-exports --verbose
+
+ℹ️  Info: 🔍 Checking system requirements...
+ℹ️  Info: ✅ Node.js Version: OK
+ℹ️  Info: ✅ Git Availability: OK
+ℹ️  Info: ✅ TypeScript Project: OK
+ℹ️  Info: ✅ Memory Available: OK
+ℹ️  Info: ✅ Write Permissions: OK
+ℹ️  Info: ✅ System check passed!
+✅ All required dependencies already satisfied: [BASIC, CALL_GRAPH]
+- Loading analysis data...
+🔧 Configuration: mode=preview-only, backup=true, execute=false
+   ℹ️  pre-delete validation: User responsibility
+   💡 Please run your type check and tests separately:
+      npm run typecheck  # or your type check command
+      npm test           # or your test command
+🛡️  Starting safe deletion analysis...
+   Confidence threshold: 0.95
+   Max functions per batch: 10
+   Dry run: Yes
+🔍 Starting dependency analysis...
+   Functions: 3436
+   Call edges: 11300
+   Confidence threshold: 0.95
+   🎯 High-confidence edges: 4070/11300
+   📊 Entry points: 3665 (filtered from 3665)
+   📊 Reachable functions: 3406
+   📊 Unreachable functions: 30
+⚠️  Function resolveImportedSymbolWithCache protected by type information: Overrides 1 parent method(s)
+⚠️  Function processFile marked as unreachable but has 1 high-confidence callers. Skipping deletion.
+⚠️  Function resolveImportedSymbolBaseline marked as unreachable but has 1 high-confidence callers. Skipping deletion.
+⚠️  Function preload protected by type information: Implements 1 interface(s), shared by 2 class(es)
+⚠️  Function getStats protected by type information: Implements 1 interface(s), shared by 2 class(es)
+⚠️  Function createSuccessResponse marked as unreachable but has 1 high-confidence callers. Skipping deletion.
+⚠️  Function createErrorResponse marked as unreachable but has 1 high-confidence callers. Skipping deletion.
+⚠️  Function isProjectValid marked as unreachable but has 4 high-confidence callers. Skipping deletion.
+⚠️  Function preload protected by type information: Implements 1 interface(s), shared by 2 class(es)
+⚠️  Function cleanupExpiredProjects marked as unreachable but has 1 high-confidence callers. Skipping deletion.
+⚠️  Function getStats protected by type information: Implements 1 interface(s), shared by 2 class(es)
+processCandidates: 1.208s
+ℹ️  Info: Safety checks: 0 anonymous functions, 0 internal functions, 5 type-protected functions
+   🔄 Processing batch 1/1 (19 items)...
+   ✅ Batch 1 completed (19 items processed)
+   ✅ Analysis completed in 1238ms
+   📊 Found 19 analysis results
+   🎯 Using 4070 high-confidence edges (≥0.95)
+   🔍 Found 19 deletion candidates
+   ℹ️  Pre-deletion validation is user responsibility
+   💡 Please ensure type check and tests pass before proceeding
+✔ Safe deletion analysis completed
+
+🛡️  Safe Deletion Analysis Results
+
+Candidates found:     19
+Functions deleted:    0
+Functions skipped:    0
+Errors encountered:   0
+Warnings:            0
+
+🔍 Validation Results:
+Pre-deletion:  TypeCheck: ✅, Tests: ✅
+
+🎯 Deletion Candidates
+
+/src/benchmarks/performance-comparison.ts
+  🚫 constructor (17-20, 4 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 printBaselineSummary (117-119, 3 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+
+/src/utils/distributed-cache-manager.ts
+  🚫 constructor (28-28, 1 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 get (30-32, 3 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 set (34-36, 3 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 clear (38-40, 3 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 constructor (61-64, 4 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 get (66-83, 18 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 set (85-98, 14 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 clear (100-103, 4 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+
+/src/core/shared-virtual-project-manager.ts
+  🚫 disposeProject (125-137, 13 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 getProject (143-149, 7 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 getCachedProject (154-160, 7 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 getCacheStats (165-176, 12 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 clearAll (181-192, 12 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+  🚫 getOrCreateProject (26-82, 57 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: medium
+
+/src/analyzers/argument-usage-analyzer.ts
+  🚫 constructor (135-149, 15 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: low
+
+/src/services/local-similarity-service.ts
+  🚫 simpleStem (48-73, 26 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: medium
+
+/src/workers/analysis-worker.ts
+  🚫 processFiles (91-119, 29 lines)
+     Reason: unreachable
+     Confidence: 100.0%
+     Callers: 0
+     Impact: medium
+
+──────────────────────────────────────────────────
+Total candidates: 19 functions, 235 lines
+No functions deleted (0 candidates skipped due to safety constraints)
+   Confidence distribution: 19 high (≥95%), 0 medium (≥85%), 0 low (<85%)
+
+💡 This was a preview. Use `funcqc dep delete --execute` to perform actual deletions.
+
+💡 This was a preview. Use --execute flag to perform actual deletion.

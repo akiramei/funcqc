@@ -196,11 +196,11 @@ export class DependencyAnalysisEngine {
       type: 'entrypoint' // Use a default type since EntryPoint doesn't have a type property
     }));
 
-    // Perform reachability analysis
+    // Perform reachability analysis with filtered entry points
     const reachabilityResult = this.reachabilityAnalyzer.analyzeReachability(
       functions,
       highConfidenceEdges,
-      detectedEntryPoints
+      filteredEntryPoints
     );
 
     // Build reverse call graph for caller analysis
@@ -393,6 +393,7 @@ export class DependencyAnalysisEngine {
     // This allows them to be deleted if they are truly unused
     if (config.includeExports) {
       const beforeCount = filtered.length;
+      
       filtered = filtered.filter(ep => ep.reason !== 'exported');
       const afterCount = filtered.length;
       console.log(`🔧 DEBUG: includeExports=true, filtered ${beforeCount} → ${afterCount} entry points`);

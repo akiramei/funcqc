@@ -46,7 +46,9 @@ export class FunctionMetadataConverter {
         startLine: func.startLine,
         endLine: func.endLine,
         contentHash: func.contentId || func.astHash || func.signatureHash || func.semanticId,
-        ...(func.className && { className: func.className })
+        // Extract className from contextPath for constructor resolution
+        ...(func.className && { className: func.className }),
+        ...(!func.className && func.contextPath && func.contextPath.length > 0 && { className: func.contextPath[0] })
       };
       
       metadataMap.set(func.id, metadata);
