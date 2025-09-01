@@ -281,17 +281,6 @@ export class EntryPointDetector {
     return this.handlerPatterns.some(pattern => pattern.test(functionName));
   }
 
-  /**
-   * Check if a function is a static method
-   * @deprecated Currently unused due to removal of automatic static method entry points
-   */
-  private _isStaticMethod(func: FunctionInfo): boolean {
-    // Only class methods explicitly marked as static
-    return (
-      func.isMethod === true &&
-      (func.isStatic === true || func.modifiers?.includes('static') === true)
-    );
-  }
 
   /**
    * Get the layer name for a function based on its file path
