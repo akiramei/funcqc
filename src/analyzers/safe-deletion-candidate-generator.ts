@@ -272,7 +272,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
 
   /**
    * Check if a function is used as a worker entry point
-  // @ts-expect-error - temporarily unused function kept for future use
    * Worker files have special patterns that call functions at the top level
    */
   private async _isWorkerEntryFunction(func: FunctionInfo): Promise<boolean> {
@@ -356,7 +355,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Check if a function is a local/nested function defined within another function
    * Local functions are often used for recursion or as helpers but hard to track
-  // @ts-expect-error - temporarily unused function kept for future use
    */
   private _isLocalFunction(func: FunctionInfo): boolean {
     // Check if this function has a high nesting level (likely inside another function)
@@ -431,7 +429,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   }
 
   /**
-  // @ts-expect-error - temporarily unused function kept for future use
    * Check if a function is used as a direct reference (passed as argument without calling)
    * Examples: map(functionName), setTimeout(functionName), callback references
    */
@@ -504,7 +501,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     }
   }
 
-  // @ts-expect-error - temporarily unused function kept for future use
   /**
    * Check if a function is defined in an object literal that gets returned or exported
    * These functions are accessed via property references which are hard to track
@@ -568,7 +564,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       return true;
     }
   }
-  // @ts-expect-error - temporarily unused function kept for future use
 
   /**
    * Check if a function is a callback function in an object literal
@@ -632,7 +627,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     ];
     
     return callbackPatterns.includes(name);
-  // @ts-expect-error - temporarily unused function kept for future use
   }
 
   /**
@@ -691,7 +685,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     } catch {
       // If file reading fails, be conservative and assume class is instantiated
       this.instantiatedClassCache.set(cacheKey, true);
-  // @ts-expect-error - temporarily unused function kept for future use
       return true;
     }
   }
@@ -727,7 +720,6 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       return hasFactory;
     } catch {
       // If file reading fails, be conservative and assume it might have factories
-  // @ts-expect-error - temporarily unused function kept for future use
       this.factoryFileCache.set(filePath, true);
       return true;
     }
