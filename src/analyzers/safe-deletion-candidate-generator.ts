@@ -219,7 +219,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
    * Falls back to AST analysis if call graph data is incomplete
    * @deprecated Currently disabled to allow more aggressive deletion detection
    */
-  private async isInternalHelperFunction(func: FunctionInfo, foundationData: AnalysisFoundationData): Promise<boolean> {
+  private async _isInternalHelperFunction(func: FunctionInfo, foundationData: AnalysisFoundationData): Promise<boolean> {
     // Skip if function is exported (exported functions can be safely analyzed)
     if (func.isExported) {
       return false;
@@ -268,26 +268,14 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     return false;
   }
 
-  /**
-   * Check if a function is a factory method that should be protected from deletion
-   * Factory methods are often called via property access which is hard to track statically
-   * @deprecated Temporarily disabled to allow more aggressive deletion detection
-   */
-  private async isFactoryMethod(_func: FunctionInfo): Promise<boolean> {
-    // Skip if function is exported (exported functions can be safely analyzed)
-    if (_func.isExported) {
-      return false;
-    }
-
-    // Check if this function could be part of an object factory pattern
-    return (await this.hasFactoryFunctionInFile(_func.filePath)) && this.isCommonObjectMethod(_func.name);
-  }
+  // (removed) isFactoryMethod: deprecated and unused
 
   /**
    * Check if a function is used as a worker entry point
+  // @ts-expect-error - temporarily unused function kept for future use
    * Worker files have special patterns that call functions at the top level
    */
-  private async isWorkerEntryFunction(func: FunctionInfo): Promise<boolean> {
+  private async _isWorkerEntryFunction(func: FunctionInfo): Promise<boolean> {
     // Skip if function is exported (exported functions can be safely analyzed)
     if (func.isExported) {
       return false;
@@ -368,8 +356,9 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Check if a function is a local/nested function defined within another function
    * Local functions are often used for recursion or as helpers but hard to track
+  // @ts-expect-error - temporarily unused function kept for future use
    */
-  private isLocalFunction(func: FunctionInfo): boolean {
+  private _isLocalFunction(func: FunctionInfo): boolean {
     // Check if this function has a high nesting level (likely inside another function)
     if (func.nestingLevel && func.nestingLevel > 0) {
       return true;
@@ -381,7 +370,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     }
 
     // Check if the function name suggests it's a local helper
-    if (this.isLocalFunctionName(func.name)) {
+    if (this._isLocalFunctionName(func.name)) {
       return true;
     }
 
@@ -402,7 +391,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Check if a function name suggests it's a local helper function
    */
-  private isLocalFunctionName(name: string): boolean {
+  private _isLocalFunctionName(name: string): boolean {
     // Common local function names
     const localFunctionPatterns = [
       // Visitor pattern functions
@@ -442,10 +431,11 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   }
 
   /**
+  // @ts-expect-error - temporarily unused function kept for future use
    * Check if a function is used as a direct reference (passed as argument without calling)
    * Examples: map(functionName), setTimeout(functionName), callback references
    */
-  private async isFunctionReference(func: FunctionInfo): Promise<boolean> {
+  private async _isFunctionReference(func: FunctionInfo): Promise<boolean> {
     // Skip if function is exported (exported functions can be safely analyzed)
     if (func.isExported) {
       return false;
@@ -514,11 +504,12 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     }
   }
 
+  // @ts-expect-error - temporarily unused function kept for future use
   /**
    * Check if a function is defined in an object literal that gets returned or exported
    * These functions are accessed via property references which are hard to track
    */
-  private async isObjectLiteralFunction(func: FunctionInfo): Promise<boolean> {
+  private async _isObjectLiteralFunction(func: FunctionInfo): Promise<boolean> {
     // Skip if function is exported (exported functions can be safely analyzed)
     if (func.isExported) {
       return false;
@@ -577,12 +568,13 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       return true;
     }
   }
+  // @ts-expect-error - temporarily unused function kept for future use
 
   /**
    * Check if a function is a callback function in an object literal
    * These are typically passed as configuration options to libraries
    */
-  private isCallbackFunction(func: FunctionInfo): boolean {
+  private _isCallbackFunction(func: FunctionInfo): boolean {
     // Skip if function is exported (exported functions can be safely analyzed)
     if (func.isExported) {
       return false;
@@ -640,13 +632,14 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     ];
     
     return callbackPatterns.includes(name);
+  // @ts-expect-error - temporarily unused function kept for future use
   }
 
   /**
    * Check if a function is a method in a class that gets instantiated
    * Classes with 'new ClassName()' calls should have their methods protected
    */
-  private async isInstantiatedClassMethod(func: FunctionInfo): Promise<boolean> {
+  private async _isInstantiatedClassMethod(func: FunctionInfo): Promise<boolean> {
     // Only check methods (not standalone functions)
     if (!func.isMethod && !func.isConstructor) {
       return false;
@@ -698,6 +691,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     } catch {
       // If file reading fails, be conservative and assume class is instantiated
       this.instantiatedClassCache.set(cacheKey, true);
+  // @ts-expect-error - temporarily unused function kept for future use
       return true;
     }
   }
@@ -705,7 +699,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Check if the file contains factory function patterns
    */
-  private async hasFactoryFunctionInFile(filePath: string): Promise<boolean> {
+  private async _hasFactoryFunctionInFile(filePath: string): Promise<boolean> {
     // Cache this check per file to avoid repeated file reading
     if (!this.factoryFileCache) {
       this.factoryFileCache = new Map();
@@ -733,6 +727,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       return hasFactory;
     } catch {
       // If file reading fails, be conservative and assume it might have factories
+  // @ts-expect-error - temporarily unused function kept for future use
       this.factoryFileCache.set(filePath, true);
       return true;
     }
@@ -741,7 +736,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
   /**
    * Check if a function name matches common object method patterns
    */
-  private isCommonObjectMethod(name: string): boolean {
+  private _isCommonObjectMethod(name: string): boolean {
     // Common methods in factory-created objects
     const commonMethods = [
       // Database/Connection methods
@@ -798,8 +793,8 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     // Apply exclusion filters
     // Skip exported functions UNLESS includeExports is true
     if (!config.includeExports && func.isExported) return 'exported';
-    if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) return null;
-    if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return null;
+    if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) return 'internal';
+    if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return 'internal';
 
     // Use shared function classification logic
     // REMOVED: Static method skip (includeStaticMethods option doesn't exist)

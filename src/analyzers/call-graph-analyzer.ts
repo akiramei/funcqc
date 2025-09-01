@@ -120,8 +120,8 @@ export class CallGraphAnalyzer {
           if (Node.isNewExpression(innerNode)) {
             const calls = functionCallsMap.get(node);
             if (calls) {
-              // Treat NewExpression as CallExpression for unified processing
-              calls.push(innerNode as CallExpression);
+              // Treat NewExpression as CallExpression for unified processing (temporary cast)
+              calls.push(innerNode as unknown as CallExpression);
             }
           }
           // Skip nested function declarations

@@ -546,6 +546,17 @@ function resolveNewExpression(newExpr: NewExpression, ctx: ResolverContext): Cal
       if (isExternalModule(modViaImport.module, internalPrefixes)) {
         const id = `external:${modViaImport.module}:${className}:constructor`;
         return { kind: "external", module: modViaImport.module, member: `${className}:constructor`, id, confidence: CONFIDENCE_SCORES.EXTERNAL_IMPORT };
+      } else if (ctx.resolveImportedSymbol) {
+        const declNode = ctx.resolveImportedSymbol(modViaImport.module, className);
+        if (declNode && Node.isClassDeclaration(declNode)) {
+          const ctorDecl = declNode.getConstructors()?.[0];
+          if (ctorDecl) {
+            const ctorId = ctx.getFunctionIdByDeclaration(ctorDecl);
+            if (ctorId) {
+              return { kind: "internal", functionId: ctorId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
+            }
+          }
+        }
       }
     }
   }
