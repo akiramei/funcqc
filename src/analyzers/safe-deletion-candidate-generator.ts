@@ -73,32 +73,19 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
         continue;
       }
 
-      // NEW: Check type-aware deletion safety
+      // DISABLED: Type-aware deletion safety uses heuristics and speculation
+      // Only use actual call graph data for deletion decisions
+      // 
+      // Reasoning: Functions should only be protected if they are:
+      // 1. Actually called (detected by call graph analysis)
+      // 2. Entry points (detected by entry point analysis)  
+      // 3. Genuinely unsafe to delete (anonymous callbacks, etc.)
+      //
+      // Type information should NOT be used for speculative protection
+      // as it leads to false positives and prevents legitimate dead code removal
+      
       let typeInfo: TypeAwareDeletionInfo | undefined;
-      if (foundationData.snapshotId) {
-        try {
-          const isTypeProtected = await this.typeAwareSafety.shouldProtectFromDeletion(
-            func, 
-            foundationData.snapshotId,
-            0.7 // Confidence threshold
-          );
-          
-          if (isTypeProtected) {
-            stats.skippedTypeProtected++;
-            if (config.verbose) {
-              const reason = await this.typeAwareSafety.getProtectionReason(func, foundationData.snapshotId);
-              console.warn(`⚠️  Function ${func.name} protected by type information: ${reason}`);
-            }
-            continue;
-          }
-
-          // Collect type information for the candidate
-          typeInfo = await this.typeAwareSafety.analyzeDeletionSafety(func, foundationData.snapshotId);
-        } catch (error) {
-          this.logger.warn(`Type-aware analysis failed for ${func.name}:`, error);
-          // Continue without type information
-        }
-      }
+      // Skip type-aware protection entirely - rely on call graph analysis only
 
       const callers = foundationData.reverseCallGraph.get(functionId) || new Set();
       const highConfidenceCallersSet = foundationData.highConfidenceEdgeMap.get(functionId) || new Set();
@@ -811,7 +798,8 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
    */
   private async shouldSkipFunction(func: FunctionInfo, config: DependencyAnalysisOptions, _foundationData?: AnalysisFoundationData): Promise<string | null> {
     // Apply exclusion filters
-    if (config.excludeExports && func.isExported) return null;
+    // Skip exported functions UNLESS includeExports is true
+    if (!config.includeExports && func.isExported) return 'exported';
     if (DependencyUtils.isExcludedByPattern(func.filePath, config.excludePatterns)) return null;
     if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return null;
 

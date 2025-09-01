@@ -120,12 +120,12 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
     maxFunctionsPerBatch: parseInt(options.maxBatch || '10'),
     createBackup: !options.noBackup,
     dryRun,
-    excludeExports: !options.includeExports,
+    includeExports: !!options.includeExports,
     excludePatterns: options.exclude || ['**/node_modules/**', '**/dist/**', '**/build/**']
   };
   
   const mode = dryRun ? 'preview-only' : 'execute';
-  console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}`);
+  console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}`);
   return safeDeletionOptions;
 }
 

@@ -10,7 +10,7 @@ import { DependencyUtils } from '../utils/dependency-utils';
 export interface DependencyAnalysisOptions {
   confidenceThreshold: number;     // Minimum confidence score for analysis (default: 0.95)
   maxItemsPerBatch: number;        // Maximum items to process in one batch (default: 100)
-  excludeExports: boolean;         // Exclude exported functions from analysis (default: false)
+  includeExports: boolean;         // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];       // File patterns to exclude from analysis
   verbose: boolean;               // Enable verbose logging (default: false)
   dryRun: boolean;               // Only analyze without making changes (default: true)
@@ -186,8 +186,11 @@ export class DependencyAnalysisEngine {
     // Detect entry points
     const detectedEntryPoints = this.entryPointDetector.detectEntryPoints(functions);
     
+    // Filter entry points based on options (like DeadCodeAnalyzer does)
+    const filteredEntryPoints = this.filterEntryPoints(detectedEntryPoints, config);
+    
     // Convert EntryPoint to expected format
-    const entryPoints = detectedEntryPoints.map(ep => ({
+    const entryPoints = filteredEntryPoints.map(ep => ({
       functionId: ep.functionId,
       name: ep.functionId, // Use functionId as name for now
       type: 'entrypoint' // Use a default type since EntryPoint doesn't have a type property
@@ -209,7 +212,7 @@ export class DependencyAnalysisEngine {
     this.recordPhaseTime('buildAnalysisFoundation', phaseStart);
 
     if (config.verbose) {
-      console.log(`   📊 Entry points: ${entryPoints.length}`);
+      console.log(`   📊 Entry points: ${entryPoints.length} (filtered from ${detectedEntryPoints.length})`);
       console.log(`   📊 Reachable functions: ${reachabilityResult.reachable.size}`);
       console.log(`   📊 Unreachable functions: ${reachabilityResult.unreachable.size}`);
     }
@@ -333,7 +336,7 @@ export class DependencyAnalysisEngine {
     return {
       confidenceThreshold: 0.95,
       maxItemsPerBatch: 100,
-      excludeExports: false, // Different default from safe-delete - include exports for dep analysis
+      includeExports: false, // Default: protect exports from deletion (safe mode)
       excludePatterns: DependencyUtils.getDefaultExclusionPatterns(),
       verbose: false,
       dryRun: true,
@@ -373,6 +376,40 @@ export class DependencyAnalysisEngine {
 
     // Ensure confidence stays within bounds
     return Math.max(0.0, Math.min(1.0, confidence));
+  }
+
+  /**
+   * Filter entry points based on options
+   * IMPORTANT: includeExports=false means PROTECT exports (keep as entry points)
+   * includeExports=true means ALLOW export deletion (remove from entry points)
+   */
+  private filterEntryPoints(
+    entryPoints: import('./entry-point-detector').EntryPoint[],
+    config: DependencyAnalysisOptions
+  ): import('./entry-point-detector').EntryPoint[] {
+    let filtered = [...entryPoints];
+
+    // When includeExports=true, remove exported functions from entry points
+    // This allows them to be deleted if they are truly unused
+    if (config.includeExports) {
+      const beforeCount = filtered.length;
+      filtered = filtered.filter(ep => ep.reason !== 'exported');
+      const afterCount = filtered.length;
+      console.log(`🔧 DEBUG: includeExports=true, filtered ${beforeCount} → ${afterCount} entry points`);
+    } else {
+      console.log(`🔧 DEBUG: includeExports=false, keeping all ${filtered.length} entry points`);
+    }
+
+    if (config.excludeTests) {
+      filtered = filtered.filter(ep => ep.reason !== 'test');
+    }
+
+    // Note: excludeStaticMethods not available in DependencyAnalysisOptions yet
+    // if (config.excludeStaticMethods) {
+    //   filtered = filtered.filter(ep => ep.reason !== 'static-method');
+    // }
+
+    return filtered;
   }
 
   /**
@@ -422,3 +459,4 @@ export interface ConfidenceFactors {
   inverseCallers?: boolean; // If true, more callers decreases confidence
   inverseSize?: boolean;    // If true, larger size decreases confidence
 }
+
