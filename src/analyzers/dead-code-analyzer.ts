@@ -215,9 +215,10 @@ export class DeadCodeAnalyzer {
   ): { staticMethods: DeadCodeInfo[]; byClass: Map<string, DeadCodeInfo[]> } {
     const staticMethods: DeadCodeInfo[] = [];
     const byClass = new Map<string, DeadCodeInfo[]>();
+    const funcMap = new Map(functions.map(f => [f.id, f]));
 
     for (const deadInfo of deadCodeInfo) {
-      const func = functions.find(f => f.id === deadInfo.functionId);
+      const func = funcMap.get(deadInfo.functionId);
       if (!func) continue;
 
       // Use shared classification logic
@@ -249,7 +250,7 @@ export class DeadCodeAnalyzer {
     const reachableFunctions = reachabilityResult.reachable.size;
     const unreachableFunctions = reachabilityResult.unreachable.size;
     const filteredOutFunctions = unreachableFunctions - deadCodeInfo.length;
-    const coverage = (reachableFunctions / totalFunctions) * 100;
+    const coverage = totalFunctions === 0 ? 0 : (reachableFunctions / totalFunctions) * 100;
 
     return {
       totalFunctions,
@@ -272,8 +273,9 @@ export class DeadCodeAnalyzer {
     // Base implementation applies common filters
     const metadata = FunctionClassifier.getMetadata(func);
 
-    // Always exclude exported functions from deletion consideration by default
-    if (metadata.isExported && !options.includeStaticMethods) {
+    // Export はデフォルトで除外。必要なら options で明示的に含める
+    // excludeExports が未指定または true のときは除外（後方互換）
+    if (metadata.isExported && (options.excludeExports ?? true)) {
       return false;
     }
 

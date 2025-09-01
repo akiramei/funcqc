@@ -4,20 +4,44 @@ import { FunctionInfo } from '../../src/types';
 
 // Mock FunctionInfo for testing
 const createMockFunction = (overrides: Partial<FunctionInfo> = {}): FunctionInfo => ({
+  // 物理識別
   id: 'test-id',
-  name: 'testFunction',
-  filePath: '/test/file.ts',
+  snapshotId: 'snap-1',
   startLine: 1,
   endLine: 10,
-  cyclomaticComplexity: 1,
-  parameters: [],
-  returnType: 'void',
+  startColumn: 0,
+  endColumn: 1,
+  positionId: 'pos-1',
+  // 意味識別
+  semanticId: 'sem-1',
+  name: 'testFunction',
+  displayName: 'testFunction',
+  signature: 'function testFunction(): void',
+  filePath: '/test/file.ts',
+  contextPath: [],
+  functionType: 'function',
+  modifiers: [],
+  nestingLevel: 0,
+  className: undefined,
+  // 関数属性
   isExported: false,
   isAsync: false,
+  isGenerator: false,
+  isArrowFunction: false,
   isMethod: false,
-  isStatic: false,
   isConstructor: false,
-  modifiers: [],
+  isStatic: false,
+  accessModifier: undefined,
+  // 内容識別
+  contentId: 'content-1',
+  astHash: 'ast-1',
+  signatureHash: 'sig-1',
+  // 効率化
+  fileHash: 'file-1',
+  fileContentHash: 'filec-1',
+  // Relations
+  parameters: [],
+  dependencies: [],
   ...overrides,
 });
 
