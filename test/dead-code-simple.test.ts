@@ -43,6 +43,82 @@ describe('Dead Code Detection - Simple Tests', () => {
       expect(entryPoints[0].reason).toBe('test');
     });
 
+    it('should detect static methods as entry points', () => {
+      const detector = new EntryPointDetector();
+      
+      // Create minimal static method for testing
+      const staticMethod = {
+        id: 'static1',
+        name: 'getStorage',
+        displayName: 'getStorage',
+        signature: 'static getStorage(): void',
+        filePath: '/src/storage-manager.ts',
+        startLine: 59,
+        endLine: 64,
+        startColumn: 1,
+        endColumn: 10,
+        semanticId: 'semantic1',
+        contentId: 'content1',
+        astHash: 'ast1',
+        signatureHash: 'sig1',
+        fileHash: 'file1',
+        isExported: true,
+        isAsync: false,
+        isGenerator: false,
+        isArrowFunction: false,
+        isMethod: true,
+        isConstructor: false,
+        isStatic: true,
+        parameters: [],
+        className: 'StorageManager',
+        contextPath: ['StorageManager'],
+        modifiers: ['static']
+      };
+
+      const entryPoints = detector.detectEntryPoints([staticMethod]);
+      expect(entryPoints).toHaveLength(2); // Both 'static-method' and 'exported'
+      expect(entryPoints.map(ep => ep.reason)).toContain('static-method');
+      expect(entryPoints.find(ep => ep.reason === 'static-method')?.className).toBe('StorageManager');
+    });
+
+    it('should exclude static methods when excludeStaticMethods option is true', () => {
+      const detector = new EntryPointDetector({ excludeStaticMethods: true });
+      
+      // Create minimal static method for testing
+      const staticMethod = {
+        id: 'static1',
+        name: 'getStorage',
+        displayName: 'getStorage',
+        signature: 'static getStorage(): void',
+        filePath: '/src/storage-manager.ts',
+        startLine: 59,
+        endLine: 64,
+        startColumn: 1,
+        endColumn: 10,
+        semanticId: 'semantic1',
+        contentId: 'content1',
+        astHash: 'ast1',
+        signatureHash: 'sig1',
+        fileHash: 'file1',
+        isExported: true,
+        isAsync: false,
+        isGenerator: false,
+        isArrowFunction: false,
+        isMethod: true,
+        isConstructor: false,
+        isStatic: true,
+        parameters: [],
+        className: 'StorageManager',
+        contextPath: ['StorageManager'],
+        modifiers: ['static']
+      };
+
+      const entryPoints = detector.detectEntryPoints([staticMethod]);
+      expect(entryPoints).toHaveLength(1); // Only 'exported', not 'static-method'
+      expect(entryPoints[0].reason).toBe('exported');
+      expect(entryPoints.map(ep => ep.reason)).not.toContain('static-method');
+    });
+
     it('should detect exported functions as entry points (prevents false positives)', () => {
       const detector = new EntryPointDetector();
       
