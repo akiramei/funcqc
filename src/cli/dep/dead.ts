@@ -82,7 +82,6 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       // Configure analysis options using shared interface
       const analysisOptions: DeadCodeAnalysisOptions = {
         excludeTests: options.excludeTests ?? false,
-        excludeExports: options.excludeExports ?? false,
         excludeSmall: options.excludeSmall ?? false,
         threshold: options.threshold ? parseInt(options.threshold) : 3,
       };
@@ -188,7 +187,6 @@ function outputDepDeadJSON(
     unusedExports: unusedExportInfo,
     filters: {
       excludeTests: options.excludeTests || false,
-      excludeExports: options.excludeExports || false,
       excludeSmall: options.excludeSmall || false,
       threshold: options.threshold || 3,
       layerEntryPoints: options.layerEntryPoints?.split(',').map(s => s.trim()) || [],

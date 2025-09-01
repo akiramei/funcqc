@@ -1506,7 +1506,6 @@ export interface DependenciesCommandOptions extends CommandOptions {
   
   // Dead action options (from DepDeadOptions)
   excludeTests?: boolean; // Exclude test files
-  excludeExports?: boolean; // Exclude exported functions
   excludeSmall?: boolean; // Exclude small functions
   threshold?: string; // Size threshold
   showReasons?: boolean; // Show reasons for dead code

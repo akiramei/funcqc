@@ -96,21 +96,26 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       let reason: SafeDeletionCandidate['reason'] = 'unreachable';
       let confidenceScore = 1.0;
       
-      // If function is truly unreachable from entry points, it's safe to delete
+      const reachable = foundationData.reachabilityResult.reachable;
+      const hasReachableHighConfidenceCaller = highConfidenceCallers.some((id) => reachable.has(id));
+
       if (callers.size === 0) {
         reason = 'unreachable';
         confidenceScore = 1.0;
+      } else if (hasReachableHighConfidenceCaller) {
+        // Marked unreachable but has reachable high-confidence callers → inconsistent, skip
+        if (config.verbose) {
+          console.warn(`⚠️  Function ${func.name} marked as unreachable but has reachable high-confidence callers. Skipping deletion.`);
+        }
+        continue;
       } else if (highConfidenceCallers.length === 0) {
         // Has callers but none are high-confidence - conservative approach
         reason = 'no-high-confidence-callers';
         confidenceScore = 0.90;
       } else {
-        // 🚨 CRITICAL: If there are high-confidence callers, this function should NOT be unreachable
-        // This indicates a bug in reachability analysis - skip this function
-        if (config.verbose) {
-          console.warn(`⚠️  Function ${func.name} marked as unreachable but has ${highConfidenceCallers.length} high-confidence callers. Skipping deletion.`);
-        }
-        continue;
+        // Has callers but all are unreachable high-confidence → still safe to delete
+        reason = 'unreachable';
+        confidenceScore = 1.0;
       }
 
       // Skip source line loading in dry run mode for performance
@@ -244,8 +249,8 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     if (DependencyUtils.isExternalLibraryFunction(func.filePath)) return 'internal';
 
     // Use shared function classification logic
-    // REMOVED: Static method skip (includeStaticMethods option doesn't exist)
-    // Static methods are now handled by normal entry point detection
+    // Filter static methods if not explicitly included
+    if (!config.includeStaticMethods && FunctionClassifier.isStaticMethod(func)) return 'static-method';
     
     // TEMPORARILY ALLOW: Constructor deletion for testing
     // Constructors of unused classes should be deletable

@@ -15,6 +15,7 @@ export interface EntryPointDetectionOptions {
   debug?: boolean;
   layerEntryPoints?: string[]; // Layer names to treat as entry points
   excludeStaticMethods?: boolean; // Exclude static methods from entry points
+  includeExports?: boolean; // When true, exported functions are not automatically entry points
 }
 
 /**
@@ -186,17 +187,15 @@ export class EntryPointDetector {
   private getEntryPointReasons(func: FunctionInfo): EntryPoint['reason'][] {
     const reasons: EntryPoint['reason'][] = [];
 
-    // REMOVED: Static methods are no longer automatically entry points
-    // Static methods should only be entry points if they are actually exported or used
-    // This prevents unused static methods from being protected from deletion
-    // 
-    // Previous logic (removed):
-    // - All static methods were automatically considered entry points
-    // - This was overly conservative and prevented deletion of unused static methods
+    // Check static methods as entry points (unless excluded)
+    if (func.isStatic && !this.options.excludeStaticMethods) {
+      reasons.push('static-method');
+    }
 
     // 🔧 CRITICAL FIX: Exported functions should be considered entry points
     // This prevents false positives where internal functions called by exports are marked as unreachable
-    if (func.isExported) {
+    // However, when includeExports is true, exported functions are candidates for deletion
+    if (func.isExported && !this.options.includeExports) {
       reasons.push('exported');
     }
 
