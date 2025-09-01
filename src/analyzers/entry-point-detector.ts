@@ -5,14 +5,16 @@ import { ArchitectureConfigManager } from '../config/architecture-config';
 
 export interface EntryPoint {
   functionId: string;
-  reason: 'exported' | 'main' | 'test' | 'cli' | 'handler' | 'index' | 'layer';
+  reason: 'exported' | 'main' | 'test' | 'cli' | 'handler' | 'index' | 'layer' | 'static-method';
   layerName?: string; // For layer-based entry points
+  className?: string; // For static method entry points
 }
 
 export interface EntryPointDetectionOptions {
   verbose?: boolean;
   debug?: boolean;
   layerEntryPoints?: string[]; // Layer names to treat as entry points
+  excludeStaticMethods?: boolean; // Exclude static methods from entry points
 }
 
 /**
@@ -139,6 +141,11 @@ export class EntryPointDetector {
             entryPoint.layerName = layerName;
           }
         }
+
+        // Add class name if this is a static method entry point
+        if (reason === 'static-method' && func.contextPath && func.contextPath.length > 0) {
+          entryPoint.className = func.contextPath[func.contextPath.length - 1]; // Use the last element (class name)
+        }
         
         entryPoints.push(entryPoint);
         
@@ -174,6 +181,15 @@ export class EntryPointDetector {
    */
   private getEntryPointReasons(func: FunctionInfo): EntryPoint['reason'][] {
     const reasons: EntryPoint['reason'][] = [];
+
+    // Check if this is a static method first
+    const isStatic = this.isStaticMethod(func);
+    if (isStatic && !this.options.excludeStaticMethods) {
+      reasons.push('static-method');
+      if (this.options.debug) {
+        console.log(`  📋 Static method entry point: ${func.contextPath}.${func.name} (${func.filePath}:${func.startLine})`);
+      }
+    }
 
     // 🔧 CRITICAL FIX: Exported functions should be considered entry points
     // This prevents false positives where internal functions called by exports are marked as unreachable
@@ -260,6 +276,13 @@ export class EntryPointDetector {
    */
   private isHandlerFunction(functionName: string): boolean {
     return this.handlerPatterns.some(pattern => pattern.test(functionName));
+  }
+
+  /**
+   * Check if a function is a static method
+   */
+  private isStaticMethod(func: FunctionInfo): boolean {
+    return func.contextPath !== null && func.contextPath !== undefined && func.contextPath.length > 0;
   }
 
   /**

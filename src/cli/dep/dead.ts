@@ -83,7 +83,8 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       const entryPointDetector = new EntryPointDetector({
         ...(options.verbose !== undefined && !isJsonFormat && { verbose: options.verbose }),
         ...(options.verbose !== undefined && !isJsonFormat && { debug: options.verbose }),
-        ...(layerEntryPoints && { layerEntryPoints })
+        ...(layerEntryPoints && { layerEntryPoints }),
+        ...(options.excludeStaticMethods && { excludeStaticMethods: options.excludeStaticMethods })
       });
       let entryPoints = entryPointDetector.detectEntryPoints(functions);
 
@@ -96,6 +97,11 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
       if (options.excludeTests) {
         // Remove test functions from entry points
         entryPoints = entryPoints.filter(ep => ep.reason !== 'test');
+      }
+
+      if (options.excludeStaticMethods) {
+        // Remove static method functions from entry points
+        entryPoints = entryPoints.filter(ep => ep.reason !== 'static-method');
       }
 
       spinner.text = 'Analyzing reachability...';
@@ -132,6 +138,9 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
         }
       );
 
+      // Get static methods information (for enhanced reporting)
+      const staticMethodsInfo = getStaticMethodsInfo(deadCodeInfo, functions);
+
       spinner.succeed('Dead code analysis complete');
 
       // Output results
@@ -156,6 +165,7 @@ export const depDeadCommand: VoidCommand<DepDeadOptions> = (options) =>
           unusedExportInfo,
           reachabilityResult,
           functions.length,
+          staticMethodsInfo,
           options
         );
       }
@@ -225,9 +235,10 @@ function outputDepDeadTable(
   unusedExportInfo: DeadCodeInfo[],
   reachabilityResult: ReachabilityResult,
   totalFunctions: number,
+  staticMethodsInfo: { staticMethods: DeadCodeInfo[]; byClass: Map<string, DeadCodeInfo[]> },
   options: DepDeadOptions
 ): void {
-  displayDeadCodeSummary(reachabilityResult, totalFunctions, deadCodeInfo, unusedExportInfo, options);
+  displayDeadCodeSummary(reachabilityResult, totalFunctions, deadCodeInfo, unusedExportInfo, staticMethodsInfo, options);
   
   if (deadCodeInfo.length > 0) {
     console.log(chalk.bold('🪦 Dead Code Functions:\n'));
@@ -245,6 +256,17 @@ function outputDepDeadTable(
     unusedExportInfo.forEach((info, index) => {
       console.log(`${index + 1}. ${chalk.yellow(info.functionName)} (${info.filePath}:${info.startLine})`);
     });
+    console.log();
+  }
+
+  if (staticMethodsInfo.staticMethods.length > 0) {
+    console.log(chalk.bold('🏗️ Unused Static Methods by Class:\n'));
+    for (const [className, methods] of staticMethodsInfo.byClass) {
+      console.log(`${chalk.cyan(className)}:`);
+      methods.forEach((method, index) => {
+        console.log(`  ${index + 1}. ${chalk.magenta(method.functionName)} (${method.filePath}:${method.startLine})`);
+      });
+    }
     console.log();
   }
 }
@@ -273,6 +295,7 @@ function displayDeadCodeSummary(
   totalFunctions: number,
   deadCodeInfo: DeadCodeInfo[],
   unusedExportInfo: DeadCodeInfo[],
+  staticMethodsInfo: { staticMethods: DeadCodeInfo[]; byClass: Map<string, DeadCodeInfo[]> },
   options: DepDeadOptions
 ): void {
   console.log(chalk.bold('\n📊 Dead Code Analysis Summary\n'));
@@ -289,5 +312,39 @@ function displayDeadCodeSummary(
   console.log(`Reachable functions:  ${chalk.green(reachabilityResult.reachable.size)} (${coverage.toFixed(1)}%)`);
   console.log(`Dead code functions:  ${chalk.red(deadCodeInfo.length)}`);
   console.log(`Unused exports:       ${chalk.yellow(unusedExportInfo.length)}`);
+  
+  if (staticMethodsInfo.staticMethods.length > 0) {
+    console.log(`Static methods:       ${chalk.magenta(staticMethodsInfo.staticMethods.length)} (${staticMethodsInfo.byClass.size} classes)`);
+  }
+  
   console.log();
+}
+
+/**
+ * Get information about static methods in dead code
+ */
+function getStaticMethodsInfo(
+  deadCodeInfo: DeadCodeInfo[],
+  functions: import('../../types').FunctionInfo[]
+): {
+  staticMethods: DeadCodeInfo[];
+  byClass: Map<string, DeadCodeInfo[]>;
+} {
+  const staticMethods: DeadCodeInfo[] = [];
+  const byClass = new Map<string, DeadCodeInfo[]>();
+
+  for (const deadInfo of deadCodeInfo) {
+    const func = functions.find(f => f.id === deadInfo.functionId);
+    if (func && func.contextPath && func.contextPath.length > 0) {
+      staticMethods.push(deadInfo);
+      
+      const className = func.contextPath[func.contextPath.length - 1]; // Use the last element as class name
+      if (!byClass.has(className)) {
+        byClass.set(className, []);
+      }
+      byClass.get(className)!.push(deadInfo);
+    }
+  }
+
+  return { staticMethods, byClass };
 }

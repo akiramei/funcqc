@@ -651,6 +651,7 @@ depCommand.command('dead')
   .option('--exclude-tests', 'exclude test functions from analysis')
   .option('--exclude-exports', 'exclude exported functions from entry points')
   .option('--exclude-small', 'exclude small functions from results')
+  .option('--exclude-static-methods', 'exclude static methods from entry points')
   .option('--threshold <num>', 'minimum function size to report', '3')
   .option('--format <format>', 'output format (table, json, dot)', 'table')
   .option('--show-reasons', 'show detailed reasons for dead code')
@@ -667,8 +668,11 @@ Examples:
   # Basic dead code detection
   $ funcqc dep dead
 
-  # Exclude test functions and small functions
-  $ funcqc dep dead --exclude-tests --exclude-small --threshold 5
+  # Exclude test functions, exports, and small functions
+  $ funcqc dep dead --exclude-tests --exclude-exports --exclude-small --threshold 5
+
+  # Exclude only static methods to find unused class methods
+  $ funcqc dep dead --exclude-static-methods
 
   # JSON output for automation
   $ funcqc dep dead --format json
