@@ -81,6 +81,7 @@ export interface DepDeadOptions extends BaseCommandOptions {
   excludeTests?: boolean;
   excludeExports?: boolean;
   excludeSmall?: boolean;
+  excludeStaticMethods?: boolean; // Exclude static methods from entry points
   threshold?: string;
   format?: 'table' | 'json' | 'dot';
   showReasons?: boolean;

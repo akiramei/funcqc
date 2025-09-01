@@ -16,6 +16,7 @@ interface DepDeadCommandOptions {
   excludeTests?: boolean;
   excludeExports?: boolean;
   excludeSmall?: boolean;
+  excludeStaticMethods?: boolean;
   threshold?: string;
   showReasons?: boolean;
   minConfidence?: string;
@@ -57,6 +58,7 @@ export class DepDeadCommand implements Command {
     if (subCommand.includes('--exclude-tests')) options.excludeTests = true;
     if (subCommand.includes('--exclude-exports')) options.excludeExports = true;
     if (subCommand.includes('--exclude-small')) options.excludeSmall = true;
+    if (subCommand.includes('--exclude-static-methods')) options.excludeStaticMethods = true;
     if (subCommand.includes('--show-reasons')) options.showReasons = true;
 
     // String options with values
