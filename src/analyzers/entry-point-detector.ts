@@ -285,7 +285,6 @@ export class EntryPointDetector {
    * Check if a function is a static method
    * @deprecated Currently unused due to removal of automatic static method entry points
    */
-  // @ts-expect-error - temporarily unused function kept for future use
   private _isStaticMethod(func: FunctionInfo): boolean {
     // Only class methods explicitly marked as static
     return (

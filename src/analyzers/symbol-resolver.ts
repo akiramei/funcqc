@@ -476,9 +476,9 @@ function resolveNewExpression(newExpr: NewExpression, ctx: ResolverContext): Cal
       const declaration = symbol.getDeclarations()?.[0];
       if (declaration && Node.isClassDeclaration(declaration)) {
         // Look for constructor method in the class
-        const constructor = declaration.getConstructors()?.[0];
-        if (constructor) {
-          const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+        const ctor = declaration.getConstructors()?.[0];
+        if (ctor) {
+          const constructorId = ctx.getFunctionIdByDeclaration(ctor);
           if (constructorId) {
             return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.DIRECT_SYMBOL, via: "symbol" };
           }
@@ -502,9 +502,9 @@ function resolveNewExpression(newExpr: NewExpression, ctx: ResolverContext): Cal
           
           const declNode = ctx.resolveImportedSymbol(alias.module, String(exportedName));
           if (declNode && Node.isClassDeclaration(declNode)) {
-            const constructor = declNode.getConstructors()?.[0];
-            if (constructor) {
-              const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+            const ctor = declNode.getConstructors()?.[0];
+            if (ctor) {
+              const constructorId = ctx.getFunctionIdByDeclaration(ctor);
               if (constructorId) {
                 return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.INTERNAL_IMPORT, via: "symbol" };
               }
@@ -525,9 +525,9 @@ function resolveNewExpression(newExpr: NewExpression, ctx: ResolverContext): Cal
 
     for (const classNode of matchingClasses) {
       if (Node.isClassDeclaration(classNode)) {
-        const constructor = classNode.getConstructors()?.[0];
-        if (constructor) {
-          const constructorId = ctx.getFunctionIdByDeclaration(constructor);
+        const ctor = classNode.getConstructors()?.[0];
+        if (ctor) {
+          const constructorId = ctx.getFunctionIdByDeclaration(ctor);
           if (constructorId) {
             return { kind: "internal", functionId: constructorId, confidence: CONFIDENCE_SCORES.FALLBACK_DECLARATION, via: "fallback" };
           }
