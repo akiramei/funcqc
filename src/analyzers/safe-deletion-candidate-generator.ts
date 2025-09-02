@@ -113,9 +113,13 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
         reason = 'no-high-confidence-callers';
         confidenceScore = 0.90;
       } else {
-        // Has callers but all are unreachable high-confidence → still safe to delete
-        reason = 'unreachable';
-        confidenceScore = 1.0;
+        // Has callers but all are unreachable high-confidence
+        // Conservative approach: if this unreachable function has high-confidence callers,
+        // skip it to avoid breaking internal dependencies between unreachable functions
+        if (config.verbose) {
+          console.warn(`⚠️  Function ${func.name} is unreachable but called by other unreachable functions. Skipping deletion.`);
+        }
+        continue;
       }
 
       // Skip source line loading in dry run mode for performance

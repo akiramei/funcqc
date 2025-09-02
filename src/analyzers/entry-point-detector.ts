@@ -143,8 +143,8 @@ export class EntryPointDetector {
           }
         }
 
-        // Add class name if this is a static method entry point
-        if (reason === 'static-method') {
+        // Add class name if this is a static method or constructor entry point
+        if (reason === 'static-method' || (reason === 'exported' && func.isConstructor)) {
           const className = func.className ??
             (func.contextPath && func.contextPath.length > 0 ? func.contextPath[0] : undefined);
           if (className) {
