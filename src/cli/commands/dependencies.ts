@@ -241,7 +241,6 @@ async function executeDead(env: CommandEnvironment, options: DependenciesCommand
     const { depDeadCommand } = await import('../dep/dead');
     const deadOptions = filterUndefined({
       excludeTests: options.excludeTests || false,
-      excludeExports: options.excludeExports || false,
       excludeSmall: options.excludeSmall || false,
       threshold: options.threshold,
       format: options.format,

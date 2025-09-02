@@ -1,0 +1,42 @@
+
+> funcqc@0.1.0 dev
+> tsx src/cli.ts dep delete --dry-run
+
+✅ All required dependencies already satisfied: [BASIC, CALL_GRAPH]
+🔧 Configuration: mode=preview-only, backup=true, execute=false
+   ℹ️  pre-delete validation: User responsibility
+   💡 Please run your type check and tests separately:
+      npm run typecheck  # or your type check command
+      npm test           # or your test command
+🛡️  Starting safe deletion analysis...
+   Confidence threshold: 0.95
+   Max functions per batch: 10
+   Dry run: Yes
+🔍 Starting dependency analysis...
+   Functions: 3436
+   Call edges: 11300
+   Confidence threshold: 0.95
+   🎯 High-confidence edges: 4070/11300
+   📊 Entry points: 3665
+   📊 Reachable functions: 3406
+   📊 Unreachable functions: 30
+processCandidates: 22.387ms
+ℹ️  Info: Safety checks: 0 anonymous functions, 30 internal functions, 0 type-protected functions
+   ✅ Analysis completed in 64ms
+   📊 Found 0 analysis results
+   🎯 Using 4070 high-confidence edges (≥0.95)
+   🔍 Found 0 deletion candidates
+   ✅ No functions identified for safe deletion
+
+🛡️  Safe Deletion Analysis Results
+
+Candidates found:     0
+Functions deleted:    0
+Functions skipped:    0
+Errors encountered:   0
+Warnings:            0
+
+🔍 Validation Results:
+Pre-deletion:  TypeCheck: ✅, Tests: ✅
+
+✅ No functions identified for safe deletion

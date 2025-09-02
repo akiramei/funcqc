@@ -24,7 +24,6 @@ interface DepDeleteCommandOptions {
   verbose?: boolean;
   restore?: string;
   excludeTests?: boolean;
-  excludeExports?: boolean;
   minConfidence?: string;
   layerEntryPoints?: string;
   snapshot?: string;
@@ -70,7 +69,6 @@ export class DepDeleteCommand implements Command {
     if (subCommand.includes('--include-exports')) options.includeExports = true;
     if (subCommand.includes('--verbose')) options.verbose = true;
     if (subCommand.includes('--exclude-tests')) options.excludeTests = true;
-    if (subCommand.includes('--exclude-exports')) options.excludeExports = true;
 
     // String options with values
     const confidenceThresholdIndex = subCommand.indexOf('--confidence-threshold');

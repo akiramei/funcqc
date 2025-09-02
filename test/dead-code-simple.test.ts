@@ -305,5 +305,83 @@ describe('Dead Code Detection - Simple Tests', () => {
       expect(result.unusedExports.has('func2')).toBe(true);  // unusedExportFunction (exported)
       expect(result.unusedExports.has('func3')).toBe(false); // internalFunction (not exported)
     });
+
+    it('should exclude exported functions from entry points when includeExports is true', () => {
+      const detector = new EntryPointDetector({ includeExports: true });
+      
+      // Create minimal exported function for testing
+      const exportedFunction = {
+        id: 'exported1',
+        name: 'myExportedFunction',
+        displayName: 'myExportedFunction',
+        signature: 'export function myExportedFunction(): void',
+        filePath: '/src/utils.ts',
+        startLine: 10,
+        endLine: 15,
+        startColumn: 1,
+        endColumn: 10,
+        semanticId: 'semantic1',
+        contentId: 'content1',
+        astHash: 'ast1',
+        signatureHash: 'sig1',
+        fileHash: 'file1',
+        isExported: true,
+        isAsync: false,
+        isGenerator: false,
+        isArrowFunction: false,
+        isMethod: false,
+        isConstructor: false,
+        isStatic: false,
+        parameters: [],
+        contextPath: [],
+        modifiers: []
+      };
+
+      const entryPoints = detector.detectEntryPoints([exportedFunction]);
+      // When includeExports is true, exported functions should NOT be entry points
+      expect(entryPoints).toHaveLength(0);
+      expect(entryPoints.map(ep => ep.reason)).not.toContain('exported');
+    });
+  });
+
+  describe('NewExpression handling', () => {
+    it('should handle constructor calls (new expressions) in call graph', () => {
+      const detector = new EntryPointDetector();
+      
+      // Create a constructor function for testing
+      const constructorFunction = {
+        id: 'constructor1',
+        name: 'constructor',
+        displayName: 'constructor',
+        signature: 'constructor(): void',
+        filePath: '/src/MyClass.ts',
+        startLine: 5,
+        endLine: 10,
+        startColumn: 1,
+        endColumn: 10,
+        semanticId: 'semantic1',
+        contentId: 'content1',
+        astHash: 'ast1',
+        signatureHash: 'sig1',
+        fileHash: 'file1',
+        isExported: true,
+        isAsync: false,
+        isGenerator: false,
+        isArrowFunction: false,
+        isMethod: false,
+        isConstructor: true,
+        isStatic: false,
+        parameters: [],
+        contextPath: ['MyClass'],
+        modifiers: [],
+        className: 'MyClass'
+      };
+
+      const entryPoints = detector.detectEntryPoints([constructorFunction]);
+      // Constructor of exported class should be detected as entry point
+      expect(entryPoints).toHaveLength(1);
+      expect(entryPoints[0].reason).toBe('exported');
+      expect(entryPoints[0].className).toBe('MyClass');
+    });
   });
 });

@@ -33,6 +33,7 @@ export class FunctionMetadataConverter {
       // If already unified-like (starts with '/'), keep as-is (after POSIX slash conversion)
       const normalizedFilePath = toUnifiedProjectPath(func.filePath);
 
+      const inferredClassName = func.className ?? func.contextPath?.[0];
       const metadata: FunctionMetadata = {
         id: func.id, // Reuse existing UUID (no recalculation)
         name: func.name,
@@ -46,7 +47,8 @@ export class FunctionMetadataConverter {
         startLine: func.startLine,
         endLine: func.endLine,
         contentHash: func.contentId || func.astHash || func.signatureHash || func.semanticId,
-        ...(func.className && { className: func.className })
+        // Extract className from contextPath for constructor resolution
+        ...(inferredClassName ? { className: inferredClassName } : {})
       };
       
       metadataMap.set(func.id, metadata);

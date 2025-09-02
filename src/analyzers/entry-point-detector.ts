@@ -15,6 +15,7 @@ export interface EntryPointDetectionOptions {
   debug?: boolean;
   layerEntryPoints?: string[]; // Layer names to treat as entry points
   excludeStaticMethods?: boolean; // Exclude static methods from entry points
+  includeExports?: boolean; // When true, exported functions are not automatically entry points
 }
 
 /**
@@ -142,8 +143,8 @@ export class EntryPointDetector {
           }
         }
 
-        // Add class name if this is a static method entry point
-        if (reason === 'static-method') {
+        // Add class name if this is a static method or constructor entry point
+        if (reason === 'static-method' || (reason === 'exported' && func.isConstructor)) {
           const className = func.className ??
             (func.contextPath && func.contextPath.length > 0 ? func.contextPath[0] : undefined);
           if (className) {
@@ -186,18 +187,15 @@ export class EntryPointDetector {
   private getEntryPointReasons(func: FunctionInfo): EntryPoint['reason'][] {
     const reasons: EntryPoint['reason'][] = [];
 
-    // Check if this is a static method first
-    const isStatic = this.isStaticMethod(func);
-    if (isStatic && !this.options.excludeStaticMethods) {
+    // Check static methods as entry points (unless excluded)
+    if (func.isStatic && !this.options.excludeStaticMethods) {
       reasons.push('static-method');
-      if (this.options.debug) {
-        console.log(`  📋 Static method entry point: ${func.contextPath}.${func.name} (${func.filePath}:${func.startLine})`);
-      }
     }
 
     // 🔧 CRITICAL FIX: Exported functions should be considered entry points
     // This prevents false positives where internal functions called by exports are marked as unreachable
-    if (func.isExported) {
+    // However, when includeExports is true, exported functions are candidates for deletion
+    if (func.isExported && !this.options.includeExports) {
       reasons.push('exported');
     }
 
@@ -282,16 +280,6 @@ export class EntryPointDetector {
     return this.handlerPatterns.some(pattern => pattern.test(functionName));
   }
 
-  /**
-   * Check if a function is a static method
-   */
-  private isStaticMethod(func: FunctionInfo): boolean {
-    // Only class methods explicitly marked as static
-    return (
-      func.isMethod === true &&
-      (func.isStatic === true || func.modifiers?.includes('static') === true)
-    );
-  }
 
   /**
    * Get the layer name for a function based on its file path

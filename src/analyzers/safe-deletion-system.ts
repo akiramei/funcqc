@@ -10,7 +10,7 @@ export interface SafeDeletionOptions {
   createBackup: boolean;          // Create backup before deletion (default: true)
   dryRun: boolean;               // Only show what would be deleted (default: false)
   maxFunctionsPerBatch: number;   // Maximum functions to delete in one batch (default: 10)
-  excludeExports: boolean;        // Exclude exported functions from deletion (default: true)
+  includeExports: boolean;        // Include exported functions in deletion analysis (default: false)
   excludePatterns: string[];      // File patterns to exclude from deletion
   storage?: import('../types').StorageAdapter; // Storage adapter for internal call edge queries
   snapshotId?: string;           // Snapshot ID for consistent data access
@@ -93,7 +93,7 @@ export class SafeDeletionSystem {
       // Use DependencyAnalysisEngine for unified analysis
       const analysisOptions: Partial<DependencyAnalysisOptions> = {
         confidenceThreshold: config.confidenceThreshold,
-        excludeExports: config.excludeExports,
+        includeExports: config.includeExports,
         excludePatterns: config.excludePatterns,
         verbose: true,
         dryRun: config.dryRun,
@@ -325,7 +325,7 @@ export class SafeDeletionSystem {
       createBackup: true,
       dryRun: false,
       maxFunctionsPerBatch: 10,
-      excludeExports: true,
+      includeExports: false,
       excludePatterns: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       ...options
     };

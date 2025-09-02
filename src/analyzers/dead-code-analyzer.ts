@@ -12,7 +12,7 @@ export interface DeadCodeAnalysisOptions {
 
   // Filtering options
   excludeTests?: boolean;
-  excludeExports?: boolean;
+  includeExports?: boolean;  // Include exported functions in deletion analysis (default: false)
   excludeSmall?: boolean;
   threshold?: number; // Minimum function size threshold
 
@@ -71,6 +71,9 @@ export class DeadCodeAnalyzer {
     }
     if (options.excludeStaticMethods !== undefined) {
       entryPointOptions.excludeStaticMethods = options.excludeStaticMethods;
+    }
+    if (options.includeExports !== undefined) {
+      entryPointOptions.includeExports = options.includeExports;
     }
     
     this.entryPointDetector = new EntryPointDetector(entryPointOptions);
@@ -146,9 +149,6 @@ export class DeadCodeAnalyzer {
   ): EntryPoint[] {
     let filtered = [...entryPoints];
 
-    if (options.excludeExports) {
-      filtered = filtered.filter(ep => ep.reason !== 'exported');
-    }
 
     if (options.excludeTests) {
       filtered = filtered.filter(ep => ep.reason !== 'test');
@@ -273,9 +273,8 @@ export class DeadCodeAnalyzer {
     // Base implementation applies common filters
     const metadata = FunctionClassifier.getMetadata(func);
 
-    // Export はデフォルトで除外。必要なら options で明示的に含める
-    // excludeExports が未指定または true のときは除外（後方互換）
-    if (metadata.isExported && (options.excludeExports ?? true)) {
+    // Export はデフォルトで除外。includeExports=true で明示的に含める
+    if (metadata.isExported && !options.includeExports) {
       return false;
     }
 

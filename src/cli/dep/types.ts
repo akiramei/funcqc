@@ -79,7 +79,6 @@ export interface DepLintOptions extends BaseCommandOptions {
 
 export interface DepDeadOptions extends BaseCommandOptions {
   excludeTests?: boolean;
-  excludeExports?: boolean;
   excludeSmall?: boolean;
   excludeStaticMethods?: boolean; // Exclude static methods from entry points
   threshold?: string;
