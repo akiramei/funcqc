@@ -145,7 +145,9 @@ function createSafeDeletionOptions(options: SafeDeleteOptions): Partial<SafeDele
   };
   
   const mode = dryRun ? 'preview-only' : 'execute';
-  console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}`);
+  if (options.verbose) {
+    console.log(`🔧 Configuration: mode=${mode}, backup=${safeDeletionOptions.createBackup}, execute=${shouldExecute}, includeExports=${safeDeletionOptions.includeExports}`);
+  }
   return safeDeletionOptions;
 }
 
@@ -352,11 +354,15 @@ function outputSafeDeletionTable(
 function outputSummarySection(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   const { candidateFunctions, deletedFunctions, skippedFunctions, errors, warnings } = result;
   
+  const greenOrDim = (n: number) => (n > 0 ? chalk.green(n) : chalk.dim(n.toString()));
+  const yellowOrDim = (n: number) => (n > 0 ? chalk.yellow(n) : chalk.dim(n.toString()));
+  const redOrDim = (n: number) => (n > 0 ? chalk.red(n) : chalk.dim(n.toString()));
+
   console.log(`Candidates found:     ${chalk.cyan(candidateFunctions.length)}`);
-  console.log(`Functions deleted:    ${chalk.green(deletedFunctions.length)}`);
-  console.log(`Functions skipped:    ${chalk.yellow(skippedFunctions.length)}`);
-  console.log(`Errors encountered:   ${chalk.red(errors.length)}`);
-  console.log(`Warnings:            ${chalk.yellow(warnings.length)}`);
+  console.log(`Functions deleted:    ${greenOrDim(deletedFunctions.length)}`);
+  console.log(`Functions skipped:    ${yellowOrDim(skippedFunctions.length)}`);
+  console.log(`Errors encountered:   ${redOrDim(errors.length)}`);
+  console.log(`Warnings:            ${yellowOrDim(warnings.length)}`);
 
   if (result.backupPath) {
     console.log(`Backup created:      ${chalk.blue(result.backupPath)}`);
@@ -368,10 +374,14 @@ function outputSummarySection(result: import('../../analyzers/safe-deletion-syst
  */
 function outputValidationResults(result: import('../../analyzers/safe-deletion-system').SafeDeletionResult): void {
   console.log('\n🔍 Validation Results:');
-  console.log(`Pre-deletion:  TypeCheck: ${result.preDeleteValidation.typeCheckPassed ? '✅' : '❌'}, Tests: ${result.preDeleteValidation.testsPassed ? '✅' : '❌'}`);
+  const preType = result.preDeleteValidation.typeCheckPassed ? '✅ PASS' : '❌ FAIL';
+  const preTest = result.preDeleteValidation.testsPassed ? '✅ PASS' : '❌ FAIL';
+  console.log(`Pre-deletion:  TypeCheck: ${preType}, Tests: ${preTest}`);
   
   if (result.deletedFunctions.length > 0) {
-    console.log(`Post-deletion: TypeCheck: ${result.postDeleteValidation.typeCheckPassed ? '✅' : '❌'}, Tests: ${result.postDeleteValidation.testsPassed ? '✅' : '❌'}`);
+    const postType = result.postDeleteValidation.typeCheckPassed ? '✅ PASS' : '❌ FAIL';
+    const postTest = result.postDeleteValidation.testsPassed ? '✅ PASS' : '❌ FAIL';
+    console.log(`Post-deletion: TypeCheck: ${postType}, Tests: ${postTest}`);
   }
 }
 
@@ -387,6 +397,11 @@ function outputErrorsAndWarnings(result: import('../../analyzers/safe-deletion-s
   if (result.warnings.length > 0) {
     console.log(chalk.yellow('\n⚠️  Warnings:'));
     result.warnings.forEach(warning => console.log(`  • ${warning}`));
+    // Actionable next steps for warnings (color-agnostic guidance)
+    console.log(chalk.yellow('   Next actions:'));
+    console.log(chalk.yellow('    - 実行前に型チェック/テストを再確認 (npm run typecheck; npm test)'));
+    console.log(chalk.yellow('    - 詳細診断: --verbose でスキップ理由や型保護の根拠を表示'));
+    console.log(chalk.yellow('    - 関係が疑われる関数は手動でソース確認（候補の該当範囲行）'));
   }
 }
 

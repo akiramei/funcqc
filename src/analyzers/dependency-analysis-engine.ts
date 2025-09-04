@@ -396,9 +396,13 @@ export class DependencyAnalysisEngine {
       
       filtered = filtered.filter(ep => ep.reason !== 'exported');
       const afterCount = filtered.length;
-      console.log(`🔧 DEBUG: includeExports=true, filtered ${beforeCount} → ${afterCount} entry points`);
+      if (config.verbose) {
+        console.log(`🔧 DEBUG: includeExports=true, filtered ${beforeCount} → ${afterCount} entry points`);
+      }
     } else {
-      console.log(`🔧 DEBUG: includeExports=false, keeping all ${filtered.length} entry points`);
+      if (config.verbose) {
+        console.log(`🔧 DEBUG: includeExports=false, keeping all ${filtered.length} entry points`);
+      }
     }
 
     if (config.excludeTests) {
@@ -460,4 +464,3 @@ export interface ConfidenceFactors {
   inverseCallers?: boolean; // If true, more callers decreases confidence
   inverseSize?: boolean;    // If true, larger size decreases confidence
 }
-

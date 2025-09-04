@@ -45,7 +45,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
     config: DependencyAnalysisOptions
   ): Promise<SafeDeletionCandidate[]> {
     
-    console.time('processCandidates');
+    if (config.verbose) console.time('processCandidates');
     
     const candidates: SafeDeletionCandidate[] = [];
     const stats = { 
@@ -177,7 +177,7 @@ export class SafeDeletionCandidateGenerator implements CandidateGenerator<SafeDe
       candidates.push(candidate);
     }
     
-    console.timeEnd('processCandidates');
+    if (config.verbose) console.timeEnd('processCandidates');
     
     // Log safety check summary (only if verbose or if significant skips occurred)
     if (config.verbose || stats.skippedAnonymous > 0 || stats.skippedInternal > 0 || stats.skippedTypeProtected > 0) {
