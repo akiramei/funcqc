@@ -25,6 +25,7 @@ import { RTAAnalysisStage } from './stages/rta-analysis';
 import { RuntimeTraceIntegrationStage } from './stages/runtime-trace-integration';
 import { ExternalCallAnalysisStage } from './stages/external-call-analysis';
 import { CallbackRegistrationAnalysisStage } from '../callback-registration/callback-registration-stage';
+import { DBBridgeAnalysisStage } from './stages/db-bridge-analysis';
 
 // Import types and constants
 import { StagedAnalysisOptions, AnalysisState, AnalysisStatistics } from './types';
@@ -50,6 +51,7 @@ export class StagedAnalysisEngine {
   private runtimeStage: RuntimeTraceIntegrationStage;
   private externalCallStage: ExternalCallAnalysisStage;
   private callbackRegistrationStage: CallbackRegistrationAnalysisStage;
+  private dbBridgeStage: DBBridgeAnalysisStage | undefined;
 
   // Storage adapter for type information
   private storage: StorageAdapter | undefined;
@@ -90,6 +92,11 @@ export class StagedAnalysisEngine {
     this.runtimeStage = new RuntimeTraceIntegrationStage(this.runtimeTraceIntegrator, this.logger);
     this.externalCallStage = new ExternalCallAnalysisStage(this.logger);
     this.callbackRegistrationStage = new CallbackRegistrationAnalysisStage(this.logger);
+
+    // Initialize DB bridge stage if storage is available
+    if (this.storage) {
+      this.dbBridgeStage = new DBBridgeAnalysisStage(this.storage, this.logger);
+    }
   }
 
   /**
@@ -184,6 +191,20 @@ export class StagedAnalysisEngine {
         this.logger.error(`Failed to save type information: ${error}`);
         this.logger.debug('Analysis will continue despite type information save failure');
       }
+    }
+
+    // Stage 3.5: DB Bridge Resolution (use persisted type info)
+    if (this.dbBridgeStage) {
+      this.logger.debug('Stage 3.5: DB bridge resolution...');
+      const dbBridgeResult = await this.dbBridgeStage.performDBBridgeResolution(
+        functions,
+        this.state.unresolvedMethodCallsForRTA,
+        snapshotId || 'unknown',
+        this.state
+      );
+      // Update unresolved list with remaining
+      this.state.unresolvedMethodCallsForRTA = dbBridgeResult.unresolvedRemaining;
+      this.statistics.virtualEdgesCount += dbBridgeResult.resolvedEdges; // count as virtual-like additions
     }
 
     // Stage 4: RTA Analysis
